@@ -1,0 +1,31 @@
+code: code
+name: "CODE: Display in installer"
+header: "Header"
+subheader: "Subheader"
+description: "Longer description of why someone would use or install this, along with if it needs other modules to also be installed"
+default_selected: false
+
+# module custom questions and variable configuration
+
+# Optional to add in this section
+# -- Example, this will ask the prompt to the user during install and save the result in the module.config file that gets created upon install ---
+
+# project_name:
+#   prompt: "What is your game dev experience level?"
+#   default: "intermediate"
+#   result: "{value}"
+#   single-select:
+#     - value: "beginner"
+#       label: "Beginner - New to game development, explain concepts clearly"
+#     - value: "intermediate"
+#       label: "Intermediate - Familiar with game dev concepts, balance explanation with efficiency"
+#     - value: "expert"
+#       label: "Expert - Experienced game developer, be direct and technical"
+
+# -- End Example --
+
+# Variables from Core Config inserted:
+## user_name
+## communication_language
+## document_output_language
+## output_folder

@@ -1,0 +1,28 @@
+# module-help.csv - Workflow Menu Configuration - REMOVE THESE COMMENTS
+# This example file defines all workflows in your module for the BMAD Help system
+#
+# Columns:
+# - module: Your module code (from module.yaml)
+# - phase: 'anytime' OR numbered phases `1-discover 2-define 3-build 4-ship` if sequential or named phases without a number if the sequence only matters within a phase but the phase order itself is stand alone or does not matter.
+# - name: Display name of the workflow
+# - code: 2-letter menu code (used for quick commands like /module:code:workflow-name)
+# - sequence: Order within phase (10, 20, 30...) IF ORDER MATTERS - for anytime or ordering not mattering, do not give it a sequence number
+# - workflow-file: Path to workflow.yaml or workflow.md
+# - command: Full command syntax (bmad:module-code:workflow-name)
+# - required: true/false - whether this workflow must complete before later phases
+# - agent: Agent name from agents/*.agent.yaml files
+# - options: Additional workflow options (e.g., "Create Mode")
+# - description: Brief description of what the workflow does
+# - output-location: Variable name from module.yaml for where outputs go
+# - outputs: Expected output artifact names
+#
+# IMPORTANT: Empty phase = anytime (universal tools work regardless of workflow state)
+#
+module,phase,name,code,sequence,workflow-file,command,required,agent,options,description,output-location,outputs,
+# anytime workflows - available at any time
+code,anytime,Example Workflow,EW,10,_bmad/code/workflows/example/workflow.yaml,bmad-code-example-workflow,false,example-agent,Create Mode,"An example anytime workflow that can be run anytime",output_folder,"example output",
+# numbered phases - sequential workflow stages
+code,1-discover,Discovery Step,DS,10,_bmad/code/workflows/discovery/workflow.yaml,bmad-code-discovery,false,example-agent,Create Mode,"First phase of sequential workflow",output_folder,"discovery document",
+code,2-define,Definition Step,DS,10,_bmad/code/workflows/definition/workflow.yaml,bmad-code-definition,true,example-agent,Create Mode,"Required step before moving to next phase",output_folder,"definition document",
+code,3-build,Build Step,BS,10,_bmad/code/workflows/build/workflow.yaml,bmad-code-build,true,example-agent,Create Mode,"Build and implement phase",output_folder,"implementation",
+code,4-ship,Ship Step,SS,10,_bmad/code/workflows/ship/workflow.yaml,bmad-code-ship,false,example-agent,Create Mode,"Final delivery and release phase",output_folder,"release",
