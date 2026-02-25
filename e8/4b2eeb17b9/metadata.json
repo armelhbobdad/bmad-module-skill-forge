@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e84b2eeb17b9",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".husky/commit-msg",
+    ".husky/post-commit",
+    ".husky/pre-push",
+    ".husky/prepare-commit-msg"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e8/4b2eeb17b9/0/metadata.json",
+      "transcript": "/e8/4b2eeb17b9/0/full.jsonl",
+      "context": "/e8/4b2eeb17b9/0/context.md",
+      "content_hash": "/e8/4b2eeb17b9/0/content_hash.txt",
+      "prompt": "/e8/4b2eeb17b9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 30400,
+    "cache_read_tokens": 99414,
+    "output_tokens": 1679,
+    "api_call_count": 7
+  }
+}
