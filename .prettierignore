@@ -7,3 +7,12 @@ CODE_OF_CONDUCT.md
 # BMAD runtime folders (user-specific, not in repo)
 _bmad/
 _bmad*/
+
+# Website (separate Astro project with its own config)
+website/
+
+# Build output
+build/
+
+# Temp reference files
+temp/

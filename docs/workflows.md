@@ -1,3 +1,8 @@
+---
+title: Workflows
+description: All 10 SKF workflows with commands, steps, and connection diagram
+---
+
 # Workflows Reference
 
 SKF includes 10 workflows organized by purpose:
