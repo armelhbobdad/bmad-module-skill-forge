@@ -21,6 +21,11 @@
   "main": "",
   "bin": {},
   "scripts": {
+    "docs:build": "node tools/build-docs.js",
+    "docs:dev": "npm run --prefix website docs:dev",
+    "docs:fix-links": "node tools/fix-doc-links.js --write",
+    "docs:preview": "npm run --prefix website preview",
+    "docs:validate-links": "node tools/validate-doc-links.js",
     "format:check": "prettier --check \"**/*.{js,cjs,mjs,json,yaml}\"",
     "format:fix": "prettier --write \"**/*.{js,cjs,mjs,json,yaml}\"",
     "lint": "eslint . --ext .js,.cjs,.mjs,.yaml --max-warnings=0",

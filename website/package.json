@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "skf-docs-website",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Skill Forge (SKF) documentation website",
+  "type": "module",
+  "scripts": {
+    "build": "astro check && astro build",
+    "check": "astro check",
+    "dev": "astro dev",
+    "docs:dev": "rm -rf .astro && astro dev --host 127.0.0.1 --port 4321",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/sitemap": "^3.6.0",
+    "@astrojs/starlight": "^0.37.0",
+    "astro": "^5.16.0",
+    "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5"
+  }
+}

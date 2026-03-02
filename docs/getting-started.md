@@ -1,3 +1,8 @@
+---
+title: Getting Started
+description: Installation, prerequisites, first steps, and common use cases for Skill Forge
+---
+
 # Getting Started with SKF: Skill Forge
 
 Welcome to Skill Forge! This guide will help you get up and running.

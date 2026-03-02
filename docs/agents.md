@@ -1,3 +1,8 @@
+---
+title: Agents
+description: Ferris agent reference — modes, capabilities, menu, and communication style
+---
+
 # Agents Reference
 
 SKF includes 1 specialized agent:

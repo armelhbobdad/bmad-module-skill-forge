@@ -1,3 +1,8 @@
+---
+title: Examples
+description: Real-world scenarios, tips, and troubleshooting for Skill Forge
+---
+
 # Examples & Use Cases
 
 This section provides practical examples for using SKF: Skill Forge.
