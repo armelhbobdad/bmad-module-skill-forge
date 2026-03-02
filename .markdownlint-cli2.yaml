@@ -9,6 +9,7 @@ ignores:
   - _bmad*/**
   - .*/**
   - z*/**
+  - temp/**
 
 # Rule configuration
 config:

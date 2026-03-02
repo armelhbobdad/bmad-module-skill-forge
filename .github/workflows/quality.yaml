@@ -90,5 +90,8 @@ jobs:
       - name: Run agent schema validation tests
         run: npm run test:schemas
 
-      - name: Test agent compilation components
+      - name: Test installation components
         run: npm run test:install
+
+      - name: Test knowledge base
+        run: npm run test:knowledge
