@@ -3,46 +3,28 @@
   "checkpoint_id": "0c566d852841",
   "session_id": "6fa436f2-a3cf-4eb7-99fd-260c431f321e",
   "strategy": "manual-commit",
-  "created_at": "2026-03-02T20:43:03.231508689Z",
+  "created_at": "2026-03-02T20:43:48.689460894Z",
   "branch": "dev",
-  "checkpoints_count": 5,
+  "checkpoints_count": 1,
   "files_touched": [
-    "README.md",
-    "docs/examples.md",
-    "docs/getting-started.md",
-    "eslint.config.mjs",
-    "package.json",
-    "src/agents/skf.agent.yaml",
-    "src/knowledge/agentskills-spec.md",
-    "src/knowledge/confidence-tiers.md",
-    "src/knowledge/manual-section-integrity.md",
-    "src/knowledge/overview.md",
-    "src/knowledge/progressive-capability.md",
-    "src/knowledge/provenance-tracking.md",
-    "src/knowledge/skf-knowledge-index.csv",
-    "src/knowledge/skill-lifecycle.md",
-    "src/knowledge/zero-hallucination.md",
-    "src/module-help.csv",
-    "src/workflows/README.md",
-    "src/workflows/update-skill/steps-c/step-04-merge.md",
-    "test/schema/agent.js"
+    "src/agents/skf.agent.yaml"
   ],
   "agent": "Claude Code",
   "turn_id": "0bce8f2e820b",
   "token_usage": {
-    "input_tokens": 58,
-    "cache_creation_tokens": 204251,
-    "cache_read_tokens": 3892149,
-    "output_tokens": 22506,
-    "api_call_count": 42
+    "input_tokens": 59,
+    "cache_creation_tokens": 210997,
+    "cache_read_tokens": 4028745,
+    "output_tokens": 22508,
+    "api_call_count": 43
   },
   "initial_attribution": {
-    "calculated_at": "2026-03-02T20:43:02.539495285Z",
-    "agent_lines": 1940,
-    "human_added": 22269,
-    "human_modified": 56,
+    "calculated_at": "2026-03-02T20:43:48.051450279Z",
+    "agent_lines": 0,
+    "human_added": 0,
+    "human_modified": 0,
     "human_removed": 0,
-    "total_committed": 24237,
-    "agent_percentage": 8.004290960102322
+    "total_committed": 0,
+    "agent_percentage": 0
   }
 }
