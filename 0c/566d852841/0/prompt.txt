@@ -1,0 +1,169 @@
+Implement the following plan:
+
+# SKF Knowledge Folder — Implementation Plan
+
+## Context
+
+The SKF module has 10 workflows with 19 operational `data/` files embedded in workflow step directories, but **no agent-level knowledge folder**. The TEA reference module demonstrates the pattern: a `knowledge/` folder with standalone reference documents that the agent consults just-in-time during workflow execution, indexed via a CSV file.
+
+Knowledge files are **cross-cutting principles and patterns** that Ferris needs across multiple workflows — distinct from workflow `data/` files which are step-specific operational artifacts (schemas, templates, scoring formulas). We also incorporate the agentskills.io specification and Claude best practices as authoritative references for the output format SKF produces.
+
+## Implementation
+
+### Phase 1: Create directory and index
+
+**Create** `src/knowledge/` directory and `src/knowledge/skf-knowledge-index.csv`
+
+CSV format follows TEA pattern (`tea-index.csv`):
+```
+id,name,description,tags,tier,fragment_file
+```
+
+8 entries mapping to the knowledge files below. All tagged `core` tier (these are foundational, not optional).
+
+### Phase 2: Create 8 knowledge files
+
+All files follow the TEA structural pattern:
+- `# Title` (H1)
+- `## Principle` — one-paragraph core concept
+- `## Rationale` — problem/solution framing
+- `## Pattern Examples` — concrete examples with `### Example N: Title`, **Context**, **Implementation**, **Key Points**
+- Optional: `## Anti-Patterns`, `## Checklist`, `## Integration Points`
+- `_Source:` attribution line
+
+#### Files to create (in build order):
+
+| # | File | Lines | Purpose | Workflows |
+|---|------|-------|---------|-----------|
+| 1 | `overview.md` | ~90 | Entry point — knowledge map, JiT loading, relationship to data/ files | All 10 |
+| 2 | `zero-hallucination.md` | ~130 | Foundational principle — uncitable content excluded, not guessed | AN,BS,CS,QS,SS,US,AS,TS |
+| 3 | `confidence-tiers.md` | ~140 | Trust model — T1/T1-low/T2/T3 labels, citation formats, tier interaction rules | AN,BS,CS,QS,SS,US,AS,TS,EX |
+| 4 | `progressive-capability.md` | ~120 | Quick/Forge/Deep philosophy — every tier is legitimate, positive framing, graceful degradation | All 10 |
+| 5 | `agentskills-spec.md` | ~130 | agentskills.io format principles — frontmatter, progressive disclosure, directory structure, compliance | CS,QS,SS,US,TS,EX |
+| 6 | `skill-lifecycle.md` | ~140 | End-to-end pipeline — workflow connections, artifact flow, decision rules for workflow selection | All 10 |
+| 7 | `provenance-tracking.md` | ~120 | Provenance mechanism — provenance-map.json, evidence reports, claim traceability | CS,QS,SS,US,AS,TS |
+| 8 | `manual-section-integrity.md` | ~110 | [MANUAL] preservation — marker format, merge algorithm, orphan detection | CS,US,AS,TS,EX |
+
+**Total**: ~980 lines across 8 files + index CSV
+
+#### Content sources for each file:
+
+- `overview.md` — synthesize from module.yaml, README.md, workflow README
+- `zero-hallucination.md` — distill from agent principles + create-skill/update-skill step logic
+- `confidence-tiers.md` — consolidate from extraction-patterns.md, create-skill steps, scoring-rules.md
+- `progressive-capability.md` — distill from forge-tier.yaml, tier-rules.md, setup-forge workflow
+- `agentskills-spec.md` — synthesize from `temp/agentskills.io/` spec + `temp/Best-Practices-for-Creating-Agent-Skills.md`
+- `skill-lifecycle.md` — synthesize from all 10 workflow.md files and module-help.csv
+- `provenance-tracking.md` — consolidate from create-skill steps 03/05/07, audit-skill steps 02/03
+- `manual-section-integrity.md` — consolidate from manual-section-rules.md, update-skill steps
+
+### Phase 3: Update agent YAML
+
+**Modify** `src/agents/skf.agent.yaml`:
+
+1. Add `critical_actions` entries (after existing sidecar loading):
+```yaml
+- "Consult {project-root}/_bmad/skf/knowledge/skf-knowledge-index.csv to select knowledge fragments under knowledge/ and load only the files needed for the current task"
+- "Load the referenced fragment(s) from {project-root}/_bmad/skf/knowledge/ before giving recommendations"
+```
+
+2. Add one principle to `persona.principles`:
+```yaml
+- "Agent-level knowledge informs judgment across workflows — consult knowledge/ when a step directs, not from memory"
+```
+
+### Phase 4: Update module-help.csv
+
+Add knowledge folder entry to `src/module-help.csv` so Ferris can reference it via the help system.
+
+### Phase 5: Update workflows README
+
+Add knowledge folder documentation to `src/workflows/README.md` explaining the distinction between knowledge/ (cross-cutting principles) and data/ (step-specific operational rules).
+
+## What stays as workflow data/ (NOT moved to knowledge)
+
+These remain in their workflow directories — they are step-specific operational artifacts:
+- `skill-brief-schema.md`, `unit-detection-heuristics.md`, `extraction-patterns.md`, `skill-sections.md`, `skill-template.md`, `stack-skill-template.md`, `registry-resolution.md`, `severity-rules.md`, `scoring-rules.md`, `drift-report-template.md`, `output-section-formats.md`, `managed-section-format.md`, `snippet-format.md`, `manual-section-rules.md`, `merge-conflict-rules.md`, `tier-rules.md`, `manifest-patterns.md`, `integration-patterns.md`
+
+## Critical files to modify
+
+- `src/agents/skf.agent.yaml` — add knowledge critical_actions + principle
+- `src/module-help.csv` — add knowledge entry
+- `src/workflows/README.md` — add knowledge section
+
+## Files to create
+
+- `src/knowledge/skf-knowledge-index.csv`
+- `src/knowledge/overview.md`
+- `src/knowledge/zero-hallucination.md`
+- `src/knowledge/confidence-tiers.md`
+- `src/knowledge/progressive-capability.md`
+- `src/knowledge/agentskills-spec.md`
+- `src/knowledge/skill-lifecycle.md`
+- `src/knowledge/provenance-tracking.md`
+- `src/knowledge/manual-section-integrity.md`
+
+## Verification
+
+1. Structural: all 9 files exist under `src/knowledge/`
+2. Index: CSV has 8 entries matching the 8 .md files, valid format matching TEA pattern
+3. Pattern: each knowledge file has Principle, Rationale, Pattern Examples sections
+4. Agent YAML: critical_actions reference knowledge index and folder
+5. Cross-references: knowledge files link to each other where relevant
+6. No duplication: knowledge files reference (not duplicate) workflow data/ files
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/armel/.claude/projects/-home-armel-Projects-OSS-bmad-module-skill-forge/6c4b3690-9ce5-4e98-95f1-89b7ca6385b9.jsonl
+
+If this plan can be broken down into multiple independent tasks, consider using the TeamCreate tool to create a team and parallelize the work.
+
+---
+
+update the @README.md the same way we have @temp/bmad-method-test-architecture-enterprise/README.md
+
+---
+
+give me a commit message for everything ready to be committed.
+
+---
+
+run test from @package.json
+
+---
+
+yes
+
+---
+
+update the @package.json
+
+---
+
+commit everything with this message: feat(skf): add complete SKF module with agent, workflows, knowledge base, and docs
+
+Add full Skill Foundry (SKF) module implementation:
+
+- Introduce Ferris agent persona with progressive capability tiers:
+  Quick, Forge, and Deep
+- Implement sidecar state management and Just-in-Time (JiT) knowledge loading
+- Add 10 end-to-end workflows covering full skill lifecycle:
+  - setup-forge
+  - analyze-source
+  - brief-skill
+  - create-skill
+  - quick-skill
+  - create-stack-skill
+  - update-skill
+  - audit-skill
+  - test-skill
+  - export-skill
+- Add 8 cross-cutting knowledge fragments:
+  zero-hallucination, confidence-tiers, provenance-tracking,
+  guardrails, validation-loops, observability, versioning,
+  and lifecycle-governance
+- Index knowledge fragments via skf-knowledge-index.csv
+- Add module help catalog and workflow README
+- Include comprehensive user-facing documentation
+
+This completes the foundational SKF capability layer, enabling
+structured skill creation, validation, auditing, and export.

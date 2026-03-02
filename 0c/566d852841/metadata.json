@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0c566d852841",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "README.md",
+    "docs/examples.md",
+    "docs/getting-started.md",
+    "eslint.config.mjs",
+    "package.json",
+    "src/agents/skf.agent.yaml",
+    "src/knowledge/agentskills-spec.md",
+    "src/knowledge/confidence-tiers.md",
+    "src/knowledge/manual-section-integrity.md",
+    "src/knowledge/overview.md",
+    "src/knowledge/progressive-capability.md",
+    "src/knowledge/provenance-tracking.md",
+    "src/knowledge/skf-knowledge-index.csv",
+    "src/knowledge/skill-lifecycle.md",
+    "src/knowledge/zero-hallucination.md",
+    "src/module-help.csv",
+    "src/workflows/README.md",
+    "src/workflows/update-skill/steps-c/step-04-merge.md",
+    "test/schema/agent.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0c/566d852841/0/metadata.json",
+      "transcript": "/0c/566d852841/0/full.jsonl",
+      "context": "/0c/566d852841/0/context.md",
+      "content_hash": "/0c/566d852841/0/content_hash.txt",
+      "prompt": "/0c/566d852841/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 58,
+    "cache_creation_tokens": 204251,
+    "cache_read_tokens": 3892149,
+    "output_tokens": 22506,
+    "api_call_count": 42
+  }
+}
