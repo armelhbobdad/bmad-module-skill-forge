@@ -3,7 +3,7 @@
   "checkpoint_id": "0c566d852841",
   "strategy": "manual-commit",
   "branch": "dev",
-  "checkpoints_count": 8,
+  "checkpoints_count": 16,
   "files_touched": [
     "README.md",
     "docs/examples.md",
@@ -22,6 +22,7 @@
     "src/knowledge/skill-lifecycle.md",
     "src/knowledge/zero-hallucination.md",
     "src/module-help.csv",
+    "src/module.yaml",
     "src/workflows/README.md",
     "src/workflows/update-skill/steps-c/step-04-merge.md",
     "test/schema/agent.js"
@@ -40,13 +41,20 @@
       "context": "/0c/566d852841/1/context.md",
       "content_hash": "/0c/566d852841/1/content_hash.txt",
       "prompt": "/0c/566d852841/1/prompt.txt"
+    },
+    {
+      "metadata": "/0c/566d852841/2/metadata.json",
+      "transcript": "/0c/566d852841/2/full.jsonl",
+      "context": "/0c/566d852841/2/context.md",
+      "content_hash": "/0c/566d852841/2/content_hash.txt",
+      "prompt": "/0c/566d852841/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 99,
-    "cache_creation_tokens": 299152,
-    "cache_read_tokens": 5973556,
-    "output_tokens": 33377,
-    "api_call_count": 73
+    "input_tokens": 172,
+    "cache_creation_tokens": 415383,
+    "cache_read_tokens": 9935915,
+    "output_tokens": 58364,
+    "api_call_count": 123
   }
 }

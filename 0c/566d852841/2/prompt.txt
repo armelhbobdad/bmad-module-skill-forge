@@ -1,0 +1,45 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL @{project-root}/_bmad/bmb/workflows/module/workflow-create-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@_bmad-output/bmb-creations/modules/module-brief-skf.md
+
+---
+
+C
+
+---
+
+Does it adhere to our official bmad module template structure?
+
+---
+
+C
+
+---
+
+do the best approach for a long term maintenance
+
+---
+
+C
+
+---
+
+C
+
+---
+
+C
+
+---
+
+C
+
+---
+
+V
+
+---
+
+D
