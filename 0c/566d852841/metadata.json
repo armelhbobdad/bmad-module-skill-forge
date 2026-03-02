@@ -3,11 +3,12 @@
   "checkpoint_id": "0c566d852841",
   "strategy": "manual-commit",
   "branch": "dev",
-  "checkpoints_count": 5,
+  "checkpoints_count": 8,
   "files_touched": [
     "README.md",
     "docs/examples.md",
     "docs/getting-started.md",
+    "docs/index.md",
     "eslint.config.mjs",
     "package.json",
     "src/agents/skf.agent.yaml",
@@ -32,13 +33,20 @@
       "context": "/0c/566d852841/0/context.md",
       "content_hash": "/0c/566d852841/0/content_hash.txt",
       "prompt": "/0c/566d852841/0/prompt.txt"
+    },
+    {
+      "metadata": "/0c/566d852841/1/metadata.json",
+      "transcript": "/0c/566d852841/1/full.jsonl",
+      "context": "/0c/566d852841/1/context.md",
+      "content_hash": "/0c/566d852841/1/content_hash.txt",
+      "prompt": "/0c/566d852841/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 58,
-    "cache_creation_tokens": 204251,
-    "cache_read_tokens": 3892149,
-    "output_tokens": 22506,
-    "api_call_count": 42
+    "input_tokens": 99,
+    "cache_creation_tokens": 299152,
+    "cache_read_tokens": 5973556,
+    "output_tokens": 33377,
+    "api_call_count": 73
   }
 }

@@ -1,0 +1,100 @@
+Implement the following plan:
+
+# Plan: Align SKF Module with BMAD Reference and First Commit
+
+## Context
+
+The SKF (Skill Forge) module has been built through the BMAD workflow builder. Built artifacts live in `_bmad-output/bmb-creations/` (gitignored). The `src/` directory currently has spec files (design artifacts) and skeleton dirs but no actual installable module content. We need to:
+1. Move built content from `_bmad-output/bmb-creations/` into `src/` following the TEA reference pattern
+2. Add `skillforge/` namespace to workflow paths (matching TEA's `testarch/` pattern)
+3. Relocate design artifacts (spec files) to `docs/specs/`
+4. Commit and push
+
+## Steps
+
+### Step 1: Create docs/specs/ and move design artifacts
+- `mkdir -p docs/specs`
+- Move `src/agents/ferris.spec.md` → `docs/specs/ferris.spec.md`
+- Move each `src/workflows/{name}/{name}.spec.md` → `docs/specs/{name}.spec.md` (10 files)
+- Remove now-empty `src/workflows/{name}/` directories (10 dirs)
+- Move `src/TODO.md` → `docs/TODO.md`
+
+### Step 2: Move build documentation to docs/
+- Copy `_bmad-output/bmb-creations/modules/module-brief-skf.md` → `docs/module-brief-skf.md`
+- Copy `_bmad-output/bmb-creations/modules/module-build-skf.md` → `docs/module-build-skf.md`
+- (Validation reports stay in bmb-creations — they're build logs, not docs)
+
+### Step 3: Install agent YAML
+- Copy `_bmad-output/bmb-creations/ferris/skf.agent.yaml` → `src/agents/skf.agent.yaml`
+
+### Step 4: Install agent sidecar
+- Copy `_bmad-output/bmb-creations/ferris/ferris-sidecar/` → `src/ferris/`
+  - `forge-tier.yaml`
+  - `preferences.yaml`
+  - `README.md`
+
+### Step 5: Install workflows under skillforge/ namespace
+- `mkdir -p src/workflows/skillforge`
+- Copy all 10 workflow directories from `_bmad-output/bmb-creations/workflows/` → `src/workflows/skillforge/`
+  - analyze-source, audit-skill, brief-skill, create-skill, create-stack-skill, export-skill, quick-skill, setup-forge, test-skill, update-skill
+- Each workflow includes: `workflow.md`, `steps-c/`, `data/` or `templates/` (as built), `validation-report.md`, `workflow-plan-*.md`
+
+### Step 6: Update module-help.csv
+- Add `skillforge/` namespace to all `workflow-file` paths:
+  - Before: `_bmad/skf/workflows/setup-forge/workflow.md`
+  - After: `_bmad/skf/workflows/skillforge/setup-forge/workflow.md`
+
+### Step 7: Verify agent YAML paths
+- Agent YAML already references `skillforge/` in menu paths — confirm no edits needed
+
+### Step 8: Git commit and push
+- Stage: `src/`, `docs/`
+- Commit message: "Add SKF module with Ferris agent and 10 skillforge workflows"
+- Push to origin
+
+## Files Modified
+- `src/module-help.csv` — update workflow-file paths
+- `src/agents/skf.agent.yaml` — new (from bmb-creations)
+- `src/ferris/` — new directory (sidecar files)
+- `src/workflows/skillforge/` — new directory (10 workflows)
+- `src/README.md` — stays in place (module doc)
+- `src/docs/` — stays in place (module docs)
+- `docs/specs/` — new directory (relocated spec files)
+- `docs/TODO.md` — relocated from src/
+- `docs/module-brief-skf.md` — design documentation
+- `docs/module-build-skf.md` — design documentation
+- `docs/legacy-module-brief-skf.md` — already exists (untracked)
+- `docs/qmd-deep-agent-guide.md` — already exists (untracked)
+
+## Verification
+- `ls src/agents/` should show `skf.agent.yaml`
+- `ls src/ferris/` should show sidecar files
+- `ls src/workflows/skillforge/` should show 10 workflow directories
+- `ls docs/specs/` should show 11 spec files (1 agent + 10 workflow)
+- Grep `skillforge/` in module-help.csv — all 10 workflow entries should match
+- Grep workflow paths in agent YAML — should match module-help.csv pattern
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/armel/.claude/projects/-home-armel-Projects-OSS-bmad-module-skill-forge/da083bf4-d6bc-47e7-9822-32690936a0e1.jsonl
+
+If this plan can be broken down into multiple independent tasks, consider using the TeamCreate tool to create a team and parallelize the work.
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+I will commit manually
+
+---
+
+We need to do some fixes. First, the @src/README.md should stay at the root folder too and it should be so accurate than the @temp/bmad-method-test-architecture-enterprise/README.md .
+
+---
+
+Add complete and accurate README.md file for @src/workflows/
+
+---
+
+update @docs/index.md
