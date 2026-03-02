@@ -1,0 +1,9 @@
+commit files from git status
+
+---
+
+my @package.json misses some scripts (test:install for example) . You can take inspiration in @temp/bmad-method-test-architecture-enterprise/package.json . The @.github/workflows/quality.yaml should be updated accordingly.
+
+---
+
+commit

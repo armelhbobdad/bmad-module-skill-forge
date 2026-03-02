@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "c8d92682459b",
+  "session_id": "f7db8770-bd28-4b70-90d3-ad73d7684d19",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-02T21:05:02.505675738Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/quality.yaml",
+    ".markdownlint-cli2.yaml",
+    "package.json",
+    "test/test-installation-components.js",
+    "test/test-knowledge-base.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "74d05915d1ad",
+  "checkpoint_transcript_start": 31,
+  "transcript_lines_at_start": 31,
+  "token_usage": {
+    "input_tokens": 26,
+    "cache_creation_tokens": 51947,
+    "cache_read_tokens": 1316941,
+    "output_tokens": 7508,
+    "api_call_count": 22
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-02T21:05:02.237346128Z",
+    "agent_lines": 415,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 415,
+    "agent_percentage": 100
+  }
+}
