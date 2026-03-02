@@ -1,0 +1,52 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0743fdcc108f",
+  "session_id": "8a9767f5-0b22-418d-97d2-be453a349adf",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-02T21:43:52.680400924Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".markdownlint-cli2.yaml",
+    ".prettierignore",
+    "docs/404.md",
+    "docs/agents.md",
+    "docs/examples.md",
+    "docs/getting-started.md",
+    "docs/index.md",
+    "docs/workflows.md",
+    "package.json",
+    "tools/build-docs.js",
+    "tools/fix-doc-links.js",
+    "tools/validate-doc-links.js",
+    "website/astro.config.mjs",
+    "website/package-lock.json",
+    "website/package.json",
+    "website/public/robots.txt",
+    "website/src/content/config.ts",
+    "website/src/content/docs",
+    "website/src/lib/site-url.js",
+    "website/src/rehype-base-paths.js",
+    "website/src/rehype-markdown-links.js",
+    "website/src/styles/custom.css",
+    "website/tsconfig.json"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "ab8dcc4e3b8b",
+  "token_usage": {
+    "input_tokens": 7045,
+    "cache_creation_tokens": 135581,
+    "cache_read_tokens": 5380468,
+    "output_tokens": 13752,
+    "api_call_count": 57
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-02T21:43:52.101803725Z",
+    "agent_lines": 9256,
+    "human_added": 1,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 9257,
+    "agent_percentage": 99.98919736415685
+  }
+}

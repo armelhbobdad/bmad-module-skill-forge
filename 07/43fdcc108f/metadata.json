@@ -1,0 +1,48 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0743fdcc108f",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".markdownlint-cli2.yaml",
+    ".prettierignore",
+    "docs/404.md",
+    "docs/agents.md",
+    "docs/examples.md",
+    "docs/getting-started.md",
+    "docs/index.md",
+    "docs/workflows.md",
+    "package.json",
+    "tools/build-docs.js",
+    "tools/fix-doc-links.js",
+    "tools/validate-doc-links.js",
+    "website/astro.config.mjs",
+    "website/package-lock.json",
+    "website/package.json",
+    "website/public/robots.txt",
+    "website/src/content/config.ts",
+    "website/src/content/docs",
+    "website/src/lib/site-url.js",
+    "website/src/rehype-base-paths.js",
+    "website/src/rehype-markdown-links.js",
+    "website/src/styles/custom.css",
+    "website/tsconfig.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/07/43fdcc108f/0/metadata.json",
+      "transcript": "/07/43fdcc108f/0/full.jsonl",
+      "context": "/07/43fdcc108f/0/context.md",
+      "content_hash": "/07/43fdcc108f/0/content_hash.txt",
+      "prompt": "/07/43fdcc108f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 7045,
+    "cache_creation_tokens": 135581,
+    "cache_read_tokens": 5380468,
+    "output_tokens": 13752,
+    "api_call_count": 57
+  }
+}

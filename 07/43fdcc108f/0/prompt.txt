@@ -1,0 +1,95 @@
+Implement the following plan:
+
+# Plan: Add Documentation Site Infrastructure (Astro + Starlight)
+
+## Context
+
+SKF has 5 user-facing docs in `docs/` and Astro/Starlight dependencies already installed, but no website infrastructure to build them into a documentation site. TEA has a mature docs pipeline we can replicate: Astro+Starlight site, build pipeline with LLM artifacts, link validation, and download bundles.
+
+## Files to Create
+
+### 1. `website/` directory (Astro site)
+
+| File | Purpose |
+|------|---------|
+| `website/astro.config.mjs` | Starlight config with sidebar matching SKF's 5 docs + custom theme |
+| `website/package.json` | Private package with astro dependencies and scripts |
+| `website/tsconfig.json` | Astro strict TS config |
+| `website/src/content/config.ts` | Content collection schema (standard Starlight) |
+| `website/src/rehype-markdown-links.js` | Transform `.md` links to page routes (copy from TEA) |
+| `website/src/rehype-base-paths.js` | Prepend base path to absolute URLs (copy from TEA) |
+| `website/src/lib/site-url.js` | Cascading URL resolver: SITE_URL > GITHUB_REPOSITORY > localhost (copy from TEA) |
+| `website/src/styles/custom.css` | Forge-themed Starlight overrides (amber/orange forge palette instead of TEA's electric blue) |
+| `website/public/robots.txt` | Standard robots.txt |
+
+After creating the directory, create a **symlink**: `website/src/content/docs/ → ../../../docs/`
+
+### 2. `docs/404.md` — Custom 404 page
+
+Adapted from TEA's 404.md with SKF branding and links.
+
+### 3. `docs/index.md` — Upgrade to Starlight landing page
+
+Add Starlight frontmatter (hero section with title, tagline, actions) while keeping existing content. The current index.md is a simple link list; upgrade it to a proper landing page with workflow table (matching TEA pattern).
+
+### 4. `tools/build-docs.js` — Build pipeline
+
+Adapted from TEA's build-docs.js:
+- Stage 1: Link validation (via `tools/validate-doc-links.js`)
+- Stage 2: Generate `llms.txt` and `llms-full.txt` from `docs/`
+- Stage 3: Generate download bundles (`skf-sources.zip`, `skf-prompts.zip`)
+- Stage 4: Build Astro site
+- Stage 5: Copy artifacts to site output
+
+### 5. `tools/validate-doc-links.js` — Link checker
+
+Validates site-relative links and anchors in `docs/` files. Simpler than TEA's (fewer docs to validate).
+
+### 6. `tools/fix-doc-links.js` — Link auto-fixer
+
+Converts relative markdown links to site-relative format.
+
+## Files to Modify
+
+| File | Change |
+|------|--------|
+| `package.json` | Add `docs:build`, `docs:dev`, `docs:preview`, `docs:validate-links`, `docs:fix-links` scripts |
+| `docs/index.md` | Add Starlight hero frontmatter, upgrade to landing page with workflow table |
+| `docs/getting-started.md` | Add Starlight frontmatter (`title`, `description`) |
+| `docs/agents.md` | Add Starlight frontmatter |
+| `docs/workflows.md` | Add Starlight frontmatter |
+| `docs/examples.md` | Add Starlight frontmatter |
+
+## Implementation Order
+
+1. **Create `website/` infrastructure** — astro.config, package.json, tsconfig, content config, rehype plugins, site-url, custom CSS, robots.txt
+2. **Create symlink** — `website/src/content/docs/ → ../../../docs/`
+3. **Create `docs/404.md`**
+4. **Update existing docs** — Add Starlight frontmatter to all 5 docs files, upgrade index.md to landing page
+5. **Create `tools/`** — build-docs.js, validate-doc-links.js, fix-doc-links.js
+6. **Update `package.json`** — Add docs scripts
+7. **Run `npm install --prefix website`** to install website dependencies
+8. **Verify** — Run `npm run docs:dev` to confirm site works, run `npm run docs:build` to confirm full pipeline
+
+## Key Adaptations from TEA
+
+- **Theme**: Amber/orange forge palette (forge metaphor) instead of electric blue
+- **Sidebar**: Flat structure matching SKF's 5 docs (Welcome, Getting Started, Agents, Workflows, Examples) — no Diataxis hierarchy needed yet
+- **LLM artifacts**: `skf-sources.zip` / `skf-prompts.zip` instead of `tea-*`
+- **URLs**: SKF repo URL and site URL
+- **No custom Astro components yet** — skip Header.astro and MobileMenuFooter.astro overrides (can add later)
+
+## Verification
+
+1. `npm run docs:dev` — Opens dev server, navigate to confirm all 5 pages render
+2. `npm run docs:build` — Full pipeline succeeds, generates `build/site/` with `llms.txt`, `llms-full.txt`, and download bundles
+3. `npm test` — All existing tests still pass (no regressions)
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/armel/.claude/projects/-home-armel-Projects-OSS-bmad-module-skill-forge/f7db8770-bd28-4b70-90d3-ad73d7684d19.jsonl
+
+If this plan can be broken down into multiple independent tasks, consider using the TeamCreate tool to create a team and parallelize the work.
+
+---
+
+commit
