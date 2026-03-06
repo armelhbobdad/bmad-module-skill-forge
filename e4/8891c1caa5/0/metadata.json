@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e48891c1caa5",
+  "session_id": "b064986b-acf1-42b9-93a5-e6ae6ef716fd",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-06T10:52:37.669162479Z",
+  "branch": "dev",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "docs/agents.md",
+    "docs/index.md",
+    "src/agents/skf.agent.yaml",
+    "src/module.yaml",
+    "website/README.md",
+    "website/astro.config.mjs",
+    "website/public/favicon.ico",
+    "website/public/img/skf-logo.svg",
+    "website/src/components/Banner.astro",
+    "website/src/components/Header.astro",
+    "website/src/components/MobileMenuFooter.astro",
+    "website/src/pages/404.astro",
+    "website/src/styles/custom.css"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "7cabb2617a36",
+  "token_usage": {
+    "input_tokens": 257,
+    "cache_creation_tokens": 218141,
+    "cache_read_tokens": 8142369,
+    "output_tokens": 28801,
+    "api_call_count": 89
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-06T10:52:36.911188942Z",
+    "agent_lines": 396,
+    "human_added": 3,
+    "human_modified": 2,
+    "human_removed": 0,
+    "total_committed": 401,
+    "agent_percentage": 98.75311720698254
+  }
+}

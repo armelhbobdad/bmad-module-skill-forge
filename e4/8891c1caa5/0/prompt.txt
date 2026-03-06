@@ -1,0 +1,61 @@
+My @website/ is not aligned with the website reference @temp/bmad-method-test-architecture-enterprise/website/. Take a deep look at the documentation layout and compisitions. Every links should point on a valide existing doc.
+
+---
+
+Tool loaded.
+
+---
+
+Tool loaded.
+
+---
+
+the app is ready up at http://localhost:4321/. Why I have a different layout when I switch to dark mode?
+
+---
+
+Tool loaded.
+
+---
+
+Tool loaded.
+
+---
+
+The documentation says SKF transforms source code. In reality, we are not limited to source code, we transform code repositories, documentation websites, and developer discourse. Can you verify this assertion before to do the update everywhere is needed?
+
+---
+
+Tool loaded.
+
+---
+
+Tool loaded.
+
+---
+
+yes update everywhere. Do not forget to align it with the astro documentation too.
+
+---
+
+I see we have a nice @website/public/favicon.ico . Will it be good to have this logo in the navbar just before "Skill Forge (SKF)?
+
+---
+
+commit everything
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+the commit message should not contain TEA reference
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+something happened on my navbar and the logo disappeared

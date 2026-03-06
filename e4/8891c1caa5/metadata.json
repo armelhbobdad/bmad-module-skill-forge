@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e48891c1caa5",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "docs/agents.md",
+    "docs/index.md",
+    "src/agents/skf.agent.yaml",
+    "src/module.yaml",
+    "website/README.md",
+    "website/astro.config.mjs",
+    "website/public/favicon.ico",
+    "website/public/img/skf-logo.svg",
+    "website/src/components/Banner.astro",
+    "website/src/components/Header.astro",
+    "website/src/components/MobileMenuFooter.astro",
+    "website/src/pages/404.astro",
+    "website/src/styles/custom.css"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e4/8891c1caa5/0/metadata.json",
+      "transcript": "/e4/8891c1caa5/0/full.jsonl",
+      "context": "/e4/8891c1caa5/0/context.md",
+      "content_hash": "/e4/8891c1caa5/0/content_hash.txt",
+      "prompt": "/e4/8891c1caa5/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 257,
+    "cache_creation_tokens": 218141,
+    "cache_read_tokens": 8142369,
+    "output_tokens": 28801,
+    "api_call_count": 89
+  }
+}
