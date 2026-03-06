@@ -1,0 +1,312 @@
+My @website/ is not aligned with the website reference @temp/bmad-method-test-architecture-enterprise/website/. Take a deep look at the documentation layout and compisitions. Every links should point on a valide existing doc.
+
+---
+
+Tool loaded.
+
+---
+
+Tool loaded.
+
+---
+
+the app is ready up at http://localhost:4321/. Why I have a different layout when I switch to dark mode?
+
+---
+
+Tool loaded.
+
+---
+
+Tool loaded.
+
+---
+
+The documentation says SKF transforms source code. In reality, we are not limited to source code, we transform code repositories, documentation websites, and developer discourse. Can you verify this assertion before to do the update everywhere is needed?
+
+---
+
+Tool loaded.
+
+---
+
+Tool loaded.
+
+---
+
+yes update everywhere. Do not forget to align it with the astro documentation too.
+
+---
+
+I see we have a nice @website/public/favicon.ico . Will it be good to have this logo in the navbar just before "Skill Forge (SKF)?
+
+---
+
+commit everything
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+the commit message should not contain TEA reference
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+something happened on my navbar and the logo disappeared
+
+---
+
+the installation guide from the home page differ from the one in the getting-started page.
+
+---
+
+the documentation use `spacetimedb` as example. Will it be better to use `https://github.com/bmad-code-org/BMAD-METHOD`?
+
+---
+
+in getting-started page, `Need Help?` section, BMAD provide the `/bmad-help` command (Analyzes what is done and the users query and offers advice on what to do next. Use if user says what should I do next or what do I do now (project))
+
+---
+
+we can add an example prompt like `/bmad-help what is the best workflow to generate skill for my repo`.
+
+---
+
+can we have a better example?
+
+---
+
+we should also really improve the common use cases section
+
+---
+
+the common use cases mentioned AST extraction feature, but we forgot the QMD feature for Deep mode for the highest accuracy. What do you think?
+
+---
+
+here is what @_bmad-output/temp/qmd-deep-agent-guide.md really does.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. Primary Request and Intent:
+   - **Align SKF website with TEA reference**: Add missing infrastructure components (Banner, Header, MobileMenuFooter, 404.astro, favicon, README) and ensure all links point to valid docs
+   - **Fix dark/light mode layout inconsistency**: Different content width between themes
+   - **Update "source code" messaging everywhere**: Change to "code repositories, documentation, and developer discourse" after verifying this is accurate
+   - **Add navbar logo**: SVG forge-themed logo before the site title
+   - **Commit all changes**: Single commit with descriptive message (no "TEA reference" mention)
+   - **Fix installation guide inconsistency**: Home page vs getting-started page had different install commands
+   - **Replace spacetimedb examples**: Use `https://github.com/bmad-code-org/BMAD-METHOD` instead
+   - **Add `/bmad-help` to Need Help section**: With a practical example prompt
+   - **Improve Common Use Cases section**: More detailed, problem-oriented use cases with commands
+   - **Add QMD/Deep mode use case**: Highlight the highest accuracy tier with QMD enrichment
+   - **Update QMD description to be accurate**: Based on actual QMD capabilities from the deep agent guide
+
+2. Key Technical Concepts:
+   - **Astro + Starlight**: Documentation site framework with custom component overrides
+   - **CSS specificity bug**: `:root[data-theme='dark']` has higher specificity than `:root`, causing `--sl-content-width` to differ between themes when Starlight's own CSS overrides the base `:root` declaration
+   - **Starlight logo config**: `logo.src`, `logo.alt`, `logo.replacesTitle` in astro.config.mjs
+   - **Starlight custom components**: `Header`, `MobileMenuFooter` registered via `components` config
+   - **SKF capability tiers**: Quick (source reading) → Forge (AST via ast-grep) → Deep (AST + QMD enrichment)
+   - **Confidence tiers**: T1 (AST-verified), T1-low (source-read), T2 (QMD-enriched), T3 (external reference)
+   - **QMD**: Local hybrid search engine for markdown — BM25 keyword (~30ms), vector semantic (~2s), deep hybrid with LLM re-ranking (~10s). Uses EmbeddingGemma 300M, query-expansion 1.7B, and Qwen3 reranker 0.6B models
+   - **lint-staged behavior**: Failed commits revert working tree via git stash, but staged index survives
+   - **rehype plugins**: `rehype-markdown-links.js` transforms `.md` links to routes, `rehype-base-paths.js` prepends base path to absolute URLs
+
+3. Files and Code Sections:
+
+   - **website/src/components/Banner.astro** (CREATED)
+     - AI docs banner promoting llms-full.txt, amber-themed (border `rgba(245, 158, 11, 0.15)`, link color `#f59e0b`)
+     - Uses `getSiteUrl()` from `../lib/site-url.js`
+
+   - **website/src/components/Header.astro** (CREATED)
+     - Custom Starlight header integrating Banner, no "Downloads" nav link (SKF doesn't have one, unlike TEA)
+     - Imports from `virtual:starlight/` for SiteTitle, Search, SocialIcons, ThemeSelect, LanguageSelect
+
+   - **website/src/components/MobileMenuFooter.astro** (CREATED)
+     - Mobile menu footer with social icons and theme toggle, no nav links
+
+   - **website/src/pages/404.astro** (CREATED)
+     - Renders docs/404.md via StarlightPage component
+     ```astro
+     ---
+     import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+     import { getEntry } from 'astro:content';
+     const entry = await getEntry('docs', '404');
+     const { Content } = await entry.render();
+     ---
+     <StarlightPage frontmatter={{ title: entry.data.title, template: entry.data.template }}>
+       <Content />
+     </StarlightPage>
+     ```
+
+   - **website/public/favicon.ico** (CREATED)
+     - 16x16 amber-themed ICO generated via Python script
+
+   - **website/public/img/skf-logo.svg** (CREATED)
+     - SVG anvil+hammer forge motif in amber palette (#D97706, #F59E0B, #FBBF24) with spark accents
+
+   - **website/README.md** (CREATED)
+     - Documents website directory structure, setup, development, build, and customization
+
+   - **website/astro.config.mjs** (MODIFIED)
+     - Added `logo` config pointing to `./public/img/skf-logo.svg`
+     - Updated tagline to "from code repositories, documentation, and developer discourse"
+     - Added `components` section registering Header and MobileMenuFooter
+     ```js
+     logo: {
+       src: './public/img/skf-logo.svg',
+       alt: 'Skill Forge (SKF)',
+       replacesTitle: false,
+     },
+     // ...
+     components: {
+       Header: './src/components/Header.astro',
+       MobileMenuFooter: './src/components/MobileMenuFooter.astro',
+     },
+     ```
+
+   - **website/src/styles/custom.css** (MODIFIED)
+     - Added `--ai-banner-height: 2.75rem` and `--sl-nav-height: 6.25rem` to `:root`
+     - Removed `--sl-content-width: 100%` from both `:root` and `:root[data-theme='dark']` (fix for layout inconsistency)
+     - Added header layout CSS for banner integration (full-width banner, flex column, responsive padding)
+     - Added `.site-title img` sizing and responsive `@media` rules for header padding
+
+   - **src/module.yaml** (MODIFIED)
+     - header: "from source code" → "from code repositories, documentation, and developer discourse"
+     - description: "transforms source code into" → "transforms code repositories, documentation, and developer discourse into"
+
+   - **src/agents/skf.agent.yaml** (MODIFIED)
+     - persona.role: "transforms source code into" → "transforms code repositories, documentation, and developer discourse into"
+
+   - **docs/index.md** (MODIFIED)
+     - Frontmatter description and hero tagline updated
+     - Body text updated to "transforms code repositories, documentation, and developer discourse"
+     - "traces to actual code" → "traces to verifiable sources"
+
+   - **docs/agents.md** (MODIFIED)
+     - "from source code" → "from code repositories, documentation, and developer discourse"
+
+   - **README.md** (MODIFIED)
+     - Fixed bare URL for markdownlint: `https://...` → `<https://...>`
+     - Docs link updated to point to GitHub Pages URL
+
+   - **docs/getting-started.md** (MODIFIED - multiple uncommitted changes)
+     - Installation: `bmad install skf` → `npx bmad-method install` with `# Select: Skill Forge (SKF)` comment
+     - Quick Skill example: `spacetimedb` → `https://github.com/bmad-code-org/BMAD-METHOD`
+     - Common Use Cases section completely rewritten with 6 detailed scenarios including new "highest accuracy" QMD use case
+     - Need Help section: Added `/bmad-help` as first suggestion with example prompt
+     - Current state of the "highest accuracy" use case:
+     ```markdown
+     ### I want the highest accuracy possible
+
+     Quick mode reads source files. Forge mode adds AST parsing for structural truth. Deep mode goes further — QMD searches issues, PRs, changelogs, and migration notes to enrich skills with temporal context.
+
+     ```
+     @Ferris SF    # Setup detects your tools and sets tier automatically
+     ```
+
+     If `ast-grep` and `qmd` are available, Ferris activates Deep mode. Every skill gets AST-verified signatures (T1) enriched with developer discourse context (T2) — deprecation warnings, breaking change history, common pitfalls from real discussions.
+     ```
+
+   - **docs/examples.md** (MODIFIED - uncommitted)
+     - `spacetimedb` → `BMAD-METHOD` with GitHub URL
+
+   - **_bmad-output/temp/qmd-deep-agent-guide.md** (READ - reference)
+     - Full QMD documentation showing it's a local hybrid search engine for markdown with BM25, vector semantic, and deep hybrid search modes using three GGUF models
+
+4. Errors and Fixes:
+   - **Dark/light mode layout inconsistency**: `--sl-content-width: 100%` had different effective values in each theme due to CSS specificity. Starlight's own CSS overrides `:root` but not `:root[data-theme='dark']`. Fix: removed the override from both blocks.
+   - **Commit failed - markdownlint MD034**: Bare URL `https://armelhbobdad.github.io/bmad-module-skill-forge/` in README.md:5. Fix: wrapped in angle brackets `<https://...>`.
+   - **lint-staged reverted working tree**: After first commit failure, lint-staged backed up via git stash and reverted. The staged index survived but working tree changes (README fix) were lost. Fix: re-staged README.md and committed again.
+   - **Logo disappeared after failed commit**: Same lint-staged revert issue. The banner and logo vanished from the running dev server because working tree was reverted. Fix: successful second commit restored everything.
+   - **User feedback - commit message**: User rejected commit with "TEA reference" in the message. Removed the reference.
+
+5. Problem Solving:
+   - Validated all internal links by building the site and checking HTML output with grep
+   - Verified anchor targets in workflows page match all 10 workflow links from index
+   - Used Chrome DevTools screenshots to visually verify light/dark mode consistency
+   - Used `getComputedStyle` via Chrome DevTools to diagnose the CSS variable specificity issue
+   - Used memory plugin (claude-mem) observations #495 and #496 to verify the "source code" vs broader capabilities assertion
+   - Used Explore subagent for thorough verification across all src/ files
+
+6. All User Messages:
+   - "My @website/ is not aligned with the website reference @temp/bmad-method-test-architecture-enterprise/website/. Take a deep look at the documentation layout and compositions. Every links should point on a valid existing doc."
+   - "the app is ready up at http://localhost:4321/. Why I have a different layout when I switch to dark mode?"
+   - "The documentation says SKF transforms source code. In reality, we are not limited to source code, we transform code repositories, documentation websites, and developer discourse. Can you verify this assertion before to do the update everywhere is needed?"
+   - "you can use the memory plugin too."
+   - "yes update everywhere. Do not forget to align it with the astro documentation too."
+   - "I see we have a nice @website/public/favicon.ico. Will it be good to have this logo in the navbar just before 'Skill Forge (SKF)'?"
+   - "commit everything"
+   - "the commit message should not contain TEA reference"
+   - "something happened on my navbar and the logo disappeared"
+   - "the installation guide from the home page differ from the one in the getting-started page."
+   - "the documentation use `spacetimedb` as example. Will it be better to use `https://github.com/bmad-code-org/BMAD-METHOD`?"
+   - "in getting-started page, `Need Help?` section, BMAD provide the `/bmad-help` command (Analyzes what is done and the users query and offers advice on what to do next. Use if user says what should I do next or what do I do now (project))"
+   - "we can add an example prompt like `/bmad-help what is the best workflow to generate skill for my repo`."
+   - "can we have a better example?"
+   - "we should also really improve the common use cases section"
+   - "the common use cases mentioned AST extraction feature, but we forgot the QMD feature for Deep mode for the highest accuracy. What do you think?"
+   - "here is what @_bmad-output/temp/qmd-deep-agent-guide.md really does."
+
+7. Pending Tasks:
+   - Update the "highest accuracy" use case in docs/getting-started.md with accurate QMD description based on the QMD deep agent guide the user just shared
+   - Commit all uncommitted changes (docs/getting-started.md, docs/examples.md)
+
+8. Current Work:
+   The user shared the full QMD deep agent guide (`_bmad-output/temp/qmd-deep-agent-guide.md`) to inform a more accurate description of QMD in the "highest accuracy" use case in `docs/getting-started.md`. The current description at lines 122-130 says:
+   
+   > "Quick mode reads source files. Forge mode adds AST parsing for structural truth. Deep mode goes further — QMD searches issues, PRs, changelogs, and migration notes to enrich skills with temporal context."
+   > "If `ast-grep` and `qmd` are available, Ferris activates Deep mode. Every skill gets AST-verified signatures (T1) enriched with developer discourse context (T2) — deprecation warnings, breaking change history, common pitfalls from real discussions."
+   
+   The QMD guide reveals QMD is actually a local hybrid search engine for markdown documents combining BM25 keyword search, vector semantic search (EmbeddingGemma), and deep hybrid search with LLM re-ranking (Qwen3). The description should be updated to more accurately reflect what QMD does — it indexes and searches your project's markdown documentation locally, not just "searches issues and PRs."
+
+9. Optional Next Step:
+   Update the "I want the highest accuracy possible" use case in `docs/getting-started.md` (lines 122-130) with a more accurate description of QMD based on the guide. The user said: "here is what @_bmad-output/temp/qmd-deep-agent-guide.md really does" — implying the current description needs to reflect QMD's actual capabilities as a local hybrid search engine with BM25 + vector + LLM re-ranking over indexed markdown collections.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/armel/.claude/projects/-home-armel-Projects-OSS-bmad-module-skill-forge/b064986b-acf1-42b9-93a5-e6ae6ef716fd.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
+
+---
+
+Tool loaded.
+
+---
+
+Tool loaded.
+
+---
+
+Tool loaded.
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+Now, we are going to improve the `examples` page. The first example should use https://github.com/topoteretes/cognee.
+
+---
+
+in section `Progressive Capability`, you said "then Deep (QMD already included)". It is not true. Do you agree? QMD needs to be install following the official doc.
+
+---
+
+update the `Getting More Help` last section like we did before witht he `/bmad-help` command.
+
+---
+
+replace "my quick skill has low confidence scores, how do I improve them?" by a better example align for this page.
+
+---
+
+commit everything
