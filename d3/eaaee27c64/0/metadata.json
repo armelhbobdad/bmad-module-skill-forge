@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d3eaaee27c64",
+  "session_id": "3085ae95-8847-4dd0-8c9c-8c85bee4ace0",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-06T14:07:41.861693672Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".npmignore",
+    "package.json",
+    "tools/cli/commands/install.js",
+    "tools/cli/lib/compiler.js",
+    "tools/cli/lib/installer.js",
+    "tools/cli/lib/ui.js",
+    "tools/cli/skf-cli.js",
+    "tools/skf-npx-wrapper.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "ed0261c41df0",
+  "token_usage": {
+    "input_tokens": 79,
+    "cache_creation_tokens": 111101,
+    "cache_read_tokens": 4414210,
+    "output_tokens": 31720,
+    "api_call_count": 67
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-06T14:07:41.611040329Z",
+    "agent_lines": 847,
+    "human_added": 290,
+    "human_modified": 9,
+    "human_removed": 0,
+    "total_committed": 1146,
+    "agent_percentage": 73.90924956369983
+  }
+}

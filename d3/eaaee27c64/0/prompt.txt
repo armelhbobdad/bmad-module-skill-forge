@@ -1,0 +1,73 @@
+I have just publish skf to npm following @_bmad-output/npm-release-guide.md. However, my project is not avaible after run armel@dzeta:~/Projects/temp$ npx bmad-module-skill-forge install
+npm error could not determine executable to run
+npm error A complete log of this run can be found in: /home/armel/.npm/_logs/2026-03-06T13_40_43_506Z-debug-0.log
+
+I tried to test the published package  @temp/bmad-method-wds-expansion-main/ and it works. Here is the ouput: armel@dzeta:~/Projects/temp$ npx whiteport-design-studio install
+Need to install the following packages:
+whiteport-design-studio@0.3.3
+Ok to proceed? (y) y
+
+ __        ______  ____  
+ \ \      / /  _ \/ ___| 
+  \ \ /\ / /| | | \___ \ 
+   \ V  V / | |_| |___) |
+    \_/\_/  |____/|____/ 
+                         
+  Whiteport Design Studio
+  Strategic design methodology for AI-powered workflows
+
+  Target: /home/armel/Projects/temp
+  Agents and workflows will be installed in _bmad/wds/
+
+? Project name: temp
+? Output folder name: design-process
+? Do you need to create a pitch deck & project contract before starting the project? Yes, start with a project pitch
+? Which tools/IDEs are you using? (use spacebar to select) Claude Code
+? Install learning & reference material? Yes
+
+✔ WDS files copied
+✔ Configuration saved
+✔ Compiled 2 agents
+✔ IDE integrations configured (1 IDE)
+✔ Project folders created in design-process/
+✔ Learning material added to _wds-learn/ (safe to remove when no longer needed)
+
+  ✨ Installation complete!
+
+  Get Started with Your Product Brief
+
+  1. Open this folder in Claude Code
+
+  2. Locate the chat window in your IDE and type:
+
+     "Read and activate _bmad/wds/agents/saga-analyst.md"
+
+  3. Saga (your AI analyst) will greet you by name and
+     guide you through creating your Product Brief
+
+  ─────────────────────────────────────────────────
+
+  Available agents: Saga (Analyst), Freya (Designer)
+  Need development? Install BMM: npx bmad-builder install
+  Docs: https://github.com/whiteport-collective/whiteport-design-studio
+.
+
+---
+
+Tool loaded.
+
+---
+
+Tool loaded.
+
+---
+
+Tool loaded.
+
+---
+
+yes
+
+---
+
+read all the changes and commit
