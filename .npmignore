@@ -6,7 +6,6 @@
 # Documentation (root-level .md files except README)
 /*.md
 !/README.md
-docs/
 
 # Website and build output
 website/
@@ -21,7 +20,9 @@ _bmad-output/
 
 # Development tools and config
 test/
-tools/
+tools/build-docs.js
+tools/fix-doc-links.js
+tools/validate-doc-links.js
 *.test.js
 eslint.config.mjs
 prettier.config.mjs

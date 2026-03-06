@@ -18,8 +18,11 @@
   },
   "license": "MIT",
   "author": "armelhbobdad",
-  "main": "",
-  "bin": {},
+  "main": "tools/cli/skf-cli.js",
+  "bin": {
+    "bmad-module-skill-forge": "tools/skf-npx-wrapper.js",
+    "skill-forge": "tools/skf-npx-wrapper.js"
+  },
   "scripts": {
     "docs:build": "node tools/build-docs.js",
     "docs:dev": "npm run --prefix website docs:dev",
@@ -59,6 +62,15 @@
       "markdownlint-cli2"
     ]
   },
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "commander": "^14.0.0",
+    "figlet": "^1.8.0",
+    "fs-extra": "^11.3.0",
+    "inquirer": "^9.3.8",
+    "js-yaml": "^4.1.0",
+    "ora": "^5.4.1"
+  },
   "devDependencies": {
     "@astrojs/sitemap": "^3.6.0",
     "@astrojs/starlight": "^0.37.0",
@@ -72,15 +84,12 @@
     "eslint-plugin-n": "^17.21.3",
     "eslint-plugin-unicorn": "^60.0.0",
     "eslint-plugin-yml": "^1.18.0",
-    "figlet": "^1.8.0",
     "glob": "^11.0.3",
     "husky": "^9.1.7",
     "ignore": "^7.0.5",
     "jest": "^30.0.4",
-    "js-yaml": "^4.1.0",
     "lint-staged": "^16.1.1",
     "markdownlint-cli2": "^0.19.1",
-    "ora": "^5.4.1",
     "prettier": "^3.7.4",
     "prettier-plugin-packagejson": "^2.5.19",
     "semver": "^7.6.3",
