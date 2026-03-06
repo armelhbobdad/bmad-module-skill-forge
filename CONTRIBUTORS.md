@@ -6,7 +6,7 @@ This module is made possible by contributions from our community. We gratefully 
 
 - **Git history** — Every contribution is preserved in the project's commit history
 - **Contributors badge** — See the dynamic contributors list on our [README](README.md)
-- **GitHub contributors graph** — Visual representation at <https://github.com/bmad-code-org/YOUR-REPO-NAME/graphs/contributors>
+- **GitHub contributors graph** — Visual representation at <https://github.com/armelhbobdad/bmad-module-skill-forge/graphs/contributors>
 
 ## Becoming a Contributor
 

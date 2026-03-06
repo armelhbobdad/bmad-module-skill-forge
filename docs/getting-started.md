@@ -20,8 +20,7 @@ Skill Forge is an automated skill compiler for the AI agent ecosystem. It transf
 If you haven't installed the module yet:
 
 ```bash
-npx bmad-method install
-# Select: Skill Forge (SKF)
+npx bmad-module-skill-forge install
 ```
 
 Follow the prompts to configure the module for your needs.

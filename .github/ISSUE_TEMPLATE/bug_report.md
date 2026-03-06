@@ -23,7 +23,7 @@ Model(s) Used:
 Agentic IDE Used:
 WebSite Used:
 Project Language:
-BMad Method version:
+SKF version:
 
 **Screenshots or Links**
 If applicable, add screenshots or links (if web sharable record) to help explain your problem.

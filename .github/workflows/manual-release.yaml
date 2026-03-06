@@ -123,10 +123,10 @@ jobs:
           ## 📦 Installation
 
           ```bash
-          npx bmad-method install
+          npx bmad-module-skill-forge install
           ```
 
-          **Full Changelog**: https://github.com/bmad-code-org/bmad-module-creative-intelligence-suite/compare/${{ steps.version.outputs.previous_tag }}...v${{ steps.version.outputs.new_version }}
+          **Full Changelog**: https://github.com/armelhbobdad/bmad-module-skill-forge/compare/${{ steps.version.outputs.previous_tag }}...v${{ steps.version.outputs.new_version }}
           EOF
 
           # Output for GitHub Actions
@@ -170,7 +170,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.new_version }}
-          name: "BMad Method v${{ steps.version.outputs.new_version }}"
+          name: "Skill Forge (SKF) v${{ steps.version.outputs.new_version }}"
           body: |
             ${{ steps.release_notes.outputs.RELEASE_NOTES }}
           draft: false
@@ -182,9 +182,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📦 Distribution" >> $GITHUB_STEP_SUMMARY
           echo "- **NPM**: Published with @latest tag" >> $GITHUB_STEP_SUMMARY
-          echo "- **GitHub Release**: https://github.com/bmad-code-org/bmad-module-creative-intelligence-suite/releases/tag/v${{ steps.version.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **GitHub Release**: https://github.com/armelhbobdad/bmad-module-skill-forge/releases/tag/v${{ steps.version.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### ✅ Installation" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "npx bmad-method@${{ steps.version.outputs.new_version }} install" >> $GITHUB_STEP_SUMMARY
+          echo "npx bmad-module-skill-forge@${{ steps.version.outputs.new_version }} install" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

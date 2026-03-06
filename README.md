@@ -14,7 +14,7 @@ Docs: <https://armelhbobdad.github.io/bmad-module-skill-forge/>
 
 ## How BMad Works
 
-[BMad Method](https://github.com/bmad-code-org/BMAD-METHOD) works because it turns big, fuzzy work into **repeatable workflows**. Each workflow is broken into small steps with clear instructions, so the AI follows the same path every time. It also uses a **shared knowledge base** (standards and patterns) so outputs are consistent, not random. In short: **structured steps + shared standards = reliable results**.
+BMad works because it turns big, fuzzy work into **repeatable workflows**. Each workflow is broken into small steps with clear instructions, so the AI follows the same path every time. It also uses a **shared knowledge base** (standards and patterns) so outputs are consistent, not random. In short: **structured steps + shared standards = reliable results**.
 
 ## How SKF Fits In
 
@@ -73,8 +73,7 @@ Ferris operates in four workflow-driven modes (mode is determined by which workf
 ## Install
 
 ```bash
-npx bmad-method install
-# Select: Skill Forge (SKF)
+npx bmad-module-skill-forge install
 ```
 
 You'll be prompted for:
@@ -169,7 +168,10 @@ src/
         ├── test-skill/
         └── export-skill/
 ```
----
+
+## Contributing
+
+See [CONTRIBUTORS.md](CONTRIBUTORS.md) for guidelines.
 
 ## License
 
@@ -177,8 +179,8 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
-**Skill Forge (SKF)** — Part of the [BMad Method](https://github.com/bmad-code-org/BMAD-METHOD) ecosystem.
+**Skill Forge (SKF)** — A standalone [BMad](https://github.com/bmad-code-org/BMAD-METHOD) module for agent skill compilation.
 
-[![Contributors](https://contrib.rocks/image?repo=bmad-code-org/bmad-module-skill-forge)](https://github.com/bmad-code-org/bmad-module-skill-forge/graphs/contributors)
+[![Contributors](https://contrib.rocks/image?repo=armelhbobdad/bmad-module-skill-forge)](https://github.com/armelhbobdad/bmad-module-skill-forge/graphs/contributors)
 
 See [CONTRIBUTORS.md](CONTRIBUTORS.md) for contributor information.
