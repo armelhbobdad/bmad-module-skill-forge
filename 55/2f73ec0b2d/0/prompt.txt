@@ -1,0 +1,77 @@
+Since our SKF module is not part of the BMAd ecosystem yet, we can only install is as a standalone using npm package (npx bmad-module-skill-forge install). Please update @README.md and @website/src/content/docs
+
+---
+
+Tool loaded.
+
+---
+
+Tool loaded.
+
+---
+
+Tool loaded.
+
+---
+
+do we need to update something else?
+
+---
+
+yes
+
+---
+
+you said "Skill Forge (SKF) — Part of the BMad Method ecosystem." from the @README.md . It is not the case for the moment.
+
+---
+
+remove the Release Guide section.
+
+---
+
+read all changes and commit
+
+---
+
+why the remote and deployed doc https://armelhbobdad.github.io/bmad-module-skill-forge/ is different from the local one at http://localhost:4321/
+
+---
+
+it is done but the problem persists
+
+---
+
+Tool loaded.
+
+---
+
+use chrome mcp
+
+---
+
+Tool loaded.
+
+---
+
+Tool loaded.
+
+---
+
+Tool loaded.
+
+---
+
+Tool loaded.
+
+---
+
+I did it manually. check if everything is good
+
+---
+
+some links from the home page does not works. For example, from the home page, we have "https://armelhbobdad.github.io/getting-started/" instead of "https://armelhbobdad.github.io/bmad-module-skill-forge/getting-started/"
+
+---
+
+commit
