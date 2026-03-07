@@ -1,0 +1,301 @@
+---
+title: Architecture
+description: How Skill Forge works — output format, confidence model, progressive tiers, tool ecosystem, and key design decisions
+---
+
+# Architecture
+
+This page explains how SKF works under the hood — the output format, confidence model, progressive capability tiers, tool ecosystem, and the design decisions that make every instruction traceable.
+
+---
+
+## Why Another Tool?
+
+AI agents hallucinate APIs. Not sometimes — constantly. The table below shows why every existing approach fails at scale:
+
+| Approach | Strength | Fatal Flaw |
+|----------|----------|------------|
+| `npx skills init` | Format compliant | Empty shell. 0% intelligence. |
+| LLM Summarization | High semantic context | Hallucination. Guesses parameters. No grounding. |
+| RAG / Context stuffing | Good retrieval | Fragmented. Finds snippets, fails to synthesize. |
+| Manual Authoring | High initial quality | Drift. Doesn't scale. |
+| Copilot/Cursor built-in | Convenient | Generic. Doesn't know YOUR integration patterns. |
+| **Skill Forge** | **Structural truth + automation** | **Rigid. (Feature, not bug.)** |
+
+SKF solves this by mechanically extracting function signatures, type definitions, and usage patterns from source code — then compiling them into verifiable, version-pinned skills that comply with the [agentskills.io specification](https://agentskills.io/specification).
+
+---
+
+## Progressive Capability Model
+
+SKF uses an additive tier model. Each tier is the previous tier plus one tool. You never lose capability by adding a tool.
+
+| Tier | Tools | What You Get |
+|------|-------|-------------|
+| **Quick** | `gh_bridge` + `skills_ref` | Source reading + spec validation. Best-effort skills in under a minute. |
+| **Forge** | + `ast_bridge` | Structural truth. AST-verified signatures. Co-import detection. T1 confidence. |
+| **Deep** | + `qmd_bridge` | Knowledge search. Temporal provenance. Drift detection. Full intelligence. |
+
+Setup detects your installed tools and sets your tier automatically:
+
+```
+@Ferris SF
+```
+
+```
+Forge initialized. Tools: gh, ast-grep, QMD. Tier: Deep. Ready.
+```
+
+Don't have ast-grep or QMD yet? No problem — Quick mode works with just the GitHub CLI. Install tools later; your tier upgrades automatically.
+
+---
+
+## Confidence Tiers
+
+Every claim in a generated skill carries a confidence tier that traces to its source:
+
+| Tier | Source | Tool | What It Means |
+|------|--------|------|---------------|
+| **T1** | AST extraction | `ast_bridge` | Current code, structurally verified. Immutable for that version. |
+| **T2** | QMD evidence / source reading | `qmd_bridge` / `gh_bridge` | Historical + planned context (issues, PRs, changelogs, docs). |
+| **T3** | External documentation | `doc_fetcher` | External, untrusted. Quarantined. |
+
+### Temporal Provenance
+
+Confidence tiers map to temporal scopes:
+
+- **T1-now (instructions):** What ast-grep sees in the checked-out code. This is what your agent executes.
+- **T2-past (annotations):** Closed issues, merged PRs, changelogs — why the API looks the way it does.
+- **T2-future (annotations):** Open PRs, deprecation warnings, RFCs — what's coming.
+
+Progressive disclosure controls how much context surfaces at each level:
+
+| Output | Content |
+|--------|---------|
+| `context-snippet.md` | T1-now only — compressed, always-on |
+| `SKILL.md` | T1-now + lightweight T2 annotations |
+| `references/` | Full temporal context with all tiers |
+
+### Tier Constrains Authority
+
+Your forge tier limits what authority claims a skill can make:
+
+| Forge Tier | AST? | QMD? | Max Authority | Accuracy Guarantee |
+|-----------|------|------|---------------|-------------------|
+| Quick | No | No | `community` | Best-effort |
+| Forge | Yes | No | `official` | Structural (AST-verified) |
+| Deep | Yes | Yes | `official` | Full (structural + contextual + temporal) |
+
+---
+
+## Output Architecture
+
+### Per-Skill Output
+
+Every generated skill produces a self-contained directory:
+
+```
+skills/{name}/
+├── SKILL.md              # Active skill (loaded on trigger)
+├── context-snippet.md    # Passive context (compressed, always-on)
+├── metadata.json         # Machine-readable provenance
+└── references/           # Progressive disclosure
+    ├── {function-a}.md
+    ├── {function-b}.md
+    └── integrations/     # Stack skills only
+        ├── auth-db.md
+        └── pwa-auth.md
+```
+
+### SKILL.md Format
+
+Skills follow the [agentskills.io specification](https://agentskills.io/specification) with frontmatter:
+
+```yaml
+---
+name: payment-service
+version: 2.1.0
+description: Payment processing API skill — 23 verified functions
+author: org/payment-team
+---
+```
+
+Every instruction in the body traces to source:
+
+```
+Extracted: `getToken(userId: string, options?: TokenOptions): Promise<AuthToken>`
+[AST:src/auth/index.ts:L42]. Confidence: T1.
+```
+
+### metadata.json — The Birth Certificate
+
+Machine-readable provenance for every skill:
+
+```json
+{
+  "name": "payment-service",
+  "version": "2.1.0",
+  "skill_type": "individual",
+  "source_authority": "official",
+  "source_repo": "github.com/org/payment-service",
+  "source_commit": "a1b2c3d",
+  "forge_tier": "forge",
+  "spec_version": "1.3",
+  "generated_at": "2026-02-25T14:30:00Z",
+  "stats": {
+    "exports_documented": 23,
+    "exports_total": 23,
+    "coverage": 1.0,
+    "confidence_t1": 20,
+    "confidence_t2": 3,
+    "confidence_t3": 0
+  }
+}
+```
+
+### Stack Skill Output
+
+Stack skills map how your dependencies interact — shared types, co-import patterns, integration points:
+
+```
+skills/{project}-stack/
+├── SKILL.md              # Integration patterns + project conventions
+├── context-snippet.md    # Compressed stack index
+├── metadata.json         # Component versions, integration graph
+└── references/
+    ├── nextjs.md         # Project-specific subset
+    ├── better-auth.md    # Project-specific subset
+    └── integrations/
+        ├── auth-db.md    # Cross-library pattern
+        └── pwa-auth.md   # Cross-library pattern
+```
+
+The primary source is your project repo. Component references trace to library repos. `skill_type: "stack"` in metadata.
+
+---
+
+## Dual-Output Strategy
+
+Based on [Vercel research](https://github.com/vercel-labs/skills): passive context (AGENTS.md/CLAUDE.md) achieves 100% pass rate vs 53% for active skills alone.
+
+Every skill generates both:
+
+1. **SKILL.md** — Active skill loaded on trigger with full instructions
+2. **context-snippet.md** — Passive context, compressed index injected into CLAUDE.md
+
+### Managed CLAUDE.md Section
+
+Export injects a managed section between markers:
+
+```markdown
+<!-- SKF:BEGIN updated:2026-02-25 -->
+[SKF Skills]|3 skills|1 stack
+|IMPORTANT: Prefer documented APIs over training data.
+|
+|payment-service → skills/payment-service/
+|  exports: getToken, refreshToken, revokeSession, createSession
+|
+|auth-service → skills/auth-service/
+|  exports: getSession, validateToken, revokeSession, createUser
+|
+|my-project-stack → skills/my-project-stack/
+|  stack: next@15, better-auth@3, spacetimedb@1, serwist@9
+|  integrations: auth↔db, pwa↔auth, gateway↔auth
+<!-- SKF:END -->
+```
+
+Two lines per skill (~30 tokens each). Developer controls placement. Ferris controls content. Snippet updates only happen at `export-skill` — create and update are draft operations.
+
+---
+
+## Tool Ecosystem
+
+### 4 MCP Tools
+
+| Tool | Wraps | Purpose |
+|------|-------|---------|
+| **`gh_bridge`** | GitHub CLI (`gh`) | Source code access, issue mining, release tracking, PR intelligence |
+| **`skills_ref`** | agentskills.io spec | Schema validation, frontmatter checks, ecosystem search |
+| **`ast_bridge`** | ast-grep CLI | Structural extraction, custom AST queries, co-import detection |
+| **`qmd_bridge`** | QMD (local search) | BM25 keyword search, vector semantic search, collection indexing |
+
+Optional addon: **`doc_fetcher`** for remote documentation (Firecrawl/Jina.ai). Output quarantined as T3.
+
+### Conflict Resolution
+
+When tools disagree, higher priority wins for instructions. Lower priority is preserved as annotations:
+
+| Priority | Source | Tool |
+|----------|--------|------|
+| 1 (highest) | AST extraction | `ast_bridge` |
+| 2 | QMD evidence | `qmd_bridge` |
+| 3 | Source reading (non-AST) | `gh_bridge` |
+| 4 | External documentation | `doc_fetcher` |
+
+### Internal Utility
+
+**`manifest_reader`** detects and parses dependency files across ecosystems:
+
+- **Full support:** `package.json`, `pyproject.toml`, `requirements.txt`, `Cargo.toml`, `go.mod`
+- **Basic support:** `build.gradle`, `pom.xml`, `Gemfile`, `composer.json`
+
+---
+
+## Workspace Artifacts
+
+Build artifacts are committable — another developer can reproduce the same skill:
+
+```
+forge-data/{skill-name}/
+├── skill-brief.yaml        # Compilation config
+├── provenance-map.json     # Source map with AST bindings
+├── evidence-report.md      # Build audit trail
+└── extraction-rules.yaml   # Language-specific ast-grep schema
+```
+
+`skills/` and `forge-data/` are committed. Agent memory (`_bmad/_memory/ferris-sidecar/`) is gitignored.
+
+---
+
+## Ownership Model
+
+| Context | `source_authority` | Distribution |
+|---------|-------------------|-------------|
+| OSS library (maintainer generates) | `official` | `npx skills publish` to agentskills ecosystem |
+| Internal service (team generates) | `internal` | `skills/` in repo, ships with code |
+| External dependency (consumer generates) | `community` | Local `skills/`, marked as community |
+
+Provenance maps enable verification: an `official` skill's provenance must trace to the actual source repo owned by the author.
+
+---
+
+## Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **Solo agent (Ferris), not multi-agent** | One domain (skill compilation) doesn't benefit from handoffs. Shared knowledge base (AST patterns, provenance maps) is the core asset. |
+| **Workflows drive modes, not conversation** | Ferris doesn't auto-switch based on question content. Invoke a workflow to change mode. Predictable behavior. |
+| **Hub-and-spoke cross-knowledge** | Each skill has one primary source. Cross-repo references use inline summary + pointer + `[XREF:repo:file:line]` provenance tag. |
+| **Stack skill = compositional** | SKILL.md is the integration layer. references/ contains per-library + integration pairs. Partial regeneration on dependency updates. |
+| **Snippet updates only at export** | Create/update are draft operations. Export publishes to skills/ and CLAUDE.md. No half-baked snippets. |
+| **Bundle spec with opt-in update** | Offline-capable. 90-day staleness warning. `setup-forge --update-spec` fetches latest. |
+
+---
+
+## Security
+
+- All tool wrappers use array-style subprocess execution — no shell interpolation
+- Input sanitization: allowlist characters for repo names, file paths, patterns
+- File paths validated against project root (no directory traversal)
+- **Source code never leaves the machine.** All processing is local (AST, QMD, validation).
+- `doc_fetcher` warns before transmitting URLs to external services
+
+---
+
+## Ecosystem Alignment
+
+SKF produces skills compatible with the [agentskills.io](https://agentskills.io) ecosystem:
+
+- Full [specification](https://agentskills.io/specification) compliance
+- Distribution via [`npx skills add/publish`](https://www.npmjs.com/package/skills)
+- Compatible with [agentskills/agentskills](https://github.com/agentskills/agentskills) and [vercel-labs/skills](https://github.com/vercel-labs/skills)

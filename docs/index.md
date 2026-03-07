@@ -55,6 +55,7 @@ Then interact with the forge agent:
 ## Documentation
 
 - **[Getting Started](./getting-started.md)** — Installation, prerequisites, first steps
+- **[Architecture](./architecture.md)** — Output format, confidence model, tiers, tool ecosystem
 - **[Agents](./agents.md)** — Ferris agent: modes, capabilities, communication style
 - **[Workflows](./workflows.md)** — All 10 workflows with commands and connection diagram
 - **[Examples](./examples.md)** — Real-world scenarios, tips, and troubleshooting

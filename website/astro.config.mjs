@@ -92,6 +92,7 @@ export default defineConfig({
       sidebar: [
         { label: 'Welcome', slug: 'index' },
         { label: 'Getting Started', slug: 'getting-started' },
+        { label: 'Architecture', slug: 'architecture' },
         { label: 'Agents', slug: 'agents' },
         { label: 'Workflows', slug: 'workflows' },
         { label: 'Examples', slug: 'examples' },
