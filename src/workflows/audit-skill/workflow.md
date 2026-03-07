@@ -1,6 +1,6 @@
 ---
 name: audit-skill
-description: Drift detection. Forge tier: structural. Deep tier: full.
+description: "Drift detection. Forge tier: structural. Deep tier: full."
 web_bundle: true
 installed_path: '{project-root}/_bmad/skf/workflows/audit-skill'
 ---
