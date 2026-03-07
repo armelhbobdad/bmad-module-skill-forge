@@ -1,0 +1,191 @@
+You must fully embody this agent's persona and follow all activation instructions exactly as specified. NEVER break character until given an exit command.
+
+<agent-activation CRITICAL="TRUE">
+1. LOAD the FULL agent file from {project-root}/_bmad/bmm/agents/tech-writer/tech-writer.md
+2. READ its entire contents - this contains the complete agent persona, menu, and instructions
+3. FOLLOW every step in the <activation> section precisely
+4. DISPLAY the welcome/greeting as instructed
+5. PRESENT the numbered menu
+6. WAIT for user input before proceeding
+</agent-activation>
+
+---
+
+Tool loaded.
+
+---
+
+PM
+
+---
+
+we are about to ship SKF modue @_bmad-output/bmb-creations/modules/module-brief-skf.md. After writting a dedicated doc at @website/src/content/docs , We need to write a very detailed article for medium. The memory plugin contains every memories/decisions/etc... from day 0. Where can we start for our article?
+
+---
+
+Tool loaded.
+
+---
+
+Base directory for this skill: /home/armel/.claude/plugins/cache/thedotmack/claude-mem/10.4.3/skills/mem-search
+
+# Memory Search
+
+Search past work across all sessions. Simple workflow: search -> filter -> fetch.
+
+## When to Use
+
+Use when users ask about PREVIOUS sessions (not current conversation):
+
+- "Did we already fix this?"
+- "How did we solve X last time?"
+- "What happened last week?"
+
+## 3-Layer Workflow (ALWAYS Follow)
+
+**NEVER fetch full details without filtering first. 10x token savings.**
+
+### Step 1: Search - Get Index with IDs
+
+Use the `search` MCP tool:
+
+```
+search(query="authentication", limit=20, project="my-project")
+```
+
+**Returns:** Table with IDs, timestamps, types, titles (~50-100 tokens/result)
+
+```
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #11131 | 3:48 PM | 🟣 | Added JWT authentication | ~75 |
+| #10942 | 2:15 PM | 🔴 | Fixed auth token expiration | ~50 |
+```
+
+**Parameters:**
+
+- `query` (string) - Search term
+- `limit` (number) - Max results, default 20, max 100
+- `project` (string) - Project name filter
+- `type` (string, optional) - "observations", "sessions", or "prompts"
+- `obs_type` (string, optional) - Comma-separated: bugfix, feature, decision, discovery, change
+- `dateStart` (string, optional) - YYYY-MM-DD or epoch ms
+- `dateEnd` (string, optional) - YYYY-MM-DD or epoch ms
+- `offset` (number, optional) - Skip N results
+- `orderBy` (string, optional) - "date_desc" (default), "date_asc", "relevance"
+
+### Step 2: Timeline - Get Context Around Interesting Results
+
+Use the `timeline` MCP tool:
+
+```
+timeline(anchor=11131, depth_before=3, depth_after=3, project="my-project")
+```
+
+Or find anchor automatically from query:
+
+```
+timeline(query="authentication", depth_before=3, depth_after=3, project="my-project")
+```
+
+**Returns:** `depth_before + 1 + depth_after` items in chronological order with observations, sessions, and prompts interleaved around the anchor.
+
+**Parameters:**
+
+- `anchor` (number, optional) - Observation ID to center around
+- `query` (string, optional) - Find anchor automatically if anchor not provided
+- `depth_before` (number, optional) - Items before anchor, default 5, max 20
+- `depth_after` (number, optional) - Items after anchor, default 5, max 20
+- `project` (string) - Project name filter
+
+### Step 3: Fetch - Get Full Details ONLY for Filtered IDs
+
+Review titles from Step 1 and context from Step 2. Pick relevant IDs. Discard the rest.
+
+Use the `get_observations` MCP tool:
+
+```
+get_observations(ids=[11131, 10942])
+```
+
+**ALWAYS use `get_observations` for 2+ observations - single request vs N requests.**
+
+**Parameters:**
+
+- `ids` (array of numbers, required) - Observation IDs to fetch
+- `orderBy` (string, optional) - "date_desc" (default), "date_asc"
+- `limit` (number, optional) - Max observations to return
+- `project` (string, optional) - Project name filter
+
+**Returns:** Complete observation objects with title, subtitle, narrative, facts, concepts, files (~500-1000 tokens each)
+
+## Examples
+
+**Find recent bug fixes:**
+
+```
+search(query="bug", type="observations", obs_type="bugfix", limit=20, project="my-project")
+```
+
+**Find what happened last week:**
+
+```
+search(type="observations", dateStart="2025-11-11", limit=20, project="my-project")
+```
+
+**Understand context around a discovery:**
+
+```
+timeline(anchor=11131, depth_before=5, depth_after=5, project="my-project")
+```
+
+**Batch fetch details:**
+
+```
+get_observations(ids=[11131, 10942, 10855], orderBy="date_desc")
+```
+
+## Why This Workflow?
+
+- **Search index:** ~50-100 tokens per result
+- **Full observation:** ~500-1000 tokens each
+- **Batch fetch:** 1 HTTP request vs N individual requests
+- **10x token savings** by filtering before fetching
+
+
+ARGUMENTS: SKF Skill Forge module creation decisions architecture
+
+---
+
+Tool loaded.
+
+---
+
+1. Who is the audience? end users (Developer practitioners on Medium)
+2. What's the call-to-action? Install and try SKF with FULL CONTROL.
+
+Doc page first
+
+---
+
+Tool loaded.
+
+---
+
+Tool loaded.
+
+---
+
+let's go
+
+---
+
+how to install this standalone module locally @package.json
+
+---
+
+commit every changes from git. the medium article is ignored so don't worry
+
+---
+
+Tool loaded.
