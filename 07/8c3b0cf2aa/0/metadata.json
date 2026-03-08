@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "078c3b0cf2aa",
+  "session_id": "e21259de-5cf3-4ae3-89ee-4f13081f4f3a",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-08T15:56:11.625672032Z",
+  "branch": "dev",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "tools/cli/lib/ui.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "bb11de404fca",
+  "token_usage": {
+    "input_tokens": 3999,
+    "cache_creation_tokens": 400444,
+    "cache_read_tokens": 22143036,
+    "output_tokens": 63788,
+    "api_call_count": 214
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-08T15:56:10.021560617Z",
+    "agent_lines": 43,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 43,
+    "agent_percentage": 100
+  }
+}
