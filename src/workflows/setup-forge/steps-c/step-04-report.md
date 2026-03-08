@@ -43,6 +43,7 @@ Display the forge status report with positive capability framing, report tier ch
 
 - Available: {detected_tools}, {calculated_tier}, {previous_tier}, {tier_override} from step-01
 - Available: tool version strings from step-01
+- Available: {qmd_indexed}, {qmd_collections}, {qmd_total_files}, {qmd_skip_reason} from step-03
 - Focus: report display only — no file modifications
 - Dependencies: steps 01-03 must have completed
 
@@ -68,6 +69,16 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 
   Tools Detected:
   {for each tool that is available, show: tool name — version}
+
+  {if qmd_indexed is true:}
+  QMD Index:
+  {for each collection in qmd_collections, show: collection name — file count}
+  {total qmd_total_files files indexed}
+  {end if}
+
+  {if qmd_skip_reason is "no_project_content":}
+  QMD Index: pending — no project directories found yet. Re-run [SF] after adding source files.
+  {end if}
 
 {if tier_override is active:}
   Note: Tier override active (set in preferences.yaml)
