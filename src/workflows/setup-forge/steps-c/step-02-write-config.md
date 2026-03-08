@@ -35,7 +35,7 @@ Write the detected tool availability and calculated tier to forge-tier.yaml, cre
 ## EXECUTION PROTOCOLS:
 
 - 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Write files to the ferris-sidecar directory
+- 💾 Write files to the forger-sidecar directory
 - 📖 Use context from step-01 (detected_tools, calculated_tier)
 - 🚫 FORBIDDEN to proceed if forge-tier.yaml write fails
 
@@ -52,7 +52,7 @@ Write the detected tool availability and calculated tier to forge-tier.yaml, cre
 
 ### 1. Write forge-tier.yaml
 
-Write to `{project-root}/_bmad/_memory/ferris-sidecar/forge-tier.yaml`:
+Write to `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml`:
 
 ```yaml
 # Ferris Sidecar: Forge Tier State
@@ -76,7 +76,7 @@ If the write fails, report the error and halt the workflow.
 
 ### 2. Handle preferences.yaml
 
-Check if `{project-root}/_bmad/_memory/ferris-sidecar/preferences.yaml` exists:
+Check if `{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml` exists:
 
 **If it does NOT exist (first run):** Create with defaults:
 

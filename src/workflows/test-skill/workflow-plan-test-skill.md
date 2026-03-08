@@ -94,7 +94,7 @@ Cognitive completeness verification — Verifies that a skill is complete enough
 - Batch mode: --batch with --continue for sidecar-checkpointed resume (matches create-skill pattern)
 - Batch produces per-skill reports with optional consolidated summary
 - Configurable pass/fail threshold (default overridable)
-- Must read forge-tier.yaml from ferris-sidecar to determine available analysis depth
+- Must read forge-tier.yaml from forger-sidecar to determine available analysis depth
 
 ---
 
@@ -133,7 +133,7 @@ Cognitive completeness verification — Verifies that a skill is complete enough
 - Checkpoint frequency: entry (input validation) and exit (report delivery) only
 
 **Inputs Required:**
-- Required: skill path (`{skills_output_folder}/{name}/`), forge tier state (`ferris-sidecar/forge-tier.yaml`)
+- Required: skill path (`{skills_output_folder}/{name}/`), forge tier state (`forger-sidecar/forge-tier.yaml`)
 - Optional: `--batch` flag with skill list or directory, `--continue` for interrupted batch resume, source path override, custom pass/fail threshold
 - Prerequisites: setup-forge completed (tier detected), skill created via create-skill (SKILL.md exists)
 

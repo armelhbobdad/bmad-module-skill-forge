@@ -175,7 +175,7 @@ src/
 │   └── examples.md
 ├── agents/
 │   └── forger.agent.yaml
-├── ferris/
+├── forger/
 │   ├── forge-tier.yaml
 │   ├── preferences.yaml
 │   └── README.md

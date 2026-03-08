@@ -41,8 +41,8 @@ Initialize forge environment, detect tools, set tier, auto-index project
 
 - `forge-config.yaml` — Tier and tool configuration
 - `forge-data/` directory created
-- `_bmad/_memory/ferris-sidecar/forge-tier.yaml` — Capability flags
-- `_bmad/_memory/ferris-sidecar/preferences.yaml` — User preferences (defaults on first run)
+- `_bmad/_memory/forger-sidecar/forge-tier.yaml` — Capability flags
+- `_bmad/_memory/forger-sidecar/preferences.yaml` — User preferences (defaults on first run)
 
 ### Input Requirements
 
@@ -171,8 +171,8 @@ Initialize forge environment, detect tools, set tier, auto-index project
 **Output Specifications:**
 - Type: Action-based (config file generation + directory creation + tool verification)
 - Files created/updated:
-  - `_bmad/_memory/ferris-sidecar/forge-tier.yaml` — single source of truth for tools + tier + timestamp
-  - `_bmad/_memory/ferris-sidecar/preferences.yaml` — user defaults (create if missing, never overwrite)
+  - `_bmad/_memory/forger-sidecar/forge-tier.yaml` — single source of truth for tools + tier + timestamp
+  - `_bmad/_memory/forger-sidecar/preferences.yaml` — user defaults (create if missing, never overwrite)
   - `forge-data/` directory — created if missing, skipped if exists
 - Eliminated: `forge-config.yaml` — consolidated into forge-tier.yaml to prevent drift
 - Display: Forge status report with tier, capabilities, and positive framing

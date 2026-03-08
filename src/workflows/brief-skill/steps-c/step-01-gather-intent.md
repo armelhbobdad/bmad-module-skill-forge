@@ -3,7 +3,7 @@ name: 'step-01-gather-intent'
 description: 'Initialize brief-skill workflow, discover forge tier, and gather user intent for skill creation'
 
 nextStepFile: './step-02-analyze-target.md'
-forgeTierFile: '{project-root}/_bmad/_memory/ferris-sidecar/forge-tier.yaml'
+forgeTierFile: '{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml'
 ---
 
 # Step 1: Gather Intent

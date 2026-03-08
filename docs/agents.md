@@ -70,4 +70,4 @@ DELIVER:
 ```
 
 **Memory:**
-Ferris has a sidecar (`_bmad/_memory/ferris-sidecar/`) that persists user preferences and tool availability across sessions.
+Ferris has a sidecar (`_bmad/_memory/forger-sidecar/`) that persists user preferences and tool availability across sessions.

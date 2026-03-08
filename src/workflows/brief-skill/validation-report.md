@@ -149,7 +149,7 @@ All 5 step files scanned for hardcoded `{project-root}/` paths in body content (
 | briefSchemaFile | step-04, step-05 | ../data/skill-brief-schema.md | ✅ |
 | advancedElicitationTask | step-03, step-04 | {project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml | ✅ |
 | partyModeWorkflow | step-03, step-04 | {project-root}/_bmad/core/workflows/party-mode/workflow.md | ✅ |
-| forgeTierFile | step-01 | {project-root}/_bmad/_memory/ferris-sidecar/forge-tier.yaml | ⚠️ Runtime — may not exist if setup-forge not run (handled gracefully with default) |
+| forgeTierFile | step-01 | {project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml | ⚠️ Runtime — may not exist if setup-forge not run (handled gracefully with default) |
 
 ### Module Awareness
 

@@ -142,10 +142,10 @@ Paths using `{project-root}` are valid runtime references, not violations.
 
 | File | Line | Path | Assessment |
 |------|------|------|-----------|
-| step-01 | 60 | `{project-root}/_bmad/_memory/ferris-sidecar/forge-tier.yaml` | VALID — runtime output path |
-| step-01 | 64 | `{project-root}/_bmad/_memory/ferris-sidecar/preferences.yaml` | VALID — runtime output path |
-| step-02 | 55 | `{project-root}/_bmad/_memory/ferris-sidecar/forge-tier.yaml` | VALID — runtime output path |
-| step-02 | 79 | `{project-root}/_bmad/_memory/ferris-sidecar/preferences.yaml` | VALID — runtime output path |
+| step-01 | 60 | `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml` | VALID — runtime output path |
+| step-01 | 64 | `{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml` | VALID — runtime output path |
+| step-02 | 55 | `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml` | VALID — runtime output path |
+| step-02 | 79 | `{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml` | VALID — runtime output path |
 | step-02 | 100 | `{project-root}/forge-data/` | VALID — runtime output directory |
 | step-04 | 96 | `{project-root}/forge-data/agentskills-spec.json` | VALID — runtime output path |
 

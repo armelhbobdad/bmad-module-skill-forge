@@ -57,11 +57,11 @@ Load and read {tierRulesData} for the tool detection commands and tier calculati
 
 ### 2. Check for Existing Configuration (Re-run Detection)
 
-**Read existing forge-tier.yaml** at `{project-root}/_bmad/_memory/ferris-sidecar/forge-tier.yaml`:
+**Read existing forge-tier.yaml** at `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml`:
 - If exists: store the current `tier` value as `{previous_tier}` and `tier_detected_at` as `{previous_detection_date}`
 - If not found: set `{previous_tier}` to null (first run)
 
-**Read existing preferences.yaml** at `{project-root}/_bmad/_memory/ferris-sidecar/preferences.yaml`:
+**Read existing preferences.yaml** at `{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml`:
 - If exists: check for `tier_override` value
 - If not found: set `{tier_override}` to null
 

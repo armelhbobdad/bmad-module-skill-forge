@@ -93,7 +93,7 @@ Drift report with severity levels (added/removed/changed exports, breaking chang
 
 **Cross-workflow integration points (from memory):**
 - **Input from create-skill:** `forge-data/{name}/provenance-map.json`, `evidence-report.md`, `extraction-rules.yaml`
-- **Input from setup-forge:** `ferris-sidecar/forge-tier.yaml` for tier detection
+- **Input from setup-forge:** `forger-sidecar/forge-tier.yaml` for tier detection
 - **Output feeds update-skill:** Drift report triggers remediation workflow
 - **Sibling pattern: test-skill** — Same Ferris Audit mode, zero-hallucination AST citations, tier-aware depth scaling
 - **SKF config:** Loads from `_bmad/skf/config.yaml` (project_name, output_folder, skills_output_folder, forge_data_folder, sidecar_path)
@@ -142,7 +142,7 @@ Drift report with severity levels (added/removed/changed exports, breaking chang
 **Inputs Required:**
 - Required: Existing skill path (skills/{name}/ with SKILL.md, metadata.json)
 - Required: Source code path (or auto-detect from provenance-map.json source_root)
-- Prerequisites: setup-forge completed (ferris-sidecar/forge-tier.yaml), skill created by create-skill (provenance-map.json in forge-data/{name}/)
+- Prerequisites: setup-forge completed (forger-sidecar/forge-tier.yaml), skill created by create-skill (provenance-map.json in forge-data/{name}/)
 - Optional: --batch flag for multiple skills, --continue for batch checkpoint resume, severity threshold filter
 
 **Output Specifications:**
@@ -183,7 +183,7 @@ Drift report with severity levels (added/removed/changed exports, breaking chang
 **Memory:**
 - Type: Single-session (no complex memory)
 - Tracking: stepsCompleted in drift report frontmatter
-- Sidecar: Reads ferris-sidecar/forge-tier.yaml (pre-existing from setup-forge)
+- Sidecar: Reads forger-sidecar/forge-tier.yaml (pre-existing from setup-forge)
 
 **External Integrations (SKF-specific, pre-detected by setup-forge):**
 - **ast_bridge** (ast-grep): Required at Forge/Deep tier — Steps 02-03 structural extraction and comparison

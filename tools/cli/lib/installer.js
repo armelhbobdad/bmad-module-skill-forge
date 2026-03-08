@@ -173,18 +173,18 @@ class Installer {
    * Existing sidecar files are preserved (they contain user state).
    */
   async setupSidecar(projectDir) {
-    const sidecarDir = path.join(projectDir, '_bmad', '_memory', 'ferris-sidecar');
+    const sidecarDir = path.join(projectDir, '_bmad', '_memory', 'forger-sidecar');
     await fs.ensureDir(sidecarDir);
 
-    const ferrisSrc = path.join(this.srcDir, 'ferris');
-    if (await fs.pathExists(ferrisSrc)) {
-      const files = await fs.readdir(ferrisSrc);
+    const forgerSrc = path.join(this.srcDir, 'forger');
+    if (await fs.pathExists(forgerSrc)) {
+      const files = await fs.readdir(forgerSrc);
       for (const file of files) {
         if (file.endsWith('.yaml') || file.endsWith('.yml')) {
           const dest = path.join(sidecarDir, file);
           // Don't overwrite existing sidecar files (preserves user state)
           if (!(await fs.pathExists(dest))) {
-            await fs.copy(path.join(ferrisSrc, file), dest);
+            await fs.copy(path.join(forgerSrc, file), dest);
           }
         }
       }

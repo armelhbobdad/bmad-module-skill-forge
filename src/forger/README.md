@@ -1,4 +1,4 @@
-# ferris-sidecar
+# forger-sidecar
 
 This folder stores persistent memory for the **Ferris** agent (Skill Architect & Integrity Guardian).
 
@@ -14,4 +14,4 @@ Cross-session state for the SKF module's skill compilation lifecycle.
 ## Runtime Access
 
 After BMAD installation, this folder will be accessible at:
-`{project-root}/_bmad/_memory/ferris-sidecar/`
+`{project-root}/_bmad/_memory/forger-sidecar/`

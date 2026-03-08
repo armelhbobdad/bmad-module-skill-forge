@@ -253,7 +253,7 @@ forge-data/{skill-name}/
 └── extraction-rules.yaml   # Language-specific ast-grep schema
 ```
 
-`skills/` and `forge-data/` are committed. Agent memory (`_bmad/_memory/ferris-sidecar/`) is gitignored.
+`skills/` and `forge-data/` are committed. Agent memory (`_bmad/_memory/forger-sidecar/`) is gitignored.
 
 ---
 

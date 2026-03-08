@@ -2,8 +2,8 @@
 name: 'step-01-load-brief'
 description: 'Load skill-brief.yaml, validate structure, resolve source code location, load forge tier'
 nextStepFile: './step-02-ecosystem-check.md'
-forgeTierFile: '{project-root}/_bmad/_memory/ferris-sidecar/forge-tier.yaml'
-preferencesFile: '{project-root}/_bmad/_memory/ferris-sidecar/preferences.yaml'
+forgeTierFile: '{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml'
+preferencesFile: '{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml'
 ---
 
 # Step 1: Load Brief

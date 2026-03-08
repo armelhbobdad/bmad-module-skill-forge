@@ -7,8 +7,8 @@ agent:
     icon: "⚒️"
     module: skf
     hasSidecar: true
-    sidecar-folder: ferris-sidecar
-    sidecar-path: "{project-root}/_bmad/_memory/ferris-sidecar/"
+    sidecar-folder: forger-sidecar
+    sidecar-path: "{project-root}/_bmad/_memory/forger-sidecar/"
 
   persona:
     role: |
@@ -41,9 +41,9 @@ agent:
       - "Agent-level knowledge informs judgment across workflows — consult knowledge/ when a step directs, not from memory"
 
   critical_actions:
-    - "Load COMPLETE file {project-root}/_bmad/_memory/ferris-sidecar/preferences.yaml"
-    - "Load COMPLETE file {project-root}/_bmad/_memory/ferris-sidecar/forge-tier.yaml"
-    - "ONLY read/write files in {project-root}/_bmad/_memory/ferris-sidecar/"
+    - "Load COMPLETE file {project-root}/_bmad/_memory/forger-sidecar/preferences.yaml"
+    - "Load COMPLETE file {project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"
+    - "ONLY read/write files in {project-root}/_bmad/_memory/forger-sidecar/"
     - "Consult {project-root}/_bmad/skf/knowledge/skf-knowledge-index.csv to select knowledge fragments under knowledge/ and load only the files needed for the current task"
     - "Load the referenced fragment(s) from {project-root}/_bmad/skf/knowledge/ before giving recommendations"
 
