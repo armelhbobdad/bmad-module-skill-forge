@@ -1,0 +1,29 @@
+can we publish our package to npm? You can use the memory plugin to see what works in the past.
+
+---
+
+I am login now
+
+---
+
+it is ok
+
+---
+
+yes
+
+---
+
+`npx skill-forge install` does not work but `npx bmad-module-skill-forge install` works.
+
+---
+
+update @README.md and all docs (e.g @website/src/content/docs, _bmad-output/planning-artifacts/medium-article-skf.md, etc...)
+
+---
+
+also update @package.json .
+
+---
+
+yes
