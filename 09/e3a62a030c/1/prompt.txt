@@ -1,0 +1,25 @@
+commit files from git status
+
+---
+
+my @package.json misses some scripts (test:install for example) . You can take inspiration in @temp/bmad-method-test-architecture-enterprise/package.json . The @.github/workflows/quality.yaml should be updated accordingly.
+
+---
+
+commit
+
+---
+
+we should be able to build docs and related scripts like in @temp/bmad-method-test-architecture-enterprise/package.json and @temp/bmad-method-test-architecture-enterprise/docs/404.md
+
+---
+
+[Request interrupted by user]
+
+---
+
+we should be able to build docs and related scripts like in @temp/bmad-method-test-architecture-enterprise/package.json and @temp/bmad-method-test-architecture-enterprise/docs/
+
+---
+
+[Request interrupted by user for tool use]
