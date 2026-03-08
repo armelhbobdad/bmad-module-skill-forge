@@ -20,8 +20,9 @@ class UI {
     } catch {
       banner = '\n  S K F';
     }
+    const packageJson = require('../../../package.json');
     intro(
-      `${chalk.cyan(banner)}\n${chalk.white.bold('  Skill Forge')}\n${chalk.dim('  AST-verified, provenance-backed agent skills from code\n  repositories, documentation, and developer discourse')}`,
+      `${chalk.cyan(banner)}\n${chalk.white.bold('  Skill Forge')} ${chalk.dim(`v${packageJson.version}`)}\n${chalk.dim('  AST-verified, provenance-backed agent skills from code\n  repositories, documentation, and developer discourse')}`,
     );
   }
 
