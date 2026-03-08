@@ -5,10 +5,13 @@
   "description": "BMAD module — AST-verified, provenance-backed agent skills compiler with progressive capability tiers (Quick/Forge/Deep)",
   "keywords": [
     "bmad",
+    "bmad-method",
+    "bmad-module",
     "agent-skills",
     "agentskills",
     "skill-forge",
     "ast-grep",
+    "qmd",
     "provenance",
     "code-analysis"
   ],
