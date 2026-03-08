@@ -542,6 +542,130 @@ async function testFreshInstallWithoutLearning() {
   console.log('');
 }
 
+async function testGitignoreEntries() {
+  console.log(`${colors.yellow}Test Suite 7: .gitignore Entries${colors.reset}\n`);
+
+  // Case A: No .gitignore — creates one
+  const dirA = await makeTempDir('gitignore-new');
+  try {
+    const { Installer } = require('../tools/cli/lib/installer');
+    const installer = new Installer();
+    const config = {
+      projectDir: dirA,
+      skfFolder: '_bmad/skf',
+      project_name: 'gi-test',
+      skills_output_folder: 'skills',
+      forge_data_folder: 'forge-data',
+      ides: [],
+      install_learning: false,
+      _action: 'fresh',
+    };
+    const restore = suppressConsole();
+    await installer.install(config);
+    restore();
+
+    const giPath = path.join(dirA, '.gitignore');
+    assert(await fs.pathExists(giPath), 'creates .gitignore when none exists');
+    const content = await fs.readFile(giPath, 'utf8');
+    assert(content.includes('_bmad/_memory/'), '.gitignore contains _bmad/_memory/');
+  } catch (error) {
+    assert(false, 'gitignore creation test', error.message);
+  } finally {
+    await fs.remove(dirA);
+  }
+
+  // Case B: Existing .gitignore without entry — appends
+  const dirB = await makeTempDir('gitignore-append');
+  try {
+    const { Installer } = require('../tools/cli/lib/installer');
+    const installer = new Installer();
+    await fs.writeFile(path.join(dirB, '.gitignore'), 'node_modules/\n.env\n', 'utf8');
+    const config = {
+      projectDir: dirB,
+      skfFolder: '_bmad/skf',
+      project_name: 'gi-test',
+      skills_output_folder: 'skills',
+      forge_data_folder: 'forge-data',
+      ides: [],
+      install_learning: false,
+      _action: 'fresh',
+    };
+    const restore = suppressConsole();
+    await installer.install(config);
+    restore();
+
+    const content = await fs.readFile(path.join(dirB, '.gitignore'), 'utf8');
+    assert(content.includes('node_modules/'), 'preserves existing entries');
+    assert(content.includes('_bmad/_memory/'), 'appends _bmad/_memory/ entry');
+    const occurrences = content.split('_bmad/_memory/').length - 1;
+    assert(occurrences === 1, 'entry appears exactly once');
+  } catch (error) {
+    assert(false, 'gitignore append test', error.message);
+  } finally {
+    await fs.remove(dirB);
+  }
+
+  // Case C: .gitignore already has entry — no duplicate
+  const dirC = await makeTempDir('gitignore-dup');
+  try {
+    const { Installer } = require('../tools/cli/lib/installer');
+    const installer = new Installer();
+    await fs.writeFile(path.join(dirC, '.gitignore'), 'node_modules/\n_bmad/_memory/\n', 'utf8');
+    const config = {
+      projectDir: dirC,
+      skfFolder: '_bmad/skf',
+      project_name: 'gi-test',
+      skills_output_folder: 'skills',
+      forge_data_folder: 'forge-data',
+      ides: [],
+      install_learning: false,
+      _action: 'fresh',
+    };
+    const restore = suppressConsole();
+    await installer.install(config);
+    restore();
+
+    const content = await fs.readFile(path.join(dirC, '.gitignore'), 'utf8');
+    const occurrences = content.split('_bmad/_memory/').length - 1;
+    assert(occurrences === 1, 'does not duplicate existing entry');
+  } catch (error) {
+    assert(false, 'gitignore no-duplicate test', error.message);
+  } finally {
+    await fs.remove(dirC);
+  }
+
+  // Case D: .gitignore without trailing newline — appends cleanly
+  const dirD = await makeTempDir('gitignore-nonl');
+  try {
+    const { Installer } = require('../tools/cli/lib/installer');
+    const installer = new Installer();
+    await fs.writeFile(path.join(dirD, '.gitignore'), 'node_modules/', 'utf8');
+    const config = {
+      projectDir: dirD,
+      skfFolder: '_bmad/skf',
+      project_name: 'gi-test',
+      skills_output_folder: 'skills',
+      forge_data_folder: 'forge-data',
+      ides: [],
+      install_learning: false,
+      _action: 'fresh',
+    };
+    const restore = suppressConsole();
+    await installer.install(config);
+    restore();
+
+    const content = await fs.readFile(path.join(dirD, '.gitignore'), 'utf8');
+    assert(!content.includes('node_modules/_bmad'), 'entry on its own line (not appended to previous)');
+    assert(content.includes('_bmad/_memory/'), 'entry present after no-newline file');
+  } catch (error) {
+    assert(false, 'gitignore no-trailing-newline test', error.message);
+  } finally {
+    await fs.remove(dirD);
+  }
+
+  console.log('');
+}
+
 // ============================================================
 // Runner
 // ============================================================
@@ -557,6 +681,7 @@ async function runTests() {
   await testIdeCommandGeneration();
   await testManifestAccuracy();
   await testFreshInstallWithoutLearning();
+  await testGitignoreEntries();
 
   console.log(`${colors.cyan}========================================`);
   console.log('Test Results:');

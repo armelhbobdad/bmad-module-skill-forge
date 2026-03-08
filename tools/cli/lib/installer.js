@@ -77,6 +77,9 @@ class Installer {
       throw error;
     }
 
+    // Step 2b: Update .gitignore
+    await this.updateGitignore(projectDir);
+
     // Step 3: Write config.yaml
     const configSpinner = ora('Writing configuration...').start();
     try {
@@ -265,6 +268,27 @@ class Installer {
         await fs.ensureDir(folderPath);
         await fs.writeFile(path.join(folderPath, '.gitkeep'), '# This file ensures the directory is tracked by git\n');
       }
+    }
+  }
+
+  async updateGitignore(projectDir) {
+    const gitignorePath = path.join(projectDir, '.gitignore');
+    const entry = '_bmad/_memory/';
+
+    try {
+      if (await fs.pathExists(gitignorePath)) {
+        const content = await fs.readFile(gitignorePath, 'utf8');
+        // Check if entry already present (exact line match)
+        const lines = content.split('\n');
+        if (lines.some((line) => line.trim() === entry)) return;
+        // Append with preceding newline if file doesn't end with one
+        const prefix = content.endsWith('\n') ? '' : '\n';
+        await fs.appendFile(gitignorePath, `${prefix}${entry}\n`, 'utf8');
+      } else {
+        await fs.writeFile(gitignorePath, `${entry}\n`, 'utf8');
+      }
+    } catch {
+      // Non-critical — don't fail the install over .gitignore
     }
   }
 
