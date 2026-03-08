@@ -739,3 +739,211 @@ next item
 ---
 
 commit
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. Primary Request and Intent:
+   The user is working through a TODO list of 11 planned improvements for the SKF (Skill Forge) standalone CLI installer. The TODO is tracked at `_bmad-output/implementation-artifacts/TODO.md`. Each item gets its own commit. The user's workflow is: implement item → test → update TODO → commit → move to next item. The user explicitly stated to NEVER commit the TODO.md file. Items 1-8 have been completed in this session. Items 9-11 remain.
+
+2. Key Technical Concepts:
+   - SKF CLI architecture: `tools/skf-npx-wrapper.js` → `tools/cli/skf-cli.js` (commander-based) → `tools/cli/commands/*.js`
+   - Installer pipeline: `Installer.install(config)` orchestrates copy, sidecar setup, config write, agent compilation, folder creation, learning material, IDE commands, manifest
+   - Manifest system: `_bmad/_config/skf-manifest.yaml` (not `manifest.yaml` — that's used by BMAD Method)
+   - IDE auto-detection: checks for `.claude/`, `.cursor/`, `.clinerules/`, `.codex/`, `.github/prompts`, `.roo/`, `.roomodes`, `.windsurf/`
+   - Config persistence: saved config.yaml values pre-populate prompts on reinstall
+   - Version check: async non-blocking check against `registry.npmjs.org`, 3s timeout, prints notice after command completes
+   - CLI commands: `install`, `status`, `update`, `uninstall` — all registered in skf-cli.js loop
+   - Test suite: 52 schema + 26 install + 49 knowledge tests + lint + markdown lint + format check
+   - Branch: `dev`, ahead of `origin/dev` by ~18 commits
+   - Demo projects at `/home/armel/Projects/demo/{fast,quick,deep}/` used for testing
+
+3. Files and Code Sections:
+
+   - **`tools/cli/commands/status.js`** (NEW - Item 1)
+     - Shows installation state, version, tier, configured IDEs, sidecar status, manifest presence
+     - Later updated for Item 3 to show manifest info (installed date, presence)
+     ```javascript
+     const { readManifest } = require('../lib/manifest');
+     // ... reads config.yaml, forge-tier.yaml, preferences.yaml, checks agent/workflow counts
+     // manifest display:
+     if (manifest) {
+       console.log(`    Installed:    ${chalk.dim(manifest.installed_at ? new Date(manifest.installed_at).toLocaleDateString() : '(unknown)')}`);
+       console.log(`    Manifest:     ${chalk.green('present')}`);
+     } else {
+       console.log(`    Manifest:     ${chalk.yellow('missing')} ${chalk.dim('(reinstall to generate)')}`);
+     }
+     ```
+
+   - **`tools/cli/lib/version-check.js`** (NEW - Item 2)
+     - Async npm registry check with 3s timeout, never blocks CLI
+     ```javascript
+     const REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
+     const TIMEOUT_MS = 3000;
+     function startVersionCheck(currentVersion) {
+       const checkPromise = fetchLatestVersion().then((latestVersion) => { ... });
+       return async function printIfReady() { ... };
+     }
+     module.exports = { startVersionCheck, compareVersions };
+     ```
+
+   - **`tools/cli/lib/manifest.js`** (NEW - Item 3)
+     - Writes `_bmad/_config/skf-manifest.yaml` tracking all installed files
+     - Uses `skf-manifest.yaml` (not `manifest.yaml`) to avoid conflict with BMAD Method
+     ```javascript
+     const MANIFEST_DIR = '_bmad/_config';
+     const MANIFEST_FILE = 'skf-manifest.yaml';
+     async function writeManifest(projectDir, config, options = {}) { ... }
+     async function readManifest(projectDir) { ... }
+     module.exports = { writeManifest, readManifest, MANIFEST_DIR, MANIFEST_FILE };
+     ```
+
+   - **`tools/cli/commands/uninstall.js`** (NEW - Item 4)
+     - Manifest-based clean removal with confirmation prompt
+     - Groups files by category: SKF module, sidecar, IDE commands, learning, output
+     - Cleans empty parent directories after removal
+     ```javascript
+     module.exports = {
+       command: 'uninstall',
+       description: 'Remove SKF installation from the current project',
+       // ... displays removal plan, asks confirmation, removes files by category
+     };
+     ```
+
+   - **`tools/cli/commands/update.js`** (NEW - Item 6)
+     - Non-interactive update, preserves config and sidecar
+     - Later updated for Item 7 to use `displaySuccess` with update-specific messaging
+     ```javascript
+     const installer = new Installer();
+     const result = await installer.install({
+       projectDir,
+       skfFolder: SKF_FOLDER,
+       _action: 'update',
+     });
+     if (result && result.success) {
+       const ui = new UI();
+       ui.displaySuccess(SKF_FOLDER, ides, 'update');
+     }
+     ```
+
+   - **`tools/cli/skf-cli.js`** (MODIFIED - multiple items)
+     - Registers all commands, wraps actions with version check notice
+     ```javascript
+     const installCommand = require('./commands/install');
+     const statusCommand = require('./commands/status');
+     const uninstallCommand = require('./commands/uninstall');
+     const updateCommand = require('./commands/update');
+     const { startVersionCheck } = require('./lib/version-check');
+     const printUpdateNotice = startVersionCheck(packageJson.version);
+     for (const command of [installCommand, updateCommand, statusCommand, uninstallCommand]) {
+       const cmd = program.command(command.command).description(command.description);
+       for (const option of command.options || []) { cmd.option(...option); }
+       const originalAction = command.action;
+       cmd.action(async (...args) => {
+         await originalAction(...args);
+         await printUpdateNotice();
+       });
+     }
+     ```
+
+   - **`tools/cli/lib/ui.js`** (MODIFIED - Items 5, 7, 8)
+     - Added `js-yaml` import, `loadSavedConfig` method, `detectIdes` method
+     - Pre-populates prompts from saved config on reinstall (Item 5)
+     - Auto-detects IDEs from project directories (Item 8)
+     - `displaySuccess` now accepts `action` parameter for fresh vs update messaging (Item 7)
+     ```javascript
+     async detectIdes(projectDir) {
+       const markers = {
+         'claude-code': ['.claude'],
+         cursor: ['.cursor'],
+         cline: ['.clinerules'],
+         codex: ['.codex'],
+         'github-copilot': ['.github/copilot-instructions.md', '.github/prompts'],
+         roo: ['.roo', '.roomodes'],
+         windsurf: ['.windsurf'],
+       };
+       // ... checks existence, returns array of detected IDE codes
+     }
+     displaySuccess(skfFolder, ides = [], action = 'fresh') {
+       // action === 'update': shows "What Changed" + "Next Steps"
+       // action === 'fresh': shows "Get Started" 3-step onboarding
+     }
+     ```
+
+   - **`tools/cli/lib/ide-commands.js`** (MODIFIED - Item 3)
+     - Added `generatedFiles` array tracking, returned in `{ generated, ides, files }` result
+
+   - **`tools/cli/lib/installer.js`** (MODIFIED - Items 3, 7)
+     - Added manifest import and Step 8 (write manifest) after IDE commands
+     - Captures `ideFiles` from `generateIdeCommands` result
+     ```javascript
+     const { writeManifest } = require('./manifest');
+     // ... Step 8:
+     const packageJson = require('../../../package.json');
+     await writeManifest(projectDir, config, { version: packageJson.version, ideFiles });
+     ```
+
+   - **`tools/cli/commands/install.js`** (MODIFIED - Item 7)
+     - Passes `config._action` to `displaySuccess`
+
+   - **`_bmad-output/implementation-artifacts/TODO.md`** (MODIFIED after each item, NEVER committed)
+     - Items 1-8 checked off, items 9-11 remain unchecked
+
+4. Errors and Fixes:
+   - **TODO.md accidentally committed**: User rejected first commit of Item 2 because it included TODO.md. User explicitly said "never commit the TODO.md file". Later, lint-staged picked up the modified TODO.md and committed it anyway. User undid the commit, moved TODO.md to `_bmad-output/implementation-artifacts/TODO.md`, and asked to recommit.
+   - **Manifest filename conflict**: Initially used `manifest.yaml` but the BMAD Method installer already writes its own `_bmad/_config/manifest.yaml`. Discovered when testing against `demo/deep/` which had an existing BMAD manifest. Fixed by changing to `skf-manifest.yaml`.
+   - **Prettier formatting**: After creating `status.js`, prettier check failed. Fixed by running `npx prettier --write tools/cli/commands/status.js`.
+
+5. Problem Solving:
+   - Designed manifest system to track every file the installer creates (SKF files, sidecar, IDE commands, learning material, output scaffolding) for reliable uninstall
+   - Uninstall handles edge cases: no manifest, no installation, stale manifest with no files, empty parent directory cleanup
+   - Config persistence uses a priority chain: saved config > auto-detected IDEs > defaults
+   - Version check uses a "start early, print late" pattern — check begins at CLI startup, result printed after command completes
+   - All 8 items tested against demo projects and full test suite (127+ tests) before committing
+
+6. All User Messages:
+   - "no, do not commit the TODO.md file."
+   - "the first item from the TODO"
+   - "commit"
+   - "continue with the next item"
+   - "commit"
+   - "I undo the commit and moved the TODO file in @_bmad-output/implementation-artifacts/TODO.md. Recommit"
+   - "continue with item 3"
+   - "commit"
+   - "continue with the next item"
+   - "commit"
+   - "item 5 now" (implicit from context - "continue with item 5")
+   - "commit"
+   - "item 6 now"
+   - "commit"
+   - "next item"
+   - "commit"
+   - "next item"
+   - "commit" (this was the last user action before summary request)
+   - "never commit the TODO file I said" (from prior context, reinforced rule)
+
+7. Pending Tasks:
+   - Item 9: CLI integration tests — End-to-end tests for install/uninstall/update flows using temp directories
+   - Item 10: `.gitignore` entries — Auto-add `_bmad/_memory/` to project `.gitignore` during install
+   - Item 11: Migrate to `@clack/prompts` — Replace inquirer with @clack/prompts for better terminal UI
+
+8. Current Work:
+   Just completed and committed Item 8 (IDE auto-detection) as commit `385e9c8`. The user said "next item", I implemented IDE auto-detection in `tools/cli/lib/ui.js`, updated the TODO, and the user said "commit" which completed successfully. All 8 items of high and medium priority are done. The remaining 3 items are in the "Lower Priority" section.
+
+   Commits made this session (in order):
+   - `41ebc96` feat: add `status` command
+   - `df112ce` feat: async version check against npm registry
+   - `efd4dbc` feat: write installation manifest
+   - `55337fe` feat: add `uninstall` command
+   - `18a293e` feat: pre-populate install prompts from saved config
+   - `40a73c3` feat: add `update` command
+   - `06917a7` feat: contextual post-install notes
+   - `385e9c8` feat: auto-detect IDEs from project directories
+
+9. Optional Next Step:
+   The user has been consistently saying "next item" to continue through the TODO list. The next item would be Item 9: "CLI integration tests — End-to-end tests for install/uninstall/update flows using temp directories. Verify file creation, cleanup, and IDE command generation." However, this is in the "Lower Priority" section, so the user may want to stop here or continue. The user's last message was "commit" for Item 8, so they haven't explicitly asked for Item 9 yet.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/armel/.claude/projects/-home-armel-Projects-OSS-bmad-module-skill-forge/e21259de-5cf3-4ae3-89ee-4f13081f4f3a.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.

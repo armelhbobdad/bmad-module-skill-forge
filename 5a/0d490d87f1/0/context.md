@@ -230,3 +230,11 @@ next item
 
 commit
 
+### Prompt 46
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. Primary Request and Intent:
+   The user is working through a TODO list of 11 planned improvements for the SKF (Skill Forge) standalone CLI installer. The TODO is tracked at `_bmad-output/implementation-artifacts/TODO.md`. Each item gets its own commit. The user's workflow is: implement item → test → update TODO → commit → move to ...
+
