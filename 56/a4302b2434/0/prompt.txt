@@ -1,0 +1,119 @@
+read the bug we described in @installation-bug.txt . See @temp/BMAD-METHOD-main/ reference that also generate IDE specfic configurations.
+
+---
+
+yes
+
+---
+
+commits changes please
+
+---
+
+what happen when I try to install the module more than once in the same directory? Here is an sample output:rmel@dzeta:~/Projects/demo/fast$ node /home/armel/Projects/OSS/bmad-module-skill-forge/tools/skf-npx-wrapper.js install
+  ____  _  _______ 
+ / ___|| |/ /  ___|
+ \___ \| ' /| |_   
+  ___) | . \|  _|  
+ |____/|_|\_\_|    
+                   
+  Skill Forge
+  AST-verified, provenance-backed agent skills from code
+  repositories, documentation, and developer discourse
+
+  Target: /home/armel/Projects/demo/fast
+
+  Found existing installation at _bmad/skf/
+
+? What would you like to do? Fresh install - Remove everything and start over
+? Project name: fast
+? Where should generated skills be saved? skills
+? Where should forge workspace artifacts be stored? forge-data
+? Which tools/IDEs are you using? (use spacebar to select) Claude Code
+? Install learning & reference material? Yes
+✔ Old installation removed
+
+✔ SKF files copied
+✔ Agent sidecar initialized
+✔ Configuration saved
+✔ Compiled 1 agent
+✔ Project folders created
+✔ Learning material added to _skf-learn/ (safe to remove when no longer needed)
+✔ IDE commands generated for claude-code
+
+  Installation complete!
+
+  Get Started
+
+  1. Open this folder in Claude Code
+
+  2. Locate the chat window and type:
+
+     "Read and activate _bmad/skf/agents/skf.md"
+
+  3. Ferris (your Skill Architect) will guide you through
+     setting up and forging your first agent skill
+
+  ───────────────────────────────────────────────────────
+
+  Agent: Ferris (Skill Architect & Integrity Guardian)
+  Docs: https://github.com/armelhbobdad/bmad-module-skill-forge
+
+---
+
+Are you sure it works? I just tried it here but look at the `fast` repo: armel@dzeta:~/Projects/demo/fast$ node /home/armel/Projects/OSS/bmad-module-skill-forge/tools/skf-npx-wrapper.js install
+  ____  _  _______ 
+ / ___|| |/ /  ___|
+ \___ \| ' /| |_   
+  ___) | . \|  _|  
+ |____/|_|\_\_|    
+                   
+  Skill Forge
+  AST-verified, provenance-backed agent skills from code
+  repositories, documentation, and developer discourse
+
+  Target: /home/armel/Projects/demo/fast
+
+  Found existing installation at _bmad/skf/
+
+? What would you like to do? Fresh install - Remove everything and start over
+? Project name: fast
+? Where should generated skills be saved? skills
+? Where should forge workspace artifacts be stored? forge-data
+? Which tools/IDEs are you using? (use spacebar to select) Claude Code
+? Install learning & reference material? Yes
+✔ Old installation removed
+
+✔ SKF files copied
+✔ Agent sidecar initialized
+✔ Configuration saved
+✔ Compiled 1 agent
+✔ Project folders created
+✔ Learning material added to _skf-learn/ (safe to remove when no longer needed)
+✔ IDE commands generated for claude-code
+
+  Installation complete!
+
+  Get Started
+
+  1. Open this folder in Claude Code
+
+  2. Locate the chat window and type:
+
+     "Read and activate _bmad/skf/agents/skf.md"
+
+  3. Ferris (your Skill Architect) will guide you through
+     setting up and forging your first agent skill
+
+  ───────────────────────────────────────────────────────
+
+  Agent: Ferris (Skill Architect & Integrity Guardian)
+  Docs: https://github.com/armelhbobdad/bmad-module-skill-forge
+
+---
+
+we still have the .codex and .cursor commands. Is it normal?
+
+---
+
+it works now. commit.

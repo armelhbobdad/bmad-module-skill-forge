@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "56a4302b2434",
+  "session_id": "e21259de-5cf3-4ae3-89ee-4f13081f4f3a",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-08T14:41:59.742478695Z",
+  "branch": "dev",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "tools/cli/lib/ide-commands.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "5ec383ac8f34",
+  "checkpoint_transcript_start": 309,
+  "transcript_lines_at_start": 309,
+  "token_usage": {
+    "input_tokens": 20,
+    "cache_creation_tokens": 15947,
+    "cache_read_tokens": 1089577,
+    "output_tokens": 4597,
+    "api_call_count": 14
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-08T14:41:59.415261468Z",
+    "agent_lines": 46,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 46,
+    "agent_percentage": 100
+  }
+}
