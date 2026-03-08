@@ -1,0 +1,327 @@
+read the bug we described in @installation-bug.txt . See @temp/BMAD-METHOD-main/ reference that also generate IDE specfic configurations.
+
+---
+
+yes
+
+---
+
+commits changes please
+
+---
+
+what happen when I try to install the module more than once in the same directory? Here is an sample output:rmel@dzeta:~/Projects/demo/fast$ node /home/armel/Projects/OSS/bmad-module-skill-forge/tools/skf-npx-wrapper.js install
+  ____  _  _______ 
+ / ___|| |/ /  ___|
+ \___ \| ' /| |_   
+  ___) | . \|  _|  
+ |____/|_|\_\_|    
+                   
+  Skill Forge
+  AST-verified, provenance-backed agent skills from code
+  repositories, documentation, and developer discourse
+
+  Target: /home/armel/Projects/demo/fast
+
+  Found existing installation at _bmad/skf/
+
+? What would you like to do? Fresh install - Remove everything and start over
+? Project name: fast
+? Where should generated skills be saved? skills
+? Where should forge workspace artifacts be stored? forge-data
+? Which tools/IDEs are you using? (use spacebar to select) Claude Code
+? Install learning & reference material? Yes
+✔ Old installation removed
+
+✔ SKF files copied
+✔ Agent sidecar initialized
+✔ Configuration saved
+✔ Compiled 1 agent
+✔ Project folders created
+✔ Learning material added to _skf-learn/ (safe to remove when no longer needed)
+✔ IDE commands generated for claude-code
+
+  Installation complete!
+
+  Get Started
+
+  1. Open this folder in Claude Code
+
+  2. Locate the chat window and type:
+
+     "Read and activate _bmad/skf/agents/skf.md"
+
+  3. Ferris (your Skill Architect) will guide you through
+     setting up and forging your first agent skill
+
+  ───────────────────────────────────────────────────────
+
+  Agent: Ferris (Skill Architect & Integrity Guardian)
+  Docs: https://github.com/armelhbobdad/bmad-module-skill-forge
+
+---
+
+Are you sure it works? I just tried it here but look at the `fast` repo: armel@dzeta:~/Projects/demo/fast$ node /home/armel/Projects/OSS/bmad-module-skill-forge/tools/skf-npx-wrapper.js install
+  ____  _  _______ 
+ / ___|| |/ /  ___|
+ \___ \| ' /| |_   
+  ___) | . \|  _|  
+ |____/|_|\_\_|    
+                   
+  Skill Forge
+  AST-verified, provenance-backed agent skills from code
+  repositories, documentation, and developer discourse
+
+  Target: /home/armel/Projects/demo/fast
+
+  Found existing installation at _bmad/skf/
+
+? What would you like to do? Fresh install - Remove everything and start over
+? Project name: fast
+? Where should generated skills be saved? skills
+? Where should forge workspace artifacts be stored? forge-data
+? Which tools/IDEs are you using? (use spacebar to select) Claude Code
+? Install learning & reference material? Yes
+✔ Old installation removed
+
+✔ SKF files copied
+✔ Agent sidecar initialized
+✔ Configuration saved
+✔ Compiled 1 agent
+✔ Project folders created
+✔ Learning material added to _skf-learn/ (safe to remove when no longer needed)
+✔ IDE commands generated for claude-code
+
+  Installation complete!
+
+  Get Started
+
+  1. Open this folder in Claude Code
+
+  2. Locate the chat window and type:
+
+     "Read and activate _bmad/skf/agents/skf.md"
+
+  3. Ferris (your Skill Architect) will guide you through
+     setting up and forging your first agent skill
+
+  ───────────────────────────────────────────────────────
+
+  Agent: Ferris (Skill Architect & Integrity Guardian)
+  Docs: https://github.com/armelhbobdad/bmad-module-skill-forge
+
+---
+
+we still have the .codex and .cursor commands. Is it normal?
+
+---
+
+it works now. commit.
+
+---
+
+now we need to update the installation methods (we have 3 now) in @README.md, @docs/ and @website/src/content/docs.
+
+---
+
+the second methode is not accurate. Here is what i really did: Method 2: While installing bmad using `npx bmad-method install`. Here is the output:
+
+armel@dzeta:~/Projects/demo/quick$ npx bmad-method install
+│ ╭─v6.0.4─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ │                                                                                                    ██████╗ ███╗   ███╗ █████╗ ██████╗ ™                                                                                                │
+│ │                                                                                                    ██╔══██╗████╗ ████║██╔══██╗██╔══██╗                                                                                                 │
+│ │                                                                                                    ██████╔╝██╔████╔██║███████║██║  ██║                                                                                                 │
+│ │                                                                                                    ██╔══██╗██║╚██╔╝██║██╔══██║██║  ██║                                                                                                 │
+│ │                                                                                                    ██████╔╝██║ ╚═╝ ██║██║  ██║██████╔╝                                                                                                 │
+│ │                                                                                                     ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚═════╝                                                                                                 │
+│ │                                                                                                        Build More, Architect Dreams                                                                                                    │
+│ ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+│
+●  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+│
+│  🎉 V6 IS HERE! Welcome to BMad Method V6 - Official Stable Release!
+│
+│  The BMad Method is now a Platform powered by the BMad Method Core and Module Ecosystem!
+│    - Select and install modules during setup - customize your experience
+│    - New BMad Method for Agile AI-Driven Development (the evolution of V4)
+│    - Exciting new modules available during installation, with community modules coming soon
+│    - Documentation: https://docs.bmad-method.org
+│
+│  🌟 BMad is 100% free and open source.
+│    - No gated Discord. No paywalls. No gated content.
+│    - We believe in empowering everyone, not just those who can pay.
+│    - Knowledge should be shared, not sold.
+│
+│  🎤 SPEAKING & MEDIA:
+│    - Available for conferences, podcasts, and media appearances
+│    - Topics: AI-Native Transformation, Spec and Context Engineering, BMad Method
+│    - For speaking inquiries or interviews, reach out to BMad on Discord!
+│
+│  ⭐ HELP US GROW:
+│    - Star us on GitHub: https://github.com/bmad-code-org/BMAD-METHOD/
+│    - Subscribe on YouTube: https://www.youtube.com/@BMadCode
+│    - Free Community and Support: https://discord.gg/gk8jAdXWmj
+│    - Donate: https://buymeacoffee.com/bmad
+│    - Corporate Sponsorship available
+│
+│  Latest updates: https://github.com/bmad-code-org/BMAD-METHOD/blob/main/CHANGELOG.md
+│
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+│
+◇  Installation directory:
+│  /home/armel/Projects/demo/quick
+│
+●  Resolved installation path: /home/armel/Projects/demo/quick
+│
+│  Directory exists and is empty
+│
+◇  Install to this directory?
+│  Yes
+│
+◇  Select modules to install:
+│  1 items selected
+│
+◆  Add custom modules, agents, or workflows from your computer?
+│  ● Yes / ○ No
+└
+
+I selected Yes to install the module, then clone the source code of the module and paste the path to the src folder which contains the module.yaml file:
+◇  Installation directory:
+│  /home/armel/Projects/demo/quick
+│
+●  Resolved installation path: /home/armel/Projects/demo/quick
+│
+│  Directory exists and is empty
+│
+◇  Install to this directory?
+│  Yes
+│
+◇  Select modules to install:
+│  1 items selected
+│
+◇  Add custom modules, agents, or workflows from your computer?
+│  Yes
+◆  Path to custom module folder (press Enter to skip):
+│  /home/armel/Projects/OSS/bmad-module-skill-forge/src/█
+│
+
+
+Here is the complete installation output:
+ Installation directory:
+│  /home/armel/Projects/demo/quick
+│
+●  Resolved installation path: /home/armel/Projects/demo/quick
+│
+│  Directory exists and is empty
+│
+◇  Install to this directory?
+│  Yes
+│
+◇  Select modules to install:
+│  1 items selected
+│
+◇  Add custom modules, agents, or workflows from your computer?
+│  Yes
+◇  Path to custom module folder (press Enter to skip):
+│  /home/armel/Projects/OSS/bmad-module-skill-forge/src/
+│
+◆  Confirmed local custom module: SKF: Skill Forge — Evidence-Based Agent Skills Compiler
+│
+◇  Would you like to:
+│  Continue with installation
+│
+◇  Install these 1 custom modules?
+│  Yes
+│
+◇  Integrate with:
+│  2 items selected
+│
+│  Selected tools:
+│    • Claude Code ⭐
+│    • Cursor ⭐
+│
+◇  Configuring BMad Core Configuration
+◇  What should agents call you? (Use your name or a team name)
+│  Armel
+◇  What language should agents use when chatting with you?
+│  English
+◇  Preferred document output language?
+│  English
+◇  Where should output files be saved?
+│  _bmad-output
+│
+◇  Module configuration
+│  Express Setup
+│
+◇  Module configuration complete
+│
+◇  Pre-checks complete
+│
+◇  Preparation complete
+│
+◇  Core installed
+│
+◇  Dependencies resolved
+│
+◇  2 module(s) installed
+│
+◇  Module directories created
+│
+◇  Configurations generated
+│
+◇  Tool configuration complete
+│
+◇  BMAD is ready to use! ────────────────────────────────────────────────╮
+│                                                                        │
+│    ✓  Custom modules cached                                            │
+│    ✓  Core (installed)                                                 │
+│    ✓  Module: skf (installed)                                          │
+│    ✓  Module directories                                               │
+│    ✓  Configurations (generated)                                       │
+│    ✓  Manifests (12 workflows, 2 agents, 7 tasks, 0 tools)             │
+│    ✓  Help catalog                                                     │
+│    ✓  claude-code (3 agents, 12 workflows, 7 tasks)                    │
+│    ✓  cursor (3 agents, 12 workflows, 7 tasks)                         │
+│                                                                        │
+│    Installed to: /home/armel/Projects/demo/quick/_bmad                 │
+│                                                                        │
+│    Next steps:                                                         │
+│      Read our new Docs Site: https://docs.bmad-method.org/             │
+│      Join our Discord: https://discord.gg/gk8jAdXWmj                   │
+│      Star us on GitHub: https://github.com/bmad-code-org/BMAD-METHOD/  │
+│      Subscribe on YouTube: https://www.youtube.com/@BMadCode           │
+│      Run /bmad-help with your IDE Agent and ask it how to get started  │
+│                                                                        │
+├────────────────────────────────────────────────────────────────────────
+
+---
+
+according to @package.json , we can also install our module with the keyword `skill-forge`. e.g: npx skill-forge install
+
+---
+
+commit
+
+---
+
+do we need to update our internal article @_bmad-output/planning-artifacts/medium-article-skf.md?
+
+---
+
+1-2
+
+---
+
+the agent command has double skf-skf while other as qa, sm, dev, etc..
+
+---
+
+I think, I will better to keep it as a role like (qa, dev, pm,...). What is the best role we can add for our agent? surgeon? forger?
+
+---
+
+yes
+
+---
+
+commit

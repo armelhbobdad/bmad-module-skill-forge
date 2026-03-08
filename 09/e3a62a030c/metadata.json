@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "09e3a62a030c",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "README.md",
+    "docs/agents.md",
+    "src/agents/forger.agent.yaml",
+    "test/test-installation-components.js",
+    "tools/cli/lib/ui.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/09/e3a62a030c/0/metadata.json",
+      "transcript": "/09/e3a62a030c/0/full.jsonl",
+      "context": "/09/e3a62a030c/0/context.md",
+      "content_hash": "/09/e3a62a030c/0/content_hash.txt",
+      "prompt": "/09/e3a62a030c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 3705,
+    "cache_creation_tokens": 207401,
+    "cache_read_tokens": 9640380,
+    "output_tokens": 31924,
+    "api_call_count": 100
+  }
+}
