@@ -1,0 +1,9 @@
+read the bug we described in @installation-bug.txt . See @temp/BMAD-METHOD-main/ reference that also generate IDE specfic configurations.
+
+---
+
+yes
+
+---
+
+commits changes please
