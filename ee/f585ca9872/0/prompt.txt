@@ -1,0 +1,709 @@
+read the bug we described in @installation-bug.txt . See @temp/BMAD-METHOD-main/ reference that also generate IDE specfic configurations.
+
+---
+
+yes
+
+---
+
+commits changes please
+
+---
+
+what happen when I try to install the module more than once in the same directory? Here is an sample output:rmel@dzeta:~/Projects/demo/fast$ node /home/armel/Projects/OSS/bmad-module-skill-forge/tools/skf-npx-wrapper.js install
+  ____  _  _______ 
+ / ___|| |/ /  ___|
+ \___ \| ' /| |_   
+  ___) | . \|  _|  
+ |____/|_|\_\_|    
+                   
+  Skill Forge
+  AST-verified, provenance-backed agent skills from code
+  repositories, documentation, and developer discourse
+
+  Target: /home/armel/Projects/demo/fast
+
+  Found existing installation at _bmad/skf/
+
+? What would you like to do? Fresh install - Remove everything and start over
+? Project name: fast
+? Where should generated skills be saved? skills
+? Where should forge workspace artifacts be stored? forge-data
+? Which tools/IDEs are you using? (use spacebar to select) Claude Code
+? Install learning & reference material? Yes
+✔ Old installation removed
+
+✔ SKF files copied
+✔ Agent sidecar initialized
+✔ Configuration saved
+✔ Compiled 1 agent
+✔ Project folders created
+✔ Learning material added to _skf-learn/ (safe to remove when no longer needed)
+✔ IDE commands generated for claude-code
+
+  Installation complete!
+
+  Get Started
+
+  1. Open this folder in Claude Code
+
+  2. Locate the chat window and type:
+
+     "Read and activate _bmad/skf/agents/skf.md"
+
+  3. Ferris (your Skill Architect) will guide you through
+     setting up and forging your first agent skill
+
+  ───────────────────────────────────────────────────────
+
+  Agent: Ferris (Skill Architect & Integrity Guardian)
+  Docs: https://github.com/armelhbobdad/bmad-module-skill-forge
+
+---
+
+Are you sure it works? I just tried it here but look at the `fast` repo: armel@dzeta:~/Projects/demo/fast$ node /home/armel/Projects/OSS/bmad-module-skill-forge/tools/skf-npx-wrapper.js install
+  ____  _  _______ 
+ / ___|| |/ /  ___|
+ \___ \| ' /| |_   
+  ___) | . \|  _|  
+ |____/|_|\_\_|    
+                   
+  Skill Forge
+  AST-verified, provenance-backed agent skills from code
+  repositories, documentation, and developer discourse
+
+  Target: /home/armel/Projects/demo/fast
+
+  Found existing installation at _bmad/skf/
+
+? What would you like to do? Fresh install - Remove everything and start over
+? Project name: fast
+? Where should generated skills be saved? skills
+? Where should forge workspace artifacts be stored? forge-data
+? Which tools/IDEs are you using? (use spacebar to select) Claude Code
+? Install learning & reference material? Yes
+✔ Old installation removed
+
+✔ SKF files copied
+✔ Agent sidecar initialized
+✔ Configuration saved
+✔ Compiled 1 agent
+✔ Project folders created
+✔ Learning material added to _skf-learn/ (safe to remove when no longer needed)
+✔ IDE commands generated for claude-code
+
+  Installation complete!
+
+  Get Started
+
+  1. Open this folder in Claude Code
+
+  2. Locate the chat window and type:
+
+     "Read and activate _bmad/skf/agents/skf.md"
+
+  3. Ferris (your Skill Architect) will guide you through
+     setting up and forging your first agent skill
+
+  ───────────────────────────────────────────────────────
+
+  Agent: Ferris (Skill Architect & Integrity Guardian)
+  Docs: https://github.com/armelhbobdad/bmad-module-skill-forge
+
+---
+
+we still have the .codex and .cursor commands. Is it normal?
+
+---
+
+it works now. commit.
+
+---
+
+now we need to update the installation methods (we have 3 now) in @README.md, @docs/ and @website/src/content/docs.
+
+---
+
+the second methode is not accurate. Here is what i really did: Method 2: While installing bmad using `npx bmad-method install`. Here is the output:
+
+armel@dzeta:~/Projects/demo/quick$ npx bmad-method install
+│ ╭─v6.0.4─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ │                                                                                                    ██████╗ ███╗   ███╗ █████╗ ██████╗ ™                                                                                                │
+│ │                                                                                                    ██╔══██╗████╗ ████║██╔══██╗██╔══██╗                                                                                                 │
+│ │                                                                                                    ██████╔╝██╔████╔██║███████║██║  ██║                                                                                                 │
+│ │                                                                                                    ██╔══██╗██║╚██╔╝██║██╔══██║██║  ██║                                                                                                 │
+│ │                                                                                                    ██████╔╝██║ ╚═╝ ██║██║  ██║██████╔╝                                                                                                 │
+│ │                                                                                                     ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚═════╝                                                                                                 │
+│ │                                                                                                        Build More, Architect Dreams                                                                                                    │
+│ ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+│
+●  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+│
+│  🎉 V6 IS HERE! Welcome to BMad Method V6 - Official Stable Release!
+│
+│  The BMad Method is now a Platform powered by the BMad Method Core and Module Ecosystem!
+│    - Select and install modules during setup - customize your experience
+│    - New BMad Method for Agile AI-Driven Development (the evolution of V4)
+│    - Exciting new modules available during installation, with community modules coming soon
+│    - Documentation: https://docs.bmad-method.org
+│
+│  🌟 BMad is 100% free and open source.
+│    - No gated Discord. No paywalls. No gated content.
+│    - We believe in empowering everyone, not just those who can pay.
+│    - Knowledge should be shared, not sold.
+│
+│  🎤 SPEAKING & MEDIA:
+│    - Available for conferences, podcasts, and media appearances
+│    - Topics: AI-Native Transformation, Spec and Context Engineering, BMad Method
+│    - For speaking inquiries or interviews, reach out to BMad on Discord!
+│
+│  ⭐ HELP US GROW:
+│    - Star us on GitHub: https://github.com/bmad-code-org/BMAD-METHOD/
+│    - Subscribe on YouTube: https://www.youtube.com/@BMadCode
+│    - Free Community and Support: https://discord.gg/gk8jAdXWmj
+│    - Donate: https://buymeacoffee.com/bmad
+│    - Corporate Sponsorship available
+│
+│  Latest updates: https://github.com/bmad-code-org/BMAD-METHOD/blob/main/CHANGELOG.md
+│
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+│
+◇  Installation directory:
+│  /home/armel/Projects/demo/quick
+│
+●  Resolved installation path: /home/armel/Projects/demo/quick
+│
+│  Directory exists and is empty
+│
+◇  Install to this directory?
+│  Yes
+│
+◇  Select modules to install:
+│  1 items selected
+│
+◆  Add custom modules, agents, or workflows from your computer?
+│  ● Yes / ○ No
+└
+
+I selected Yes to install the module, then clone the source code of the module and paste the path to the src folder which contains the module.yaml file:
+◇  Installation directory:
+│  /home/armel/Projects/demo/quick
+│
+●  Resolved installation path: /home/armel/Projects/demo/quick
+│
+│  Directory exists and is empty
+│
+◇  Install to this directory?
+│  Yes
+│
+◇  Select modules to install:
+│  1 items selected
+│
+◇  Add custom modules, agents, or workflows from your computer?
+│  Yes
+◆  Path to custom module folder (press Enter to skip):
+│  /home/armel/Projects/OSS/bmad-module-skill-forge/src/█
+│
+
+
+Here is the complete installation output:
+ Installation directory:
+│  /home/armel/Projects/demo/quick
+│
+●  Resolved installation path: /home/armel/Projects/demo/quick
+│
+│  Directory exists and is empty
+│
+◇  Install to this directory?
+│  Yes
+│
+◇  Select modules to install:
+│  1 items selected
+│
+◇  Add custom modules, agents, or workflows from your computer?
+│  Yes
+◇  Path to custom module folder (press Enter to skip):
+│  /home/armel/Projects/OSS/bmad-module-skill-forge/src/
+│
+◆  Confirmed local custom module: SKF: Skill Forge — Evidence-Based Agent Skills Compiler
+│
+◇  Would you like to:
+│  Continue with installation
+│
+◇  Install these 1 custom modules?
+│  Yes
+│
+◇  Integrate with:
+│  2 items selected
+│
+│  Selected tools:
+│    • Claude Code ⭐
+│    • Cursor ⭐
+│
+◇  Configuring BMad Core Configuration
+◇  What should agents call you? (Use your name or a team name)
+│  Armel
+◇  What language should agents use when chatting with you?
+│  English
+◇  Preferred document output language?
+│  English
+◇  Where should output files be saved?
+│  _bmad-output
+│
+◇  Module configuration
+│  Express Setup
+│
+◇  Module configuration complete
+│
+◇  Pre-checks complete
+│
+◇  Preparation complete
+│
+◇  Core installed
+│
+◇  Dependencies resolved
+│
+◇  2 module(s) installed
+│
+◇  Module directories created
+│
+◇  Configurations generated
+│
+◇  Tool configuration complete
+│
+◇  BMAD is ready to use! ────────────────────────────────────────────────╮
+│                                                                        │
+│    ✓  Custom modules cached                                            │
+│    ✓  Core (installed)                                                 │
+│    ✓  Module: skf (installed)                                          │
+│    ✓  Module directories                                               │
+│    ✓  Configurations (generated)                                       │
+│    ✓  Manifests (12 workflows, 2 agents, 7 tasks, 0 tools)             │
+│    ✓  Help catalog                                                     │
+│    ✓  claude-code (3 agents, 12 workflows, 7 tasks)                    │
+│    ✓  cursor (3 agents, 12 workflows, 7 tasks)                         │
+│                                                                        │
+│    Installed to: /home/armel/Projects/demo/quick/_bmad                 │
+│                                                                        │
+│    Next steps:                                                         │
+│      Read our new Docs Site: https://docs.bmad-method.org/             │
+│      Join our Discord: https://discord.gg/gk8jAdXWmj                   │
+│      Star us on GitHub: https://github.com/bmad-code-org/BMAD-METHOD/  │
+│      Subscribe on YouTube: https://www.youtube.com/@BMadCode           │
+│      Run /bmad-help with your IDE Agent and ask it how to get started  │
+│                                                                        │
+├────────────────────────────────────────────────────────────────────────
+
+---
+
+according to @package.json , we can also install our module with the keyword `skill-forge`. e.g: npx skill-forge install
+
+---
+
+commit
+
+---
+
+do we need to update our internal article @_bmad-output/planning-artifacts/medium-article-skf.md?
+
+---
+
+1-2
+
+---
+
+the agent command has double skf-skf while other as qa, sm, dev, etc..
+
+---
+
+I think, I will better to keep it as a role like (qa, dev, pm,...). What is the best role we can add for our agent? surgeon? forger?
+
+---
+
+yes
+
+---
+
+commit
+
+---
+
+Do we also need to rename `ferris-sidecar` to `forger-sidecar` or `forge-sidecar`? We already have `forge-data` folder.
+
+---
+
+yes
+
+---
+
+do we need to update the @website/src/content/docs?
+
+---
+
+what other improvement we can do for our skf module? you can also see in @temp/BMAD-METHOD-main/ if you want or check our memory plugin.
+
+---
+
+Base directory for this skill: /home/armel/.claude/plugins/cache/thedotmack/claude-mem/10.4.3/skills/mem-search
+
+# Memory Search
+
+Search past work across all sessions. Simple workflow: search -> filter -> fetch.
+
+## When to Use
+
+Use when users ask about PREVIOUS sessions (not current conversation):
+
+- "Did we already fix this?"
+- "How did we solve X last time?"
+- "What happened last week?"
+
+## 3-Layer Workflow (ALWAYS Follow)
+
+**NEVER fetch full details without filtering first. 10x token savings.**
+
+### Step 1: Search - Get Index with IDs
+
+Use the `search` MCP tool:
+
+```
+search(query="authentication", limit=20, project="my-project")
+```
+
+**Returns:** Table with IDs, timestamps, types, titles (~50-100 tokens/result)
+
+```
+| ID | Time | T | Title | Read |
+|----|------|---|-------|------|
+| #11131 | 3:48 PM | 🟣 | Added JWT authentication | ~75 |
+| #10942 | 2:15 PM | 🔴 | Fixed auth token expiration | ~50 |
+```
+
+**Parameters:**
+
+- `query` (string) - Search term
+- `limit` (number) - Max results, default 20, max 100
+- `project` (string) - Project name filter
+- `type` (string, optional) - "observations", "sessions", or "prompts"
+- `obs_type` (string, optional) - Comma-separated: bugfix, feature, decision, discovery, change
+- `dateStart` (string, optional) - YYYY-MM-DD or epoch ms
+- `dateEnd` (string, optional) - YYYY-MM-DD or epoch ms
+- `offset` (number, optional) - Skip N results
+- `orderBy` (string, optional) - "date_desc" (default), "date_asc", "relevance"
+
+### Step 2: Timeline - Get Context Around Interesting Results
+
+Use the `timeline` MCP tool:
+
+```
+timeline(anchor=11131, depth_before=3, depth_after=3, project="my-project")
+```
+
+Or find anchor automatically from query:
+
+```
+timeline(query="authentication", depth_before=3, depth_after=3, project="my-project")
+```
+
+**Returns:** `depth_before + 1 + depth_after` items in chronological order with observations, sessions, and prompts interleaved around the anchor.
+
+**Parameters:**
+
+- `anchor` (number, optional) - Observation ID to center around
+- `query` (string, optional) - Find anchor automatically if anchor not provided
+- `depth_before` (number, optional) - Items before anchor, default 5, max 20
+- `depth_after` (number, optional) - Items after anchor, default 5, max 20
+- `project` (string) - Project name filter
+
+### Step 3: Fetch - Get Full Details ONLY for Filtered IDs
+
+Review titles from Step 1 and context from Step 2. Pick relevant IDs. Discard the rest.
+
+Use the `get_observations` MCP tool:
+
+```
+get_observations(ids=[11131, 10942])
+```
+
+**ALWAYS use `get_observations` for 2+ observations - single request vs N requests.**
+
+**Parameters:**
+
+- `ids` (array of numbers, required) - Observation IDs to fetch
+- `orderBy` (string, optional) - "date_desc" (default), "date_asc"
+- `limit` (number, optional) - Max observations to return
+- `project` (string, optional) - Project name filter
+
+**Returns:** Complete observation objects with title, subtitle, narrative, facts, concepts, files (~500-1000 tokens each)
+
+## Examples
+
+**Find recent bug fixes:**
+
+```
+search(query="bug", type="observations", obs_type="bugfix", limit=20, project="my-project")
+```
+
+**Find what happened last week:**
+
+```
+search(type="observations", dateStart="2025-11-11", limit=20, project="my-project")
+```
+
+**Understand context around a discovery:**
+
+```
+timeline(anchor=11131, depth_before=5, depth_after=5, project="my-project")
+```
+
+**Batch fetch details:**
+
+```
+get_observations(ids=[11131, 10942, 10855], orderBy="date_desc")
+```
+
+## Why This Workflow?
+
+- **Search index:** ~50-100 tokens per result
+- **Full observation:** ~500-1000 tokens each
+- **Batch fetch:** 1 HTTP request vs N individual requests
+- **10x token savings** by filtering before fetching
+
+
+ARGUMENTS: SKF improvements TODO missing features
+
+---
+
+write a todo list we will track for all the 11 improvement. we will commit them one by one.
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Summary:
+1. Primary Request and Intent:
+   The user wanted to fix a bug where the standalone SKF installer (`npx skill-forge install`) did not generate IDE-specific configuration files (e.g., `.claude/commands/`, `.cursor/commands/`), unlike installing SKF as a custom module through the BMAD-METHOD installer (`npx bmad-method install`). Beyond the initial fix, the user requested: updating documentation to cover all 3 installation methods, renaming the agent file from `skf` to `forger` (role-based naming convention), renaming `ferris-sidecar` to `forger-sidecar`, updating the Medium article, and creating a TODO list of 11 future improvements to track.
+
+2. Key Technical Concepts:
+   - BMAD-METHOD IDE configuration pipeline: platform-codes.yaml → IdeManager → ConfigDrivenIdeSetup → command generators → templates
+   - IDE target directories: Claude Code (`.claude/commands/`), Cursor (`.cursor/commands/`), Cline (`.clinerules/workflows/`), Codex (`.codex/prompts/`), GitHub Copilot (`.github/prompts/`), Roo (`.roo/commands/`), Windsurf (`.windsurf/workflows/`)
+   - Agent compilation: `.agent.yaml` → compiled `.md` via `compileAgentFile()`
+   - BMAD naming convention: agent files named by role (qa, dev, pm, sm, architect, forger), not persona
+   - Sidecar: persistent agent memory at `_bmad/_memory/forger-sidecar/` containing `forge-tier.yaml` and `preferences.yaml`
+   - Three installation methods: standalone (`npx skill-forge install`), custom module during BMAD install, and add-on to existing BMAD project
+   - The `skill-forge` npm bin alias alongside `bmad-module-skill-forge`
+   - Workflow paths in standalone: `_bmad/skf/workflows/skillforge/<name>/workflow.md`
+
+3. Files and Code Sections:
+   - **`tools/cli/lib/ide-commands.js`** (NEW)
+     - Core new file that generates IDE command files for selected IDEs
+     - Contains IDE target mapping, agent/workflow command renderers, artifact collectors, and cleanup logic
+     ```javascript
+     const IDE_TARGETS = {
+       'claude-code': '.claude/commands',
+       cursor: '.cursor/commands',
+       cline: '.clinerules/workflows',
+       codex: '.codex/prompts',
+       'github-copilot': '.github/prompts',
+       roo: '.roo/commands',
+       windsurf: '.windsurf/workflows',
+     };
+     ```
+     - `generateIdeCommands(projectDir, skfFolder, ides)` - main entry point, cleans old commands first, then generates new ones
+     - `cleanSkfCommands(targetDir)` - removes `bmad-skf-*` and `bmad-agent-skf-*` files, then removes empty parent directories
+     - `cleanAllSkfCommands(projectDir)` - iterates all IDE_TARGETS to clean stale files
+     - `collectAgents(skfDir, skfFolder)` - finds compiled `.md` agent files
+     - `collectWorkflows(skfDir, skfFolder)` - recursively finds `workflow.md` files and extracts frontmatter
+     - `renderAgentCommand()` / `renderWorkflowCommand()` - generate command file content matching BMAD format
+
+   - **`tools/cli/lib/installer.js`** (MODIFIED)
+     - Added `require('./ide-commands')` import
+     - Added Step 7 after learning material copy:
+     ```javascript
+     const selectedIdes = config.ides || [];
+     if (selectedIdes.length > 0 && !selectedIdes.every((ide) => ide === 'other')) {
+       const ideSpinner = ora('Generating IDE commands...').start();
+       try {
+         const ideResult = await generateIdeCommands(projectDir, skfFolder, selectedIdes);
+         if (ideResult.generated > 0) {
+           ideSpinner.succeed(`IDE commands generated for ${ideResult.ides.join(', ')}`);
+         } else {
+           ideSpinner.info('No IDE commands to generate');
+         }
+       } catch (error) {
+         ideSpinner.fail('Failed to generate IDE commands');
+         throw error;
+       }
+     }
+     ```
+     - Renamed `ferrisSrc` variable to `forgerSrc` pointing to `src/forger/`
+     - Updated sidecar path from `ferris-sidecar` to `forger-sidecar`
+
+   - **`tools/cli/lib/ui.js`** (MODIFIED)
+     - Success message updated: `agents/skf.md` → `agents/forger.md`
+
+   - **`src/agents/forger.agent.yaml`** (RENAMED from `skf.agent.yaml`)
+     - Metadata id: `_bmad/skf/agents/forger.md`
+     - sidecar-folder: `forger-sidecar`
+     - sidecar-path: `{project-root}/_bmad/_memory/forger-sidecar/`
+     - All critical_actions paths updated to `forger-sidecar`
+
+   - **`src/forger/`** (RENAMED from `src/ferris/`)
+     - Contains `README.md`, `forge-tier.yaml`, `preferences.yaml`
+     - README updated to reference `forger-sidecar`
+
+   - **`README.md`** (MODIFIED)
+     - Install section expanded to 3 methods with `npx skill-forge install` as primary
+     - Method 2 corrected: custom module via "Add custom modules" prompt, not built-in selection
+     - Agent file references: `forger.agent.yaml`
+     - Module structure: `forger/` directory
+
+   - **`docs/getting-started.md`** (MODIFIED) - Installation section expanded with 3 methods
+   - **`docs/index.md`** (MODIFIED) - Quick Install section shows both standalone and BMAD Method
+   - **`docs/agents.md`** (MODIFIED) - Agent ID updated to `forger.md`, sidecar to `forger-sidecar`
+   - **`docs/architecture.md`** (MODIFIED) - Sidecar path updated to `forger-sidecar`
+   - **`website/src/content/docs/`** - Auto-synced with `docs/` (confirmed identical via diff)
+
+   - **Workflow files updated** (10 files) - All `ferris-sidecar` references → `forger-sidecar`:
+     - `src/workflows/setup-forge/steps-c/step-01-detect-and-tier.md`
+     - `src/workflows/setup-forge/steps-c/step-02-write-config.md`
+     - `src/workflows/setup-forge/validation-report.md`
+     - `src/workflows/setup-forge/workflow-plan-setup-forge.md`
+     - `src/workflows/create-skill/steps-c/step-01-load-brief.md`
+     - `src/workflows/brief-skill/steps-c/step-01-gather-intent.md`
+     - `src/workflows/brief-skill/validation-report.md`
+     - `src/workflows/audit-skill/workflow-plan-audit-skill.md`
+     - `src/workflows/test-skill/workflow-plan-test-skill.md`
+
+   - **`test/test-installation-components.js`** (MODIFIED) - Updated to reference `forger.agent.yaml`
+
+   - **`_bmad-output/planning-artifacts/medium-article-skf.md`** (MODIFIED)
+     - Install commands changed to `npx skill-forge install`
+     - Added BMad Method integration mention in "Try It Now" section
+
+   - **`TODO.md`** (NEW) - 11 tracked improvements for the standalone CLI installer
+
+4. Errors and Fixes:
+   - **Stale IDE command files on reinstall**: When user changed IDE selection between installs, old command files remained. Fixed by adding `cleanAllSkfCommands()` that runs before generating new commands.
+   - **Empty IDE directories remaining**: The cleanup removed files but left empty `.cursor/` and `.codex/` directories. User reported "we still have the .codex and .cursor commands." Fixed by adding hierarchical empty directory removal after cleaning files.
+   - **Method 2 documentation inaccuracy**: User corrected that SKF is NOT a built-in BMAD module selectable from a list. It's installed as a custom module by selecting "Add custom modules from your computer?" and providing the path to `src/`. Updated all docs.
+   - **Missing `skill-forge` alias**: User pointed out `package.json` has `"skill-forge": "tools/skf-npx-wrapper.js"` bin entry. Updated all install commands to use `npx skill-forge install`.
+   - **`bmad-agent-skf-skf.md` redundancy**: User noticed the double `skf-skf` in agent command naming. Fixed by renaming agent file from `skf.agent.yaml` → `ferris.agent.yaml` → `forger.agent.yaml`.
+   - **`ferris` naming**: User preferred role-based naming (`forger`) over persona naming (`ferris`), consistent with BMAD convention (qa, dev, pm, sm, architect).
+   - **Installer `ferrisSrc` variable**: After renaming `src/ferris/` to `src/forger/`, the installer still referenced `this.srcDir, 'ferris'`. Fixed to `this.srcDir, 'forger'`.
+
+5. Problem Solving:
+   - Analyzed BMAD-METHOD's full IDE config generation pipeline (platform-codes.yaml, IdeManager, ConfigDrivenIdeSetup, command generators, templates) to understand the architecture
+   - Compared 3 demo directories (fast, quick, deep) to identify exact file differences
+   - Designed a simpler standalone approach using flat command files matching the proven BMAD v6.0.4 format (not the newer skill_format with directory-per-skill)
+   - Used the workflow.md frontmatter descriptions to auto-generate command file content
+   - Handled the `skillforge/` subdirectory difference between standalone and BMAD-integrated installations
+   - All commits pass full test suite (52 schema + 26 install + 49 knowledge tests + lint + format)
+
+6. All User Messages:
+   - "read the bug we described in @installation-bug.txt . See @temp/BMAD-METHOD-main/ reference that also generate IDE specfic configurations."
+   - "yes" (confirming implementation of the fix)
+   - "commits changes please"
+   - "Are you sure it works? I just tried it here but look at the `fast` repo: [showed successful install output]"
+   - "we still have the .codex and .cursor commands. Is it normal?"
+   - "it works now. commit."
+   - "now we need to update the installation methods (we have 3 now) in @README.md, @docs/ and @website/src/content/docs."
+   - "the second methode is not accurate. Here is what i really did: [showed full BMAD install output with custom module path]"
+   - "according to @package.json , we can also install our module with the keyword `skill-forge`. e.g: npx skill-forge install"
+   - "commit"
+   - "the agent command has double skf-skf while other as qa, sm, dev, etc.."
+   - "yes" (confirming forger rename)
+   - "commit"
+   - "Do we also need to rename `ferris-sidecar` to `forger-sidecar` or `forge-sidecar`? We already have `forge-data` folder."
+   - "yes" (confirming forger-sidecar rename)
+   - "commit"
+   - "do we need to update our internal article @_bmad-output/planning-artifacts/medium-article-skf.md?"
+   - "1-2" (both update commands and add installation methods)
+   - "do we need to update the @website/src/content/docs?"
+   - "what other improvement we can do for our skf module? you can also see in @temp/BMAD-METHOD-main/ if you want or check our memory plugin."
+   - "write a todo list we will track for all the 11 improvement. we will commit them one by one."
+
+7. Pending Tasks:
+   - Commit the `TODO.md` file (just created, not yet committed)
+   - Implement 11 improvements from TODO.md (to be done one by one per user request):
+     1. `status` command
+     2. Version check on startup
+     3. Manifest system
+     4. `uninstall` command
+     5. Config persistence for updates
+     6. `quick-update` action
+     7. Post-install notes
+     8. IDE auto-detection
+     9. CLI integration tests
+     10. `.gitignore` entries
+     11. Migrate to `@clack/prompts`
+
+8. Current Work:
+   Just created `/home/armel/Projects/OSS/bmad-module-skill-forge/TODO.md` with 11 tracked improvements. The file has NOT been committed yet. The user's last message was "write a todo list we will track for all the 11 improvement. we will commit them one by one."
+
+   Git state: branch `dev`, ahead of `origin/dev` by 9 commits. The TODO.md is an untracked file.
+
+   Commits made this session:
+   - `f4a1f73` feat: generate IDE command files during standalone installation
+   - `60d7019` fix: clean stale IDE command files and empty directories on reinstall
+   - `bae3a64` docs: document all three installation methods with skill-forge alias
+   - `d6c6f47` refactor: rename agent file from skf to forger for BMAD naming convention
+   - `f3ad3ca` refactor: rename ferris-sidecar to forger-sidecar across codebase
+
+9. Optional Next Step:
+   Commit the `TODO.md` file, then begin implementing improvement #1 (`status` command) since the user said "we will commit them one by one." However, the user hasn't explicitly asked to start implementing yet — they may want to commit the TODO first and then decide which to tackle.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/armel/.claude/projects/-home-armel-Projects-OSS-bmad-module-skill-forge/e21259de-5cf3-4ae3-89ee-4f13081f4f3a.jsonl
+Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+no, do not commit the TODO.md file.
+
+---
+
+the first item from the TODO
+
+---
+
+commit
+
+---
+
+update the TODO and continue with the next item
+
+---
+
+commit
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+never commit the TODO file I said
+
+---
+
+I undo the commit and moved the TODO file in @_bmad-output/implementation-artifacts/TODO.md. Recommit
+
+---
+
+continue with item 3
+
+---
+
+commit
+
+---
+
+continue with the next item
+
+---
+
+commit
