@@ -208,6 +208,7 @@ async function generateIdeCommands(projectDir, skfFolder, ides) {
 
   let totalGenerated = 0;
   const processedIdes = [];
+  const generatedFiles = [];
 
   for (const ide of ides) {
     const targetRelDir = IDE_TARGETS[ide];
@@ -222,6 +223,7 @@ async function generateIdeCommands(projectDir, skfFolder, ides) {
       const content = renderAgentCommand(agent.name, agent.description, agent.relativePath);
       await fs.writeFile(path.join(targetDir, fileName), content, 'utf8');
       totalGenerated++;
+      generatedFiles.push(`${targetRelDir}/${fileName}`);
     }
 
     // Generate workflow commands
@@ -230,12 +232,13 @@ async function generateIdeCommands(projectDir, skfFolder, ides) {
       const content = renderWorkflowCommand(workflow.description, workflow.relativePath);
       await fs.writeFile(path.join(targetDir, fileName), content, 'utf8');
       totalGenerated++;
+      generatedFiles.push(`${targetRelDir}/${fileName}`);
     }
 
     processedIdes.push(ide);
   }
 
-  return { generated: totalGenerated, ides: processedIdes };
+  return { generated: totalGenerated, ides: processedIdes, files: generatedFiles };
 }
 
 module.exports = { generateIdeCommands };

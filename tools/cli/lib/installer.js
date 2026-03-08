@@ -9,6 +9,7 @@ const ora = require('ora');
 const yaml = require('js-yaml');
 const { compileAgentFile } = require('./compiler');
 const { generateIdeCommands } = require('./ide-commands');
+const { writeManifest } = require('./manifest');
 
 class Installer {
   constructor() {
@@ -119,11 +120,13 @@ class Installer {
     }
 
     // Step 7: Generate IDE command files
+    let ideFiles = [];
     const selectedIdes = config.ides || [];
     if (selectedIdes.length > 0 && !selectedIdes.every((ide) => ide === 'other')) {
       const ideSpinner = ora('Generating IDE commands...').start();
       try {
         const ideResult = await generateIdeCommands(projectDir, skfFolder, selectedIdes);
+        ideFiles = ideResult.files || [];
         if (ideResult.generated > 0) {
           ideSpinner.succeed(`IDE commands generated for ${ideResult.ides.join(', ')}`);
         } else {
@@ -133,6 +136,20 @@ class Installer {
         ideSpinner.fail('Failed to generate IDE commands');
         throw error;
       }
+    }
+
+    // Step 8: Write installation manifest
+    const manifestSpinner = ora('Writing manifest...').start();
+    try {
+      const packageJson = require('../../../package.json');
+      await writeManifest(projectDir, config, {
+        version: packageJson.version,
+        ideFiles,
+      });
+      manifestSpinner.succeed('Installation manifest saved');
+    } catch (error) {
+      manifestSpinner.fail('Failed to write manifest');
+      throw error;
     }
 
     return { success: true, skfDir, projectDir };

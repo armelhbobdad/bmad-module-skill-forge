@@ -7,6 +7,7 @@ const chalk = require('chalk');
 const path = require('node:path');
 const fs = require('fs-extra');
 const yaml = require('js-yaml');
+const { readManifest } = require('../lib/manifest');
 
 const SKF_FOLDER = '_bmad/skf';
 const SIDECAR_FOLDER = '_bmad/_memory/forger-sidecar';
@@ -76,6 +77,9 @@ async function getStatus(projectDir) {
   const sidecarExists = await fs.pathExists(sidecarDir);
   const tierDetected = forgeTier?.tier != null;
 
+  // Read manifest
+  const manifest = await readManifest(projectDir);
+
   return {
     installed: true,
     config,
@@ -89,6 +93,7 @@ async function getStatus(projectDir) {
     forgeDataFolderExists,
     sidecarExists,
     tierDetected,
+    manifest,
   };
 }
 
@@ -108,11 +113,20 @@ function displayStatus(status, version) {
   const config = status.config || {};
 
   // Installation
+  const manifest = status.manifest;
   console.log(chalk.white.bold('  Installation'));
   console.log(`    Project:      ${chalk.cyan(config.project_name || '(unknown)')}`);
   console.log(`    SKF folder:   ${chalk.dim(SKF_FOLDER + '/')}`);
   console.log(`    Agent:        ${status.agentCompiled ? chalk.green('compiled') : chalk.yellow('not compiled')}`);
   console.log(`    Workflows:    ${chalk.white(status.workflowCount)}`);
+  if (manifest) {
+    console.log(
+      `    Installed:    ${chalk.dim(manifest.installed_at ? new Date(manifest.installed_at).toLocaleDateString() : '(unknown)')}`,
+    );
+    console.log(`    Manifest:     ${chalk.green('present')}`);
+  } else {
+    console.log(`    Manifest:     ${chalk.yellow('missing')} ${chalk.dim('(reinstall to generate)')}`);
+  }
   console.log('');
 
   // IDEs
