@@ -2,6 +2,7 @@ const { program } = require('commander');
 const installCommand = require('./commands/install');
 const statusCommand = require('./commands/status');
 const uninstallCommand = require('./commands/uninstall');
+const updateCommand = require('./commands/update');
 const { startVersionCheck } = require('./lib/version-check');
 
 // Fix for stdin issues when running through npm on Windows
@@ -24,7 +25,7 @@ const printUpdateNotice = startVersionCheck(packageJson.version);
 
 program.version(packageJson.version).description('Skill Forge — Evidence-Based Agent Skills Compiler');
 
-for (const command of [installCommand, statusCommand, uninstallCommand]) {
+for (const command of [installCommand, updateCommand, statusCommand, uninstallCommand]) {
   const cmd = program.command(command.command).description(command.description);
   for (const option of command.options || []) {
     cmd.option(...option);
