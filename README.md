@@ -72,14 +72,41 @@ Ferris operates in four workflow-driven modes (mode is determined by which workf
 
 ## Install
 
+There are three ways to install SKF, depending on your setup.
+
+### Method 1: Standalone (recommended for trying SKF)
+
 ```bash
-npx bmad-module-skill-forge install
+npx skill-forge install
 ```
 
-You'll be prompted for:
+Or equivalently: `npx bmad-module-skill-forge install`
 
-- **Skills output folder** — Where generated skills are saved (default: `skills/`)
-- **Forge data folder** — Where workspace artifacts are stored (default: `forge-data/`)
+Installs SKF on its own. You'll be prompted for project name, output folders, and which IDEs to configure. The installer generates IDE-specific command files (e.g. `.claude/commands/`, `.cursor/commands/`) so workflows appear in your IDE's command palette.
+
+### Method 2: As a custom module during BMad Method installation
+
+```bash
+npx bmad-method install
+```
+
+When prompted **"Add custom modules from your computer?"**, select Yes and provide the path to the SKF `src/` folder (clone this repo first):
+
+```
+Path to custom module folder: /path/to/bmad-module-skill-forge/src/
+```
+
+This installs BMad core + SKF together with full IDE integration, manifests, and help catalog. Best when you want the complete BMad development workflow.
+
+### Method 3: Add SKF to an existing BMad project
+
+If you already have BMad installed, you can add SKF afterward by running the standalone installer in the same directory:
+
+```bash
+npx skill-forge install
+```
+
+The installer detects the existing `_bmad/` directory and installs SKF alongside your current modules. IDE command files are generated for SKF workflows.
 
 ## Quickstart
 

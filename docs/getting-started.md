@@ -17,13 +17,41 @@ Skill Forge is an automated skill compiler for the AI agent ecosystem. It transf
 
 ## Installation
 
-If you haven't installed the module yet:
+There are three ways to install SKF, depending on your setup.
+
+### Standalone (recommended for trying SKF)
 
 ```bash
-npx bmad-module-skill-forge install
+npx skill-forge install
 ```
 
-Follow the prompts to configure the module for your needs.
+Or equivalently: `npx bmad-module-skill-forge install`
+
+Installs SKF on its own. You'll be prompted for project name, output folders, and which IDEs to configure. The installer generates IDE-specific command files (e.g. `.claude/commands/`, `.cursor/commands/`) so workflows appear in your IDE's command palette.
+
+### As a custom module during BMad Method installation
+
+```bash
+npx bmad-method install
+```
+
+When prompted **"Add custom modules from your computer?"**, select Yes and provide the path to the SKF `src/` folder (clone this repo first):
+
+```
+Path to custom module folder: /path/to/bmad-module-skill-forge/src/
+```
+
+This installs BMad core + SKF together with full IDE integration, manifests, and help catalog. Best when you want the complete BMad development workflow.
+
+### Add SKF to an existing BMad project
+
+If you already have BMad installed, you can add SKF afterward by running the standalone installer in the same directory:
+
+```bash
+npx skill-forge install
+```
+
+The installer detects the existing `_bmad/` directory and installs SKF alongside your current modules.
 
 ---
 

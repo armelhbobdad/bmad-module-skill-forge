@@ -26,8 +26,16 @@ Skill Forge is an automated skill compiler for the AI agent ecosystem. It transf
 
 ## Quick Install
 
+**Standalone:**
+
 ```bash
-npx bmad-module-skill-forge install
+npx skill-forge install
+```
+
+**Or as a custom module with BMad Method** (for the full development workflow):
+
+```bash
+npx bmad-method install    # select "Add custom modules" and point to src/
 ```
 
 Then interact with the forge agent:
@@ -36,6 +44,8 @@ Then interact with the forge agent:
 @Ferris SF    # Setup your forge environment
 @Ferris QS    # Quick Skill — generate in under a minute
 ```
+
+See the [Getting Started](./getting-started.md) guide for all installation methods.
 
 ## Core Workflows
 
