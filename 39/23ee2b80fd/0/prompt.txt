@@ -1,0 +1,580 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/
+
+---
+
+I am testing the module inside the fresh and empty folder /home/armel/Projects/demo/test/. After the installation, I opened claude code, activated the forger agent and setup forge (SF). My directory only contains the skf module      
+  related files and the auto index check indexed 131 markdown files. Does files are they really usefull to be indexed?
+
+---
+
+[Request interrupted by user]
+
+---
+
+I am testing the module inside the fresh and empty folder /home/armel/Projects/demo/test/. After the installation, I opened claude code, activated the forger agent and setup forge (SF). My directory only contains the skf module      
+  related files and the auto index check indexed 131 markdown files. Does files are they really usefull to be indexed? Here is the full output:  /bmad-agent-skf-forger                                                                                                                                                                                                                    
+
+● Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Now let me load the config and sidecar files as required by the activation steps.
+
+● Read 4 files (ctrl+o to expand)
+
+● ---
+  ⚒ Ferris — Skill Architect & Integrity Guardian
+
+  Welcome, armel.
+
+  Forge state: Tier not yet detected. Run [SF] Setup Forge to initialize.
+  Project: test | Sidecar preferences: defaults (unset)
+
+  ---
+  What would you like to do?
+
+  1. [MH] Redisplay Menu Help
+  2. [SF] Setup Forge — initialize environment, detect tools, set tier
+  3. [AN] Analyze Source — discover what to skill, recommend stack skill
+  4. [BS] Brief Skill — design a skill scope through guided discovery
+  5. [CS] Create Skill — compile a skill from brief
+  6. [QS] Quick Skill — fast skill, no brief needed
+  7. [SS] Stack Skill — consolidated project stack skill
+  8. [US] Update Skill — regenerate after changes, preserves [MANUAL]
+  9. [AS] Audit Skill — check for drift
+  10. [TS] Test Skill — verify completeness
+  11. [EX] Export Skill — package for distribution
+  12. [WS] Workflow Status — show current lifecycle position
+  13. [DA] Dismiss Agent
+
+  Pick a number or command.
+
+❯ SF                                                                                                                                                                                                                                        
+
+● Read 1 file (ctrl+o to expand)    
+                                                                                           
+● Config already loaded. Proceeding to step 1.
+                                                                                                                                                                                                                                            
+● Read 2 files (ctrl+o to expand)                                                          
+                                                                                                                                                                                                                                            
+● Tier rules loaded. Existing config: previous_tier = null (unset), tier_override = null. Now detecting tools.                                                                                                                              
+                                                                                                                                                                                                                                            
+● Bash(ast-grep --version 2>&1)                                                                                                                                                                                                             
+  ⎿  ast-grep 0.40.5                                                                                                                                                                                                                        
+                                                                                                                                                                                                                                            
+● Bash(gh --version 2>&1)                                                                                                                                                                                                                   
+  ⎿  gh version 2.87.3 (2026-02-23)                                                                                                                                                                                                         
+     https://github.com/cli/cli/releases/tag/v2.87.3                                                                                                                                                                                        
+                                                                                                                                                                                                                                            
+● Bash(qmd status 2>&1)        
+  ⎿  QMD Status                                                                                                                                                                                                                             
+                                                                                                                                                                                                                                            
+     Index: /home/armel/.cache/qmd/index.sqlite                                                                                                                                                                                             
+     … +20 lines (ctrl+o to expand)                                                        
+                                                                                                                                                                                                                                            
+● All 3 tools verified:                                                                                                                                                                                                                     
+                                                                                                                                                                                                                                            
+  - ast-grep: true (v0.40.5)                                                                                                                                                                                                                
+  - gh: true (v2.87.3)                                                                                                                                                                                                                      
+  - qmd: true (operational, 0 docs indexed)                                                                                                                                                                                                 
+                                                                                                                                                                                                                                            
+  Calculated tier: Deep — all three tools available and functional.                                                                                                                                                                         
+                                                                                                                                                                                                                                            
+  Proceeding to write configuration...                                                                                                                                                                                                      
+                                                                                                                                                                                                                                            
+● Read 1 file (ctrl+o to expand)                                                                                                                                                                                                            
+                                                                                           
+● Write(_bmad/_memory/forger-sidecar/forge-tier.yaml)
+  ⎿  Added 6 lines, removed 6 lines                                                                                                                                                                                                         
+       1  # Ferris Sidecar: Forge Tier State                                                                                                                                                                                                
+       2 -# Written by setup-forge workflow on first run                                                                                                                                                                                    
+       2 +# Written by setup-forge workflow                                                                                                                                                                                                 
+       3                                                                                                                                                                                                                                    
+       4  # Tool availability (detected during [SF] Setup Forge)                                                                                                                                                                            
+       5  tools:                                                                                                                                                                                                                           
+       6 -  ast_grep: ~                                                                                                                                                                                                                     
+       7 -  gh_cli: ~                                                                                                                                                                                                                      
+       8 -  qmd: ~                                                                                                                                                                                                                          
+       6 +  ast_grep: true                                                                                                                                                                                                                 
+       7 +  gh_cli: true                                                                                                                                                                                                                    
+       8 +  qmd: true                                                                                                                                                                                                                       
+       9                                                                                                                                                                                                                                    
+      10  # Capability tier (derived from tool availability)                                                                                                                                                                                
+      11  # Quick = no tools | Forge = ast-grep | Deep = ast-grep + gh + qmd                                                                                                                                                                
+      12 -tier: ~                                                                                                                                                                                                                           
+      13 -tier_detected_at: ~                                                                                                                                                                                                               
+      12 +tier: Deep                                                                                                                                                                                                                        
+      13 +tier_detected_at: 2026-03-08T21:08:00+04:00                                                                                                                                                                                       
+                                                                                                                                                                                                                                            
+● Bash(mkdir -p /home/armel/Projects/demo/test/forge-data)                                                                                                                                                                                  
+  ⎿  Done                                                                                                                                                                                                                                   
+                                                                                                                                                                                                                                            
+● forge-tier.yaml written. preferences.yaml already exists — preserved. forge-data/ ensured.                                                                                                                                                
+                                                                                                                                                                                                                                            
+  Proceeding to auto-index check...                                                                                                                                                                                                         
+                                                                                                                                                                                                                                            
+● Read 1 file (ctrl+o to expand)                                                                                                                                                                                                            
+                                                                                                                                                                                                                                            
+● Tier is Deep — proceeding with QMD indexing for the project.                                                                                                                                                                              
+                                                                                                                                                                                                                                            
+● Bash(qmd --help 2>&1 | head -40)                                                                                                                                                                                                          
+  ⎿  Usage:                                                                                                                                                                                                                                 
+       qmd collection add [path] --name <name> --mask <pattern>  - Create/index collection                                                                                                                                                  
+       qmd collection list           - List all collections with details                                                                                                                                                                    
+     … +37 lines (ctrl+o to expand)                                                                                                                                                                                                         
+                                                                                                                                                                                                                                            
+● Bash(qmd collection add /home/armel/Projects/demo/test --name test --mask "**/*.md" 2>&1)                                                                                                                                                 
+  ⎿  Creating collection 'test'...                                                         
+     Collection: /home/armel/Projects/demo/test (**/*.md)                                                                                                                                                                                   
+     Indexing: 1/131        Indexing: 2/131        Indexing: 3/131 ETA: 1s        Indexing: 4/131 ETA: 1s        Indexing: 5/131 ETA: 1s        Indexing: 6/1                                                                               
+     … +24 lines (ctrl+o to expand)                                                                                                                                                                                                         
+                                                                                                                                                                                                                                            
+● QMD indexing complete — 131 markdown files indexed in collection "test".                                                                                                                                                                  
+                                                                                                                                                                                                                                            
+  Proceeding to forge status report...                                                                                                                                                                                                      
+                                                                                                                                                                                                                                            
+● Read 1 file (ctrl+o to expand)           
+                                                                                                                                                                                                                                            
+● ═══════════════════════════════════════                   
+    FORGE STATUS                                                                                                                                                                                                                            
+  ═══════════════════════════════════════                                                  
+                                                                                                                                                                                                                                            
+    Tier:  Deep                                                                                                                                                                                                                             
+    Deep tier active. Full capability unlocked — AST-backed                                                                                                                                                                                 
+    code analysis, GitHub repository exploration, and QMD                                                                                                                                                                                   
+    knowledge search with cross-repository synthesis.       
+    Maximum provenance and intelligence.
+
+    Tools Detected:
+    ast-grep — v0.40.5
+    gh       — v2.87.3
+    qmd      — operational (131 files indexed in "test" collection)
+
+  ═══════════════════════════════════════
+    Forge ready. Deep tier active.
+  ═══════════════════════════════════════
+
+  Setup complete. The anvil is hot, armel.
+
+  ---
+  What's next?
+
+  1. [MH] Redisplay Menu Help
+  2. [SF] Setup Forge
+  3. [AN] Analyze Source
+  4. [BS] Brief Skill
+  5. [CS] Create Skill
+  6. [QS] Quick Skill
+  7. [SS] Stack Skill
+  8. [US] Update Skill
+  9. [AS] Audit Skill
+  10. [TS] Test Skill
+  11. [EX] Export Skill
+  12. [WS] Workflow Status
+  13. [DA] Dismiss Agent
+
+---
+
+I love the more targeted approach. However, I want to know if QMD only index markdown files? Will it ignore source code files usefull for skill generation?
+
+---
+
+let do what is best, accurate and advanced to solve this bug.
+
+---
+
+does the excluded dir list is complete? Maybe I could be better to includ all file from .gitgnore too? what is the best way to handle this situation?
+
+---
+
+yes
+
+---
+
+I tested it and here is the full output: ❯ /bmad-agent-skf-forger                                                                                                                                                                                                                    
+    
+● Read 4 files (ctrl+o to expand)                                                                                                                                                                                                           
+                                                                                                                                                                                                                                            
+● ⚒ Ferris — Skill Architect & Integrity Guardian                                                                                                                                                                                          
+                                         
+  Welcome, armel.                                                                                                                                                                                                                           
+                                                                                                                                                                                                                                            
+  Sidecar state loaded — forge tier: not yet detected. Run Setup Forge to initialize.                                                                                                                                                       
+                                                                                                                                                                                                                                            
+  ---                                                                                                                                                                                                                                     
+  Menu                                                                                                                                                                                                                                      
+                                                                                                                                                                                                                                            
+  1. [MH] Redisplay Menu Help
+  2. [SF] Setup Forge — initialize environment, detect tools, set tier
+  3. [AN] Analyze Source — discover what to skill, recommend stack skill
+  4. [BS] Brief Skill — design a skill scope through guided discovery
+  5. [CS] Create Skill — compile a skill from brief
+  6. [QS] Quick Skill — fast skill, no brief needed
+  7. [SS] Stack Skill — consolidated project stack skill
+  8. [US] Update Skill — regenerate after changes, preserves [MANUAL]
+  9. [AS] Audit Skill — check for drift
+  10. [TS] Test Skill — verify completeness
+  11. [EX] Export Skill — package for distribution
+  12. [WS] Workflow Status — show current lifecycle position
+  13. [DA] Dismiss Agent
+
+  Enter a number, command code, or describe what you need.
+
+❯ SF                                                                                                                                                                                                                                        
+     
+● Read 1 file (ctrl+o to expand)                                                                                                                                                                                                            
+                                                                                                                                                                                                                                            
+● Config already loaded. Proceeding to step 1.
+                                                                                                                                                                                                                                            
+● Read 2 files (ctrl+o to expand)                                                          
+                                                                                                                                                                                                                                            
+● Tier rules loaded. Existing config checked — previous tier: null (first run), no tier override set.                                                                                                                                       
+                                                                                                                                                                                                                                            
+  Now detecting tools.                                                                                                                                                                                                                      
+                                                                                                                                                                                                                                            
+● Bash(ast-grep --version 2>&1)                                                                                                                                                                                                             
+  ⎿  ast-grep 0.40.5                                                                                                                                                                                                                        
+                                                                                                                                                                                                                                            
+● Bash(gh --version 2>&1)                                                                                                                                                                                                                   
+  ⎿  gh version 2.87.3 (2026-02-23)                                                        
+     https://github.com/cli/cli/releases/tag/v2.87.3                                                                                                                                                                                        
+                                                                                                                                                                                                                                            
+● plugin:qmd-plugin:qmd - status (MCP)                                                                                                                                                                                                      
+  ⎿  {                                                                                                                                                                                                                                      
+       "totalDocuments": 681,                                                                                                                                                                                                               
+       "needsEmbedding": 611,                                                                                                                                                                                                               
+     … +18 lines (ctrl+o to expand)                                                                                                                                                                                                         
+                                                                                                                                                                                                                                            
+● All 3 tools verified:                                                                                                                                                                                                                     
+                                                                                                                                                                                                                                            
+  ┌──────────┬────────┬──────────────────────────────────────┐                                                                                                                                                                              
+  │   Tool   │ Status │            Version/Detail            │                                                                                                                                                                              
+  ├──────────┼────────┼──────────────────────────────────────┤
+  │ ast-grep │ ✅     │ v0.40.5                              │                                                                                                                                                                              
+  ├──────────┼────────┼──────────────────────────────────────┤                                                                                                                                                                              
+  │ gh       │ ✅     │ v2.87.3                              │                                                                                                                                                                              
+  ├──────────┼────────┼──────────────────────────────────────┤                                                                                                                                                                              
+  │ qmd      │ ✅     │ Operational, 681 docs, 2 collections │
+  └──────────┴────────┴──────────────────────────────────────┘
+
+  Calculated tier: Deep (all three tools functional).
+
+  Proceeding to write configuration...
+
+● Read 1 file (ctrl+o to expand)    
+                                                                               
+● Write(_bmad/_memory/forger-sidecar/forge-tier.yaml)
+  ⎿  Added 6 lines, removed 6 lines                                                                                                                                                                                                         
+       1  # Ferris Sidecar: Forge Tier State                                                                                                                                                                                                
+       2 -# Written by setup-forge workflow on first run                                                                                                                                                                                    
+       2 +# Written by setup-forge workflow                                                                                                                                                                                                 
+       3                                                                                                                                                                                                                                    
+       4  # Tool availability (detected during [SF] Setup Forge)                                                                                                                                                                            
+       5  tools:                                                                                                                                                                                                                            
+       6 -  ast_grep: ~                                                                                                                                                                                                                    
+       7 -  gh_cli: ~                                                                                                                                                                                                                       
+       8 -  qmd: ~                                                                                                                                                                                                                          
+       6 +  ast_grep: true                                                                                                                                                                                                                  
+       7 +  gh_cli: true                                                                                                                                                                                                                    
+       8 +  qmd: true                                                                                                                                                                                                                       
+       9                                                                                                                                                                                                                                    
+      10  # Capability tier (derived from tool availability)                                                                                                                                                                                
+      11  # Quick = no tools | Forge = ast-grep | Deep = ast-grep + gh + qmd                                                                                                                                                                
+      12 -tier: ~                                                                                                                                                                                                                           
+      13 -tier_detected_at: ~                                                                                                                                                                                                               
+      12 +tier: Deep                                                                                                                                                                                                                        
+      13 +tier_detected_at: 2026-03-08T17:37:00Z                                                                                                                                                                                            
+                                                                                                                                                                                                                                            
+● forge-tier.yaml written. preferences.yaml already exists — preserving it. Now ensuring forge-data/ directory.                                                                                                                             
+                                                                                                                                                                                                                                            
+● Bash(mkdir -p /home/armel/Projects/demo/tata/forge-data)                                                                                                                                                                                  
+  ⎿  Done                                                                                                                                                                                                                                   
+                                                                                                                                                                                                                                            
+● Proceeding to auto-index check...                                                                                                                                                                                                         
+                                                                                                                                                                                                                                            
+● Read 1 file (ctrl+o to expand)                                                                                                                                                                                                            
+                                                                                                                                                                                                                                            
+● Tier is Deep — proceeding with smart auto-index.                                                                                                                                                                                          
+                                                                                                                                                                                                                                            
+● Bash(git -C /home/armel/Projects/demo/tata rev-parse --is-inside-work-tree 2>/dev/null; echo "EXIT:$?")                                                                                                                                   
+  ⎿  EXIT:128                                                                                                                                                                                                                               
+                                                                                                                                                                                                                                            
+● Not a git repo — using fallback strategy.                                                                                                                                                                                                 
+                                                                                                                                                                                                                                            
+● Read 1 file (ctrl+o to expand)                                                                                                                                                                                                            
+                                                                                                                                                                                                                                            
+● Filtering results — excluding _bmad (always excluded) and forge-data (fallback excluded). Remaining user dirs: _skf-learn, skills.
+                                                                                                                                                                                                                                            
+● Bash(qmd collection add /home/armel/Projects/demo/tata/_skf-learn --name tata-_skf-learn --mask "**/*" 2>&1)                                                                                                                              
+  ⎿  Creating collection 'tata-_skf-learn'...                                                                                                                                                                                               
+     Collection: /home/armel/Projects/demo/tata/_skf-learn (**/*)                                                                                                                                                                           
+     Indexing: 1/6        Indexing: 2/6        Indexing: 3/6 ETA: 0s        Indexing: 4/6 ETA: 0s        Indexing: 5/6 ETA: 0s        Indexing: 6/6 ETA: 0s                                                                                 
+     … +4 lines (ctrl+o to expand)                                                                                                                                                                                                          
+                                                                                                                                                                                                                                            
+● Bash(qmd collection add /home/armel/Projects/demo/tata/skills --name tata-skills --mask "**/*" 2>&1)                                                                                                                                      
+  ⎿  Creating collection 'tata-skills'...                                                                                                                                                                                                   
+     Collection: /home/armel/Projects/demo/tata/skills (**/*)                                                                                                                                                                               
+     No files found matching pattern.                                                                                                                                                                                                       
+     ✓ Collection 'tata-skills' created successfully                                                                                                                                                                                        
+                                                                                                                                                                                                                                            
+● Collections created:                                                                                                                                                                                                                      
+  - tata-_skf-learn: 6 files indexed                                                                                                                                                                                                        
+  - tata-skills: 0 files (empty directory)                                                                                                                                                                                                  
+                                                                                                                                                                                                                                            
+  Context stored: qmd_indexed: true, total files: 6.                                                                                                                                                                                        
+                                                                                                                                                                                                                                            
+  Proceeding to forge status report...                                                                                                                                                                                                      
+                                                                                                                                                                                                                                            
+● Read 1 file (ctrl+o to expand)                            
+                                                                                           
+● ═══════════════════════════════════════
+    FORGE STATUS                                                                                                                                                                                                                            
+  ═══════════════════════════════════════                                                  
+                                                                                                                                                                                                                                            
+    Tier:  Deep                                                                                                                                                                                                                             
+    Deep tier active. Full capability unlocked — AST-backed                                                                                                                                                                                 
+    code analysis, GitHub repository exploration, and QMD                                                                                                                                                                                   
+    knowledge search with cross-repository synthesis.       
+    Maximum provenance and intelligence.
+
+    Tools Detected:
+    ast-grep — v0.40.5
+    gh       — v2.87.3
+    qmd      — operational (681 docs)
+
+    QMD Index:
+    tata-_skf-learn — 6 files
+    tata-skills     — 0 files
+    6 files indexed total
+
+  ═══════════════════════════════════════
+    Forge ready. Deep tier active.
+  ═══════════════════════════════════════
+
+  Setup complete, armel. All three forge tools confirmed, Deep tier locked in. Your project directories are indexed and searchable.
+
+  Ready for the next command — menu is available with MH.
+
+---
+
+- Empty directory indexed: yes it worth.
+- _skf-learn starts with _: During the installation, some module could come with `_<module-code>-learn` folder. So, I think we should exculded every folder with the pattern like `_*-learn`
+Do you have more other suggestions?
+
+---
+
+yes. Just make sure the new exculded pattern is accurate.
+
+---
+
+everything looks okay now. Here is the full terminal output and tell me what you think (do we need to improve somethig?) : 
+❯ /bmad-agent-skf-forger                                                                                                                                                                                                                    
+
+● Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Now let me follow the activation steps. Step 2: load the config file.
+
+● Read 3 files (ctrl+o to expand)
+
+● ⚒ Ferris — Skill Architect & Integrity Guardian
+
+  Welcome, armel. Forge loaded for project titi.
+
+  - Tier: not yet detected — run Setup Forge to calibrate
+  - Preferences: defaults (no overrides set)
+  - No prior session context
+
+  ---
+  What would you like to forge?
+
+  1. [MH] Redisplay Menu Help
+  2. [SF] Setup Forge — initialize environment, detect tools, set tier
+  3. [AN] Analyze Source — discover what to skill, recommend stack skill
+  4. [BS] Brief Skill — design a skill scope through guided discovery
+  5. [CS] Create Skill — compile a skill from brief
+  6. [QS] Quick Skill — fast skill, no brief needed
+  7. [SS] Stack Skill — consolidated project stack skill
+  8. [US] Update Skill — regenerate after changes, preserves [MANUAL]
+  9. [AS] Audit Skill — check for drift
+  10. [TS] Test Skill — verify completeness
+  11. [EX] Export Skill — package for distribution
+  12. [WS] Workflow Status — show current lifecycle position
+  13. [DA] Dismiss Agent
+
+❯ SF                                                                                                                                                                                                                                        
+
+● Loading the Setup Forge workflow.
+
+● Read 1 file (ctrl+o to expand)
+
+● Config already loaded. Proceeding to step 1.
+
+● Read 2 files (ctrl+o to expand)         
+                                                                                  
+● Tier rules loaded. Existing config already read — previous_tier: null (unset), tier_override: null (not present in preferences).                                                                                                          
+                                          
+  Now detecting tools empirically.                                                                                                                                                                                                          
+                                                                                                                                                                                                                                            
+● Bash(ast-grep --version 2>&1)           
+  ⎿  ast-grep 0.40.5                                                                                                                                                                                                                        
+                                                                                                                                                                                                                                            
+● Bash(gh --version 2>&1)                                                                                                                                                                                                                   
+  ⎿  gh version 2.87.3 (2026-02-23)                                                                                                                                                                                                         
+     https://github.com/cli/cli/releases/tag/v2.87.3
+                          
+● Bash(qmd status 2>&1)        
+  ⎿  QMD Status
+                                                                                                                                                                                                                                            
+     Index: /home/armel/.cache/qmd/index.sqlite                                                                                                                                                                                             
+     … +31 lines (ctrl+o to expand)                                                                                                                                                                                                         
+                                                                                                                                                                                                                                            
+● All 3 tools detected and functional:                                                                                                                                                                                                      
+                                                                                                                                                                                                                                            
+  - ast-grep: v0.40.5 ✓                                                                                                                                                                                                                     
+  - gh: v2.87.3 ✓                                                                                                                                                                                                                           
+  - qmd: operational, 687 docs indexed ✓                                                                                                                                                                                                    
+                                                                                                                                                                                                                                            
+  Tier calculation: ast-grep + gh + qmd all true → Deep                                                                                                                                                                                     
+                                                                                                                                                                                                                                            
+  Proceeding to write configuration...                                                                                                                                                                                                      
+                                                                                                                                                                                                                                            
+● Read 1 file (ctrl+o to expand)                                                                                                                                                                                                            
+                                                                               
+● Write(_bmad/_memory/forger-sidecar/forge-tier.yaml)                                                                                                                                                                                       
+  ⎿  Added 6 lines, removed 6 lines                                                                                                                                                                                                         
+       1  # Ferris Sidecar: Forge Tier State                                                                                                                                                                                                
+       2 -# Written by setup-forge workflow on first run                                                                                                                                                                                    
+       2 +# Written by setup-forge workflow                                                                                                                                                                                                 
+       3                                                                                                                                                                                                                                    
+       4  # Tool availability (detected during [SF] Setup Forge)                                                                                                                                                                            
+       5  tools:                                                                                                                                                                                                                            
+       6 -  ast_grep: ~                                                                                                                                                                                                                     
+       7 -  gh_cli: ~                                                                                                                                                                                                                       
+       8 -  qmd: ~                                                                                                                                                                                                                         
+       6 +  ast_grep: true                                                                                                                                                                                                                  
+       7 +  gh_cli: true                                                                                                                                                                                                                    
+       8 +  qmd: true                                                                                                                                                                                                                       
+       9                                                                                                                                                                                                                                    
+      10  # Capability tier (derived from tool availability)                                                                                                                                                                                
+      11  # Quick = no tools | Forge = ast-grep | Deep = ast-grep + gh + qmd                                                                                                                                                                
+      12 -tier: ~                                                                                                                                                                                                                           
+      13 -tier_detected_at: ~                                                                                                                                                                                                               
+      12 +tier: Deep                                                                                                                                                                                                                        
+      13 +tier_detected_at: 2026-03-08T22:02:00+04:00                                                                                                                                                                                       
+                                                                                                                                                                                                                                            
+● Read 2 files (ctrl+o to expand)                                                                                                                                                                                                           
+                                                                                                                                                                                                                                            
+● - forge-tier.yaml: written ✓                                                                                                                                                                                                              
+  - preferences.yaml: exists, preserved ✓                                                                                                                                                                                                   
+  - forge-data/: exists ✓                                                                                                                                                                                                                   
+                                                                                                                                                                                                                                            
+  Proceeding to auto-index check...                                                                                                                                                                                                         
+                                                                                                                                                                                                                                            
+● Read 1 file (ctrl+o to expand)                                                                                                                                                                                                            
+                                                                                                                                                                                                                                            
+● Tier is Deep — proceeding with smart auto-index.                                                                                                                                                                                          
+                                                                                                                                                                                                                                            
+● Bash(git -C /home/armel/Projects/demo/titi rev-parse --is-inside-work-tree 2>/dev/null; echo "EXIT:$?")                                                                                                                                   
+  ⎿  EXIT:128                                                                                                                                                                                                                               
+                                                                                                                                                                                                                                            
+● Not a git repo — using fallback strategy.                                                                                                                                                                                                 
+                                                                                                                                                                                                                                            
+● Read 1 file (ctrl+o to expand)                                                                                                                                                                                                            
+                                                                                                    
+● Filtering directories:                                                                                                                                                                                                                    
+  - _bmad/ → excluded (alwaysExcluded)                                                                                                                                                                                                      
+  - forge-data/ → excluded (alwaysExcluded)                                                                                                                                                                                                 
+  - _skf-learn/ → excluded (matches _*-learn pattern)                                                                                                                                                                                       
+  - skills/ → keep                                                                                                                                                                                                                          
+                                                                                                                                                                                                                                            
+  Checking if skills/ contains files:                                                                                                                                                                                                       
+                                                                                                                                                                                                                                            
+● Searched for 1 pattern (ctrl+o to expand)                                                                                                                                                                                                 
+                                                                                                                                                                                                                                            
+● skills/ has content. Now checking for stale collections and indexing.                                                                                                                                                                     
+                                                                                                                                                                                                                                            
+● Bash(qmd collection list 2>&1)                                                                                                                                                                                                            
+  ⎿  Collections (4):                                                                                                                                                                                                                       
+                                                                                                                                                                                                                                            
+     pause (qmd://pause/)                                                                                                                                                                                                                   
+     … +18 lines (ctrl+o to expand)                                                                                                                                                                                                         
+                                                                                                                                                                                                                                            
+● No existing titi- prefixed collections — no stale cleanup needed. Indexing skills/:
+                                                                                                                                                                                                                                            
+● Bash(qmd collection add /home/armel/Projects/demo/titi/skills --name titi-skills --mask "**/*" 2>&1)                                                                                                                                      
+  ⎿  Creating collection 'titi-skills'...                                                                                                                                                                                                   
+     Collection: /home/armel/Projects/demo/titi/skills (**/*)                                                                                                                                                                               
+     No files found matching pattern.                                                                                                                                                                                                       
+     ✓ Collection 'titi-skills' created successfully                                                                                                                                                                                        
+                                                                                                                                                                                                                                            
+● Collection titi-skills created (0 indexable files — only .gitkeep present, which QMD filters).                                                                                                                                            
+                                                                                                                                                                                                                                            
+  Context stored: {qmd_indexed: true, qmd_collections: ["titi-skills"], qmd_total_files: 0}                                                                                                                                                 
+   
+  Proceeding to forge status report...                                                                                                                                                                                                      
+                                                            
+● Read 1 file (ctrl+o to expand)                                                                                                                                                                                                            
+                                                                         
+● ═══════════════════════════════════════                                                                                                                                                                                                   
+    FORGE STATUS                                                                             
+  ═══════════════════════════════════════                                                                                                                                                                                                   
+                                                                                                                                                                                                                                            
+    Tier:  Deep                                                                                                                                                                                                                             
+    Deep tier active. Full capability unlocked — AST-backed                                                                                                                                                                                 
+    code analysis, GitHub repository exploration, and QMD   
+    knowledge search with cross-repository synthesis.
+    Maximum provenance and intelligence.
+
+    Tools Detected:
+    ast-grep — v0.40.5
+    gh        — v2.87.3
+    qmd       — operational (687 docs indexed)
+
+    QMD Index:
+    titi-skills — 0 files (collection ready, awaiting skill output)
+
+  ═══════════════════════════════════════
+    Forge ready. Deep tier active.
+  ═══════════════════════════════════════
+
+  Setup complete, armel. All three tools confirmed, tier written, and QMD collection wired up. The titi-skills collection will populate as you generate skills.
+
+  Ready for your next command.
+
+---
+
+perfect. please commit
+
+---
+
+do we need to update @README.md or @website/src/content/docs or @_bmad-output/planning-artifacts/medium-article-skf.md?
+
+---
+
+yes
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+the article is ignored on purpose.
+
+---
+
+I want a professional readme header like the one from this repo: https://github.com/armelhbobdad/sentinel. Use the @website/public/img/skf-logo.svg
+
+---
+
+skf is not focus on code repository only. It transforms code repositories, documentation websites, and developer discourse
+
+---
+
+yes commit
