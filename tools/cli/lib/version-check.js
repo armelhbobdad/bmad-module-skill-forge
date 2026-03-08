@@ -66,7 +66,7 @@ function startVersionCheck(currentVersion) {
       '\n' +
       chalk.yellow(`  Update available: ${chalk.dim(currentVersion)} → ${chalk.green(latestVersion)}`) +
       '\n' +
-      chalk.dim(`  Run: npx skill-forge@latest install`) +
+      chalk.dim(`  Run: npx bmad-module-skill-forge@latest install`) +
       '\n'
     );
   });

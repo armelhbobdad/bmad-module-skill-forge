@@ -113,7 +113,7 @@ module.exports = {
         const skfExists = await fs.pathExists(path.join(projectDir, '_bmad/skf'));
         if (skfExists) {
           log.warn(
-            'No manifest found. Reinstall first to generate one,\nthen run uninstall again for clean removal.\nRun: npx skill-forge install',
+            'No manifest found. Reinstall first to generate one,\nthen run uninstall again for clean removal.\nRun: npx bmad-module-skill-forge install',
           );
         } else {
           log.warn('SKF is not installed in this directory.');

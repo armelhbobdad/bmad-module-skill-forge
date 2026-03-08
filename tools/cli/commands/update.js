@@ -24,7 +24,7 @@ module.exports = {
 
       if (!(await fs.pathExists(skfDir))) {
         console.log(chalk.yellow('\n  SKF is not installed in this directory.'));
-        console.log(chalk.dim('  Run: npx skill-forge install\n'));
+        console.log(chalk.dim('  Run: npx bmad-module-skill-forge install\n'));
         process.exit(0);
         return;
       }

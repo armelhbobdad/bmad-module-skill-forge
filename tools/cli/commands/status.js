@@ -105,7 +105,7 @@ function displayStatus(status, version) {
 
   if (!status.installed) {
     console.log(chalk.yellow('  Not installed.'));
-    console.log(chalk.dim('  Run: npx skill-forge install'));
+    console.log(chalk.dim('  Run: npx bmad-module-skill-forge install'));
     console.log('');
     return;
   }

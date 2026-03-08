@@ -22,10 +22,8 @@ There are three ways to install SKF, depending on your setup.
 ### Standalone (recommended for trying SKF)
 
 ```bash
-npx skill-forge install
+npx bmad-module-skill-forge install
 ```
-
-Or equivalently: `npx bmad-module-skill-forge install`
 
 Installs SKF on its own. You'll be prompted for project name, output folders, and which IDEs to configure. The installer generates IDE-specific command files (e.g. `.claude/commands/`, `.cursor/commands/`) so workflows appear in your IDE's command palette.
 
@@ -48,7 +46,7 @@ This installs BMad core + SKF together with full IDE integration, manifests, and
 If you already have BMad installed, you can add SKF afterward by running the standalone installer in the same directory:
 
 ```bash
-npx skill-forge install
+npx bmad-module-skill-forge install
 ```
 
 The installer detects the existing `_bmad/` directory and installs SKF alongside your current modules.
