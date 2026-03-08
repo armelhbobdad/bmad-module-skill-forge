@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "ade9054059ce",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "TODO.md",
+    "tools/cli/lib/version-check.js",
+    "tools/cli/skf-cli.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ad/e9054059ce/0/metadata.json",
+      "transcript": "/ad/e9054059ce/0/full.jsonl",
+      "context": "/ad/e9054059ce/0/context.md",
+      "content_hash": "/ad/e9054059ce/0/content_hash.txt",
+      "prompt": "/ad/e9054059ce/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 3933,
+    "cache_creation_tokens": 341923,
+    "cache_read_tokens": 16313254,
+    "output_tokens": 49353,
+    "api_call_count": 162
+  }
+}
