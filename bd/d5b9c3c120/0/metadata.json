@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "bdd5b9c3c120",
+  "session_id": "e21259de-5cf3-4ae3-89ee-4f13081f4f3a",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-08T15:59:26.889187063Z",
+  "branch": "dev",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "tools/cli/commands/update.js",
+    "tools/cli/skf-cli.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "b04497413289",
+  "token_usage": {
+    "input_tokens": 4016,
+    "cache_creation_tokens": 410103,
+    "cache_read_tokens": 23997239,
+    "output_tokens": 66234,
+    "api_call_count": 227
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-08T15:59:25.205797473Z",
+    "agent_lines": 55,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 55,
+    "agent_percentage": 100
+  }
+}
