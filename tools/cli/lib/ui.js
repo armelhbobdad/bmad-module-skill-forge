@@ -100,11 +100,19 @@ class UI {
       { name: 'Other', value: 'other' },
     ];
 
-    // Pre-check previously selected IDEs
+    // Pre-check IDEs: saved config takes priority, then auto-detect from directories
     const savedIdes = savedConfig?.ides || [];
     if (savedIdes.length > 0) {
       for (const choice of ideChoices) {
         choice.checked = savedIdes.includes(choice.value);
+      }
+    } else {
+      const detectedIdes = await this.detectIdes(projectDir);
+      if (detectedIdes.length > 0) {
+        for (const choice of ideChoices) {
+          choice.checked = detectedIdes.includes(choice.value);
+        }
+        console.log(chalk.dim(`  Auto-detected IDEs: ${detectedIdes.join(', ')}\n`));
       }
     }
 
@@ -155,6 +163,29 @@ class UI {
       _action: action,
       cancelled: false,
     };
+  }
+
+  async detectIdes(projectDir) {
+    const markers = {
+      'claude-code': ['.claude'],
+      cursor: ['.cursor'],
+      cline: ['.clinerules'],
+      codex: ['.codex'],
+      'github-copilot': ['.github/copilot-instructions.md', '.github/prompts'],
+      roo: ['.roo', '.roomodes'],
+      windsurf: ['.windsurf'],
+    };
+
+    const detected = [];
+    for (const [ide, paths] of Object.entries(markers)) {
+      for (const p of paths) {
+        if (await fs.pathExists(path.join(projectDir, p))) {
+          detected.push(ide);
+          break;
+        }
+      }
+    }
+    return detected;
   }
 
   async loadSavedConfig(projectDir, skfFolder) {
