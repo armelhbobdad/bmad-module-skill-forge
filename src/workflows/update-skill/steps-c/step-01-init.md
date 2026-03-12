@@ -75,12 +75,12 @@ Resolve the path to an absolute skill folder location.
 
 **Check metadata.json exists:**
 - Load `{resolved_skill_path}/metadata.json`
-- Extract: `skill_name`, `skill_type` (individual or stack), `version`, `created`, `forge_tier`, `source_root`
+- Extract: `name`, `skill_type` (single or stack), `version`, `generation_date`, `confidence_tier`, `source_root`
 - If missing: **ABORT** — "No metadata.json found. This skill may have been created manually. Run create-skill to generate provenance data."
 
 **Detect skill type from metadata:**
 - If `skill_type == "stack"`: flag as stack skill (multi-file update mode)
-- If `skill_type == "individual"` or absent: flag as individual skill
+- If `skill_type == "single"` or absent: flag as single skill
 
 ### 3. Load Forge Tier Configuration
 
@@ -148,7 +148,7 @@ Please provide the current source code path:
 | Property | Value |
 |----------|-------|
 | **Skill** | {skill_name} |
-| **Type** | {individual/stack} |
+| **Type** | {single/stack} |
 | **Version** | {version} |
 | **Created** | {created date} |
 | **Source** | {source_root} |
@@ -190,7 +190,7 @@ ONLY WHEN [C] is selected and baseline has been established with all required ar
 ### ✅ SUCCESS:
 
 - SKILL.md loaded and validated
-- metadata.json loaded with skill_name, skill_type, version, source_root
+- metadata.json loaded with name, skill_type, version, source_root
 - Forge tier loaded from sidecar/forge-tier.yaml
 - Provenance map loaded (or degraded mode confirmed)
 - [MANUAL] sections inventoried across all output files

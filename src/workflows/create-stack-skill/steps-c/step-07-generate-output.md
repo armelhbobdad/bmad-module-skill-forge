@@ -113,10 +113,10 @@ Write `{skills_output_folder}/{project_name}-stack/metadata.json`:
 ```json
 {
   "skill_type": "stack",
-  "skill_name": "{project_name}-stack",
+  "name": "{project_name}-stack",
   "version": "1.0.0",
-  "created": "{current_date}",
-  "forge_tier": "{tier}",
+  "generation_date": "{current_date}",
+  "confidence_tier": "{tier}",
   "library_count": N,
   "integration_count": N,
   "libraries": ["lib1", "lib2"],

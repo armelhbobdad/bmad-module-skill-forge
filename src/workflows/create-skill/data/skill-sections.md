@@ -76,13 +76,14 @@ Compressed 2-line-per-skill format for CLAUDE.md managed section:
 {
   "name": "{skill-name}",
   "version": "{source-version}",
-  "skill_type": "individual",
+  "skill_type": "single",
   "source_authority": "{official|community|internal}",
   "source_repo": "{github-url}",
   "source_commit": "{commit-hash}",
-  "forge_tier": "{quick|forge|deep}",
+  "confidence_tier": "{Quick|Forge|Deep}",
   "spec_version": "1.3",
-  "generated_at": "{ISO-8601}",
+  "generation_date": "{ISO-8601}",
+  "exports": [],
   "tool_versions": {
     "ast_grep": "{version-or-null}",
     "qmd": "{version-or-null}",

@@ -94,7 +94,7 @@ Write to `{forge_data_folder}/{skill_name}/provenance-map.json`:
   "update_type": "incremental",
   "files_changed": {count},
   "exports_affected": {count},
-  "forge_tier": "{tier}",
+  "confidence_tier": "{tier}",
   "manual_sections_preserved": {count}
 }
 ```

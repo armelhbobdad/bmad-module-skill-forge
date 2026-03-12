@@ -129,11 +129,11 @@ Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid
 ### 5. Load Skill Metadata
 
 Read `metadata.json` to extract:
-- `skill_name` — display name
-- `skill_type` — individual or stack (needed for mode detection)
+- `name` — display name
+- `skill_type` — single or stack (needed for mode detection)
 - `source_path` — path to source code (if present)
-- `created_date` — when skill was created
-- `tier` — tier used during creation
+- `generation_date` — when skill was generated
+- `confidence_tier` — tier used during creation
 
 If source path override was provided as optional input, use that instead.
 

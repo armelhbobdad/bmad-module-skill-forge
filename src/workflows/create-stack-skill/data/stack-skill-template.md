@@ -63,10 +63,12 @@ Two-line format per library, targeting ~30 tokens per entry:
 ```json
 {
   "skill_type": "stack",
-  "skill_name": "{project}-stack",
+  "name": "{project}-stack",
   "version": "1.0.0",
-  "created": "{date}",
-  "forge_tier": "{Quick|Forge|Deep}",
+  "generation_date": "{ISO-8601}",
+  "confidence_tier": "{Quick|Forge|Deep}",
+  "source_authority": "{official|community|internal}",
+  "exports": [],
   "library_count": 0,
   "integration_count": 0,
   "libraries": ["lib1", "lib2"],

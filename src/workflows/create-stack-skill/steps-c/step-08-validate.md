@@ -129,10 +129,10 @@ Record missing sections as **WARNING** findings.
 Parse metadata.json and verify required fields:
 
 - [ ] `skill_type` equals "stack"
-- [ ] `skill_name` matches `{project_name}-stack`
+- [ ] `name` matches `{project_name}-stack`
 - [ ] `version` is present
-- [ ] `created` is present
-- [ ] `forge_tier` matches the tier from step 01
+- [ ] `generation_date` is present
+- [ ] `confidence_tier` matches the tier from step 01
 - [ ] `library_count` matches actual number of reference files
 - [ ] `integration_count` matches actual integration pair files
 - [ ] `libraries` array is present and non-empty

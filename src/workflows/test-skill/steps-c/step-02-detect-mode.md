@@ -59,7 +59,7 @@ Examine the skill metadata to determine whether this is an individual skill (nai
 Read the skill metadata (loaded in step 01) and check:
 
 **Individual Skill indicators:**
-- `skill_type: 'individual'` in metadata
+- `skill_type: 'single'` in metadata
 - Single source library/package
 - No cross-references to other skills
 - Self-contained API surface

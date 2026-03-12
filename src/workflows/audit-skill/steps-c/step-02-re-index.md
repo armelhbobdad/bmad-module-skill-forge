@@ -97,7 +97,7 @@ Identify all source files in the source directory that contain public exports.
 ```
 {
   "extraction_date": "{timestamp}",
-  "forge_tier": "{tier}",
+  "confidence_tier": "{tier}",
   "source_root": "{source_path}",
   "files_scanned": {count},
   "exports": [

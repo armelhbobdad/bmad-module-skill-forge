@@ -132,7 +132,7 @@ Compressed 2-line format for CLAUDE.md managed section:
 
 Following the structure from the skill-sections data file:
 - Populate all fields from brief_data, extraction inventory, and tier
-- Set `generated_at` to current ISO-8601 timestamp
+- Set `generation_date` to current ISO-8601 timestamp
 - Set `source_commit` from resolved source (if available)
 - Set `stats` from extraction aggregate counts
 - Set `tool_versions` based on tier and available tools

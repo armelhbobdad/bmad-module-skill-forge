@@ -95,7 +95,7 @@ Load the following from the skill directory:
 - `metadata.json` — Skill metadata (version, created date, export count)
 
 **Extract from metadata.json:**
-- `skill_name`, `version`, `created` date, `forge_tier` used during creation
+- `name`, `version`, `generation_date`, `confidence_tier` used during creation
 - `source_root` — Original source code path
 
 ### 4. Load Provenance Map
@@ -139,7 +139,7 @@ Create `{outputFile}` from `{templateFile}`:
 | Field | Value |
 |-------|-------|
 | **Skill** | {skill_name} v{version} |
-| **Created** | {created_date} |
+| **Created** | {generation_date} |
 | **Source** | {source_path} |
 | **Forge Tier** | {current_tier} (created at {original_tier}) |
 | **Provenance Age** | {days} days since last extraction |

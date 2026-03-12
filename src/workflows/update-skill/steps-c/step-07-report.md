@@ -76,7 +76,7 @@ Source code matches provenance map exactly. The skill `{skill_name}` is current 
 
 | Metric | Value |
 |--------|-------|
-| **Skill** | {skill_name} ({individual/stack}) |
+| **Skill** | {skill_name} ({single/stack}) |
 | **Forge Tier** | {tier} |
 | **Mode** | {normal/degraded} |
 | **Duration** | {step count} steps |
