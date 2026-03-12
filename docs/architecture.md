@@ -215,7 +215,7 @@ Two lines per skill (~30 tokens each). Developer controls placement. Ferris cont
 | Tool | Wraps | Purpose |
 |------|-------|---------|
 | **`gh_bridge`** | GitHub CLI (`gh`) | Source code access, issue mining, release tracking, PR intelligence |
-| **`skill-check`** | agentskills.io spec | Schema validation, frontmatter checks, ecosystem search |
+| **`skill-check`** | [thedaviddias/skill-check](https://github.com/thedaviddias/skill-check) | Validation + auto-fix (`check --fix`), quality scoring (0-100), security scan, split-body, diff comparison |
 | **`ast_bridge`** | ast-grep CLI | Structural extraction, custom AST queries, co-import detection |
 | **`qmd_bridge`** | QMD (local search) | BM25 keyword search, vector semantic search, collection indexing |
 
