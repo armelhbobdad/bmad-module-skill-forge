@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "9d0d96974158",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/create-skill/steps-c/step-06-validate.md",
+    "src/workflows/create-stack-skill/steps-c/step-08-validate.md",
+    "src/workflows/quick-skill/steps-c/step-05-validate.md",
+    "src/workflows/test-skill/steps-c/step-01-init.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9d/0d96974158/0/metadata.json",
+      "transcript": "/9d/0d96974158/0/full.jsonl",
+      "context": "/9d/0d96974158/0/context.md",
+      "content_hash": "/9d/0d96974158/0/content_hash.txt",
+      "prompt": "/9d/0d96974158/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1571,
+    "cache_creation_tokens": 252587,
+    "cache_read_tokens": 10365209,
+    "output_tokens": 43699,
+    "api_call_count": 106
+  }
+}
