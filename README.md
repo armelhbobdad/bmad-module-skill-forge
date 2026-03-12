@@ -44,15 +44,15 @@ BMad is a small **agent + workflow engine**. There is no external orchestrator �
 
 Each workflow directory contains these files, and each has a specific job:
 
-| File | What it does | When it loads |
-| --- | --- | --- |
-| `forger.agent.yaml` | Expert persona — identity, principles, critical actions, menu of triggers | First — always in context |
-| `workflow.md` | Human-readable entry point — goals, mode menu (Create/Edit/Validate), routes to first step | Second — presents mode choice |
-| `steps-c/*.md` | **Create** steps — primary execution, 4-9 sequential files | One at a time (just-in-time) |
-| `data/*.md` | Workflow-specific reference data — schemas, heuristics, rules, patterns | Read by steps on demand |
-| `templates/*.md` | Output skeletons with placeholder vars — steps fill these in to produce the final artifact | Read by steps when generating output |
-| `skf-knowledge-index.csv` | Knowledge fragment index — id, name, tags, tier, file path | Read by steps to decide which fragments to load |
-| `knowledge/*.md` | 8 reusable fragments — cross-cutting principles and patterns (e.g., `zero-hallucination.md`, `confidence-tiers.md`) | Selectively read into context when a step directs |
+| File                      | What it does                                                                                                        | When it loads                                     |
+|---------------------------|---------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|
+| `forger.agent.yaml`       | Expert persona — identity, principles, critical actions, menu of triggers                                           | First — always in context                         |
+| `workflow.md`             | Human-readable entry point — goals, mode menu (Create/Edit/Validate), routes to first step                          | Second — presents mode choice                     |
+| `steps-c/*.md`            | **Create** steps — primary execution, 4-9 sequential files                                                          | One at a time (just-in-time)                      |
+| `data/*.md`               | Workflow-specific reference data — schemas, heuristics, rules, patterns                                             | Read by steps on demand                           |
+| `templates/*.md`          | Output skeletons with placeholder vars — steps fill these in to produce the final artifact                          | Read by steps when generating output              |
+| `skf-knowledge-index.csv` | Knowledge fragment index — id, name, tags, tier, file path                                                          | Read by steps to decide which fragments to load   |
+| `knowledge/*.md`          | 8 reusable fragments — cross-cutting principles and patterns (e.g., `zero-hallucination.md`, `confidence-tiers.md`) | Selectively read into context when a step directs |
 
 ```mermaid
 flowchart LR
@@ -79,12 +79,12 @@ flowchart LR
 
 Ferris operates in four workflow-driven modes (mode is determined by which workflow is running, not conversation state):
 
-| Mode | Workflows | Behavior |
-| --- | --- | --- |
-| **Architect** | AN, BS, SF | Exploratory, assembling — discovers structure and scope |
-| **Surgeon** | CS, QS, SS, US | Precise, preserving — extracts and compiles with provenance |
-| **Audit** | AS, TS | Judgmental, scoring — evaluates quality and detects drift |
-| **Delivery** | EX | Packaging, ecosystem-ready — bundles for distribution |
+| Mode          | Workflows      | Behavior                                                    |
+|---------------|----------------|-------------------------------------------------------------|
+| **Architect** | AN, BS, SF     | Exploratory, assembling — discovers structure and scope     |
+| **Surgeon**   | CS, QS, SS, US | Precise, preserving — extracts and compiles with provenance |
+| **Audit**     | AS, TS         | Judgmental, scoring — evaluates quality and detects drift   |
+| **Delivery**  | EX             | Packaging, ecosystem-ready — bundles for distribution       |
 
 ## Install
 
@@ -170,10 +170,11 @@ Workflows load only the fragments required for the current task to stay focused 
 
 SKF variables are defined in `src/module.yaml` and prompted during install:
 
-| Variable | Purpose | Default |
-| --- | --- | --- |
-| `skills_output_folder` | Where generated skills are saved | `{project-root}/skills` |
-| `forge_data_folder` | Where workspace artifacts are stored | `{project-root}/forge-data` |
+| Variable               | Purpose                                                                                              | Default                     |
+|------------------------|------------------------------------------------------------------------------------------------------|-----------------------------|
+| `skills_output_folder` | Where generated skills are saved                                                                     | `{project-root}/skills`     |
+| `forge_data_folder`    | Where workspace artifacts are stored                                                                 | `{project-root}/forge-data` |
+| `tier_override`        | Force a specific tier for comparison or testing (in `_bmad/_memory/forger-sidecar/preferences.yaml`) | `~` (auto-detect)           |
 
 Runtime configuration (tool detection, tier, parallel settings) is managed by the `setup-forge` workflow in `forge-tier.yaml`.
 

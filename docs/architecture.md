@@ -48,6 +48,29 @@ Forge initialized. Tools: gh, ast-grep, QMD. Tier: Deep. Ready.
 
 Don't have ast-grep or QMD yet? No problem — Quick mode works with just the GitHub CLI. Install tools later; your tier upgrades automatically.
 
+### Tier Override — Comparing Output Across Tiers
+
+You can force a specific tier by setting `tier_override` in your preferences file (`_bmad/_memory/forger-sidecar/preferences.yaml`):
+
+```yaml
+# Force Forge tier regardless of detected tools
+tier_override: Forge
+```
+
+This is useful for comparing skill quality across tiers for the same target:
+
+```
+# 1. Set tier_override: Quick in preferences.yaml
+@Ferris CS                # compile at Quick tier
+
+# 2. Change to tier_override: Forge
+@Ferris CS                # recompile at Forge tier — compare output
+
+# 3. Reset to tier_override: ~ (auto-detect)
+```
+
+Set `tier_override` to `Quick`, `Forge`, or `Deep`. Set to `~` (null) to return to auto-detection. The override is respected by all tier-aware workflows (CS, SS, US, AS, TS).
+
 ---
 
 ## Confidence Tiers
