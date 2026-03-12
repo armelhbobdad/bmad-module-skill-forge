@@ -1,0 +1,33 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/ . Read https://github.com/armelhbobdad/bmad-module-skill-forge/issues/13
+
+---
+
+yes
+
+---
+
+Y
+
+---
+
+review the changes for any breaking changes, or missing impact.
+
+---
+
+fix all of them
+
+---
+
+V
+
+---
+
+D
+
+---
+
+commit and close the issue
