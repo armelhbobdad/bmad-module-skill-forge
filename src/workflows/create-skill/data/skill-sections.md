@@ -2,16 +2,25 @@
 
 ## agentskills.io Compliant Format
 
-### Frontmatter (Required)
+### Frontmatter (Required — agentskills.io Compliance)
 
 ```yaml
 ---
 name: {skill-name}
-version: {source-version}
-description: {skill-name} — {export-count} verified functions
-author: {source-author}
+description: >
+  {Trigger-optimized description of what the skill does and when to use it.
+  Include specific keywords for agent discovery.
+  Mention what NOT to use it for if applicable.
+  1-1024 characters.}
 ---
 ```
+
+**Frontmatter rules (agentskills.io specification):**
+
+- `name`: 1-64 characters, lowercase alphanumeric + hyphens only, must match parent directory name
+- `description`: 1-1024 characters, trigger-optimized for agent matching
+- Only 6 fields permitted: `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`
+- `version` and `author` belong in metadata.json, NOT in frontmatter
 
 ### Section Order
 

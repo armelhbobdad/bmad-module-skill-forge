@@ -68,7 +68,19 @@ Check that all expected files exist from written_files[]:
 
 Record any missing files as **ERROR** findings.
 
-### 2. Validate SKILL.md Structure
+### 2. Validate SKILL.md Frontmatter (agentskills.io Compliance)
+
+Verify SKILL.md has valid YAML frontmatter — REQUIRED for ecosystem compatibility:
+
+- [ ] Frontmatter present — file starts with `---` delimiter and has closing `---`
+- [ ] `name` field — present, non-empty, lowercase alphanumeric + hyphens only, 1-64 chars
+- [ ] `name` matches skill output directory name (`{project_name}-stack`)
+- [ ] `description` field — present, non-empty, 1-1024 characters
+- [ ] No unknown fields — only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted
+
+Record frontmatter violations as **WARNING** findings. Skills without valid frontmatter will fail `npx skills add` and `skills-ref validate`.
+
+### 3. Validate SKILL.md Body Structure
 
 Load `{stackSkillTemplate}` and verify SKILL.md contains expected sections:
 
@@ -80,7 +92,7 @@ Load `{stackSkillTemplate}` and verify SKILL.md contains expected sections:
 
 Record missing sections as **WARNING** findings.
 
-### 3. Validate metadata.json Fields
+### 4. Validate metadata.json Fields
 
 Parse metadata.json and verify required fields:
 
@@ -96,7 +108,7 @@ Parse metadata.json and verify required fields:
 
 Record mismatches as **WARNING** findings.
 
-### 4. Validate Reference File Completeness
+### 5. Validate Reference File Completeness
 
 For each confirmed library, verify `references/{library}.md` exists and contains:
 - [ ] Library name header
@@ -112,7 +124,7 @@ For each integration pair (if any), verify `references/integrations/{libraryA}-{
 
 Record missing or incomplete files as **WARNING** findings.
 
-### 5. Validate Confidence Tier Labels
+### 6. Validate Confidence Tier Labels
 
 Scan across all output files for confidence tier coverage:
 
@@ -123,7 +135,7 @@ Scan across all output files for confidence tier coverage:
 
 Record missing tier labels as **WARNING** findings.
 
-### 6. Validate context-snippet.md
+### 7. Validate context-snippet.md
 
 Verify context-snippet.md follows ADR-L two-line format:
 - [ ] Each library has an entry with import count and top exports
@@ -132,7 +144,7 @@ Verify context-snippet.md follows ADR-L two-line format:
 
 Record format violations as **WARNING** findings.
 
-### 7. Display Validation Results
+### 8. Display Validation Results
 
 **If all checks pass:**
 
@@ -164,7 +176,7 @@ Record format violations as **WARNING** findings.
 
 **Proceeding to summary report...**"
 
-### 8. Auto-Proceed to Next Step
+### 9. Auto-Proceed to Next Step
 
 Load, read the full file and then execute `{nextStepFile}`.
 

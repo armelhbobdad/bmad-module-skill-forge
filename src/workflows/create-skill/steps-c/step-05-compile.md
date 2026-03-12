@@ -60,15 +60,24 @@ Load `{skillSectionsData}` completely. This defines the agentskills.io-compliant
 
 Assemble each section in order from the skill-sections data file:
 
-**Frontmatter:**
+**Frontmatter (REQUIRED — agentskills.io compliance):**
+
 ```yaml
 ---
 name: {brief.name}
-version: {brief.version}
-description: {brief.name} — {export_count} verified functions
-author: {source_author}
+description: >
+  {Trigger-optimized description from brief and extraction data.
+  Include what it does, when to use it, and what NOT to use it for.
+  1-1024 chars, optimized for agent discovery.}
 ---
 ```
+
+**Frontmatter rules:**
+
+- `name`: lowercase alphanumeric + hyphens only, must match the skill output directory name
+- `description`: non-empty, max 1024 chars, optimized for agent discovery
+- Only `name` and `description` in frontmatter — `version` and `author` go in metadata.json
+- No other frontmatter fields for standard skills (only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted by spec)
 
 **Section 1 — Overview:**
 - What this skill provides
