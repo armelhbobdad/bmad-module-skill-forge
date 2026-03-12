@@ -55,8 +55,9 @@ The installer detects the existing `_bmad/` directory and installs SKF alongside
 
 ## Prerequisites
 
-| Tool                                                                   | Required For       | Install                     |
+| Tool                                                                   | Required For       | Install                       |
 |------------------------------------------------------------------------|--------------------|-----------------------------|
+| [Node.js](https://nodejs.org/) >= 22                                   | Installation, npx commands | <https://nodejs.org>          |
 | `gh` (GitHub CLI)                                                      | All modes          | <https://cli.github.com>      |
 | `ast-grep`  (CLI tool for code structural search, lint, and rewriting) | Forge + Deep modes | <https://ast-grep.github.io>  |
 | `qmd` (local hybrid search engine for project files)                   | Deep mode          | <https://github.com/tobi/qmd> |

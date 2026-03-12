@@ -26,6 +26,8 @@ Skill Forge is an automated skill compiler for the AI agent ecosystem. It transf
 
 ## Quick Install
 
+Requires [Node.js](https://nodejs.org/) >= 22.
+
 **Standalone:**
 
 ```bash

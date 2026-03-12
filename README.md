@@ -88,6 +88,8 @@ Ferris operates in four workflow-driven modes (mode is determined by which workf
 
 ## Install
 
+Requires [Node.js](https://nodejs.org/) >= 22.
+
 There are three ways to install SKF, depending on your setup.
 
 ### Method 1: Standalone (recommended for trying SKF)
