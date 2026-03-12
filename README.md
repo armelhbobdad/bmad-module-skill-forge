@@ -149,7 +149,7 @@ The installer detects the existing `_bmad/` directory and installs SKF alongside
 
 | Tier | Tools | Capability |
 | --- | --- | --- |
-| **Quick** | gh + skills_ref | Source reading + spec validation |
+| **Quick** | gh + skill-check | Source reading + spec validation |
 | **Forge** | + ast-grep | Structural truth, T1 confidence |
 | **Deep** | + QMD | Knowledge search, temporal provenance |
 
