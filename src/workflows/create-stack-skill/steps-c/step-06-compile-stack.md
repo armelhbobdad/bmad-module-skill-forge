@@ -55,7 +55,28 @@ Assemble the main SKILL.md by combining per-library extractions with the integra
 
 Load `{stackSkillTemplate}` and prepare SKILL.md section structure.
 
-### 2. Compile Integration Layer
+### 2. Generate Frontmatter
+
+The SKILL.md MUST begin with YAML frontmatter (agentskills.io compliance):
+
+```yaml
+---
+name: {project_name}-stack
+description: >
+  Stack skill for {project_name} — {lib_count} libraries with
+  {integration_count} integration patterns. Use when working with
+  this project's technology stack. NOT for: individual library usage
+  outside this project's conventions.
+---
+```
+
+**Frontmatter rules:**
+
+- `name`: lowercase alphanumeric + hyphens only, must match skill output directory name
+- `description`: non-empty, max 1024 chars, trigger-optimized for agent discovery
+- No other frontmatter fields — only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted by spec
+
+### 3. Compile Integration Layer
 
 **This is the core value of the stack skill.** Compile in order:
 
@@ -75,7 +96,7 @@ Load `{stackSkillTemplate}` and prepare SKILL.md section structure.
   - Role in the stack architecture
   - How it connects to partner libraries
 
-### 3. Compile Per-Library Sections
+### 4. Compile Per-Library Sections
 
 For each confirmed library (ordered by integration connectivity, then import count):
 
@@ -85,7 +106,7 @@ For each confirmed library (ordered by integration connectivity, then import cou
 - Confidence tier label
 - Link to reference file: `./references/{library}.md`
 
-### 4. Compile Project Conventions
+### 5. Compile Project Conventions
 
 Extract project-specific conventions from the extractions:
 - Common initialization patterns
@@ -93,7 +114,7 @@ Extract project-specific conventions from the extractions:
 - Configuration conventions
 - Import organization patterns
 
-### 5. Compile Library Reference Index
+### 6. Compile Library Reference Index
 
 Create the reference index table:
 
@@ -101,7 +122,7 @@ Create the reference index table:
 |---------|---------|-------------|------------|-----------|
 | ... | ... | ... | ... | ... |
 
-### 6. Present Compiled SKILL.md Preview
+### 7. Present Compiled SKILL.md Preview
 
 "**Stack skill compilation complete. Please review:**
 
@@ -122,7 +143,7 @@ Create the reference index table:
 - Are the per-library summaries accurate?
 - Any sections to adjust before writing output?"
 
-### 7. Present MENU OPTIONS
+### 8. Present MENU OPTIONS
 
 Display: **Select:** [C] Continue to Output Generation
 
@@ -134,7 +155,7 @@ Display: **Select:** [C] Continue to Output Generation
 #### Menu Handling Logic:
 
 - IF C: Store skill_content, then load, read entire file, then execute {nextStepFile}
-- IF Any other: Process as feedback, adjust compilation, redisplay preview, then [Redisplay Menu Options](#7-present-menu-options)
+- IF Any other: Process as feedback, adjust compilation, redisplay preview, then [Redisplay Menu Options](#8-present-menu-options)
 
 ---
 

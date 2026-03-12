@@ -57,8 +57,8 @@ To validate the compiled SKILL.md content against the agentskills.io specificati
 Continue to validation steps.
 
 **If skills_ref tool is NOT available:**
-- Add warning to evidence-report content: "Spec validation skipped — skills_ref tool unavailable"
-- Auto-proceed to next step
+- Perform manual frontmatter compliance check (see step 3 fallback below)
+- Add note to evidence-report content: "Spec validation performed manually — skills_ref tool unavailable"
 
 ### 2. Validate Schema
 
@@ -67,7 +67,7 @@ Use `skills_ref.validate_schema()` against the compiled SKILL.md content.
 **Check:**
 - Required sections present (Overview, Quick Start, API Reference, Type Definitions)
 - Section order follows agentskills.io standard
-- Frontmatter contains required fields (name, version, description, author)
+- Frontmatter contains required fields (name, description) with no disallowed fields
 - Provenance citations present in API Reference entries
 
 **If validation passes:** Record "Schema: PASS" in evidence-report content.
@@ -80,18 +80,23 @@ Use `skills_ref.validate_schema()` against the compiled SKILL.md content.
 
 ### 3. Validate Frontmatter
 
-Use `skills_ref.validate_frontmatter()` against the SKILL.md frontmatter.
+**If skills_ref available:** Use `skills_ref.validate_frontmatter()` against the SKILL.md frontmatter.
 
-**Check:**
-- `name` matches brief.name (kebab-case)
-- `version` matches brief.version
-- `description` follows format: "{name} — {count} verified functions"
-- `author` is set
+**If skills_ref NOT available (fallback):** Perform manual frontmatter compliance check.
+
+**Check (agentskills.io specification):**
+
+- [ ] Frontmatter present — file starts with `---` and has closing `---`
+- [ ] `name` field — present, non-empty, lowercase alphanumeric + hyphens only, 1-64 chars
+- [ ] `name` matches skill output directory name
+- [ ] `description` field — present, non-empty, 1-1024 characters
+- [ ] No unknown fields — only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted
+- [ ] `version` and `author` are NOT in frontmatter (they belong in metadata.json)
 
 **If validation passes:** Record "Frontmatter: PASS" in evidence-report content.
 
 **If validation fails:**
-1. Auto-fix frontmatter (these are deterministic fixes)
+1. Auto-fix frontmatter (these are deterministic fixes — remove disallowed fields, add missing required fields)
 2. Re-validate once
 3. Record result in evidence-report
 

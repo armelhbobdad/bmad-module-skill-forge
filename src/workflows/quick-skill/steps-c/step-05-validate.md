@@ -53,7 +53,19 @@ To validate the compiled SKILL.md, context-snippet.md, and metadata.json against
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
 
-### 1. Validate SKILL.md Structure
+### 1. Validate SKILL.md Frontmatter (agentskills.io Compliance)
+
+Check that SKILL.md has valid YAML frontmatter — this is REQUIRED for ecosystem compatibility:
+
+- [ ] **Frontmatter present** — file starts with `---` delimiter and has closing `---`
+- [ ] **`name` field** — present, non-empty, lowercase alphanumeric + hyphens only, 1-64 chars
+- [ ] **`name` matches directory** — frontmatter `name` matches the skill output directory name
+- [ ] **`description` field** — present, non-empty, 1-1024 characters
+- [ ] **No unknown fields** — only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted
+
+**For each violation, log an issue.** Missing frontmatter or missing required fields are high-severity issues — skills without valid frontmatter will fail `npx skills add` and `skills-ref validate`.
+
+### 2. Validate SKILL.md Body Structure
 
 Check that SKILL.md has these required sections populated:
 
@@ -64,7 +76,7 @@ Check that SKILL.md has these required sections populated:
 
 **For each missing or empty required section, log an issue.**
 
-### 2. Validate Context Snippet Format
+### 3. Validate Context Snippet Format
 
 Check context-snippet.md format compliance:
 
@@ -75,7 +87,7 @@ Check context-snippet.md format compliance:
 
 **If format is wrong, log an issue.**
 
-### 3. Validate Metadata JSON
+### 4. Validate Metadata JSON
 
 Check metadata.json has required fields:
 
@@ -91,7 +103,7 @@ Check metadata.json has required fields:
 
 **For each missing or invalid field, log an issue.**
 
-### 4. Report Validation Results
+### 5. Report Validation Results
 
 "**Validation complete:**
 
@@ -113,7 +125,7 @@ These issues are advisory for community-tier skills. You can proceed to write ou
 
 Set `validation_result` with pass/fail status and issues list.
 
-### 5. Auto-Proceed to Write
+### 6. Auto-Proceed to Write
 
 #### Menu Handling Logic:
 

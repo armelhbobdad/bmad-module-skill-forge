@@ -3,6 +3,14 @@
 ## SKILL.md Section Structure
 
 ```markdown
+---
+name: {project_name}-stack
+description: >
+  Stack skill for {project_name} — {lib_count} libraries with
+  {integration_count} integration patterns. Use when working with
+  this project's technology stack.
+---
+
 # {project_name} Stack Skill
 
 > {lib_count} libraries | {integration_count} integration patterns | Forge tier: {tier}

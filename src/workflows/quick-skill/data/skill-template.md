@@ -7,6 +7,14 @@ The following sections should be populated in the generated SKILL.md. Best-effor
 ### Required Sections
 
 ```markdown
+---
+name: {skill_name}
+description: >
+  {README-derived description, trigger-optimized for agent discovery.
+  Include what the package does and when to use it.
+  Mention what NOT to use it for if applicable.}
+---
+
 # {skill_name}
 
 ## Overview

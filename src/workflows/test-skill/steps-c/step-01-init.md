@@ -87,7 +87,27 @@ HALT — do not proceed.
 **If metadata.json missing:**
 "**Warning:** metadata.json not found. Proceeding with limited metadata. Some checks may be skipped."
 
-### 3. Load Forge Tier State
+### 3. Validate Frontmatter Compliance
+
+Before proceeding to content analysis, verify that SKILL.md has valid agentskills.io frontmatter. This catches compliance issues early, regardless of which workflow generated the skill.
+
+**Check the following:**
+- [ ] SKILL.md begins with `---` and has a closing `---` (frontmatter present)
+- [ ] `name` field exists, non-empty, lowercase alphanumeric + hyphens, 1-64 chars
+- [ ] `name` matches the skill directory name
+- [ ] `description` field exists, non-empty, 1-1024 chars
+- [ ] No unknown frontmatter fields (only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted)
+
+**If frontmatter is missing or invalid:**
+"**Warning: SKILL.md frontmatter is non-compliant with agentskills.io specification.**
+
+{list specific issues}
+
+This skill will fail `npx skills add` and `skills-ref validate`. Consider fixing frontmatter before proceeding."
+
+Log each issue as a pre-check finding. Continue with testing — frontmatter issues will be reported in the gap report alongside coverage/coherence findings.
+
+### 4. Load Forge Tier State
 
 Read `{sidecarFile}` to determine available analysis depth.
 
@@ -102,7 +122,7 @@ Run **setup-forge** to enable deeper analysis with AST-backed verification."
 
 Default to Quick tier and continue.
 
-### 4. Load Skill Metadata
+### 5. Load Skill Metadata
 
 Read `metadata.json` to extract:
 - `skill_name` — display name
@@ -113,7 +133,7 @@ Read `metadata.json` to extract:
 
 If source path override was provided as optional input, use that instead.
 
-### 5. Create Output Document
+### 6. Create Output Document
 
 Create `{outputFile}` from `{templateFile}` with initial frontmatter:
 
@@ -132,7 +152,7 @@ nextWorkflow: ''
 ---
 ```
 
-### 6. Report Initialization Status
+### 7. Report Initialization Status
 
 "**Test initialization complete.**
 
@@ -144,7 +164,7 @@ nextWorkflow: ''
 
 **Proceeding to mode detection...**"
 
-### 7. Auto-Proceed
+### 8. Auto-Proceed
 
 Display: "**Proceeding to mode detection...**"
 

@@ -65,7 +65,25 @@ Load {skillTemplateData} to understand:
 
 Using the template structure, populate each section from extraction_inventory:
 
-**Required sections:**
+**Frontmatter (REQUIRED — agentskills.io compliance):**
+
+The SKILL.md MUST begin with YAML frontmatter:
+
+```yaml
+---
+name: {skill_name}
+description: >
+  {Trigger-optimized description from extraction_inventory.description.
+  1-1024 chars. Include what it does, when to use it, and what NOT to use it for.}
+---
+```
+
+**Frontmatter rules:**
+- `name`: lowercase alphanumeric + hyphens only, must match the skill output directory name
+- `description`: non-empty, max 1024 chars, optimized for agent discovery
+- No other frontmatter fields — only `name` and `description` for community skills
+
+**Required sections (after frontmatter):**
 - **Overview:** Package name, repository, language, source authority, generation date
 - **Description:** From extraction_inventory.description (README-derived)
 - **Key Exports:** From extraction_inventory.exports — list each with name, type, brief description
