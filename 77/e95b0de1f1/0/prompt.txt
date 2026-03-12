@@ -1,0 +1,39 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+Here is the module directory: @src/ . I complete the skill generation with quick mode (the result had been move here: @_bmad-output/quick-demo/) but the skill is not compliant. I got this message when I tried to install it:
+$ npx skills add /c/Users/abobdadjimo/Projects/OSS/quick-demo/skills/cognee
+
+███████╗██╗  ██╗██╗██╗     ██╗     ███████╗
+██╔════╝██║ ██╔╝██║██║     ██║     ██╔════╝
+███████╗█████╔╝ ██║██║     ██║     ███████╗
+╚════██║██╔═██╗ ██║██║     ██║     ╚════██║
+███████║██║  ██╗██║███████╗███████╗███████║
+╚══════╝╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝
+
+T   skills
+|
+o  Source: C:\Users\abobdadjimo\Projects\OSS\quick-demo\skills\cognee
+|
+o  Local path validated
+|
+o  No skills found
+|
+—  No valid skills found. Skills require a SKILL.md with name and description.
+
+Here is the console output: @_bmad-output/quick-demo/console-output.txt. I had to do a fix to make it works.
+
+where is the best place/phase to check the skill is fully compliant and valide? during the test phase? did we really check with `skills-ref validate` from https://agentskills.io/specification (use memory plugin)?
+
+---
+
+A
+
+---
+
+it is perfect
+
+---
+
+commit before we continue
