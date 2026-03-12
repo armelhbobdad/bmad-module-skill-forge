@@ -192,7 +192,7 @@ Workflow is SKF module — correctly references `{project-root}/_bmad/skf/config
 
 ### Detailed Analysis
 
-**step-01-init:** Init with Input Discovery pattern. Requests skill path from user, validates required artifacts (SKILL.md, metadata.json, forge-tier.yaml), offers degraded mode for missing provenance, inventories [MANUAL] sections. C-only gate (no A/P — correct for init). Non-continuable (correct for single-session).
+**step-01-init:** Init with Input Discovery pattern. Requests skill path from user, validates required artifacts (SKILL.md, metadata.json, forge-tier.yaml), checks `preferences.yaml` for `tier_override`, offers degraded mode for missing provenance, inventories [MANUAL] sections. C-only gate (no A/P — correct for init). Non-continuable (correct for single-session).
 
 **step-02-detect-changes:** Auto-proceed middle step with Pattern 4 parallel subprocess. No-change shortcut correctly routes to final step. No user interaction.
 

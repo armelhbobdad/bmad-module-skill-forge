@@ -76,6 +76,8 @@ Look for {outputFile}.
 - **IF missing:** HARD HALT — "**Cannot proceed.** forge-tier.yaml not found at `{forge_data_folder}/forge-tier.yaml`. Please run the setup-forge workflow first to configure your forge tier (Quick/Forge/Deep)."
 - **IF found:** Read and note the forge tier value
 
+**Apply tier override:** Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, or Deep), use it instead of the detected tier.
+
 "**Forge tier detected:** {tier} — analysis depth will be calibrated accordingly."
 
 ### 3. Collect Project Path

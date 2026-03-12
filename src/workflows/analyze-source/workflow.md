@@ -54,7 +54,7 @@ installed_path: '{project-root}/_bmad/skf/workflows/analyze-source'
 
 Load and read full config from {project-root}/_bmad/skf/config.yaml and resolve:
 
-- `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `forge_data_folder`, `skills_output_folder`
+- `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `forge_data_folder`, `skills_output_folder`, `sidecar_path`
 
 ### 2. First Step Execution
 

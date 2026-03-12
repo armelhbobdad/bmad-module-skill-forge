@@ -175,7 +175,7 @@ No bmb-specific path assumptions found. Workflow correctly uses SKF module varia
 **Init (step-01):**
 - ✅ Creates output from template (`{templateFile}`)
 - ✅ C-only menu (no A/P — appropriate for init)
-- ✅ Input discovery: loads SKILL.md, metadata.json, provenance-map.json, forge-tier.yaml
+- ✅ Input discovery: loads SKILL.md, metadata.json, provenance-map.json, forge-tier.yaml, and checks `preferences.yaml` for `tier_override`
 - ✅ User gate with baseline summary before analysis
 
 **Auto-Proceed Steps (02-05):**

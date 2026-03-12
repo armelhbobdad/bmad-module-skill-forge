@@ -71,7 +71,7 @@ Extract:
 - `available_tools` — list of detected tools (gh_bridge, ast_bridge, qmd_bridge, skill-check)
 - `project_root` — project root path
 
-Check for `tier_override` in preferences.yaml if it exists.
+**Apply tier override:** Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, or Deep), use it instead of the detected tier.
 
 ### 2. Validate Available Tools
 

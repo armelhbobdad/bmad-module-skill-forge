@@ -342,7 +342,7 @@ The workflow progresses logically from initialization through discovery, confirm
 | Instruction Style | Prescriptive | All steps prescriptive with MANDATORY SEQUENCE | High | ✅ |
 | Subprocess Optimization | 3 steps (03, 04, 05) | All 3 implemented with fallbacks | High | ✅ |
 | Error Handling | 7-scenario matrix | All 7 scenarios handled across steps | High | ✅ |
-| Workflow Chaining | setup-forge prerequisite | step-01 validates forge-tier.yaml | High | ✅ |
+| Workflow Chaining | setup-forge prerequisite | step-01 validates forge-tier.yaml and checks `preferences.yaml` for `tier_override` | High | ✅ |
 | Data Files | 3 files (manifest, integration, template) | All 3 created in data/ folder | High | ✅ |
 
 ### Implementation Gaps

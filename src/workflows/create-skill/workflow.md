@@ -45,7 +45,7 @@ web_bundle: true
 
 Load and read full config from {project-root}/_bmad/skf/config.yaml and resolve:
 
-- `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`
+- `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `sidecar_path`
 
 ### 2. First Step Execution
 

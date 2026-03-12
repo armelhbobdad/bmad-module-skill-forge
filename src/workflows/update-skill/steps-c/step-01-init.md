@@ -84,9 +84,11 @@ Resolve the path to an absolute skill folder location.
 
 ### 3. Load Forge Tier Configuration
 
-**Load `sidecar/forge-tier.yaml`:**
+**Load `{sidecar_path}/forge-tier.yaml`:**
 - Extract: `forge_tier` (Quick, Forge, or Deep), available tools
 - If missing: **ABORT** — "No forge-tier.yaml found. Run setup-forge first to detect available tools."
+
+**Apply tier override:** Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, or Deep), use it instead of the detected tier.
 
 **Determine analysis capabilities:**
 - **Quick:** text pattern matching only → T1-low confidence

@@ -247,7 +247,7 @@ Each step has explicit CONTEXT BOUNDARIES with FORBIDDEN markers preventing scop
 
 ### Error Handling: Good
 
-- step-01: Three-tier handling (hard stop for missing SKILL.md, warning for missing metadata.json, graceful default for missing forge-tier.yaml)
+- step-01: Three-tier handling (hard stop for missing SKILL.md, warning for missing metadata.json, graceful default for missing forge-tier.yaml). Checks `preferences.yaml` for `tier_override` after loading forge tier.
 - step-03/04: Subprocess fallback rules at multiple locations
 - step-06: Zero-gaps clean pass path
 

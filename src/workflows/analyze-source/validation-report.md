@@ -339,7 +339,7 @@ Data files in `data/` support the workflow's inline validation:
 
 | File | Style | Appropriate | Key Language | Status |
 |------|-------|-------------|--------------|--------|
-| step-01-init | Prescriptive | ✅ | "Check forge-tier.yaml", "HARD HALT", "Validate the path" | PASS |
+| step-01-init | Prescriptive | ✅ | "Check forge-tier.yaml", "HARD HALT", "Validate the path", checks `preferences.yaml` for `tier_override` | PASS |
 | step-01b-continue | Prescriptive | ✅ | "Read frontmatter", "Map last completed step to next step" | PASS |
 | step-02-scan-project | Prescriptive | ✅ | "Map top-level directory tree", "Identify workspace configs", "Detect service boundaries" | PASS |
 | step-03-identify-units | Prescriptive | ✅ | "Count detection signals", "Classify boundary type", "Check disqualification rules" | PASS |

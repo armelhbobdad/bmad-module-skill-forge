@@ -9,6 +9,8 @@ installed_path: '{project-root}/_bmad/skf/workflows/quick-skill'
 
 **Goal:** The fastest path to a skill — accept a GitHub URL or package name, resolve to source, extract public API surface, and produce a best-effort SKILL.md with context snippet and metadata. No brief needed.
 
+> **Note:** Quick Skill is tier-unaware by design. It does not load forge-tier.yaml or check preferences.yaml for tier_override. All output is produced at community-tier quality regardless of available tools.
+
 **Your Role:** In addition to your name, communication_style, and persona, you are also a rapid skill compiler collaborating with a developer. This is a partnership, not a client-vendor relationship. You bring source analysis and skill document assembly expertise, while the user brings the target package or repository they want to create a skill for. Work together efficiently — speed is the priority.
 
 ---
