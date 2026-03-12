@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "decb0ce28fcc",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "src/workflows/analyze-source/steps-c/step-01-init.md",
+    "src/workflows/analyze-source/validation-report.md",
+    "src/workflows/analyze-source/workflow.md",
+    "src/workflows/audit-skill/steps-c/step-01-init.md",
+    "src/workflows/audit-skill/validation-report.md",
+    "src/workflows/brief-skill/steps-c/step-01-gather-intent.md",
+    "src/workflows/brief-skill/workflow.md",
+    "src/workflows/create-skill/steps-c/step-01-load-brief.md",
+    "src/workflows/create-skill/workflow.md",
+    "src/workflows/create-stack-skill/steps-c/step-01-init.md",
+    "src/workflows/create-stack-skill/validation-report.md",
+    "src/workflows/quick-skill/workflow.md",
+    "src/workflows/test-skill/steps-c/step-01-init.md",
+    "src/workflows/test-skill/validation-report.md",
+    "src/workflows/update-skill/steps-c/step-01-init.md",
+    "src/workflows/update-skill/validation-report.md",
+    "src/workflows/update-skill/workflow.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/de/cb0ce28fcc/0/metadata.json",
+      "transcript": "/de/cb0ce28fcc/0/full.jsonl",
+      "context": "/de/cb0ce28fcc/0/context.md",
+      "content_hash": "/de/cb0ce28fcc/0/content_hash.txt",
+      "prompt": "/de/cb0ce28fcc/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 81,
+    "cache_creation_tokens": 99221,
+    "cache_read_tokens": 3734771,
+    "output_tokens": 29675,
+    "api_call_count": 60
+  }
+}
