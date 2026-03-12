@@ -67,7 +67,7 @@ Use `skills_ref.validate_schema()` against the compiled SKILL.md content.
 **Check:**
 - Required sections present (Overview, Quick Start, API Reference, Type Definitions)
 - Section order follows agentskills.io standard
-- Frontmatter contains required fields (name, version, description, author)
+- Frontmatter contains required fields (name, description) with no disallowed fields
 - Provenance citations present in API Reference entries
 
 **If validation passes:** Record "Schema: PASS" in evidence-report content.

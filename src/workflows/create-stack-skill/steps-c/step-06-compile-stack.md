@@ -155,7 +155,7 @@ Display: **Select:** [C] Continue to Output Generation
 #### Menu Handling Logic:
 
 - IF C: Store skill_content, then load, read entire file, then execute {nextStepFile}
-- IF Any other: Process as feedback, adjust compilation, redisplay preview, then [Redisplay Menu Options](#7-present-menu-options)
+- IF Any other: Process as feedback, adjust compilation, redisplay preview, then [Redisplay Menu Options](#8-present-menu-options)
 
 ---
 
