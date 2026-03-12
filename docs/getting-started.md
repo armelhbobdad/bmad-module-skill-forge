@@ -193,5 +193,6 @@ Your existing skill is now out of date. Audit detects the drift, Update regenera
 If you run into issues:
 1. Run `/bmad-help` — analyzes your current state and suggests what to do next
    (e.g. `/bmad-help my quick skill has low confidence scores, how do I improve them?`)
+   *Provided by the [BMad Method](https://github.com/bmad-code-org/BMAD-METHOD) — not available in standalone SKF installations.*
 2. Run `@Ferris SF` to check your tool availability and tier
 3. Check `forge-config.yaml` for your current configuration
