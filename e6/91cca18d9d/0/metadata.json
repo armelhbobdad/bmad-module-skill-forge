@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e691cca18d9d",
+  "session_id": "f3903d23-810e-480c-9286-de851f731896",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-14T08:24:59.225549712Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/brief-skill/steps-c/step-05-write-brief.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "e401a7d4a5df",
+  "checkpoint_transcript_start": 310,
+  "transcript_lines_at_start": 310,
+  "token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 16264,
+    "cache_read_tokens": 1245080,
+    "output_tokens": 4850,
+    "api_call_count": 12
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-14T08:24:58.797768681Z",
+    "agent_lines": 47,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 47,
+    "agent_percentage": 100
+  }
+}

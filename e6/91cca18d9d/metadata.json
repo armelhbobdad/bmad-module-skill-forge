@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e691cca18d9d",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/brief-skill/steps-c/step-05-write-brief.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e6/91cca18d9d/0/metadata.json",
+      "transcript": "/e6/91cca18d9d/0/full.jsonl",
+      "context": "/e6/91cca18d9d/0/context.md",
+      "content_hash": "/e6/91cca18d9d/0/content_hash.txt",
+      "prompt": "/e6/91cca18d9d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 16264,
+    "cache_read_tokens": 1245080,
+    "output_tokens": 4850,
+    "api_call_count": 12
+  }
+}
