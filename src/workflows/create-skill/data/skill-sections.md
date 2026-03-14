@@ -34,6 +34,7 @@ SKILL.md uses a two-tier structure to ensure actionable content survives `split-
 | 2 | **Quick Start** | ~30 lines | 3-5 core functions with one runnable end-to-end example |
 | 3 | **Common Workflows** | ~30 lines | 4-5 typical function call sequences for common tasks |
 | 4 | **Key API Summary** | ~20 lines | Table of top 10-15 functions (name, purpose, key params) |
+| 4b | **Migration & Deprecation Warnings** | ~10 lines | T2-future warnings inline (Deep tier only, skip if none) |
 | 5 | **Key Types** | ~20 lines | Most important enum/type values inline |
 | 6 | **Architecture at a Glance** | ~10 lines | Bullet list of subsystem categories |
 | 7 | **CLI** | ~10 lines | Basic CLI commands (skip if no CLI) |
@@ -54,6 +55,7 @@ SKILL.md uses a two-tier structure to ensure actionable content survives `split-
 - Tier 1 sections are kept short enough that `split-body` targets the larger Tier 2 sections (`## Full` headings) into `references/`
 - After split-body, SKILL.md retains all Tier 1 content — actionable without loading references
 - An agent loading only SKILL.md (no references) must get enough to act
+- **Section 4b (Migration & Deprecation Warnings)** is conditional: only emitted for Deep tier when T2-future annotations exist. Quick/Forge tiers and Deep tiers without T2-future annotations omit it entirely (no empty section). Parsers and validators must treat this section as optional.
 
 ### Provenance Citation Format
 

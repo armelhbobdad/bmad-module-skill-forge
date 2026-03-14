@@ -82,11 +82,15 @@ Then immediately load, read entire file, then execute `{nextStepFile}`.
 
 For each major exported function — limited to the **top-level public API surface** (typically 10-20 functions that will appear in the context-snippet), not all extracted exports — search the temporal QMD collections for context:
 
+**Search query construction:**
+
+For each function, derive the **module context** from the extraction inventory's source file path (e.g., `src/graph/neo4j/index.ts` → module context `graph neo4j`). This context improves search relevance by scoping results to the function's subsystem without adding extra queries.
+
 **Search targets per function:**
 
-1. **Issues/PRs:** `qmd_bridge.search("{function_name}")` — find related discussions, bug reports, feature requests
-2. **Changelog entries:** `qmd_bridge.search("{function_name} changelog")` — find version history, breaking changes
-3. **Migration notes:** `qmd_bridge.vector_search("{function_name} migration deprecated")` — find deprecation or migration context
+1. **Issues/PRs:** `qmd_bridge.search("{module_context} {function_name}")` — find related discussions scoped by module context
+2. **Changelog entries:** `qmd_bridge.search("{function_name} changelog")` — find version history, breaking changes (kept generic — changelogs rarely use module paths)
+3. **Migration notes:** `qmd_bridge.vector_search("{module_context} {function_name} migration deprecated")` — find deprecation or migration context scoped by module (semantic search benefits from richer context)
 
 **For each QMD result:**
 
@@ -154,7 +158,7 @@ ONLY WHEN enrichment is complete (Deep tier) or the step is skipped (Quick/Forge
 - Quick/Forge tiers: skipped silently with no output, auto-proceeded
 - Deep tier: collection inventory checked before searching
 - Deep tier: no temporal collections → reported and auto-proceeded (not silently skipped)
-- Deep tier: temporal collections exist → QMD searches performed per public API function (10-20, not all exports)
+- Deep tier: temporal collections exist → QMD searches performed per public API function (10-20, not all exports) with module context derived from extraction inventory source paths
 - T2 annotations added with proper provenance citations
 - Extraction data unmodified — enrichment is additive only
 - QMD failures handled gracefully (skip and continue)
@@ -167,6 +171,7 @@ ONLY WHEN enrichment is complete (Deep tier) or the step is skipped (Quick/Forge
 - Displaying skip messages for Quick/Forge tiers (should be silent)
 - Pre-emptively skipping all searches without checking the collection inventory
 - Searching all 800+ exports instead of scoping to public API surface (10-20)
+- Using bare function names without module context when source path is available in extraction inventory
 - Beginning compilation or SKILL.md assembly in this step
 - Not labeling QMD annotations as T2 confidence
 

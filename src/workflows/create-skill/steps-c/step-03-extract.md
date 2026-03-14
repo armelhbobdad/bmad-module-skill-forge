@@ -149,6 +149,7 @@ Compile all extracted data into a structured inventory:
 - Total exports found
 - Exports by type (functions, types/interfaces, constants)
 - Confidence breakdown (T1 count, T1-low count)
+- `top_exports[]` — sorted list of the top 10-20 public API function names by prominence (import frequency or documentation position). This named field is consumed by step-03b for targeted temporal fetching and cache fingerprinting.
 
 **Co-import patterns (Forge/Deep only):**
 - Libraries commonly imported alongside extracted exports

@@ -114,6 +114,14 @@ These sections form the essential standalone body. Target: **under 300 lines tot
 - One row per function — no full signatures, just enough for discovery
 - Provenance citation per function
 
+**Section 4b — Migration & Deprecation Warnings (~10 lines, Deep tier only):**
+- Only populated when step-04 enrichment produced **T2-future** annotations (deprecation warnings, breaking changes, planned renames)
+- List each warning as a single-line bullet: function name, what changed or will change, source citation
+- Max 10 lines — just the actionable warnings, not full context
+- Link to Tier 2 Full API Reference for details: "See Full API Reference for migration details."
+- **Skip entirely** for Quick/Forge tiers or when no T2-future annotations exist — do not emit an empty section
+- This section survives split-body, ensuring agents always see critical migration context
+
 **Section 5 — Key Types (~20 lines):**
 - Most important enum/type definitions inline (e.g., SearchType values, config options)
 - Only types that appear in Quick Start or Common Workflows
@@ -139,27 +147,7 @@ These sections form the essential standalone body. Target: **under 300 lines tot
 
 #### Tier 2 — Reference-Eligible (can be extracted by split-body)
 
-These sections contain full detail and are expected to be split into `references/` files when the body exceeds 500 lines. They are assembled AFTER all Tier 1 content.
-
-**Section 9 — Full API Reference:**
-- Group by module/file
-- For each exported function:
-  - Full signature with types
-  - Parameters table (name, type, required/optional, description)
-  - Return type
-  - Usage example (from source tests/docs ONLY — omit if none found)
-  - Provenance citation: `[AST:{file}:L{line}]` or `[SRC:{file}:L{line}]`
-  - T2 annotations (Deep tier only): temporal context from enrichment
-
-**Section 10 — Full Type Definitions:**
-- All exported types, interfaces, enums with full field details
-- Full type signatures with provenance citations
-
-**Section 11 — Full Integration Patterns (Forge/Deep only):**
-- Co-import patterns detected by ast_bridge
-- Complete adapter/driver documentation
-- Common usage combinations with full examples
-- Skip for Quick tier (no co-import data available)
+Assemble Sections 9-11 (Full API Reference, Full Type Definitions, Full Integration Patterns) as defined in `{skillSectionsData}`. These contain full detail and are split into `references/` when the body exceeds 500 lines. Include T2 annotations from enrichment in the Full API Reference (Deep tier only).
 
 #### Assembly Rules
 
@@ -200,21 +188,11 @@ Group functions logically by module, file, or functional area.
 
 ### 6. Build provenance-map.json Content
 
-One entry per extracted claim:
-- claim text
-- source_file and source_line
-- confidence tier (T1, T1-low, T2)
-- extraction_method (ast_bridge.scan_definitions, gh_bridge.read_file, qmd_bridge.search)
-- ast_node_type (if AST-extracted)
+One entry per extracted claim: claim text, source_file, source_line, confidence tier (T1/T1-low/T2), extraction_method, ast_node_type. See `{skillSectionsData}` for full schema.
 
 ### 7. Build evidence-report.md Content
 
-Compilation audit trail:
-- Generation date, forge tier, source info
-- Tool versions used
-- Extraction summary (files scanned, exports found, confidence breakdown)
-- Validation results (populated in step-06)
-- Warnings from extraction or enrichment
+Compilation audit trail: generation date, forge tier, source info, tool versions, extraction summary (files/exports/confidence), validation results (populated in step-06), warnings. See `{skillSectionsData}` for full template.
 
 ### 8. Menu Handling Logic
 
@@ -240,6 +218,9 @@ ONLY WHEN all 7 content artifacts (SKILL.md, context-snippet.md, metadata.json, 
 
 - Skill-sections data file loaded and followed
 - SKILL.md assembled with all required sections in agentskills.io format
+- Tier 1 sections assembled first and kept under 300 lines (excluding frontmatter)
+- Tier 2 sections assembled after all Tier 1 sections
+- Section 4b emitted only when Deep tier AND T2-future annotations exist; omitted entirely otherwise (no empty section)
 - Every function entry has a provenance citation
 - [MANUAL] markers seeded for update-skill compatibility
 - context-snippet.md, metadata.json, references/, provenance-map.json, evidence-report.md all assembled
@@ -252,6 +233,9 @@ ONLY WHEN all 7 content artifacts (SKILL.md, context-snippet.md, metadata.json, 
 - Fabricating usage examples not found in source
 - Writing files to final `skills/` or `forge-data/` directories (that's step-07)
 - Missing required SKILL.md sections
+- Emitting an empty Section 4b when no T2-future annotations exist
+- Tier 1 content exceeding 300 lines without reduction
+- Assembling Tier 2 sections before Tier 1 sections
 - Not seeding [MANUAL] markers
 - Not building all 7 content artifacts
 

@@ -78,6 +78,7 @@ Load `{scoringRulesFile}` for gap severity classification:
 | **Critical** | Missing exported function/class documentation |
 | **High** | Signature mismatch between source and SKILL.md |
 | **Medium** | Missing type or interface documentation |
+| **Medium** | Migration section present/absent mismatch with T2-future annotation data (Deep tier) |
 | **Low** | Missing optional metadata or examples |
 | **Info** | Style suggestions, non-blocking observations |
 
@@ -96,7 +97,7 @@ If no gaps found, append a clean pass message recommending **export-skill** work
 ### 5. Finalize Output Document
 
 Update `{outputFile}` frontmatter:
-- Set `stepsCompleted` to `['step-01-init', 'step-02-detect-mode', 'step-03-coverage-check', 'step-04-coherence-check', 'step-05-score', 'step-06-report']`
+- Set `stepsCompleted` to `['step-01-init', 'step-02-detect-mode', 'step-03-coverage-check', 'step-04-coherence-check', 'step-04b-external-validators', 'step-05-score', 'step-06-report']`
 
 ### 6. Present Final Report
 

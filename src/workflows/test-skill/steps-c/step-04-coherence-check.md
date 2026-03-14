@@ -47,7 +47,7 @@ Validate internal consistency of the skill documentation. In contextual mode (st
 
 ## CONTEXT BOUNDARIES:
 
-- Available: SKILL.md, source files, testMode, forge tier, coverage results from step 03
+- Available: SKILL.md, source files, testMode, forge tier, coverage results from step 03, evidence-report.md from skill's forge-data directory (Deep tier only)
 - Focus: Internal consistency and reference validation only — coverage was step 03
 - Limits: Do NOT recalculate coverage scores — use results from step 03
 - Dependencies: step-03 must have completed coverage analysis
@@ -102,22 +102,7 @@ Scan SKILL.md for all cross-references:
 - Type imports (`import { Type } from './module'`)
 - Integration pattern references (middleware chains, plugin hooks, shared state)
 
-Launch a subprocess that:
-1. Runs grep/regex across SKILL.md for reference patterns (file paths, import statements, skill names)
-2. Returns all found references with their line numbers
-
-```json
-{
-  "references_found": [
-    {"line": 15, "type": "file_path", "target": "./shared/types.ts"},
-    {"line": 42, "type": "skill_ref", "target": "auth-skill"},
-    {"line": 78, "type": "type_import", "target": "SharedConfig from ./config"}
-  ],
-  "total_references": 3
-}
-```
-
-If subprocess unavailable, scan SKILL.md in main thread.
+Launch a subprocess to grep/regex SKILL.md for reference patterns and return all found references with line numbers as structured JSON (`references_found[]` with line, type, target fields). If subprocess unavailable, scan in main thread.
 
 ### 4. Contextual Mode: Validate Each Reference
 
@@ -129,29 +114,7 @@ DO NOT BE LAZY — For EACH reference found, launch a subprocess that:
    - Type imports: type is actually exported from the referenced module
    - Skill references: referenced skill exists in skills output folder
    - Integration patterns: documented pattern matches actual implementation
-3. Returns structured validation:
-
-```json
-{
-  "reference": "./shared/types.ts",
-  "line": 15,
-  "target_exists": true,
-  "type_match": true,
-  "signature_match": true,
-  "issues": []
-}
-```
-
-Or for failures:
-
-```json
-{
-  "reference": "auth-skill",
-  "line": 42,
-  "target_exists": false,
-  "issues": ["Referenced skill 'auth-skill' not found in skills output folder"]
-}
-```
+3. Returns structured validation JSON per reference (reference, line, target_exists, type_match, signature_match, issues[])
 
 If subprocess unavailable, validate each reference in main thread.
 
@@ -179,6 +142,18 @@ Build integration completeness findings:
   ]
 }
 ```
+
+### 5b. Contextual Mode + Deep Tier: Section 4b Verification
+
+**Only execute if forge tier is Deep.** Skip silently for Quick/Forge tiers.
+
+Check whether SKILL.md contains a "Migration & Deprecation Warnings" section (Section 4b). Then check the skill's `evidence-report.md` (at `forge-data/{skill_name}/evidence-report.md`) for T2-future annotation counts.
+
+- **If T2-future annotations > 0 AND Section 4b is absent:** Flag as Medium severity gap: "Migration section missing — T2-future annotations exist but Section 4b is not present in SKILL.md Tier 1."
+- **If T2-future annotations = 0 AND Section 4b is present:** Flag as Medium severity gap: "Migration section unexpected — Section 4b is present but no T2-future annotations were produced."
+- **If evidence-report.md is unavailable:** Skip this check silently. Note: "Section 4b verification skipped — evidence-report.md not found."
+
+Add findings to the coherence analysis results.
 
 ### 6. Append Coherence Analysis to Output
 

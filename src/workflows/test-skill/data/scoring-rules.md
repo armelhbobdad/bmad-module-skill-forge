@@ -46,6 +46,7 @@ When neither skill-check nor tessl is available, redistribute the 10% external v
 - Cross-repository reference verification
 - QMD knowledge enrichment for coherence
 - Full scoring formula with maximum depth
+- **Migration & Deprecation Warnings section:** If T2-future annotations exist in the enrichment data, verify that Section 4b is present in SKILL.md Tier 1 and that each warning traces to a T2 provenance citation. If no T2-future annotations exist, Section 4b should be absent (not empty). Presence/absence mismatch is a Medium severity gap.
 
 ## Score Calculation
 
@@ -76,5 +77,6 @@ If no integration patterns exist, combined coherence equals reference validity.
 | Critical | Missing exported function/class documentation |
 | High | Signature mismatch between source and SKILL.md |
 | Medium | Missing type or interface documentation |
+| Medium | Migration section present/absent mismatch with T2-future annotation data (Deep tier) |
 | Low | Missing optional metadata or examples |
 | Info | Style suggestions, non-blocking observations |
