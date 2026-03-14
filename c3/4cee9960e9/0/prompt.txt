@@ -1,0 +1,147 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/ . When I Setup the forge on a fresh directory with Deep tier set, no content got index as expected. However, after a skill-brief generation, I would like to know if the qmd will index the target remote repository?
+
+---
+
+Is it a good idea to completely remove the auto-index feature during the setup forge workflow and index the extrated results (instead of the row files) into qmd during the create-skill workflow? do you have better and genius approach? let's brainstorm on it to find the best solution for deep tier users.
+
+Here is a sample output after the extration completed for https://github.com/topoteretes/cognee:
+
+Extraction complete.                                                                                                                                                                                                                      
+                                                                                                                                                                                                                                            
+  Files scanned: ~197 unique Python files                                                                                                                                                                                                   
+  Exports found: ~354 unique entries (76 API functions, 148 module functions/classes, 160 infrastructure types/classes — some overlap deduplicated)                                                                                         
+  - Functions: ~120 (async functions, static methods, standalone functions)                                                                                                                                                                 
+  - Classes: ~140 (models, adapters, engines, handlers, retrievers)                                                                                                                                                                         
+  - Types/Enums: ~30 (SearchType, HealthStatus, CogneeModel, DataItemStatus, etc.)                                                                                                                                                          
+  - Constants/Singletons: ~10 (health_checker, retriever registry, etc.)
+  - Data Models (Pydantic/SQLAlchemy): ~54 (Data, Dataset, DataPoint, SearchResult, etc.)                                                                                                                                                   
+                                                                                                                                                                                                                                            
+  Confidence: 354 T1 (source-reading verified), 0 T1-low                                                                                                                                                                                    
+  Tier used: Deep (source reading via cloned repo — AST degradation noted since ast-grep operates on local syntax, not remote)                                                                                                              
+  Co-import patterns: 12+ detected (SQLAlchemy, Pydantic, FastAPI, LiteLLM, LanceDB, Neo4j, Kuzu, Neptune, Redis, Fastembed, Ollama, dotenv)                                                                                                
+                                                                                                                                                                                                                                            
+  Top exports (public API surface from cognee/__init__.py):                                                                                                                                                                                 
+  1. async def add(data, dataset_name, ...) — ingest data into cognee                                                                                                                                                                       
+  2. async def cognify(datasets, graph_model, ...) — run knowledge extraction pipeline                                                                                                                                                      
+  3. async def search(query_text, query_type, ...) — search the knowledge graph                                                                                                                                                             
+  4. async def memify(extraction_tasks, ...) — custom memory pipeline                                                                                                                                                                       
+  5. async def run_custom_pipeline(tasks, data, ...) — execute custom pipeline                                                                                                                                                              
+  6. class config — static configuration methods (LLM, vector DB, graph DB, etc.)                                                                                                                                                           
+  7. class datasets — dataset management (list, delete, empty, etc.)                                                                                                                                                                        
+  8. class prune — data and system pruning                                                                                                                                                                                                  
+  9. async def update(data_id, data, dataset_id, ...) — update existing data                                                                                                                                                                
+  10. class SearchType(str, Enum) — 14 search modes (RAG, Graph, Cypher, Temporal, etc.)                                                                                                                                                    
+                                                                                                                                                                                                                                            
+  Infrastructure adapters discovered: Neo4j, Kuzu, Neptune, LanceDB, PGVector, Redis, S3 file storage, SQLAlchemy relational, LiteLLM, Fastembed, Ollama embeddings                                                                         
+                                                                                                                                                                                                                                            
+  Warnings: None — all targeted files were accessible and parsed successfully.                                                                                                                                                              
+                                                                                                                                                                                                                                            
+  Review the extraction summary above. Select an option to continue.
+
+  Extraction Summary — Select an Option: [C] Continue to compilation
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+---
+
+This is exactly why I love Party Mode! You all brought the perfect pieces to the puzzle. 
+
+Let's synthesize this into a concrete **Phase 1 Plan** that balances Winston's pragmatism, Morgan's architectural foresight, and Wendy's operational safety. I think we can hit the sweet spot here:
+
+### The "Progressive Pragmatism" Plan (Phase 1)
+
+1. **Lightweight `setup-forge` (Wendy's cleanup):** 
+   We rip out the heavy, blind auto-indexing of raw directories. Instead, `setup-forge` becomes the QMD janitor. It checks for existing QMD collections, verifies their health, and cleans up stale/orphaned ones. Fast, cheap, and useful.
+
+2. **The 10-Line Registry (Morgan's architecture):** 
+   We add a simple `qmd_collections` array to `forge-tier.yaml`. 
+   `[{name: "cognee-extraction", source_workflow: "create-skill", created_at: "..."}]`
+   It costs us almost nothing to implement now, but it completely solves Wendy's state coordination concern and sets us up perfectly for Phase 2 (briefs and source indexing) without painting ourselves into a corner.
+
+3. **High-Signal Indexing in `create-skill` (Winston's pragmatism):** 
+   After extraction, we index the structured, curated extraction snapshot (like the 354 verified exports from my output) into a `{skill-name}-extraction` collection. We'll also handle the idempotency Wendy mentioned: if the collection exists, we update/replace it.
+
+4. **Smart Consumption in `audit-skill` & `update-skill`:**
+   These workflows stop looking for raw project files. They simply read `forge-tier.yaml`, find the relevant `*-extraction` collections, and run highly effective BM25 searches against the curated markdown. 
+
+**Why this wins:**
+- Deep tier users immediately get blazing fast, highly relevant QMD searches (no more searching through `node_modules` or empty local directories).
+- The ecosystem stays modular.
+- We don't over-engineer Phase 2 before we need it, but the foundation is there.
+
+How does this action plan sound to the squad? Morgan, does the registry implementation satisfy the ecosystem frame? Winston, is this tight enough to ship quickly?
+
+---
+
+E
+
+---
+
+yes
+
+---
+
+yes
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+
+ARGUMENTS: let's validate the phase 2 now before we start the edit.
+
+---
+
+This scoping feels absolutely spot on, squad. 
+
+**Winston & Morgan:** You nailed it. Pragmatism first. Indexing the brief gives us portfolio-level search (so we don't duplicate work across a massive monorepo) and costs basically zero time or storage. We already built the `qmd_collections` registry pattern in Phase 1, so plugging `type: "brief"` into it is a natural, low-risk extension. It respects the ecosystem frame and the freshness contract (the brief is static until re-briefed).
+
+**Wendy:** I completely agree on keeping the blast radius small. We prove the pattern with the brief first. The multi-service analysis report can wait until someone actively complains they can't find it. 
+
+**Mary:** I have to say, your `source-map` idea is brilliant. Fetching the GitHub API tree and indexing just the directory/file structure gives `audit-skill` the exact "where does X live?" context without the colossal bloat and freshness nightmare of a full repo clone. It's elegant. But Wendy is right—let's log it strictly as a Phase 3 candidate. Once Phase 2 is solid, we can validate if `audit-skill` actually needs that context enough to justify building it.
+
+### Action Plan for Phase 2 (Brief Indexing)
+
+If we are all aligned, here is what Phase 2 execution looks like:
+
+1. **Modify `brief-skill` (likely `step-05-write-brief.md`):**
+   - After writing `skill-brief.yaml` to disk, run: `qmd collection add {project-root}/forge-data/{name} --name {name}-brief --mask "skill-brief.yaml"` (or similar).
+   - Update `{sidecar_path}/forge-tier.yaml` to append/replace the registry entry with `type: "brief"` and `source_workflow: "brief-skill"`.
+
+2. **Verify `setup-forge` Hygiene (`step-03-auto-index.md`):**
+   - Phase 1 already updated the hygiene step to cross-reference QMD collections against the registry regardless of type. We just need to ensure the hygiene logic doesn't accidentally hardcode `"extraction"` type checks. (Looking at the Phase 1 commit, it seems type-agnostic, which is perfect!).
+
+Winston, if this looks good to you, we can crack open `src/workflows/brief-skill/steps-c/step-05-write-brief.md` and knock Phase 2 out right now. What do you say?
+
+---
+
+yes
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+
+ARGUMENTS: let's scope and validate phase 3. I also want we take in consideration what Morgan said before "2. Analysis report — Park it. The value is real but narrow (stack-skill decomposition). When create-stack-skill needs it, we'll know. Right now it's speculative."
+
+---
+
+yes! I agree
+
+---
+
+yes
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+Do not explicitly mention cognee in @src/knowledge/qmd-registry.md

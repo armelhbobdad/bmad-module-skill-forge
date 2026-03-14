@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "c34cee9960e9",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/knowledge/overview.md",
+    "src/knowledge/qmd-registry.md",
+    "src/knowledge/skf-knowledge-index.csv"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c3/4cee9960e9/0/metadata.json",
+      "transcript": "/c3/4cee9960e9/0/full.jsonl",
+      "context": "/c3/4cee9960e9/0/context.md",
+      "content_hash": "/c3/4cee9960e9/0/content_hash.txt",
+      "prompt": "/c3/4cee9960e9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 27,
+    "cache_creation_tokens": 130935,
+    "cache_read_tokens": 2224481,
+    "output_tokens": 6090,
+    "api_call_count": 19
+  }
+}
