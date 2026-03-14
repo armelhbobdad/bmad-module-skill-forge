@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "00506d18ff25",
+  "session_id": "f3903d23-810e-480c-9286-de851f731896",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-14T11:55:14.840630111Z",
+  "branch": "dev",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "src/workflows/update-skill/steps-c/step-03-re-extract.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "923cec2f0cc4",
+  "token_usage": {
+    "input_tokens": 2783,
+    "cache_creation_tokens": 287141,
+    "cache_read_tokens": 10849348,
+    "output_tokens": 42813,
+    "api_call_count": 97
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-14T11:55:13.91192338Z",
+    "agent_lines": 18,
+    "human_added": 72,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 90,
+    "agent_percentage": 20
+  }
+}

@@ -3,7 +3,7 @@
   "checkpoint_id": "00506d18ff25",
   "strategy": "manual-commit",
   "branch": "dev",
-  "checkpoints_count": 2,
+  "checkpoints_count": 5,
   "files_touched": [
     "src/knowledge/progressive-capability.md",
     "src/workflows/create-skill/data/extraction-patterns.md",
@@ -18,13 +18,20 @@
       "context": "/00/506d18ff25/0/context.md",
       "content_hash": "/00/506d18ff25/0/content_hash.txt",
       "prompt": "/00/506d18ff25/0/prompt.txt"
+    },
+    {
+      "metadata": "/00/506d18ff25/1/metadata.json",
+      "transcript": "/00/506d18ff25/1/full.jsonl",
+      "context": "/00/506d18ff25/1/context.md",
+      "content_hash": "/00/506d18ff25/1/content_hash.txt",
+      "prompt": "/00/506d18ff25/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 2766,
-    "cache_creation_tokens": 78093,
-    "cache_read_tokens": 1985550,
-    "output_tokens": 17007,
-    "api_call_count": 36
+    "input_tokens": 5549,
+    "cache_creation_tokens": 365234,
+    "cache_read_tokens": 12834898,
+    "output_tokens": 59820,
+    "api_call_count": 133
   }
 }
