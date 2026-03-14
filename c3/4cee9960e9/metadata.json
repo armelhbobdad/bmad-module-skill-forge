@@ -7,7 +7,8 @@
   "files_touched": [
     "src/knowledge/overview.md",
     "src/knowledge/qmd-registry.md",
-    "src/knowledge/skf-knowledge-index.csv"
+    "src/knowledge/skf-knowledge-index.csv",
+    "test/test-knowledge-base.js"
   ],
   "sessions": [
     {
@@ -16,13 +17,20 @@
       "context": "/c3/4cee9960e9/0/context.md",
       "content_hash": "/c3/4cee9960e9/0/content_hash.txt",
       "prompt": "/c3/4cee9960e9/0/prompt.txt"
+    },
+    {
+      "metadata": "/c3/4cee9960e9/1/metadata.json",
+      "transcript": "/c3/4cee9960e9/1/full.jsonl",
+      "context": "/c3/4cee9960e9/1/context.md",
+      "content_hash": "/c3/4cee9960e9/1/content_hash.txt",
+      "prompt": "/c3/4cee9960e9/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 27,
-    "cache_creation_tokens": 130935,
-    "cache_read_tokens": 2224481,
-    "output_tokens": 6090,
-    "api_call_count": 19
+    "input_tokens": 1896,
+    "cache_creation_tokens": 247309,
+    "cache_read_tokens": 5010498,
+    "output_tokens": 17248,
+    "api_call_count": 56
   }
 }
