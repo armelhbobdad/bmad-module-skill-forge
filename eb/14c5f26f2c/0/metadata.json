@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "eb14c5f26f2c",
+  "session_id": "4b49f25f-8b5c-454e-b401-2764ec321c55",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-14T16:47:18.281943587Z",
+  "branch": "dev",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/workflows/create-skill/data/skill-sections.md",
+    "src/workflows/create-skill/steps-c/step-03-extract.md",
+    "src/workflows/create-skill/steps-c/step-03b-fetch-temporal.md",
+    "src/workflows/create-skill/steps-c/step-04-enrich.md",
+    "src/workflows/create-skill/steps-c/step-05-compile.md",
+    "src/workflows/test-skill/data/scoring-rules.md",
+    "src/workflows/test-skill/steps-c/step-04-coherence-check.md",
+    "src/workflows/test-skill/steps-c/step-06-report.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "eeb86c6c705a",
+  "token_usage": {
+    "input_tokens": 4296,
+    "cache_creation_tokens": 128192,
+    "cache_read_tokens": 5373558,
+    "output_tokens": 33844,
+    "api_call_count": 63
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-14T16:47:17.494635179Z",
+    "agent_lines": 93,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 93,
+    "agent_percentage": 100
+  }
+}
