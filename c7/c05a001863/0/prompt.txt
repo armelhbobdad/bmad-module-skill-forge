@@ -1,0 +1,501 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/ . I am testing the deep tier. Here is the console-output from another terminal: @console-output.txt . We need to fix any potential misbehavious/bug. For example, take a deep look at this message: ● Tier is Deep — performing QMD enrichment. However, no QMD collections exist with cognee-related issues, PRs, or changelogs (the only registered collection is cognee-brief containing the skill brief itself). QMD enrichment skipped — no
+   temporal context available to annotate.
+
+  Enrichment complete.
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+
+ARGUMENTS: help me to dick further before we edit and fix everything.
+
+---
+
+Let's address the open questions on the table before making the edits:
+
+1. **Morgan's Option A (Staging Directory) vs Option B (Reorder Steps):** Option A is definitely the way to go. Multi-agent processing inherently breaks the single-context boundary. Writing to a staging area (`_bmad-output/{name}/`), validating/auto-fixing it there, and then promoting it to the final `skills/` and `forge-data/` directories accurately reflects reality and creates a cleaner build process.
+2. **Quinn's Scoping Question:** Quinn and Wendy are right. Enriching 800+ internal helper functions is a waste of tokens and time. QMD enrichment should focus strictly on the top-level public API surface (typically 10-20 major exported functions) that actually form the `context-snippet.md`.
+
+Let's proceed with these fixes. Here are the modifications for the 4 step files to resolve all the identified issues:
+
+### 1. Pre-Check & Scoping for Enrichment
+```markdown
+// ... existing code ...
+### 1. Check Tier Eligibility
+
+**If tier is Quick or Forge:**
+
+Auto-proceed silently. Display no message. Immediately load, read entire file, then execute `{nextStepFile}`.
+
+**If tier is Deep:**
+
+Continue to step 2.
+
+### 2. Collection Inventory Pre-check (Deep Tier Only)
+
+Before searching, check which QMD collections are available:
+- Identify if temporal collections exist (e.g., issues, PRs, changelogs, architecture notes).
+- If only the `brief` collection exists (containing just the skill brief), skip enrichment silently. No temporal context is available to annotate.
+
+### 3. QMD Enrichment Searches (Deep Tier Only)
+
+For each major exported function (limited to the top-level public API surface, typically 10-20 functions that appear in the context-snippet), search QMD collections for temporal context:
+
+**Search targets per function:**
+// ... existing code ...
+### 4. Annotate Extraction Inventory
+
+Add enrichment annotations to the extraction inventory without modifying extraction data:
+
+**Per-function enrichment (if found):**
+// ... existing code ...
+```
+
+
+### 2. Staging-Aware Write Allowance
+```markdown
+// ... existing code ...
+### Step-Specific Rules:
+
+- 🎯 Focus ONLY on assembling content from extraction inventory + enrichment
+- 🚫 FORBIDDEN to include any content without a provenance citation
+- 💾 Sub-agents and compilation processes may write to a staging directory (e.g., `_bmad-output/{name}/`)
+- 🚫 FORBIDDEN to write final files to `skills/` or `forge-data/` — that's step-07
+- 🚫 FORBIDDEN to fabricate examples not found in source tests or docs
+- ⚒️ Seed `<!-- [MANUAL] -->` markers for future update-skill compatibility
+
+## EXECUTION PROTOCOLS:
+
+- 🎯 Follow MANDATORY SEQUENCE exactly
+- 💾 Build all content in context or a staging directory
+- 📖 Follow agentskills.io section structure from data file
+- 🚫 Do not promote any output files to final directories — that's step-07
+
+## CONTEXT BOUNDARIES:
+// ... existing code ...
+### 8. Menu Handling Logic
+
+**Auto-proceed step — no user interaction.**
+
+After all content is assembled in context (or staging directory), immediately load, read entire file, then execute `{nextStepFile}`.
+
+#### EXECUTION RULES:
+
+- This is an auto-proceed assembly step with no user choices
+- All content stays in context or staging — no final files are written yet
+- Proceed directly to validation after assembly is complete
+
+## CRITICAL STEP COMPLETION NOTE
+// ... existing code ...
+### ❌ SYSTEM FAILURE:
+
+- Including functions or examples without provenance citations
+- Fabricating usage examples not found in source
+- Writing files to final `skills/` or `forge-data/` directories (that's step-07)
+- Missing required SKILL.md sections
+- Not seeding [MANUAL] markers
+// ... existing code ...
+```
+
+
+### 3. Exit-Code Guidance & Validation Rule Update
+```markdown
+// ... existing code ...
+### Step-Specific Rules:
+
+- 🎯 Focus ONLY on validating compiled content against spec
+- 🚫 FORBIDDEN to add new content — only fix spec compliance issues
+- 💾 Validation and auto-fix modify files in the staging directory
+- 💬 If auto-fix fails, report issues clearly but proceed (warn, don't halt)
+- ⚙️ If skill-check unavailable: skip validation, add warning to evidence report
+- ⚠️ Ignore non-zero exit codes from `skill-check` if the JSON output shows 0 errors.
+
+## EXECUTION PROTOCOLS:
+
+- 🎯 Follow MANDATORY SEQUENCE exactly
+- 💾 Validation results are added to evidence-report content in context
+// ... existing code ...
+### 2. Validate & Auto-Fix (skill-check check --fix)
+
+Run the external skill-check tool against the compiled skill staging directory:
+
+```bash
+npx skill-check check <skill-dir> --fix --format json --no-security-scan
+```
+```
+
+
+This single command performs:
+// ... existing code ...
+- **Auto-fix** of all deterministic issues (frontmatter ordering, slug format, required fields, description phrasing, trailing newlines)
+- **Quality score** (0-100) across five weighted categories
+
+**Parse the JSON output** to extract:
+- `qualityScore` — overall score (0-100)
+- `diagnostics[]` — remaining issues after auto-fix
+- `fixed[]` — issues that were automatically corrected
+- **Note:** Ignore exit code 1 if `errorCount` is 0. Rely on the parsed JSON output.
+
+**If quality score ≥ 70:** Record "Schema: PASS (score: {score}/100)" in evidence-report content.
+// ... existing code ...
+```
+### 4. Zero-Output Skip Instruction
+<llm-snippet-file>src/workflows/create-skill/steps-c/step-02-ecosystem-check.md</llm-snippet-file>
+```markdown
+// ... existing code ...
+**If registry API is NOT available (current default):**
+
+Skip completely and silently. Do not output any message about API unavailability or the ecosystem check being skipped. Proceed exactly as if no match was found, emitting zero text to the console.
+
+### 2. Evaluate Results
+// ... existing code ...
+```
+
+These changes will address all four issues discovered during the execution, providing explicit sub-agent constraints, handling false-positive CLI exit codes gracefully, avoiding noise on omitted features, and ensuring API limits are respected. Let me know if you want to tweak any of these fixes further!
+```
+
+What do you think? Any further improvement to do?
+
+---
+
+run validation
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-validate-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+yes
+
+---
+
+W
+
+---
+
+continue
+
+---
+
+D
+
+---
+
+commit
+
+---
+
+Which worflows invole  issues, PRs, or changelogs? During the test on cognee repo, we missed them.
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+
+ARGUMENTS: let's design this
+
+---
+
+These are excellent questions raised by the team! Let's tackle them one by one to design the perfect missing link:
+
+1. **Step Structure:** I strongly recommend a variation of Morgan and Wendy's ideas — **insert a new `step-03b-fetch-temporal.md`**. This gives us the best of both worlds: it adheres perfectly to the micro-file principle (keeping `step-04` focused strictly on semantic enrichment) while avoiding the massive churn of renaming steps `05` through `08`. 
+2. **Scope:** Wendy's list is spot on. Pulling the last 100 issues, last 100 merged PRs, release notes, and any `CHANGELOG.md` gives the model the exact temporal narrative it needs to understand *why* the code looks the way it does.
+3. **Update-Skill:** Absolutely. By making this a discrete, self-contained step (`03b`), it becomes an easily reusable component. We can plug this exact same file or logic into the `update-skill` pipeline later to ensure the context stays fresh on subsequent runs.
+
+Here is the implementation to wire this up in the `create-skill` workflow:
+
+### 1. Update `step-03` to point to the new step
+We just need to update the frontmatter of the extraction step to route to our new temporal fetcher.
+
+```markdown
+// ... existing code ...
+---
+name: 'step-03-extract'
+description: 'Tier-dependent source code extraction — AST or source reading for exports, signatures, and types'
+nextStepFile: './step-03b-fetch-temporal.md'
+extractionPatternsData: '../data/extraction-patterns.md'
+---
+
+# Step 3: Extract
+// ... existing code ...
+## CRITICAL STEP COMPLETION NOTE
+
+ONLY WHEN the extraction inventory is built with provenance citations and the user has confirmed the extraction summary will you proceed to load `{nextStepFile}` for QMD temporal context fetching.
+
+---
+// ... existing code ...
+```
+
+
+### 2. Create the new Temporal Fetcher step
+This implements Winston's graceful degradation rules (GitHub-only, requires `gh` CLI) and Wendy's caching rules (skip if collection exists and is fresh).
+
+```markdown
+---
+name: 'step-03b-fetch-temporal'
+description: 'Fetch temporal context (issues, PRs, changelogs) and index into QMD — Deep tier only'
+nextStepFile: './step-04-enrich.md'
+---
+
+# Step 3b: Fetch Temporal Context
+
+## STEP GOAL:
+
+To fetch temporal context (issues, PRs, changelogs, release notes) from the source repository (if GitHub) and index it into a QMD collection for Deep tier enrichment. This ensures step-04 has historical data to search.
+
+## MANDATORY EXECUTION RULES (READ FIRST):
+
+### Universal Rules:
+
+- 📖 CRITICAL: Read the complete step file before taking any action
+- 🎯 ALWAYS follow the exact instructions in the step file
+- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a tool you do not have access to, you MUST still achieve the outcome in your main context thread
+- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
+
+### Role Reinforcement:
+
+- ✅ You are a skill compilation engine setting up temporal data for QMD
+- ✅ Graceful degradation is paramount — non-GitHub repos or missing tools are silent skips, not errors
+
+### Step-Specific Rules:
+
+- 🎯 Deep tier only. Quick and Forge tiers skip this step entirely.
+- 🎯 GitHub repositories only. Other sources degrade gracefully.
+- 🚫 FORBIDDEN to halt the workflow if fetching or indexing fails.
+
+## EXECUTION PROTOCOLS:
+
+- 🎯 Follow MANDATORY SEQUENCE exactly
+- 💾 Write fetched markdown files to a staging directory: `_bmad-output/{skill-name}-temporal/`
+- 📖 Index the staging directory into QMD and register in `forge-tier.yaml`
+
+## CONTEXT BOUNDARIES:
+
+- Available: brief_data, tier, source_location from step-01
+- Focus: Generating a QMD temporal collection for the current repository
+- Dependencies: Extraction must be complete from step-03
+
+## MANDATORY SEQUENCE
+
+**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
+
+### 1. Check Eligibility & Degradation
+
+Evaluate the following conditions. **If ANY fail, skip to Section 5 (Auto-proceed):**
+1. **Tier is Deep**: If tier is Quick or Forge, skip silently.
+2. **GitHub Source**: Verify `source_repo` is a GitHub URL or `owner/repo`.
+3. **CLI Availability**: Verify the `gh` CLI is available and authenticated.
+
+### 2. Check QMD Registry Cache
+
+Read `_bmad/_memory/forger-sidecar/forge-tier.yaml`.
+- Look for a collection where `skill_name` matches the current brief AND `type` is `"temporal"`.
+- If the collection exists and its `created_at` date is within the last 7 days: skip fetching and proceed to Section 5.
+
+### 3. Fetch Temporal Context (gh CLI)
+
+Create a staging directory: `_bmad-output/{skill-name}-temporal/`
+
+Execute the following fetches, writing output to the staging directory:
+1. **Issues:** `gh issue list --state all --limit 100 > issues.md`
+2. **PRs:** `gh pr list --state merged --limit 100 > prs.md`
+3. **Releases:** `gh release list --limit 10 > releases.md`
+4. **Changelog:** If `CHANGELOG.md` or `RELEASES.md` exists in the source tree, copy it to the staging directory.
+
+*(Note: If any individual fetch fails, log a warning but continue with the others).*
+
+### 4. Index & Register
+
+Index the fetched content into QMD:
+```bash
+qmd collection add _bmad-output/{skill-name}-temporal/ --name {skill-name}-temporal --mask "*.md"
+```
+```
+
+
+Once indexed, append/update the registry entry in `_bmad/_memory/forger-sidecar/forge-tier.yaml`:
+```yaml
+- name: "{skill-name}-temporal"
+    type: "temporal"
+    source_workflow: "create-skill"
+    skill_name: "{skill-name}"
+    created_at: "{current-date}"
+```
+
+
+Clean up the staging directory `_bmad-output/{skill-name}-temporal/` after indexing.
+
+### 5. Menu Handling Logic
+
+**Auto-proceed step — no user interaction.**
+
+After temporal context is fetched and indexed (or skipped), immediately load, read entire file, then execute `{nextStepFile}`.
+
+#### EXECUTION RULES:
+
+- This is an auto-proceed step with no user choices.
+- Quick/Forge tiers, non-GitHub repos, or cached runs skip directly to next step with no output.
+- Deep tier displays a brief status (e.g., "Temporal context indexed into QMD") then auto-proceeds.
+
+## CRITICAL STEP COMPLETION NOTE
+
+ONLY WHEN temporal context is indexed (or skipped) will you proceed to load `{nextStepFile}` for QMD enrichment.
+
+---
+
+## 🚨 SYSTEM SUCCESS/FAILURE METRICS
+
+### ✅ SUCCESS:
+
+- Non-eligible scenarios (Quick/Forge, non-GitHub) skipped silently
+- Cached collections (< 7 days old) skipped correctly
+- Temporal data fetched via `gh` CLI into staging dir
+- Collection `{skill-name}-temporal` added to QMD
+- Registry updated in `forge-tier.yaml`
+- Auto-proceeded to `step-04`
+
+### ❌ SYSTEM FAILURE:
+
+- Halting the workflow due to a `gh` CLI or QMD failure
+- Not cleaning up the staging directory
+- Overwriting the existing extraction QMD registry entries
+```
+### 3. Tie it all together in `step-04`
+Since we modified `step-04-enrich.md` in the previous conversation to check for the `temporal` collection, it will now naturally find the collection we generated in `03b` and execute the semantic searches against it perfectly.
+
+Let me know if you are satisfied with this new `03b` approach, or if you'd like to refine the types of artifacts we fetch via the GitHub CLI!
+```
+
+---
+
+run validation on the workflows before we commit
+
+---
+
+commit
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/ . Adress this issue: https://github.com/armelhbobdad/bmad-module-skill-forge/issues/20.
+
+---
+
+The tessl package will be installed automatically. Here is what I got after running for the first time: npx tessl skill review ./skills/cognee/
+Need to install the following packages:
+tessl@0.72.0
+Ok to proceed? (y) y
+
+Downloading 0.72.0 for linux-x64
+.......................................
+Install Tessl CLI to /home/armel/.local/bin/tessl? (Y/n) Y
+
+Validation Checks
+
+  ✔ skill_md_line_count - SKILL.md line count is 23 (<= 500)
+  ✔ frontmatter_valid - YAML frontmatter is valid
+  ✔ name_field - 'name' field is valid: 'cognee'
+  ✔ description_field - 'description' field is valid (509 chars)
+  ✔ compatibility_field - 'compatibility' field not present (optional)
+  ✔ allowed_tools_field - 'allowed-tools' field not present (optional)
+  ✔ metadata_version - 'metadata' field not present (optional)
+  ✔ metadata_field - 'metadata' field not present (optional)
+  ✔ license_field - 'license' field not present (optional)
+  ✔ frontmatter_unknown_keys - No unknown frontmatter keys found
+  ✔ body_present - SKILL.md body is present
+
+Overall: PASSED (0 errors, 0 warnings)
+
+Judge Evaluation
+
+  Description: 100%
+    specificity: 3/3 - Lists multiple specific concrete actions: 'data ingestion, knowledge graph construction, semantic search, and memory management' plus enumerates the full public API methods (add, cognify, search, delete, update, memify, config, datasets, prune, pipelines) and infrastructure adapters.
+    trigger_term_quality: 3/3 - Excellent coverage of natural terms users would say: 'cognee', 'Python', 'knowledge graph', 'semantic search', 'memory management', 'AI agent memory', plus specific API method names and infrastructure terms (graph DBs, vector DBs, LLMs, MCP).
+    completeness: 3/3 - Clearly answers both what (cognee Python library for knowledge engine/AI agent memory with specific API coverage) AND when ('Use when writing Python code that integrates cognee...'), plus includes explicit exclusions ('DO NOT use for cognee frontend or eval framework').
+    distinctiveness_conflict_risk: 3/3 - Highly distinctive with clear niche: specifically targets 'cognee Python library', explicitly excludes frontend/eval framework, and lists specific API methods that create unique trigger patterns unlikely to conflict with other skills.
+
+    Assessment: This is an excellent skill description that hits all the marks. It provides comprehensive specificity with enumerated API methods and capabilities, includes natural trigger terms users would actually use, explicitly states both what the skill does and when to use it, and clearly distinguishes itself from related but different skills (frontend, eval framework).
+
+  Content: 45%
+    conciseness: 3/3 - Extremely lean - just a title and organized reference links. No unnecessary explanation of what cognee is or how libraries work. Every token serves navigation.
+    actionability: 1/3 - The SKILL.md itself contains zero executable guidance, code, or concrete instructions. All actionable content is deferred to reference files, making this file alone non-actionable.
+    workflow_clarity: 1/3 - No workflow, sequence, or validation steps are present in this file. It's purely a table of contents with no process guidance.
+    progressive_disclosure: 3/3 - Excellent structure with clear one-level-deep references. Six well-organized sections covering overview through manual sections, with descriptive labels and logical ordering.
+
+    Assessment: This SKILL.md is essentially a pure index file - maximally concise and well-organized for navigation, but provides no standalone value. While progressive disclosure is excellent, the file fails as a skill because it contains no actionable content, quick-start guidance, or workflow information that Claude could use without loading all reference files.
+
+    Suggestions:
+      - Add a brief Quick Start section (5-10 lines) with the most common usage pattern directly in SKILL.md so Claude can act without loading references
+      - Include at least one executable code example showing basic cognee.add() -> cognee.cognify() -> cognee.search() workflow
+      - Add a 'When to use' or 'Common workflows' section that sequences the typical operations with validation checkpoints
+
+Average Score: 73%
+
+⚠ Skill is valid but could be improved.
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+
+ARGUMENTS: please review.
+
+---
+
+yes fix all
+
+---
+
+commit
+
+---
+
+close the issue
+
+---
+
+do we need to update @README.md , @docs/ @_bmad-output/planning-artifacts/medium-article-deep-tier.md, @_bmad-output/planning-artifacts/medium-article-skf.md?
+
+---
+
+But we listed `skill-check` tool in README (we also have the Acknowledgements section) and docs. why we should not add tessl?
+
+---
+
+yes update
+
+---
+
+yes commit
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/ address this issue https://github.com/armelhbobdad/bmad-module-skill-forge/issues/21
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+
+ARGUMENTS: please review
+
+---
+
+yes fix all
+
+---
+
+commit and close the issue
