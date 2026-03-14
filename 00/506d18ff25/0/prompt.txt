@@ -1,0 +1,68 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/ . We have this issue https://github.com/armelhbobdad/bmad-module-skill-forge/issues/18
+
+---
+
+yes
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+
+ARGUMENTS: help me to validate this plan and avoid any breaking changes and missing impacts.
+
+---
+
+Based on the thorough analysis from the review panel, **Option B (Explicit degradation with guidance)** is absolutely the right direction to take for now. 
+
+It perfectly aligns with the progressive capability philosophy: graceful degradation is a feature, but silent degradation is a bug. By choosing Option B, we fix the bug (the silence) without introducing architectural regressions, lifecycle management overhead, or new dependencies like `git`.
+
+Here is the revised action plan to implement Option B across the affected workflows:
+
+### Revised Edit Plan: Option B (Explicit Warning)
+
+**1. Target `create-skill/steps-c/step-03-extract.md`**
+*   **Remove:** The word "silently" from the degradation instruction.
+*   **Add:** An explicit user-facing warning instruction when remote source is detected at Forge/Deep tier.
+*   *Warning Text Guidance:* "⚠ Warn the user explicitly: AST extraction requires local files. Remote source detected. Degrading to Quick tier extraction (source reading) for this run. For T1 confidence, clone the repository locally and update `source_repo` in your brief to the local path."
+
+**2. Target `update-skill/steps-c/step-03-re-extract.md`**
+*   Apply the exact same explicit warning logic. Users updating a skill against a remote repo should receive the same actionable guidance instead of a silent fallback.
+
+**3. Target `create-stack-skill/steps-c/step-04-parallel-extract.md`**
+*   Apply the exact same explicit warning logic for parallel extractions against remote sources.
+
+**4. Target `create-skill/data/extraction-patterns.md`**
+*   Update the fallback rules to explicitly mandate this warning behavior when dropping from Forge/Deep tier to Quick tier due to remote URLs.
+
+By doing this, we maintain the integrity of the `qmd-registry.md` rules (no messy source clones), keep the state flow clean, and empower the user with actionable feedback. We can always explore the ephemeral cloning (Option C) as a future enhancement once the core workflows are stabilized.
+
+Does this revised plan look good to proceed with?
+
+---
+
+Y
+
+---
+
+V
+
+---
+
+F
+
+---
+
+D
+
+---
+
+commit and close the issue
