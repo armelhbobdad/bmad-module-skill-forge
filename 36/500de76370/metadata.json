@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "36500de76370",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/knowledge/progressive-capability.md",
+    "src/workflows/create-skill/data/extraction-patterns.md",
+    "src/workflows/create-skill/steps-c/step-03-extract.md",
+    "src/workflows/update-skill/steps-c/step-03-re-extract.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/36/500de76370/0/metadata.json",
+      "transcript": "/36/500de76370/0/full.jsonl",
+      "context": "/36/500de76370/0/context.md",
+      "content_hash": "/36/500de76370/0/content_hash.txt",
+      "prompt": "/36/500de76370/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 48,
+    "cache_creation_tokens": 40710,
+    "cache_read_tokens": 3438647,
+    "output_tokens": 12171,
+    "api_call_count": 31
+  }
+}
