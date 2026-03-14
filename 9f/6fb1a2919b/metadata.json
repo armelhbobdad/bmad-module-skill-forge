@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "9f6fb1a2919b",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "docs/agents.md",
+    "docs/architecture.md",
+    "docs/examples.md",
+    "docs/getting-started.md",
+    "docs/workflows.md",
+    "src/forger/forge-tier.yaml",
+    "src/forger/preferences.yaml",
+    "src/workflows/setup-forge/steps-c/step-02-write-config.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9f/6fb1a2919b/0/metadata.json",
+      "transcript": "/9f/6fb1a2919b/0/full.jsonl",
+      "context": "/9f/6fb1a2919b/0/context.md",
+      "content_hash": "/9f/6fb1a2919b/0/content_hash.txt",
+      "prompt": "/9f/6fb1a2919b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 28,
+    "cache_creation_tokens": 115944,
+    "cache_read_tokens": 754167,
+    "output_tokens": 12687,
+    "api_call_count": 18
+  }
+}
