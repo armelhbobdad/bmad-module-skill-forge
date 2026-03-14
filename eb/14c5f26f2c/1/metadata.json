@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "eb14c5f26f2c",
+  "session_id": "d7eb78cb-cfa7-4356-aa35-00385eb307ea",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-14T16:47:21.065403816Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/create-skill/steps-c/step-04-enrich.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "51e520a3b59f",
+  "token_usage": {
+    "input_tokens": 232,
+    "cache_creation_tokens": 271144,
+    "cache_read_tokens": 28621510,
+    "output_tokens": 64544,
+    "api_call_count": 170
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-14T16:47:18.931835153Z",
+    "agent_lines": 9,
+    "human_added": 84,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 93,
+    "agent_percentage": 9.67741935483871
+  }
+}
