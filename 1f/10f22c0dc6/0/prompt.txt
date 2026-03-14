@@ -1,0 +1,190 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/ . I am testing the deep tier. Here is the console-output from another terminal: @console-output.txt . We need to fix any potential misbehavious/bug. For example, take a deep look at this message: ● Tier is Deep — performing QMD enrichment. However, no QMD collections exist with cognee-related issues, PRs, or changelogs (the only registered collection is cognee-brief containing the skill brief itself). QMD enrichment skipped — no
+   temporal context available to annotate.
+
+  Enrichment complete.
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+
+ARGUMENTS: help me to dick further before we edit and fix everything.
+
+---
+
+Let's address the open questions on the table before making the edits:
+
+1. **Morgan's Option A (Staging Directory) vs Option B (Reorder Steps):** Option A is definitely the way to go. Multi-agent processing inherently breaks the single-context boundary. Writing to a staging area (`_bmad-output/{name}/`), validating/auto-fixing it there, and then promoting it to the final `skills/` and `forge-data/` directories accurately reflects reality and creates a cleaner build process.
+2. **Quinn's Scoping Question:** Quinn and Wendy are right. Enriching 800+ internal helper functions is a waste of tokens and time. QMD enrichment should focus strictly on the top-level public API surface (typically 10-20 major exported functions) that actually form the `context-snippet.md`.
+
+Let's proceed with these fixes. Here are the modifications for the 4 step files to resolve all the identified issues:
+
+### 1. Pre-Check & Scoping for Enrichment
+```markdown
+// ... existing code ...
+### 1. Check Tier Eligibility
+
+**If tier is Quick or Forge:**
+
+Auto-proceed silently. Display no message. Immediately load, read entire file, then execute `{nextStepFile}`.
+
+**If tier is Deep:**
+
+Continue to step 2.
+
+### 2. Collection Inventory Pre-check (Deep Tier Only)
+
+Before searching, check which QMD collections are available:
+- Identify if temporal collections exist (e.g., issues, PRs, changelogs, architecture notes).
+- If only the `brief` collection exists (containing just the skill brief), skip enrichment silently. No temporal context is available to annotate.
+
+### 3. QMD Enrichment Searches (Deep Tier Only)
+
+For each major exported function (limited to the top-level public API surface, typically 10-20 functions that appear in the context-snippet), search QMD collections for temporal context:
+
+**Search targets per function:**
+// ... existing code ...
+### 4. Annotate Extraction Inventory
+
+Add enrichment annotations to the extraction inventory without modifying extraction data:
+
+**Per-function enrichment (if found):**
+// ... existing code ...
+```
+
+
+### 2. Staging-Aware Write Allowance
+```markdown
+// ... existing code ...
+### Step-Specific Rules:
+
+- 🎯 Focus ONLY on assembling content from extraction inventory + enrichment
+- 🚫 FORBIDDEN to include any content without a provenance citation
+- 💾 Sub-agents and compilation processes may write to a staging directory (e.g., `_bmad-output/{name}/`)
+- 🚫 FORBIDDEN to write final files to `skills/` or `forge-data/` — that's step-07
+- 🚫 FORBIDDEN to fabricate examples not found in source tests or docs
+- ⚒️ Seed `<!-- [MANUAL] -->` markers for future update-skill compatibility
+
+## EXECUTION PROTOCOLS:
+
+- 🎯 Follow MANDATORY SEQUENCE exactly
+- 💾 Build all content in context or a staging directory
+- 📖 Follow agentskills.io section structure from data file
+- 🚫 Do not promote any output files to final directories — that's step-07
+
+## CONTEXT BOUNDARIES:
+// ... existing code ...
+### 8. Menu Handling Logic
+
+**Auto-proceed step — no user interaction.**
+
+After all content is assembled in context (or staging directory), immediately load, read entire file, then execute `{nextStepFile}`.
+
+#### EXECUTION RULES:
+
+- This is an auto-proceed assembly step with no user choices
+- All content stays in context or staging — no final files are written yet
+- Proceed directly to validation after assembly is complete
+
+## CRITICAL STEP COMPLETION NOTE
+// ... existing code ...
+### ❌ SYSTEM FAILURE:
+
+- Including functions or examples without provenance citations
+- Fabricating usage examples not found in source
+- Writing files to final `skills/` or `forge-data/` directories (that's step-07)
+- Missing required SKILL.md sections
+- Not seeding [MANUAL] markers
+// ... existing code ...
+```
+
+
+### 3. Exit-Code Guidance & Validation Rule Update
+```markdown
+// ... existing code ...
+### Step-Specific Rules:
+
+- 🎯 Focus ONLY on validating compiled content against spec
+- 🚫 FORBIDDEN to add new content — only fix spec compliance issues
+- 💾 Validation and auto-fix modify files in the staging directory
+- 💬 If auto-fix fails, report issues clearly but proceed (warn, don't halt)
+- ⚙️ If skill-check unavailable: skip validation, add warning to evidence report
+- ⚠️ Ignore non-zero exit codes from `skill-check` if the JSON output shows 0 errors.
+
+## EXECUTION PROTOCOLS:
+
+- 🎯 Follow MANDATORY SEQUENCE exactly
+- 💾 Validation results are added to evidence-report content in context
+// ... existing code ...
+### 2. Validate & Auto-Fix (skill-check check --fix)
+
+Run the external skill-check tool against the compiled skill staging directory:
+
+```bash
+npx skill-check check <skill-dir> --fix --format json --no-security-scan
+```
+```
+
+
+This single command performs:
+// ... existing code ...
+- **Auto-fix** of all deterministic issues (frontmatter ordering, slug format, required fields, description phrasing, trailing newlines)
+- **Quality score** (0-100) across five weighted categories
+
+**Parse the JSON output** to extract:
+- `qualityScore` — overall score (0-100)
+- `diagnostics[]` — remaining issues after auto-fix
+- `fixed[]` — issues that were automatically corrected
+- **Note:** Ignore exit code 1 if `errorCount` is 0. Rely on the parsed JSON output.
+
+**If quality score ≥ 70:** Record "Schema: PASS (score: {score}/100)" in evidence-report content.
+// ... existing code ...
+```
+### 4. Zero-Output Skip Instruction
+<llm-snippet-file>src/workflows/create-skill/steps-c/step-02-ecosystem-check.md</llm-snippet-file>
+```markdown
+// ... existing code ...
+**If registry API is NOT available (current default):**
+
+Skip completely and silently. Do not output any message about API unavailability or the ecosystem check being skipped. Proceed exactly as if no match was found, emitting zero text to the console.
+
+### 2. Evaluate Results
+// ... existing code ...
+```
+
+These changes will address all four issues discovered during the execution, providing explicit sub-agent constraints, handling false-positive CLI exit codes gracefully, avoiding noise on omitted features, and ensuring API limits are respected. Let me know if you want to tweak any of these fixes further!
+```
+
+What do you think? Any further improvement to do?
+
+---
+
+run validation
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-validate-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+yes
+
+---
+
+W
+
+---
+
+continue
+
+---
+
+D
+
+---
+
+commit
