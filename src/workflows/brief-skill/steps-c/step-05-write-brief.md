@@ -95,7 +95,48 @@ Write the generated YAML to `{forge_data_folder}/{skill-name}/skill-brief.yaml`.
 
 If write fails: **HALT** — "**Error:** Failed to write skill-brief.yaml. Please check that the directory is writable and try again."
 
-### 5. Display Success Summary
+### 5. QMD Collection Registration (Deep Tier Only)
+
+**IF forge tier is Deep AND QMD tool is available:**
+
+Index the skill brief into a QMD collection so that portfolio-level searches can find existing briefs and avoid duplicate skill creation across large monorepos.
+
+**Collection creation:**
+
+Create a QMD collection targeting only the brief file:
+```bash
+qmd collection add {forge_data_folder}/{skill-name} --name {skill-name}-brief --mask "skill-brief.yaml"
+```
+
+If collection already exists (re-briefing): remove and recreate for atomic replace:
+```bash
+qmd collection remove {skill-name}-brief
+qmd collection add {forge_data_folder}/{skill-name} --name {skill-name}-brief --mask "skill-brief.yaml"
+```
+
+**Registry update:**
+
+Read `{sidecar_path}/forge-tier.yaml` and update the `qmd_collections` array.
+
+If an entry with `name: "{skill-name}-brief"` already exists, replace it. Otherwise, append:
+
+```yaml
+  - name: "{skill-name}-brief"
+    type: "brief"
+    source_workflow: "brief-skill"
+    skill_name: "{skill-name}"
+    created_at: "{current ISO date}"
+```
+
+Write the updated forge-tier.yaml.
+
+**Error handling:**
+- If QMD collection creation fails: log the error. Do NOT fail the workflow — the brief file was already written successfully.
+- If forge-tier.yaml update fails: log the error, continue.
+
+**IF forge tier is NOT Deep:** Skip this section silently. No messaging.
+
+### 6. Display Success Summary
 
 "**Skill brief written successfully.**
 
@@ -123,7 +164,7 @@ After compilation, you can:
 
 **Brief-skill workflow complete.**"
 
-### 6. End Workflow
+### 7. End Workflow
 
 This is the final step. No next step file to load. The workflow is complete.
 
@@ -141,6 +182,8 @@ This is the FINAL step of the brief-skill workflow. After writing the file and d
 - Output directory created (or fallback used with notification)
 - skill-brief.yaml generated with all required fields matching approved values
 - File written successfully to correct location
+- Deep tier: QMD collection `{skill-name}-brief` created/updated and registered in forge-tier.yaml
+- Non-Deep tier: QMD indexing skipped silently
 - Success summary displayed with next steps recommendation
 - Workflow marked as complete
 
@@ -152,5 +195,6 @@ This is the FINAL step of the brief-skill workflow. After writing the file and d
 - Not creating output directory before writing
 - Not displaying next steps recommendation
 - Not handling write failure gracefully
+- Failing the workflow due to QMD indexing errors (should degrade gracefully)
 
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.
+**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE. QMD indexing failures never block the workflow.
