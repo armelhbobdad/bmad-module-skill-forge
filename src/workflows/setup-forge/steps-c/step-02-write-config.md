@@ -68,6 +68,10 @@ tools:
 # Quick = no tools | Forge = ast-grep | Deep = ast-grep + gh + qmd
 tier: {calculated_tier}
 tier_detected_at: {current ISO timestamp}
+
+# QMD collection registry (populated by create-skill, consumed by audit/update-skill)
+# Each entry tracks a QMD collection created during skill workflows
+qmd_collections: []
 ```
 
 **This file is ALWAYS overwritten** on every run — it reflects current tool state.
@@ -125,7 +129,7 @@ ONLY WHEN forge-tier.yaml has been written successfully and preferences.yaml exi
 
 ### ✅ SUCCESS:
 
-- forge-tier.yaml written with accurate tool booleans, tier, and timestamp
+- forge-tier.yaml written with accurate tool booleans, tier, timestamp, and empty qmd_collections registry
 - preferences.yaml exists (created with defaults on first run, preserved on re-run)
 - forge-data/ directory exists (created or pre-existing)
 - Auto-proceeded to step-03

@@ -43,7 +43,7 @@ Display the forge status report with positive capability framing, report tier ch
 
 - Available: {detected_tools}, {calculated_tier}, {previous_tier}, {tier_override} from step-01
 - Available: tool version strings from step-01
-- Available: {qmd_indexed}, {qmd_collections}, {qmd_total_files}, {qmd_skip_reason} from step-03
+- Available: {hygiene_result}, {hygiene_healthy}, {hygiene_orphaned_removed}, {hygiene_orphaned_kept}, {hygiene_stale_cleaned} from step-03
 - Focus: report display only — no file modifications
 - Dependencies: steps 01-03 must have completed
 
@@ -70,14 +70,16 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
   Tools Detected:
   {for each tool that is available, show: tool name — version}
 
-  {if qmd_indexed is true:}
-  QMD Index:
-  {for each collection in qmd_collections, show: collection name — file count}
-  {total qmd_total_files files indexed}
+  {if hygiene_result is "completed":}
+  QMD Registry:
+  {hygiene_healthy} collection(s) healthy
+  {if hygiene_orphaned_removed > 0: {hygiene_orphaned_removed} orphaned collection(s) removed}
+  {if hygiene_orphaned_kept > 0: {hygiene_orphaned_kept} orphaned collection(s) kept}
+  {if hygiene_stale_cleaned > 0: {hygiene_stale_cleaned} stale registry entry/entries cleaned}
   {end if}
 
-  {if qmd_skip_reason is "no_project_content":}
-  QMD Index: pending — no project directories found yet. Re-run [SF] after adding source files.
+  {if hygiene_result is "completed" and hygiene_healthy is 0:}
+  QMD Registry: empty — collections are created automatically when you run [CS] Create Skill.
   {end if}
 
 {if tier_override is active:}

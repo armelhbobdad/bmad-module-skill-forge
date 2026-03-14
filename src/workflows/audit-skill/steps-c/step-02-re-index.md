@@ -117,12 +117,22 @@ Identify all source files in the source directory that contain public exports.
 
 **IF forge tier is Deep:**
 
-Query qmd_bridge for temporal context on each extracted export:
+Read the `qmd_collections` registry from `{sidecar_path}/forge-tier.yaml`.
+
+Find the collection entry matching the current skill: look for an entry where `skill_name` matches the current skill being audited AND `type` is `"extraction"`.
+
+**If a matching extraction collection is found:**
+Query qmd_bridge against the `{skill_name}-extraction` collection for temporal context on each extracted export:
 - When was this export first added?
 - Has it been modified recently?
 - What is its usage frequency across the codebase?
+- How does the current extraction compare to the previously compiled skill content?
 
 Append temporal metadata to each export in the snapshot.
+
+**If no matching collection found in registry:**
+Log: "No QMD extraction collection found for {skill_name}. Temporal enrichment skipped. Re-run [CS] Create Skill to generate the collection."
+Continue without T2 enrichment — this is not an error.
 
 **IF forge tier is Quick or Forge:**
 Skip this section. Temporal context requires Deep tier.

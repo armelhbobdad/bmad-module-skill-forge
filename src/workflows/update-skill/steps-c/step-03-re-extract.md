@@ -97,10 +97,19 @@ DO NOT BE LAZY — For EACH file in the change manifest with status MODIFIED, AD
 
 **ONLY if forge_tier == Deep:**
 
+Read the `qmd_collections` registry from `{sidecar_path}/forge-tier.yaml`.
+
+Find the collection entry matching the current skill: look for an entry where `skill_name` matches the skill being updated AND `type` is `"extraction"`.
+
+**If a matching extraction collection is found:**
 Launch a subprocess that loads qmd_bridge and for each changed export:
-1. Queries QMD collection for semantic context related to the export
+1. Queries the `{skill_name}-extraction` collection for semantic context related to the export
 2. Searches for usage patterns, documentation references, temporal history
 3. Returns T2 evidence per export (usage frequency, context snippets, related concepts)
+
+**If no matching collection found in registry:**
+Log: "No QMD extraction collection found for {skill_name}. T2 enrichment skipped. Re-run [CS] Create Skill to generate the collection."
+Continue without T2 enrichment — extraction still produces T1 results.
 
 **If forge_tier != Deep:** Skip this section with notice: "QMD enrichment skipped (tier: {forge_tier})"
 

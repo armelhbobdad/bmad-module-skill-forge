@@ -124,16 +124,58 @@ Display brief confirmation:
 
 Proceeding to compilation report..."
 
-### 5. Menu Handling Logic
+### 5. QMD Collection Registration (Deep Tier Only)
+
+**IF forge tier is Deep AND QMD tool is available:**
+
+Index the generated skill artifacts into a QMD collection so that audit-skill and update-skill can perform high-signal searches against curated extraction data instead of raw source files.
+
+**Collection creation:**
+
+Create a QMD collection from both artifact directories:
+```bash
+qmd collection add {project-root}/skills/{name} --name {name}-extraction --mask "**/*"
+```
+
+If collection already exists (re-run): remove and recreate for atomic replace:
+```bash
+qmd collection remove {name}-extraction
+qmd collection add {project-root}/skills/{name} --name {name}-extraction --mask "**/*"
+```
+
+**Registry update:**
+
+Read `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml` and update the `qmd_collections` array.
+
+If an entry with `name: "{name}-extraction"` already exists, replace it. Otherwise, append:
+
+```yaml
+  - name: "{name}-extraction"
+    type: "extraction"
+    source_workflow: "create-skill"
+    skill_name: "{name}"
+    created_at: "{current ISO date}"
+```
+
+Write the updated forge-tier.yaml.
+
+**Error handling:**
+- If QMD collection creation fails: log the error, note that indexing can be retried via [SF] setup-forge. Do NOT fail the workflow.
+- If forge-tier.yaml update fails: log the error, continue. The collection exists in QMD even if the registry entry failed.
+
+**IF forge tier is NOT Deep:** Skip this section silently. No messaging.
+
+### 6. Menu Handling Logic
 
 **Auto-proceed step — no user interaction.**
 
-After all artifacts are written and verified, immediately load, read entire file, then execute `{nextStepFile}`.
+After all artifacts are written, verified, and optionally indexed into QMD, immediately load, read entire file, then execute `{nextStepFile}`.
 
 #### EXECUTION RULES:
 
 - This is an auto-proceed file writing step with no user choices
 - All 7 files must be written before proceeding
+- QMD indexing failure does NOT block proceeding
 - File write failures are real errors — halt, do not proceed with partial output
 - Proceed directly to next step after successful generation
 
@@ -151,6 +193,8 @@ ONLY WHEN all 7 artifact files are written and verified will you proceed to load
 - All 4 deliverable files written to skills/{name}/
 - All 3 workspace artifact files written to forge-data/{name}/
 - Write completion verified — all 7 files exist
+- Deep tier: QMD collection `{name}-extraction` created/updated and registered in forge-tier.yaml
+- Non-Deep tier: QMD indexing skipped silently
 - Brief confirmation displayed with file list
 - Auto-proceeded to step-08
 
@@ -161,5 +205,6 @@ ONLY WHEN all 7 artifact files are written and verified will you proceed to load
 - Proceeding with partial output if a write fails
 - Not creating directories before writing
 - Not verifying all files were written
+- Failing the workflow due to QMD indexing errors (should degrade gracefully)
 
-**Master Rule:** This step ONLY writes. All content was compiled and validated in previous steps. Write faithfully, verify completely.
+**Master Rule:** This step writes artifacts and registers QMD collections. All content was compiled and validated in previous steps. Write faithfully, verify completely. QMD indexing failures never block the workflow.
