@@ -1,0 +1,203 @@
+---
+name: 'step-03b-fetch-temporal'
+description: 'Fetch temporal context (issues, PRs, changelogs) and index into QMD — Deep tier only'
+nextStepFile: './step-04-enrich.md'
+---
+
+# Step 3b: Fetch Temporal Context
+
+## STEP GOAL:
+
+To fetch temporal context (issues, PRs, changelogs, release notes) from the source repository and index it into a QMD collection for Deep tier enrichment. This ensures step-04 has historical data to search when annotating extracted functions with T2 provenance.
+
+## MANDATORY EXECUTION RULES (READ FIRST):
+
+### Universal Rules:
+
+- 📖 CRITICAL: Read the complete step file before taking any action
+- 🎯 ALWAYS follow the exact instructions in the step file
+- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a tool you do not have access to, you MUST still achieve the outcome in your main context thread
+- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
+
+### Role Reinforcement:
+
+- ✅ You are a skill compilation engine fetching temporal data for QMD enrichment
+- ✅ Temporal context is best-effort — failures never block the workflow
+- ✅ Graceful degradation is paramount — non-GitHub repos or missing tools are silent skips, not errors
+
+### Step-Specific Rules:
+
+- 🎯 Deep tier only — Quick and Forge tiers skip this step entirely and silently
+- 🎯 GitHub repositories only — other source types degrade gracefully
+- 🚫 FORBIDDEN to halt the workflow if fetching or indexing fails
+- 🚫 FORBIDDEN to modify extraction data from step-03 — this step only creates QMD collections
+- 💾 Write fetched content to a staging directory, index into QMD, then clean up
+
+## EXECUTION PROTOCOLS:
+
+- 🎯 Follow MANDATORY SEQUENCE exactly
+- 💾 Write fetched markdown files to a staging directory: `_bmad-output/{skill-name}-temporal/`
+- 📖 Index the staging directory into QMD and register in `forge-tier.yaml`
+- 🚫 Never leave staging files on disk after indexing — always clean up
+
+## CONTEXT BOUNDARIES:
+
+- Available: brief_data, tier, source_location from step-01; extraction_inventory from step-03
+- Focus: Creating a QMD temporal collection for the source repository
+- Limits: Do NOT modify extraction data, begin enrichment, or compile content
+- Dependencies: Extraction must be complete from step-03
+
+## MANDATORY SEQUENCE
+
+**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
+
+### 1. Check Eligibility
+
+Evaluate the following conditions sequentially. **If ANY condition fails, skip silently to section 5 (auto-proceed) with no output:**
+
+1. **Tier is Deep:** If tier is Quick or Forge, skip silently.
+2. **Source is GitHub:** Verify `source_repo` is a GitHub URL (`https://github.com/...`) or `owner/repo` format. If the source is a local path, a non-GitHub URL, or any other format, skip silently.
+3. **`gh` CLI is available:** Run `gh auth status` to verify the CLI is installed and authenticated. If it fails, skip silently.
+
+All three conditions must pass to proceed to section 2.
+
+### 2. Check Cache (Skip If Fresh)
+
+Read `forge-tier.yaml` from the sidecar path.
+
+- Look for a `qmd_collections` entry where `skill_name` matches the current brief AND `type` is `"temporal"`.
+- If found AND `created_at` is within the last **7 days**: the temporal collection is fresh. Display:
+
+"**Temporal context: cached.** Collection `{skill-name}-temporal` is fresh ({days} days old). Skipping re-fetch."
+
+Skip to section 5 (auto-proceed).
+
+- If not found OR `created_at` is older than 7 days: continue to section 3.
+
+### 3. Fetch Temporal Context
+
+Create a staging directory: `_bmad-output/{skill-name}-temporal/`
+
+Resolve the `owner` and `repo` from `source_repo` (e.g., `topoteretes/cognee` from `https://github.com/topoteretes/cognee`).
+
+Execute the following fetches, writing output as markdown files to the staging directory. **If any individual fetch fails, log a warning and continue with the others:**
+
+1. **Issues (last 100):**
+
+   ```bash
+   gh issue list -R {owner}/{repo} --state all --limit 100 --json number,title,state,labels,createdAt,closedAt,body | ...
+   ```
+
+   Write to `{staging}/issues.md` — format as a markdown document with one section per issue (number, title, state, labels, body summary).
+
+2. **Merged PRs (last 100):**
+
+   ```bash
+   gh pr list -R {owner}/{repo} --state merged --limit 100 --json number,title,mergedAt,labels,body | ...
+   ```
+
+   Write to `{staging}/prs.md` — format as a markdown document with one section per PR.
+
+3. **Releases (last 10):**
+
+   ```bash
+   gh release list -R {owner}/{repo} --limit 10 --json tagName,name,publishedAt,body | ...
+   ```
+
+   Write to `{staging}/releases.md` — format as a markdown document with one section per release.
+
+4. **Changelog (if exists):**
+
+   Check if `CHANGELOG.md` or `RELEASES.md` exists in the repository root:
+
+   ```bash
+   gh api repos/{owner}/{repo}/contents/CHANGELOG.md --jq '.content' | base64 -d
+   ```
+
+   If found, write to `{staging}/changelog.md`. If not found (404), skip silently.
+
+**After fetching,** verify at least one file was written to the staging directory. If the staging directory is empty (all fetches failed), log a warning and skip to section 5.
+
+### 4. Index Into QMD & Register
+
+**Index the staging directory:**
+
+If a `{skill-name}-temporal` collection already exists, remove and recreate for atomic replace:
+
+```bash
+qmd collection remove {skill-name}-temporal
+qmd collection add _bmad-output/{skill-name}-temporal/ --name {skill-name}-temporal --mask "*.md"
+```
+
+**Update the registry** in `forge-tier.yaml`:
+
+If an entry with `name: "{skill-name}-temporal"` already exists in `qmd_collections`, replace it. Otherwise, append:
+
+```yaml
+  - name: "{skill-name}-temporal"
+    type: "temporal"
+    source_workflow: "create-skill"
+    skill_name: "{skill-name}"
+    created_at: "{current ISO date}"
+```
+
+**Clean up** the staging directory after successful indexing:
+
+```bash
+rm -rf _bmad-output/{skill-name}-temporal/
+```
+
+**Error handling:**
+
+- If QMD indexing fails: log the error, note that temporal enrichment will be unavailable. Do NOT fail the workflow.
+- If registry update fails: log the error, continue. The collection may exist in QMD even if the registry entry failed.
+- If cleanup fails: log a warning and continue.
+
+Display brief confirmation:
+
+"**Temporal context indexed.** Collection `{skill-name}-temporal` created ({file_count} files: {list files}). Proceeding to enrichment..."
+
+### 5. Menu Handling Logic
+
+**Auto-proceed step — no user interaction.**
+
+After temporal context is fetched and indexed (or skipped for any reason), immediately load, read entire file, then execute `{nextStepFile}`.
+
+#### EXECUTION RULES:
+
+- This is an auto-proceed step with no user choices
+- Quick/Forge tiers skip directly to next step with no output
+- Non-GitHub sources skip directly to next step with no output
+- Cached collections (< 7 days old) skip with brief cache-hit message
+- Deep tier with fresh fetch displays brief confirmation then auto-proceeds
+- All failures degrade gracefully — skip and auto-proceed
+
+## CRITICAL STEP COMPLETION NOTE
+
+ONLY WHEN temporal context is indexed into QMD (or the step is skipped due to eligibility, cache, or failure) will you proceed to load `{nextStepFile}` for QMD enrichment.
+
+---
+
+## 🚨 SYSTEM SUCCESS/FAILURE METRICS
+
+### ✅ SUCCESS:
+
+- Non-eligible scenarios (Quick/Forge tier, non-GitHub source, no `gh` CLI) skipped silently
+- Cached collections (< 7 days old) detected and re-fetch skipped
+- Temporal data fetched via `gh` CLI into staging directory
+- At least one temporal file written (issues, PRs, releases, or changelog)
+- Collection `{skill-name}-temporal` indexed into QMD
+- Registry entry added/updated in forge-tier.yaml with type `"temporal"`
+- Staging directory cleaned up after indexing
+- Auto-proceeded to step-04
+
+### ❌ SYSTEM FAILURE:
+
+- Halting the workflow due to a `gh` CLI, QMD, or network failure
+- Leaving staging files on disk after indexing (must clean up)
+- Overwriting or modifying extraction data from step-03
+- Displaying skip messages for Quick/Forge tiers (should be silent)
+- Attempting to fetch temporal data from non-GitHub sources
+- Not registering the collection in forge-tier.yaml after successful indexing
+
+**Master Rule:** Temporal context is best-effort enrichment data. Fetch what you can, index it, clean up, and move on. Failures degrade gracefully — they never block the skill compilation pipeline.

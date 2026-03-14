@@ -1,7 +1,7 @@
 ---
 name: 'step-03-extract'
 description: 'Tier-dependent source code extraction — AST or source reading for exports, signatures, and types'
-nextStepFile: './step-04-enrich.md'
+nextStepFile: './step-03b-fetch-temporal.md'
 extractionPatternsData: '../data/extraction-patterns.md'
 ---
 
@@ -190,7 +190,7 @@ Display: "**Extraction Summary — Select an Option:** [C] Continue to compilati
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY WHEN the extraction inventory is built with provenance citations and the user has confirmed the extraction summary will you proceed to load `{nextStepFile}` for QMD enrichment.
+ONLY WHEN the extraction inventory is built with provenance citations and the user has confirmed the extraction summary will you proceed to load `{nextStepFile}` for temporal context fetching.
 
 ---
 
