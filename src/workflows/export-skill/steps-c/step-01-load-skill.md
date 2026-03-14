@@ -111,9 +111,23 @@ Extract from `metadata.json`:
 
 ### 4. Check Forge Configuration
 
-Load `{forge_data_folder}/forge-config.yaml` (if exists):
+Load `{sidecar_path}/preferences.yaml` (if exists):
 - Check `passive_context` setting
 - If `passive_context: false` — note that steps 03-04 (snippet + context update) will be skipped
+
+### 4b. Check Test Report (Quality Gate)
+
+Search for a test report at `{output_folder}/test-report-{skill-name}.md`:
+
+**If test report found:**
+- Read frontmatter `testResult` and `score`
+- If `testResult: fail`: warn: "**Warning:** This skill failed its last test (score: {score}%). Consider running `@Ferris TS` and addressing gaps before export."
+- If `testResult: pass`: note: "Last test: **PASS** ({score}%)"
+
+**If no test report found:**
+- Warn: "**Note:** No test report found for this skill. Consider running `@Ferris TS` before export to verify completeness."
+
+Continue to step 5 regardless — this is advisory, not blocking.
 
 ### 5. Present Skill Summary
 
@@ -177,7 +191,7 @@ ONLY WHEN the user confirms the correct skill is loaded by selecting 'C' will yo
 
 - Proceeding without finding SKILL.md or metadata.json
 - Not validating metadata.json fields
-- Not checking forge-config for passive_context opt-out
+- Not checking preferences.yaml for passive_context opt-out
 - Proceeding without user confirmation
 - Modifying any skill files (read-only step)
 

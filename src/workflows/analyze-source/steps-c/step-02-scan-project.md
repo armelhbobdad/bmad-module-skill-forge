@@ -38,6 +38,8 @@ To map the complete project structure by scanning directory trees, detecting ser
 - 💬 Use subprocess optimization (Pattern 1) for scanning across many files
 - 📋 Tier-aware scanning depth: Quick (file structure only), Forge (+ manifest parsing), Deep (+ config analysis)
 
+**AST Degradation Fallback:** If the AST tool (ast-grep) is unavailable at Forge or Deep tier, degrade to Quick-tier behavior for this step and emit a warning: "AST tool unavailable — falling back to file-structure scanning for this step."
+
 ## EXECUTION PROTOCOLS:
 
 - 🎯 Follow the MANDATORY SEQUENCE exactly

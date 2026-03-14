@@ -38,6 +38,8 @@ To analyze each qualifying unit's export surface and import graph, detect cross-
 - 🚫 FORBIDDEN to make recommendations in this step (that's step 05)
 - 📋 Tier-aware depth: Quick (file-level exports), Forge (AST export analysis), Deep (AST + semantic relationships)
 
+**AST Degradation Fallback:** If the AST tool (ast-grep) is unavailable at Forge or Deep tier, degrade to Quick-tier behavior for this step and emit a warning: "AST tool unavailable — falling back to file-level export mapping for this step."
+
 ## EXECUTION PROTOCOLS:
 
 - 🎯 Follow the MANDATORY SEQUENCE exactly

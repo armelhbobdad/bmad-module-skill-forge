@@ -102,8 +102,8 @@ description: >
 Create context-snippet.md in ADR-L two-line format (~30 tokens):
 
 ```
-{skill_name}: {top-5 exports as comma-separated list}
-  → {skills_output_folder}/{skill_name}/SKILL.md
+{skill_name} -> skills/{skill_name}/
+  exports: {top-5 exports as comma-separated list}
 ```
 
 **If fewer than 5 exports:** Use all available exports.
@@ -117,14 +117,19 @@ Create metadata.json:
 {
   "name": "{repo_name}",
   "version": "0.1.0",
+  "skill_type": "single",
   "source_authority": "community",
   "source_repo": "{resolved_url}",
   "source_package": "{package_name from manifest}",
   "language": "{language}",
   "generated_by": "quick-skill",
-  "generated_date": "{current date}",
-  "exports_count": {number of exports found},
-  "confidence": "{extraction confidence}"
+  "generation_date": "{current ISO date}",
+  "confidence_tier": "Quick",
+  "exports": ["{export_1}", "{export_2}"],
+  "stats": {
+    "exports_documented": "{number of exports found}",
+    "exports_total": "{number of exports found}"
+  }
 }
 ```
 

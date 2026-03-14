@@ -59,7 +59,7 @@ To update the managed `<!-- SKF:BEGIN/END -->` section in the platform-appropria
 
 **If `passive_context: false` was detected in step-01:**
 
-"**Passive context disabled in forge-config.yaml. Skipping context update.**"
+"**Passive context disabled in preferences.yaml. Skipping context update.**"
 
 Auto-proceed immediately to {nextStepFile}.
 

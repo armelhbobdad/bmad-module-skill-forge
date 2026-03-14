@@ -17,7 +17,7 @@ Generate a detailed gap report listing every issue found during coverage and coh
 
 ### Universal Rules:
 
-- 🛑 NEVER fabricate gaps — every item must trace to findings from steps 03 and 04
+- 🛑 NEVER fabricate gaps — every item must trace to findings from steps 03, 04, and 04b
 - 📖 CRITICAL: Read the complete step file before taking any action
 - ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
 - ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
@@ -68,6 +68,10 @@ Read `{outputFile}` and extract every issue found across all analysis sections:
 - Broken references (file paths, skill references, type imports that don't resolve)
 - Incomplete integration patterns (contextual mode)
 - Structural issues (naive mode — missing sections, broken examples)
+
+**From External Validation (step 04b):**
+- skill-check diagnostics (unresolved errors and warnings)
+- tessl judge suggestions (content quality and actionability improvements)
 
 ### 2. Load Severity Rules
 
@@ -155,7 +159,7 @@ This is the final step of the test-skill workflow. When the user selects C, the 
 
 ### ✅ SUCCESS:
 
-- Every gap traces to a finding from steps 03 or 04 (zero fabrication)
+- Every gap traces to a finding from steps 03, 04, or 04b (zero fabrication)
 - Gaps classified by severity using scoring rules
 - Gaps ordered by severity (Critical first)
 - Every gap has a specific, actionable remediation suggestion

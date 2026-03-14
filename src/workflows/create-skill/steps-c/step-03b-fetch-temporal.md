@@ -43,7 +43,7 @@ To fetch temporal context (issues, PRs, changelogs, release notes) from the sour
 ## CONTEXT BOUNDARIES:
 
 - Available: brief_data, tier, source_location from step-01; extraction_inventory from step-03
-- **Used from extraction_inventory:** `top_exports[]` — the list of top-level public API function names (typically 10-20). Used for targeted GitHub searches (section 3b) and cache fingerprinting (section 2).
+- **Used from extraction_inventory:** `top_exports[]` — the list of top-level public API function names (typically 10-20). Used for targeted GitHub searches (section 3b).
 - Focus: Creating a QMD temporal collection for the source repository
 - Limits: Do NOT modify extraction data, begin enrichment, or compile content
 - Dependencies: Extraction must be complete from step-03
@@ -67,23 +67,11 @@ All three conditions must pass to proceed to section 2.
 Read `forge-tier.yaml` from the sidecar path.
 
 - Look for a `qmd_collections` entry where `skill_name` matches the current brief AND `type` is `"temporal"`.
-- If found AND `created_at` is within the last **7 days**: check extraction fingerprint.
+- If found AND `created_at` is within the last **7 days**: the temporal collection is fresh. Display:
 
-**Extraction fingerprint check:**
-
-Compute a fingerprint from the current extraction inventory: sort `extraction_inventory.top_exports[]` alphabetically and join with commas (e.g., `"add,cognify,delete,prune,search"`). Compare against the `extraction_fingerprint` stored in the cached registry entry.
-
-- If fingerprints **match**: the temporal collection is fresh and aligned. Display:
-
-"**Temporal context: cached.** Collection `{skill-name}-temporal` is fresh ({days} days old, extraction scope unchanged). Skipping re-fetch."
+"**Temporal context: cached.** Collection `{skill-name}-temporal` is fresh ({days} days old). Skipping re-fetch."
 
 Skip to section 5 (auto-proceed).
-
-- If fingerprints **differ** (extraction scope changed since last fetch): invalidate the cache. Display:
-
-"**Temporal context: stale.** Extraction scope changed ({N} new/removed exports). Re-fetching temporal context."
-
-Continue to section 3.
 
 - If not found OR `created_at` is older than 7 days: continue to section 3.
 
@@ -170,10 +158,7 @@ If an entry with `name: "{skill-name}-temporal"` already exists in `qmd_collecti
     source_workflow: "create-skill"
     skill_name: "{skill-name}"
     created_at: "{current ISO date}"
-    extraction_fingerprint: "{sorted comma-joined top_exports list}"
 ```
-
-The `extraction_fingerprint` enables cache invalidation when the extraction scope changes between runs (see section 2).
 
 **Clean up** the staging directory after successful indexing:
 
@@ -217,13 +202,12 @@ ONLY WHEN temporal context is indexed into QMD (or the step is skipped due to el
 ### ✅ SUCCESS:
 
 - Non-eligible scenarios (Quick/Forge tier, non-GitHub source, no `gh` CLI) skipped silently
-- Cached collections (< 7 days old AND extraction fingerprint unchanged) detected and re-fetch skipped
-- Stale cache (extraction fingerprint changed) invalidated and re-fetched
+- Cached collections (< 7 days old) detected and re-fetch skipped
 - Temporal data fetched via `gh` CLI into staging directory (generic + targeted)
 - Targeted searches performed for up to 10 top_exports function names
 - At least one temporal file written (issues, PRs, releases, changelog, or targeted-issues)
 - Collection `{skill-name}-temporal` indexed into QMD
-- Registry entry added/updated in forge-tier.yaml with type `"temporal"` and `extraction_fingerprint`
+- Registry entry added/updated in forge-tier.yaml with type `"temporal"`
 - Staging directory cleaned up after indexing
 - Auto-proceeded to step-04
 
@@ -235,7 +219,5 @@ ONLY WHEN temporal context is indexed into QMD (or the step is skipped due to el
 - Displaying skip messages for Quick/Forge tiers (should be silent)
 - Attempting to fetch temporal data from non-GitHub sources
 - Not registering the collection in forge-tier.yaml after successful indexing
-- Not storing extraction_fingerprint in the registry entry
-- Treating a stale extraction fingerprint as a cache hit (must invalidate and re-fetch)
 
 **Master Rule:** Temporal context is best-effort enrichment data. Fetch what you can, index it, clean up, and move on. Failures degrade gracefully — they never block the skill compilation pipeline.

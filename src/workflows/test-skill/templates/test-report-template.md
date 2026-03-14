@@ -1,6 +1,7 @@
 ---
 workflowType: 'test-skill'
 skillName: ''
+skillDir: ''
 testMode: ''
 forgeTier: ''
 testResult: ''

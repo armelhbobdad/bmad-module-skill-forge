@@ -66,8 +66,8 @@ Continue to step 2.
 Before searching, check which QMD collections are available:
 
 1. Read the sidecar `forge-tier.yaml` to get registered `qmd_collections` entries
-2. Identify which collections contain temporal context — collections with `type` other than `"brief"` (e.g., issues, PRs, changelogs, architecture notes)
-3. **If no temporal collections exist** (only `"brief"` type or no collections at all): report this and auto-proceed. Display:
+2. Identify which collections contain temporal context — collections with `type` equal to `"temporal"` (e.g., issues, PRs, changelogs, architecture notes). Do NOT include `"extraction"` or `"brief"` type collections.
+3. **If no temporal collections exist** (no `"temporal"` type collections): report this and auto-proceed. Display:
 
 "**Enrichment: no temporal collections available.**
 Only brief-type QMD collections found — no issues, PRs, or changelogs indexed. Enrichment skipped (expected for first-run skill creation). T2 enrichment becomes available when temporal context is indexed into QMD collections.

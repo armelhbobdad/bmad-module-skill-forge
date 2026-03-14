@@ -65,7 +65,7 @@ tools:
   qmd: {true/false from detection}
 
 # Capability tier (derived from tool availability)
-# Quick = no tools | Forge = ast-grep | Deep = ast-grep + gh + qmd
+# Quick = no tools required | Forge = + ast-grep | Deep = + ast-grep + gh + QMD
 tier: {calculated_tier}
 tier_detected_at: {current ISO timestamp}
 
@@ -91,6 +91,9 @@ Check if `{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml` exists:
 
 # Override detected tier (set to Quick, Forge, or Deep to force a tier)
 tier_override: ~
+
+# Passive context injection (set to false to skip snippet generation and CLAUDE.md updates during export)
+passive_context: true
 
 # Skill generation defaults
 default_source_authority: community

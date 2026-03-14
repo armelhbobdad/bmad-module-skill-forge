@@ -72,52 +72,33 @@ Record any missing files as **ERROR** findings.
 
 Run: `npx skill-check -h`
 
-- If succeeds (returns usage information): Use skill-check for automated validation in sections 3, 8
-- If fails (command not found or error): Use manual fallback paths in those sections
+- If succeeds: Use skill-check for automated validation in sections 3, 9
+- If fails: Use manual fallback paths in those sections
 
-**Important:** Use the verification command. Do not assume availability — empirical check required.
+**Important:** Do not assume availability — empirical check required.
 
 ### 3. Validate SKILL.md via skill-check (if available)
 
-**If `npx skill-check` is available**, run automated validation with auto-fix:
+**If available**, run: `npx skill-check check <skill-dir> --fix --format json --no-security-scan`
 
-```bash
-npx skill-check check <skill-dir> --fix --format json --no-security-scan
-```
+This validates frontmatter, description, body limits, links, formatting — and auto-fixes deterministic issues. Parse JSON for `qualityScore`, `diagnostics[]`, `fixed[]`.
 
-This validates frontmatter, description, body limits, links, and formatting — and auto-fixes deterministic issues.
+**If `body.max_lines` reported**, run: `npx skill-check split-body <skill-dir> --write`, then re-validate.
 
-**Parse JSON output** to extract:
-- `qualityScore` — overall score (0-100)
-- `diagnostics[]` — remaining issues after auto-fix
-- `fixed[]` — issues automatically corrected
+**If unavailable**, perform manual frontmatter check:
+- [ ] Frontmatter present with `---` delimiters
+- [ ] `name` — present, non-empty, lowercase alphanumeric + hyphens, 1-64 chars, matches `{project_name}-stack`
+- [ ] `description` — present, non-empty, 1-1024 characters
+- [ ] No unknown fields — only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` permitted
 
-Record quality score and remaining diagnostics as findings.
-
-**If `body.max_lines` is reported**, run split-body to extract oversized sections:
-
-```bash
-npx skill-check split-body <skill-dir> --write
-```
-
-Then re-validate: `npx skill-check check <skill-dir> --format json --no-security-scan`
-
-**If skill-check is NOT available**, perform manual frontmatter check:
-
-- [ ] Frontmatter present — file starts with `---` delimiter and has closing `---`
-- [ ] `name` field — present, non-empty, lowercase alphanumeric + hyphens only, 1-64 chars
-- [ ] `name` matches skill output directory name (`{project_name}-stack`)
-- [ ] `description` field — present, non-empty, 1-1024 characters
-- [ ] No unknown fields — only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted
-
-Record frontmatter violations as **WARNING** findings. Skills without valid frontmatter will fail `npx skills add` and `npx skill-check check`.
+Record frontmatter violations as **WARNING** findings. Invalid frontmatter will fail `npx skills add` and `npx skill-check check`.
 
 ### 4. Validate SKILL.md Body Structure
 
 Load `{stackSkillTemplate}` and verify SKILL.md contains expected sections:
 
 - [ ] Header with project name, library count, integration count, forge tier
-- [ ] Integration Patterns section (should appear BEFORE per-library summaries)
+- [ ] Integration Patterns section (before per-library summaries)
 - [ ] Library Reference Index table
 - [ ] Per-Library Summaries section
 - [ ] Conventions section
@@ -130,39 +111,28 @@ Parse metadata.json and verify required fields:
 
 - [ ] `skill_type` equals "stack"
 - [ ] `name` matches `{project_name}-stack`
-- [ ] `version` is present
-- [ ] `generation_date` is present
-- [ ] `confidence_tier` matches the tier from step 01
-- [ ] `library_count` matches actual number of reference files
-- [ ] `integration_count` matches actual integration pair files
-- [ ] `libraries` array is present and non-empty
-- [ ] `confidence_distribution` object is present with T1/T1-low/T2 keys
+- [ ] `version` and `generation_date` present
+- [ ] `confidence_tier` matches tier from step 01
+- [ ] `library_count` matches actual reference files; `integration_count` matches pair files
+- [ ] `libraries` array present and non-empty
+- [ ] `confidence_distribution` object present with T1/T1-low/T2 keys
 
 Record mismatches as **WARNING** findings.
 
 ### 6. Validate Reference File Completeness
 
-For each confirmed library, verify `references/{library}.md` exists and contains:
-- [ ] Library name header
-- [ ] Version from manifest
-- [ ] Key Exports section
-- [ ] Usage Patterns section
+For each confirmed library, verify `references/{library}.md` contains: library name header, version from manifest, Key Exports section, Usage Patterns section.
 
-For each integration pair (if any), verify `references/integrations/{libraryA}-{libraryB}.md` exists and contains:
-- [ ] Integration pair header
-- [ ] Type classification
-- [ ] Integration Pattern section
-- [ ] Key Files section
+For each integration pair, verify `references/integrations/{libraryA}-{libraryB}.md` contains: integration pair header, type classification, Integration Pattern section, Key Files section.
 
 Record missing or incomplete files as **WARNING** findings.
 
 ### 7. Validate Confidence Tier Labels
 
-Scan across all output files for confidence tier coverage:
+Scan all output files for confidence tier coverage:
 
-- [ ] SKILL.md: Each per-library summary has a confidence label
-- [ ] SKILL.md: Each integration pair entry has a confidence label
-- [ ] Reference files: Each has a confidence label in its header
+- [ ] SKILL.md: each per-library summary and integration pair entry has a confidence label
+- [ ] Reference files: each has a confidence label in its header
 - [ ] metadata.json: confidence_distribution sums match library_count
 
 Record missing tier labels as **WARNING** findings.
@@ -178,49 +148,21 @@ Record format violations as **WARNING** findings.
 
 ### 9. Security Scan (if skill-check available)
 
-Run security scan on the compiled stack skill:
+Run: `npx skill-check check <skill-dir> --format json` (security scan enabled by default).
 
-```bash
-npx skill-check check <skill-dir> --format json
-```
+Record security findings as advisory **WARNING** findings — they do not block the report.
 
-(Security scan is enabled by default when `--no-security-scan` is omitted.)
-
-Record any security findings as advisory **WARNING** findings. Security issues do not block the report.
-
-**If skill-check unavailable:** Skip with note in validation results.
+**If unavailable:** Skip with note in validation results.
 
 ### 10. Display Validation Results
 
 **If all checks pass:**
 
-"**Validation complete — all checks passed.**
-
-- **Files:** {file_count}/{file_count} present
-- **SKILL.md:** Structure valid
-- **metadata.json:** All required fields present
-- **References:** {lib_count} library + {pair_count} integration files verified
-- **Confidence tiers:** Complete coverage
-
-**Proceeding to summary report...**"
+"**Validation complete — all checks passed.** Files: {count}/{count} present. SKILL.md structure valid. metadata.json fields verified. {lib_count} library + {pair_count} integration files verified. Confidence tiers: complete coverage. **Proceeding to summary report...**"
 
 **If warnings found:**
 
-"**Validation complete with {warning_count} finding(s).**
-
-**Findings:**
-{For each finding:}
-- ⚠ {severity}: {description} — {file_path}
-
-**Summary:**
-- **Files:** {present_count}/{expected_count} present
-- **Warnings:** {warning_count}
-- **Errors:** {error_count}
-
-{If errors (missing files):}
-**Note:** Missing files may indicate a write failure in step 07. Review evidence-report.md for details.
-
-**Proceeding to summary report...**"
+"**Validation complete with {warning_count} finding(s).** Findings: {list each: severity, description, file_path}. Files: {present}/{expected} present. Warnings: {count}. Errors: {count}. {If errors: Note missing files may indicate a write failure in step 07.} **Proceeding to summary report...**"
 
 ### 11. Auto-Proceed to Next Step
 
@@ -232,26 +174,17 @@ Load, read the full file and then execute `{nextStepFile}`.
 
 ### ✅ SUCCESS:
 
-- All expected files checked for existence
-- `npx skill-check check --fix --format json` executed if available (or manual fallback)
-- Quality score (0-100) captured when skill-check available
-- Auto-fix applied via `--fix` for deterministic issues
-- Split-body applied if `body.max_lines` failed
-- Security scan executed (or skipped with note)
-- SKILL.md validated against template structure
-- metadata.json fields verified
-- Reference files checked for completeness
-- Confidence tier coverage verified
-- Validation results displayed with specific findings
+- All expected files checked; `npx skill-check check --fix` executed if available (or manual fallback)
+- Quality score captured; auto-fix and split-body applied as needed; security scan executed (or skipped with note)
+- SKILL.md validated against template; metadata.json fields verified; reference files checked
+- Confidence tier coverage verified; validation results displayed with specific findings
 - Advisory mode: always proceeded to report
 
 ### ❌ SYSTEM FAILURE:
 
-- Modifying any output files during validation (except via skill-check --fix)
-- Halting the workflow on validation warnings
-- Not checking all expected files
-- Reporting vague findings without file paths
-- Skipping the confidence tier check
+- Modifying output files during validation (except via skill-check --fix)
+- Halting on validation warnings; not checking all expected files
+- Reporting vague findings without file paths; skipping confidence tier check
 - Not recording quality score when skill-check is available
 
 **Master Rule:** Validate everything, fix what's deterministic via skill-check, scan for security issues. Advisory findings — always proceed to report.

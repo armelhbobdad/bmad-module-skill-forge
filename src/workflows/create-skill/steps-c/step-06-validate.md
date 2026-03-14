@@ -56,11 +56,10 @@ To validate the compiled SKILL.md content against the agentskills.io specificati
 
 Run: `npx skill-check -h`
 
-- If succeeds (returns usage information): Continue to automated validation (section 2)
-- If fails (command not found or error): Perform manual fallback (section 3)
-  - Add note to evidence-report content: "Spec validation performed manually — skill-check tool unavailable"
+- If succeeds: Continue to automated validation (section 2)
+- If fails: Perform manual fallback (section 3); add note to evidence-report: "Spec validation performed manually — skill-check tool unavailable"
 
-**Important:** Use the verification command. Do not assume availability — empirical check required.
+**Important:** Do not assume availability — empirical check required.
 
 ### 2. Validate & Auto-Fix (skill-check check --fix)
 
@@ -70,118 +69,72 @@ Run the external skill-check tool against the compiled skill staging directory:
 npx skill-check check <staging-skill-dir> --fix --format json --no-security-scan
 ```
 
-This single command performs:
-- Frontmatter validation (required fields, naming, ordering, unknown fields)
-- Description quality checks (length, "Use when" phrasing)
-- Body limit enforcement (line count, token count)
-- Local link resolution
-- File formatting (trailing newlines)
-- **Auto-fix** of all deterministic issues (frontmatter ordering, slug format, required fields, description phrasing, trailing newlines)
-- **Quality score** (0-100) across five weighted categories
+This performs frontmatter validation, description quality checks, body limit enforcement, local link resolution, file formatting, auto-fix of deterministic issues, and quality scoring (0-100) across five weighted categories.
 
-**Parse the JSON output** to extract:
-- `qualityScore` — overall score (0-100)
-- `diagnostics[]` — remaining issues after auto-fix
-- `fixed[]` — issues that were automatically corrected
+**Parse the JSON output** for: `qualityScore` (0-100), `diagnostics[]` (remaining issues), `fixed[]` (auto-corrected issues).
 
-**Note:** `skill-check` may return a non-zero exit code even when `errorCount` is 0 (e.g., security advisories or package warnings). Always rely on the parsed JSON `errorCount` and `warningCount`, not the shell exit code.
+**Note:** `skill-check` may return non-zero exit code even when `errorCount` is 0. Always rely on parsed JSON, not the shell exit code.
 
-**If quality score ≥ 70:** Record "Schema: PASS (score: {score}/100)" in evidence-report content.
-
-**If quality score < 70:**
-1. Log remaining diagnostics as warnings
-2. Record "Schema: WARN — score {score}/100, {count} remaining issues" in evidence-report
-3. Proceed (do not halt)
-
-**If skill-check returns errors that --fix could not resolve:**
-- Record specific rule IDs and suggestions in evidence-report
-- Proceed with warnings
+- **Score ≥ 70:** Record "Schema: PASS (score: {score}/100)" in evidence-report
+- **Score < 70:** Log remaining diagnostics as warnings, record "Schema: WARN — score {score}/100, {count} remaining issues", proceed
+- **Unfixable errors:** Record specific rule IDs and suggestions, proceed with warnings
 
 ### 3. Validate Frontmatter (Fallback)
 
 **If skill-check was available:** Skip — already validated in step 2.
 
-**If skill-check NOT available (fallback):** Perform manual frontmatter compliance check.
-
-**Check (agentskills.io specification):**
+**If skill-check NOT available (fallback):** Perform manual frontmatter compliance check:
 
 - [ ] Frontmatter present — file starts with `---` and has closing `---`
 - [ ] `name` field — present, non-empty, lowercase alphanumeric + hyphens only, 1-64 chars
 - [ ] `name` matches skill output directory name
 - [ ] `description` field — present, non-empty, 1-1024 characters
-- [ ] No unknown fields — only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted
+- [ ] No unknown fields — only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` permitted
 - [ ] `version` and `author` are NOT in frontmatter (they belong in metadata.json)
 
-**If validation passes:** Record "Frontmatter: PASS" in evidence-report content.
-
-**If validation fails:**
-1. Auto-fix frontmatter (these are deterministic fixes — remove disallowed fields, add missing required fields)
-2. Re-validate once
-3. Record result in evidence-report
+If fails: auto-fix (deterministic), re-validate once, record result. If passes: record "Frontmatter: PASS".
 
 ### 4. Split Oversized Body (if needed)
 
 **If step 2 reported `body.max_lines` failure:**
 
-Run split-body to extract oversized sections into reference files:
-
 ```bash
 npx skill-check split-body <staging-skill-dir> --write
 ```
 
-Then re-validate to confirm the fix:
+Then re-validate: `npx skill-check check <staging-skill-dir> --format json --no-security-scan`
 
-```bash
-npx skill-check check <staging-skill-dir> --format json --no-security-scan
-```
-
-**If skill-check unavailable or no body size issue:** Skip this step.
+**If skill-check unavailable or no body size issue:** Skip.
 
 ### 5. Security Scan
 
-**If skill-check is available**, run security scan on the compiled skill:
+**If skill-check available:**
 
 ```bash
 npx skill-check check <staging-skill-dir> --format json
 ```
 
-(Security scan is enabled by default when `--no-security-scan` is omitted.)
+(Security scan enabled by default when `--no-security-scan` omitted.)
 
-**Parse security findings** from the JSON output:
-- Record any security warnings (prompt injection risks, unsafe patterns) in evidence-report
-- Security findings are advisory — they do not block artifact generation
+Record any security warnings in evidence-report. Security findings are advisory — they do not block artifact generation.
 
-**If skill-check unavailable:** Skip with note: "Security scan skipped — skill-check tool unavailable"
+**If unavailable:** Skip with note: "Security scan skipped — skill-check tool unavailable"
 
 ### 6. Content Quality Review (tessl)
 
-**If tessl is available**, run a content quality review on the compiled skill:
+**If tessl available**, run: `npx -y tessl skill review <staging-skill-dir>`
 
-```bash
-npx -y tessl skill review <staging-skill-dir>
-```
+Parse output for: `description_score`, `content_score`, `average_score`, `validation_result`, `judge_suggestions[]`.
 
-**Parse the output** to extract:
-- `description_score` — percentage
-- `content_score` — percentage
-- `average_score` — percentage
-- `validation_result` — PASSED/FAILED
-- `judge_suggestions[]` — list of improvement suggestions
+- **Content score < 70%:** Record warning: "Content quality warning: tessl scored content at {score}%. Consider inlining Quick Start and common workflows directly in SKILL.md."
+- **Unavailable:** Skip with note: "Content quality review skipped — tessl tool unavailable"
 
-**If tessl content score < 70%:** Record a warning in the evidence report:
-
-"Content quality warning: tessl scored content at {score}%. This often indicates SKILL.md lacks inline actionable content after split-body. Consider inlining Quick Start and common workflows directly in SKILL.md."
-
-**If tessl unavailable:** Skip with note: "Content quality review skipped — tessl tool unavailable"
-
-**Note:** tessl installs automatically via `npx`. A missing tool is not an error — graceful skip.
+tessl installs automatically via `npx`. A missing tool is not an error — graceful skip.
 
 ### 7. Validate metadata.json
 
-Cross-check metadata.json content against extraction inventory:
-- `stats.exports_documented` matches actual documented exports
-- `stats.exports_total` matches total extracted exports
-- `stats.coverage` is accurate (documented / total)
+Cross-check metadata.json against extraction inventory:
+- `stats.exports_documented` / `stats.exports_total` / `stats.coverage` are accurate
 - `confidence_t1`, `confidence_t2`, `confidence_t3` match actual counts
 - `spec_version` is "1.3"
 
@@ -189,7 +142,7 @@ Auto-fix any discrepancies (these are computed values).
 
 ### 8. Update Evidence Report
 
-Add validation results to the evidence-report content in context:
+Add validation results to evidence-report content in context:
 
 ```markdown
 ## Validation Results
@@ -201,38 +154,23 @@ Add validation results to the evidence-report content in context:
 - Metadata: {pass/fail}
 
 ## Quality Score Breakdown
-- Frontmatter (30%): {score}
-- Description (30%): {score}
-- Body (20%): {score}
-- Links (10%): {score}
-- File (10%): {score}
+- Frontmatter (30%): {score} | Description (30%): {score} | Body (20%): {score} | Links (10%): {score} | File (10%): {score}
 
 ## Auto-Fixed Issues
 - {list of issues automatically corrected by --fix}
 
-## Remaining Warnings
-- {any warnings from validation}
-
-## Security Findings
-- {any security scan results}
-
-## Content Quality (tessl)
-- {tessl average score, description score, content score, or "skipped"}
-- {judge suggestions if available}
+## Remaining Warnings / Security Findings / Content Quality (tessl)
+- {warnings, security results, tessl scores and suggestions — or "skipped"}
 ```
 
 ### 9. Menu Handling Logic
 
 **Auto-proceed step — no user interaction.**
 
-After validation is complete (or skipped if tools unavailable), immediately load, read entire file, then execute `{nextStepFile}`.
+After validation completes (or is skipped if tools unavailable), immediately load, read entire file, then execute `{nextStepFile}`.
 
-#### EXECUTION RULES:
-
-- This is an auto-proceed validation step with no user choices
 - Tool unavailability is a skip, not a halt
 - Validation failures are warnings — proceed to artifact generation
-- Proceed directly to next step after validation completes
 
 ## CRITICAL STEP COMPLETION NOTE
 
@@ -245,23 +183,17 @@ ONLY WHEN validation is complete (or skipped) and evidence-report content is upd
 ### ✅ SUCCESS:
 
 - `npx skill-check check --fix --format json` executed (or skipped with warning if unavailable)
-- Quality score (0-100) captured and recorded in evidence report
-- Auto-fix applied via `--fix` for deterministic issues
-- Security scan executed as separate pass (or skipped with warning)
-- Split-body applied if `body.max_lines` failed
-- `npx -y tessl skill review` executed (or skipped with warning if unavailable)
-- Content quality warning raised if tessl content score < 70%
-- Metadata cross-check performed
-- Evidence report updated with structured validation results (including tessl scores)
+- Quality score captured and recorded; auto-fix applied for deterministic issues
+- Split-body applied if `body.max_lines` failed; security scan executed (or skipped with warning)
+- `npx -y tessl skill review` executed (or skipped); content quality warning raised if score < 70%
+- Metadata cross-check performed; evidence report updated with structured results
 - Auto-proceeded to step-07
 
 ### ❌ SYSTEM FAILURE:
 
-- Halting the workflow on validation failure (should warn and proceed)
-- Halting on skill-check unavailability (should skip with warning)
+- Halting on validation failure or skill-check unavailability (should warn and proceed)
 - Adding new content during validation (only structural fixes allowed)
-- Not recording quality score in evidence report
-- Skipping security scan without recording the skip
+- Not recording quality score; skipping security scan without recording the skip
 - Attempting more than one auto-fix cycle per failure
 
 **Master Rule:** Validation informs, it does not block. Record results, fix what's deterministic, scan for security issues, warn about the rest, and proceed.

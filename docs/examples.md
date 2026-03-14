@@ -141,5 +141,5 @@ Quick mode reads source without AST analysis. Install ast-grep to upgrade to For
   (e.g. `/bmad-help my batch creation failed halfway, how do I resume?`)
   *Provided by the [BMad Method](https://github.com/bmad-code-org/BMAD-METHOD) — not available in standalone SKF installations.*
 - Run `@Ferris SF` to check your current tier and tool availability
-- Review `forge-config.yaml` for runtime configuration
+- Review `forge-tier.yaml` in your forger sidecar for runtime configuration
 - Check module configuration in your BMAD settings

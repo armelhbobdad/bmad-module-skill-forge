@@ -112,7 +112,7 @@ Log each issue as a pre-check finding. Continue with testing — frontmatter iss
 Read `{sidecarFile}` to determine available analysis depth.
 
 **If forge-tier.yaml exists:**
-- Read `detected_tier` value (Quick, Forge, or Deep)
+- Read `tier` value (Quick, Forge, or Deep)
 - Read tool availability flags (ast_grep, gh_cli, qmd)
 
 **If forge-tier.yaml missing:**
@@ -145,6 +145,7 @@ Create `{outputFile}` from `{templateFile}` with initial frontmatter:
 ---
 workflowType: 'test-skill'
 skillName: '{skill_name}'
+skillDir: '{skill_path}'
 testMode: ''
 forgeTier: '{detected_tier}'
 testResult: ''

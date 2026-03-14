@@ -100,6 +100,7 @@ Compressed 2-line-per-skill format for CLAUDE.md managed section:
   "skill_type": "single",
   "source_authority": "{official|community|internal}",
   "source_repo": "{github-url}",
+  "source_root": "{resolved-source-path}",
   "source_commit": "{commit-hash}",
   "confidence_tier": "{Quick|Forge|Deep}",
   "spec_version": "1.3",

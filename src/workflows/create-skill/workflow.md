@@ -2,6 +2,7 @@
 name: create-skill
 description: Compile a skill from a brief. Supports --batch for multiple briefs.
 web_bundle: true
+installed_path: '{project-root}/_bmad/skf/workflows/skillforge/create-skill'
 ---
 
 # Create Skill
@@ -45,7 +46,7 @@ web_bundle: true
 
 Load and read full config from {project-root}/_bmad/skf/config.yaml and resolve:
 
-- `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `sidecar_path`
+- `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `sidecar_path`, `skills_output_folder`, `forge_data_folder`
 
 ### 2. First Step Execution
 

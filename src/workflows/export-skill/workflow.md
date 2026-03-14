@@ -1,6 +1,7 @@
 ---
 name: export-skill
 description: Package for distribution + platform-aware context injection
+installed_path: '{project-root}/_bmad/skf/workflows/skillforge/export-skill'
 ---
 
 # Export Skill

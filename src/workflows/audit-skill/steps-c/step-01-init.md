@@ -96,7 +96,7 @@ Load the following from the skill directory:
 
 **Extract from metadata.json:**
 - `name`, `version`, `generation_date`, `confidence_tier` used during creation
-- `source_root` — Original source code path
+- `source_root` — Resolved source code path used during extraction
 
 ### 4. Load Provenance Map
 

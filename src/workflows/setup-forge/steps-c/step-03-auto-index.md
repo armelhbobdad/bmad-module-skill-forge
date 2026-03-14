@@ -1,5 +1,5 @@
 ---
-name: 'step-03-qmd-hygiene'
+name: 'step-03-auto-index'
 description: 'Verify and clean QMD collections against the forge-tier.yaml registry (Deep tier only)'
 
 nextStepFile: './step-04-report.md'

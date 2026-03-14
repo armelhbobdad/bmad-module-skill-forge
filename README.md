@@ -52,7 +52,7 @@ Each workflow directory contains these files, and each has a specific job:
 | `data/*.md`               | Workflow-specific reference data — schemas, heuristics, rules, patterns                                             | Read by steps on demand                           |
 | `templates/*.md`          | Output skeletons with placeholder vars — steps fill these in to produce the final artifact                          | Read by steps when generating output              |
 | `skf-knowledge-index.csv` | Knowledge fragment index — id, name, tags, tier, file path                                                          | Read by steps to decide which fragments to load   |
-| `knowledge/*.md`          | 8 reusable fragments — cross-cutting principles and patterns (e.g., `zero-hallucination.md`, `confidence-tiers.md`) | Selectively read into context when a step directs |
+| `knowledge/*.md`          | 9 reusable fragments — cross-cutting principles and patterns (e.g., `zero-hallucination.md`, `confidence-tiers.md`) | Selectively read into context when a step directs |
 
 ```mermaid
 flowchart LR
@@ -79,12 +79,12 @@ flowchart LR
 
 Ferris operates in four workflow-driven modes (mode is determined by which workflow is running, not conversation state):
 
-| Mode          | Workflows      | Behavior                                                    |
-|---------------|----------------|-------------------------------------------------------------|
-| **Architect** | AN, BS, SF     | Exploratory, assembling — discovers structure and scope     |
-| **Surgeon**   | CS, QS, SS, US | Precise, preserving — extracts and compiles with provenance |
-| **Audit**     | AS, TS         | Judgmental, scoring — evaluates quality and detects drift   |
-| **Delivery**  | EX             | Packaging, ecosystem-ready — bundles for distribution       |
+| Mode          | Workflows          | Behavior                                                    |
+|---------------|--------------------|-------------------------------------------------------------|
+| **Architect** | SF, AN, BS, CS, QS, SS | Exploratory, assembling — discovers structure and scope     |
+| **Surgeon**   | US                 | Precise, preserving — extracts and compiles with provenance |
+| **Audit**     | AS, TS             | Judgmental, scoring — evaluates quality and detects drift   |
+| **Delivery**  | EX                 | Packaging, ecosystem-ready — bundles for distribution       |
 
 ## Install
 
@@ -184,12 +184,6 @@ Runtime configuration (tool detection, tier, parallel settings) is managed by th
 src/
 ├── module.yaml
 ├── module-help.csv
-├── README.md
-├── docs/
-│   ├── getting-started.md
-│   ├── agents.md
-│   ├── workflows.md
-│   └── examples.md
 ├── agents/
 │   └── forger.agent.yaml
 ├── forger/
@@ -200,17 +194,16 @@ src/
 │   ├── skf-knowledge-index.csv
 │   └── *.md (9 fragments)
 └── workflows/
-    └── skillforge/
-        ├── setup-forge/
-        ├── analyze-source/
-        ├── brief-skill/
-        ├── create-skill/
-        ├── quick-skill/
-        ├── create-stack-skill/
-        ├── update-skill/
-        ├── audit-skill/
-        ├── test-skill/
-        └── export-skill/
+    ├── setup-forge/
+    ├── analyze-source/
+    ├── brief-skill/
+    ├── create-skill/
+    ├── quick-skill/
+    ├── create-stack-skill/
+    ├── update-skill/
+    ├── audit-skill/
+    ├── test-skill/
+    └── export-skill/
 ```
 
 ## Acknowledgements

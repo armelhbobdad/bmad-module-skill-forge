@@ -106,9 +106,6 @@ Read `{outputFile}` and extract the category scores calculated in previous steps
 | **Total** | | **100%** | **{sum}%** |
 
 **External Validation unavailable:**
-If External Validation is N/A (neither skill-check nor tessl available), redistribute its 10% weight proportionally to the other categories.
-
-**External Validation unavailable:**
 If External Validation is N/A (neither skill-check nor tessl available), redistribute its 10% weight proportionally to the other active categories:
 - Naive: Export Coverage 50%, Signature Accuracy 28%, Type Coverage 22%
 - Contextual: Export Coverage 40%, Signature Accuracy 24%, Type Coverage 16%, Coherence 20%

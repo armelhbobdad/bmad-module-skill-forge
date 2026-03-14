@@ -2,6 +2,7 @@
 name: setup-forge
 description: Initialize forge environment, detect tools, set tier, auto-index project
 web_bundle: true
+installed_path: '{project-root}/_bmad/skf/workflows/skillforge/setup-forge'
 ---
 
 # Setup Forge

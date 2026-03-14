@@ -195,4 +195,4 @@ If you run into issues:
    (e.g. `/bmad-help my quick skill has low confidence scores, how do I improve them?`)
    *Provided by the [BMad Method](https://github.com/bmad-code-org/BMAD-METHOD) — not available in standalone SKF installations.*
 2. Run `@Ferris SF` to check your tool availability and tier
-3. Check `forge-config.yaml` for your current configuration
+3. Check `forge-tier.yaml` in your forger sidecar for your current configuration

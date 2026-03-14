@@ -2,6 +2,7 @@
 name: brief-skill
 description: Scope and design a skill through guided discovery
 web_bundle: true
+installed_path: '{project-root}/_bmad/skf/workflows/skillforge/brief-skill'
 ---
 
 # Brief Skill

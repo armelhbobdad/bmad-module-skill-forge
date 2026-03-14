@@ -91,7 +91,7 @@ Write to `{forge_data_folder}/{skill_name}/provenance-map.json`:
 ```json
 {
   "last_update": "{current_date}",
-  "update_type": "incremental",
+  "update_type": "{incremental if normal mode | full if degraded_mode}",
   "files_changed": {count},
   "exports_affected": {count},
   "confidence_tier": "{tier}",

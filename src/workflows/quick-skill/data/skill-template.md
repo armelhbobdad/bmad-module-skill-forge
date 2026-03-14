@@ -52,8 +52,8 @@ description: >
 Two-line format targeting ~30 tokens per skill:
 
 ```markdown
-{skill_name}: {top-5 exports as comma-separated list}
-  → {skills_output_folder}/{skill_name}/SKILL.md
+{skill_name} -> skills/{skill_name}/
+  exports: {top-5 exports as comma-separated list}
 ```
 
 ## metadata.json Format
@@ -62,13 +62,18 @@ Two-line format targeting ~30 tokens per skill:
 {
   "name": "{skill_name}",
   "version": "0.1.0",
+  "skill_type": "single",
   "source_authority": "community",
   "source_repo": "{repo_url}",
   "source_package": "{package_name}",
   "language": "{language}",
   "generated_by": "quick-skill",
-  "generated_date": "{date}",
-  "exports_count": {number},
-  "confidence": "best-effort"
+  "generation_date": "{date}",
+  "confidence_tier": "Quick",
+  "exports": ["{export_1}", "{export_2}"],
+  "stats": {
+    "exports_documented": "{number}",
+    "exports_total": "{number}"
+  }
 }
 ```

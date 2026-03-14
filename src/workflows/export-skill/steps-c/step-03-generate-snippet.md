@@ -56,7 +56,7 @@ To generate or update context-snippet.md for the skill in the compressed two-lin
 
 **If `passive_context: false` was detected in step-01:**
 
-"**Passive context disabled in forge-config.yaml. Skipping snippet generation.**"
+"**Passive context disabled in preferences.yaml. Skipping snippet generation.**"
 
 Auto-proceed immediately to {nextStepFile}.
 

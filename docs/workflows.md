@@ -19,7 +19,7 @@ SKF includes 10 workflows organized by purpose:
 
 **When to Use:** First time using SKF in a project. Run once per project.
 
-**Key Steps:** Detect tools → Determine tier → Create forge-config.yaml → QMD hygiene (Deep)
+**Key Steps:** Detect tools → Determine tier → Write forge-tier.yaml → QMD hygiene (Deep)
 
 **Agent:** Ferris (Architect mode)
 

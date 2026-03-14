@@ -58,10 +58,10 @@ Validate the merged skill content against the agentskills.io specification, veri
 
 Run: `npx skill-check -h`
 
-- If succeeds (returns usage information): skill-check is available for Checks A, E, F below
-- If fails (command not found or error): Use manual fallback paths in those checks
+- If succeeds: skill-check is available for Checks A, E, F below
+- If fails: Use manual fallback paths in those checks
 
-**Important:** Use the verification command. Do not assume availability — empirical check required.
+**Important:** Do not assume availability — empirical check required.
 
 ### 2. Launch Parallel Validation Checks
 
@@ -69,67 +69,42 @@ Launch subprocesses in parallel for each validation category, aggregating result
 
 **Check A — Spec Compliance (via skill-check):**
 
-**If `npx skill-check` is available**, run automated validation with auto-fix:
+**If available**, run: `npx skill-check check <skill-dir> --fix --format json --no-security-scan`
 
-```bash
-npx skill-check check <skill-dir> --fix --format json --no-security-scan
-```
+Parse JSON output for quality score (0-100), auto-fixed issues, and remaining diagnostics. If `body.max_lines` reported, run: `npx skill-check split-body <skill-dir> --write`
 
-Parse JSON output for quality score (0-100), auto-fixed issues, and remaining diagnostics.
-
-**If `body.max_lines` is reported**, run: `npx skill-check split-body <skill-dir> --write`
-
-**If skill-check unavailable**, perform manual check:
-- Validate merged SKILL.md structure against agentskills.io specification
-- Verify required sections present: exports, usage patterns, conventions
-- Verify export entries have: name, type, signature, file:line reference
-- Flag missing or incomplete sections
+**If unavailable**, perform manual check: validate merged SKILL.md structure, verify required sections (exports, usage patterns, conventions), verify export entries have name/type/signature/file:line reference, flag missing sections.
 
 **Check B — [MANUAL] Section Integrity:**
 - Compare [MANUAL] inventory from step 01 against merged content
-- Verify every [MANUAL] block from inventory exists in merged result
-- Verify [MANUAL] content is byte-identical (zero modification)
-- Flag any [MANUAL] blocks that were moved, truncated, or missing
+- Verify every [MANUAL] block exists in merged result, byte-identical (zero modification)
+- Flag any [MANUAL] blocks moved, truncated, or missing
 
 **Check C — Confidence Tier Consistency:**
 - Verify all re-extracted exports have confidence labels (T1/T1-low/T2)
-- Verify tier labels match forge tier capabilities:
-  - Quick tier: only T1-low allowed
-  - Forge tier: T1 expected (T1-low for degraded operations)
-  - Deep tier: T1 + T2 expected
+- Verify tier labels match forge tier: Quick=T1-low only, Forge=T1 (T1-low for degraded), Deep=T1+T2
 - Flag mismatched or missing tier labels
 
 **Check D — Provenance Completeness:**
-- Verify every export in merged SKILL.md has a provenance map entry
-- Verify file:line references point to actual source locations
+- Verify every export has a provenance map entry with valid file:line references
 - Verify no stale references to old file paths or line numbers
 - Flag orphaned provenance entries (export removed but provenance remains)
 
 **Check E — Diff Comparison (via skill-check):**
 
-**If `npx skill-check` is available** and previous skill version exists, compare before/after:
+**If available** and previous skill version exists: `npx skill-check diff <original-skill-dir> <updated-skill-dir>`
 
-```bash
-npx skill-check diff <original-skill-dir> <updated-skill-dir>
-```
+Shows diagnostic changes between original and updated skill. Record diff results as informational context.
 
-This shows diagnostic changes between the original and updated skill — new issues introduced, issues fixed, and unchanged findings. Record diff results as informational context for the validation summary.
-
-**If skill-check unavailable or no previous version:** Skip with note.
+**If unavailable or no previous version:** Skip with note.
 
 **Check F — Security Scan:**
 
-**If `npx skill-check` is available**, run security scan on the merged skill:
+**If available**, run: `npx skill-check check <skill-dir> --format json` (security scan enabled by default).
 
-```bash
-npx skill-check check <skill-dir> --format json
-```
+Record security findings as advisory warnings — they do not block the update.
 
-(Security scan is enabled by default when `--no-security-scan` is omitted.)
-
-Record any security findings as advisory warnings. Security issues do not block the update.
-
-**If skill-check unavailable:** Skip with note: "Security scan skipped — skill-check tool unavailable"
+**If unavailable:** Skip with note: "Security scan skipped — skill-check tool unavailable"
 
 ### 3. Aggregate Validation Results
 
@@ -137,36 +112,12 @@ Compile results from all checks:
 
 ```
 Validation Results:
-  spec_compliance:
-    status: PASS|WARN|FAIL
-    findings: [{severity, description, location}]
-
-  manual_integrity:
-    status: PASS|WARN|FAIL
-    sections_verified: [count]
-    sections_intact: [count]
-    findings: [{severity, description, section_name}]
-
-  confidence_consistency:
-    status: PASS|WARN|FAIL
-    exports_checked: [count]
-    findings: [{severity, description, export_name, expected_tier, actual_tier}]
-
-  provenance_completeness:
-    status: PASS|WARN|FAIL
-    entries_checked: [count]
-    findings: [{severity, description, export_name}]
-
-  diff_comparison:
-    status: PASS|SKIP
-    new_issues: [count]
-    fixed_issues: [count]
-    unchanged: [count]
-
-  security_scan:
-    status: PASS|WARN|SKIP
-    findings: [{severity, description, location}]
-
+  spec_compliance: {status: PASS|WARN|FAIL, findings: [{severity, description, location}]}
+  manual_integrity: {status, sections_verified, sections_intact, findings}
+  confidence_consistency: {status, exports_checked, findings}
+  provenance_completeness: {status, entries_checked, findings}
+  diff_comparison: {status: PASS|SKIP, new_issues, fixed_issues, unchanged}
+  security_scan: {status: PASS|WARN|SKIP, findings}
   quality_score: [0-100]  # from skill-check, if available
 ```
 
@@ -195,30 +146,13 @@ Repeat checks A-D for each reference file:
 
 **Overall: {ALL_PASS / WARNINGS_FOUND / FAILURES_FOUND}**"
 
-**If WARNINGS or FAILURES found:**
-
-List each finding with severity and description:
-
-"**Findings:**
-1. [{severity}] {description} — {location}
-2. [{severity}] {description} — {location}
-..."
-
-"**Note:** Validation is advisory. These findings are reported for your awareness but do not block the update. You may choose to address them after the update completes."
+**If findings exist:** List each with severity, description, and location. Add: "Validation is advisory. Findings do not block the update."
 
 ### 6. Present MENU OPTIONS
 
 Display: "**Proceeding to write updated files...**"
 
-#### Menu Handling Logic:
-
-- After validation summary is displayed, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed validation step with no user choices
-- Validation is advisory — findings are informational, not blocking
-- Proceed directly to next step after summary display
+After validation summary is displayed, immediately load, read entire file, then execute {nextStepFile}. This is an auto-proceed step — validation is advisory, not blocking.
 
 ## CRITICAL STEP COMPLETION NOTE
 
@@ -230,24 +164,17 @@ ONLY WHEN all validation checks have completed and findings are displayed will y
 
 ### ✅ SUCCESS:
 
-- All six validation checks executed (spec, [MANUAL], confidence, provenance, diff, security)
-- `npx skill-check check --fix --format json` executed if available (or manual fallback)
-- Quality score (0-100) captured when skill-check available
-- Auto-fix applied via `--fix` for deterministic issues
-- `npx skill-check diff` executed to compare before/after versions
-- Security scan executed (or skipped with note)
+- All six checks executed (spec, [MANUAL], confidence, provenance, diff, security)
+- `npx skill-check check --fix` and `diff` executed if available (or fallbacks used)
+- Quality score captured; auto-fix applied for deterministic issues
 - Stack skill reference files validated if applicable
-- Findings reported with severity and specific locations
-- [MANUAL] integrity verified with byte-level comparison
-- Validation results displayed clearly
+- Findings reported with severity and specific locations; [MANUAL] integrity verified
 - Auto-proceeds regardless of findings (advisory mode)
 
 ### ❌ SYSTEM FAILURE:
 
-- Skipping any of the six validation checks
-- Blocking the workflow on validation warnings
-- Not verifying [MANUAL] section integrity
-- Hallucinating validation findings not backed by actual comparison
+- Skipping any of the six checks; blocking on validation warnings
+- Not verifying [MANUAL] integrity; hallucinating findings not backed by comparison
 - Modifying merged content during validation (except via skill-check --fix)
 - Not recording quality score when skill-check is available
 

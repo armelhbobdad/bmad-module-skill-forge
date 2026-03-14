@@ -87,7 +87,7 @@ Deep:   "Full intelligence pipeline — AST verification plus GitHub exploration
 **Context:** The test-skill workflow adjusts scoring weights based on the forge tier.
 
 **Implementation:**
-- **Quick (Naive mode):** Export Coverage 50%, Signature Accuracy 30%, Type Coverage 20%. No coherence check — AST verification unavailable.
+- **Quick (Naive mode):** Export Coverage 45%, Signature Accuracy 25%, Type Coverage 20%, External Validation 10%. No coherence check — AST verification unavailable. When external validation tools (skill-check, tessl) are unavailable, their 10% is redistributed proportionally across the remaining categories.
 - **Forge (Contextual mode):** Export Coverage 40%, Signature Accuracy 25%, Type Coverage 15%, Coherence 20%. Full AST-backed verification.
 - **Deep (Contextual mode):** Same weights as Forge, plus cross-repo verification and QMD coherence checks feed into the coherence score.
 
