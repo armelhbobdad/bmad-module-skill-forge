@@ -233,7 +233,7 @@ Two lines per skill (~30 tokens each). Developer controls placement. Ferris cont
 
 ## Tool Ecosystem
 
-### 4 MCP Tools
+### 5 Tools
 
 | Tool | Wraps | Purpose |
 |------|-------|---------|
@@ -243,7 +243,7 @@ Two lines per skill (~30 tokens each). Developer controls placement. Ferris cont
 | **`ast_bridge`** | ast-grep CLI | Structural extraction, custom AST queries, co-import detection |
 | **`qmd_bridge`** | QMD (local search) | BM25 keyword search, vector semantic search, collection indexing |
 
-Optional addon: **`doc_fetcher`** for remote documentation (Firecrawl/Jina.ai). Output quarantined as T3.
+Planned (not yet implemented): **`doc_fetcher`** for remote documentation (Firecrawl/Jina.ai). Output will be quarantined as T3.
 
 ### Conflict Resolution
 

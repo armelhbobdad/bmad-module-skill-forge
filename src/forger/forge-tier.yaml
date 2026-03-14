@@ -8,6 +8,6 @@ tools:
   qmd: ~
 
 # Capability tier (derived from tool availability)
-# Quick = no tools | Forge = ast-grep | Deep = ast-grep + gh + qmd
+# Quick = gh + skill-check + tessl | Forge = + ast-grep | Deep = + QMD
 tier: ~
 tier_detected_at: ~

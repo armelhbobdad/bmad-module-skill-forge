@@ -65,7 +65,7 @@ tools:
   qmd: {true/false from detection}
 
 # Capability tier (derived from tool availability)
-# Quick = no tools | Forge = ast-grep | Deep = ast-grep + gh + qmd
+# Quick = gh + skill-check + tessl | Forge = + ast-grep | Deep = + QMD
 tier: {calculated_tier}
 tier_detected_at: {current ISO timestamp}
 

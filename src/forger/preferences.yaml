@@ -1,5 +1,9 @@
 # Ferris Sidecar: User Preferences
-# Written by setup-forge workflow on first run
+# Created by setup-forge workflow on first run
+# Edit this file to customize Ferris behavior
+
+# Override detected tier (set to Quick, Forge, or Deep to force a tier)
+tier_override: ~
 
 # Language defaults
 output_language: ~

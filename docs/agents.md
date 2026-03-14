@@ -31,7 +31,7 @@ Ferris handles all SKF workflows. You always interact with Ferris — he switche
 
 | Mode | Behavior | Workflows |
 |------|----------|-----------|
-| **Architect** | Exploratory, structural, assembling | BS, CS, QS, SS, AN |
+| **Architect** | Exploratory, structural, assembling | SF, AN, BS, CS, QS, SS |
 | **Surgeon** | Precise, semantic diffing, preserves [MANUAL] | US |
 | **Audit** | Judgmental, drift reports, completeness scoring | AS, TS |
 | **Delivery** | Packaging, platform-aware, ecosystem-ready | EX |
