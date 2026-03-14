@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d051448e2095",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/forger/forge-tier.yaml",
+    "src/forger/preferences.yaml",
+    "src/workflows/audit-skill/steps-c/step-01-init.md",
+    "src/workflows/create-skill/data/skill-sections.md",
+    "src/workflows/create-skill/steps-c/step-04-enrich.md",
+    "src/workflows/create-skill/steps-c/step-05-compile.md",
+    "src/workflows/create-skill/workflow.md",
+    "src/workflows/export-skill/steps-c/step-01-load-skill.md",
+    "src/workflows/export-skill/steps-c/step-03-generate-snippet.md",
+    "src/workflows/export-skill/steps-c/step-04-update-context.md",
+    "src/workflows/quick-skill/data/skill-template.md",
+    "src/workflows/quick-skill/steps-c/step-04-compile.md",
+    "src/workflows/setup-forge/steps-c/step-02-write-config.md",
+    "src/workflows/test-skill/steps-c/step-01-init.md",
+    "src/workflows/test-skill/steps-c/step-05-score.md",
+    "src/workflows/test-skill/steps-c/step-06-report.md",
+    "src/workflows/test-skill/templates/test-report-template.md",
+    "src/workflows/update-skill/steps-c/step-01-init.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d0/51448e2095/0/metadata.json",
+      "transcript": "/d0/51448e2095/0/full.jsonl",
+      "context": "/d0/51448e2095/0/context.md",
+      "content_hash": "/d0/51448e2095/0/content_hash.txt",
+      "prompt": "/d0/51448e2095/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 29,
+    "cache_creation_tokens": 96220,
+    "cache_read_tokens": 2513862,
+    "output_tokens": 21942,
+    "api_call_count": 19
+  }
+}

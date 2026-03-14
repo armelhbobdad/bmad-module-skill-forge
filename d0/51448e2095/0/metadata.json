@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d051448e2095",
+  "session_id": "cd39e8a2-d771-4f53-b5e7-ff1c13596429",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-14T19:44:00.249368408Z",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/forger/forge-tier.yaml",
+    "src/forger/preferences.yaml",
+    "src/workflows/audit-skill/steps-c/step-01-init.md",
+    "src/workflows/create-skill/data/skill-sections.md",
+    "src/workflows/create-skill/steps-c/step-04-enrich.md",
+    "src/workflows/create-skill/steps-c/step-05-compile.md",
+    "src/workflows/create-skill/workflow.md",
+    "src/workflows/export-skill/steps-c/step-01-load-skill.md",
+    "src/workflows/export-skill/steps-c/step-03-generate-snippet.md",
+    "src/workflows/export-skill/steps-c/step-04-update-context.md",
+    "src/workflows/quick-skill/data/skill-template.md",
+    "src/workflows/quick-skill/steps-c/step-04-compile.md",
+    "src/workflows/setup-forge/steps-c/step-02-write-config.md",
+    "src/workflows/test-skill/steps-c/step-01-init.md",
+    "src/workflows/test-skill/steps-c/step-05-score.md",
+    "src/workflows/test-skill/steps-c/step-06-report.md",
+    "src/workflows/test-skill/templates/test-report-template.md",
+    "src/workflows/update-skill/steps-c/step-01-init.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "8c41749a0ebe",
+  "checkpoint_transcript_start": 230,
+  "transcript_lines_at_start": 230,
+  "token_usage": {
+    "input_tokens": 29,
+    "cache_creation_tokens": 96220,
+    "cache_read_tokens": 2513862,
+    "output_tokens": 21942,
+    "api_call_count": 19
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-14T19:43:58.137456367Z",
+    "agent_lines": 64,
+    "human_added": 116,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 180,
+    "agent_percentage": 35.55555555555556
+  }
+}
