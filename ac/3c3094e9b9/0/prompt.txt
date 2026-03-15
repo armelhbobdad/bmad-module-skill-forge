@@ -1,0 +1,54 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/
+
+---
+
+We are about to ship the versin 1.0.0 of our module. Before that, we should surgically review the whole module to make sure everything will work as expected in @README.md and @docs/ . We should not have any suprise bugs, missing impact ect... for users using our different tiers (Quick, Forge, Deep).
+
+---
+
+yes! fix all of these now.
+
+---
+
+yes
+
+---
+
+regarding the @src/ , everything is perfect?
+
+---
+
+2
+
+---
+
+what item remaing as planned?
+
+---
+
+the @docs/architecture.md says "Planned (not yet implemented): **`doc_fetcher`** for remote documentation (Firecrawl/Jina.ai). Output will be quarantined as T3.
+"
+
+---
+
+we need to ship it too without any breaking changes or missing impacts
+
+---
+
+is there a link that naturally exist between doc fetched and QMD for the deep tier?
+
+---
+
+before we move on, do we missing any additionnal/related features/breaking changes/missing impacts?
+
+---
+
+yes fix them all
