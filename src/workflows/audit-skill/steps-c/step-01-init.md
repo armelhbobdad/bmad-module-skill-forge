@@ -50,7 +50,8 @@ Load the existing skill artifacts, provenance map, and forge tier configuration 
 - Available: User-provided skill path, SKF module config variables
 - Focus: Loading and validating all inputs needed for drift analysis
 - Limits: Do not analyze or compare — only load and baseline
-- Dependencies: setup-forge must be completed (forge-tier.yaml exists), skill must have been created by create-skill (provenance-map.json exists)
+- Dependencies: setup-forge must be completed (forge-tier.yaml exists), skill must have been created by create-skill (provenance-map.json exists for source-based skills)
+- Docs-only limitation: If `metadata.json` indicates `source_type: "docs-only"` or `confidence_tier: "Quick"` with all T3 citations, inform user: "**This is a docs-only skill.** Drift detection compares against upstream documentation, not source code. Re-run `@Ferris US` to re-fetch documentation URLs and detect content changes." Audit-skill's structural diff is not applicable to docs-only skills — recommend update-skill instead.
 
 ## MANDATORY SEQUENCE
 

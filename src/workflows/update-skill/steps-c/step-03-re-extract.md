@@ -55,7 +55,20 @@ Perform tier-aware extraction on only the changed files identified in step 02, p
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
 
-### 1. Determine Extraction Strategy by Tier
+### 1. Check for Docs-Only Mode
+
+**If `source_type: "docs-only"` in the original brief or metadata:**
+
+"**Docs-only skill detected.** This skill was generated from external documentation, not source code. Re-extraction will re-fetch the original `doc_urls` to check for updated content."
+
+- Re-fetch each URL from `doc_urls` (from the brief or metadata) using whatever web fetching capability is available
+- Extract updated API information with T3 `[EXT:{url}]` citations
+- Build the updated extraction inventory from fetched content
+- Skip all source code extraction below — proceed directly to the merge step (section 5 or equivalent)
+
+**If `source_type: "source"` (default):** Continue with source extraction below.
+
+### 1b. Determine Extraction Strategy by Tier
 
 **Remote Source Resolution (Forge/Deep only):**
 

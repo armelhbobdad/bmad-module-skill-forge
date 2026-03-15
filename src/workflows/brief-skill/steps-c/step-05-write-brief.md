@@ -73,7 +73,8 @@ Generate the YAML file using the approved field values and the schema template:
 ---
 name: "{approved skill name}"
 version: "1.0.0"
-source_repo: "{approved source repo}"
+source_type: "{source or docs-only}"
+source_repo: "{approved source repo or doc site URL}"
 language: "{approved language}"
 description: "{approved description}"
 forge_tier: "{approved forge tier}"
@@ -86,8 +87,16 @@ scope:
   exclude:
     - "{approved exclude patterns}"
   notes: "{approved scope notes or empty string}"
+# Include doc_urls when source_type is "docs-only" or when supplemental doc URLs were provided
+# doc_urls:
+#   - url: "{documentation URL}"
+#     label: "{page label}"
 ---
 ```
+
+**If `source_type: "docs-only"`:** Include `doc_urls` array (required). `source_repo` may be set to the doc site URL for reference or omitted. `source_authority` must be `community`.
+
+**If `doc_urls` were collected during scope definition (supplemental mode):** Include the `doc_urls` array even when `source_type: "source"`.
 
 ### 4. Write the File
 

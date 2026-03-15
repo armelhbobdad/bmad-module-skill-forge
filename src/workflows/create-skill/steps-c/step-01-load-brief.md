@@ -88,16 +88,20 @@ Check that the loaded skill-brief.yaml contains required fields:
 **Required fields:**
 - `name` — skill identifier (kebab-case)
 - `version` — source version to compile against
-- `source_repo` — GitHub owner/repo or local path
+- `source_repo` — GitHub owner/repo or local path (**optional when `source_type: "docs-only"`**)
 - `language` — primary source language
 - `scope` — what to extract (e.g., "all public exports", specific modules)
 
 **Optional fields:**
+- `source_type` — `"source"` (default) or `"docs-only"` (external documentation only)
+- `doc_urls` — array of `{url, label}` documentation URLs (required when `source_type: "docs-only"`)
 - `source_branch` — branch to use (default: main/master)
-- `source_authority` — official/community/internal (default: community)
+- `source_authority` — official/community/internal (default: community; forced to `community` for docs-only)
 - `include_patterns` — file glob patterns to include
 - `exclude_patterns` — file glob patterns to exclude
 - `description` — human description of the skill
+
+**Docs-only validation:** When `source_type: "docs-only"`, `source_repo` is not required but `doc_urls` must have at least one entry. `source_authority` is forced to `community`.
 
 **If required fields missing:**
 Halt with specific error: "Brief validation failed: missing required field `{field}`. Update your skill-brief.yaml and re-run."

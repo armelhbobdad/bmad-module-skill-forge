@@ -56,6 +56,16 @@ Compare the exports, functions, classes, types, and interfaces documented in SKI
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
 
+### 0. Check for Docs-Only Mode
+
+**If metadata.json indicates `confidence_tier: "Quick"` and all SKILL.md citations are `[EXT:...]` format (docs-only skill):**
+
+Coverage scoring adapts: instead of comparing SKILL.md against source code exports, compare SKILL.md documented items against themselves for internal completeness (every documented function has a description, parameters, and return type). Score based on documentation completeness rather than source coverage. Set `docs_only_mode: true` in context for step-05 scoring.
+
+"**Docs-only skill detected.** Coverage check evaluates documentation completeness rather than source code coverage."
+
+**If source-based skill:** Continue with standard coverage check below.
+
 ### 1. Extract Documented Exports from SKILL.md
 
 Read SKILL.md and extract all documented items:
