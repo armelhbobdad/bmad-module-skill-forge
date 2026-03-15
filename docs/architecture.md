@@ -199,7 +199,7 @@ The primary source is your project repo. Component references trace to library r
 
 ## Dual-Output Strategy
 
-Based on [Vercel research](https://github.com/vercel-labs/skills): passive context (AGENTS.md/CLAUDE.md) achieves 100% pass rate vs 53% for active skills alone.
+Based on [Vercel research](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals): passive context (AGENTS.md/CLAUDE.md) achieves 100% pass rate vs 53% for active skills alone.
 
 Every skill generates both:
 
