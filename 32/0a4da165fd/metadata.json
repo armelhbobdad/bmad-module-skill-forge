@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "320a4da165fd",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "tools/cli/lib/ui.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/32/0a4da165fd/0/metadata.json",
+      "transcript": "/32/0a4da165fd/0/full.jsonl",
+      "context": "/32/0a4da165fd/0/context.md",
+      "content_hash": "/32/0a4da165fd/0/content_hash.txt",
+      "prompt": "/32/0a4da165fd/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 7,
+    "cache_creation_tokens": 10299,
+    "cache_read_tokens": 1154222,
+    "output_tokens": 1432,
+    "api_call_count": 6
+  }
+}
