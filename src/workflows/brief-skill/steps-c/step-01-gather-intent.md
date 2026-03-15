@@ -88,15 +88,29 @@ Let's get started."
 
 ### 3. Gather Target Repository
 
-"**What repository do you want to create a skill for?**
+"**What repository or documentation do you want to create a skill for?**
 
-Provide either:
+Provide one of:
 - A **GitHub URL** (e.g., `https://github.com/org/repo`)
 - A **local path** (e.g., `/path/to/project`)
+- **Documentation URLs** for a docs-only skill (e.g., `https://docs.stripe.com/api`) — use this when no source code is available (SaaS, closed-source)
 
 **Target:**"
 
-Wait for user response. Confirm the target.
+Wait for user response.
+
+**If user provides documentation URLs (not a repo):**
+- Set `source_type: "docs-only"` in the brief data
+- Collect one or more doc URLs with optional labels
+- Note: `source_authority` will be forced to `community` (T3 external documentation)
+- Note: `source_repo` becomes optional (can be set to the main doc site URL for reference)
+
+**If user provides a GitHub URL or local path:**
+- Set `source_type: "source"` (default)
+- Optionally ask: "Are there any documentation URLs you'd like to include for supplemental context? (These will be fetched as T3 external references.)"
+- If yes: collect doc URLs into `doc_urls`
+
+Confirm the target.
 
 ### 4. Gather User Intent
 

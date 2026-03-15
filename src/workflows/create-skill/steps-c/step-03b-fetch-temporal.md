@@ -1,7 +1,7 @@
 ---
 name: 'step-03b-fetch-temporal'
 description: 'Fetch temporal context (issues, PRs, changelogs) and index into QMD — Deep tier only'
-nextStepFile: './step-04-enrich.md'
+nextStepFile: './step-03c-fetch-docs.md'
 ---
 
 # Step 3b: Fetch Temporal Context

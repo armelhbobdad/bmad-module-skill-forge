@@ -233,7 +233,7 @@ Two lines per skill (~30 tokens each). Developer controls placement. Ferris cont
 
 ## Tool Ecosystem
 
-### 5 Tools
+### 6 Tools
 
 | Tool | Wraps | Purpose |
 |------|-------|---------|
@@ -242,8 +242,7 @@ Two lines per skill (~30 tokens each). Developer controls placement. Ferris cont
 | **`tessl`** | [tessl](https://tessl.io) | Content quality review, actionability scoring, progressive disclosure evaluation, AI judge with suggestions |
 | **`ast_bridge`** | ast-grep CLI | Structural extraction, custom AST queries, co-import detection |
 | **`qmd_bridge`** | QMD (local search) | BM25 keyword search, vector semantic search, collection indexing |
-
-Planned (not yet implemented): **`doc_fetcher`** for remote documentation (Firecrawl/Jina.ai). Output will be quarantined as T3.
+| **`doc_fetcher`** | Environment web tools | Remote documentation fetching for T3-confidence content. Tool-agnostic — uses whatever web fetching is available (Firecrawl, WebFetch, curl, etc.). Output quarantined as T3. |
 
 ### Conflict Resolution
 
@@ -312,7 +311,7 @@ Provenance maps enable verification: an `official` skill's provenance must trace
 - Input sanitization: allowlist characters for repo names, file paths, patterns
 - File paths validated against project root (no directory traversal)
 - **Source code never leaves the machine.** All processing is local (AST, QMD, validation).
-- `doc_fetcher` warns before transmitting URLs to external services
+- `doc_fetcher` informs users which URLs will be fetched externally before processing
 
 ---
 

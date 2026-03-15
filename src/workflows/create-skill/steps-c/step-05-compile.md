@@ -44,8 +44,9 @@ To assemble the complete skill content from the extraction inventory and enrichm
 
 ## CONTEXT BOUNDARIES:
 
-- Available: extraction_inventory, enrichment_annotations (if Deep), brief_data, tier
+- Available: extraction_inventory, enrichment_annotations (if Deep), doc_fetch_inventory (if doc_urls), brief_data, tier
 - Focus: Assembling structured content from verified data
+- Docs-only mode: If `source_type: "docs-only"`, all content is T3 `[EXT:{url}]`. Overview must note "Generated from external documentation." metadata.json `source_authority` forced to `community`. No AST/source citations exist — only `[EXT:...]` citations.
 - Limits: Do NOT write to final `skills/` or `forge-data/` directories, validate spec compliance, or report
 - Dependencies: Extraction inventory from step-03 (enrichment from step-04 if Deep)
 

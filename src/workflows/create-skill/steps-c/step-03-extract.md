@@ -66,7 +66,17 @@ From the brief, apply scope and pattern filters:
 
 Build the filtered file list from the source tree resolved in step-01.
 
-### 3. Execute Tier-Dependent Extraction
+### 3. Check for Docs-Only Mode
+
+**If `source_type: "docs-only"` in the brief data:**
+
+"**Docs-only mode:** No source code to extract. Documentation content will be fetched from `doc_urls` in step-03c."
+
+Build an empty extraction inventory with zero exports. Set `extraction_mode: "docs-only"` in context. Auto-proceed through Gate 2 (section 5) — display the empty inventory and note that T3 content will be produced by the doc-fetcher step.
+
+**If `source_type: "source"` (default):** Continue with extraction below.
+
+### 4. Execute Tier-Dependent Extraction
 
 **Remote Source Resolution (Forge/Deep only):**
 

@@ -14,6 +14,19 @@
 | created | string | Creation date | ISO date format |
 | created_by | string | User who created the brief | From config user_name |
 
+## Optional Fields
+
+| Field | Type | Description | Validation |
+|-------|------|-------------|------------|
+| source_type | string | Source mode: `source` or `docs-only` | Default `source`. When `docs-only`: `source_repo` optional, `doc_urls` required |
+| doc_urls | array | Documentation URLs for T3 content | Each entry: `{url, label}`. Required when `source_type: "docs-only"` |
+
+When `source_type: "docs-only"`:
+- `source_repo` becomes optional (set to doc site URL for reference)
+- `doc_urls` must have at least one entry
+- `source_authority` is forced to `community` (T3 external documentation cannot be `official`)
+- All extracted content gets `[EXT:{url}]` citations
+
 ## Scope Object Structure
 
 ```yaml
@@ -33,6 +46,7 @@ scope:
 ---
 name: "{skill-name}"
 version: "1.0.0"
+source_type: "source"                    # "source" (default) or "docs-only"
 source_repo: "{github-url-or-local-path}"
 language: "{detected-language}"
 description: "{brief-description}"
@@ -40,12 +54,16 @@ forge_tier: "{quick|forge|deep}"
 created: "{date}"
 created_by: "{user_name}"
 scope:
-  type: "{full-library|specific-modules|public-api}"
+  type: "{full-library|specific-modules|public-api|docs-only}"
   include:
     - "{pattern}"
   exclude:
     - "{pattern}"
   notes: "{optional-scope-notes}"
+# Optional: documentation URLs for T3 content (required when source_type: "docs-only")
+# doc_urls:
+#   - url: "https://docs.example.com/api"
+#     label: "API Reference"
 ---
 ```
 
@@ -80,3 +98,5 @@ Created by: {created_by}
 4. `scope.type` must be one of the three defined types
 5. `scope.include` must have at least one pattern
 6. `forge_tier` must match the tier from forge-tier.yaml (or default to quick)
+7. When `source_type: "docs-only"`: `doc_urls` must have >= 1 entry, `source_repo` becomes optional
+8. Each `doc_urls` entry must have a valid `url` field

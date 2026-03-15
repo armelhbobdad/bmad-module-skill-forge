@@ -70,7 +70,26 @@ Based on the analysis, here's what we're working with:
 {If scope hints from step 01:}
 - **Your initial scope hints:** {hints}"
 
-### 2. Offer Scope Templates
+### 2. Handle Docs-Only Mode (if applicable)
+
+**If `source_type: "docs-only"`:**
+
+"**Docs-only mode — scope is defined by documentation pages.**
+
+You've provided these documentation URLs:
+{numbered list of doc_urls with labels}
+
+Which pages should be included in the skill? (Enter numbers, or 'all')
+Any additional documentation URLs to add?"
+
+Wait for confirmation. Then skip to section 5 (Summarize Scope Decisions) with:
+- `scope.type: "docs-only"`
+- `scope.include`: confirmed doc URLs
+- `scope.notes: "Generated from external documentation. All content is T3 confidence."`
+
+**If `source_type: "source"` (default):** Continue to scope templates below.
+
+### 2b. Offer Scope Templates
 
 "**How broadly should this skill cover the library?**
 

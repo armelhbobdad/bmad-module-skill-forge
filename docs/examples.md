@@ -93,7 +93,17 @@ Checks ecosystem first. If no official skill exists: generates from source. `sou
 
 No source code available — only documentation.
 
-Generate from docs + QMD-indexed content. T2/T3 confidence only. `source_authority: community`.
+```
+@Ferris BS
+# When asked for target, provide documentation URLs:
+# https://docs.stripe.com/api
+# Ferris sets source_type: "docs-only" and collects doc_urls
+@Ferris CS
+# step-03 skips (no source), step-03c fetches docs via doc_fetcher
+# All content is T3 [EXT:url] confidence. source_authority: community
+```
+
+The brief's `doc_urls` field drives the doc_fetcher step. The agent uses whatever web fetching tool is available in its environment (Firecrawl, WebFetch, curl, etc.) to retrieve documentation as markdown and extract API information with T3 citations.
 
 ---
 
