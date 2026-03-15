@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "94d21fcd069e",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/workflows/update-skill/steps-c/step-03-re-extract.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/94/d21fcd069e/0/metadata.json",
+      "transcript": "/94/d21fcd069e/0/full.jsonl",
+      "context": "/94/d21fcd069e/0/context.md",
+      "content_hash": "/94/d21fcd069e/0/content_hash.txt",
+      "prompt": "/94/d21fcd069e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 13,
+    "cache_creation_tokens": 13000,
+    "cache_read_tokens": 2245950,
+    "output_tokens": 2277,
+    "api_call_count": 11
+  }
+}
