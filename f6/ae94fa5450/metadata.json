@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "f6ae94fa5450",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/workflows/create-skill/steps-c/step-04-enrich.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f6/ae94fa5450/0/metadata.json",
+      "transcript": "/f6/ae94fa5450/0/full.jsonl",
+      "context": "/f6/ae94fa5450/0/context.md",
+      "content_hash": "/f6/ae94fa5450/0/content_hash.txt",
+      "prompt": "/f6/ae94fa5450/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 11,
+    "cache_creation_tokens": 17887,
+    "cache_read_tokens": 2157653,
+    "output_tokens": 4376,
+    "api_call_count": 9
+  }
+}
