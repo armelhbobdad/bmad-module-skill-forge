@@ -1,6 +1,12 @@
 /**
  * SKF Installer UI - Banner, prompts, and success message.
  * Uses @clack/prompts for terminal UI.
+ *
+ * Brand palette (from skf-logo.svg):
+ *   amber  #F59E0B  — primary (anvil top)
+ *   gold   #FBBF24  — accent, highlights (anvil horn)
+ *   dark   #D97706  — frame, deep emphasis (anvil body)
+ *   spark  #FCD34D  — sparks, icons
  */
 
 const { intro, outro, text, select, multiselect, confirm, note, isCancel, cancel, log } = require('@clack/prompts');
@@ -12,18 +18,54 @@ const yaml = require('js-yaml');
 
 const SKF_FOLDER = '_bmad/skf';
 
+// Brand colors derived from skf-logo.svg
+const brand = {
+  amber: chalk.hex('#F59E0B'),
+  gold: chalk.hex('#FBBF24'),
+  dark: chalk.hex('#D97706'),
+  spark: chalk.hex('#FCD34D'),
+};
+
 class UI {
   displayBanner() {
-    let banner;
-    try {
-      banner = figlet.textSync('SKF', { font: 'Standard' });
-    } catch {
-      banner = '\n  S K F';
-    }
     const packageJson = require('../../../package.json');
-    intro(
-      `${chalk.cyan(banner)}\n${chalk.white.bold('  Skill Forge')} ${chalk.dim(`v${packageJson.version}`)}\n${chalk.dim('  AST-verified, provenance-backed agent skills from code\n  repositories, documentation, and developer discourse')}`,
-    );
+    const version = packageJson.version;
+
+    let logoLines;
+    try {
+      logoLines = figlet.textSync('SKF', { font: 'ANSI Shadow' }).trimEnd().split('\n');
+      // Remove trailing empty lines from figlet output
+      while (logoLines.length > 0 && !logoLines.at(-1).trim()) logoLines.pop();
+    } catch {
+      logoLines = ['  S K F'];
+    }
+
+    const w = 54;
+    const frame = brand.dark;
+    const top = frame('  ╔' + '═'.repeat(w) + '╗');
+    const mid = frame('  ╟' + '─'.repeat(w) + '╢');
+    const bottom = frame('  ╚' + '═'.repeat(w) + '╝');
+    const row = (content) => {
+      // eslint-disable-next-line no-control-regex -- stripping ANSI escape codes for visual width calculation
+      const stripped = content.replaceAll(/\u001B\[\d+(?:;\d+)*m/g, '');
+      const pad = Math.max(0, w - stripped.length - 2);
+      return frame('  ║ ') + content + ' '.repeat(pad) + frame(' ║');
+    };
+
+    console.log();
+    console.log(top);
+    for (const line of logoLines) {
+      console.log(row(brand.amber.bold(line.replace(/\s+$/, ''))));
+    }
+    console.log(mid);
+    console.log(row(chalk.white.bold('Skill Forge') + chalk.dim(` v${version}`)));
+    console.log(row(chalk.dim('Agent Skill Compiler') + ' '.repeat(15) + brand.spark('⚒')));
+    console.log(mid);
+    console.log(row(chalk.dim('AST-verified · version-pinned · zero hallucination')));
+    console.log(bottom);
+    console.log();
+
+    intro(brand.amber('Skill Forge Installer'));
   }
 
   async detectInstallation(projectDir) {
@@ -47,7 +89,7 @@ class UI {
     const detection = await this.detectInstallation(projectDir);
     const skfFolder = detection.folder;
 
-    log.info(`Target: ${chalk.cyan(projectDir)}`);
+    log.info(`Target: ${brand.gold(projectDir)}`);
 
     let action = 'fresh';
 
@@ -109,7 +151,7 @@ class UI {
       const detectedIdes = await this.detectIdes(projectDir);
       if (detectedIdes.length > 0) {
         initialIdes = detectedIdes;
-        log.info(`Auto-detected IDEs: ${detectedIdes.join(', ')}`);
+        log.info(`Auto-detected IDEs: ${brand.gold(detectedIdes.join(', '))}`);
       }
     }
 
@@ -245,7 +287,7 @@ class UI {
     let noteBody;
 
     if (action === 'update') {
-      noteTitle = 'Update complete!';
+      noteTitle = brand.amber.bold('Update complete!');
       noteBody = [
         `${chalk.white.bold('What Changed')}`,
         'SKF files and agents have been refreshed.',
@@ -253,16 +295,16 @@ class UI {
         '',
         `${chalk.white.bold('Next Steps')}`,
         `1. Reload the agent in ${ideDisplay}:`,
-        `   ${chalk.cyan(`"Read and activate ${skfFolder}/agents/forger.md"`)}`,
+        `   ${brand.gold(`"Read and activate ${skfFolder}/agents/forger.md"`)}`,
         '2. Run @Ferris SF to re-detect tools if needed',
       ].join('\n');
     } else {
-      noteTitle = 'Installation complete!';
+      noteTitle = brand.amber.bold('Installation complete!');
       noteBody = [
         `${chalk.white.bold('Get Started')}`,
         `1. Open this folder in ${ideDisplay}`,
         '2. Locate the chat window and type:',
-        `   ${chalk.cyan(`"Read and activate ${skfFolder}/agents/forger.md"`)}`,
+        `   ${brand.gold(`"Read and activate ${skfFolder}/agents/forger.md"`)}`,
         '3. Ferris (your Skill Architect) will guide you through',
         '   setting up and forging your first agent skill',
       ].join('\n');
@@ -270,7 +312,9 @@ class UI {
 
     note(noteBody, noteTitle);
 
-    outro(`Agent: Ferris (Skill Architect & Integrity Guardian)\nDocs: https://github.com/armelhbobdad/bmad-module-skill-forge`);
+    outro(
+      `${brand.spark('⚒')}  Agent: ${chalk.white('Ferris')} ${chalk.dim('(Skill Architect & Integrity Guardian)')}\n${brand.dark('⚡')} Docs: ${brand.amber('https://github.com/armelhbobdad/bmad-module-skill-forge')}`,
+    );
   }
 }
 

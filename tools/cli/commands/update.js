@@ -30,7 +30,7 @@ module.exports = {
       }
 
       console.log('');
-      console.log(chalk.cyan.bold('  Skill Forge — Quick Update'));
+      console.log(chalk.hex('#F59E0B').bold('  Skill Forge — Quick Update'));
       console.log(chalk.dim('  Replacing SKF files, preserving config and sidecar.\n'));
 
       const installer = new Installer();

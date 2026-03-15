@@ -99,7 +99,7 @@ async function getStatus(projectDir) {
 
 function displayStatus(status, version) {
   console.log('');
-  console.log(chalk.cyan.bold('  Skill Forge — Status'));
+  console.log(chalk.hex('#F59E0B').bold('  Skill Forge — Status'));
   console.log(chalk.dim(`  v${version}`));
   console.log('');
 
@@ -115,7 +115,7 @@ function displayStatus(status, version) {
   // Installation
   const manifest = status.manifest;
   console.log(chalk.white.bold('  Installation'));
-  console.log(`    Project:      ${chalk.cyan(config.project_name || '(unknown)')}`);
+  console.log(`    Project:      ${chalk.hex('#FBBF24')(config.project_name || '(unknown)')}`);
   console.log(`    SKF folder:   ${chalk.dim(SKF_FOLDER + '/')}`);
   console.log(`    Agent:        ${status.agentCompiled ? chalk.green('compiled') : chalk.yellow('not compiled')}`);
   console.log(`    Workflows:    ${chalk.white(status.workflowCount)}`);
@@ -146,7 +146,7 @@ function displayStatus(status, version) {
   const tools = ft.tools || {};
   console.log(chalk.white.bold('  Forge Tier'));
   if (status.tierDetected) {
-    const tierColors = { Quick: chalk.yellow, Forge: chalk.cyan, Deep: chalk.magenta };
+    const tierColors = { Quick: chalk.yellow, Forge: chalk.hex('#F59E0B'), Deep: chalk.hex('#FCD34D') };
     const tierColor = tierColors[ft.tier] || chalk.white;
     console.log(`    Tier:         ${tierColor(ft.tier)}`);
     console.log(`    Detected:     ${chalk.dim(ft.tier_detected_at || '(unknown)')}`);

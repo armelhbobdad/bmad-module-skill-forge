@@ -64,7 +64,7 @@ function startVersionCheck(currentVersion) {
     }
     return (
       '\n' +
-      chalk.yellow(`  Update available: ${chalk.dim(currentVersion)} → ${chalk.green(latestVersion)}`) +
+      chalk.hex('#F59E0B')(`  Update available: ${chalk.dim(currentVersion)} → ${chalk.hex('#FBBF24').bold(latestVersion)}`) +
       '\n' +
       chalk.dim(`  Run: npx bmad-module-skill-forge@latest install`) +
       '\n'
