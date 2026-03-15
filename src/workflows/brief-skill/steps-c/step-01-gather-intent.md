@@ -93,7 +93,7 @@ Let's get started."
 Provide one of:
 - A **GitHub URL** (e.g., `https://github.com/org/repo`)
 - A **local path** (e.g., `/path/to/project`)
-- **Documentation URLs** for a docs-only skill (e.g., `https://docs.stripe.com/api`) — use this when no source code is available (SaaS, closed-source)
+- **Documentation URLs** for a docs-only skill (e.g., `https://docs.cognee.ai/`) — use this when no source code is available (SaaS, closed-source)
 
 **Target:**"
 

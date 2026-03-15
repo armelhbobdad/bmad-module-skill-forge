@@ -96,7 +96,7 @@ No source code available — only documentation.
 ```
 @Ferris BS
 # When asked for target, provide documentation URLs:
-# https://docs.stripe.com/api
+# https://docs.cognee.ai/
 # Ferris sets source_type: "docs-only" and collects doc_urls
 @Ferris CS
 # step-03 skips (no source), step-03c fetches docs via doc_fetcher
