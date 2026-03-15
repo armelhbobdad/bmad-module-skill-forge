@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "6f47a4780535",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/architecture.md",
+    "docs/examples.md",
+    "src/knowledge/doc-fetcher.md",
+    "src/workflows/create-skill/steps-c/step-03c-fetch-docs.md",
+    "src/workflows/create-skill/steps-c/step-05-compile.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/6f/47a4780535/0/metadata.json",
+      "transcript": "/6f/47a4780535/0/full.jsonl",
+      "context": "/6f/47a4780535/0/context.md",
+      "content_hash": "/6f/47a4780535/0/content_hash.txt",
+      "prompt": "/6f/47a4780535/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 445,
+    "cache_creation_tokens": 611306,
+    "cache_read_tokens": 9713948,
+    "output_tokens": 56154,
+    "api_call_count": 70
+  }
+}
