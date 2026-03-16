@@ -41,9 +41,7 @@ jobs:
 
       - name: Run tests and validation
         run: |
-          npm run validate
-          npm run format:check
-          npm run lint
+          npm test
 
       - name: Configure Git
         run: |
