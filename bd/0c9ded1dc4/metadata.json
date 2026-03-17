@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "bd0c9ded1dc4",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/workflows/analyze-source/validation-report-2026-03-17.md",
+    "src/workflows/analyze-source/workflow-plan-analyze-source.md",
+    "src/workflows/audit-skill/validation-report-2026-03-17.md",
+    "src/workflows/brief-skill/data/scope-templates.md",
+    "src/workflows/brief-skill/steps-c/step-03-scope-definition.md",
+    "src/workflows/brief-skill/validation-report-2026-03-17.md",
+    "src/workflows/create-skill/data/compile-assembly-rules.md",
+    "src/workflows/create-skill/data/source-resolution-protocols.md",
+    "src/workflows/create-skill/steps-c/step-01-load-brief.md",
+    "src/workflows/create-skill/steps-c/step-03-extract.md",
+    "src/workflows/create-skill/steps-c/step-05-compile.md",
+    "src/workflows/create-skill/steps-c/step-07-generate-artifacts.md",
+    "src/workflows/create-skill/validation-report-2026-03-17.md",
+    "src/workflows/create-skill/workflow-plan-create-skill.md",
+    "src/workflows/create-stack-skill/validation-report-2026-03-17.md",
+    "src/workflows/export-skill/validation-report-2026-03-17.md",
+    "src/workflows/export-skill/workflow.md",
+    "src/workflows/quick-skill/steps-c/step-05-validate.md",
+    "src/workflows/quick-skill/validation-report-2026-03-17.md",
+    "src/workflows/setup-forge/validation-report-2026-03-17.md",
+    "src/workflows/test-skill/steps-c/step-04b-external-validators.md",
+    "src/workflows/test-skill/validation-report-2026-03-17.md",
+    "src/workflows/test-skill/workflow-plan-test-skill.md",
+    "src/workflows/update-skill/data/remote-source-resolution.md",
+    "src/workflows/update-skill/steps-c/step-03-re-extract.md",
+    "src/workflows/update-skill/validation-report-2026-03-17.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/bd/0c9ded1dc4/0/metadata.json",
+      "transcript": "/bd/0c9ded1dc4/0/full.jsonl",
+      "context": "/bd/0c9ded1dc4/0/context.md",
+      "content_hash": "/bd/0c9ded1dc4/0/content_hash.txt",
+      "prompt": "/bd/0c9ded1dc4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6,
+    "cache_creation_tokens": 8511,
+    "cache_read_tokens": 498537,
+    "output_tokens": 1173,
+    "api_call_count": 4
+  }
+}
