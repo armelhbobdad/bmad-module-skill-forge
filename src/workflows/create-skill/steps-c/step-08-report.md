@@ -66,7 +66,7 @@ Where `{primary_confidence}` is the predominant confidence tier (T1 if Forge/Dee
 | **Language** | {language} |
 | **Forge Tier** | {tier} — {tier_description} |
 | **Files Scanned** | {file_count} |
-| **Exports Documented** | {documented_count} of {total_count} ({coverage}%) |
+| **Exports Documented** | {documented_count} public API ({public_api_coverage}%) / {total_count} total ({total_coverage}%) |
 
 **Confidence Distribution:**
 | Tier | Count | Description |

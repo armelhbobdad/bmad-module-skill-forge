@@ -123,7 +123,10 @@ Check metadata.json has required fields:
 - [ ] `generated_by` — must be "quick-skill"
 - [ ] `generation_date` — present
 - [ ] `stats.exports_documented` — present, number
+- [ ] `stats.exports_public_api` — present, number
 - [ ] `stats.exports_total` — present, number
+- [ ] `stats.public_api_coverage` — present, number
+- [ ] `stats.total_coverage` — present, number
 - [ ] `confidence_tier` — present
 
 **For each missing or invalid field, log an issue.**

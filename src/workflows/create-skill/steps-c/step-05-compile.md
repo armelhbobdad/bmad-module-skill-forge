@@ -90,7 +90,12 @@ Following the structure from the skill-sections data file:
 - Populate all fields from brief_data, extraction inventory, and tier
 - Set `generation_date` to current ISO-8601 timestamp
 - Set `source_commit` from resolved source (if available)
-- Set `stats` from extraction aggregate counts
+- Set `stats` from extraction aggregate counts:
+  - `exports_public_api`: count of exports from public entry points (`__init__.py`, `index.ts`, `lib.rs`, or equivalent)
+  - `exports_internal`: count of all other non-underscore-prefixed exports (internal modules, helpers, adapters)
+  - `exports_total`: `exports_public_api` + `exports_internal`
+  - `public_api_coverage`: `exports_documented / exports_public_api` (1.0 when all public API exports are documented; `null` if `exports_public_api` is 0)
+  - `total_coverage`: `exports_documented / exports_total` (may be low for large codebases — this is expected; `null` if `exports_total` is 0)
 - Set `tool_versions` based on tier and available tools
 
 ### 5. Build references/ Content
