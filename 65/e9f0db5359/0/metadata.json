@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "65e9f0db5359",
+  "session_id": "04bed52e-adc8-429c-aab1-a555f681fc3b",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-17T12:42:36.914166337Z",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/workflows/create-skill/steps-c/step-03b-fetch-temporal.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "9d3468be8cd0",
+  "checkpoint_transcript_start": 219,
+  "transcript_lines_at_start": 219,
+  "token_usage": {
+    "input_tokens": 13,
+    "cache_creation_tokens": 16093,
+    "cache_read_tokens": 771439,
+    "output_tokens": 2574,
+    "api_call_count": 11
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-17T12:42:36.497845307Z",
+    "agent_lines": 5,
+    "human_added": 6,
+    "human_modified": 4,
+    "human_removed": 0,
+    "total_committed": 15,
+    "agent_percentage": 33.33333333333333
+  }
+}
