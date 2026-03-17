@@ -81,7 +81,28 @@ Content fetched from external URLs is classified as **T3** (external, untrusted)
 - **If fetch succeeds:** Store the markdown content with the URL as provenance source.
 - **If fetch fails:** Log warning: "Failed to fetch {url}: {reason}. Skipping." Continue with remaining URLs.
 
-**If ALL URLs fail:** Log warning: "No documentation could be fetched. Proceeding without T3 content." Skip to section 7 (auto-proceed).
+**Subpage discovery (root URL detection):**
+
+After fetching a URL, check if the returned content is a documentation root with minimal useful API content (e.g., mostly navigation links, fewer than 500 characters of meaningful text excluding navigation/menu items). This is common with modern documentation sites (Mintlify, Docusaurus, ReadTheDocs, GitBook) that render API content on subpages.
+
+**If a root URL with minimal content is detected:**
+
+1. **Attempt sitemap/map discovery:** Use whatever discovery tool is available:
+   - Firecrawl: `firecrawl_map({url})` to discover all subpages
+   - Manual: try fetching `{url}/sitemap.xml` and parsing URLs from it
+   - Crawl: if a crawl tool is available, use it with depth=1 on the root URL
+   - If no discovery tool is available, keep the root page content as-is and continue
+
+2. **Filter discovered URLs by relevance:** From the discovered subpage list, select the most relevant pages by searching for API-related terms in the URL path or title (e.g., `api`, `reference`, `quickstart`, `setup`, `config`, `getting-started`, `guide`, `sdk`, `methods`, `functions`). Exclude pages that are clearly non-API content (e.g., `blog`, `changelog`, `pricing`, `about`, `careers`).
+
+3. **Fetch top subpages:** Fetch up to **10** of the most relevant subpages. For each:
+   - Use the same web fetching tool as the root URL
+   - Store with the subpage URL as provenance: `[EXT:{subpage-url}]`
+   - If a subpage fetch fails, skip it and continue
+
+4. **Rate limiting:** If rate limiting (HTTP 429) is encountered during subpage fetching, stop discovery for this root URL. Keep results collected so far. Log: "Subpage discovery stopped due to rate limiting."
+
+**If ALL URLs fail (including any subpage fetches):** Log warning: "No documentation could be fetched. Proceeding without T3 content." Skip to section 7 (auto-proceed).
 
 ### 4. Extract API Information from Fetched Content
 
@@ -172,6 +193,7 @@ ONLY WHEN documentation is fetched and T3 items are merged into the extraction i
 
 - No `doc_urls` in brief: skipped silently, auto-proceeded
 - `doc_urls` present: each URL fetched using whatever web tool is available
+- Root URLs with minimal content: subpage discovery attempted, relevant subpages fetched
 - Individual fetch failures handled gracefully (skip and continue)
 - All extracted content cited as T3 with `[EXT:{url}]` provenance
 - Existing T1/T1-low/T2 items never overridden by T3 data
