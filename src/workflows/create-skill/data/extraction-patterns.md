@@ -233,8 +233,8 @@ When `source_repo` is a remote URL (GitHub URL or owner/repo format) and the tie
 
 1. Check `git` availability (`git --version`). `git` is effectively guaranteed at Deep tier (via `gh` dependency) but NOT guaranteed at Forge tier.
 2. If `git` is available: perform an ephemeral shallow clone to a system temp path (`{system_temp}/skf-ephemeral-{skill-name}-{timestamp}/`).
-3. For create-skill: use `--depth 1 --single-branch --filter=blob:none`; apply sparse-checkout if `include_patterns` are specified.
-4. For update-skill: use sparse-checkout scoped to the changed files from the change manifest only. No `--branch` flag — uses the remote default branch (must match the branch used during original create-skill run).
+3. For create-skill: use `--depth 1 --single-branch --filter=blob:none`; if `include_patterns` are specified, convert glob patterns to directory roots before passing to `sparse-checkout set` — `git sparse-checkout` expects directories, not globs. Use `--skip-checks` when any individual file paths (no glob characters) are present. Apply original glob patterns as file-level filters after checkout. See step-03-extract.md for the full conversion rules.
+4. For update-skill: use sparse-checkout with `--skip-checks` scoped to the changed files from the change manifest only (file paths require `--skip-checks`). No `--branch` flag — uses the remote default branch (must match the branch used during original create-skill run).
 5. If clone succeeds: use the local clone path for AST extraction. All results are T1 with `[AST:...]` citations.
 6. Cleanup: delete the temp directory after extraction inventory is built and all data is in context. The clone never persists beyond the extraction step.
 

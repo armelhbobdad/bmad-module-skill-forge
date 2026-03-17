@@ -84,8 +84,10 @@ If `source_root` (from metadata.json) is a remote URL (GitHub URL or owner/repo 
    ```
    temp_path = {system_temp}/skf-ephemeral-{skill-name}-{timestamp}/
    git clone --depth 1 --single-branch --filter=blob:none --sparse {source_root} {temp_path}
-   git -C {temp_path} sparse-checkout set {changed_files_from_manifest}
+   git -C {temp_path} sparse-checkout set --skip-checks {changed_files_from_manifest}
    ```
+
+   **Note:** `--skip-checks` is required because `changed_files_from_manifest` contains individual file paths (e.g., `src/core/parser.py`), not directories. Without this flag, `git sparse-checkout set` rejects non-directory entries.
 
    No `--branch` flag is used — the clone targets the remote's default branch, which must match the branch used during the original [CS] Create Skill run. This scopes the clone to only the files identified in step-02's change manifest, avoiding a full repository download.
 

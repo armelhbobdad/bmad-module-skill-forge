@@ -93,12 +93,49 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
    git clone --depth 1 --branch {branch} --single-branch --filter=blob:none {source_repo} {temp_path}
    ```
 
-   If `include_patterns` are specified in the brief, use sparse-checkout to limit the clone scope:
+   **If `include_patterns` are NOT specified:**
+
+   ```
+   git clone --depth 1 --branch {branch} --single-branch --filter=blob:none {source_repo} {temp_path}
+   ```
+
+   **If `include_patterns` ARE specified**, use sparse-checkout to limit the clone scope:
 
    ```
    git clone --depth 1 --branch {branch} --single-branch --filter=blob:none --sparse {source_repo} {temp_path}
-   git -C {temp_path} sparse-checkout set {include_patterns}
    ```
+
+   **IMPORTANT:** `git sparse-checkout set` expects **directories**, not glob patterns. Convert `include_patterns` before passing them:
+
+   **Classification rule:** A pattern is an **individual file** if it contains no glob characters (`*`, `?`, `[`) AND does not end with `/`. Everything else is a glob — strip it to its directory root (the path prefix before the first glob character or wildcard segment).
+
+   - Strip glob suffixes to directory roots (e.g., `src/core/**/*.py` → `src/core`, `src/api/*.ts` → `src/api`)
+   - Deduplicate the resulting directory list
+   - Individual files (e.g., `pyproject.toml`, `src/utils/helpers.py`) are kept as-is
+
+   **If only directory roots (no individual files):**
+
+   ```
+   git -C {temp_path} sparse-checkout set {converted_directory_roots}
+   ```
+
+   **If any individual files are present (or mixed):**
+
+   ```
+   git -C {temp_path} sparse-checkout set --skip-checks {converted_directory_roots} {individual_files}
+   ```
+
+   Example transformation:
+   ```
+   Brief include_patterns:        sparse-checkout args:
+   src/core/**/*.py          →    src/core          (directory root)
+   src/api/*.ts              →    src/api           (directory root)
+   examples/**/*.py          →    examples          (directory root)
+   pyproject.toml            →    pyproject.toml    (individual file, needs --skip-checks)
+   src/utils/helpers.py      →    src/utils/helpers.py (individual file, needs --skip-checks)
+   ```
+
+   After checkout, apply the original glob `include_patterns` as file-level filters when building the extraction file list — sparse-checkout gets the right directories, glob filtering narrows to the exact files.
 
 3. **If clone succeeds:** Update the working source path to `{temp_path}` for all subsequent AST operations in this step. Proceed with the **Forge/Deep Tier** extraction strategy below. Mark `ephemeral_clone_active = true` for cleanup.
 
