@@ -83,7 +83,14 @@ Content fetched from external URLs is classified as **T3** (external, untrusted)
 
 **Subpage discovery (root URL detection):**
 
-After fetching a URL, check if the returned content is a documentation root with minimal useful API content (e.g., mostly navigation links, fewer than 500 characters of meaningful text excluding navigation/menu items). This is common with modern documentation sites (Mintlify, Docusaurus, ReadTheDocs, GitBook) that render API content on subpages.
+After fetching a URL, apply the following heuristic to detect documentation root pages that contain no useful API content. This is common with modern documentation sites (Mintlify, Docusaurus, ReadTheDocs, GitBook) that render API content on subpages.
+
+**Root page detection heuristic — a page is a root if BOTH conditions are true:**
+
+1. **Zero API content indicators:** The fetched markdown contains none of: fenced code blocks (`` ``` ``), parameter tables (`|---|`), or function signature patterns (`def `, `function `, `fn `, `func `, `export `).
+2. **High link density:** More than 70% of non-empty lines are markdown links (matching `[text](url)` with no other substantive content on the line).
+
+If only one condition is true, treat the page as having partial content — keep it as-is and do NOT trigger subpage discovery.
 
 **If a root URL with minimal content is detected:**
 
