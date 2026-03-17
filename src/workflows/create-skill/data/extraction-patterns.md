@@ -66,7 +66,9 @@ Same extraction as Forge tier. Deep tier adds enrichment in step-04, not extract
 
 ## AST Extraction Protocol
 
-When AST tools are available (Forge/Deep tier), follow this deterministic protocol to prevent output overflow on large codebases. The file count from step-01's file tree determines the extraction strategy.
+When AST tools are available (Forge/Deep tier), follow this deterministic protocol to prevent output overflow on large codebases.
+
+**"Files in scope"** = files remaining after applying `include_patterns` and `exclude_patterns` from the brief, filtered by the target language extension. This is NOT the total repository file count from step-01's tree listing. Use the filtered count from step-03 section 2 as the decision tree input.
 
 ### Decision Tree
 

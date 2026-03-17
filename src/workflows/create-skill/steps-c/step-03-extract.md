@@ -64,7 +64,7 @@ From the brief, apply scope and pattern filters:
 - `include_patterns` — file globs to include (if specified)
 - `exclude_patterns` — file globs to exclude (if specified)
 
-Build the filtered file list from the source tree resolved in step-01.
+Build the filtered file list from the source tree resolved in step-01. Record the result: "**Filtered file count: {N} files in scope**" — this count is the input to the AST Extraction Protocol decision tree in the extraction patterns data file.
 
 ### 3. Check for Docs-Only Mode
 
