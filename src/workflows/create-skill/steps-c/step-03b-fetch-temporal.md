@@ -79,7 +79,7 @@ Skip to section 5 (auto-proceed).
 
 Create a staging directory: `_bmad-output/{skill-name}-temporal/`
 
-Resolve the `owner` and `repo` from `source_repo` (e.g., `topoteretes/cognee` from `https://github.com/topoteretes/cognee`).
+Resolve the `owner` and `repo` from `source_repo` (e.g., `acme/toolkit` from `https://github.com/acme/toolkit`).
 
 Execute the following fetches, writing output as markdown files to the staging directory. **If any individual fetch fails, log a warning and continue with the others:**
 
@@ -101,11 +101,23 @@ Execute the following fetches, writing output as markdown files to the staging d
 
 3. **Releases (last 10):**
 
+   **Note:** `gh release list --json` does **not** support the `body` field. Use a two-step approach: list tags first, then fetch each release individually with `--json` (which IS supported on `gh release view`).
+
    ```bash
-   gh release list -R {owner}/{repo} --limit 10 --json tagName,name,publishedAt,body | ...
+   # Step 1: Get release tags (body NOT available here)
+   gh release list -R {owner}/{repo} --limit 10 --json tagName,name,publishedAt
    ```
 
-   Write to `{staging}/releases.md` — format as a markdown document with one section per release.
+   If Step 1 returns an empty array (no releases), skip Step 2 and omit the releases section entirely.
+
+   ```bash
+   # Step 2: For EACH tagName from Step 1, fetch the full release
+   gh release view {tagName} -R {owner}/{repo} --json tagName,name,publishedAt,body
+   ```
+
+   Iterate over every `tagName` from Step 1's JSON array. If `gh release view` fails for a specific tag, log a warning and skip that release — continue with remaining tags. If a rate limit (HTTP 429) is hit, stop the release loop, keep results collected so far, and log: "Release fetch stopped at tag {N}/{total} due to rate limiting."
+
+   Write to `{staging}/releases.md` — format as a markdown document with one section per release (tag, name, date, body).
 
 4. **Changelog (if exists):**
 
