@@ -164,7 +164,7 @@ The `setup-forge` workflow detects available tools and writes the tier to `forge
 
 ### Security Scanning (Optional)
 
-`skill-check` includes security scanning via [Snyk Agent Scan](https://github.com/snyk/snyk-agent-scan) to check for prompt injection risks, sensitive data exposure, and unsafe tool permissions. To enable:
+`skill-check` includes security scanning via [Snyk Agent Scan](https://github.com/snyk/agent-scan) to check for prompt injection risks, sensitive data exposure, and unsafe tool permissions. To enable:
 
 1. Create a free Snyk account at [app.snyk.io](https://app.snyk.io)
 2. Copy your API token from Account Settings
@@ -234,7 +234,7 @@ SKF builds on these excellent open-source tools:
 | [ast-grep MCP](https://github.com/ast-grep/ast-grep-mcp)     | MCP server for memory-efficient AST queries (recommended)          |
 | [QMD](https://github.com/tobi/qmd)                           | Local hybrid search engine for knowledge indexing (Deep tier)      |
 | [skill-check](https://github.com/thedaviddias/skill-check)   | Skill validation, auto-fix, quality scoring, and security scanning |
-| [Snyk Agent Scan](https://github.com/snyk/snyk-agent-scan)   | Security scanning for prompt injection and data exposure (optional) |
+| [Snyk Agent Scan](https://github.com/snyk/agent-scan)   | Security scanning for prompt injection and data exposure (optional) |
 | [tessl](https://tessl.io)                                     | Content quality review, actionability scoring, and AI judge evaluation |
 | [BMad Method](https://github.com/bmad-code-org/BMAD-METHOD)  | Agent-workflow framework that SKF extends as a module              |
 
