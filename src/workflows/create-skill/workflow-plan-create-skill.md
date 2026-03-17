@@ -226,6 +226,8 @@ create-skill/
     ├── step-01-load-brief.md           (~150 lines, Init with Input Discovery)
     ├── step-02-ecosystem-check.md      (~120 lines, conditional gate)
     ├── step-03-extract.md              (~200 lines, complex middle)
+    ├── step-03b-fetch-temporal.md      (~240 lines, conditional auto-proceed)
+    ├── step-03c-fetch-docs.md          (~215 lines, conditional auto-proceed)
     ├── step-04-enrich.md               (~130 lines, conditional middle)
     ├── step-05-compile.md              (~200 lines, complex middle)
     ├── step-06-validate.md             (~120 lines, simple middle)
@@ -240,6 +242,8 @@ create-skill/
 | 01 | load-brief | Init (Input Discovery) | Auto-proceed (P3) | Load brief, resolve source, load forge tier |
 | 02 | ecosystem-check | Middle (Simple) | Conditional: auto if no match, user choice if match | Check ecosystem |
 | 03 | extract | Middle (Standard) | C only (P2) — Gate 2 | Tier-dependent extraction |
+| 03b | fetch-temporal | Middle (Simple) | Auto-proceed (P3) — Deep only | Fetch temporal context (issues, PRs, changelogs) and index into QMD |
+| 03c | fetch-docs | Middle (Simple) | Auto-proceed (P3) — when doc_urls present | Fetch remote documentation from brief-specified URLs for T3-confidence content |
 | 04 | enrich | Middle (Simple) | Auto-proceed (P3) — Deep only | QMD enrichment |
 | 05 | compile | Middle (Simple) | Auto-proceed (P3) | Assemble SKILL.md |
 | 06 | validate | Middle (Simple) | Auto-proceed (P3) | Validate spec |
@@ -270,6 +274,27 @@ create-skill/
 - Forge/Deep tier: ast_bridge.scan_definitions() + detect_co_imports(). T1 confidence.
 - Build extraction inventory: export count, signatures, types, confidence breakdown
 - Present summary, user confirms [C] Continue
+
+**step-03b-fetch-temporal** (Simple Middle — Conditional Auto-proceed)
+- Deep tier only — Quick/Forge skip silently
+- GitHub repos only — non-GitHub sources skip silently
+- Fetch temporal context (issues, PRs, releases, changelog) via `gh` CLI
+- Targeted function searches using top_exports from extraction inventory
+- Index fetched content into QMD collection (`{skill-name}-temporal`)
+- Register collection in forge-tier.yaml; clean up staging directory
+- Cache-aware: skip re-fetch if collection < 7 days old
+- All failures degrade gracefully — never blocks the workflow
+
+**step-03c-fetch-docs** (Simple Middle — Conditional Auto-proceed)
+- Runs at any tier when `doc_urls` are present in the brief
+- Tool-agnostic: uses whatever web fetching capability is available (Firecrawl, WebFetch, web-reader, curl, etc.)
+- Fetches remote documentation from brief-specified URLs for T3-confidence content
+- Root URL detection: discovers and fetches relevant subpages for documentation sites
+- All extracted items cited as T3 with `[EXT:{url}]` provenance
+- T3 items never override existing T1/T1-low/T2 extractions
+- Supports docs-only briefs (T3 inventory replaces empty extraction inventory)
+- Deep tier: indexes fetched docs into QMD collection (`{skill-name}-docs`)
+- All failures degrade gracefully — never blocks the workflow
 
 **step-04-enrich** (Simple Middle — Conditional)
 - Deep tier: QMD searches per extracted function — issues, PRs, changelogs. T2 annotations.
@@ -311,6 +336,12 @@ step-02  READS: agentskills.io registry API (ecosystem check — not skill-check
               ↓
 step-03  READS: source code via gh_bridge/ast_bridge
          SETS:  extraction_inventory
+              ↓
+step-03b READS: source_repo via gh CLI, top_exports from extraction_inventory (Deep only)
+         CREATES: QMD temporal collection ({skill-name}-temporal)
+              ↓
+step-03c READS: doc_urls from brief_data (when present, any tier)
+         SETS:  T3 items merged into extraction_inventory
               ↓
 step-04  READS: QMD collections (Deep only)
          SETS:  enrichment_annotations

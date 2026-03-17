@@ -2,6 +2,7 @@
 name: 'step-07-generate-artifacts'
 description: 'Write all output files — 4 deliverables to skills/ and 3 workspace artifacts to forge-data/'
 nextStepFile: './step-08-report.md'
+forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
 ---
 
 # Step 7: Generate Artifacts
@@ -149,7 +150,7 @@ qmd embed
 
 **Registry update:**
 
-Read `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml` and update the `qmd_collections` array.
+Read `{forgeTierConfig}` and update the `qmd_collections` array.
 
 If an entry with `name: "{name}-extraction"` already exists, replace it. Otherwise, append:
 

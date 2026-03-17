@@ -4,7 +4,6 @@ description: 'Run external validation tools (skill-check, tessl) and capture sco
 
 nextStepFile: './step-05-score.md'
 outputFile: '{output_folder}/test-report-{skill_name}.md'
-outputFormatsFile: '../data/output-section-formats.md'
 ---
 
 # Step 4b: External Validators

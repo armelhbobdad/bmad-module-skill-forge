@@ -64,7 +64,7 @@ Extract and report:
 - `tier`: Quick, Forge, or Deep
 - `tools`: which tools are available (gh, ast-grep, qmd)
 
-**Apply tier override:** Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, or Deep), use it instead of the detected tier.
+**Apply tier override:** Read `{preferencesFile}`. If `tier_override` is set and is a valid tier value (Quick, Forge, or Deep), use it instead of the detected tier.
 
 ### 2. Discover Skill Brief
 

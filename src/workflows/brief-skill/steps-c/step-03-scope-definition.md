@@ -3,6 +3,7 @@ name: 'step-03-scope-definition'
 description: 'Collaboratively define skill scope boundaries using analysis findings and scope templates'
 
 nextStepFile: './step-04-confirm-brief.md'
+scopeTemplatesFile: '../data/scope-templates.md'
 advancedElicitationTask: '{project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
 ---
@@ -91,81 +92,17 @@ Wait for confirmation. Then skip to section 5 (Summarize Scope Decisions) with:
 
 ### 2b. Offer Scope Templates
 
-"**How broadly should this skill cover the library?**
+Load `{scopeTemplatesFile}` for the scope type options ([F], [M], [P]) and their descriptions.
 
-**[F] Full Library** — Include everything. Best for smaller, focused libraries.
-- All public exports, all modules
-- Exclude only tests, build artifacts, and internal utilities
+Present: "**How broadly should this skill cover the library?**" followed by the three scope type options from the loaded reference.
 
-**[M] Specific Modules** — Select which modules to include. Best for large libraries where only some parts are relevant.
-- You choose which modules/directories
-- Fine-grained control over what's in and out
-
-**[P] Public API Only** — Include only the public-facing API surface. Best for libraries with a clear public/private boundary.
-- Entry points and exported interfaces only
-- Internal implementation excluded
-
-Which scope type fits your needs?"
+Ask: "Which scope type fits your needs?"
 
 Wait for user selection.
 
 ### 3. Define Boundaries Based on Selection
 
-**If [F] Full Library:**
-
-"**Full Library scope selected.**
-
-Default inclusions:
-- All source files under {main source directory}
-- All public modules: {list from analysis}
-
-Default exclusions:
-- Test files (`**/*.test.*`, `**/*.spec.*`, `**/test/`, `**/tests/`)
-- Build artifacts (`**/dist/`, `**/build/`, `**/target/`)
-- Configuration files
-- Documentation source files
-
-Any additional exclusions you'd like to add? Or adjustments to these defaults?"
-
-**If [M] Specific Modules:**
-
-"**Specific Modules scope selected.**
-
-Here are the modules found in the analysis:
-
-{numbered list of modules from step 02 with brief descriptions}
-
-Which modules would you like to include? (Enter numbers, comma-separated):"
-
-Wait for selection. Then:
-
-"**Selected modules:**
-- {list selected modules}
-
-For these modules, should I include:
-- **A)** Everything in those modules (all files)
-- **B)** Only public exports from those modules
-
-Any files or patterns to explicitly exclude within these modules?"
-
-**If [P] Public API Only:**
-
-"**Public API scope selected.**
-
-From the analysis, these appear to be the public entry points:
-
-{numbered list of exports/entry points from step 02}
-
-Which of these would you like to include? (Enter numbers, or 'all'):"
-
-Wait for selection. Then:
-
-"**Selected exports:**
-- {list selected exports}
-
-Exclusions will include all internal implementation files, tests, and utilities.
-
-Any additional items you'd like to include or exclude?"
+Using the boundary definitions from `{scopeTemplatesFile}`, present the appropriate flow for the user's selected scope type ([F], [M], or [P]). Follow each type's prompts and wait for user input at each phase before proceeding.
 
 ### 4. Handle Language Override
 

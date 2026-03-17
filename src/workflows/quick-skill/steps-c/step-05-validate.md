@@ -121,9 +121,10 @@ Check metadata.json has required fields:
 - [ ] `source_repo` — present, valid GitHub URL
 - [ ] `language` — present, non-empty
 - [ ] `generated_by` — must be "quick-skill"
-- [ ] `generated_date` — present
-- [ ] `exports_count` — present, number
-- [ ] `confidence` — present
+- [ ] `generation_date` — present
+- [ ] `stats.exports_documented` — present, number
+- [ ] `stats.exports_total` — present, number
+- [ ] `confidence_tier` — present
 
 **For each missing or invalid field, log an issue.**
 
