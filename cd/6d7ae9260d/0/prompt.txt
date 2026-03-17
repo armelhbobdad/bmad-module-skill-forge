@@ -1,0 +1,69 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/
+
+---
+
+Lookt at this: https://github.com/armelhbobdad/bmad-module-skill-forge/issues/30
+
+---
+
+do not explicitly mention cognee.
+
+---
+
+I still see cognee
+
+---
+
+proceed the next edit step
+
+---
+
+yes
+
+---
+
+Y
+
+---
+
+run validation
+
+---
+
+review the changes for any breaking changes, or missing impact and etc...
+
+---
+
+yes
+
+---
+
+yes
+
+---
+
+Let's continue with the next issue: https://github.com/armelhbobdad/bmad-module-skill-forge/issues/31
+
+---
+
+https://github.com/armelhbobdad/bmad-module-skill-forge/issues/32
+
+---
+
+https://github.com/armelhbobdad/bmad-module-skill-forge/issues/33
+
+---
+
+https://github.com/armelhbobdad/bmad-module-skill-forge/issues/34
+
+---
+
+https://github.com/armelhbobdad/bmad-module-skill-forge/issues/35
+
+---
+
+https://github.com/armelhbobdad/bmad-module-skill-forge/issues/36
