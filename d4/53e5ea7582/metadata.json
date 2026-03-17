@@ -3,7 +3,7 @@
   "checkpoint_id": "d453e5ea7582",
   "strategy": "manual-commit",
   "branch": "dev",
-  "checkpoints_count": 4,
+  "checkpoints_count": 5,
   "files_touched": [
     "src/workflows/create-skill/data/extraction-patterns.md",
     "src/workflows/create-skill/steps-c/step-03-extract.md",
@@ -16,13 +16,20 @@
       "context": "/d4/53e5ea7582/0/context.md",
       "content_hash": "/d4/53e5ea7582/0/content_hash.txt",
       "prompt": "/d4/53e5ea7582/0/prompt.txt"
+    },
+    {
+      "metadata": "/d4/53e5ea7582/1/metadata.json",
+      "transcript": "/d4/53e5ea7582/1/full.jsonl",
+      "context": "/d4/53e5ea7582/1/context.md",
+      "content_hash": "/d4/53e5ea7582/1/content_hash.txt",
+      "prompt": "/d4/53e5ea7582/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 56,
-    "cache_creation_tokens": 51381,
-    "cache_read_tokens": 1118243,
-    "output_tokens": 8103,
-    "api_call_count": 31
+    "input_tokens": 270,
+    "cache_creation_tokens": 532294,
+    "cache_read_tokens": 22316740,
+    "output_tokens": 67016,
+    "api_call_count": 180
   }
 }
