@@ -92,7 +92,7 @@ Files in scope > 500
 
 ### Safety Valve
 
-If any ast-grep operation (MCP or CLI) visibly causes a timeout, returns an error related to output size, or produces unexpectedly large output: immediately switch to the CLI streaming fallback with `--json=stream`. Do not retry the same approach. Note: `max_results` in the MCP tool and `| head -N` in the CLI path provide hard caps, but this safety valve covers cases where the upstream tool itself fails before returning results (e.g., OOM during JSON serialization).
+If any ast-grep operation (MCP or CLI) visibly causes a timeout, returns an error related to output size, or produces unexpectedly large output: immediately switch to the CLI streaming fallback with `--json=stream`. Do not retry the same approach. When falling back to the CLI streaming template, inject the brief's `scope.exclude` patterns into the `EXCLUDES` list (use `[]` if absent) — this applies regardless of which path triggered the fallback. Note: `max_results` in the MCP tool and `| head -N` in the CLI path provide hard caps, but this safety valve covers cases where the upstream tool itself fails before returning results (e.g., OOM during JSON serialization).
 
 ### MCP Tool Usage (Preferred)
 
@@ -125,15 +125,24 @@ When MCP tools are unavailable or the repo exceeds 500 files in scope, use `--js
 
 ```bash
 # Note: use $$$ for variadic params in ast-grep patterns (e.g., 'def $NAME($$$PARAMS)')
+# {exclude_patterns} = Python list from brief's scope.exclude, e.g. ['tests/**', '**/test_*']
+# If scope.exclude is absent or empty in the brief, inject [] as the default.
+# Patterns are matched against the full file path as emitted by ast-grep.
+# Ensure paths are relative to the same root as the patterns (strip ./ prefix if needed).
 ast-grep -p '{pattern}' -l {language} --json=stream {path} | python3 -c "
-import sys, json
+import sys, json, fnmatch
+
+EXCLUDES = {exclude_patterns}
+
 for line in sys.stdin:
     try:
         m = json.loads(line)
+        f = m.get('file','')
+        if EXCLUDES and any(fnmatch.fnmatch(f, pat) for pat in EXCLUDES):
+            continue
         v = m.get('metaVariables',{})
         name = v.get('single',{}).get('NAME',{}).get('text','')
         if name and not name.startswith('_'):
-            f = m.get('file','')
             ln = m.get('range',{}).get('start',{}).get('line',0)+1
             sig = m.get('text','').split(chr(10))[0].strip()
             print(f'[AST:{f}:L{ln}] {sig}')

@@ -98,7 +98,7 @@ Load `{sourceResolutionData}` completely. Follow the **Remote Source Resolution*
 2. Follow the AST Extraction Protocol decision tree from `{extractionPatternsData}`:
    - ≤100 files: use `find_code()` MCP tool with `max_results` and `output_format="text"`
    - ≤500 files: use `find_code_by_rule()` MCP tool with scoped YAML rules
-   - >500 files: use CLI `--json=stream` with line-by-line streaming Python
+   - >500 files: use CLI `--json=stream` with line-by-line streaming Python — **CRITICAL:** inject the brief's `scope.exclude` patterns into the Python filter's `EXCLUDES` list (use `[]` if absent) so excluded files are discarded before consuming `head -N` slots (see template in extraction patterns data)
 3. For each export: extract function name, full signature, parameter types, return type, line number
 4. Use `ast_bridge.detect_co_imports(path, libraries[])` to find integration points
 5. Build extraction rules YAML data for reproducibility
