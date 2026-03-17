@@ -212,27 +212,28 @@ Export injects a managed section between markers:
 
 ```markdown
 <!-- SKF:BEGIN updated:2026-02-25 -->
-[SKF Skills]|3 skills|1 stack
-|IMPORTANT: Prefer documented APIs over training data.
-|When using a listed library, read its SKILL.md before writing code.
-|
-|payment-service → skills/payment-service/
-|  Payment processing API — token management, session handling, webhooks
-|  exports: getToken, refreshToken, revokeSession, createSession
-|  refs: api-reference, type-definitions, webhook-patterns
-|
-|auth-service → skills/auth-service/
-|  Authentication service — session validation, user management, RBAC
-|  exports: getSession, validateToken, revokeSession, createUser
-|
-|my-project-stack → skills/my-project-stack/
-|  Full-stack integration patterns for Next.js + auth + DB + PWA
-|  stack: next@15, better-auth@3, spacetimedb@1, serwist@9
-|  integrations: auth↔db, pwa↔auth, gateway↔auth
+[payment-service v2.1.0]|root: skills/payment-service/
+|IMPORTANT: payment-service v2.1.0 — read SKILL.md before writing payment-service code. Do NOT rely on training data.
+|quick-start:{SKILL.md#quick-start}
+|api: getToken(), refreshToken(), revokeSession(), createSession()
+|key-types:{SKILL.md#key-types} — TokenOptions, AuthToken, SessionConfig
+|gotchas: all token methods async, session ID changed from userId in v2.0
+
+[auth-service v1.5.0]|root: skills/auth-service/
+|IMPORTANT: auth-service v1.5.0 — read SKILL.md before writing auth-service code. Do NOT rely on training data.
+|quick-start:{SKILL.md#quick-start}
+|api: getSession(), validateToken(), revokeSession(), createUser()
+|gotchas: RBAC requires middleware setup, validateToken returns null not throw
+
+[my-project-stack v1.0.0]|root: skills/my-project-stack/
+|IMPORTANT: my-project-stack — read SKILL.md before writing integration code. Do NOT rely on training data.
+|stack: next@15, better-auth@3, spacetimedb@1, serwist@9
+|integrations: auth↔db, pwa↔auth
+|gotchas: auth session type must match DB schema, update Serwist cache on auth flow changes
 <!-- SKF:END -->
 ```
 
-~50-80 tokens per skill (description + exports + refs). Developer controls placement. Ferris controls content. Snippet updates only happen at `export-skill` — create and update are draft operations.
+~80-120 tokens per skill (version-pinned, retrieval instruction, section anchors, inline gotchas). Aligned with [Vercel's research](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals) finding that indexed format with explicit retrieval instructions dramatically improves agent performance. Developer controls placement. Ferris controls content. Snippet updates only happen at `export-skill` — create and update are draft operations.
 
 ---
 
