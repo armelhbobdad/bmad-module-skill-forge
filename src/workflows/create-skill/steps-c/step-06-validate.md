@@ -114,7 +114,7 @@ Then re-validate: `npx skill-check check <staging-skill-dir> --format json --no-
 npx skill-check check <staging-skill-dir> --format json
 ```
 
-(Security scan enabled by default when `--no-security-scan` omitted. The scan uses [Snyk Agent Scan](https://github.com/snyk/snyk-agent-scan) to check for prompt injection risks, sensitive data exposure, and unsafe tool permissions.)
+(Security scan enabled by default when `--no-security-scan` omitted. The scan uses [Snyk Agent Scan](https://github.com/snyk/agent-scan) to check for prompt injection risks, sensitive data exposure, and unsafe tool permissions.)
 
 Record any security warnings in evidence-report. Security findings are advisory — they do not block artifact generation.
 

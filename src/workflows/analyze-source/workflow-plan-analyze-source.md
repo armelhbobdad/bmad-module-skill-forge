@@ -207,7 +207,7 @@ Decomposition engine — discover what to skill, recommend stack skill. Analyzes
 ## Tools Configuration
 
 **Core BMAD Tools:**
-- **Party Mode:** excluded — no creative exploration phase in evidence-based analysis
+- **Party Mode:** available at step-05 (recommend) — included as optional [P] menu for creative exploration during collaborative unit review
 - **Advanced Elicitation:** included as optional [A] menu at Step 05 only — quality gate for challenging unit boundary decisions
 - **Brainstorming:** excluded — no ideation needed in code analysis
 

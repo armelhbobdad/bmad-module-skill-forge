@@ -202,6 +202,7 @@ Cognitive completeness verification — Verifies that a skill is complete enough
 | 02 | detect-mode | Middle (Simple) | Auto-proceed | Determine naive vs contextual from skill metadata |
 | 03 | coverage-check | Validation Sequence | Auto-proceed | Compare documented exports against source API surface |
 | 04 | coherence-check | Validation Sequence (conditional) | Auto-proceed | Validate references/coherence (contextual=full, naive=simplified) |
+| 04b | external-validators | Middle (Simple) | Auto-proceed | Run external validation tools (skill-check, tessl) and capture scores |
 | 05 | score | Middle (Simple) | Auto-proceed | Calculate completeness score from findings |
 | 06 | report | Final Step | C only | Generate gap report, finalize document, recommend next workflow |
 
@@ -210,7 +211,8 @@ Cognitive completeness verification — Verifies that a skill is complete enough
 ```
 User provides skill path → [01] init (auto) → [02] detect-mode (auto) →
 [03] coverage-check (auto) → [04] coherence-check (auto) →
-[05] score (auto) → [06] report → [C] finalize
+[04b] external-validators (auto) → [05] score (auto) →
+[06] report → [C] finalize
 ```
 
 ### Data Flow
@@ -219,7 +221,8 @@ User provides skill path → [01] init (auto) → [02] detect-mode (auto) →
 - Step 02: reads metadata type → sets {testMode} naive|contextual → appends Test Summary
 - Step 03: reads SKILL.md exports + source files → subprocess AST analysis → appends Coverage Analysis
 - Step 04: reads SKILL.md references → conditional depth by mode → appends Coherence Analysis
-- Step 05: reads coverage + coherence findings → calculates score → appends Completeness Score
+- Step 04b: runs skill-check and tessl against skill directory → captures external scores → appends External Validation
+- Step 05: reads coverage + coherence + external validation findings → calculates score → appends Completeness Score
 - Step 06: reads all findings → generates remediation per gap → appends Gap Report → finalizes
 
 ### Subprocess Optimization
@@ -246,6 +249,7 @@ test-skill/
 │   ├── step-02-detect-mode.md
 │   ├── step-03-coverage-check.md
 │   ├── step-04-coherence-check.md
+│   ├── step-04b-external-validators.md
 │   ├── step-05-score.md
 │   └── step-06-report.md
 └── templates/
