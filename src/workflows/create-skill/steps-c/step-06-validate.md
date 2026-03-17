@@ -126,12 +126,40 @@ Record any security warnings in evidence-report. Security findings are advisory 
 
 Parse output for: `description_score`, `content_score`, `average_score`, `validation_result`, `judge_suggestions[]`.
 
-- **Content score < 70%:** Record warning: "Content quality warning: tessl scored content at {score}%. Consider inlining Quick Start and common workflows directly in SKILL.md."
+- **Content score < 70%:** Record warning: "Content quality warning: tessl scored content at {score}%."
 - **Unavailable:** Skip with note: "Content quality review skipped — tessl tool unavailable"
 
 **Expected scoring for two-tier design:** The Skill Forge two-tier design (Tier 1 Key API Summary + Tier 2 Full API Reference) intentionally includes progressive disclosure. tessl's `conciseness` scorer may flag this as redundancy (typically scoring 2/3), which is expected behavior — not a defect. Content scores >= 60% are acceptable when both tiers are correctly applied with proper differentiation (see step-05 Tier 2 assembly rules). Do NOT consolidate Tier 1 and Tier 2 content to improve the score — the two-tier structure is a deliberate design choice for standalone usability.
 
 tessl installs automatically via `npx`. A missing tool is not an error — graceful skip.
+
+#### 6b. User Decision Gate (conditional)
+
+**If tessl returned no suggestions OR tessl was unavailable:** Skip this gate — auto-proceed.
+
+**If tessl returned suggestions**, present them to the user:
+
+"**Content quality review: {score}%**
+
+tessl suggestions:
+{numbered list of judge_suggestions}
+
+**Select an option:**
+- **[S] Skip** — proceed with current content as-is (default)
+- **[A] Apply structural fixes** — apply only structural suggestions (split sections, consolidate duplicates). No new content generated.
+- **[R] Review all** — show each suggestion with proposed changes before applying"
+
+#### Gate Rules:
+
+- **Structural suggestions** (split reference section, consolidate duplicates, reorder sections) can be applied without zero-hallucination risk — they restructure existing content
+- **Semantic suggestions** (add examples, add error handling, add validation checkpoints) introduce content not verified from source code. If the user chooses to apply these:
+  - Warn: "This adds content not verified from source code."
+  - Mark applied content with `<!-- [TESSL:auto-fix] -->` markers
+  - Cite as `[TESSL:suggestion]` in the provenance map with `confidence: "TESSL"` (below T3)
+  - Record in evidence report: "TESSL-suggested content applied: {count} items (unverified)"
+- **If user selects [S]:** Record "tessl suggestions: skipped by user" in evidence report. Proceed to section 7.
+- **If user selects [A]:** Apply structural fixes only, re-run tessl to capture updated score, record results. Proceed to section 7.
+- **If user selects [R]:** Show each suggestion with the proposed change. For each, user confirms or skips. Apply confirmed changes, record results. Proceed to section 7.
 
 ### 7. Validate metadata.json
 
@@ -167,12 +195,13 @@ Add validation results to evidence-report content in context:
 
 ### 9. Menu Handling Logic
 
-**Auto-proceed step — no user interaction.**
+**Conditional interaction step.** If tessl produced suggestions, section 6b halts for user input. Otherwise, auto-proceed.
 
-After validation completes (or is skipped if tools unavailable), immediately load, read entire file, then execute `{nextStepFile}`.
+After validation completes (including any user decisions from section 6b), immediately load, read entire file, then execute `{nextStepFile}`.
 
 - Tool unavailability is a skip, not a halt
 - Validation failures are warnings — proceed to artifact generation
+- tessl gate only triggers when suggestions exist — no gate for clean reviews or unavailable tools
 
 ## CRITICAL STEP COMPLETION NOTE
 
@@ -188,13 +217,16 @@ ONLY WHEN validation is complete (or skipped) and evidence-report content is upd
 - Quality score captured and recorded; auto-fix applied for deterministic issues
 - Split-body applied if `body.max_lines` failed; security scan executed (or skipped with warning)
 - `npx -y tessl skill review` executed (or skipped); content quality warning raised if score < 70%
+- tessl suggestions presented to user when available; user decision recorded
+- TESSL-applied content marked with `<!-- [TESSL:auto-fix] -->` and cited as `[TESSL:suggestion]`
 - Metadata cross-check performed; evidence report updated with structured results
-- Auto-proceeded to step-07
+- Proceeded to step-07 (auto or after user gate)
 
 ### ❌ SYSTEM FAILURE:
 
 - Halting on validation failure or skill-check unavailability (should warn and proceed)
-- Adding new content during validation (only structural fixes allowed)
+- Adding new content during validation without user approval via the tessl gate
+- Applying semantic tessl suggestions without warning the user about unverified content
 - Not recording quality score; skipping security scan without recording the skip
 - Attempting more than one auto-fix cycle per failure
 
