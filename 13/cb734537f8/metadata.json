@@ -3,12 +3,20 @@
   "checkpoint_id": "13cb734537f8",
   "strategy": "manual-commit",
   "branch": "dev",
-  "checkpoints_count": 2,
+  "checkpoints_count": 9,
   "files_touched": [
+    "src/workflows/analyze-source/validation-report-2026-03-17.md",
+    "src/workflows/brief-skill/validation-report-2026-03-17.md",
     "src/workflows/create-skill/steps-c/step-03-extract.md",
     "src/workflows/create-skill/steps-c/step-05-compile.md",
     "src/workflows/create-skill/steps-c/step-07-generate-artifacts.md",
-    "src/workflows/update-skill/steps-c/step-03-re-extract.md"
+    "src/workflows/create-skill/validation-report-2026-03-17.md",
+    "src/workflows/create-stack-skill/validation-report-2026-03-17.md",
+    "src/workflows/export-skill/validation-report-2026-03-17.md",
+    "src/workflows/quick-skill/validation-report-2026-03-17.md",
+    "src/workflows/test-skill/validation-report-2026-03-17.md",
+    "src/workflows/update-skill/steps-c/step-03-re-extract.md",
+    "src/workflows/update-skill/validation-report-2026-03-17.md"
   ],
   "sessions": [
     {
@@ -17,13 +25,20 @@
       "context": "/13/cb734537f8/0/context.md",
       "content_hash": "/13/cb734537f8/0/content_hash.txt",
       "prompt": "/13/cb734537f8/0/prompt.txt"
+    },
+    {
+      "metadata": "/13/cb734537f8/1/metadata.json",
+      "transcript": "/13/cb734537f8/1/full.jsonl",
+      "context": "/13/cb734537f8/1/context.md",
+      "content_hash": "/13/cb734537f8/1/content_hash.txt",
+      "prompt": "/13/cb734537f8/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 206,
-    "cache_creation_tokens": 268160,
-    "cache_read_tokens": 21912078,
-    "output_tokens": 51381,
-    "api_call_count": 155
+    "input_tokens": 301,
+    "cache_creation_tokens": 436840,
+    "cache_read_tokens": 25179551,
+    "output_tokens": 63858,
+    "api_call_count": 193
   }
 }
