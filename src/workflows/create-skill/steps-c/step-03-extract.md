@@ -115,6 +115,10 @@ Degrade to Quick tier extraction. Note the degradation reason in context for the
 - If a file cannot be read: log warning, skip file, continue with remaining files
 - If AST parsing fails on a file: fall back to source reading for that file, continue
 
+**Re-export tracing (Forge/Deep only):**
+
+After the initial AST scan, check for public exports from the entry point (`__init__.py`, `index.ts`, `lib.rs`) that were NOT found by AST extraction. These are likely module-level re-exports. Follow the **Re-Export Tracing** protocol in `{extractionPatternsData}` to resolve them to their actual definition files. This ensures module re-export patterns (common in Python libraries with clean public APIs) do not create gaps in the extraction inventory.
+
 ### 5. Build Extraction Inventory
 
 Compile all extracted data into a structured inventory:
