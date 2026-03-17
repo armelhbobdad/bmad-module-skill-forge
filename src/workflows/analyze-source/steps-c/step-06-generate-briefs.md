@@ -78,7 +78,7 @@ For EACH unit in `confirmed_units`, construct a skill-brief.yaml using:
 | Field | Source |
 |-------|--------|
 | name | Confirmed name from step 05 recommendation card |
-| version | `1.0.0` (default for new briefs) |
+| version | Auto-detect from source (see schema Version Detection), fall back to `1.0.0` |
 | source_repo | `{project_path}` from frontmatter |
 | language | Primary language detected in step 03 |
 | scope.type | Scope type from step 05 recommendation card |

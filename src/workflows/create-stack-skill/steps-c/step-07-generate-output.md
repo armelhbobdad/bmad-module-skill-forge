@@ -114,7 +114,7 @@ Write `{skills_output_folder}/{project_name}-stack/metadata.json`:
 {
   "skill_type": "stack",
   "name": "{project_name}-stack",
-  "version": "1.0.0",
+  "version": "{primary_library_version or 1.0.0}",
   "generation_date": "{current_date}",
   "confidence_tier": "{tier}",
   "library_count": N,

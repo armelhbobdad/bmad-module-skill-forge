@@ -64,7 +64,7 @@ Write the merged SKILL.md content to `{skills_output_folder}/{skill_name}/SKILL.
 ### 2. Write Updated metadata.json
 
 Update `{skills_output_folder}/{skill_name}/metadata.json`:
-- Update `version` (increment patch version)
+- Update `version`: if a source version was detected during re-extraction and differs from the current metadata version, use the source version; otherwise increment patch version
 - Update `last_updated` timestamp to current date
 - Update `export_count` to reflect current total
 - Update `confidence_distribution` with new T1/T1-low/T2 counts

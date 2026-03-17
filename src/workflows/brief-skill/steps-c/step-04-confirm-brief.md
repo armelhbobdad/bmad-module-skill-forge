@@ -67,7 +67,7 @@ Load `{briefSchemaFile}` to reference required fields and the human-readable pre
 Compile all gathered data from steps 01-03 into the complete brief:
 
 - **name:** {skill name from step 01}
-- **version:** "1.0.0" (default)
+- **version:** {auto-detected from source, or "1.0.0" if not found — see schema for detection rules}
 - **source_repo:** {target repo from step 01}
 - **language:** {detected/confirmed language from steps 02-03}
 - **description:** {derived from user intent in step 01}

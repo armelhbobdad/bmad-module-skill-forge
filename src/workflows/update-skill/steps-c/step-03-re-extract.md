@@ -103,6 +103,10 @@ If `source_root` (from metadata.json) is a remote URL (GitHub URL or owner/repo 
 
 **Ephemeral clone cleanup:** After extraction is complete for all files in scope (whether successful or partially failed), before presenting the extraction summary (Section 5), if `ephemeral_clone_active`, delete the `{temp_path}` directory. Log: "Ephemeral source clone cleaned up." This ensures cleanup runs even if some extractions failed, as long as the step itself is still executing.
 
+**Version Reconciliation:**
+
+After the source path is accessible, check whether the source version has changed since the original skill was created. Look for the version file matching the detected language (e.g., `pyproject.toml`, `package.json`, `Cargo.toml`). If the source version differs from the current `metadata.json` version, record `source_version_detected` in context for step-06 to use when updating `metadata.json`. No warning needed here — step-06 handles the version update.
+
 **If AST tool is unavailable at Forge/Deep tier (local source):**
 
 ⚠️ **Warn the user explicitly:** "AST tools are unavailable — extraction will use source reading (T1-low). Run [SF] Setup Forge to detect and configure AST tools for T1 confidence."

@@ -117,7 +117,7 @@ Create metadata.json:
 ```json
 {
   "name": "{repo_name}",
-  "version": "0.1.0",
+  "version": "{extraction_inventory.version or 0.1.0}",
   "skill_type": "single",
   "source_authority": "community",
   "source_repo": "{resolved_url}",

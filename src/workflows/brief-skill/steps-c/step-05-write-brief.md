@@ -72,7 +72,7 @@ Generate the YAML file using the approved field values and the schema template:
 ```yaml
 ---
 name: "{approved skill name}"
-version: "1.0.0"
+version: "{detected source version or 1.0.0}"
 source_type: "{source or docs-only}"
 source_repo: "{approved source repo or doc site URL}"
 language: "{approved language}"

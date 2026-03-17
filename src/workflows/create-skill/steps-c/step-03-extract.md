@@ -149,6 +149,27 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
 
 **Ephemeral clone cleanup:** After extraction is complete for all files in scope (whether successful or partially failed), before presenting the Gate 2 summary (Section 6), if `ephemeral_clone_active`, delete the `{temp_path}` directory. Log: "Ephemeral source clone cleaned up." This ensures cleanup runs even if some extractions failed, as long as the step itself is still executing.
 
+**Version Reconciliation (all tiers, source mode only):**
+
+**If `source_type: "docs-only"`:** skip this subsection — no source files exist to reconcile.
+
+After the source path is accessible (local path from step-01, or ephemeral clone from above), check whether the source contains a version identifier and reconcile it with `brief.version`. Look for the first matching version file in the resolved source path:
+
+- Python: `pyproject.toml` (`[project] version`), `setup.py` (`version=`), `__version__` in `__init__.py`
+- JavaScript/TypeScript: `package.json` (`"version"`)
+- Rust: `Cargo.toml` (`[package] version`)
+- Go: `go.mod` (module version if tagged)
+
+**If a source version is found AND it differs from `brief.version`:**
+
+⚠️ Warn the user: "Brief version ({brief.version}) differs from source version ({source_version}). Using source version ({source_version})."
+
+Update the working version in context to the source version. Record the mismatch in context for the evidence report (step-08).
+
+**If no version file is found or version cannot be extracted:** keep `brief.version` as-is. No warning needed.
+
+**If source is remote and accessed via Quick tier (gh_bridge, no local files):** attempt to read the version file via `gh_bridge.read_file(owner, repo, "{version_file}")` for the primary version file of the detected language. If the read fails, keep `brief.version`.
+
 **Quick Tier (No AST tools):**
 
 1. Use `gh_bridge.list_tree(owner, repo, branch)` to map source structure (if remote)
