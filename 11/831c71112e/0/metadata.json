@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "11831c71112e",
+  "session_id": "f95a5101-efca-4aa4-82db-d7831947080e",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-17T19:25:30.254104054Z",
+  "branch": "dev",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/workflows/create-skill/steps-c/step-03c-fetch-docs.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "92a5a421676d",
+  "token_usage": {
+    "input_tokens": 117,
+    "cache_creation_tokens": 144753,
+    "cache_read_tokens": 7941339,
+    "output_tokens": 31272,
+    "api_call_count": 84
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-17T19:25:29.09701777Z",
+    "agent_lines": 8,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 8,
+    "agent_percentage": 100
+  }
+}
