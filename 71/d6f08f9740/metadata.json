@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "71d6f08f9740",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/workflows/analyze-source/workflow-plan-analyze-source.md",
+    "src/workflows/brief-skill/data/scope-templates.md",
+    "src/workflows/brief-skill/steps-c/step-03-scope-definition.md",
+    "src/workflows/create-skill/data/compile-assembly-rules.md",
+    "src/workflows/create-skill/data/source-resolution-protocols.md",
+    "src/workflows/create-skill/steps-c/step-01-load-brief.md",
+    "src/workflows/create-skill/steps-c/step-03-extract.md",
+    "src/workflows/create-skill/steps-c/step-05-compile.md",
+    "src/workflows/create-skill/steps-c/step-07-generate-artifacts.md",
+    "src/workflows/create-skill/workflow-plan-create-skill.md",
+    "src/workflows/export-skill/workflow.md",
+    "src/workflows/quick-skill/steps-c/step-05-validate.md",
+    "src/workflows/test-skill/steps-c/step-04b-external-validators.md",
+    "src/workflows/test-skill/workflow-plan-test-skill.md",
+    "src/workflows/update-skill/data/remote-source-resolution.md",
+    "src/workflows/update-skill/steps-c/step-03-re-extract.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/71/d6f08f9740/0/metadata.json",
+      "transcript": "/71/d6f08f9740/0/full.jsonl",
+      "context": "/71/d6f08f9740/0/context.md",
+      "content_hash": "/71/d6f08f9740/0/content_hash.txt",
+      "prompt": "/71/d6f08f9740/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6,
+    "cache_creation_tokens": 10559,
+    "cache_read_tokens": 809743,
+    "output_tokens": 2236,
+    "api_call_count": 6
+  }
+}

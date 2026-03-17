@@ -1,0 +1,47 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "71d6f08f9740",
+  "session_id": "8d778566-d8da-4444-98c6-f619f05b0f8b",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-17T14:38:02.56832625Z",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/workflows/analyze-source/workflow-plan-analyze-source.md",
+    "src/workflows/create-skill/steps-c/step-01-load-brief.md",
+    "src/workflows/create-skill/steps-c/step-03-extract.md",
+    "src/workflows/create-skill/workflow-plan-create-skill.md",
+    "src/workflows/test-skill/workflow-plan-test-skill.md",
+    "src/workflows/brief-skill/data/scope-templates.md",
+    "src/workflows/brief-skill/steps-c/step-03-scope-definition.md",
+    "src/workflows/create-skill/data/compile-assembly-rules.md",
+    "src/workflows/create-skill/steps-c/step-05-compile.md",
+    "src/workflows/quick-skill/steps-c/step-05-validate.md",
+    "src/workflows/update-skill/data/remote-source-resolution.md",
+    "src/workflows/update-skill/steps-c/step-03-re-extract.md",
+    "src/workflows/create-skill/steps-c/step-07-generate-artifacts.md",
+    "src/workflows/test-skill/steps-c/step-04b-external-validators.md",
+    "src/workflows/create-skill/data/source-resolution-protocols.md",
+    "src/workflows/export-skill/workflow.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "d8c499b53d51",
+  "checkpoint_transcript_start": 435,
+  "transcript_lines_at_start": 435,
+  "token_usage": {
+    "input_tokens": 6,
+    "cache_creation_tokens": 10559,
+    "cache_read_tokens": 809743,
+    "output_tokens": 2236,
+    "api_call_count": 6
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-17T14:38:02.14863909Z",
+    "agent_lines": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 0,
+    "agent_percentage": 0
+  }
+}
