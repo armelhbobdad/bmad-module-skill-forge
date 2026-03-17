@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "ed8390077edf",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "docs/getting-started.md",
+    "src/workflows/create-skill/steps-c/step-06-validate.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ed/8390077edf/0/metadata.json",
+      "transcript": "/ed/8390077edf/0/full.jsonl",
+      "context": "/ed/8390077edf/0/context.md",
+      "content_hash": "/ed/8390077edf/0/content_hash.txt",
+      "prompt": "/ed/8390077edf/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 29,
+    "cache_creation_tokens": 42712,
+    "cache_read_tokens": 688019,
+    "output_tokens": 3664,
+    "api_call_count": 18
+  }
+}
