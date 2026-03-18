@@ -189,12 +189,13 @@ stack_skill_candidates: [{updated list with user decisions}]
 
 ### 8. Present MENU OPTIONS
 
-Display: "**Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Continue to Brief Generation"
+Display: "**Select an Option:** [A] Advanced Elicitation [P] Party Mode [D] Discover Additional Source [C] Continue to Brief Generation"
 
 #### Menu Handling Logic:
 
 - IF A: Execute {advancedElicitationTask}, and when finished redisplay the menu
 - IF P: Execute {partyModeWorkflow}, and when finished redisplay the menu
+- IF D: Accept a new repo path/URL from the user. Run a lightweight scan + classify (subset of steps 02-03) for the new source only. Merge new units into the existing report, update `project_paths[]`, then re-run export mapping (step 04 logic) for the new units. Return to this menu with updated recommendations.
 - IF C: Save recommendations to {outputFile}, update frontmatter, then load, read entire file, then execute {nextStepFile}
 - IF Any other comments or queries: help user respond then [Redisplay Menu Options](#8-present-menu-options)
 

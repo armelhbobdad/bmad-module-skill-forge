@@ -61,7 +61,7 @@ To map the complete project structure by scanning directory trees, detecting ser
 ### 1. Load Context
 
 Read {outputFile} frontmatter to obtain:
-- `project_path` — the root to scan
+- `project_paths[]` — the root(s) to scan (one or more paths/URLs)
 - `forge_tier` — determines scanning depth
 - Scope hints (if any were provided in step 01)
 
@@ -69,7 +69,7 @@ Load {heuristicsFile} for reference on detection signals.
 
 ### 2. Scan Directory Structure
 
-Launch a subprocess that scans the project directory structure:
+**For each path in `project_paths[]`**, launch a subprocess that scans the project directory structure (aggregate results across all repos with clear repo-level grouping):
 
 1. Map the top-level directory tree (2-3 levels deep)
 2. Identify workspace configuration files (pnpm-workspace.yaml, lerna.json, Cargo.toml [workspace], go.work, etc.)
@@ -83,6 +83,12 @@ Launch a subprocess that scans the project directory structure:
 **Apply scope hints if provided:**
 - If specific directories were given, scan only those
 - If exclusion patterns were given, skip matching directories
+
+**Deep tier additional scanning (IF Deep tier):**
+- Use ast-grep to detect structural patterns across the codebase: `ast-grep -p 'class $NAME' --lang python` (or equivalent per language) to build a class/type inventory
+- Use ast-grep to identify exported function patterns: `ast-grep -p 'def $FUNC($$$PARAMS)' --lang python` at entry points
+- If QMD is available, query for temporal context on the project: recent changes, active development areas, refactoring patterns
+- Record Deep-tier findings separately — they supplement (not replace) the Quick/Forge scan results
 
 ### 3. Detect Service Boundaries
 

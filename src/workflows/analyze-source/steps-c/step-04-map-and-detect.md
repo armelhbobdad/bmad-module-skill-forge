@@ -81,7 +81,11 @@ DO NOT BE LAZY — For EACH qualifying unit, launch a subprocess (or analyze in 
 2. Counts and categorizes exports based on forge tier:
    - **Quick tier:** Count files by type, identify index/barrel files, list directory structure
    - **Forge tier:** Parse export statements, identify public API surface, count exported functions/classes/types
-   - **Deep tier:** All Forge analysis plus semantic relationship mapping between exports
+   - **Deep tier:** All Forge analysis plus:
+     - ast-grep structural export extraction: `ast-grep -p 'export $$$' --lang typescript` or equivalent per language to build a verified export inventory
+     - ast-grep type/interface mapping: `ast-grep -p 'interface $NAME' --lang typescript` or `ast-grep -p 'class $NAME($$$)' --lang python`
+     - If QMD available: query for temporal evolution of identified exports (deprecation signals, recent additions, refactoring patterns)
+     - Record semantic relationships between exports (which exports reference/depend on each other)
 3. Returns structured findings to parent:
    - Export count (files, functions, types, classes)
    - Primary export patterns (barrel exports, direct exports, re-exports)
@@ -190,11 +194,12 @@ stack_skill_candidates: [{list flagged candidate groupings}]
 
 ### 8. Present MENU OPTIONS
 
-Display: "**Select:** [C] Continue to Recommendations"
+Display: "**Select:** [C] Continue to Recommendations | [D] Discover Additional Source"
 
 #### Menu Handling Logic:
 
 - IF C: Save findings to {outputFile}, update frontmatter, then load, read entire file, then execute {nextStepFile}
+- IF D: Accept a new repo path/URL from the user. Run a lightweight scan (directory structure + manifest detection from step 02) and classify (unit identification from step 03) for the new source only. Merge results into the existing report — append new units to the unit list, update `project_paths[]` in frontmatter. Then redisplay this step's export mapping for the new units before returning to the menu.
 - IF Any other: help user, then [Redisplay Menu Options](#8-present-menu-options)
 
 #### EXECUTION RULES:

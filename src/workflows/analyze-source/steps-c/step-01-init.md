@@ -86,15 +86,23 @@ Look for {outputFile}.
 
 I'll analyze your project to identify discrete skillable units and produce skill-brief.yaml files for each recommended unit.
 
-**Please provide the project root path to analyze:**
+**Please provide the project root path(s) to analyze:**
 
-This should be the root directory of the repo or multi-service project you want to decompose."
+This can be:
+- A single root directory of a repo or multi-service project
+- Multiple paths or URLs (comma-separated) for multi-repo analysis (e.g., integration/stack skills)
+
+Examples:
+- `/path/to/project`
+- `owner/repo, owner/repo2`
+- `/path/to/project, https://github.com/owner/repo2`"
 
 Wait for user input.
 
-**Validate the path:**
-- Check that the path exists and contains source files
-- **IF invalid:** "That path doesn't appear to be a valid project directory. Please provide the correct path."
+**Validate the path(s):**
+- For each provided path/URL: check that it exists (local) or is accessible (remote)
+- **IF any invalid:** "Path `{path}` doesn't appear to be valid. Please correct it."
+- Store as `project_paths[]` array in report frontmatter (single path stored as 1-element array for consistency)
 
 ### 4. Collect Optional Scope Hints
 
