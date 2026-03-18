@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "842d00ac0535",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/workflows/export-skill/steps-c/step-01-load-skill.md",
+    "src/workflows/test-skill/steps-c/step-01-init.md",
+    "src/workflows/test-skill/steps-c/step-02-detect-mode.md",
+    "src/workflows/test-skill/steps-c/step-03-coverage-check.md",
+    "src/workflows/test-skill/steps-c/step-04-coherence-check.md",
+    "src/workflows/test-skill/steps-c/step-04b-external-validators.md",
+    "src/workflows/test-skill/steps-c/step-05-score.md",
+    "src/workflows/test-skill/steps-c/step-06-report.md",
+    "src/workflows/test-skill/workflow-plan-test-skill.md",
+    "src/workflows/test-skill/workflow.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/84/2d00ac0535/0/metadata.json",
+      "transcript": "/84/2d00ac0535/0/full.jsonl",
+      "context": "/84/2d00ac0535/0/context.md",
+      "content_hash": "/84/2d00ac0535/0/content_hash.txt",
+      "prompt": "/84/2d00ac0535/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 38,
+    "cache_creation_tokens": 50144,
+    "cache_read_tokens": 915249,
+    "output_tokens": 9795,
+    "api_call_count": 25
+  }
+}
