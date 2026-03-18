@@ -66,6 +66,19 @@ Coverage scoring adapts: instead of comparing SKILL.md against source code expor
 
 **If source-based skill:** Continue with standard coverage check below.
 
+### 0b. Define Source API Surface
+
+**Source API surface** = the package's top-level public exports. These are the symbols reachable from the primary entry point without importing internal modules:
+
+- **Python:** symbols exported in `__init__.py` (including re-exports) — exclude private (`_prefixed`) names
+- **TypeScript/JavaScript:** named exports from `index.ts` / `index.js` — exclude unexported locals
+- **Go:** exported identifiers (capitalized) from the package's public-facing files
+- **Rust:** items in `pub use` from `lib.rs` or `mod.rs`
+
+Internal module symbols are **excluded** from the coverage denominator unless they are explicitly documented in SKILL.md (in which case they count as documented extras, not missing coverage).
+
+This matches the extraction-patterns.md convention used during skill creation: coverage measures how well SKILL.md documents what users actually import, not the entire internal codebase.
+
 ### 1. Extract Documented Exports from SKILL.md
 
 Read SKILL.md and extract all documented items:
@@ -80,14 +93,16 @@ Build the **documented inventory** — a list of everything the SKILL.md claims 
 
 ### 2. Analyze Source Code (Tier-Dependent)
 
+Start from the package entry point (see 0b) and identify the public API surface. Then analyze those exports at the appropriate tier depth.
+
 **Quick Tier (no tools):**
-- Read source files directly
-- Identify exported items by scanning for `export` keywords, `module.exports`, or language-specific export patterns
+- Read the entry point file(s) directly
+- Identify public exports by scanning for `export` keywords, `module.exports`, `__init__.py` imports, or language-specific export patterns
 - Compare against documented inventory by name matching
 - Cannot verify signatures — note as "unverified" in report
 
 **Forge Tier (ast-grep available):**
-DO NOT BE LAZY — For EACH source file in the skill's source path, launch a subprocess that:
+DO NOT BE LAZY — For EACH source file that defines public API exports, launch a subprocess that:
 1. Uses ast-grep to extract all exported symbols with their full signatures
 2. Matches each export against the documented inventory
 3. Returns structured findings:
