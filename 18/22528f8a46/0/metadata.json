@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "1822528f8a46",
+  "session_id": "eeab160e-2b71-427b-8b44-546f08e8b077",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-18T17:10:19.72046722Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/test-skill/steps-c/step-03-coverage-check.md",
+    "src/workflows/update-skill/steps-c/step-03-re-extract.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "92e4326c1dc8",
+  "token_usage": {
+    "input_tokens": 155,
+    "cache_creation_tokens": 184032,
+    "cache_read_tokens": 12586781,
+    "output_tokens": 33552,
+    "api_call_count": 115
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-18T17:10:18.322550033Z",
+    "agent_lines": 0,
+    "human_added": 55,
+    "human_modified": 3,
+    "human_removed": 0,
+    "total_committed": 58,
+    "agent_percentage": 0
+  }
+}
