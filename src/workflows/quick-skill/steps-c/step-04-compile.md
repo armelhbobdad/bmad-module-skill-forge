@@ -132,7 +132,11 @@ Create metadata.json:
   "exports": ["{export_1}", "{export_2}"],
   "stats": {
     "exports_documented": "{number of exports found}",
-    "exports_total": "{number of exports found}"
+    "exports_public_api": "{number of exports found}",
+    "exports_internal": 0,
+    "exports_total": "{number of exports found}",
+    "public_api_coverage": 1.0,
+    "total_coverage": 1.0
   }
 }
 ```

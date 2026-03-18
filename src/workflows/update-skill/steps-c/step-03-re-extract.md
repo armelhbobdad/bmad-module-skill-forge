@@ -114,6 +114,8 @@ DO NOT BE LAZY — For EACH file in the change manifest with status MODIFIED, AD
 
 **For MOVED files:** Re-extract at new location to update file:line references.
 
+**Re-export tracing (Forge/Deep only):** After extracting changed files, check if any public exports from the package entry point (`__init__.py`, `index.ts`, `lib.rs`) are unresolved — particularly when a changed file is part of a module re-export chain. Follow the **Re-Export Tracing** protocol in `{extractionPatternsData}` to trace unresolved symbols to their actual definition files.
+
 ### 3. Deep Tier QMD Enrichment (Conditional)
 
 **ONLY if forge_tier == Deep:**

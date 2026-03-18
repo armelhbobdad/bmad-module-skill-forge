@@ -92,7 +92,7 @@ Files in scope > 500
 
 ### Safety Valve
 
-If any ast-grep operation (MCP or CLI) visibly causes a timeout, returns an error related to output size, or produces unexpectedly large output: immediately switch to the CLI streaming fallback with `--json=stream`. Do not retry the same approach. Note: `max_results` in the MCP tool and `| head -N` in the CLI path provide hard caps, but this safety valve covers cases where the upstream tool itself fails before returning results (e.g., OOM during JSON serialization).
+If any ast-grep operation (MCP or CLI) visibly causes a timeout, returns an error related to output size, or produces unexpectedly large output: immediately switch to the CLI streaming fallback with `--json=stream`. Do not retry the same approach. When falling back to the CLI streaming template, inject the brief's `scope.exclude` patterns into the `EXCLUDES` list (use `[]` if absent) — this applies regardless of which path triggered the fallback. Note: `max_results` in the MCP tool and `| head -N` in the CLI path provide hard caps, but this safety valve covers cases where the upstream tool itself fails before returning results (e.g., OOM during JSON serialization).
 
 ### MCP Tool Usage (Preferred)
 
@@ -125,15 +125,24 @@ When MCP tools are unavailable or the repo exceeds 500 files in scope, use `--js
 
 ```bash
 # Note: use $$$ for variadic params in ast-grep patterns (e.g., 'def $NAME($$$PARAMS)')
+# {exclude_patterns} = Python list from brief's scope.exclude, e.g. ['tests/**', '**/test_*']
+# If scope.exclude is absent or empty in the brief, inject [] as the default.
+# Patterns are matched against the full file path as emitted by ast-grep.
+# Ensure paths are relative to the same root as the patterns (strip ./ prefix if needed).
 ast-grep -p '{pattern}' -l {language} --json=stream {path} | python3 -c "
-import sys, json
+import sys, json, fnmatch
+
+EXCLUDES = {exclude_patterns}
+
 for line in sys.stdin:
     try:
         m = json.loads(line)
+        f = m.get('file','')
+        if EXCLUDES and any(fnmatch.fnmatch(f, pat) for pat in EXCLUDES):
+            continue
         v = m.get('metaVariables',{})
         name = v.get('single',{}).get('NAME',{}).get('text','')
         if name and not name.startswith('_'):
-            f = m.get('file','')
             ln = m.get('range',{}).get('start',{}).get('line',0)+1
             sig = m.get('text','').split(chr(10))[0].strip()
             print(f'[AST:{f}:L{ln}] {sig}')
@@ -221,6 +230,37 @@ constraints:
     regex: '^[A-Z]'
 ```
 
+### Re-Export Tracing
+
+After initial AST extraction, some top-level exports may resolve to **module imports** rather than direct function definitions. This is common in Python libraries that use `__init__.py` re-exports for a clean public API.
+
+**Detection heuristic:** For each top-level export from `__init__.py` (or equivalent entry point), check if the import path resolves to a directory (contains `__init__.py`) rather than a `.py` file with a matching `def` or `class`. If the initial AST scan found no function/class definition for a known public export, it is likely a module re-export.
+
+**Tracing protocol:**
+
+1. Read the entry point file (e.g., `{package}/__init__.py`) and extract all `from .X import Y` statements
+2. For each import where Y was NOT found by the initial AST scan:
+   - Check if the import path resolves to a directory (e.g., `{package}/api/v1/delete/` exists with `__init__.py`)
+   - If directory: read its `__init__.py` to find the actual re-exported symbol
+   - Trace the symbol to its definition file and run AST extraction on that file
+3. Cite the actual definition location: `[AST:{definition_file}:L{line}]`
+
+**Examples:**
+
+```python
+# Module re-export — follow required
+from .api.v1.delete import delete    # delete/ is a directory → read delete/__init__.py
+
+# Direct function import — no follow needed
+from .api.v1.add.add import add      # add.py exists with def add()
+```
+
+**Unresolvable imports:** If the import statement is a star-import (`from .X import *`) or a conditional import (`try`/`except`), the symbol cannot be reliably traced via this protocol. Record it with `[SRC:{package}/__init__.py:L{line}]` (T1-low) and a note: "star/conditional import — manual trace required."
+
+**Scope limit:** Only trace re-exports for symbols listed in the top-level entry point's public API. Do not recursively trace beyond one level of `__init__.py` indirection. If a re-export cannot be resolved after one level, record it with a `[SRC:{package}/__init__.py:L{line}]` citation (T1-low) from the import statement itself.
+
+**Other languages:** JS/TS barrel files (`index.ts` with `export { X } from './module'`) follow the same principle — trace the re-export to the definition file. Rust `pub use` and Go package-level re-exports are less common but follow the same heuristic when encountered.
+
 ---
 
 ## Tier Degradation Rules
@@ -235,7 +275,7 @@ When `source_repo` is a remote URL (GitHub URL or owner/repo format) and the tie
 
 1. Check `git` availability (`git --version`). `git` is effectively guaranteed at Deep tier (via `gh` dependency) but NOT guaranteed at Forge tier.
 2. If `git` is available: perform an ephemeral shallow clone to a system temp path (`{system_temp}/skf-ephemeral-{skill-name}-{timestamp}/`).
-3. For create-skill: use `--depth 1 --single-branch --filter=blob:none`; if `include_patterns` are specified, convert glob patterns to directory roots before passing to `sparse-checkout set` — `git sparse-checkout` expects directories, not globs. Use `--skip-checks` when any individual file paths (no glob characters) are present. Apply original glob patterns as file-level filters after checkout. See step-03-extract.md for the full conversion rules.
+3. For create-skill: use `--depth 1 --single-branch --filter=blob:none`; if `include_patterns` are specified, apply mode selection: if `exclude_patterns` are absent, use cone mode (convert include_patterns to directory roots; use `--skip-checks` for individual file paths); if `exclude_patterns` are present, use `--no-cone` mode (pass gitignore-style patterns with `!`-prefixed excludes — includes first, then negations). See source-resolution-protocols.md for the full conversion rules.
 4. For update-skill: use sparse-checkout with `--skip-checks` scoped to the changed files from the change manifest only (file paths require `--skip-checks`). No `--branch` flag — uses the remote default branch (must match the branch used during original create-skill run).
 5. If clone succeeds: use the local clone path for AST extraction. All results are T1 with `[AST:...]` citations.
 6. Cleanup: delete the temp directory after extraction inventory is built and all data is in context. The clone never persists beyond the extraction step.

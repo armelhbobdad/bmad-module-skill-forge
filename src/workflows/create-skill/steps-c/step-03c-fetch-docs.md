@@ -83,7 +83,14 @@ Content fetched from external URLs is classified as **T3** (external, untrusted)
 
 **Subpage discovery (root URL detection):**
 
-After fetching a URL, check if the returned content is a documentation root with minimal useful API content (e.g., mostly navigation links, fewer than 500 characters of meaningful text excluding navigation/menu items). This is common with modern documentation sites (Mintlify, Docusaurus, ReadTheDocs, GitBook) that render API content on subpages.
+After fetching a URL, apply the following heuristic to detect documentation root pages that contain no useful API content. This is common with modern documentation sites (Mintlify, Docusaurus, ReadTheDocs, GitBook) that render API content on subpages.
+
+**Root page detection heuristic — a page is a root if BOTH conditions are true:**
+
+1. **Zero API content indicators:** The fetched markdown contains none of: fenced code blocks (`` ``` ``), parameter tables (`|---|`), or function signature patterns (`def `, `function `, `fn `, `func `, `export `).
+2. **High link density:** More than 70% of non-empty lines are markdown links (matching `[text](url)` with no other substantive content on the line).
+
+If only one condition is true, treat the page as having partial content — keep it as-is and do NOT trigger subpage discovery.
 
 **If a root URL with minimal content is detected:**
 
@@ -137,8 +144,8 @@ Parse the successfully fetched markdown for:
 
 **If tier is Deep and at least one URL was fetched successfully:**
 
-1. Write fetched markdown files to a staging directory: `{system_temp}/skf-docs-{skill-name}/`
-2. Index into QMD: `qmd collection add {staging-dir}/ --name {skill-name}-docs --mask "*.md"`
+1. Write fetched markdown files to a staging directory: `_bmad-output/{skill-name}-docs/`
+2. Index into QMD: `qmd collection add _bmad-output/{skill-name}-docs/ --name {skill-name}-docs --mask "*.md"`
 3. Generate embeddings: `qmd embed` (required for `vector_search` and `deep_search`)
 4. Register in forge-tier.yaml `qmd_collections` array:
 
@@ -150,7 +157,7 @@ Parse the successfully fetched markdown for:
   created_at: "{current ISO date}"
 ```
 
-5. Clean up staging directory after indexing.
+5. Clean up staging directory after indexing: `rm -rf _bmad-output/{skill-name}-docs/`
 
 **If QMD indexing fails:** Warn: "QMD indexing of fetched docs failed. T3 items are still in the extraction inventory — enrichment will proceed without QMD-indexed docs." Continue.
 

@@ -129,8 +129,11 @@ Indexed pipe-delimited format for CLAUDE.md managed section (~80-120 tokens per 
   },
   "stats": {
     "exports_documented": 0,
+    "exports_public_api": 0,
+    "exports_internal": 0,
     "exports_total": 0,
-    "coverage": 0.0,
+    "public_api_coverage": 0.0,
+    "total_coverage": 0.0,
     "confidence_t1": 0,
     "confidence_t2": 0,
     "confidence_t3": 0

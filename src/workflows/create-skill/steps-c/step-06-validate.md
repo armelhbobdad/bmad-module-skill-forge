@@ -178,7 +178,8 @@ tessl suggestions:
 ### 7. Validate metadata.json
 
 Cross-check metadata.json against extraction inventory:
-- `stats.exports_documented` / `stats.exports_total` / `stats.coverage` are accurate
+- `stats.exports_documented` / `stats.exports_public_api` / `stats.exports_internal` / `stats.exports_total` are accurate
+- `stats.public_api_coverage` and `stats.total_coverage` are correctly computed (null when denominator is 0)
 - `confidence_t1`, `confidence_t2`, `confidence_t3` match actual counts
 - `spec_version` is "1.3"
 

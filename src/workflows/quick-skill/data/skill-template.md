@@ -76,7 +76,11 @@ Indexed format targeting ~80-120 tokens per skill:
   "exports": ["{export_1}", "{export_2}"],
   "stats": {
     "exports_documented": "{number}",
-    "exports_total": "{number}"
+    "exports_public_api": "{number}",
+    "exports_internal": 0,
+    "exports_total": "{number}",
+    "public_api_coverage": 1.0,
+    "total_coverage": 1.0
   }
 }
 ```

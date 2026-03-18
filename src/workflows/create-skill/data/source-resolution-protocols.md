@@ -27,6 +27,13 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
    git clone --depth 1 --branch {branch} --single-branch --filter=blob:none --sparse {source_repo} {temp_path}
    ```
 
+   **Mode selection:** Choose sparse-checkout mode based on whether `exclude_patterns` exist:
+
+   - **No `exclude_patterns`:** Use default **cone mode** (faster). Convert `include_patterns` to directory roots.
+   - **`exclude_patterns` present:** Use **`--no-cone` mode** which supports gitignore-style negation patterns (`!` prefix). This applies both include and exclude at the git level, avoiding unnecessary blob downloads.
+
+   **Cone mode (no exclude patterns):**
+
    **IMPORTANT:** `git sparse-checkout set` expects **directories**, not glob patterns. Convert `include_patterns` before passing them:
 
    **Classification rule:** A pattern is an **individual file** if it contains no glob characters (`*`, `?`, `[`) AND does not end with `/`. Everything else is a glob — strip it to its directory root (the path prefix before the first glob character or wildcard segment).
@@ -57,7 +64,35 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
    src/utils/helpers.py      →    src/utils/helpers.py (individual file, needs --skip-checks)
    ```
 
-   After checkout, apply the original glob `include_patterns` as file-level filters when building the extraction file list — sparse-checkout gets the right directories, glob filtering narrows to the exact files.
+   **No-cone mode (exclude patterns present):**
+
+   When `exclude_patterns` exist, use `--no-cone` mode to pass both include and exclude patterns directly as gitignore-style rules:
+
+   1. Convert `include_patterns` to gitignore-style patterns. If a pattern contains no glob characters (`*`, `?`, `[`) and does not end with `/`, append `/**` to match directory contents recursively (e.g., `cognee` → `cognee/**`; `cognee/**` → kept as-is).
+   2. Convert `exclude_patterns` to negation patterns by prepending `!`. Apply the same anchoring rule (e.g., `cognee/tests` → `!cognee/tests/**`; `cognee/tests/**` → `!cognee/tests/**`; `**/test_*` → `!**/test_*`).
+   3. **CRITICAL:** List all include patterns BEFORE negated exclude patterns — git processes patterns in order and a negation can only suppress a prior inclusion.
+   4. Pass to sparse-checkout — include patterns first, then negated exclude patterns:
+
+   ```
+   git -C {temp_path} sparse-checkout set --no-cone {include_gitignore_patterns} {negated_exclude_patterns}
+   ```
+
+   Example transformation:
+   ```
+   Brief include_patterns:        Brief exclude_patterns:
+   cognee/**                      cognee/tests/**
+                                  cognee/alembic/**
+                                  **/test_*
+
+   sparse-checkout args (--no-cone):
+   'cognee/**' '!cognee/tests/**' '!cognee/alembic/**' '!**/test_*'
+   ```
+
+   **Note:** `--no-cone` mode is slower than cone mode for very large repositories but eliminates downloading excluded blobs entirely.
+
+   **Post-checkout filtering:**
+
+   After checkout, apply the original glob `include_patterns` as file-level filters when building the extraction file list — sparse-checkout gets the right directories, glob filtering narrows to the exact files. When `--no-cone` mode was used, most exclude filtering is already done at the git level, but apply `exclude_patterns` as a final pass to catch any edge cases where gitignore pattern matching diverges from the brief's glob semantics.
 
 3. **If clone succeeds:** Update the working source path to `{temp_path}` for all subsequent AST operations in this step. Proceed with the **Forge/Deep Tier** extraction strategy below. Mark `ephemeral_clone_active = true` for cleanup.
 

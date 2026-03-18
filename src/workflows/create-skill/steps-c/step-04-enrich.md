@@ -86,11 +86,15 @@ For each major exported function — limited to the **top-level public API surfa
 
 For each function, derive the **module context** from the extraction inventory's source file path (e.g., `src/graph/neo4j/index.ts` → module context `graph neo4j`). This context improves search relevance by scoping results to the function's subsystem without adding extra queries.
 
-**Search targets per function:**
+**Primary searches (BM25 — always runs, no GPU/VRAM dependency):**
 
 1. **Issues/PRs:** `qmd_bridge.search("{module_context} {function_name}")` — find related discussions scoped by module context
 2. **Changelog entries:** `qmd_bridge.search("{function_name} changelog")` — find version history, breaking changes (kept generic — changelogs rarely use module paths)
-3. **Migration notes:** `qmd_bridge.vector_search("{module_context} {function_name} migration deprecated")` — find deprecation or migration context scoped by module (semantic search benefits from richer context)
+3. **Migration notes:** `qmd_bridge.search("{function_name} migration deprecated breaking")` — find deprecation or migration context using exact keyword matching
+
+**Supplemental search (best-effort — requires GPU/VRAM, may fail):**
+
+4. **Semantic migration context:** `qmd_bridge.vector_search("{module_context} {function_name} migration deprecated")` — adds semantic matches (synonyms, paraphrases) that BM25 keyword search may miss. Merge results with search #3, deduplicating by document ID. If `vector_search` fails (VRAM, GPU driver, model loading), discard silently — the BM25 results from search #3 provide baseline coverage.
 
 **For each QMD result:**
 
