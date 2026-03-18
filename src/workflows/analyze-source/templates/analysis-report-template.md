@@ -6,7 +6,7 @@ lastContinued: ''
 date: ''
 user_name: ''
 project_name: ''
-project_path: ''
+project_paths: []
 forge_tier: ''
 existing_skills: []
 confirmed_units: []

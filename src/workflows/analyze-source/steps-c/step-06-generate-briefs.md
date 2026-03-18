@@ -59,7 +59,7 @@ To generate a valid skill-brief.yaml file for each confirmed unit using the sche
 
 Read {outputFile} completely to obtain:
 - `confirmed_units` from frontmatter (names of units approved in step 05)
-- `project_path`, `forge_tier`, `user_name`, `forge_data_folder` from frontmatter
+- `project_paths`, `forge_tier`, `user_name`, `forge_data_folder` from frontmatter
 - Recommendation cards from "## Recommendations" section (proposed brief fields per unit)
 - Export map and integration data from prior sections
 
@@ -79,7 +79,7 @@ For EACH unit in `confirmed_units`, construct a skill-brief.yaml using:
 |-------|--------|
 | name | Confirmed name from step 05 recommendation card |
 | version | Auto-detect from source (see schema Version Detection), fall back to `1.0.0` |
-| source_repo | `{project_path}` from frontmatter |
+| source_repo | `{project_paths[0]}` from frontmatter (or per-unit path if multi-repo) |
 | language | Primary language detected in step 03 |
 | scope.type | Scope type from step 05 recommendation card |
 | scope.include | Include patterns from step 05 recommendation card |

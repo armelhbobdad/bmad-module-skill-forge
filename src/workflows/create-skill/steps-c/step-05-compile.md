@@ -91,6 +91,7 @@ Following the structure from the skill-sections data file:
 - Set `generation_date` to current ISO-8601 timestamp
 - Set `source_commit` from resolved source (if available)
 - Set `stats` from extraction aggregate counts:
+  - `exports_documented`: count of exports with documentation in the assembled SKILL.md
   - `exports_public_api`: count of exports from public entry points (`__init__.py`, `index.ts`, `lib.rs`, or equivalent)
   - `exports_internal`: count of all other non-underscore-prefixed exports (internal modules, helpers, adapters)
   - `exports_total`: `exports_public_api` + `exports_internal`

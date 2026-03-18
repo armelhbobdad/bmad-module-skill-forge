@@ -66,7 +66,7 @@ To resume the analyze-source workflow from where it was left off in a previous s
 
 Load {outputFile} and read frontmatter:
 - `stepsCompleted` array
-- `project_path`
+- `project_paths`
 - `project_name`
 - `forge_tier`
 - `existing_skills`
@@ -76,7 +76,7 @@ Load {outputFile} and read frontmatter:
 
 "**Analysis Progress for {project_name}:**
 
-**Project:** {project_path}
+**Project:** {project_paths}
 **Forge Tier:** {forge_tier}
 **Steps Completed:** {list stepsCompleted}
 **Last Step:** {last entry in stepsCompleted}

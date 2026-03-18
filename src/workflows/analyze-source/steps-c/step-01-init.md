@@ -141,7 +141,7 @@ lastContinued: ''
 date: '{current_date}'
 user_name: '{user_name}'
 project_name: '{project_name}'
-project_path: '{provided_project_path}'
+project_paths: ['{provided_project_path}']
 forge_tier: '{detected_tier}'
 existing_skills: [{list of existing skill names}]
 confirmed_units: []
@@ -173,7 +173,7 @@ Display: "**Proceeding to project scan...**"
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY WHEN the output report has been created with populated frontmatter (project_path, forge_tier, existing_skills) will you load and read fully {nextStepFile} to execute and begin the project scan.
+ONLY WHEN the output report has been created with populated frontmatter (project_paths, forge_tier, existing_skills) will you load and read fully {nextStepFile} to execute and begin the project scan.
 
 ---
 
