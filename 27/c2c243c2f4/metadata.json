@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "27c2c243c2f4",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/workflows/test-skill/steps-c/step-03-coverage-check.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/27/c2c243c2f4/0/metadata.json",
+      "transcript": "/27/c2c243c2f4/0/full.jsonl",
+      "context": "/27/c2c243c2f4/0/context.md",
+      "content_hash": "/27/c2c243c2f4/0/content_hash.txt",
+      "prompt": "/27/c2c243c2f4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 11,
+    "cache_creation_tokens": 13501,
+    "cache_read_tokens": 737427,
+    "output_tokens": 2025,
+    "api_call_count": 9
+  }
+}
