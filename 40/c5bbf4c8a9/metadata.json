@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "40c5bbf4c8a9",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/test-skill/steps-c/step-04-coherence-check.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/40/c5bbf4c8a9/0/metadata.json",
+      "transcript": "/40/c5bbf4c8a9/0/full.jsonl",
+      "context": "/40/c5bbf4c8a9/0/context.md",
+      "content_hash": "/40/c5bbf4c8a9/0/content_hash.txt",
+      "prompt": "/40/c5bbf4c8a9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 106,
+    "cache_creation_tokens": 128336,
+    "cache_read_tokens": 5811811,
+    "output_tokens": 24857,
+    "api_call_count": 74
+  }
+}
