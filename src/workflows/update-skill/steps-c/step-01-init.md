@@ -62,10 +62,14 @@ Load the existing skill and all its provenance data, detect whether this is an i
 Provide either:
 - A skill name (resolves to `{skills_output_folder}/{name}/`)
 - A full path to the skill folder
+- A skill name with `--from-test-report` to use the test report's gap findings instead of source drift detection
 
 **Skill:** {user provides path or name}"
 
 Resolve the path to an absolute skill folder location.
+
+**If `--from-test-report` was provided (or user references a test report):**
+Search for the test report at `{forge_data_folder}/{skill_name}/test-report-{skill_name}.md`. If found, set `test_report_path` in context and `update_mode: gap-driven`. If not found, warn and continue with normal source drift mode.
 
 ### 2. Validate Required Artifacts
 
@@ -156,7 +160,7 @@ Please provide the current source code path:
 | **Provenance Age** | {days} days since last extraction |
 | **Exports** | {export_count} tracked exports |
 | **[MANUAL] Sections** | {manual_count} preserved sections |
-| **Mode** | {normal/degraded} |
+| **Mode** | {normal/degraded/gap-driven} |
 
 **Analysis plan:** {tier_description}
 - {Quick: text pattern diff → T1-low findings}

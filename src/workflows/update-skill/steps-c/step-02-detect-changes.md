@@ -56,6 +56,32 @@ Compare current source code state against the provenance map to produce a comple
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
 
+### 0. Check for Test Report Input (Gap-Driven Mode)
+
+**If `update_mode == "gap-driven"` (set in step-01 via `--from-test-report`):**
+
+Load the test report at `{test_report_path}` and extract findings:
+
+1. Read the **Gap Report** section — each gap entry has severity, category, and description
+2. Read the **Coverage Analysis** section — each per-export row has documented/missing/mismatch status
+3. Translate findings into change manifest format:
+
+| Gap Severity | Gap Type | Change Category |
+|-------------|----------|-----------------|
+| Critical | Missing export documentation | NEW_EXPORT (undocumented public API) |
+| High | Signature mismatch | MODIFIED_EXPORT (signature needs update) |
+| Medium | Missing type/interface docs | NEW_EXPORT (undocumented type) |
+| Medium | Stale documentation | MODIFIED_EXPORT (docs reference removed export) |
+| Low | Missing metadata/examples | metadata update |
+
+4. Build the change manifest from translated gaps — no file-level timestamp comparison needed since source hasn't changed
+5. Set `gap_count` from the total number of translated entries
+6. **Skip to section 5** (Display Change Summary) with the gap-derived manifest
+
+"**Gap-driven update mode.** Translating {gap_count} test report findings into change manifest — source drift detection skipped."
+
+**If normal mode:** Continue with source drift detection below.
+
 ### 1. Scan Current Source State
 
 Read the source directory at `{source_root}` and build a current file inventory:
