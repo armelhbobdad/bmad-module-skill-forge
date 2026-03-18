@@ -164,6 +164,17 @@ Append the **Completeness Score** section to `{outputFile}`:
 **Weight Distribution:** {naive (redistributed) | contextual (full)}
 **Tier Adjustment:** {none | Quick tier — signature and type coverage not scored}
 **External Validators:** {both available | skill-check only | tessl only | none — weight redistributed}
+**Analysis Confidence:** {full | provenance-map | metadata-only | remote-only | docs-only}
+```
+
+If `analysis_confidence` is not `full`, append a degradation notice:
+
+```markdown
+### Access Degradation Notice
+
+**Resolved via:** {analysis_confidence}
+**Impact:** {describe limitation — e.g., "Signature checks limited to name-matching. Source file:line citations from provenance-map, not live AST."}
+**Recommendation:** Re-run with local clone for full AST-backed verification.
 ```
 
 ### 7. Update Output Frontmatter
@@ -172,6 +183,7 @@ Update `{outputFile}` frontmatter:
 - `testResult: '{pass|fail}'`
 - `score: '{total}%'`
 - `threshold: '{threshold}%'`
+- `analysisConfidence: '{analysis_confidence}'`
 - `nextWorkflow: '{export-skill|update-skill}'`
 - Append `'step-05-score'` to `stepsCompleted`
 

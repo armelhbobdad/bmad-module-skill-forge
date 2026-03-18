@@ -6,6 +6,7 @@ testMode: ''
 forgeTier: ''
 testResult: ''
 score: ''
+analysisConfidence: ''
 testDate: ''
 stepsCompleted: []
 nextWorkflow: ''
