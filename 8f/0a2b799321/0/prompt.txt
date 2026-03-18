@@ -1,0 +1,105 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/
+
+---
+
+We have multiple issues to fix. Let start with this issue: https://github.com/armelhbobdad/bmad-module-skill-forge/issues/50
+
+---
+
+review the changes for any breaking changes, or missing impact and ect...
+
+---
+
+commit and close the issue
+
+---
+
+https://github.com/armelhbobdad/bmad-module-skill-forge/issues/51
+
+---
+
+https://github.com/armelhbobdad/bmad-module-skill-forge/issues/52
+
+---
+
+https://github.com/armelhbobdad/bmad-module-skill-forge/issues/53
+
+---
+
+I undid the commit. We need to find a better approach from scratch. activate the party mode
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+---
+
+Root causes (inferred from knowledge fragments like `zero-hallucination.md` and `confidence-tiers.md`): Maintaining zero-hallucination requires verifiable sources, but cleanups break this. We need to preserve integrity without fabricating data.
+
+### Proposed Better Solution
+Let's redesign the fallback holistically, focusing on resilience, modularity, and alignment with progressive capability (Quick/Forge/Deep tiers). The goal: Ensure coverage checks always succeed at some level, with clear degradation signals, without reverting to lazy skips.
+
+#### 1. **Centralize Source Resolution in a Shared Utility**
+   - Create a new shared data file or utility (e.g., `workflows/test-skill/data/source-resolver.md`) that encapsulates access logic. This avoids duplicating fallbacks across steps.
+   - **Logic Flow** (as a state machine for reliability):
+     - **State 1: Check Local** – Use filesystem checks for `{source_path}` from `metadata.json`.
+     - **State 2: Attempt Remote** – If local fails, query remote via tools (e.g., gh API for file contents). Cache results in `{forge_data_folder}/source-cache/` to survive cleanups.
+     - **State 3: Metadata Fallback** – If both fail, use pre-extracted metadata from `provenance-map.json` (from create-skill). This provides T1-low summaries without full source.
+     - **State 4: Fail Gracefully** – If all fail, set `coverage_degraded: true` and skip to docs-only mode (as in section 0).
+   - **Benefits**: Decouples resolution from step-03, making it reusable (e.g., for update-skill). Aligns with `provenance-tracking.md` by prioritizing cached evidence.
+
+#### 2. **Enhance Degradation with Caching and Warnings**
+   - **Persistent Caching**: During create-skill (step-03-extract), generate a lightweight source snapshot (e.g., JSON of exports/signatures) stored in `{forge_data_folder}/{skill_name}/source-snapshot.json`. This survives clone cleanups and enables T1-low checks.
+   - **Tier-Adaptive Analysis**:
+     - **Quick**: Always use snapshot or metadata (name-matching only).
+     - **Forge/Deep**: Prefer local/remote, fallback to snapshot with a warning in the report: "**Degraded to snapshot analysis due to missing clone. Accuracy may be lower (T1-low).**"
+   - **User Notification**: Append to `{outputFile}` a prominent section like:
+```
+## Access Degradation Warning
+     - Resolved via: {method} (e.g., snapshot)
+     - Impact: Signature checks limited to name-matching.
+     - Recommendation: Re-run with local clone for full AST verification.
+```
+
+   - **Integration with Scoring**: In step-05-score, deduct points if `coverage_degraded: true` (update `scoring-rules.md` accordingly).
+
+#### 3. **Workflow-Level Safeguards**
+   - **Pre-Step Hook**: In `workflow.md` for test-skill, add a pre-step-03 check that runs the resolver and sets context variables (e.g., `source_access_level`).
+   - **Auto-Recovery Option**: If no access, prompt the user (or auto-invoke) to re-clone via a tool call (e.g., integrate with `source-resolution-protocols.md` from create-skill).
+   - **Audit Integration**: Link to audit-skill for drift detection if using snapshots, ensuring stale snapshots trigger warnings.
+
+#### 4. **Implementation Steps**
+   - **New Files**:
+     - Add `source-resolver.md` in `workflows/test-skill/data/`.
+     - Update `step-03-coverage-check.md` to reference it in section 0c.
+   - **Code Edits** (if needed for supporting scripts, but since this is markdown-driven, focus on docs):
+     ```markdown
+// ... existing code ...
+     ### 0c. Resolve Source Access
+
+     Before analysis, determine how source files will be read using the shared source resolver:
+
+     1. **Invoke Resolver:** Load and execute `../data/source-resolver.md` to set `source_access_method`, `source_snapshot` (if used), and `coverage_degraded`.
+     // ... existing code (integrate local/remote/no-access logic here, but call resolver first) ...
+     // ... existing code ...
+```
+
+   - **Testing**: Simulate cleanup by deleting clones and running test-skill; verify report includes warnings and degraded scores.
+
+This approach is more robust than a simple block—it builds resilience into the lifecycle, preserves zero-hallucination, and encourages re-runs for higher fidelity. What do you think—should we refine any part ?
+
+---
+
+let's investigate deeper
+
+---
+
+yes proceed
+
+---
+
+yes
