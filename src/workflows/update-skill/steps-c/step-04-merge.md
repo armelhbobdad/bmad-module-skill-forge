@@ -35,7 +35,7 @@ Merge freshly extracted export data into the existing SKILL.md content while pre
 
 - 🎯 Focus ONLY on merging extractions into existing skill content
 - 🚫 FORBIDDEN to delete or modify [MANUAL] section content
-- 🚫 FORBIDDEN to write files — merge produces in-memory result for step 06
+- 🚫 FORBIDDEN to write files — merge produces an edit plan for step 06 to execute
 - 💬 If [MANUAL] conflicts detected: HALT and present to user for resolution
 - 💬 If clean merge: auto-proceed without user interaction
 
@@ -50,7 +50,7 @@ Merge freshly extracted export data into the existing SKILL.md content while pre
 
 - Available: extraction results from step 03, existing SKILL.md content, [MANUAL] inventory from step 01, change manifest from step 02
 - Focus: content merge and [MANUAL] preservation
-- Limits: in-memory merge only — no file writes
+- Limits: merge planning only — no file writes (step 06 executes the edit plan)
 - Dependencies: step 03 must have produced extraction results
 
 ## MANDATORY SEQUENCE
@@ -222,7 +222,7 @@ ONLY WHEN all merge operations are complete and any [MANUAL] conflicts have been
 
 - ANY [MANUAL] content lost or modified without user consent
 - Auto-resolving [MANUAL] conflicts without user input
-- Writing files during merge (merge is in-memory only)
+- Writing files during merge planning (edits are executed in step 06)
 - Applying merge out of priority order
 - Not detecting orphaned [MANUAL] blocks on deleted exports
 - Not handling stack skill multi-file merge

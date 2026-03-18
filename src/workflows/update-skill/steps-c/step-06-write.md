@@ -169,13 +169,27 @@ For each file written:
 
 **All files written and verified.**"
 
-### 7. Present MENU OPTIONS
+### 7. Run Post-Write Validation (Deferred from Step 05)
+
+External tool checks deferred from step-05 now run against the written files:
+
+**If skill-check available:**
+- Run: `npx skill-check check {skills_output_folder}/{skill_name} --fix --format json --no-security-scan`
+- If `body.max_lines` reported, run: `npx skill-check split-body {skills_output_folder}/{skill_name} --write`
+- Run: `npx skill-check diff` if original version was preserved
+- Run: `npx skill-check check {skills_output_folder}/{skill_name} --format json` for security scan
+
+Record findings in the evidence report (section 4). These are advisory — do not block on warnings.
+
+**If skill-check unavailable:** Skip with note — structural checks from step-05 are sufficient.
+
+### 8. Present MENU OPTIONS
 
 Display: "**Proceeding to report...**"
 
 #### Menu Handling Logic:
 
-- After all writes verified, immediately load, read entire file, then execute {nextStepFile}
+- After all writes verified and post-write validation complete, immediately load, read entire file, then execute {nextStepFile}
 
 #### EXECUTION RULES:
 

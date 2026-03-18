@@ -54,7 +54,7 @@ Validate the merged skill content against the agentskills.io specification, veri
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
 
-### 1. Check Tool Availability
+### 1. Check Tool Availability and Validation Timing
 
 Run: `npx skill-check -h`
 
@@ -62,6 +62,8 @@ Run: `npx skill-check -h`
 - If fails: Use manual fallback paths in those checks
 
 **Important:** Do not assume availability — empirical check required.
+
+**Validation timing note:** Step-04 produces an edit plan, not written files. Checks that require files on disk (skill-check Checks A, E, F) will be **deferred to post-write** — step-06 runs them after writing files. Structural checks (B, C, D) validate the planned merge content and run here.
 
 ### 2. Launch Parallel Validation Checks
 
