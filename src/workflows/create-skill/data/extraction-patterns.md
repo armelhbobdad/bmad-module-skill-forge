@@ -242,6 +242,7 @@ After initial AST extraction, some top-level exports may resolve to **module imp
 2. For each import where Y was NOT found by the initial AST scan:
    - Check if the import path resolves to a directory (e.g., `{package}/api/v1/delete/` exists with `__init__.py`)
    - If directory: read its `__init__.py` to find the actual re-exported symbol
+   - **Handle aliases:** Check for `from .module import A as B` patterns in the intermediate `__init__.py`. If the parent imports `B`, trace through to `A` in `.module`. If the parent imports `A` but the `__init__.py` only exports it as `B` (via `from .module import A as B`), match by original name `A` and note the alias
    - Trace the symbol to its definition file and run AST extraction on that file
 3. Cite the actual definition location: `[AST:{definition_file}:L{line}]`
 
@@ -253,6 +254,14 @@ from .api.v1.delete import delete    # delete/ is a directory → read delete/__
 
 # Direct function import — no follow needed
 from .api.v1.add.add import add      # add.py exists with def add()
+
+# Aliased re-export — follow through alias
+# In cognee/api/v1/visualize/__init__.py:
+#   from .start_visualization_server import visualization_server
+# In cognee/__init__.py:
+#   from .api.v1.visualize import start_visualization_server
+# → Match start_visualization_server against both definition names AND alias names
+#   in the intermediate __init__.py to resolve the chain
 ```
 
 **Unresolvable imports:** If the import statement is a star-import (`from .X import *`) or a conditional import (`try`/`except`), the symbol cannot be reliably traced via this protocol. Record it with `[SRC:{package}/__init__.py:L{line}]` (T1-low) and a note: "star/conditional import — manual trace required."
