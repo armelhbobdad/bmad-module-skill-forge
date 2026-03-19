@@ -70,7 +70,7 @@ Don't worry if you don't have all tools — SKF detects what's available and set
 
 ## Configuration
 
-SKF variables are defined in `src/module.yaml` and prompted during install:
+SKF has two install-time variables (defined in `src/module.yaml`) and one runtime preference:
 
 | Variable               | Purpose                                                                                              | Default                     |
 |------------------------|------------------------------------------------------------------------------------------------------|-----------------------------|

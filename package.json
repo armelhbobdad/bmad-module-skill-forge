@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/package.json",
   "name": "bmad-module-skill-forge",
   "version": "0.3.0",
-  "description": "BMAD module — AST-verified, provenance-backed agent skills compiler with progressive capability tiers (Quick/Forge/Deep)",
+  "description": "BMAD module — Turn code and docs into instructions AI agents can actually follow. Progressive capability tiers (Quick/Forge/Deep).",
   "keywords": [
     "bmad",
     "bmad-method",

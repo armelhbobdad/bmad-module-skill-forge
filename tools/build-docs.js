@@ -105,7 +105,7 @@ function generateLlmsTxt(outputDir) {
   const content = [
     '# Skill Forge (SKF) Documentation',
     '',
-    '> AST-verified, provenance-backed agent skills compiler with progressive capability tiers.',
+    '> Turn code and docs into instructions AI agents can actually follow.',
     '',
     `Documentation: ${SITE_URL}`,
     `Repository: ${REPO_URL}`,

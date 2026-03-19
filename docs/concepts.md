@@ -51,7 +51,7 @@ Your capability tier depends on which tools you have installed. Each tier builds
 - **Forge** — Adds [ast-grep](https://ast-grep.github.io). SKF uses AST parsing for structural truth. Instructions are verified against the actual code structure.
 - **Deep** — Adds [QMD](https://github.com/tobi/qmd). SKF indexes knowledge for semantic search. Skills get enriched with historical context, deprecation warnings, and cross-reference intelligence.
 
-You don't need all tools to start. SKF detects what you have and sets your tier automatically.
+You don't need all tools to start. SKF detects what you have and sets your tier automatically. See [How It Works](../architecture.md) for the full technical treatment.
 
 ---
 

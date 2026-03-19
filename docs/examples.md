@@ -34,7 +34,7 @@ description: Use when cognee is a Python AI memory engine that transforms
 | cognify() | Build knowledge graph | datasets, graph_model | [AST:cognee/api/v1/cognify/cognify.py:L47] |
 | search() | Query knowledge graph | query_text, query_type | [AST:cognee/api/v1/search/search.py:L26] |
 | memify() | Enrich graph with custom tasks | extraction_tasks, data | [AST:cognee/modules/memify/memify.py:L27] |
-| session.* | Session history and feedback | get_session() | [SRC:cognee/api/v1/session/__init__.py:L8] |
+| session.* | Session history and feedback | get_session(), add_feedback() | [SRC:cognee/api/v1/session/__init__.py:L8] |
 | DataPoint | Base class for custom graph nodes | inherit and add fields | [EXT:docs.cognee.ai/guides/custom-data-models] |
 ```
 

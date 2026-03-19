@@ -1,6 +1,6 @@
 ---
 title: Skill Forge (SKF)
-description: Turn your code into instructions AI agents can actually follow
+description: Turn code and docs into instructions AI agents can actually follow
 template: splash
 hero:
   title: Skill Forge (SKF)
@@ -38,12 +38,12 @@ See the [Getting Started](./getting-started/) guide for full installation and us
 
 ## Documentation
 
-- **[Getting Started](./getting-started.md)** — Installation, prerequisites, and your first skill
-- **[Concepts](./concepts.md)** — Plain-English definitions of key terms (provenance, tiers, drift, and more)
-- **[How It Works](./architecture.md)** — Architecture, capability model, output format, and design decisions
-- **[Workflows](./workflows.md)** — All 10 workflows with commands and connection diagrams
-- **[Agents](./agents.md)** — Ferris: the AI agent that runs all SKF workflows
-- **[Examples](./examples.md)** — Real-world scenarios, tips, and troubleshooting
+- **[Getting Started](./getting-started/)** — Installation, prerequisites, and your first skill
+- **[Concepts](./concepts/)** — Plain-English definitions of key terms (provenance, tiers, drift, and more)
+- **[How It Works](./architecture/)** — Architecture, capability model, output format, and design decisions
+- **[Workflows](./workflows/)** — All 10 workflows with commands and connection diagrams
+- **[Agents](./agents/)** — Ferris: the AI agent that runs all SKF workflows
+- **[Examples](./examples/)** — Real-world scenarios, tips, and troubleshooting
 
 ## Support
 

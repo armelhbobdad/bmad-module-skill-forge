@@ -61,7 +61,7 @@ class UI {
     console.log(row(chalk.white.bold('Skill Forge') + chalk.dim(` v${version}`)));
     console.log(row(chalk.dim('Agent Skill Compiler') + ' '.repeat(15) + brand.spark('⚒')));
     console.log(mid);
-    console.log(row(chalk.dim('AST-verified · version-pinned · zero hallucination')));
+    console.log(row(chalk.dim('Code · Docs · Discourse → Verified agent skills')));
     console.log(bottom);
     console.log();
 

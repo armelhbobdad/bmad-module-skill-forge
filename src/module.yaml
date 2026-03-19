@@ -1,7 +1,7 @@
 code: skf
 name: "SKF: Skill Forge — Evidence-Based Agent Skills Compiler"
-header: "Automated skill compiler — AST-verified, provenance-backed agent skills from code repositories, documentation, and developer discourse"
-subheader: "Zero hallucination tolerance. Every instruction traces to code."
+header: "Turn code and docs into instructions AI agents can actually follow"
+subheader: "Every instruction traces to source. Zero hallucination tolerance."
 description: "Skill Forge transforms code repositories, documentation, and developer discourse into agentskills.io-compliant, version-pinned, provenance-backed agent skills. Uses ast-grep for structural truth, QMD for knowledge intelligence, and a progressive capability model (Quick/Forge/Deep). Standalone module — no other modules required. Recommended alongside BMM for full development workflow integration."
 default_selected: false
 

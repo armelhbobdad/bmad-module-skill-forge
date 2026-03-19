@@ -50,8 +50,8 @@ results = cognee.search("What does Cognee do?", mode="graph")
 import cognee
 
 # Agent follows the skill instruction:
-# `search(query_text: str, query_type: SearchType = GRAPH_COMPLETION): list`
-# [AST:cognee/api/v1/search/search.py:L26] Confidence: T1
+# `search(query_text: str, query_type: SearchType = GRAPH_COMPLETION) -> List[SearchResult]`
+# [AST:cognee/api/v1/search/search.py:L26]
 results = await cognee.search(
     query_text="What does Cognee do?",
     query_type=cognee.SearchType.GRAPH_COMPLETION
@@ -91,6 +91,7 @@ See the [workflows docs](https://armelhbobdad.github.io/bmad-module-skill-forge/
 - **[Concepts](https://armelhbobdad.github.io/bmad-module-skill-forge/concepts/)** — Plain-English definitions of all key terms
 - **[How It Works](https://armelhbobdad.github.io/bmad-module-skill-forge/architecture/)** — Architecture, capability tiers, output format, and design decisions
 - **[Workflows](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/)** — All 10 workflows with commands and connection diagrams
+- **[Agents](https://armelhbobdad.github.io/bmad-module-skill-forge/agents/)** — Ferris: the AI agent that runs all SKF workflows
 - **[Examples](https://armelhbobdad.github.io/bmad-module-skill-forge/examples/)** — Real-world scenarios, tips, and troubleshooting
 
 ## Acknowledgements
@@ -111,7 +112,7 @@ SKF builds on these excellent open-source tools:
 
 ## Contributing
 
-See [CONTRIBUTORS.md](CONTRIBUTORS.md) for guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
