@@ -168,7 +168,7 @@ Basic structural validation of **{skill_name}**:
 - {N} structural issues found
 - Coherence category not scored (weight redistributed to coverage)
 
-**Proceeding to scoring...**"
+**Proceeding to external validation...**"
 
 **For Contextual Mode:**
 "**Coherence check complete (contextual mode).**
@@ -180,11 +180,11 @@ Reference validation of **{skill_name}**:
 
 **{N} issues found** — details in Coherence Analysis section.
 
-**Proceeding to scoring...**"
+**Proceeding to external validation...**"
 
 ### 8. Auto-Proceed
 
-Display: "**Proceeding to scoring...**"
+Display: "**Proceeding to external validation...**"
 
 #### Menu Handling Logic:
 
@@ -197,7 +197,7 @@ Display: "**Proceeding to scoring...**"
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY WHEN coherence analysis is complete (naive structural or contextual full validation), the Coherence Analysis section has been appended to {outputFile}, and coherence scores (if contextual) have been calculated, will you then load and read fully `{nextStepFile}` to execute scoring.
+ONLY WHEN coherence analysis is complete (naive structural or contextual full validation), the Coherence Analysis section has been appended to {outputFile}, and coherence scores (if contextual) have been calculated, will you then load and read fully `{nextStepFile}` to execute external validation.
 
 ---
 

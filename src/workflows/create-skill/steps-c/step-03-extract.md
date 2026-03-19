@@ -3,6 +3,7 @@ name: 'step-03-extract'
 description: 'Tier-dependent source code extraction — AST or source reading for exports, signatures, and types'
 nextStepFile: './step-03b-fetch-temporal.md'
 extractionPatternsData: '../data/extraction-patterns.md'
+tierDegradationRulesData: '../data/tier-degradation-rules.md'
 sourceResolutionData: '../data/source-resolution-protocols.md'
 ---
 
@@ -104,7 +105,7 @@ Load `{sourceResolutionData}` completely. Follow the **Remote Source Resolution*
 5. Build extraction rules YAML data for reproducibility
 6. Confidence: All results T1 — `[AST:{file}:L{line}]`
 
-**If AST tool is unavailable at Forge/Deep tier:**
+**If AST tool is unavailable at Forge/Deep tier** (see `{tierDegradationRulesData}` for full rules):
 
 ⚠️ **Warn the user explicitly:** "AST tools are unavailable — extraction will use source reading (T1-low). Run [SF] Setup Forge to detect and configure AST tools for T1 confidence."
 

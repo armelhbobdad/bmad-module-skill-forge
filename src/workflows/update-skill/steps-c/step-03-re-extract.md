@@ -4,6 +4,7 @@ description: 'Tier-aware AST extraction on changed files only, producing fresh e
 
 nextStepFile: './step-04-merge.md'
 extractionPatternsData: '../../create-skill/data/extraction-patterns.md'
+tierDegradationRulesData: '../data/tier-degradation-rules.md'
 remoteSourceResolutionData: '../data/remote-source-resolution.md'
 ---
 

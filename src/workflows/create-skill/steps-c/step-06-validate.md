@@ -40,6 +40,7 @@ To validate the compiled SKILL.md content against the agentskills.io specificati
 - 💾 Validation results are added to evidence-report content in context
 - 📖 Auto-fix pattern: validate → fix → re-validate (once)
 - 🚫 Maximum one auto-fix attempt per validation failure
+- ⏸️ **Conditional interaction:** If tessl returns suggestions (section 6b), halt for user input. Otherwise auto-proceed. This is a conditional gate step, not a pure auto-proceed step.
 
 ## CONTEXT BOUNDARIES:
 
