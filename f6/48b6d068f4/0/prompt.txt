@@ -1,0 +1,1105 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/
+
+---
+
+we have to fix every issues from real users: _bmad-output/todo/_index.md. We will organised them as geniunely commits. We should make sure we don't introduce breaking changes, missing impacts or bug, etc...
+
+---
+
+yes
+
+---
+
+Before we open a PR, run a last deep review for for any breaking changes, or missing impacts/bugs/regressions and ect...
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/workflow/workflow-validate-max-parallel-workflow.md, READ its entire contents and follow its directions exactly!
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/workflow/workflow-validate-max-parallel-workflow.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/workflows/
+
+---
+
+<task-notification>
+<task-id>ad2573e79a242af34</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/ad2573e79a242af34.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate quick-skill workflow" completed</summary>
+<result>I now have complete, verified data for all 11 files. Here is the full review.
+
+---
+
+## Review: `src/workflows/quick-skill/` — BMAD Step-File Standards
+
+Files reviewed: 11 total (6 step files, 2 data files, workflow.md, validation-report.md, workflow-plan-quick-skill.md)
+
+---
+
+### File Line Counts (All Files)
+
+| File | Lines | Status |
+|---|---|---|
+| workflow.md | 58 | Good |
+| data/registry-resolution.md | 91 | Good |
+| data/skill-template.md | 86 | Good |
+| steps-c/step-01-resolve-target.md | 165 | Good |
+| steps-c/step-02-ecosystem-check.md | 143 | Good |
+| steps-c/step-03-quick-extract.md | 177 | Good |
+| steps-c/step-04-compile.md | **211** | Over 200-line recommended limit |
+| steps-c/step-05-validate.md | **213** | Over 200-line recommended limit |
+| steps-c/step-06-write.md | 160 | Good |
+| validation-report.md | 543 | Not a step file — no limit applies |
+| workflow-plan-quick-skill.md | 405 | Not a step file — no limit applies |
+
+---
+
+### VIOLATIONS FOUND
+
+---
+
+**VIOLATION: MEDIUM [steps-c/step-04-compile.md] [211 lines — exceeds 200-line recommended limit]**
+
+The validation report recorded this file at 180 lines. The current file is 211 lines — 31 lines beyond the recommended 200-line limit and 11 lines beyond what the validation report certified. The standard requires files to be under 200 lines (recommended) and under 250 lines (absolute). This file has grown past the recommended threshold and the internally-documented count is stale. The "Weaknesses" section of the validation report itself flagged step-04 as approaching limits even at the 180-line count it recorded, making this a known risk area. No content triage has been applied since.
+
+Fix: Extract the full metadata.json schema block (lines 119-142) into `data/skill-template.md`, which already defines this schema. Step-04 can reference `{skillTemplateData}` for the JSON shape rather than re-declaring it inline, which also eliminates the duplication between step-04's schema and the data file's schema.
+
+---
+
+**VIOLATION: MEDIUM [steps-c/step-05-validate.md] [213 lines — exceeds 200-line recommended limit]**
+
+Same situation as step-04. The validation report certified this at 150 lines; the current file is 213 lines — 63 lines beyond what was recorded. This is the largest drift from the certified state of any step file. Step-05 is also the step the validation report classified as "Middle (Simple, P3)" — a simple auto-proceed step should not require 213 lines.
+
+Fix: The `skill-check` command block in sections 2 and 6 (lines 65-81 and 134-146) contains detailed command syntax and flag explanations that could be condensed. The per-field metadata checklist (lines 116-130, 13 checklist items) could be collapsed to reference the schema in `data/skill-template.md` rather than re-enumerating every field inline.
+
+---
+
+**VIOLATION: LOW [steps-c/step-04-compile.md:102 vs data/skill-template.md:52 and steps-c/step-05-validate.md:110] [context-snippet token count is internally inconsistent]**
+
+`workflow-plan-quick-skill.md` (lines 159, 280) specifies the context-snippet target as `~50-80 tokens`. The implemented files (`data/skill-template.md` line 52, `step-04-compile.md` line 102, `step-05-validate.md` line 110) all specify `~80-120 tokens`. This means step-04 assembles at a different target size than the plan designed, and step-05 validates against a target that differs from the plan's requirement. The plan and implemented files do not agree. Since the plan is the source of record for the specification, the implemented value of 80-120 tokens is either a deliberate change that was never reconciled in the plan, or a mistake. The validation report did not flag this discrepancy.
+
+Fix: Decide which token count is correct and make the plan and all step files consistent. If 80-120 is the intended value, update lines 159 and 280 of `workflow-plan-quick-skill.md`. If 50-80 is correct, update `data/skill-template.md` line 52, `step-04-compile.md` line 102, and `step-05-validate.md` line 110.
+
+---
+
+### Checks That Passed (No Violations)
+
+- **Frontmatter**: All 6 step files have `name` and `description`. All frontmatter variables (`nextStepFile`, `registryResolutionData`, `skillTemplateData`) are used in their respective step bodies. The final step (step-06) correctly has no `nextStepFile`.
+- **Path violations**: No hardcoded absolute paths (`/home/`, `/usr/`, `C:\`, etc.) anywhere in the workflow folder. All inter-step references use `./` relative paths. All data file references use `../data/` relative paths. The `{project-root}` token in workflow.md is used only in the module config loading instruction — a documented and accepted pattern.
+- **Menu validation**: Every step that presents a menu has a handler section (`Menu Handling Logic`) that immediately follows. Step-02's conditional P/I/A menu correctly gates on `ecosystem_status: match`. Step-04's C-only menu correctly halts and waits. Auto-proceed steps (01, 03, 05) correctly document their auto-proceed logic in the handler section even without a user-facing menu.
+- **Step type validation**: Step-01 (Init) has no A/P menu — it auto-proceeds after resolution. No init step presents an Approval/Proceed gating menu erroneously.
+- **Instruction style**: All 6 step files have the required structural sections: STEP GOAL, MANDATORY EXECUTION RULES (Universal Rules + Role Reinforcement + Step-Specific Rules), EXECUTION PROTOCOLS, CONTEXT BOUNDARIES, MANDATORY SEQUENCE, CRITICAL STEP COMPLETION NOTE, and SYSTEM SUCCESS/FAILURE METRICS.
+- **Dead links**: All 7 frontmatter path references resolve to existing files confirmed in the directory listing.
+- **Variable usage**: Every frontmatter variable is referenced in the step body. No orphaned variables declared but unused.
+
+---
+
+### Summary
+
+Two step files have grown past the 200-line recommended limit since the validation report was written, with the reported line counts now stale by 31 lines (step-04) and 63 lines (step-05). One low-severity spec inconsistency exists in the context-snippet token target between the plan and the implemented files. No critical violations were found — no absolute path hardcoding, no missing frontmatter, no broken inter-step links, no init steps with A/P menus.
+
+Relevant files:
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/quick-skill/steps-c/step-04-compile.md` (211 lines)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/quick-skill/steps-c/step-05-validate.md` (213 lines)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/quick-skill/data/skill-template.md` (token count reference, line 52)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/quick-skill/workflow-plan-quick-skill.md` (token count spec, lines 159 and 280)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/quick-skill/validation-report.md` (stale line count certification)</result>
+<usage><total_tokens>45542</total_tokens><tool_uses>29</tool_uses><duration_ms>89730</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/ad2573e79a242af34.output
+
+---
+
+<task-notification>
+<task-id>ae9f2b74d4332fc86</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/ae9f2b74d4332fc86.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate audit-skill workflow" completed</summary>
+<result>I now have everything I need to perform a precise, standards-grounded review. Let me compile all findings.
+
+---
+
+## Review Scope
+
+Reviewing all 11 files in `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/audit-skill/` against the authoritative BMAD step-file standards found at `_bmad/bmb/workflows/workflow/data/step-file-rules.md`, `frontmatter-standards.md`, and `menu-handling-standards.md`.
+
+---
+
+## All Files — Line Counts
+
+| File | Lines | Status |
+|------|-------|--------|
+| `workflow.md` | 64 | Good |
+| `workflow-plan-audit-skill.md` | 319 | Build artifact — not a step file |
+| `validation-report.md` | 546 | Build artifact — not a step file |
+| `data/severity-rules.md` | 53 | Good |
+| `data/drift-report-template.md` | 63 | Good |
+| `steps-c/step-01-init.md` | 199 | Good (under 200) |
+| `steps-c/step-02-re-index.md` | 202 | WARNING — over 200 recommended |
+| `steps-c/step-03-structural-diff.md` | 195 | Good |
+| `steps-c/step-04-semantic-diff.md` | 200 | At boundary (200 = at limit) |
+| `steps-c/step-05-severity-classify.md` | 211 | WARNING — over 200 recommended |
+| `steps-c/step-06-report.md` | 218 | WARNING — over 200 recommended |
+
+Note: The `validation-report.md` file recorded step-02 as 191 lines. A fresh read shows it is 202 lines. All three are well under the 250-line absolute maximum.
+
+---
+
+## VIOLATIONS
+
+### CRITICAL
+
+None.
+
+---
+
+### MEDIUM
+
+**VIOLATION: [MEDIUM] [step-01-init.md:frontmatter] Unused frontmatter variable `severityRulesFile`**
+
+The frontmatter of `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/audit-skill/steps-c/step-01-init.md` declares `severityRulesFile: '../data/severity-rules.md'` but the string `{severityRulesFile}` does not appear anywhere in the step body. The authoritative rule from `frontmatter-standards.md` is unambiguous: "For EVERY variable in frontmatter, search the step body for `{variableName}`. If not found, it's a violation." The `step-file-rules.md` Common Violations table lists "Unused variable in frontmatter" with the fix "Remove unused variables."
+
+The variable is correctly used in `step-05-severity-classify.md`, which is where it belongs.
+
+Fix: Remove `severityRulesFile: '../data/severity-rules.md'` from the frontmatter of `step-01-init.md` (line 8 of that file, between `templateFile` and the closing `---`).
+
+This was already identified in the bundled `validation-report.md` but has not been fixed since the validation date of 2026-02-27. The reported validation-report status ("PASS with 1 minor violation") is inconsistent — a frontmatter standards violation is a FAIL per the checklist.
+
+---
+
+**VIOLATION: [MEDIUM] [step-02-re-index.md] File exceeds 200-line recommended limit (202 lines)**
+
+The step-file rules state: "Recommended: < 200 lines" and "If exceeded: Split into multiple steps or extract to `/data/` files." Step 02 sits at 202 lines. The `validation-report.md` recorded it as 191 lines — the current file is longer than what was validated, indicating the file has grown since validation without a re-check.
+
+The over-limit content in step-02 is the large extraction snapshot JSON schema block (lines 97–114) and the per-tier extraction instructions. The JSON snapshot schema is reference material suitable for extraction to a `data/` file per the "When to Extract to Data Files" rule ("Content is reference material").
+
+Fix: Extract the JSON snapshot structure definition (the code block in section 3, lines 97–114) to a `data/` file such as `data/extraction-snapshot-schema.md`, reference it via a frontmatter variable, and load it in that section. This would bring step-02 under 200 lines.
+
+---
+
+**VIOLATION: [MEDIUM] [step-05-severity-classify.md] File exceeds 200-line recommended limit (211 lines)**
+
+Step 05 is 211 lines. The classification tables (sections 3 and 5) are dense reference content. Per the standard, content over 200 lines should be extracted to `/data/` when it is "reference material" or "domain-specific (examples, patterns)." The classification rule summaries in section 3 (lines 67–108) partially duplicate content already in `data/severity-rules.md`.
+
+Fix: Remove the inline summary of classification rules in section 3 (lines 67–108 of step-05) and replace with an instruction to apply the rules loaded from `{severityRulesFile}`. The authoritative rules are already in the data file — step-05 should not re-state them inline. This would bring the file well under 200 lines.
+
+---
+
+**VIOLATION: [MEDIUM] [step-06-report.md] File exceeds 200-line recommended limit (218 lines)**
+
+Step 06 is 218 lines. The largest section is the remediation template block (lines 66–116), which contains inline template examples for every severity level. This is reference material meeting the extraction criterion. The `validation-report.md` acknowledged this (210 lines at validation time — the file has grown to 218).
+
+Fix: Extract the remediation suggestion templates per severity level to `data/remediation-templates.md`, reference via a frontmatter variable, and load it in section 2. This would bring step-06 under 200 lines.
+
+---
+
+### LOW
+
+**VIOLATION: [LOW] [step-02-re-index.md] Section header "MANDATORY SEQUENCE" used instead of canonical "Sequence of Instructions:"**
+
+The `step-file-rules.md` Required Step Structure specifies the sequence section header as `## Sequence of Instructions:`. Steps 01–06 all use `## MANDATORY SEQUENCE` instead. This is a consistent pattern across the entire workflow, which lessens severity (it may be an intentional project-level convention), but it diverges from the canonical template in the authoritative standard. This applies to all six step files equally.
+
+The other five step files have the same deviation, so this is a workflow-wide stylistic divergence, not a per-file defect to call out six times.
+
+---
+
+**VIOLATION: [LOW] [step-06-report.md:line 20] Missing "CRITICAL: When loading next step with 'C', ensure entire file is read" universal rule**
+
+The `step-file-rules.md` lists this as a required Universal Rule: "CRITICAL: When loading next step with 'C', ensure entire file is read." Steps 01–05 all include it. Step 06 (the final step) omits it — which is technically acceptable for a final step since it has no next step, but it also omits the "YOU ARE A FACILITATOR, not a content generator" rule present in all other steps. This is minor since step-06 is a final step, but the omissions are inconsistent with the universal rules template.
+
+---
+
+## Summary
+
+| Severity | Count | Files |
+|----------|-------|-------|
+| CRITICAL | 0 | — |
+| MEDIUM | 4 | step-01 (unused var), step-02 (202 lines), step-05 (211 lines), step-06 (218 lines) |
+| LOW | 1 | Workflow-wide section heading deviation |
+
+The single most important fix is removing `severityRulesFile` from `step-01-init.md` frontmatter — this is a confirmed standards violation with a trivial one-line fix. The three over-200-line files are all under the 250-line hard maximum, so they are warnings requiring attention before they grow further, not blockers. The `validation-report.md` captured the frontmatter violation but did not flag step-02's current line count (it was 191 at validation time, now 202), indicating the file has grown post-validation without re-checking.</result>
+<usage><total_tokens>58204</total_tokens><tool_uses>24</tool_uses><duration_ms>88031</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/ae9f2b74d4332fc86.output
+
+---
+
+<task-notification>
+<task-id>a39aba0fd694ff34c</task-id>
+<tool-use-id>toolu_01Tent8eKEXep8a9Dhz4VzkW</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/a39aba0fd694ff34c.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate export-skill workflow" completed</summary>
+<result>I now have all the information needed for a complete analysis. Let me compile the exact line counts and findings.
+
+**Files reviewed:**
+
+| File | Actual Line Count | Status |
+|---|---|---|
+| `workflow.md` | 57 | Under 200 |
+| `steps-c/step-01-load-skill.md` | 199 | Under 200 |
+| `steps-c/step-02-package.md` | 153 | Under 200 |
+| `steps-c/step-03-generate-snippet.md` | 173 | Under 200 |
+| `steps-c/step-04-update-context.md` | 223 | Over 200 (recommended) |
+| `steps-c/step-05-token-report.md` | 127 | Under 200 |
+| `steps-c/step-06-summary.md` | 168 | Under 200 |
+| `data/snippet-format.md` | 52 | Under 200 |
+| `data/managed-section-format.md` | 73 | Under 200 |
+| `workflow-plan-export-skill.md` | 370 | Build-plan artifact, not a step file |
+| `validation-report.md` | 263 | Audit artifact, not a step file |
+
+---
+
+**VIOLATION: [MEDIUM] steps-c/step-04-update-context.md (223 lines)**
+
+The file is at 223 lines, which exceeds the 200-line recommended limit. It remains within the hard 250-line cap, so this is not a blocker, but it is a real recommendation breach. The internal validation report logged this as "approaching limit" at 220 lines — the actual current count is 223. No trimming was attempted.
+
+---
+
+**VIOLATION: [HIGH] steps-c/step-01-load-skill.md:114 — Undefined variable `{sidecar_path}`**
+
+The step uses `{sidecar_path}` to resolve the preferences file:
+
+```
+Load `{sidecar_path}/preferences.yaml` (if exists):
+```
+
+This variable is never declared in `workflow.md`'s initialization sequence, which resolves only `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `skills_output_folder`, and `forge_data_folder`. The actual sidecar path — derived from `forger.agent.yaml` — is `{project-root}/_bmad/_memory/forger-sidecar/`. `sidecar_path` is not injected into the workflow context at all, so an agent executing this step will have no resolved value for the variable and will be unable to locate `preferences.yaml`. The `passive_context` gate in steps 03 and 04 depends entirely on this load succeeding.
+
+The correct path is either a literal `{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml` or a variable that is explicitly resolved and named in the workflow.md initialization block.
+
+---
+
+**VIOLATION: [MEDIUM] steps-c/step-03-generate-snippet.md:13,48,107 — Token target contradicts data/snippet-format.md**
+
+`step-03-generate-snippet.md` states the target as `~80-120 tokens per skill` in three separate places (the STEP GOAL, the CONTEXT BOUNDARIES section, and the Verify Token Count section). `data/snippet-format.md` (line 6) also says `~80-120 tokens per skill target`. These are internally consistent.
+
+However, the `workflow-plan-export-skill.md` build plan (lines 66, 177, 238, 295, 360) still references the old `~50-80 tokens` target throughout, as does the `validation-report.md` Subprocess section (line 185). The build plan and validation report are not executed by agents, but an agent loading the plan as context for troubleshooting would receive contradictory instructions. More importantly, `step-05-token-report.md:86` states the benchmark as `~80-120 tokens` — consistent with step-03 — while the description column of the token report table at step-05 says "Passive context (always-on)" without a benchmark reference, so the live execution path is self-consistent at 80-120. The discrepancy is isolated to the plan/report artifacts.
+
+This is a real inconsistency between the plan artifact and the implementation, not a step-file violation per se. However, if the plan artifact is ever re-read during workflow execution for context, the conflicting `~50-80` figure would produce incorrect token trimming decisions in step-03.
+
+---
+
+**VIOLATION: [LOW] steps-c/step-06-summary.md — Missing `nextStepFile` frontmatter is correct, but the Universal Rules block retains the "loading next step" boilerplate**
+
+All other steps include in their Universal Rules section:
+```
+🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
+```
+
+Step-06 correctly omits `nextStepFile` from its frontmatter (it is the final step). However, the Universal Rules section in step-06 also correctly drops this rule — this is fine. No violation here on second inspection.
+
+---
+
+**No violations found for:**
+
+- Hardcoded absolute paths: None in any step file or data file. All paths use `{project-root}`, `{skills_output_folder}`, or relative `./step-XX` references.
+- Frontmatter `name` and `description`: Present in all 6 step files and in `workflow.md`.
+- Menu handler sequencing: Steps 01 and 04 correctly place handler logic after the display block. Auto-proceed steps (02, 03, 05) correctly use "Menu Handling Logic" sections with no user-choice options. Step-06 has no menu, which is correct for a final step.
+- Step-file chain completeness: `nextStepFile` values in steps 01-05 all resolve to existing files. Step-06 has no `nextStepFile`, which is correct.
+- Required sections: All step files have STEP GOAL, MANDATORY EXECUTION RULES, EXECUTION PROTOCOLS, CONTEXT BOUNDARIES, MANDATORY SEQUENCE, CRITICAL STEP COMPLETION NOTE, and SYSTEM SUCCESS/FAILURE METRICS.
+
+---
+
+**Summary of violations requiring action:**
+
+| Severity | File | Finding |
+|---|---|---|
+| HIGH | `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/export-skill/steps-c/step-01-load-skill.md:114` | `{sidecar_path}` is not declared in any resolved config — undefined variable, `preferences.yaml` load will silently fail or resolve incorrectly, breaking `passive_context` gating in steps 03-04 |
+| MEDIUM | `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/export-skill/steps-c/step-04-update-context.md` | 223 lines — exceeds 200-line recommended limit |
+| MEDIUM | `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/export-skill/workflow-plan-export-skill.md:66,177,238,295,360` | Token target stated as `~50-80` tokens in the plan artifact; all step files and `data/snippet-format.md` use `~80-120` — stale plan creates documentation inconsistency |</result>
+<usage><total_tokens>38728</total_tokens><tool_uses>27</tool_uses><duration_ms>101616</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/a39aba0fd694ff34c.output
+
+---
+
+<task-notification>
+<task-id>adaee7a7e8793caeb</task-id>
+<tool-use-id>toolu_01Btu9KJuZdnZyURuMMK9NWT</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/adaee7a7e8793caeb.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate create-stack-skill workflow" completed</summary>
+<result>The grep count tool is reporting non-blank lines only. The Read tool's line numbers give exact counts. Let me confirm total line counts from the Read output I already have (last line number seen in each file):
+
+- workflow.md: 59 lines (last line read: 60)
+- step-01-init.md: last line shown = 143
+- step-02-detect-manifests.md: last line = 146
+- step-03-rank-and-confirm.md: last line = 162
+- step-04-parallel-extract.md: last line = 170
+- step-05-detect-integrations.md: last line = 155
+- step-06-compile-stack.md: last line = 182
+- step-07-generate-output.md: last line = 206
+- step-08-validate.md: last line = 192
+- step-09-report.md: last line = 138
+- data/integration-patterns.md: last line = 62
+- data/manifest-patterns.md: last line = 36
+- data/stack-skill-template.md: last line = 124
+- validation-report.md: last line = 402
+- workflow-plan-create-stack-skill.md: last line = 482
+
+Now I have all the data needed. Here is the complete report.
+
+---
+
+## Reviewing: `src/workflows/create-stack-skill/` — All Files
+
+---
+
+## File Inventory with Line Counts
+
+| File | Lines | Status |
+|---|---|---|
+| workflow.md | 60 | OK |
+| steps-c/step-01-init.md | 143 | OK |
+| steps-c/step-02-detect-manifests.md | 146 | OK |
+| steps-c/step-03-rank-and-confirm.md | 162 | OK |
+| steps-c/step-04-parallel-extract.md | 170 | OK |
+| steps-c/step-05-detect-integrations.md | 155 | OK |
+| steps-c/step-06-compile-stack.md | 182 | OK |
+| steps-c/step-07-generate-output.md | 206 | ADVISORY (over 200 recommended) |
+| steps-c/step-08-validate.md | 192 | OK |
+| steps-c/step-09-report.md | 138 | OK |
+| data/integration-patterns.md | 62 | OK |
+| data/manifest-patterns.md | 36 | OK |
+| data/stack-skill-template.md | 124 | OK |
+| validation-report.md | 402 | Build artifact — no limit applies |
+| workflow-plan-create-stack-skill.md | 482 | Build artifact — no limit applies |
+
+---
+
+## Violations Found
+
+### CRITICAL — None
+
+### IMPORTANT
+
+**VIOLATION: MEDIUM** `src/workflows/create-stack-skill/steps-c/step-01-init.md` (frontmatter, line 6)
+The frontmatter variable `forgeTierFile` is declared as `'{sidecar_path}/forge-tier.yaml'` and is referenced correctly in the step body at section 1 (`Load \`{forgeTierFile}\``). However, the `sidecar_path` variable it depends on is resolved in `workflow.md`'s initialization sequence — not passed into this step's frontmatter scope. The step body also directly references `{sidecar_path}` independently (line 74: `Read \`{sidecar_path}/preferences.yaml\``) without going through the `forgeTierFile` variable, making the frontmatter variable partially redundant for the preferences.yaml load. The core issue: `forgeTierFile` is used exactly once in the body but `sidecar_path` is also used independently and raw, creating an inconsistency where the same base variable (`sidecar_path`) is sometimes used directly and sometimes via the frontmatter alias. This is a minor consistency issue, not a breakage.
+Confidence: 80
+Fix: Either route all `sidecar_path`-derived paths through frontmatter variables for consistency, or reference the sidecar paths directly (as done on line 74) and remove `forgeTierFile` from frontmatter since `{sidecar_path}` is already a workflow-resolved variable accessible without a frontmatter alias.
+
+**VIOLATION: MEDIUM** `src/workflows/create-stack-skill/steps-c/step-07-generate-output.md` (line 206 — file size)
+This file is 206 lines, exceeding the 200-line recommended limit. The project standard (confirmed by the existing validation-report.md) flags files at or over 200 lines as "approaching limit" with an advisory. This was a known finding as of the last validation and has not been resolved. While under the 250-line hard maximum, the recommended limit is 200.
+Confidence: 85
+Fix: Extract the forge data artifact JSON templates (the `provenance-map.json` and `evidence-report.md` blocks in sections 7, approximately lines 131–162) into `data/stack-skill-template.md` under a new "Forge Data Artifacts" section and reference them with a frontmatter variable, consistent with how `stackSkillTemplate` is already used in this same file.
+
+### LOW — Advisory Only
+
+**VIOLATION: LOW** `src/workflows/create-stack-skill/validation-report.md` (frontmatter, line 4)
+The `workflowPath` field reads `_bmad-output/bmb-creations/workflows/create-stack-skill`, which is the build output path, not the source path (`src/workflows/create-stack-skill`). This is a stale artifact path in the build artifact — the workflow itself lives at the `src/` path. Not a functional issue but the report claims to validate this workflow and cites the wrong canonical path.
+Confidence: 80
+Fix: Update `workflowPath` to `src/workflows/create-stack-skill`.
+
+---
+
+## Checks That PASSED
+
+**File size**: 13 of 15 files are under 200 lines. Only step-07 exceeds the recommended 200-line threshold at 206 lines. No file approaches the 250-line hard maximum.
+
+**Frontmatter completeness**: All 9 step files have both `name` and `description` fields. The previously reported `skfConfigFile` unused variable that appeared in the prior validation run has already been removed from step-01-init.md's frontmatter. The current step-01 frontmatter contains only `nextStepFile` and `forgeTierFile`, both referenced in the body.
+
+**Path violations**: No hardcoded absolute paths (no `/home/`, `/Users/`, `C:\`, or literal filesystem roots) in any step file or data file bodies. All inter-step references use relative `./step-XX-*.md` format. All data file references use relative `../data/*.md` format. Config-derived paths correctly use `{variable}/path` template substitution.
+
+**Menu validation**: Steps with menus (step-03, step-06) correctly follow the pattern of displaying the ranked data / compiled content first, then presenting the menu, then providing a handler section with halt-and-wait execution rules and explicit logic for C vs. non-C inputs. Auto-proceed steps (01, 02, 04, 05, 07, 08) correctly omit menus. The final step (09) has no `nextStepFile` and no menu.
+
+**Instruction style**: All 9 step files include the required sections: STEP GOAL, MANDATORY EXECUTION RULES (with Universal Rules, Role Reinforcement, Step-Specific Rules), EXECUTION PROTOCOLS, CONTEXT BOUNDARIES, MANDATORY SEQUENCE, and SYSTEM SUCCESS/FAILURE METRICS. The prescriptive style with numbered sections and FORBIDDEN boundaries is consistent throughout.
+
+**Data files**: All 3 data files (`integration-patterns.md`, `manifest-patterns.md`, `stack-skill-template.md`) are well-formed reference documents. They do not require frontmatter as they are data/template files, not step files. No violations.
+
+**Dead links**: All `nextStepFile` and data file references resolve to files that actually exist in the folder.
+
+**Final step termination**: step-09-report.md correctly has no `nextStepFile` in its frontmatter and explicitly states "This is the FINAL step."</result>
+<usage><total_tokens>62343</total_tokens><tool_uses>32</tool_uses><duration_ms>111849</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/adaee7a7e8793caeb.output
+
+---
+
+<task-notification>
+<task-id>a1405f45d0265fd27</task-id>
+<tool-use-id>toolu_01A9unwFxDXaN4CxoS1iJGBF</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/a1405f45d0265fd27.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate update-skill workflow" completed</summary>
+<result>Now I have a complete, independently verified picture of the entire workflow. Let me compile the findings:
+
+---
+
+## Review: `src/workflows/update-skill/` — BMAD Step-File Standards Validation
+
+Reviewing all 13 files in the workflow folder independently. Line counts are measured directly from the files, not taken from the internal validation report (which was generated at an earlier state of the files and is now stale).
+
+---
+
+### File Inventory with Exact Line Counts
+
+| File | Actual Lines | Limit |
+|------|-------------|-------|
+| `workflow.md` | 56 | OK |
+| `workflow-plan-update-skill.md` | 441 | plan file |
+| `validation-report.md` | 559 | report file |
+| `data/manual-section-rules.md` | 44 | OK |
+| `data/merge-conflict-rules.md` | 62 | OK |
+| `data/remote-source-resolution.md` | 43 | OK |
+| `steps-c/step-01-init.md` | **214** | >200, warn |
+| `steps-c/step-02-detect-changes.md` | **210** | >200, warn |
+| `steps-c/step-03-re-extract.md` | **215** | >200, warn |
+| `steps-c/step-04-merge.md` | **230** | >200, warn |
+| `steps-c/step-05-validate.md` | 183 | OK |
+| `steps-c/step-06-write.md` | **227** | >200, warn |
+| `steps-c/step-07-report.md` | 201 | >200, warn |
+
+Note: The internal validation-report.md recorded lower counts (183, 187, 204, etc.) for several files. The actual counts are higher, meaning the files have grown since that report was generated.
+
+---
+
+### Violations Found
+
+VIOLATION: [HIGH] `steps-c/step-03-re-extract.md:6` Cross-workflow path reference that will break on installed deployments.
+
+The frontmatter declares:
+```
+extractionPatternsData: '../../create-skill/data/extraction-patterns.md'
+```
+
+This path escapes the `update-skill/` workflow folder and reaches into a sibling workflow (`create-skill/data/`). The BMAD installation copies each workflow independently to `_bmad/skf/workflows/{workflow-name}/`. At runtime the resolved path would be `_bmad/skf/workflows/create-skill/data/extraction-patterns.md`, which depends on `create-skill` being installed alongside `update-skill` at exactly that relative location. This is a cross-workflow dependency that is not declared in `workflow.md`'s initialization sequence, not validated in step-01, and has no fallback if the file is absent. It is also not listed in the dead-link table in `validation-report.md` (that table only covers same-workflow references). The file does exist in the source tree, but the relative path assumption is fragile and constitutes an undeclared cross-workflow coupling.
+
+VIOLATION: [MEDIUM] `steps-c/step-01-init.md`, `step-02-detect-changes.md`, `step-03-re-extract.md`, `step-04-merge.md`, `step-06-write.md`, `step-07-report.md` — Six files now exceed the 200-line recommended limit.
+
+The internal `validation-report.md` was generated when the files were smaller and recorded counts of 208, 183, 187, 230, 204, 201. Since then the files have grown. Actual current counts:
+
+- `step-01-init.md`: 214 lines (was reported as 208)
+- `step-02-detect-changes.md`: 210 lines (was reported as 183 — a 27-line growth, the largest delta)
+- `step-03-re-extract.md`: 215 lines (was reported as 187 — a 28-line growth)
+- `step-04-merge.md`: 230 lines (unchanged from report)
+- `step-06-write.md`: 227 lines (was reported as 204)
+- `step-07-report.md`: 201 lines (unchanged)
+
+None exceed the 250-line hard limit, so no file is in violation of the absolute cap. All six are above the 200-line recommended threshold. `step-04-merge.md` at 230 and `step-06-write.md` at 227 are the highest-risk files for future growth.
+
+VIOLATION: [LOW] `steps-c/step-06-write.md:113` — Missing first-run handling for `evidence-report.md` append.
+
+Section 4 of step-06 instructs: "Append update operation section to `{forge_data_folder}/{skill_name}/evidence-report.md`". There is no guard for the case where this file does not exist yet (i.e., the first update run after `create-skill`, if `create-skill` did not produce an `evidence-report.md`). The step will fail silently or produce an error on a file-not-found condition. This was identified as a weakness in the validation report but not corrected. A one-line check ("If the file does not exist, create it with a header before appending") would close this gap.
+
+---
+
+### Checks That Passed (No Violations)
+
+**Frontmatter**: All 7 step files have `name` and `description`. All frontmatter variables declared are used in the body (`nextStepFile`, `noChangeReportFile`, `manualSectionRulesFile`, `mergeConflictRulesFile`, `extractionPatternsData`, `remoteSourceResolutionData`). No unused declared variables found.
+
+**Hardcoded absolute paths**: No system-absolute paths (`/home`, `/Users`, `C:\`) found anywhere in the workflow. All runtime paths use template variables (`{skills_output_folder}`, `{forge_data_folder}`, `{sidecar_path}`, `{project-root}`).
+
+**Previously reported step-02 hardcoded path violation**: Confirmed FIXED. The `validation-report.md` flagged lines 128, 151, 160 of `step-02-detect-changes.md` as using a hardcoded literal `step-07-report.md`. In the current file, all three references correctly use `{noChangeReportFile}`, which is declared in frontmatter. This violation is resolved.
+
+**Menu/handler ordering**: All steps that present a menu follow it immediately with a handler section. `step-01` presents menu then handler (lines 174-184). `step-04` presents both the conflict-path menu+handler and the clean-merge auto-proceed section. `step-07` correctly has no menu as the terminal step.
+
+**Required instruction sections**: All step files contain STEP GOAL, MANDATORY EXECUTION RULES, EXECUTION PROTOCOLS, CONTEXT BOUNDARIES, MANDATORY SEQUENCE, and SYSTEM SUCCESS/FAILURE METRICS. No required section is missing from any step.
+
+**Data files**: Both data files (`manual-section-rules.md`, `merge-conflict-rules.md`, `remote-source-resolution.md`) are well under 200 lines and have no frontmatter requirement (they are reference data, not step files). No violations.
+
+**workflow.md**: Has `name` and `description` in frontmatter, uses `{project-root}` template variable rather than hardcoded paths. No violations.</result>
+<usage><total_tokens>69217</total_tokens><tool_uses>41</tool_uses><duration_ms>118022</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/a1405f45d0265fd27.output
+
+---
+
+<task-notification>
+<task-id>ab36f6f2bc6db6358</task-id>
+<tool-use-id>toolu_01JTMJFW1dyWobDyLMWrBAR3</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/ab36f6f2bc6db6358.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate setup-forge workflow" completed</summary>
+<result>Now I have everything I need to produce the final report. Let me compile all findings:
+
+---
+
+## Review: `src/workflows/setup-forge/` — BMAD Step-File Standards Validation
+
+### File Inventory with Line Counts
+
+| File | Lines | Size Status |
+|------|-------|-------------|
+| `workflow.md` | 50 | Good |
+| `data/tier-rules.md` | 50 | Good |
+| `steps-c/step-01-detect-and-tier.md` | 149 | Good |
+| `steps-c/step-02-write-config.md` | 149 | Good |
+| `steps-c/step-03-auto-index.md` | 187 | Good (under 200) |
+| `steps-c/step-04-report.md` | 144 | Good |
+| `validation-report.md` | 504 | N/A (meta file) |
+| `workflow-plan-setup-forge.md` | 428 | N/A (plan file) |
+
+All step files and data files are under the 200-line recommended limit and well under the 250-line hard limit. No size violations.
+
+---
+
+### VIOLATIONS FOUND
+
+**VIOLATION: MEDIUM [steps-c/step-04-report.md:88-92] Re-run tier change logic uses prose placeholders without binding `{previous_tier}` — the variable is declared in CONTEXT BOUNDARIES but never referenced in the report template body.**
+
+The CONTEXT BOUNDARIES section (line 44) correctly declares `{previous_tier}` as available from step-01. The SUCCESS METRICS (line 132) require tier changes to be "correctly reported." However, the report template in section 2 (lines 88-92) renders the re-run blocks as:
+
+```
+{if re-run with tier change:}
+  {appropriate upgrade/downgrade message from tier-rules.md}
+{if re-run with same tier:}
+  {same-tier message from tier-rules.md}
+```
+
+The condition `{if re-run with tier change:}` is not expressed using the declared variable `{previous_tier}`. The tier-rules.md upgrade/downgrade messages reference `{previous}` and `{current}` placeholders, but neither `{previous_tier}` nor `{calculated_tier}` is surfaced inside those conditional blocks. The executor has no machine-readable signal for what constitutes a "tier change" — it requires implicit inference rather than a defined boolean comparison. This creates ambiguity for the autonomous executor and diverges from how all other conditional logic in the workflow is written (compare step-03's explicit `{calculated_tier}` branch). The fix is to express the condition as `{if previous_tier != calculated_tier:}` and `{if previous_tier == calculated_tier:}`.
+
+---
+
+**VIOLATION: LOW [steps-c/step-03-auto-index.md:49] `{project_name}` declared as available context but never used in the step body.**
+
+CONTEXT BOUNDARIES at line 49 states `{project_name}` is available from workflow config. Scanning the entire step body, `{project_name}` appears nowhere in any action, command, or conditional. This is either a stale annotation from a prior design iteration where `project_name` was used to name the QMD collection, or it is a genuine unused variable. Either way, per frontmatter/context standards, declared available variables that are never used are misleading to the executor and should be removed.
+
+---
+
+**VIOLATION: LOW [steps-c/step-03-auto-index.md:3] Description is stale relative to actual step behavior.**
+
+The frontmatter description reads:
+
+```
+description: 'Verify and clean QMD collections against the forge-tier.yaml registry (Deep tier only)'
+```
+
+The step body, however, contains the full QMD hygiene protocol: cross-referencing a registry, prompting users before orphan removal, and updating forge-tier.yaml for stale entries. The description is accurate. However, the step file is named `step-03-auto-index.md`, which directly conflicts with what the step actually does — it is a hygiene/cleanup step, not an auto-index step. The internal heading says "QMD Collection Hygiene" and the SYSTEM FAILURE list at line 184 explicitly calls out "Indexing project directories (old auto-index behavior — removed)" as a failure mode. The filename `step-03-auto-index.md` is therefore actively misleading. All `nextStepFile` references from step-02 and all references in the validation report and workflow plan point to this filename, so a rename must be coordinated across all those references, but the violation is real: the file name does not reflect current behavior.
+
+---
+
+**VIOLATION: LOW [workflow.md:44-46] Config variables declared but none used by any downstream step.**
+
+The INITIALIZATION SEQUENCE in `workflow.md` (lines 44-46) instructs loading `config.yaml` and resolving five variables: `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`. Searching all four step files and the data file, none of these five variable names appear anywhere in the workflow body. `project_name` is mentioned in step-03's CONTEXT BOUNDARIES (as a stale annotation, covered above), but even there it is not referenced in any action.
+
+For a fully autonomous system workflow that writes fixed-path config files, this may be intentional — none of the output paths vary by project name, and no user-facing messages use `communication_language`. But if these config variables are loaded and resolved at workflow init, the standard requires them to be used. If they are not needed, the initialization block should not declare them. As written, this is a dead-initialization pattern.
+
+---
+
+### Items Confirmed as Non-Violations
+
+1. **File sizes**: All step and data files are well within limits.
+2. **Frontmatter `name` and `description`**: Present in all step files and the workflow entry point.
+3. **Frontmatter variable usage**: `nextStepFile` and `tierRulesData` are both used via `{variable}` syntax in their respective step bodies.
+4. **Path format**: All internal file references use `{variable}` format (e.g., `{tierRulesData}`, `{nextStepFile}`). All runtime output paths use `{project-root}` consistently. No hardcoded absolute paths.
+5. **Step type correctness**: Steps 01-03 are correctly auto-proceed with no A/P menus. Step-04 correctly has no next-step. Init step (step-01) has no A/P menu.
+6. **Auto-proceed pattern**: "Menu Handling Logic" and "EXECUTION RULES" subsections are present in steps 01-03. Step-04 correctly omits them.
+7. **Halt and wait**: Correctly absent — auto-proceed workflows must not halt.
+8. **Step-03 user prompt before deletion**: The one user interaction (orphan removal prompt with R/K options) is correctly gated behind a Deep-tier check. This is appropriate for a conditional-interactive step per BMAD standards.
+9. **Instruction style sections**: All four step files contain STEP GOAL, MANDATORY EXECUTION RULES, EXECUTION PROTOCOLS, CONTEXT BOUNDARIES, MANDATORY SEQUENCE, and SUCCESS/FAILURE METRICS.
+10. **Design coherence**: The detect → write → hygiene → report flow is logically sound. Data dependencies between steps are correctly declared and respected.
+11. **No dead file links**: All `nextStepFile` and `tierRulesData` references resolve to files that exist at the referenced relative paths.
+12. **tier-rules.md** correctly contains both tool detection commands and tier capability descriptions, making it appropriately reusable by both step-01 and step-04.</result>
+<usage><total_tokens>46496</total_tokens><tool_uses>47</tool_uses><duration_ms>137330</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/ab36f6f2bc6db6358.output
+
+---
+
+<task-notification>
+<task-id>a9378e6c20056a75c</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/a9378e6c20056a75c.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate analyze-source workflow" completed</summary>
+<result>Now I have a complete picture. Let me compile the full audit.
+
+---
+
+## Analyze-Source Workflow Validation Report
+
+Reviewing all 13 files in `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/analyze-source/`.
+
+---
+
+### File Inventory with Line Counts
+
+| File | Lines | Threshold |
+|---|---|---|
+| steps-c/step-01-init.md | 201 | Over 200 recommended |
+| steps-c/step-01b-continue.md | 144 | Good |
+| steps-c/step-02-scan-project.md | 216 | Over 200 recommended |
+| steps-c/step-03-identify-units.md | 199 | Good |
+| steps-c/step-04-map-and-detect.md | 237 | Over 200 recommended |
+| steps-c/step-05-recommend.md | 237 | Over 200 recommended |
+| steps-c/step-06-generate-briefs.md | 239 | Over 200 recommended |
+| workflow.md | 61 | Good |
+| data/unit-detection-heuristics.md | 88 | Good |
+| data/skill-brief-schema.md | 95 | Good |
+| templates/analysis-report-template.md | 41 | Good |
+| validation-report.md | 657 | Build artifact — not a step file |
+| workflow-plan-analyze-source.md | 385 | Build artifact — not a step file |
+
+Note: The existing `validation-report.md` reports different line counts (e.g. 208, 222, 236, 239) because it was generated at build time. The actual current counts above are the verified figures from the live files.
+
+---
+
+### Check 1: File Size
+
+VIOLATION: [LOW] [steps-c/step-01-init.md] File is 201 lines — 1 line over the 200-line recommended limit. Not a hard violation (hard limit is 250), but flagged per standard.
+
+VIOLATION: [LOW] [steps-c/step-02-scan-project.md] File is 216 lines — 16 lines over the 200-line recommended limit.
+
+VIOLATION: [LOW] [steps-c/step-04-map-and-detect.md] File is 237 lines — 37 lines over the 200-line recommended limit.
+
+VIOLATION: [LOW] [steps-c/step-05-recommend.md] File is 237 lines — 37 lines over the 200-line recommended limit.
+
+VIOLATION: [LOW] [steps-c/step-06-generate-briefs.md] File is 239 lines — 39 lines over the 200-line recommended limit. Closest to the 250-line hard limit.
+
+All five files remain under the 250-line absolute maximum. No hard violations.
+
+---
+
+### Check 2: Frontmatter — Required Fields and Variable Usage
+
+All seven step files have both `name` and `description` in frontmatter. Every declared frontmatter variable is referenced in the step body using `{variable}` format. Verified:
+
+- step-01-init: `nextStepFile`, `continueFile`, `outputFile`, `templateFile` — all used.
+- step-01b-continue: `outputFile`, `nextStepOptions` — all used.
+- step-02-scan-project: `nextStepFile`, `outputFile`, `heuristicsFile` — all used.
+- step-03-identify-units: `nextStepFile`, `outputFile`, `heuristicsFile` — all used.
+- step-04-map-and-detect: `nextStepFile`, `outputFile`, `heuristicsFile` — all used.
+- step-05-recommend: `nextStepFile`, `outputFile`, `schemaFile`, `advancedElicitationTask`, `partyModeWorkflow` — all used.
+- step-06-generate-briefs: `outputFile`, `schemaFile` — all used.
+
+Variables such as `forge_data_folder`, `sidecar_path`, `communication_language`, `output_folder`, `user_name`, `project_name` appear in step bodies without being declared in individual step frontmatter. This is correct — they are config-level variables loaded globally by `workflow.md`'s initialization sequence and are exempt from the per-step frontmatter requirement per the validation report's "Config Variables (Exceptions)" designation.
+
+No frontmatter violations found.
+
+---
+
+### Check 3: Path Violations
+
+All file references in frontmatter use correct relative path formats:
+- Same-folder steps use `./step-XX.md`
+- Parent folder references use `../data/` and `../templates/`
+- Output paths use `{variable}/...` format
+
+VIOLATION: [MEDIUM] [steps-c/step-05-recommend.md:8-9] The frontmatter variables `advancedElicitationTask` and `partyModeWorkflow` contain `{project-root}` in their values — a runtime-resolved token, not a hardcoded absolute path. This is the declared pattern for external workflow references (confirmed by the path format table in the validation report). However, `{project-root}` is not a config variable loaded from `workflow.md`'s initialization sequence (which loads `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `forge_data_folder`, `skills_output_folder`, `sidecar_path` — but not `project-root` itself). The token `{project-root}` is a BMAD-level resolved token, not an SKF config variable, meaning the step depends on a resolution mechanism that is never explicitly established in this module's own initialization. This is a traceability gap — the token is used but its resolution source is not documented in `workflow.md`. Confidence: 80 — real traceability issue, though the pattern is used consistently across the project and likely resolves correctly at runtime via the BMAD host framework.
+
+No hardcoded absolute paths (e.g., `/home/`, `/usr/`, `~`) were found anywhere in any step file body.
+
+---
+
+### Check 4: Menu Validation
+
+**step-01-init**: Auto-proceed. No menu options presented. Correct for an init step — proceeds directly to next step after setup. No A/P options. Passes.
+
+**step-01b-continue**: Auto-proceed. Routes to the correct next step automatically after reading progress state. No menu options. Passes.
+
+**step-02-scan-project (line 176-186)**: C-only menu. Handler section follows menu display. Non-C input handler is: `"IF Any other: help user, then [Redisplay Menu Options](#7-present-menu-options)"` — redisplays menu as required. EXECUTION RULES state "ALWAYS halt and wait for user input." Passes.
+
+**step-03-identify-units (line 157-169)**: C-only menu. Same pattern as step-02. Non-C handler redisplays menu. Passes.
+
+**step-04-map-and-detect (line 195-208)**: C-only + D option menu. The D option (Discover Additional Source) runs a sub-task inline and then returns to menu: "Then redisplay this step's export mapping for the new units before returning to the menu." This effectively redisplays the menu after D. C handler proceeds correctly. Non-C/D handler: `"IF Any other: help user, then [Redisplay Menu Options](#8-present-menu-options)"`. Passes.
+
+**step-05-recommend (line 192-207)**: A/P/C/D menu. A handler: "Execute `{advancedElicitationTask}`, and when finished redisplay the menu." P handler: "Execute `{partyModeWorkflow}`, and when finished redisplay the menu." D handler: inline processing then "redisplay this menu." C handler: proceeds to next step. Non-menu input: "help user respond then [Redisplay Menu Options]." All non-C options correctly redisplay. Passes.
+
+**step-06-generate-briefs**: Final step. No step-transition menu. Has an inline Y/N/M confirmation gate for file writing (section 4), which is appropriate. The validation report correctly identifies this as not a step-transition menu. Passes.
+
+No menu violations found.
+
+---
+
+### Check 5: Step Type Validation
+
+**Init step (step-01-init)**: Classified as auto-proceed init. Has continuation detection, creates report from template, no A/P menu options. Correct.
+
+**Continuation step (step-01b-continue)**: Auto-proceed, reads `stepsCompleted`, routes to next step. Correct.
+
+**Middle simple steps (step-02, step-03, step-04)**: C-only menus. No A/P options. Correct — A/P is reserved for collaborative gate steps.
+
+**Middle standard step (step-05-recommend)**: A/P/C menu at the collaborative gate. This is the primary user decision point and the only step where A/P tools are warranted. Correct placement.
+
+**Final step (step-06-generate-briefs)**: No `nextStepFile` in frontmatter. Has completion message "This analysis is complete." Marks `stepsCompleted` fully. No step-transition menu. Correct.
+
+No step type violations found.
+
+---
+
+### Check 6: Instruction Style Sections
+
+All seven step files are verified to contain all five required sections:
+
+- `## STEP GOAL:` — present in all 7 files
+- `## MANDATORY EXECUTION RULES (READ FIRST):` — present in all 7 files
+- `## EXECUTION PROTOCOLS:` — present in all 7 files
+- `## CONTEXT BOUNDARIES:` — present in all 7 files
+- `## 🚨 SYSTEM SUCCESS/FAILURE METRICS` — present in all 7 files (with SUCCESS and FAILURE subsections)
+
+No instruction style violations found.
+
+---
+
+### Summary of Actual Violations
+
+**Critical violations: 0**
+
+**Important violations: 0**
+
+**Low-severity findings:**
+
+VIOLATION: [LOW] [steps-c/step-01-init.md:201] File is 201 lines — marginally over the 200-line recommended threshold (hard limit is 250). Not a standards violation, but flagged.
+
+VIOLATION: [LOW] [steps-c/step-02-scan-project.md:216] File is 216 lines — over the 200-line recommended threshold.
+
+VIOLATION: [LOW] [steps-c/step-04-map-and-detect.md:237] File is 237 lines — over the 200-line recommended threshold.
+
+VIOLATION: [LOW] [steps-c/step-05-recommend.md:237] File is 237 lines — over the 200-line recommended threshold.
+
+VIOLATION: [LOW] [steps-c/step-06-generate-briefs.md:239] File is 239 lines — over the 200-line recommended threshold and nearest to the 250 hard limit. Priority candidate for refactoring.
+
+VIOLATION: [MEDIUM] [steps-c/step-05-recommend.md:8-9] The `{project-root}` token used in `advancedElicitationTask` and `partyModeWorkflow` frontmatter values is not listed among the config variables loaded by `workflow.md`'s initialization sequence. The resolution source of this token is undocumented within the module. If the BMAD host framework does not inject it automatically, these references will fail at runtime. Consider adding a note to `workflow.md` explicitly documenting that `{project-root}` is resolved by the BMAD host, or confirm and document the resolution chain.
+
+---
+
+### What Passes Cleanly
+
+- All 7 step files have valid `name` and `description` frontmatter
+- Every frontmatter variable is used in its step body — no declared-but-unused variables
+- All file references use correct relative path formats (`./`, `../`) or runtime-config variable format (`{variable}/`)
+- No hardcoded absolute paths anywhere in any step body
+- All menus have handler sections that follow the menu display
+- All non-C menu options correctly redisplay the menu
+- Auto-proceed init and continuation steps contain no A/P menu options
+- A/P menu is placed only at the collaborative gate (step-05), which is the correct and only appropriate location
+- All 5 required instruction style sections are present in every step file
+- Data files (`skill-brief-schema.md`, `unit-detection-heuristics.md`) and the template (`analysis-report-template.md`) are well under 200 lines</result>
+<usage><total_tokens>69281</total_tokens><tool_uses>57</tool_uses><duration_ms>155089</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/a9378e6c20056a75c.output
+
+---
+
+<task-notification>
+<task-id>afb6bd35611566c39</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/afb6bd35611566c39.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate create-skill workflow" completed</summary>
+<result>Step-06 is exactly 250 lines — the maximum allowed. Now let me check the step-03b and step-03c more precisely:
+
+Now I have all the information needed for a complete and precise report. Here is the full analysis:
+
+---
+
+## Reviewing: `src/workflows/create-skill/` — All Files
+
+---
+
+## FILE INVENTORY WITH LINE COUNTS
+
+| File | Lines | Status |
+|---|---|---|
+| `workflow.md` | 53 | OK |
+| `workflow-plan-create-skill.md` | 523 | NOTE: planning artifact, not a step file |
+| `validation-report.md` | 189 | OK |
+| `steps-c/step-01-load-brief.md` | 179 | OK |
+| `steps-c/step-02-ecosystem-check.md` | 146 | OK |
+| `steps-c/step-03-extract.md` | **224** | OVER 200 recommended |
+| `steps-c/step-03b-fetch-temporal.md` | **238** | OVER 200 recommended |
+| `steps-c/step-03c-fetch-docs.md` | **220** | OVER 200 recommended |
+| `steps-c/step-04-enrich.md` | 182 | OK |
+| `steps-c/step-05-compile.md` | 165 | OK |
+| `steps-c/step-06-validate.md` | **250** | AT hard limit |
+| `steps-c/step-07-generate-artifacts.md` | **215** | OVER 200 recommended |
+| `steps-c/step-08-report.md` | 160 | OK |
+| `data/extraction-patterns.md` | **324** | OVER 250 hard limit |
+| `data/skill-sections.md` | **220** | OVER 200 recommended |
+| `data/compile-assembly-rules.md` | 110 | OK |
+| `data/source-resolution-protocols.md` | 138 | OK |
+
+---
+
+## VIOLATIONS
+
+### CRITICAL
+
+- VIOLATION: [severity HIGH] [data/extraction-patterns.md: entire file, 324 lines] File exceeds the 250-line hard limit by 74 lines. This is the only file in the workflow that actually breaks the maximum. The file is a data reference (not a step), but the 250-line ceiling applies to all files. The overage comes from the combination of the AST Extraction Protocol section (including decision tree, MCP tool usage examples, CLI streaming fallback with full Python template, YAML rule recipes for 6 languages) and the Re-Export Tracing section with examples.
+  - RECOMMENDATION: Split into two data files: `extraction-patterns.md` (Quick/Forge/Deep tier strategies + AST protocol decision tree, ~150 lines) and `reexport-tracing.md` (Re-Export Tracing protocol + Tier Degradation Rules, ~180 lines). Update step-03-extract.md frontmatter to reference both variables with their own `{variable}` declarations.
+
+---
+
+### IMPORTANT
+
+- VIOLATION: [severity HIGH] [steps-c/step-06-validate.md: line 250] File is exactly at the 250-line hard limit. More critically, this step includes a user-interaction gate (section 6b, the tessl suggestions gate) that is not declared in the step's frontmatter and is not reflected in the workflow plan's step type classification. The workflow plan and validation-report both classify step-06 as "Auto-proceed (P3)" — but the file itself explicitly states "Conditional interaction step. If tessl produced suggestions, section 6b halts for user input" (line 213–215). This is a step type mismatch: a step documented as "auto-proceed" has an undeclared, conditional user-interaction gate.
+  - RECOMMENDATION: Either (a) update the workflow plan and validation-report to classify step-06 as "Conditional gate (like step-02)" with the tessl gate documented as the interaction point, or (b) if auto-proceed is truly the design intent, remove the interactive gate and log tessl suggestions to the evidence report without halting. The current state means the internal step description contradicts the workflow architecture documentation.
+
+- VIOLATION: [severity MEDIUM] [steps-c/step-03b-fetch-temporal.md: line 1, 238 lines] File exceeds the 200-line recommended limit by 38 lines. This is not a hard violation but the workflow plan itself estimated this file at `~240 lines` before build, and the actual output matches that estimate — meaning the overage was known at design time and not mitigated.
+  - RECOMMENDATION: The GitHub two-step release fetch protocol (section 3, items 3a and the rate-limit handling) is the primary driver of length. This detail could be condensed into a briefer description or moved to a data file (e.g., `data/gh-fetch-protocols.md`) and referenced with a `{variable}`.
+
+- VIOLATION: [severity MEDIUM] [steps-c/step-03-extract.md: line 1, 224 lines] File exceeds the 200-line recommended limit by 24 lines. The workflow plan estimated `~200 lines`. Section 4b (Validate Exports Against Package Entry Point) and section 4's inline reference to the AST Extraction Protocol's >500 file CLI streaming decision tree are the main contributors to the overage.
+  - RECOMMENDATION: The per-language entry-point validation in section 4b (Python `__init__.py`, TypeScript `index.ts`, Rust `lib.rs`, Go capitalized identifiers) could be moved into `extraction-patterns.md` under a dedicated "Entry Point Validation" section and referenced as `{extractionPatternsData}`.
+
+- VIOLATION: [severity MEDIUM] [steps-c/step-03c-fetch-docs.md: line 1, 220 lines] File exceeds the 200-line recommended limit by 20 lines. The subpage discovery heuristic (root URL detection, two-condition test, sitemap/map discovery with Firecrawl/manual/crawl variants, relevance filtering, rate-limit handling) in sections 3 and 5b combined are the primary sources of length.
+  - RECOMMENDATION: Subpage discovery logic could be extracted to a `data/doc-fetch-protocols.md` data file and loaded via a frontmatter variable.
+
+- VIOLATION: [severity MEDIUM] [steps-c/step-07-generate-artifacts.md: line 1, 215 lines] File exceeds the 200-line recommended limit by 15 lines. The QMD Collection Registration section (section 5) is an optional Deep-tier feature that adds ~45 lines and is the primary overage driver.
+  - RECOMMENDATION: The QMD collection registration logic is similar to what step-03b does for temporal collections. Consider referencing a shared data file for the QMD registry update pattern.
+
+- VIOLATION: [severity MEDIUM] [data/skill-sections.md: line 1, 220 lines] Data file exceeds the 200-line recommended limit by 20 lines. The file is primarily a reference schema — it contains both the two-tier section table and the full JSON/markdown schemas for metadata.json, provenance-map.json, and evidence-report.md.
+  - RECOMMENDATION: Split the JSON/markdown schema templates (metadata.json, provenance-map.json, evidence-report.md structures) into a separate `data/output-schemas.md` file, leaving skill-sections.md at the section structure and assembly rules only.
+
+---
+
+### MEDIUM (Frontmatter / Variable Consistency)
+
+- VIOLATION: [severity MEDIUM] [steps-c/step-03c-fetch-docs.md: lines 1–5] The frontmatter contains only `name`, `description`, and `nextStepFile`. The step body at line 80 references `{url}`, `{label}` (runtime data from `doc_urls`), and at line 147 writes to a staging path `_bmad-output/{skill-name}-docs/` — these are runtime variables and not frontmatter concerns, so that is fine. However, the step body at line 12 uses `{communication_language}` (present in all other steps as a reminder that it comes from config), but there is no frontmatter-level declaration of any data files despite the step loading no external data files. The more concrete issue: the step's MANDATORY EXECUTION RULES section (lines 13–19) drops the emoji-prefixed bullet style used consistently in every other step (step-01 through step-08). This is a coherence inconsistency — step-03c uses bare `- CRITICAL:` text instead of `- 📖 CRITICAL:` — making it visually inconsistent with the rest of the workflow.
+  - RECOMMENDATION: Restore the emoji-prefixed style in step-03c's MANDATORY EXECUTION RULES to match all other step files.
+
+- VIOLATION: [severity MEDIUM] [steps-c/step-03c-fetch-docs.md: lines 196–220] The SUCCESS/FAILURE METRICS section header and sub-headers drop the emoji markers (`🚨`, `✅`, `❌`) used in every other step file. All other 9 step files use `## 🚨 SYSTEM SUCCESS/FAILURE METRICS`, `### ✅ SUCCESS:`, and `### ❌ SYSTEM FAILURE:`. Step-03c uses `## SYSTEM SUCCESS/FAILURE METRICS`, `### SUCCESS:`, and `### SYSTEM FAILURE:`.
+  - RECOMMENDATION: Add the emoji markers to match the rest of the workflow's consistent formatting.
+
+---
+
+### LOW
+
+- VIOLATION: [severity LOW] [steps-c/step-03b-fetch-temporal.md: lines 224–227] The SUCCESS metrics section states "Auto-proceeded to step-04" but the `nextStepFile` at line 4 correctly points to `./step-03c-fetch-docs.md`, not step-04. The success metric is stale — it describes the old step chain before step-03c was inserted between step-03b and step-04.
+  - RECOMMENDATION: Update line 224 to read "Auto-proceeded to step-03c" to match the actual `nextStepFile` target.
+
+- VIOLATION: [severity LOW] [workflow-plan-create-skill.md: line 229 vs actual] The workflow plan file documents step-03b as `~240 lines` and step-03c as `~215 lines`. These match the actuals (238 and 220). However the plan documents step-03 as `~200 lines` (actual: 224), step-06 as `~120 lines` (actual: 250), and step-07 as `~180 lines` (actual: 215). The plan file is a historical planning artifact and not executed, but the line count estimates for steps 03, 06, and 07 are materially wrong. If the plan file is used for audit purposes (the validation-report treats it as authoritative), this creates a discrepancy: step-06 in particular grew from the estimated 120 lines to 250 lines due to the tessl gate and security scan sections being added.
+  - RECOMMENDATION: Update the plan file's file structure table to reflect actual line counts if it is used for future audit or update-skill compatibility checks.
+
+- VIOLATION: [severity LOW] [steps-c/step-01-load-brief.md: line 72] The step body contains `{project-root}/forge-data/{skill-name}/skill-brief.yaml` where `{skill-name}` is a runtime variable (not a frontmatter-declared variable). This is an instructional path showing the agent where to look — it is acceptable per the validation report's own note. However, the `forge_data_folder` config variable is resolved by `workflow.md` at initialization (line 49: `forge_data_folder`), meaning the correct reference in step body should be `{forge_data_folder}/{skill-name}/skill-brief.yaml` rather than constructing it from `{project-root}` again. Using `{forge_data_folder}` would also remove a `{project-root}` concatenation from a step body.
+  - RECOMMENDATION: Replace `{project-root}/forge-data/{skill-name}/skill-brief.yaml` with `{forge_data_folder}/{skill-name}/skill-brief.yaml` for consistency with how `workflow.md` initializes config variables.
+
+---
+
+## CORRECT — NOT REPORTED
+
+The following areas were verified and are clean:
+
+- All 10 step files have `name` and `description` in frontmatter.
+- All frontmatter variables are used in step bodies (confirmed for all declared variables: `nextStepFile`, `forgeTierFile`, `preferencesFile`, `extractionPatternsData`, `sourceResolutionData`, `skillSectionsData`, `assemblyRulesData`, `forgeTierConfig`).
+- All `nextStepFile` paths form a correct chain: step-01 → step-02 → step-03 → step-03b → step-03c → step-04 → step-05 → step-06 → step-07 → step-08 (no nextStepFile, final).
+- No hardcoded absolute paths. All paths use `{project-root}` variable or relative `./` format.
+- Menu steps (02 and 03) both have "ALWAYS halt and wait for user input" in their execution rules.
+- Non-C options in step-02 and step-03 menus correctly redisplay or redirect.
+- Step-01 (init) correctly has no A/P menu — auto-proceed only.
+- All auto-proceed steps (04, 05, 07, 08) correctly have no user interaction.
+- All 7 step structure sections present across all steps: STEP GOAL, MANDATORY EXECUTION RULES, EXECUTION PROTOCOLS, CONTEXT BOUNDARIES, MANDATORY SEQUENCE, and SUCCESS/FAILURE METRICS (with the step-03c formatting deviation noted above).
+- Data flow is coherent: `tier` and `brief_data` (step-01) → `ecosystem_status` (step-02) → `extraction_inventory` with `top_exports[]` (step-03) → consumed by step-03b → `doc_fetch_inventory` (step-03c) → `enrichment_annotations` (step-04) → `skill_content` (step-05) → validated (step-06) → written to disk (step-07) → reported (step-08).
+- `compile-assembly-rules.md` is correctly declared as `assemblyRulesData` in step-05 frontmatter and used in the body. The data file exists and was added after the original validation-report (which predates it), so the validation-report's frontmatter table for step-05 is outdated but the live file is correct.
+- `source-resolution-protocols.md` is correctly declared as `sourceResolutionData` in step-03 frontmatter and used in the body. This data file also postdates the validation-report.</result>
+<usage><total_tokens>71701</total_tokens><tool_uses>51</tool_uses><duration_ms>177368</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/afb6bd35611566c39.output
+
+---
+
+<task-notification>
+<task-id>a3bdbf8563ceb094b</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/a3bdbf8563ceb094b.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate test-skill workflow" completed</summary>
+<result>Now I have a complete picture. Let me compile all findings into the final report.
+
+---
+
+## Validation Report: `src/workflows/test-skill/`
+
+### File Inventory with Line Counts
+
+| File | Lines | Status |
+|------|-------|--------|
+| `workflow.md` | 57 | Within limits |
+| `steps-c/step-01-init.md` | 210 | Over 200 recommended |
+| `steps-c/step-02-detect-mode.md` | 161 | Within limits |
+| `steps-c/step-03-coverage-check.md` | 242 | Over 200 recommended, approaching 250 hard limit |
+| `steps-c/step-04-coherence-check.md` | 224 | Over 200 recommended |
+| `steps-c/step-04b-external-validators.md` | 219 | Over 200 recommended |
+| `steps-c/step-05-score.md` | 219 | Over 200 recommended |
+| `steps-c/step-06-report.md` | 180 | Within limits |
+| `data/scoring-rules.md` | 82 | Within limits |
+| `data/output-section-formats.md` | 96 | Within limits |
+| `data/source-access-protocol.md` | 45 | Within limits |
+| `templates/test-report-template.md` | 25 | Within limits |
+| `workflow-plan-test-skill.md` | 292 | Plan/meta file, not a step file |
+| `validation-report.md` | 390 | Plan/meta file, not a step file |
+
+---
+
+### Violations Found
+
+**VIOLATION: [severity MEDIUM] [steps-c/step-03-coverage-check.md: 242 lines] File size over 200-line recommendation.**
+
+The file currently stands at 242 lines, which is 42 lines over the recommended limit and within 8 lines of the 250-line hard ceiling. The validation report from 2026-02-26 recorded this file at 222 lines, meaning it has grown by 20 lines since the last validation pass (most likely during the addition of step-04b integration). The risk of breaching the 250-line hard limit on the next edit is high.
+
+RECOMMENDATION: Extract the JSON structured-return format examples (the code block at lines 103-120) into `data/output-section-formats.md` alongside the existing section templates. This would reduce the file by approximately 20 lines and restore comfortable margin below the 200-line recommendation.
+
+---
+
+**VIOLATION: [severity MEDIUM] [steps-c/step-05-score.md:139,146] Bare filename reference to `source-access-protocol.md` without a frontmatter variable.**
+
+Step-05's frontmatter declares `scoringRulesFile` and `outputFile` but does NOT declare a variable for the `source-access-protocol.md` data file. The body at lines 139 and 146 references `source-access-protocol.md` as a bare filename string in prose, not via a `{variable}` placeholder. This violates the standard that file references must use `{variable}` format. By contrast, step-03 correctly declares `sourceAccessProtocol: '../data/source-access-protocol.md'` in its frontmatter and uses `{sourceAccessProtocol}` in the body.
+
+RECOMMENDATION: Add `sourceAccessProtocol: '../data/source-access-protocol.md'` to step-05's frontmatter block, then replace both occurrences of the bare filename at lines 139 and 146 with `{sourceAccessProtocol}`.
+
+---
+
+**VIOLATION: [severity MEDIUM] [steps-c/step-04-coherence-check.md:187,200] Step description text describes proceeding to "scoring" but actually proceeds to the external-validators step.**
+
+The `nextStepFile` frontmatter variable correctly points to `./step-04b-external-validators.md`. However, the user-facing display message at line 187 reads `"Proceeding to scoring..."`, and the CRITICAL STEP COMPLETION NOTE at line 200 reads `"...will you then load and read fully {nextStepFile} to execute scoring."` The step that actually executes next is the external-validators step (step-04b), not the scoring step (step-05). An agent following these literal instructions will announce to the user that scoring is beginning when external validation is actually beginning. The two user-visible messages at lines 171 and 183 have the same mismatch.
+
+RECOMMENDATION: Change all three occurrences of `"Proceeding to scoring..."` and `"execute scoring"` in step-04 to `"Proceeding to external validation..."` and `"execute external validation"` to match what `{nextStepFile}` actually resolves to.
+
+---
+
+**VIOLATION: [severity LOW] [steps-c/step-01-init.md: 210 lines] File size over 200-line recommendation.**
+
+The file is 10 lines over the recommended ceiling. This is a soft limit, but it is already past the threshold that warrants attention.
+
+RECOMMENDATION: The frontmatter compliance check instructions at lines 92-108 (section 3) could be condensed, as the bullet checklist duplicates information already present in the agentskills.io spec. Reducing this section by ~15 lines would bring the file back under 200.
+
+---
+
+**VIOLATION: [severity LOW] [steps-c/step-04-coherence-check.md: 224 lines] File size over 200-line recommendation.**
+
+RECOMMENDATION: The JSON example blocks for structural findings (lines 83-91) and integration completeness (lines 133-144) are format-definition content that belongs in `data/output-section-formats.md`. Moving them there would reduce the step file by approximately 20 lines.
+
+---
+
+**VIOLATION: [severity LOW] [steps-c/step-04b-external-validators.md: 219 lines] File size over 200-line recommendation.**
+
+Step-04b was added after the original validation pass (the prior validation report shows no entry for this file), and at 219 lines it is already past the 200-line recommended limit.
+
+RECOMMENDATION: The output format block at lines 141-165 (the markdown template for the External Validation section) is format-definition content. Moving it to `data/output-section-formats.md` alongside the existing Coherence Analysis formats would reduce this file by approximately 25 lines.
+
+---
+
+**VIOLATION: [severity LOW] [steps-c/step-05-score.md: 219 lines] File size over 200-line recommendation.**
+
+RECOMMENDATION: The Completeness Score markdown template (lines 113-147) is output-format content. Moving it to `data/output-section-formats.md` would reduce this file by approximately 35 lines, bringing it well under the 200-line recommendation.
+
+---
+
+### Items Confirmed Correct (No Violations)
+
+- All step files have both `name` and `description` frontmatter fields.
+- All frontmatter variables declared in steps 01, 02, 03, 04, 04b, and 06 are consumed in those files' bodies.
+- No hardcoded absolute paths found anywhere in the workflow folder.
+- The step chain is intact: 01 → 02 → 03 → 04 → 04b → 05 → 06, with each `nextStepFile` pointing to an existing file.
+- Step-06 is the final step, has no `nextStepFile`, has a C-only menu (`[C] Finish`), has explicit "halt and wait" execution rules, and handles non-C input by redirecting back to the menu.
+- All auto-proceed steps (01-05) correctly have no A/P user menus.
+- Step-01 (init type) has no A/P menus and auto-proceeds — correct for an init step.
+- All six step files contain all six required sections: STEP GOAL, MANDATORY EXECUTION RULES, EXECUTION PROTOCOLS, CONTEXT BOUNDARIES, MANDATORY SEQUENCE, and SUCCESS/FAILURE METRICS.
+- The `test-report-template.md` template is a valid skeletal structured template with YAML frontmatter and section headers.
+- Data files (`scoring-rules.md`, `output-section-formats.md`, `source-access-protocol.md`) are all well under the 250-line limit.
+- Variable data flow is coherent: `skill_name`, `detected_tier`, `testMode` are set in early steps and consumed in later steps. `outputFile` is used consistently across all steps.
+- The `communication_language` variable referenced in all steps is resolved from `workflow.md`'s initialization sequence which loads it from `config.yaml` — this is a workflow-level config variable, not a step-level frontmatter variable, which is the correct pattern.</result>
+<usage><total_tokens>57170</total_tokens><tool_uses>62</tool_uses><duration_ms>187195</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/a3bdbf8563ceb094b.output
+
+---
+
+<task-notification>
+<task-id>a8c037f4e158a38e6</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/a8c037f4e158a38e6.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate brief-skill workflow" completed</summary>
+<result>The `step-type-patterns.md` confirms `## MANDATORY SEQUENCE` is the correct section heading (matching what all step files use). The main `step-file-rules.md` uses `## Sequence of Instructions:` as an alias, but the canonical template uses `## MANDATORY SEQUENCE`. This is not a violation.
+
+Now I have all the information to compile the full report. Here is my complete, accurate analysis:
+
+---
+
+## Reviewing: `src/workflows/brief-skill/` — All Files Against BMAD Step-File Standards
+
+Standards authority: `_bmad/bmb/workflows/workflow/data/step-file-rules.md`, `frontmatter-standards.md`, and `menu-handling-standards.md`.
+
+---
+
+## File Line Counts (Actual, Verified)
+
+| File | Actual Lines | Limit Status |
+|---|---|---|
+| workflow.md | 58 | Good |
+| workflow-plan-brief-skill.md | 360 | N/A (build artifact, not a step file) |
+| validation-report.md | 630 | N/A (build artifact, not a step file) |
+| data/skill-brief-schema.md | 117 | Good |
+| data/scope-templates.md | 60 | Good |
+| steps-c/step-01-gather-intent.md | 200 | At recommendation boundary |
+| steps-c/step-02-analyze-target.md | 203 | Over 200 recommendation |
+| steps-c/step-03-scope-definition.md | 181 | Good |
+| steps-c/step-04-confirm-brief.md | 185 | Good |
+| steps-c/step-05-write-brief.md | 211 | Over 200 recommendation |
+
+---
+
+## Violations Found
+
+VIOLATION: [MEDIUM] [steps-c/step-05-write-brief.md:211] FILE SIZE - 211 lines, exceeds the 200-line recommendation. The standard states "< 200 lines recommended, 250 absolute maximum" and directs to extract to `/data/` when a step file exceeds 200 lines. The QMD collection registration block (section 5, lines 107-148) is the primary driver. This is self-contained reference logic that could be extracted to a data file. Still within the 250-line hard cap, but extraction is recommended.
+
+VIOLATION: [MEDIUM] [steps-c/step-02-analyze-target.md:203] FILE SIZE - 203 lines, exceeds the 200-line recommendation. The detection signals block (lines 89-99) and per-language export identification logic (lines 110-133) are reference-style content that fits the criteria for extraction to a data file. Within hard cap.
+
+VIOLATION: [LOW] [steps-c/step-01-gather-intent.md:200] FILE SIZE - Exactly 200 lines, which is at the boundary of the recommendation ("< 200 lines"). Technically not under the threshold. No structural extraction is urgent at this size, but worth monitoring before the next content addition.
+
+VIOLATION: [MEDIUM] [validation-report.md:file-size-table] STALE LINE COUNT - The validation report (which is a tracked build artifact and serves as the ground-truth record for this workflow) cites step-03-scope-definition.md at 225 lines and step-05-write-brief.md at 156 lines. The actual current counts are 181 and 211 respectively. The report has not been updated after subsequent edits to those files. This means the documented validation results are contradicted by the files themselves: step-05 is now over the 200-line threshold but the report records it as 156 lines (well within limits), and step-03 is now inside limits but the report flags it as approaching the 250-line cap. Any consumer relying on this report for compliance status will be misled.
+
+---
+
+## Checks With No Violations
+
+**Frontmatter - name and description**: All 5 step files have both `name` and `description` present in frontmatter. Compliant.
+
+**Frontmatter - unused variables**: All frontmatter variables in all step files are verified used in their respective bodies:
+- step-01: `nextStepFile` used at line 167, `forgeTierFile` used at line 61. Compliant.
+- step-02: `nextStepFile` used at lines 171, 180. Compliant.
+- step-03: `nextStepFile` used at line 146, `scopeTemplatesFile` used at lines 95 and 105, `advancedElicitationTask` used at line 144, `partyModeWorkflow` used at line 145. Compliant.
+- step-04: `nextStepFile` used at line 150, `reviseStepFile` used at line 147, `briefSchemaFile` used at line 63, `advancedElicitationTask` used at line 148, `partyModeWorkflow` used at line 149. Compliant.
+- step-05: `briefSchemaFile` used at line 58. Compliant.
+
+**Path violations - hardcoded absolute paths**: No hardcoded OS paths found (`/home/`, `/Users/`, `C:\`) in any file body. All internal workflow references use relative paths (`./step-N-*.md`, `../data/*.md`). All external references use `{project-root}`. Compliant.
+
+**Menu validation - handler follows display**: All menus verified:
+- step-01 (C-only, P2): display at line 163, handler at lines 167-168, execution rules at lines 170-173. Compliant.
+- step-02 (auto-proceed, P3): display at line 167, handler at lines 169-171, execution rules at lines 173-176. Compliant.
+- step-03 (A/P/C, P1): display at line 140, handler at lines 144-147, execution rules at lines 149-154. Compliant.
+- step-04 (custom R/A/P/C): display at line 143, handler at lines 147-151, execution rules at lines 153-158. Compliant.
+- step-05 (no menu, final): Compliant.
+
+**Step type validation - init steps without A/P**: step-01 is the init step. It uses a C-only menu with no A/P options. Compliant. step-02 is an auto-proceed middle step with no A/P. Compliant. A/P options only appear in steps 03 and 04, which are collaborative middle steps where user refinement is appropriate.
+
+**Instruction style - required sections present**: All step files contain `STEP GOAL`, `MANDATORY EXECUTION RULES`, `EXECUTION PROTOCOLS`, `CONTEXT BOUNDARIES`, `MANDATORY SEQUENCE`, and `SYSTEM SUCCESS/FAILURE METRICS`. Compliant.
+
+**No A/P on init step**: step-01 correctly excludes A/P from its menu. Compliant.
+
+**data/ files**: `skill-brief-schema.md` (117 lines) and `scope-templates.md` (60 lines) are both reference data files with no frontmatter required. Both are within limits. The `scopeTemplatesFile` in step-03 correctly references `scope-templates.md` with the relative path `../data/scope-templates.md`. Compliant.
+
+---
+
+## Summary
+
+Three files require attention:
+
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/brief-skill/steps-c/step-05-write-brief.md` — 211 lines, over the 200-line recommendation. Extract the QMD collection registration block to a data file, or split into two steps if the logic continues to grow.
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/brief-skill/steps-c/step-02-analyze-target.md` — 203 lines, over the 200-line recommendation. The per-language detection and export-listing blocks are candidates for extraction to a `data/language-detection.md` reference file.
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/brief-skill/validation-report.md` — The embedded file size table contains stale data. step-03 is recorded at 225 lines (actual: 181) and step-05 at 156 lines (actual: 211). The validation report needs to be regenerated or corrected to reflect current state. This is particularly consequential because step-05 is now over the threshold the report says it passed.
+
+No critical violations (hardcoded paths, unused frontmatter variables, missing handler sections, A/P on init steps) were found. All menu structures are correct and structurally sound.</result>
+<usage><total_tokens>67085</total_tokens><tool_uses>53</tool_uses><duration_ms>186730</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/eeab160e-2b71-427b-8b44-546f08e8b077/tasks/a8c037f4e158a38e6.output
+
+---
+
+F - Fix all (High and Medium)
