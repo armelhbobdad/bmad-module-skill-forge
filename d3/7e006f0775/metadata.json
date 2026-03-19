@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d37e006f0775",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "README.md",
+    "docs/agents.md",
+    "docs/architecture.md",
+    "docs/concepts.md",
+    "docs/examples.md",
+    "docs/getting-started.md",
+    "docs/index.md",
+    "docs/workflows.md",
+    "website/astro.config.mjs",
+    "website/src/styles/custom.css"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d3/7e006f0775/0/metadata.json",
+      "transcript": "/d3/7e006f0775/0/full.jsonl",
+      "context": "/d3/7e006f0775/0/context.md",
+      "content_hash": "/d3/7e006f0775/0/content_hash.txt",
+      "prompt": "/d3/7e006f0775/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 73,
+    "cache_creation_tokens": 133189,
+    "cache_read_tokens": 6018807,
+    "output_tokens": 57158,
+    "api_call_count": 51
+  }
+}
