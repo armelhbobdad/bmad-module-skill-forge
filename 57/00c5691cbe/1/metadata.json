@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "5700c5691cbe",
+  "session_id": "eeab160e-2b71-427b-8b44-546f08e8b077",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-19T22:02:22.384332667Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/create-skill/steps-c/step-05-compile.md",
+    "src/workflows/test-skill/steps-c/step-04b-external-validators.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "ab50d4d7d32b",
+  "token_usage": {
+    "input_tokens": 288,
+    "cache_creation_tokens": 631048,
+    "cache_read_tokens": 36635222,
+    "output_tokens": 72270,
+    "api_call_count": 207
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-19T22:02:19.036229642Z",
+    "agent_lines": 0,
+    "human_added": 0,
+    "human_modified": 5,
+    "human_removed": 1,
+    "total_committed": 0,
+    "agent_percentage": 0
+  }
+}
