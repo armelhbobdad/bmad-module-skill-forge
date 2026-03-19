@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "5700c5691cbe",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/create-skill/data/source-resolution-protocols.md",
+    "src/workflows/create-skill/steps-c/step-05-compile.md",
+    "src/workflows/test-skill/steps-c/step-04b-external-validators.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/57/00c5691cbe/0/metadata.json",
+      "transcript": "/57/00c5691cbe/0/full.jsonl",
+      "context": "/57/00c5691cbe/0/context.md",
+      "content_hash": "/57/00c5691cbe/0/content_hash.txt",
+      "prompt": "/57/00c5691cbe/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 118,
+    "cache_creation_tokens": 158929,
+    "cache_read_tokens": 6927346,
+    "output_tokens": 19744,
+    "api_call_count": 70
+  }
+}
