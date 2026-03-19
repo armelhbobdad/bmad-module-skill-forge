@@ -35,3 +35,9 @@ If none of the above succeed, fall through to docs-only mode (section 0 already 
 Set `analysis_confidence` in context for use in Section 2 analysis depth, step-05 output, and step-05 scoring.
 
 **Confidence tier mapping:** `full` = T1, `provenance-map` = T1, `metadata-only` = T1-low, `remote-only` = T1-low, `docs-only` = T3. This aligns with the T1/T1-low/T2/T3 scale used across all SKF workflows.
+
+**Degradation notice rules:** When `analysis_confidence` is `provenance-map`, check the `confidence` field of provenance-map entries before emitting a degradation recommendation:
+
+- **All/most entries T1 (AST-verified):** The provenance-map data is already at highest confidence. Do NOT recommend re-running with a local clone — it would produce identical results. Use: "Resolved via: provenance-map (T1 AST-verified at compilation time). Local clone not required — provenance data is already at highest confidence."
+- **Mixed T1/T1-low entries:** Report the breakdown. Recommend local clone only for the T1-low entries: "Resolved via: provenance-map ({n} T1, {m} T1-low). Re-run with local clone to upgrade T1-low entries to full AST verification."
+- **All/most entries T1-low or lower:** Keep the standard recommendation: "Re-run with local clone for full AST-backed verification."
