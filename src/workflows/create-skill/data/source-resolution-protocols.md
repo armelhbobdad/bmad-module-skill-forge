@@ -90,9 +90,17 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
 
    **Note:** `--no-cone` mode is slower than cone mode for very large repositories but eliminates downloading excluded blobs entirely.
 
+   **Always-included root files:**
+
+   Regardless of `include_patterns`, always add these root-level version/manifest files to the sparse-checkout pattern list. These are needed for version reconciliation and must not require a fallback to `gh api`:
+
+   `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `setup.py`, `setup.cfg`, `VERSION`
+
+   In cone mode, append them as individual files with `--skip-checks`. In no-cone mode, list them as explicit include patterns before any negation patterns. Do not flag them as extraneous inclusions during post-checkout filtering.
+
    **Post-checkout filtering:**
 
-   After checkout, apply the original glob `include_patterns` as file-level filters when building the extraction file list — sparse-checkout gets the right directories, glob filtering narrows to the exact files. When `--no-cone` mode was used, most exclude filtering is already done at the git level, but apply `exclude_patterns` as a final pass to catch any edge cases where gitignore pattern matching diverges from the brief's glob semantics.
+   After checkout, apply the original glob `include_patterns` as file-level filters when building the extraction file list — sparse-checkout gets the right directories, glob filtering narrows to the exact files. When `--no-cone` mode was used, most exclude filtering is already done at the git level, but apply `exclude_patterns` as a final pass to catch any edge cases where gitignore pattern matching diverges from the brief's glob semantics. Always-included root files (see above) are exempt from post-checkout filtering.
 
 3. **If clone succeeds:** Update the working source path to `{temp_path}` for all subsequent AST operations in this step. Proceed with the **Forge/Deep Tier** extraction strategy below. Mark `ephemeral_clone_active = true` for cleanup.
 
