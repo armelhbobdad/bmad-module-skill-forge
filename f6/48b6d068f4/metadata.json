@@ -6,8 +6,11 @@
   "checkpoints_count": 1,
   "files_touched": [
     "src/workflows/create-skill/data/extraction-patterns.md",
+    "src/workflows/create-skill/steps-c/step-03-extract.md",
     "src/workflows/create-skill/steps-c/step-06-validate.md",
-    "src/workflows/test-skill/steps-c/step-05-score.md"
+    "src/workflows/test-skill/steps-c/step-04-coherence-check.md",
+    "src/workflows/test-skill/steps-c/step-05-score.md",
+    "src/workflows/update-skill/steps-c/step-03-re-extract.md"
   ],
   "sessions": [
     {
@@ -16,13 +19,20 @@
       "context": "/f6/48b6d068f4/0/context.md",
       "content_hash": "/f6/48b6d068f4/0/content_hash.txt",
       "prompt": "/f6/48b6d068f4/0/prompt.txt"
+    },
+    {
+      "metadata": "/f6/48b6d068f4/1/metadata.json",
+      "transcript": "/f6/48b6d068f4/1/full.jsonl",
+      "context": "/f6/48b6d068f4/1/context.md",
+      "content_hash": "/f6/48b6d068f4/1/content_hash.txt",
+      "prompt": "/f6/48b6d068f4/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 193,
-    "cache_creation_tokens": 395010,
-    "cache_read_tokens": 16683522,
-    "output_tokens": 37303,
-    "api_call_count": 117
+    "input_tokens": 481,
+    "cache_creation_tokens": 1026058,
+    "cache_read_tokens": 53318744,
+    "output_tokens": 109573,
+    "api_call_count": 324
   }
 }
