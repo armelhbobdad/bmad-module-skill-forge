@@ -115,7 +115,7 @@ One entry per extracted export: export_name, export_type, params[] (typed string
 
 ### 7. Build evidence-report.md Content
 
-Compilation audit trail: generation date, forge tier, source info, tool versions, extraction summary (files/exports/confidence), validation results (populated in step-06), warnings. See `{skillSectionsData}` for full template.
+Compilation audit trail: generation date, forge tier, source info, tool versions, extraction summary (files/exports/confidence), validation results (populated in step-06), warnings. See `{skillSectionsData}` for full template. Use the same `{skf_version}` value resolved in section 4 when populating the Tool Versions block.
 
 ### 8. Menu Handling Logic
 

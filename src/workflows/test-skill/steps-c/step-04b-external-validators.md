@@ -56,12 +56,9 @@ Run external validation tools (`skill-check` and `tessl`) against the skill dire
 
 Read {outputFile} frontmatter to get the skill directory path (`skillDir`).
 
-### 1b. Check for Recent Validation Results
+### 1b. Check for Recent Validation Results (Auto-Reuse)
 
-Before running external validators, check if `{forge_data_folder}/{skill_name}/evidence-report.md` contains validation results (a `## Validation Results` section with quality scores). If recent results exist (from a create-skill run that just completed):
-
-- **[R] Reuse** — skip re-running validators and use the existing scores from the evidence report. Record: "External validation: reused from create-skill evidence report."
-- **[F] Fresh run** — run validators again (use when SKILL.md was manually edited between create and test)
+Before running external validators, check if `{forge_data_folder}/{skill_name}/evidence-report.md` contains validation results (a `## Validation Results` section with quality scores). If recent results exist (from a create-skill run that just completed), auto-reuse them — skip re-running validators and use the existing scores from the evidence report. Record: "External validation: reused from create-skill evidence report." Skip to section 5 (append results).
 
 If no evidence report exists or it contains no validation section, proceed to section 2 (fresh run).
 

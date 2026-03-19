@@ -96,7 +96,7 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
 
    `pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `setup.py`, `setup.cfg`, `VERSION`
 
-   In cone mode, append them as individual files with `--skip-checks`. In no-cone mode, list them as explicit include patterns before any negation patterns. Do not flag them as extraneous inclusions during post-checkout filtering.
+   In cone mode, always use the `--skip-checks` command form when adding these files — even if `include_patterns` resolved to only directory roots (which would normally use the form without `--skip-checks`). The command becomes: `git -C {temp_path} sparse-checkout set --skip-checks {directory_roots} pyproject.toml package.json Cargo.toml go.mod setup.py setup.cfg VERSION`. In no-cone mode, list them as explicit include patterns before any negation patterns. Do not flag them as extraneous inclusions during post-checkout filtering.
 
    **Post-checkout filtering:**
 
