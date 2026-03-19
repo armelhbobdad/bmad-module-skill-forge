@@ -1,0 +1,230 @@
+Implement the following plan:
+
+# README & Docs Rework Plan
+
+## Context
+
+Community feedback: the README is jargon-heavy and fails to answer "what is this and why do I need it?" above the fold. A BMad community member said they're "only converted into interesting enough to clone and try to understand from the source code" despite knowing most of the jargon. The goal is to convert "wtf is this?" into "ok, I understand where and why I might want this in my life."
+
+## Summary of Changes
+
+| File | Action | Scope |
+|------|--------|-------|
+| `README.md` | **Rewrite** | New structure: problem → solution → example → install → quickstart |
+| `docs/index.md` | **Rewrite** | Mirror README clarity, extend toward "show me how" |
+| `docs/concepts.md` | **Create** | New page defining all jargon terms in plain English |
+| `docs/getting-started.md` | **Light edit** | Rewrite intro paragraph, add Configuration section from README |
+| `docs/architecture.md` | **Restructure** | Absorb content moved from README (BMad context, building blocks, mermaid, runtime, Ferris modes, module structure) |
+| `docs/workflows.md` | **Light edit** | Add plain-English intro, link jargon to concepts page |
+| `docs/agents.md` | **Light edit** | Add plain-English opening sentence |
+| `docs/examples.md` | **Light edit** | Add "What the output looks like" subsection showing example SKILL.md |
+| `website/astro.config.mjs` | **Update** | Add Concepts to sidebar, rename Architecture → "How It Works", update tagline |
+
+---
+
+## 1. README.md — Complete Rewrite (~140 lines, down from 258)
+
+### New Structure
+
+**Section 1: Logo + Title + Human Tagline** (lines 1-20)
+- Keep centered logo, title, all 6 badges
+- **New tagline**: `Turn your code into instructions AI agents can actually follow.`
+- **New subtitle**: "Skill Forge reads your actual source code and builds verified instruction files for AI agents. Every instruction links back to the exact line it came from — nothing is made up."
+- Keep star callout (softened)
+
+**Section 2: The Problem** (~8 lines)
+- Title: `## The Problem`
+- Plain English: You ask an AI agent to use a library. It invents function names. It guesses parameter types. You paste docs — it still gets wrong. You write instructions manually — they go stale.
+- No jargon. Reader should nod "yes, that happens to me."
+
+**Section 3: How Skill Forge Fixes This** (~8 lines)
+- Three numbered points:
+  1. SKF reads your actual code structure and extracts real function signatures, types, and patterns
+  2. Compiles them into structured instruction files ("skills") where every instruction links to the exact file and line
+  3. Skills follow the agentskills.io open standard — works across Claude, Cursor, Copilot, etc.
+
+**Section 4: Before vs After** (~25 lines)
+- Concrete example showing an AI agent hallucinating a function call without SKF, then getting it right with a SKF-generated skill
+- Use illustrative example (auth library pattern already used in architecture.md)
+- This is the "aha" moment — shows what SKF produces
+
+**Section 5: Install** (~8 lines)
+- Node.js >= 22 requirement
+- Only the recommended standalone method: `npx bmad-module-skill-forge install`
+- One line linking to docs for other install methods
+
+**Section 6: Quick Start** (~10 lines)
+- Three plain-English steps:
+  1. `@Ferris SF` — set up your environment
+  2. `@Ferris QS <package>` — generate your first skill (< 1 minute)
+  3. `@Ferris BS` then `@Ferris CS` — full quality path
+- Link to docs for more workflows
+
+**Section 7: Who Is This For?** (~8 lines)
+- Three audience bullets:
+  - You use AI agents to write code and they keep getting APIs wrong
+  - You maintain a library and want to ship official skill files
+  - You manage a codebase with many dependencies (stack skills)
+
+**Section 8: Learn More** (~8 lines)
+- Links to docs: Getting Started, Concepts, How It Works, Workflows, Examples
+- One-sentence description per link
+
+**Section 9: Acknowledgements** (keep as-is)
+
+**Section 10: Contributing + License** (keep as-is)
+
+### Content Removed from README (moved to docs)
+
+| Content | Moves To |
+|---------|----------|
+| "Why SKF" bullets | Replaced by Problem/Solution sections |
+| "How BMad Works" + "How SKF Fits In" | `docs/architecture.md` |
+| Building Blocks table + mermaid diagram | `docs/architecture.md` |
+| "How It Works at Runtime" (8 steps) | `docs/architecture.md` |
+| "Ferris Operating Modes" table | `docs/architecture.md` |
+| Install Methods 2 & 3 | Already in `docs/getting-started.md` |
+| Security Scanning details | Already in `docs/getting-started.md` |
+| Workflows 10-row table | Already in `docs/workflows.md` |
+| Progressive Capability Model table | Already in `docs/architecture.md` |
+| Knowledge Base section | `docs/architecture.md` |
+| Configuration variables table | `docs/getting-started.md` |
+| Module Structure tree | `docs/architecture.md` |
+
+---
+
+## 2. docs/concepts.md — New File
+
+Plain-English definitions, 2-4 sentences each, with concrete examples. This is the bridge between "Getting Started" and "How It Works."
+
+Sections:
+- **Agent Skills** — instruction files that tell AI agents how to use your code
+- **Provenance** — every instruction links to the exact source file and line
+- **Confidence Tiers (T1/T2/T3)** — how much you can trust each piece of info
+- **Capability Tiers (Quick/Forge/Deep)** — what tools you have determines your level
+- **Drift** — when code changes but skill instructions haven't been updated
+- **Version Pinning** — skills remember which code version they were built from
+- **BMAD Module** — SKF is a plugin for the BMad workflow framework
+- **Ferris** — the AI agent persona that runs SKF workflows
+- **Zero Hallucination** — if it can't trace to source code, it doesn't get included
+
+---
+
+## 3. docs/index.md — Rewrite
+
+- **New tagline**: matches README's plain-English version
+- **Hero actions**: keep "Getting Started" + "View on GitHub"
+- **"What does Skill Forge do?"** — 3-4 sentences, no jargon
+- **Quick Install** — one-liner + link to Getting Started
+- **Remove** the Core Workflows table (premature for landing page)
+- **Documentation links** — updated to include Concepts page, de-jargoned descriptions
+
+---
+
+## 4. docs/architecture.md — Restructure
+
+- Rename sidebar label to **"How It Works"** (slug stays `architecture`)
+- Add lead paragraph: "For people who want to understand how SKF works under the hood"
+- **New subsections** (absorbed from README):
+  - "How BMad Works" (from README lines 34-37)
+  - "How SKF Fits In" (from README lines 39-41)
+  - "Building Blocks" table (from README lines 48-58)
+  - Mermaid diagram (from README lines 60-68)
+  - "How It Works at Runtime" (from README lines 70-79)
+  - "Ferris Operating Modes" table (from README lines 83-91)
+  - "Knowledge Base" (from README lines 178-185)
+  - "Module Structure" tree (from README lines 200-225)
+- Keep all existing content (Why Another Tool, Progressive Capability Model, Confidence Tiers, Output Architecture, etc.)
+
+---
+
+## 5. docs/getting-started.md — Light Edit
+
+- Rewrite "What This Module Does" paragraph to match new plain-English framing
+- Add **Configuration** subsection (moved from README lines 189-197) with the variables table
+- Everything else stays
+
+---
+
+## 6. docs/workflows.md — Light Edit
+
+- Add plain-English intro: "SKF has 10 workflows. You trigger them by typing commands to Ferris."
+- Add concept links for jargon terms (e.g., "drift detection" → `concepts.md#drift`)
+
+---
+
+## 7. docs/agents.md — Light Edit
+
+- Add opening sentence: "Ferris is the AI agent that runs all SKF workflows."
+
+---
+
+## 8. docs/examples.md — Light Edit
+
+- Add a "What the Output Looks Like" subsection early on showing a trimmed SKILL.md so readers know what they'll get
+
+---
+
+## 9. website/astro.config.mjs — Updates
+
+**Sidebar** (line 92-99):
+```javascript
+sidebar: [
+  { label: 'Welcome', slug: 'index' },
+  { label: 'Getting Started', slug: 'getting-started' },
+  { label: 'Concepts', slug: 'concepts' },
+  { label: 'How It Works', slug: 'architecture' },
+  { label: 'Workflows', slug: 'workflows' },
+  { label: 'Agents', slug: 'agents' },
+  { label: 'Examples', slug: 'examples' },
+],
+```
+
+**Tagline** (line 42): Update to match the new plain-English version.
+
+---
+
+## Implementation Order
+
+1. `docs/concepts.md` — new file, no dependencies
+2. `README.md` — primary deliverable
+3. `docs/index.md` — mirrors README clarity
+4. `docs/architecture.md` — absorb content from README
+5. `docs/getting-started.md` — add Configuration, rewrite intro
+6. `docs/examples.md` — add output example
+7. `docs/workflows.md` + `docs/agents.md` — light edits
+8. `website/astro.config.mjs` — sidebar + tagline
+
+## Verification
+
+1. Run `cd website && npm run build` to verify Astro builds cleanly with the new concepts page and sidebar changes
+2. Check all internal links resolve (Getting Started → Concepts, README → docs links)
+3. Visual check: open built site and verify sidebar order, navigation, and page content
+4. Read the README fresh as a newcomer — can you answer "what is this?" by line 30?
+
+
+If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: /home/armel/.claude/projects/-home-armel-Projects-OSS-bmad-module-skill-forge/ba1dc539-2910-453b-85b7-14f67f002dd4.jsonl
+
+If this plan can be broken down into multiple independent tasks, consider using the TeamCreate tool to create a team and parallelize the work.
+
+---
+
+Here is the repo containing our curated collection of agentskills.io-compliant, version-pinned agent skills — generated and maintained by Skill Forge: 
+- local clone: /home/armel/Projects/OSS/oh-my-skills/
+- remote: https://github.com/armelhbobdad/oh-my-skills
+
+It contains concrete generate artefacts that could be use for a better doc accuracy.
+
+Moreover, SKF is note limited to code, it transforms code repositories, documentation websites, and developer discourse into agentskills.io-compliant, version-pinned, provenance-backed agent skills.
+
+---
+
+perfect. Before we commit, can you use the chrome mcp and check the footer navigation bar with darkside mode? The backhground color is not aligned with the dark pages. App is live at http://localhost:4321
+
+---
+
+good job buddy! Commit everything now.
+
+---
+
+Before we open a PR. Run a deep review to make sure we did forget missing impact, etc...
