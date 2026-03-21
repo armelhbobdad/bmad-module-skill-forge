@@ -135,6 +135,18 @@ Does this look right? You can adjust before we continue."
 
 Wait for confirmation. Make adjustments if requested.
 
+### 5b. Scripts & Assets Intent (Optional)
+
+**Only ask when `scope.type` is `full-library` or `specific-modules` (skip for `public-api` and `docs-only`).**
+
+"Does this library include executable scripts (CLI tools, validation scripts, setup helpers) or static assets (config templates, JSON schemas, example configs) that should be packaged with the skill?"
+
+- **[D] Auto-detect** from source (default) — SKF will scan for `scripts/`, `bin/`, `assets/`, `templates/`, `schemas/` directories
+- **[N] None expected** — skip script/asset detection
+- Or describe what you expect (free text)
+
+Record the response as `scripts_intent` and `assets_intent` in the brief. Default to `detect` if user does not respond or skips.
+
 ### 6. Present MENU OPTIONS
 
 Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Continue to Brief Confirmation

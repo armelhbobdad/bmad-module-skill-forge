@@ -72,6 +72,7 @@ Perform lightweight structural checks:
 - Section headers are properly formatted
 - Code examples have language annotations
 - No broken markdown (unclosed code blocks, malformed tables)
+- If `scripts/` or `assets/` directory exists alongside SKILL.md, a "Scripts & Assets" section (Section 7b) should be present
 
 **Internal consistency:**
 - Exports referenced in usage examples match exports listed in exports section
@@ -101,6 +102,7 @@ Scan SKILL.md for all cross-references:
 - Skill references (`See SKILL.md for {other-skill}`, `Integrates with {package}`)
 - Type imports (`import { Type } from './module'`)
 - Integration pattern references (middleware chains, plugin hooks, shared state)
+- Script/asset references (`scripts/{file}`, `assets/{file}`) in SKILL.md body
 
 Launch a subprocess to grep/regex SKILL.md for reference patterns and return all found references with line numbers as structured JSON (`references_found[]` with line, type, target fields). If subprocess unavailable, scan in main thread.
 
@@ -114,6 +116,7 @@ DO NOT BE LAZY — For EACH reference found, launch a subprocess that:
    - Type imports: type is actually exported from the referenced module
    - Skill references: referenced skill exists in skills output folder
    - Integration patterns: documented pattern matches actual implementation
+   - Script/asset references: verify the referenced file exists in the skill's `scripts/` or `assets/` directory
 3. Returns structured validation JSON per reference (reference, line, target_exists, type_match, signature_match, issues[])
 
 If subprocess unavailable, validate each reference in main thread.

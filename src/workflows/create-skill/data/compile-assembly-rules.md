@@ -77,6 +77,14 @@ These sections form the essential standalone body. Target: **under 300 lines tot
 - Basic CLI commands if the library has a CLI interface
 - Skip if no CLI exists
 
+**Section 7b — Scripts & Assets (~10 lines, if applicable):**
+- Manifest table of included scripts with filename, one-line purpose, and provenance citation
+- Manifest table of included assets with filename, one-line purpose, and provenance citation
+- Each entry: `scripts/{filename}` or `assets/{filename}`, purpose, `[SRC:{source_path}:L1]`
+- Include a note: "Load scripts from `scripts/` and assets from `assets/` when directed by the instructions above."
+- **Skip entirely** when no scripts or assets detected in extraction inventory — do not emit an empty section
+- Like Sections 4b and 7, parsers must treat this section as optional
+
 **Section 8 — Manual Sections:**
 - Seed empty `<!-- [MANUAL] -->` markers:
 ```markdown

@@ -100,6 +100,14 @@ Follow the merge priority order from {mergeConflictRulesFile}:
 - Place before any [MANUAL] blocks at section boundary
 - No conflicts expected (new content, no existing [MANUAL])
 
+**Priority 6 — Process script/asset file changes (from Category D in change manifest):**
+- MODIFIED_FILE: queue file for re-copy from source, update `file_entries` content_hash
+- DELETED_FILE: queue file for removal from `scripts/` or `assets/`, remove from `file_entries`
+- NEW_FILE: queue file for copy from source, add to `file_entries`
+- Files in `scripts/[MANUAL]/` or `assets/[MANUAL]/` are never modified (user-authored)
+- Update Section 7b manifest table to reflect changes
+- Update `metadata.json` `scripts[]`/`assets[]` arrays and `stats.scripts_count`/`stats.assets_count`
+
 ### 4. Check for Conflicts
 
 Scan all merge operations for flagged conflicts:

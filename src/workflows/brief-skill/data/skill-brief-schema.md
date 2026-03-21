@@ -20,6 +20,8 @@
 |-------|------|-------------|------------|
 | source_type | string | Source mode: `source` or `docs-only` | Default `source`. When `docs-only`: `source_repo` optional, `doc_urls` required |
 | doc_urls | array | Documentation URLs for T3 content | Each entry: `{url, label}`. Required when `source_type: "docs-only"` |
+| `scripts_intent` | string | Describes whether scripts should be extracted. Values: `detect` (auto-detect from source — default when absent), `none` (skip scripts), or a free-text description of expected scripts (e.g., "CLI validation tools in bin/"). |
+| `assets_intent` | string | Describes whether assets should be extracted. Values: `detect` (auto-detect from source — default when absent), `none` (skip assets), or a free-text description of expected assets (e.g., "JSON schemas in schemas/"). |
 
 When `source_type: "docs-only"`:
 - `source_repo` becomes optional (set to doc site URL for reference)
@@ -79,6 +81,8 @@ scope:
 # doc_urls:
 #   - url: "https://docs.example.com/api"
 #     label: "API Reference"
+# scripts_intent: detect         # Optional: detect | none | description
+# assets_intent: detect          # Optional: detect | none | description
 ---
 ```
 

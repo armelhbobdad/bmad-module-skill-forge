@@ -91,13 +91,14 @@ DO NOT BE LAZY — For EACH qualifying unit, launch a subprocess (or analyze in 
    - Primary export patterns (barrel exports, direct exports, re-exports)
    - Public API surface size estimate
    - Key entry points
+   - Script/asset presence: check for `scripts/`, `bin/`, `assets/`, `templates/` directories and files matching detection signals in `{heuristicsFile}`. Record counts in per-unit findings.
    - Analysis strategy used and coverage confidence
 
 **Per-unit export summary:**
 
-| Unit | Files | Exports | Export Pattern | API Surface |
-|------|-------|---------|----------------|-------------|
-| {name} | {count} | {count} | {pattern} | {small/medium/large} |
+| Unit | Files | Exports | Export Pattern | API Surface | Scripts/Assets |
+|------|-------|---------|----------------|-------------|----------------|
+| {name} | {count} | {count} | {pattern} | {small/medium/large} | {N scripts, M assets or --} |
 
 ### 3. Map Import Graph
 

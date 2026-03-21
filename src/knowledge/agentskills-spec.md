@@ -54,6 +54,8 @@ skill-name/
 
 All subdirectories are exactly one level deep. Files are loaded on demand when SKILL.md directs — never automatically.
 
+Scripts and assets extracted by Skill Forge inherit provenance from their source repository. Each file receives a `[SRC:{source_path}:L1]` citation (T1-low confidence) and a SHA-256 content hash for drift detection. Scripts must follow the quality principles in the Script Quality section below. Assets are static files loaded on demand — agents use them as directed by SKILL.md instructions.
+
 ## Progressive Disclosure Model
 
 The format implements a three-phase loading model:

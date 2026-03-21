@@ -59,9 +59,11 @@ Verify the skill directory contains the expected agentskills.io package layout:
 ├── SKILL.md              ← Required: Active skill document
 ├── metadata.json         ← Required: Machine-readable metadata
 ├── context-snippet.md    ← Will be generated/updated in step-03
-└── references/           ← Optional: Progressive disclosure
-    ├── {function-a}.md
-    └── {function-b}.md
+├── references/           ← Optional: Progressive disclosure
+│   ├── {function-a}.md
+│   └── {function-b}.md
+├── scripts/              ← Optional: Executable automation
+└── assets/               ← Optional: Templates, schemas, configs
 ```
 
 **Check each component:**
@@ -75,6 +77,8 @@ Verify the skill directory contains the expected agentskills.io package layout:
    - `generation_date` (ISO date string)
    - `confidence_tier` ("Quick", "Forge", or "Deep")
 3. `references/` — If exists, check at least one .md file present
+4. `scripts/` — If exists, verify at least one file present and each file referenced in SKILL.md Section 7b exists. Warn for orphaned scripts (present but not referenced).
+5. `assets/` — If exists, verify at least one file present and each file referenced in SKILL.md Section 7b exists. Warn for orphaned assets (present but not referenced).
 
 ### 2. Validate Metadata Completeness
 

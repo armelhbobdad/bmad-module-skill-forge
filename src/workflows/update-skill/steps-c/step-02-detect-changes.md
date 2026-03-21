@@ -112,6 +112,14 @@ Launch subprocesses in parallel that compare source state against provenance map
 - Cross-reference deleted files/exports with added files/exports
 - If content similarity > 80%: classify as RENAMED instead of deleted+added
 
+**Category D — Script/asset file changes:**
+- Compare `file_entries` from provenance-map.json against current source files
+- For each file_entry: compute current SHA-256 content hash, compare against stored hash
+- Files with changed hashes → MODIFIED_FILE
+- Files in provenance but missing from source → DELETED_FILE
+- Files in source matching detection patterns (scripts/, bin/, assets/, templates/) but not in provenance → NEW_FILE
+- Files in `scripts/[MANUAL]/` or `assets/[MANUAL]/` → SKIP (user-authored, preserved)
+
 Aggregate all subprocess results into a unified change manifest.
 
 **If degraded mode (no provenance map):**
@@ -135,6 +143,9 @@ Change Manifest:
   exports_deleted: [count]
   exports_renamed: [count]
   exports_moved: [count]
+
+  scripts_modified, scripts_added, scripts_deleted: {counts}
+  assets_modified, assets_added, assets_deleted: {counts}
 
   Per-file detail:
     {file_path}:

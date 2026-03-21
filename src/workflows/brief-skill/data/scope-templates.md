@@ -58,3 +58,7 @@ Prompt: "Which of these would you like to include? (Enter numbers, or 'all'):"
 
 Exclusions will include all internal implementation files, tests, and utilities.
 Prompt: "Any additional items you'd like to include or exclude?"
+
+## Scripts & Assets Detection (Optional Refinement)
+
+When `scripts_intent` or `assets_intent` is `detect` (default), SKF auto-detects from source directories matching: `scripts/`, `bin/`, `tools/`, `cli/` (for scripts) and `assets/`, `templates/`, `schemas/`, `configs/`, `examples/` (for assets). Detection applies to all scope types except `docs-only`.

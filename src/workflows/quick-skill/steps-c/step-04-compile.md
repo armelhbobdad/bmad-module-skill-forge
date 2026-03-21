@@ -93,6 +93,7 @@ description: >
 - **Configuration:** If configuration options were found in source
 - **Dependencies:** Key dependencies from manifest
 - **Notes:** Caveats, limitations, extraction confidence level
+- **Scripts & Assets Note** (if source contains `scripts/`, `bin/`, `assets/`, `templates/`, or `schemas/` directories): "This package may include scripts and assets. Run create-skill for full extraction with provenance tracking."
 
 **If confidence is low:**
 - Include a note: "This skill was generated with limited source data. Consider running create-skill for a more thorough compilation."

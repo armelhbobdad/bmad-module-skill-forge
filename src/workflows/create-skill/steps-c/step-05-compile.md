@@ -61,7 +61,7 @@ Load `{skillSectionsData}` and `{assemblyRulesData}` completely. These define th
 
 ### 2. Build SKILL.md Content
 
-Assemble each section in order using the assembly rules data file (`{assemblyRulesData}`). The data file specifies frontmatter format, Tier 1 section details (Sections 1-8), Tier 2 section details (Sections 9-11), and assembly ordering rules. Follow it exactly.
+Assemble each section in order using the assembly rules data file (`{assemblyRulesData}`). The data file specifies frontmatter format, Tier 1 section details (Sections 1-8, including conditional Section 7b for scripts/assets), Tier 2 section details (Sections 9-11), and assembly ordering rules. Follow it exactly. Assemble Section 7b (Scripts & Assets) only if `scripts_inventory` or `assets_inventory` is non-empty.
 
 ### 3. Build context-snippet.md Content
 
@@ -101,6 +101,7 @@ Following the structure from the skill-sections data file:
 - Set `language` from source analysis (e.g., `"typescript"`, `"python"`) — use the primary language of the entry point file
 - Set `ast_node_count` from extraction stats if ast-grep was used (Forge/Deep tier), otherwise omit
 - Set `tool_versions` based on tier and available tools. Resolve `{skf_version}` from the SKF module's `package.json` `version` field (run `node -p "require('./node_modules/bmad-module-skill-forge/package.json').version"` or read the installed module's `package.json`). If unresolvable, fall back to `git describe --tags --abbrev=0` in the SKF module root. Never hardcode the version.
+- If `scripts_inventory` is non-empty, populate `scripts[]` array and set `stats.scripts_count`. If `assets_inventory` is non-empty, populate `assets[]` array and set `stats.assets_count`. Omit these fields entirely when inventories are empty.
 
 ### 5. Build references/ Content
 
@@ -114,7 +115,7 @@ Group functions logically by module, file, or functional area.
 
 ### 6. Build provenance-map.json Content
 
-One entry per extracted export: export_name, export_type, params[] (typed strings), return_type, source_file, source_line, confidence tier (T1/T1-low/T2), extraction_method, ast_node_type. See `{skillSectionsData}` for full schema.
+One entry per extracted export: export_name, export_type, params[] (typed strings), return_type, source_file, source_line, confidence tier (T1/T1-low/T2), extraction_method, ast_node_type. If `scripts_inventory` or `assets_inventory` is non-empty, add `file_entries[]` with file_name, file_type, source_file, content_hash, confidence, extraction_method. See `{skillSectionsData}` for full schema.
 
 ### 7. Build evidence-report.md Content
 

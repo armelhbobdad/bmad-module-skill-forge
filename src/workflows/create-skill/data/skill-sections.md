@@ -38,6 +38,7 @@ SKILL.md uses a two-tier structure to ensure actionable content survives `split-
 | 5 | **Key Types** | ~20 lines | Most important enum/type values inline |
 | 6 | **Architecture at a Glance** | ~10 lines | Bullet list of subsystem categories |
 | 7 | **CLI** | ~10 lines | Basic CLI commands (skip if no CLI) |
+| 7b | **Scripts & Assets** | ~10 lines | Manifest of included scripts and assets (skip if none detected) |
 | 8 | **Manual Sections** | ~5 lines | `<!-- [MANUAL] -->` markers for update-skill |
 
 #### Tier 2 — Reference-Eligible (extracted by split-body into references/)
@@ -56,6 +57,7 @@ SKILL.md uses a two-tier structure to ensure actionable content survives `split-
 - After split-body, SKILL.md retains all Tier 1 content — actionable without loading references
 - An agent loading only SKILL.md (no references) must get enough to act
 - **Section 4b (Migration & Deprecation Warnings)** is conditional: only emitted for Deep tier when T2-future annotations exist. Quick/Forge tiers and Deep tiers without T2-future annotations omit it entirely (no empty section). Parsers and validators must treat this section as optional.
+- **Section 7b (Scripts & Assets)** is conditional: only emitted when `scripts_inventory` or `assets_inventory` is non-empty. Omitted entirely when no scripts or assets are detected. Parsers and validators must treat this section as optional.
 
 ### Provenance Citation Format
 
@@ -139,8 +141,16 @@ Indexed pipe-delimited format for CLAUDE.md managed section (~80-120 tokens per 
     "total_coverage": 0.0,
     "confidence_t1": 0,
     "confidence_t2": 0,
-    "confidence_t3": 0
+    "confidence_t3": 0,
+    "scripts_count": 0,
+    "assets_count": 0
   },
+  "scripts": [
+    { "file": "scripts/{name}", "purpose": "{description}", "source_file": "{source-path}", "confidence": "T1-low" }
+  ],
+  "assets": [
+    { "file": "assets/{name}", "purpose": "{description}", "source_file": "{source-path}", "confidence": "T1-low" }
+  ],
   "dependencies": [],
   "compatibility": "{semver-range}"
 }
@@ -190,9 +200,21 @@ Each reference file includes:
       "extraction_method": "ast_bridge.scan_definitions",
       "ast_node_type": "export_function_declaration"
     }
+  ],
+  "file_entries": [
+    {
+      "file_name": "scripts/{name}",
+      "file_type": "script",
+      "source_file": "{source-path}",
+      "confidence": "T1-low",
+      "extraction_method": "file-copy",
+      "content_hash": "sha256:{hash}"
+    }
   ]
 }
 ```
+
+`scripts` and `assets` arrays in metadata.json are optional — omit entirely (not empty arrays) when no scripts/assets exist. `file_entries` in provenance-map.json is optional — omit when no scripts/assets exist.
 
 ---
 

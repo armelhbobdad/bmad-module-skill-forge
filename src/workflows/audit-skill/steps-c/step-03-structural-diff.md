@@ -108,6 +108,20 @@ For each changed export, record:
 - What changed (signature / type / location)
 - Confidence tier
 
+### 4b. Detect Script/Asset Drift
+
+**Only execute if provenance-map.json contains `file_entries`.**
+
+For each entry in `file_entries`:
+1. Locate the source file at the original `source_file` path
+2. Compute current SHA-256 content hash
+3. Compare against stored `content_hash`
+- CHANGED: hash mismatch → record as script/asset content drift
+- MISSING: source file no longer exists → record as removed
+- NEW: source contains files matching script/asset patterns not in `file_entries` → record as added
+
+Append results to the Structural Drift section as "### Script/Asset Drift ({count})".
+
 ### 5. Compile Structural Drift Section
 
 Append to {outputFile}:

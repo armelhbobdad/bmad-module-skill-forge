@@ -38,6 +38,14 @@ by the forge during updates or regeneration.
 - Nested \[MANUAL\] blocks are forbidden — trigger an ERROR if detected
 - Markers apply to any output file: `SKILL.md`, `references/*.md`, integration files
 
+### [MANUAL] Subdirectories
+
+User-authored scripts and assets are placed in `scripts/[MANUAL]/` and `assets/[MANUAL]/` subdirectories within the skill package. These follow the same preservation principle as markdown `<!-- [MANUAL] -->` markers:
+
+- Files in `[MANUAL]/` subdirectories are preserved unconditionally during `update-skill`
+- Source-derived scripts/assets (outside `[MANUAL]/`) are refreshed from source during updates
+- Conflicts (user file has same name as source file outside `[MANUAL]/`) are flagged as HIGH severity
+
 ## Pattern Examples
 
 ### Example 1: Adding Manual Context to a Generated Skill

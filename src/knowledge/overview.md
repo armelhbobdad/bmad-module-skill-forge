@@ -27,7 +27,7 @@ With knowledge files:
 | [progressive-capability.md](progressive-capability.md)     | Quick/Forge/Deep tier philosophy and behavior adaptation          | All 10                             |
 | [agentskills-spec.md](agentskills-spec.md)                 | agentskills.io output format principles and compliance            | CS, QS, SS, US, TS, EX             |
 | [skill-lifecycle.md](skill-lifecycle.md)                   | End-to-end pipeline, artifact flow, workflow selection            | All 10                             |
-| [provenance-tracking.md](provenance-tracking.md)           | Provenance-map.json, evidence reports, claim traceability         | CS, QS, SS, US, AS, TS             |
+| [provenance-tracking.md](provenance-tracking.md)           | Provenance-map.json entries and file_entries, evidence reports, claim traceability | CS, QS, SS, US, AS, TS             |
 | [manual-section-integrity.md](manual-section-integrity.md) | \[MANUAL\] marker preservation and merge algorithm                | CS, US, AS, TS, EX                 |
 | [qmd-registry.md](qmd-registry.md)                         | Progressive QMD collection registry and collection gate principle | SF, BS, CS, US, AS                 |
 | [split-body-strategy.md](split-body-strategy.md)           | Selective vs full split-body, detection pattern, agent accuracy   | CS, QS, US, TS, EX                |

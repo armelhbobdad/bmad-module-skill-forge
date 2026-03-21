@@ -96,6 +96,11 @@ Write to `{forge_data_folder}/{skill_name}/provenance-map.json`:
 **For new exports:**
 - Add new entry with full structured fields: `export_name`, `export_type`, `params[]`, `return_type`, `source_file`, `source_line`, `confidence`, `extraction_method`, `ast_node_type`
 
+**For script/asset file changes (if `file_entries` exists):**
+- MODIFIED_FILE: copy updated file to `scripts/` or `assets/`, update `content_hash` in `file_entries`
+- DELETED_FILE: remove file from `scripts/` or `assets/`, remove entry from `file_entries`
+- NEW_FILE: copy file to `scripts/` or `assets/`, add entry to `file_entries` with `file_name`, `file_type`, `source_file`, `confidence: "T1-low"`, `extraction_method: "file-copy"`, `content_hash`
+
 **Add update operation metadata:**
 ```json
 {

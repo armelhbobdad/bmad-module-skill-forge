@@ -3,6 +3,7 @@ name: 'step-03-extract'
 description: 'Tier-dependent source code extraction — AST or source reading for exports, signatures, and types'
 nextStepFile: './step-03b-fetch-temporal.md'
 extractionPatternsData: '../data/extraction-patterns.md'
+extractionPatternsTracingData: '../data/extraction-patterns-tracing.md'
 tierDegradationRulesData: '../data/tier-degradation-rules.md'
 sourceResolutionData: '../data/source-resolution-protocols.md'
 ---
@@ -118,7 +119,7 @@ Degrade to Quick tier extraction. Note the degradation reason in context for the
 
 **Re-export tracing (Forge/Deep only):**
 
-After the initial AST scan, check for public exports from the entry point (`__init__.py`, `index.ts`, `lib.rs`) that were NOT found by AST extraction. These are likely module-level re-exports. Follow the **Re-Export Tracing** protocol in `{extractionPatternsData}` to resolve them to their actual definition files. This ensures module re-export patterns (common in Python libraries with clean public APIs) do not create gaps in the extraction inventory.
+After the initial AST scan, check for public exports from the entry point (`__init__.py`, `index.ts`, `lib.rs`) that were NOT found by AST extraction. These are likely module-level re-exports. Follow the **Re-Export Tracing** protocol in `{extractionPatternsTracingData}` to resolve them to their actual definition files. This ensures module re-export patterns (common in Python libraries with clean public APIs) do not create gaps in the extraction inventory.
 
 ### 4b. Validate Exports Against Package Entry Point
 
@@ -134,6 +135,20 @@ After extraction, validate the collected exports against the package's actual pu
 Use the entry point as the authoritative source for `metadata.json`'s `exports[]` array. This prevents internal symbols from inflating the exports list and ensures all public API items are captured.
 
 **If entry point is missing or unreadable:** Skip validation with a warning. Use the AST-extracted list as-is.
+
+### 4c. Detect and Inventory Scripts/Assets
+
+**If `scripts_intent: "none"` AND `assets_intent: "none"` in brief:** Skip this section.
+
+After export extraction, scan the source for scripts and assets using the detection patterns in `{extractionPatternsTracingData}`:
+
+1. Scan source tree for directories/files matching detection heuristics (scripts/, bin/, tools/, cli/ for scripts; assets/, templates/, schemas/, configs/, examples/ for assets)
+2. For each candidate: verify file exists, check size (flag if >500 lines for user confirmation), exclude binary files
+3. Compute SHA-256 content hash for each included file
+4. Extract purpose from file header comments, shebang, README references, or schema `title`/`description` fields. If no purpose found, use filename.
+5. Record: file_path, purpose, source_path, language (for scripts), type (for assets), content_hash, confidence (T1-low)
+
+Add results to `scripts_inventory[]` and `assets_inventory[]` alongside the existing export inventory.
 
 ### 5. Build Extraction Inventory
 
@@ -155,6 +170,10 @@ Compile all extracted data into a structured inventory:
 - Confidence breakdown (T1 count, T1-low count)
 - `top_exports[]` — sorted list of the top 10-20 public API function names by prominence (import frequency or documentation position). This named field is consumed by step-03b for targeted temporal fetching and cache fingerprinting.
 
+**Script/asset counts (when detected):**
+- `scripts_found`: count of scripts detected
+- `assets_found`: count of assets detected
+
 **Co-import patterns (Forge/Deep only):**
 - Libraries commonly imported alongside extracted exports
 - Integration point suggestions
@@ -170,6 +189,8 @@ Display the extraction findings for user confirmation:
 **Confidence:** {t1_count} T1 (AST-verified), {t1_low_count} T1-low (source reading)
 **Tier used:** {tier}
 **Co-import patterns:** {pattern_count} detected
+{if scripts_found > 0: **Scripts detected:** {scripts_found}}
+{if assets_found > 0: **Assets detected:** {assets_found}}
 
 **Top exports:**
 {list top 10 exports with signatures}
