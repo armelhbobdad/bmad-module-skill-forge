@@ -47,5 +47,5 @@
 - **integrations line**: Co-import patterns from metadata.json `integrations` for stack skills
 - If fewer exports than the limit, list all available
 - If no exports data available, omit the api line
-- Section anchors must be verified against actual SKILL.md headings during generation. For split-body skills (where `references/` exists), if a heading is missing from SKILL.md, rewrite the anchor to point to the reference file or omit the line
+- Section anchors must be verified against actual SKILL.md headings during generation. For split-body skills (where `references/` exists and `## Full` headings are stubs), if a heading is missing from SKILL.md, rewrite the anchor to point to the reference file path (preferred). Omit the anchor line only if the heading cannot be found in either SKILL.md or `references/*.md`
 - Skill path is relative to project root

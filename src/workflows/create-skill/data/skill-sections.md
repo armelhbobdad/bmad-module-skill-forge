@@ -121,6 +121,9 @@ Indexed pipe-delimited format for CLAUDE.md managed section (~80-120 tokens per 
   "confidence_tier": "{Quick|Forge|Deep}",
   "spec_version": "1.3",
   "generation_date": "{ISO-8601}",
+  "description": "{SKILL.md frontmatter description}",
+  "language": "{primary-source-language}",
+  "ast_node_count": "{number-or-omitted-if-no-ast}",
   "exports": [],
   "tool_versions": {
     "ast_grep": "{version-or-null}",

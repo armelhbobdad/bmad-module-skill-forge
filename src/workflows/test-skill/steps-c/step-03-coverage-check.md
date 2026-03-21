@@ -85,7 +85,7 @@ Read SKILL.md and extract all documented items:
 
 Build the **documented inventory** — a list of everything the SKILL.md claims the source provides.
 
-**Split-body traversal:** If a `references/` directory exists alongside SKILL.md, extend the documented inventory scan to include all `references/*.md` files. After split-body, Tier 2 content (Full API Reference, Full Type Definitions) lives in reference files — the inventory must reflect the full skill content regardless of where it resides.
+**Split-body traversal:** If a `references/` directory exists alongside SKILL.md and SKILL.md's `## Full` headings are absent or stubs (not a stack skill's structural references), extend the documented inventory scan to include all `references/*.md` files. After split-body, Tier 2 content (Full API Reference, Full Type Definitions) lives in reference files — the inventory must reflect the full skill content regardless of where it resides.
 
 ### 2. Analyze Source Code (Tier-Dependent)
 

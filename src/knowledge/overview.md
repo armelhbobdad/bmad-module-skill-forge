@@ -30,6 +30,7 @@ With knowledge files:
 | [provenance-tracking.md](provenance-tracking.md)           | Provenance-map.json, evidence reports, claim traceability         | CS, QS, SS, US, AS, TS             |
 | [manual-section-integrity.md](manual-section-integrity.md) | \[MANUAL\] marker preservation and merge algorithm                | CS, US, AS, TS, EX                 |
 | [qmd-registry.md](qmd-registry.md)                         | Progressive QMD collection registry and collection gate principle | SF, BS, CS, US, AS                 |
+| [split-body-strategy.md](split-body-strategy.md)           | Selective vs full split-body, detection pattern, agent accuracy   | CS, US, CX, TS, EX                |
 
 ## JiT Loading Protocol
 

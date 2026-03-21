@@ -177,7 +177,7 @@ External tool checks deferred from step-05 now run against the written files:
 
 **If skill-check available:**
 - Run: `npx skill-check check {skills_output_folder}/{skill_name} --fix --format json --no-security-scan`
-- If `body.max_lines` reported, run: `npx skill-check split-body {skills_output_folder}/{skill_name} --write`
+- If `body.max_lines` reported, prefer selective split (see `knowledge/split-body-strategy.md`). Fall back to `npx skill-check split-body {skills_output_folder}/{skill_name} --write` if not feasible. Verify anchors resolve after split.
 - Run: `npx skill-check diff` if original version was preserved
 - Run: `npx skill-check check {skills_output_folder}/{skill_name} --format json` for security scan
 

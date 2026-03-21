@@ -99,6 +99,8 @@ Load the following from the skill directory:
 - `name`, `version`, `generation_date`, `confidence_tier` used during creation
 - `source_root` — Resolved source code path used during extraction
 
+**Detect split-body state:** If a `references/` directory exists and SKILL.md's `## Full` headings are absent or stubs, this is a split-body skill. Flag `split_body: true` in the baseline so downstream steps (especially semantic diff in step-04) know to also read `references/*.md` for complete content comparison.
+
 ### 4. Load Provenance Map
 
 Search for provenance map at `{forge_data_folder}/{skill_name}/provenance-map.json`
