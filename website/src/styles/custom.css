@@ -419,7 +419,7 @@ pre.mermaid:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #000;
+  background: #f5f5f5;
   opacity: 0;
   visibility: hidden;
   transition:
@@ -455,7 +455,7 @@ pre.mermaid:hover {
   right: 1.5rem;
   background: none;
   border: none;
-  color: #fff;
+  color: #333;
   font-size: 2.5rem;
   cursor: pointer;
   line-height: 1;
@@ -470,9 +470,22 @@ pre.mermaid:hover {
 .mermaid-lightbox-hint {
   position: absolute;
   bottom: 1.5rem;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(0, 0, 0, 0.4);
   font-size: 0.85rem;
   pointer-events: none;
+}
+
+/* Dark mode lightbox overrides */
+:root[data-theme='dark'] .mermaid-lightbox {
+  background: #111;
+}
+
+:root[data-theme='dark'] .mermaid-lightbox-close {
+  color: #fff;
+}
+
+:root[data-theme='dark'] .mermaid-lightbox-hint {
+  color: rgba(255, 255, 255, 0.5);
 }
 
 /* ============================================
