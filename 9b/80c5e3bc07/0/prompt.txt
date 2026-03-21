@@ -1,0 +1,13 @@
+the mermaid diagram from @docs/architecture.md is not rendered in the astro @website/ . Please use https://github.com/joesaby/astro-mermaid to fix
+
+---
+
+it works! Please is it possible to click/zoom on each rendered diagram?
+
+---
+
+commit the previous work first then implement the simplest high-value option (click-to-expand)
+
+---
+
+The app is live at http://localhost:4321/architecture/. When I click on the diagram, it is shown too small.
