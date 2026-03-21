@@ -9,3 +9,4 @@ provenance-tracking,Provenance Tracking,"Provenance mechanism — provenance-map
 manual-section-integrity,Manual Section Integrity,"[MANUAL] preservation — marker format, merge algorithm, orphan detection","manual,preservation,merge,markers",core,knowledge/manual-section-integrity.md
 qmd-registry,QMD Collection Registry,"Progressive registry architecture — producer/consumer/janitor roles, collection gate principle, forge-tier.yaml registry schema","qmd,registry,collections,deep,indexing",core,knowledge/qmd-registry.md
 doc-fetcher,Doc Fetcher,"T3 external documentation — tool-agnostic URL fetching, quarantine rules, conflict resolution","doc-fetcher,t3,external,documentation,quarantine",extended,knowledge/doc-fetcher.md
+split-body-strategy,Split-Body Strategy,"Selective split guidance — detection pattern, recommended approach, impact on tessl scores and snippet anchors","split-body,selective-split,references,body-size",core,knowledge/split-body-strategy.md

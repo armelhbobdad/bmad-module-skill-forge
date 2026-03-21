@@ -101,9 +101,15 @@ If fails: auto-fix (deterministic), re-validate once, record result. If passes: 
 
 **If step 2 reported `body.max_lines` failure:**
 
+**Preferred approach — selective split:** Rather than a full `split-body`, identify which Tier 2 section(s) are largest (usually `## Full API Reference`) and manually extract only those to `references/`. Keep all Tier 1 content and smaller Tier 2 sections inline. This preserves agent accuracy — inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval (per Vercel research). See `knowledge/split-body-strategy.md` for the full rationale.
+
+**If manual selective split is not feasible**, fall back to the automated full split:
+
 ```bash
 npx skill-check split-body <staging-skill-dir> --write
 ```
+
+After any split (selective or full), verify that context snippet section anchors (`#quick-start`, `#key-types`) still resolve to headings in SKILL.md.
 
 Then re-validate: `npx skill-check check <staging-skill-dir> --format json --no-security-scan`
 
@@ -123,15 +129,7 @@ Record any security warnings in evidence-report. Security findings are advisory 
 
 **If security scan fails due to missing SNYK_TOKEN:**
 
-Display actionable guidance:
-
-"Security scan requires a Snyk API token. **Important:** The Snyk API requires an Enterprise plan ([authentication docs](https://docs.snyk.io/snyk-api/authentication-for-api)). To enable:
-1. Obtain a Snyk Enterprise account with API access
-2. Get your API token from Account Settings → API Token
-3. Set `SNYK_TOKEN=your-token` in your environment or `.env`
-4. Re-run [SF] Setup Forge to update tool detection, then re-run [CS] Create Skill
-
-If you don't have an Enterprise account, use `--no-security-scan` flag in skill-check to skip, or `--security-scan-runner pipx|uvx|local` to control the execution method. Security scanning is optional and does not affect tier level or block skill compilation."
+Display: "Security scan requires a Snyk Enterprise API token ([docs](https://docs.snyk.io/snyk-api/authentication-for-api)). Set `SNYK_TOKEN=your-token` in environment or `.env`, then re-run [SF] Setup Forge. Without Enterprise, use `--no-security-scan` to skip. Security scanning is optional and does not block skill compilation."
 
 Record: "Security scan skipped — SNYK_TOKEN not configured"
 
