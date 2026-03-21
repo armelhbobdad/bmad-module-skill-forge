@@ -44,7 +44,7 @@ Provenance tags trace each instruction to its source:
 - `[EXT:url]` — sourced from external documentation
 - `[QMD:collection:doc]` — surfaced from indexed developer discourse (issues, PRs, changelogs)
 
-See [How It Works](../architecture.md) for the full output structure.
+See [How It Works](../how-it-works.md) for the full output structure.
 
 ---
 

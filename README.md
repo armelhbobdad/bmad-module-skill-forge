@@ -89,7 +89,7 @@ See the [workflows docs](https://armelhbobdad.github.io/bmad-module-skill-forge/
 
 - **[Getting Started](https://armelhbobdad.github.io/bmad-module-skill-forge/getting-started/)** — Installation, prerequisites, and your first skill
 - **[Concepts](https://armelhbobdad.github.io/bmad-module-skill-forge/concepts/)** — Plain-English definitions of all key terms
-- **[How It Works](https://armelhbobdad.github.io/bmad-module-skill-forge/architecture/)** — Architecture, capability tiers, output format, and design decisions
+- **[How It Works](https://armelhbobdad.github.io/bmad-module-skill-forge/how-it-works/)** — Architecture, capability tiers, output format, and design decisions
 - **[Workflows](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/)** — All 10 workflows with commands and connection diagrams
 - **[Agents](https://armelhbobdad.github.io/bmad-module-skill-forge/agents/)** — Ferris: the AI agent that runs all SKF workflows
 - **[Examples](https://armelhbobdad.github.io/bmad-module-skill-forge/examples/)** — Real-world scenarios, tips, and troubleshooting

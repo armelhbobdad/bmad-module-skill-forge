@@ -102,7 +102,7 @@ export default defineConfig({
         { label: 'Welcome', slug: 'index' },
         { label: 'Getting Started', slug: 'getting-started' },
         { label: 'Concepts', slug: 'concepts' },
-        { label: 'How It Works', slug: 'architecture' },
+        { label: 'How It Works', slug: 'how-it-works' },
         { label: 'Workflows', slug: 'workflows' },
         { label: 'Agents', slug: 'agents' },
         { label: 'Examples', slug: 'examples' },

@@ -40,7 +40,7 @@ See the [Getting Started](./getting-started/) guide for full installation and us
 
 - **[Getting Started](./getting-started/)** — Installation, prerequisites, and your first skill
 - **[Concepts](./concepts/)** — Plain-English definitions of key terms (provenance, tiers, drift, and more)
-- **[How It Works](./architecture/)** — Architecture, capability model, output format, and design decisions
+- **[How It Works](./how-it-works/)** — Architecture, capability model, output format, and design decisions
 - **[Workflows](./workflows/)** — All 10 workflows with commands and connection diagrams
 - **[Agents](./agents/)** — Ferris: the AI agent that runs all SKF workflows
 - **[Examples](./examples/)** — Real-world scenarios, tips, and troubleshooting
