@@ -83,7 +83,7 @@ Run: `npx skill-check -h`
 
 This validates frontmatter, description, body limits, links, formatting — and auto-fixes deterministic issues. Parse JSON for `qualityScore`, `diagnostics[]`, `fixed[]`.
 
-**If `body.max_lines` reported**, run: `npx skill-check split-body <skill-dir> --write`, then re-validate.
+**If `body.max_lines` reported**, prefer selective split: extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 content inline (see `knowledge/split-body-strategy.md`). Fall back to `npx skill-check split-body <skill-dir> --write` if not feasible. Verify `#quick-start` and `#key-types` anchors still resolve after split. Then re-validate.
 
 **If unavailable**, perform manual frontmatter check:
 - [ ] Frontmatter present with `---` delimiters

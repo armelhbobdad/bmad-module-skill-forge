@@ -73,7 +73,8 @@ Load {snippetFormatData} and read the format template for the skill type.
 1. Read metadata.json for `version`, `exports` array
 2. Select top exports (up to 10 for Deep tier, 5 otherwise). Append `()` to function names.
 3. Read SKILL.md to extract: heading slugs for `#quick-start` and `#key-types`, inline summary of key types (~10 words)
-4. Derive gotchas from: T2-future annotations in evidence report (breaking changes), async requirements, version-specific behavior. If no gotchas, omit the gotchas line.
+4. **Anchor verification (split-body awareness):** For each section anchor (`#quick-start`, `#key-types`), verify the heading exists in SKILL.md. If a `references/` directory exists and `## Full` headings in SKILL.md are absent or stubs (indicating split-body, not a stack skill's structural references), rewrite the anchor to point to the reference file path (e.g., `references/{file}.md#key-types`). If the heading cannot be resolved in either location, omit that anchor line from the snippet.
+5. Derive gotchas from: T2-future annotations in evidence report (breaking changes), async requirements, version-specific behavior. If no gotchas, omit the gotchas line.
 
 Generate:
 ```
@@ -157,6 +158,7 @@ ONLY WHEN snippet generation is complete (or skipped due to passive_context opt-
 
 - Snippet format loaded from {snippetFormatData}
 - Content generated matching exact Vercel-aligned format
+- Section anchors verified against SKILL.md headings (split-body anchors rewritten or omitted)
 - Token count estimated and within target
 - File written (or previewed in dry-run)
 - Passive context opt-out correctly handled (skip when disabled)

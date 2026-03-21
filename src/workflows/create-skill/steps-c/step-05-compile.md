@@ -97,6 +97,9 @@ Following the structure from the skill-sections data file:
   - `exports_total`: `exports_public_api` + `exports_internal`
   - `public_api_coverage`: `exports_documented / exports_public_api` (1.0 when all public API exports are documented; `null` if `exports_public_api` is 0)
   - `total_coverage`: `exports_documented / exports_total` (may be low for large codebases — this is expected; `null` if `exports_total` is 0)
+- Set `description` from the SKILL.md frontmatter `description` field (already assembled in section 2)
+- Set `language` from source analysis (e.g., `"typescript"`, `"python"`) — use the primary language of the entry point file
+- Set `ast_node_count` from extraction stats if ast-grep was used (Forge/Deep tier), otherwise omit
 - Set `tool_versions` based on tier and available tools. Resolve `{skf_version}` from the SKF module's `package.json` `version` field (run `node -p "require('./node_modules/bmad-module-skill-forge/package.json').version"` or read the installed module's `package.json`). If unresolvable, fall back to `git describe --tags --abbrev=0` in the SKF module root. Never hardcode the version.
 
 ### 5. Build references/ Content

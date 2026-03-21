@@ -73,7 +73,7 @@ Launch subprocesses in parallel for each validation category, aggregating result
 
 **If available**, run: `npx skill-check check <skill-dir> --fix --format json --no-security-scan`
 
-Parse JSON output for quality score (0-100), auto-fixed issues, and remaining diagnostics. If `body.max_lines` reported, run: `npx skill-check split-body <skill-dir> --write`
+Parse JSON output for quality score (0-100), auto-fixed issues, and remaining diagnostics. If `body.max_lines` reported, prefer selective split: extract only the largest Tier 2 section(s) to `references/`, keeping all Tier 1 content inline (see `knowledge/split-body-strategy.md`). Fall back to `npx skill-check split-body <skill-dir> --write` only if selective split is not feasible. After any split, verify `#quick-start` and `#key-types` anchors still resolve in SKILL.md.
 
 **If unavailable**, perform manual check: validate merged SKILL.md structure, verify required sections (exports, usage patterns, conventions), verify export entries have name/type/signature/file:line reference, flag missing sections.
 

@@ -85,6 +85,8 @@ Read SKILL.md and extract all documented items:
 
 Build the **documented inventory** — a list of everything the SKILL.md claims the source provides.
 
+**Split-body traversal:** If a `references/` directory exists alongside SKILL.md and SKILL.md's `## Full` headings are absent or stubs (not a stack skill's structural references), extend the documented inventory scan to include all `references/*.md` files. After split-body, Tier 2 content (Full API Reference, Full Type Definitions) lives in reference files — the inventory must reflect the full skill content regardless of where it resides.
+
 ### 2. Analyze Source Code (Tier-Dependent)
 
 Start from the package entry point (see 0b) and identify the public API surface. Then analyze those exports at the appropriate tier depth.
@@ -223,7 +225,7 @@ ONLY WHEN all source files have been analyzed, the Coverage Analysis section has
 
 ### ✅ SUCCESS:
 
-- All source files analyzed at appropriate tier depth
+- All source files analyzed at appropriate tier depth; split-body references/ traversed when present
 - Every finding has file:line citation (Forge/Deep) or file-level reference (Quick)
 - Per-export status table complete
 - Category scores calculated per scoring rules
