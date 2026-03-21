@@ -58,9 +58,13 @@ Read {outputFile} frontmatter to get the skill directory path (`skillDir`).
 
 ### 1b. Check for Recent Validation Results (Auto-Reuse)
 
-Before running external validators, check if `{forge_data_folder}/{skill_name}/evidence-report.md` contains validation results (a `## Validation Results` section with quality scores). If recent results exist (from a create-skill run that just completed), auto-reuse them — skip re-running validators and use the existing scores from the evidence report. Record: "External validation: reused from create-skill evidence report." Skip to section 5 (append results).
+Before running external validators, check if `{forge_data_folder}/{skill_name}/evidence-report.md` contains validation results (a `## Validation Results` section with quality scores).
 
-If no evidence report exists or it contains no validation section, proceed to section 2 (fresh run).
+**Staleness check:** Compare the evidence report's generation date against SKILL.md's last-modified timestamp (or `metadata.json` `generation_date`). If SKILL.md was modified after the evidence report was generated (e.g., after update-skill), the cached results are stale — skip auto-reuse and proceed to section 2 for a fresh run.
+
+If recent, non-stale results exist (from a create-skill run that just completed), auto-reuse them — skip re-running validators and use the existing scores. Record: "External validation: reused from create-skill evidence report." Skip to section 5 (append results).
+
+If no evidence report exists, it contains no validation section, or results are stale, proceed to section 2 (fresh run).
 
 ### 2. Run skill-check
 
