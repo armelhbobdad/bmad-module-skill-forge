@@ -150,7 +150,7 @@ Replace the placeholder `[Appended by step-03-identify-units]` with:
 
 Update {outputFile} frontmatter:
 ```yaml
-stepsCompleted: ['step-01-init', 'step-02-scan-project', 'step-03-identify-units']
+stepsCompleted: [append 'step-03-identify-units' to existing array]
 lastStep: 'step-03-identify-units'
 ```
 

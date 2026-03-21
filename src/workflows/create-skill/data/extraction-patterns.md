@@ -234,43 +234,9 @@ constraints:
     regex: '^[A-Z]'
 ```
 
-### Re-Export Tracing
+### Re-Export Tracing and Script/Asset Extraction
 
-After initial AST extraction, some top-level exports may resolve to **module imports** rather than direct function definitions. This is common in Python libraries that use `__init__.py` re-exports for a clean public API.
-
-**Detection heuristic:** For each top-level export from `__init__.py` (or equivalent entry point), check if the import path resolves to a directory (contains `__init__.py`) rather than a `.py` file with a matching `def` or `class`. If the initial AST scan found no function/class definition for a known public export, it is likely a module re-export.
-
-**Tracing protocol:**
-
-1. Read the entry point file (e.g., `{package}/__init__.py`) and extract all `from .X import Y` statements
-2. For each import where Y was NOT found by the initial AST scan:
-   - Check if the import path resolves to a directory (e.g., `{package}/api/v1/delete/` exists with `__init__.py`)
-   - If directory: read its `__init__.py` to find the actual re-exported symbol
-   - **Handle aliases:** Check for `from .module import A as B` patterns in the intermediate `__init__.py`. If the parent imports `B`, trace through to `A` in `.module`. If the parent imports `A` but the `__init__.py` only exports it as `B` (via `from .module import A as B`), match by original name `A` and note the alias
-   - Trace the symbol to its definition file and run AST extraction on that file
-3. Cite the actual definition location: `[AST:{definition_file}:L{line}]`
-
-**Examples:**
-
-```python
-# Module re-export — follow required
-from .api.v1.delete import delete    # delete/ is a directory → read delete/__init__.py
-
-# Direct function import — no follow needed
-from .api.v1.add.add import add      # add.py exists with def add()
-
-# Aliased re-export — follow through alias
-# In cognee/api/v1/visualize/__init__.py:
-#   from .start_visualization_server import visualization_server
-# In cognee/__init__.py:
-#   from .api.v1.visualize import start_visualization_server
-# → Match start_visualization_server against both definition names AND alias names
-#   in the intermediate __init__.py to resolve the chain
-```
-
-**Unresolvable imports:** If the import statement is a star-import (`from .X import *`) or a conditional import (`try`/`except`), the symbol cannot be reliably traced via this protocol. Record it with `[SRC:{package}/__init__.py:L{line}]` (T1-low) and a note: "star/conditional import — manual trace required."
-
-**Scope limit:** Only trace re-exports for symbols listed in the top-level entry point's public API. Do not recursively trace beyond one level of `__init__.py` indirection. If a re-export cannot be resolved after one level, record it with a `[SRC:{package}/__init__.py:L{line}]` citation (T1-low) from the import statement itself.
-
-**Other languages:** JS/TS barrel files (`index.ts` with `export { X } from './module'`) follow the same principle — trace the re-export to the definition file. Rust `pub use` and Go package-level re-exports are less common but follow the same heuristic when encountered.
+See `extraction-patterns-tracing.md` for:
+- **Re-export tracing protocol** — resolving module imports through `__init__.py`, barrel files, `pub use`
+- **Script/asset extraction patterns** — detection heuristics, inclusion rules, provenance, inventory structure
 

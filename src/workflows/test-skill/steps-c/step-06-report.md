@@ -83,8 +83,13 @@ Load `{scoringRulesFile}` for gap severity classification:
 | **High** | Signature mismatch between source and SKILL.md |
 | **Medium** | Missing type or interface documentation |
 | **Medium** | Migration section present/absent mismatch with T2-future annotation data (Deep tier) |
+| **Medium** | Script/asset directory exists but no Scripts & Assets section in SKILL.md |
+| **Medium** | Scripts & Assets section references file not found in scripts/ or assets/ directory |
+| **Low** | Script/asset file present without provenance entry in provenance-map.json file_entries |
 | **Low** | Missing optional metadata or examples |
+| **Low** | Description trigger optimization recommended (third-person voice, negative triggers, or keyword coverage gaps) |
 | **Info** | Style suggestions, non-blocking observations |
+| **Info** | Discovery testing not performed — realistic prompt testing recommended before export |
 
 ### 3. Classify and Order Gaps
 
@@ -97,6 +102,25 @@ For each issue, assign severity from `{scoringRulesFile}` and generate a specifi
 Load the Gap Report section format from `{outputFormatsFile}`. Count gaps by severity, estimate effort per the guidelines in `{outputFormatsFile}`, and append the complete **Gap Report** section to `{outputFile}`.
 
 If no gaps found, append a clean pass message recommending **export-skill** workflow.
+
+### 4b. Discovery and Description Quality Recommendations
+
+After gap enumeration, append a **Discovery Quality** subsection to the gap report. Use the `Gap Entry Format` from `{outputFormatsFile}` for any Low/Info entries. The prose recommendations below are appended after the gap entries:
+
+**Description optimization:** If tessl `description_score` (from step 04b) is below 90%, or if skill-check flagged description issues, recommend description improvements:
+- Check that the description uses third-person voice consistently
+- Check for specific trigger keywords that match how users would phrase requests
+- Check for negative triggers ("NOT for: ...") to prevent false matches
+- Check for alternative skill references for excluded use cases
+
+**Discovery testing recommendation:** Regardless of pass/fail, always append:
+
+"**Discovery testing recommended.** Before export, test the skill with 3-5 realistic prompts phrased the way real users actually talk — with casual language, typos, incomplete context, and implicit references. A skill tested only with clean prompts may fail to trigger in production. Example realistic prompt patterns:
+- Vague: 'can you help me with this csv file my boss sent'
+- Implicit: 'why did revenue drop last quarter'
+- Abbreviated: 'run the {skill-name} thing on this data'"
+
+Record discovery testing status as Info-level in the gap table. This is advisory — it does not affect the score.
 
 ### 5. Finalize Output Document
 
@@ -132,6 +156,8 @@ Update `{outputFile}` frontmatter:
 
 ---
 
+**See Discovery Quality section in the report for description optimization and realistic prompt testing recommendations.**
+
 **Test report finalized.**"
 
 ### 7. Present MENU OPTIONS
@@ -163,6 +189,7 @@ This is the final step of the test-skill workflow. When the user selects C, the 
 - Gaps classified by severity using scoring rules
 - Gaps ordered by severity (Critical first)
 - Every gap has a specific, actionable remediation suggestion
+- Discovery quality section appended with description optimization and testing recommendations
 - Remediation summary with counts and effort estimates
 - Output document finalized with all stepsCompleted
 - Correct next workflow recommended (export-skill or update-skill)

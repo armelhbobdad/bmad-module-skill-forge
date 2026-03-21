@@ -167,7 +167,7 @@ Replace the placeholder `[Appended by step-02-scan-project]` with the full scan 
 
 Update {outputFile} frontmatter:
 ```yaml
-stepsCompleted: ['step-01-init', 'step-02-scan-project']
+stepsCompleted: [append 'step-02-scan-project' to existing array]
 lastStep: 'step-02-scan-project'
 ```
 

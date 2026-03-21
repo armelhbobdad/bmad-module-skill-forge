@@ -25,7 +25,7 @@ With lifecycle awareness:
 | Setup | SF (Setup Forge) | Detect environment and set capability tier | `forge-tier.yaml` |
 | Discovery | AN (Analyze Source) | Scan project, identify skillable units | Analysis report, skill briefs |
 | Design | BS (Brief Skill) | Interactive scope definition for one skill | `skill-brief.yaml` |
-| Compilation | CS, QS, SS (Create/Quick/Stack) | Extract source and compile skill | `SKILL.md`, metadata, provenance |
+| Compilation | CS, QS, SS (Create/Quick/Stack) | Extract source and compile skill | `SKILL.md`, metadata, provenance, `scripts/`, `assets/` (when source contains them) |
 | Maintenance | US, AS (Update/Audit) | Detect drift and refresh skills | Updated `SKILL.md`, drift report |
 | Verification | TS (Test Skill) | Quality gate — completeness scoring | Test report, pass/fail decision |
 | Distribution | EX (Export Skill) | Package and inject into agent context | agentskills.io bundle, snippets |
@@ -108,7 +108,7 @@ SF → forge-tier.yaml
        ↓ (read by all subsequent workflows)
 AN → analysis-report.md + skill-brief.yaml[]
        ↓ (briefs consumed by CS)
-CS → SKILL.md + metadata.json + provenance-map.json + evidence-report.md
+CS → SKILL.md + metadata.json + provenance-map.json + scripts/ + assets/ (when present) + evidence-report.md
        ↓ (skill consumed by TS)
 TS → test-report.md (pass/fail gate)
        ↓ (passing skill consumed by EX)

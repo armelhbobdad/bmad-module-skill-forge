@@ -147,6 +147,19 @@ With provenance tracking:
 - Provenance timestamps show when each entry was last verified
 - The merge preserves \[MANUAL\] section provenance (author: "manual", no source location)
 
+### File-Level Provenance (file_entries)
+
+Scripts and assets use a separate `file_entries` array in `provenance-map.json`, distinct from the export-level `entries` array:
+
+| Field | Description |
+|-------|-------------|
+| `file_name` | Path relative to skill root (e.g., `scripts/validate.sh`) |
+| `file_type` | `script` or `asset` |
+| `source_file` | Path relative to source root |
+| `confidence` | Always `T1-low` (file-copy, not AST-verified) |
+| `extraction_method` | Always `file-copy` |
+| `content_hash` | SHA-256 of file content (for drift detection) |
+
 ## Inline Citation Rules
 
 Citations appear directly in SKILL.md content:

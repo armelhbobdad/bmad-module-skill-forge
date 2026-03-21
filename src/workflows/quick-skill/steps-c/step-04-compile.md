@@ -79,8 +79,8 @@ description: >
 ```
 
 **Frontmatter rules:**
-- `name`: lowercase alphanumeric + hyphens only, must match the skill output directory name
-- `description`: non-empty, max 1024 chars, optimized for agent discovery
+- `name`: lowercase alphanumeric + hyphens only, must match the skill output directory name. Prefer gerund form (`processing-pdfs`) for clarity.
+- `description`: non-empty, max 1024 chars, optimized for agent discovery. MUST use third-person voice ("Processes..." not "I can..." or "You can...").
 - No other frontmatter fields — only `name` and `description` for community skills
 
 **Required sections (after frontmatter):**
@@ -93,6 +93,7 @@ description: >
 - **Configuration:** If configuration options were found in source
 - **Dependencies:** Key dependencies from manifest
 - **Notes:** Caveats, limitations, extraction confidence level
+- **Scripts & Assets Note** (if source contains `scripts/`, `bin/`, `assets/`, `templates/`, or `schemas/` directories): "This package may include scripts and assets. Run create-skill for full extraction with provenance tracking."
 
 **If confidence is low:**
 - Include a note: "This skill was generated with limited source data. Consider running create-skill for a more thorough compilation."

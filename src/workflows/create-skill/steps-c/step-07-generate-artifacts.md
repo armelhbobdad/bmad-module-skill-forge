@@ -62,6 +62,9 @@ skills/{name}/references/
 forge-data/{name}/
 ```
 
+If `scripts_inventory` is non-empty, also create: `skills/{name}/scripts/`
+If `assets_inventory` is non-empty, also create: `skills/{name}/assets/`
+
 Where `{name}` is the skill name from the brief (kebab-case).
 
 If directories already exist, do not error — proceed with file writing (overwrites existing files).
@@ -85,6 +88,14 @@ Write these 4 files from the compiled content:
 - One file per function group or type
 - Progressive disclosure detail files
 
+**Files 4b (conditional):** `skills/{name}/scripts/*`
+- One file per detected script, copied from source with content preserved
+- Only created when `scripts_inventory` is non-empty
+
+**Files 4c (conditional):** `skills/{name}/assets/*`
+- One file per detected asset, copied from source with content preserved
+- Only created when `assets_inventory` is non-empty
+
 ### 3. Write Workspace Artifacts to forge-data/{name}/
 
 Write these 3 files from the compiled content:
@@ -101,7 +112,7 @@ Write these 3 files from the compiled content:
 ### 4. Verify Write Completion
 
 After all files are written, verify:
-- All 7 files exist at their expected paths
+- All 7 base files exist at their expected paths, plus scripts/ and assets/ files when inventories are non-empty
 - List each file with its path and size
 
 **If any write failed:**
@@ -116,6 +127,8 @@ Display brief confirmation:
 - SKILL.md
 - context-snippet.md
 - metadata.json
+{if scripts: - scripts/ ({scripts_count} files)}
+{if assets: - assets/ ({assets_count} files)}
 - references/ ({reference_count} files)
 
 **Workspace (forge-data/{name}/):**

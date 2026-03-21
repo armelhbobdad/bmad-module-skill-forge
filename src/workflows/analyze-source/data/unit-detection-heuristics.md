@@ -70,6 +70,32 @@ Do NOT recommend as a skillable unit if:
 5. **Vendor/dependency**: Third-party code copied into project
 6. **Already skilled**: Existing skill found in forge_data_folder (recommend update-skill instead)
 
+## Script/Asset Detection Signals
+
+During per-unit analysis, check for scripts and assets alongside code exports.
+
+**Script signals:**
+
+| Strength | Signal | Example |
+|----------|--------|---------|
+| Strong | Entry point in `package.json` `bin`, Cargo.toml `[[bin]]`, pyproject.toml `[project.scripts]` | `"bin": { "migrate": "scripts/migrate.js" }` |
+| Strong | Shebang + executable file | `#!/usr/bin/env python` in `scripts/setup.py` |
+| Moderate | File in `scripts/`, `bin/`, `tools/`, `cli/` directory | `scripts/validate.sh` |
+| Moderate | CI/CD reference to script | `.github/workflows/test.yml` runs `scripts/test.sh` |
+
+**Asset signals:**
+
+| Strength | Signal | Example |
+|----------|--------|---------|
+| Strong | JSON Schema file with `$schema` key | `schemas/config.schema.json` |
+| Strong | Config template with `.example` or `.template` extension | `config.yaml.example` |
+| Moderate | File in `assets/`, `templates/`, `schemas/`, `configs/`, `examples/` directory | `templates/report.hbs` |
+| Moderate | OpenAPI/GraphQL definition | `openapi.json`, `schema.graphql` |
+
+**Per-unit output:** Record `has_scripts: boolean`, `has_assets: boolean`, `script_files: string[]`, `asset_files: string[]`.
+
+**Disqualify:** Generated files (dist/, build/), vendored dependencies, IDE configs (.vscode/, .idea/), binary files (.so, .dll, .jar).
+
 ## Stack Skill Candidate Detection
 
 Flag units as stack skill candidates when:

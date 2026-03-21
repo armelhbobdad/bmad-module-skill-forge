@@ -35,3 +35,7 @@ When `body.max_lines` is exceeded:
 2. Extract only those specific sections to `references/`
 3. Keep all Tier 1 sections and smaller Tier 2 sections inline
 4. Verify context snippet anchors still resolve after extraction
+
+## Scripts and Assets Interaction
+
+Split-body affects only SKILL.md content movement to `references/`. The `scripts/` and `assets/` directories are unaffected — they remain as top-level siblings of SKILL.md regardless of split-body decisions. They do not count toward the body line limit.

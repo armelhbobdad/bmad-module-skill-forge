@@ -181,7 +181,7 @@ Replace `[Appended by step-05-recommend]` with:
 
 Update {outputFile} frontmatter:
 ```yaml
-stepsCompleted: ['step-01-init', 'step-02-scan-project', 'step-03-identify-units', 'step-04-map-and-detect', 'step-05-recommend']
+stepsCompleted: [append 'step-05-recommend' to existing array]
 lastStep: 'step-05-recommend'
 confirmed_units: [{list of confirmed unit names}]
 stack_skill_candidates: [{updated list with user decisions}]
