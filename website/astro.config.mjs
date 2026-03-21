@@ -85,6 +85,13 @@ export default defineConfig({
             content: `${siteUrl}/llms.txt`,
           },
         },
+        {
+          tag: 'script',
+          attrs: {
+            src: `${basePath}js/mermaid-lightbox.js`,
+            defer: true,
+          },
+        },
       ],
 
       // Custom CSS
