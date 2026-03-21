@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "f2817b2e7a4c",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "src/knowledge/agentskills-spec.md",
+    "src/knowledge/overview.md",
+    "src/knowledge/skf-knowledge-index.csv",
+    "src/workflows/analyze-source/steps-c/step-02-scan-project.md",
+    "src/workflows/analyze-source/steps-c/step-03-identify-units.md",
+    "src/workflows/analyze-source/steps-c/step-04-map-and-detect.md",
+    "src/workflows/analyze-source/steps-c/step-05-recommend.md",
+    "src/workflows/analyze-source/steps-c/step-06-generate-briefs.md",
+    "src/workflows/create-skill/data/compile-assembly-rules.md",
+    "src/workflows/create-skill/data/skill-sections.md",
+    "src/workflows/create-stack-skill/steps-c/step-06-compile-stack.md",
+    "src/workflows/quick-skill/steps-c/step-04-compile.md",
+    "src/workflows/test-skill/data/scoring-rules.md",
+    "src/workflows/test-skill/steps-c/step-04-coherence-check.md",
+    "src/workflows/test-skill/steps-c/step-05-score.md",
+    "src/workflows/test-skill/steps-c/step-06-report.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f2/817b2e7a4c/0/metadata.json",
+      "transcript": "/f2/817b2e7a4c/0/full.jsonl",
+      "context": "/f2/817b2e7a4c/0/context.md",
+      "content_hash": "/f2/817b2e7a4c/0/content_hash.txt",
+      "prompt": "/f2/817b2e7a4c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10165,
+    "cache_creation_tokens": 402521,
+    "cache_read_tokens": 11626407,
+    "output_tokens": 42687,
+    "api_call_count": 90
+  }
+}
