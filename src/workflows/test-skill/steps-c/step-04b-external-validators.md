@@ -118,7 +118,7 @@ Store in context: `tessl_description_score`, `tessl_content_score`, `tessl_avera
 
 **If tessl content score < 70%:** Flag a warning:
 
-"**Content quality warning:** tessl scored content at {score}%. This often indicates SKILL.md lacks inline actionable content (e.g., after split-body). Consider inlining Quick Start and common workflows directly in SKILL.md."
+"**Content quality warning:** tessl scored content at {score}%. This often indicates SKILL.md lacks inline actionable content (e.g., after split-body). If this is a split-body skill, the score drop is expected — tessl evaluates only SKILL.md body, not `references/*.md` (see scoring-rules.md). Consider using selective split to keep actionable content inline."
 
 **If tessl fails entirely:** Record `tessl_score: N/A`, log warning, continue.
 

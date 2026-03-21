@@ -27,6 +27,10 @@ When running in naive mode (no coherence category):
 
 When neither skill-check nor tessl is available, redistribute the 10% external validation weight proportionally to the other active categories. When only one tool is available, use that tool's score as the external validation score.
 
+## tessl and Split-Body Interaction
+
+tessl evaluates SKILL.md body content only — it does not read `references/*.md` files. After split-body extraction, the tessl content score will drop significantly (e.g., 65% to 38%) because Tier 2 content is no longer inline. This is expected behavior and does not reflect actual content quality. When reporting scores for a split-body skill, note: "tessl content score reflects post-split inline content only. Use the pre-split tessl score as the content quality baseline."
+
 ## Tier-Dependent Scoring
 
 ### Quick Tier (no tools)
