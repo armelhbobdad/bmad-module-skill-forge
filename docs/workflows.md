@@ -33,7 +33,7 @@ SKF has 10 workflows. You trigger them by typing commands to [Ferris](../agents.
 
 **When to Use:** Before `Create Skill` when you want maximum control over what gets compiled.
 
-**Key Steps:** Gather intent → Analyze target → Define scope → Write skill-brief.yaml
+**Key Steps:** Gather intent → Analyze target → Define scope → Scripts/assets intent → Write skill-brief.yaml
 
 **Agent:** Ferris (Architect mode)
 
@@ -47,7 +47,7 @@ SKF has 10 workflows. You trigger them by typing commands to [Ferris](../agents.
 
 **When to Use:** After Brief Skill, or with an existing skill-brief.yaml.
 
-**Key Steps:** Load brief → Ecosystem check → AST extract → QMD enrich → Compile → Validate → Generate
+**Key Steps:** Load brief → Ecosystem check → AST extract → Scripts/assets detect → QMD enrich → Compile → Validate → Generate
 
 **Agent:** Ferris (Architect mode)
 
@@ -61,7 +61,7 @@ SKF has 10 workflows. You trigger them by typing commands to [Ferris](../agents.
 
 **When to Use:** After source code changes when an existing skill needs updating.
 
-**Key Steps:** Load existing → Detect changes → Re-extract → Merge (preserve MANUAL) → Validate → Write
+**Key Steps:** Load existing → Detect changes (incl. scripts/assets) → Re-extract → Merge (preserve MANUAL) → Validate → Write
 
 **Agent:** Ferris (Surgeon mode)
 
@@ -119,7 +119,7 @@ SKF has 10 workflows. You trigger them by typing commands to [Ferris](../agents.
 
 **When to Use:** To check if a skill has fallen out of date with its source code.
 
-**Key Steps:** Load skill → Re-index source → Structural diff → Semantic diff (Deep) → Classify severity → Report
+**Key Steps:** Load skill → Re-index source → Structural diff → Script/asset drift → Semantic diff (Deep) → Classify severity → Report
 
 **Agent:** Ferris (Audit mode)
 

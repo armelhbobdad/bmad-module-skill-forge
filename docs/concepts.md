@@ -94,3 +94,19 @@ Ferris switches between four modes depending on which workflow is active: Archit
 SKF's core principle: if an instruction can't be traced back to actual source code, it doesn't get included in the skill. This is the opposite of how most AI tools work — they generate plausible-sounding content from training data. SKF only includes what it can verify.
 
 This doesn't mean skills are perfect. Quick-tier skills read source files without AST verification, so they rely on best-effort extraction. But even Quick skills cite their sources, and no tier includes invented information.
+
+---
+
+## Scripts & Assets
+
+Skills can include executable scripts and static assets alongside the main SKILL.md instructions. Scripts handle deterministic operations (validation, setup, data processing) while assets provide templates, schemas, and configuration examples. Both are extracted from the source repository with provenance tracking — SKF copies them, it doesn't fabricate them.
+
+**Example:** A database library skill might include `scripts/migrate.sh` (copied from the library's `bin/` directory) and `assets/config-schema.json` (copied from the library's `schemas/` directory). Each file carries a `[SRC:file:L1]` citation and SHA-256 hash for drift detection.
+
+---
+
+## Best Practices
+
+SKF integrates skill authoring best practices from the Claude platform and community guidelines. Generated skills use third-person descriptions for reliable agent discovery, consistent terminology throughout, and appropriate degrees of freedom (prescriptive for fragile operations like database migrations, flexible for creative tasks like code reviews). These practices are enforced during compilation and verified during testing.
+
+**Example:** A skill description reads "Processes payments via REST API with token-based auth. NOT for: billing dashboards" — third-person voice, specific keywords, and negative triggers help agents select the right skill.

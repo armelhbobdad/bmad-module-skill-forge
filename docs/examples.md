@@ -46,6 +46,24 @@ Provenance tags trace each instruction to its source:
 
 See [How It Works](../how-it-works.md) for the full output structure.
 
+**Full skill directory structure:**
+
+```
+skills/cognee/
+├── SKILL.md              # What your agent reads
+├── context-snippet.md    # Compressed index for CLAUDE.md
+├── metadata.json         # Machine-readable provenance
+├── references/           # Progressive disclosure detail
+│   ├── api-core.md
+│   └── graph-types.md
+├── scripts/              # Executable utilities (when detected)
+│   └── setup-graphdb.sh
+└── assets/               # Templates and schemas (when detected)
+    └── config-schema.json
+```
+
+The `scripts/` and `assets/` directories appear only when the source repository contains them. Each file traces back to its source with provenance citations and SHA-256 hashes.
+
 ---
 
 ## Example Workflows
@@ -163,6 +181,14 @@ Stack skills focus on integration patterns. Individual skills focus on API surfa
 ### The Loop
 
 After each sprint's refactor, run `@Ferris US` to regenerate changed components. Export updates CLAUDE.md automatically. Skill generation becomes routine — like running tests.
+
+### Best Practices Built In
+
+Generated skills automatically follow authoring best practices: third-person descriptions for reliable agent discovery, consistent terminology, degrees-of-freedom matching (prescriptive for fragile operations, flexible for creative tasks), and table-of-contents headers in large reference files. Discovery testing recommendations are included in test reports.
+
+### Scripts & Assets
+
+If your source repo includes executable scripts (`scripts/`, `bin/`) or static assets (`templates/`, `schemas/`), SKF detects and packages them automatically with provenance tracking. Custom scripts you add to `scripts/[MANUAL]/` are preserved during updates — just like `<!-- [MANUAL] -->` markers in SKILL.md.
 
 ---
 

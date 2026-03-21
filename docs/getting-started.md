@@ -194,6 +194,17 @@ Your existing skill is now out of date. Audit detects the drift, Update regenera
 @Ferris TS    # Verify the update
 ```
 
+### I want scripts and assets included in my skills
+
+Your source repo has CLI tools, setup scripts, or config templates that agents should use. SKF detects and packages them automatically.
+
+```
+@Ferris BS    # Brief — set scripts_intent: detect
+@Ferris CS    # Create — scripts/ and assets/ auto-detected
+```
+
+Scripts from `scripts/`, `bin/`, and `tools/` directories are copied with provenance. Config templates and schemas from `assets/`, `templates/`, and `schemas/` are included. Custom files you add to `scripts/[MANUAL]/` survive updates.
+
 ---
 
 ## What's Next?

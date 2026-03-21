@@ -35,7 +35,7 @@ Each workflow directory contains these files, and each has a specific job:
 | `data/*.md`               | Workflow-specific reference data — schemas, heuristics, rules, patterns                                             | Read by steps on demand                           |
 | `templates/*.md`          | Output skeletons with placeholder vars — steps fill these in to produce the final artifact                          | Read by steps when generating output              |
 | `skf-knowledge-index.csv` | Knowledge fragment index — id, name, tags, tier, file path                                                          | Read by steps to decide which fragments to load   |
-| `knowledge/*.md`          | 10 reusable fragments — cross-cutting principles and patterns (e.g., `zero-hallucination.md`, `confidence-tiers.md`) | Selectively read into context when a step directs |
+| `knowledge/*.md`          | 11 reusable fragments — cross-cutting principles and patterns (e.g., `zero-hallucination.md`, `confidence-tiers.md`) | Selectively read into context when a step directs |
 
 ```mermaid
 flowchart LR
@@ -184,13 +184,16 @@ skills/{name}/
 ├── SKILL.md              # Active skill (loaded on trigger)
 ├── context-snippet.md    # Passive context (compressed, always-on)
 ├── metadata.json         # Machine-readable provenance
-└── references/           # Progressive disclosure
-    ├── {function-a}.md
-    ├── {function-b}.md
-    └── integrations/     # Stack skills only
-        ├── auth-db.md
-        └── pwa-auth.md
+├── references/           # Progressive disclosure
+│   ├── {function-a}.md
+│   └── {function-b}.md
+├── scripts/              # Executable automation (when detected in source)
+│   └── {script-name}.sh
+└── assets/               # Templates, schemas, configs (when detected in source)
+    └── {asset-name}.json
 ```
+
+The `scripts/` and `assets/` directories are optional — only created when the source repository contains executable scripts or static assets matching detection heuristics. Each file traces to its source via `[SRC:file:L1]` provenance citations with SHA-256 content hashes for drift detection. User-authored files go in `scripts/[MANUAL]/` or `assets/[MANUAL]/` subdirectories and are preserved during updates.
 
 ### SKILL.md Format
 
@@ -199,9 +202,10 @@ Skills follow the [agentskills.io specification](https://agentskills.io/specific
 ```yaml
 ---
 name: payment-service
-version: 2.1.0
-description: Payment processing API skill — 23 verified functions
-author: org/payment-team
+description: >
+  Processes payments via REST API with token-based auth. Use when writing
+  payment integration code. NOT for: billing dashboards or reporting.
+  23 verified functions from github.com/org/payment-service.
 ---
 ```
 
@@ -233,10 +237,20 @@ Machine-readable provenance for every skill:
     "coverage": 1.0,
     "confidence_t1": 20,
     "confidence_t2": 3,
-    "confidence_t3": 0
-  }
+    "confidence_t3": 0,
+    "scripts_count": 1,
+    "assets_count": 1
+  },
+  "scripts": [
+    { "file": "scripts/validate.sh", "purpose": "Validates config schema", "confidence": "T1-low" }
+  ],
+  "assets": [
+    { "file": "assets/config-schema.json", "purpose": "Configuration JSON schema", "confidence": "T1-low" }
+  ]
 }
 ```
+
+`scripts` and `assets` arrays are optional — omitted entirely (not empty) when the source has no scripts or assets.
 
 ### Stack Skill Output
 
@@ -344,6 +358,8 @@ forge-data/{skill-name}/
 └── extraction-rules.yaml   # Language-specific ast-grep schema
 ```
 
+The `provenance-map.json` includes a `file_entries` array for script/asset file-level provenance (SHA-256 hashes, source paths) alongside the export-level `entries` array.
+
 `skills/` and `forge-data/` are committed. Agent memory (`_bmad/_memory/forger-sidecar/`) is gitignored.
 
 ---
@@ -396,7 +412,7 @@ src/
 │   └── README.md
 ├── knowledge/
 │   ├── skf-knowledge-index.csv
-│   └── *.md (10 fragments)
+│   └── *.md (11 fragments)
 └── workflows/
     ├── setup-forge/
     ├── analyze-source/

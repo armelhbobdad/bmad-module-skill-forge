@@ -26,6 +26,8 @@ Ferris handles all SKF workflows. You always interact with Ferris — he switche
 - agentskills.io specification compliance and validation
 - GitHub source navigation and package-to-repo resolution
 - Cross-knowledge synthesis for stack skills and integration patterns
+- Skill authoring best practices enforcement (third-person voice, consistent terminology, discovery optimization)
+- Source-derived scripts and assets extraction with provenance tracking
 
 **Workflow-Driven Modes:**
 
