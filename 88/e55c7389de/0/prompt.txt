@@ -1,0 +1,35 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+
+ARGUMENTS: @src/
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+
+ARGUMENTS: @src/
+
+---
+
+Look at @_bmad-output/todo/skf-issues-2026-03-20.md. We will need the party mode to carfully work on those issues without breaking changes, missing impacts or regressions.
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+
+ARGUMENTS: We need to carefully address 6 SKF issues from _bmad-output/todo/skf-issues-2026-03-20.md. These are bugs and gaps discovered during a real cognee skill update/test/export cycle. The issues span 4 workflows (export-skill, test-skill, create-skill) and mostly relate to split-body handling. We must fix them without breaking changes, missing impacts, or regressions. Here are the issues:
+
+1. (HIGH) split-body breaks context-snippet section anchors in export-skill step-03
+2. (HIGH) No guidance on selective split vs full split-body - needs knowledge/workflow documentation
+3. (MEDIUM) tessl score interaction with split-body not documented in scoring-rules
+4. (MEDIUM) test-skill coverage check doesn't handle split-body skills in step-03
+5. (LOW) metadata.json recommended fields should be populated during create-skill step-05
+6. (LOW) step-04b auto-reuse logic lacks staleness detection
+
+The module source is at src/. We need the group to discuss: approach, ordering, potential regressions, and cross-issue dependencies before we start editing.
+
+---
+
+Let go! The commit messages should not containt the issue tag (e.g #2) because these are only for internal use.

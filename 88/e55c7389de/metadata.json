@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "88e55c7389de",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/knowledge/skf-knowledge-index.csv",
+    "src/knowledge/split-body-strategy.md",
+    "src/workflows/create-skill/steps-c/step-06-validate.md",
+    "test/test-knowledge-base.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/88/e55c7389de/0/metadata.json",
+      "transcript": "/88/e55c7389de/0/full.jsonl",
+      "context": "/88/e55c7389de/0/context.md",
+      "content_hash": "/88/e55c7389de/0/content_hash.txt",
+      "prompt": "/88/e55c7389de/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 37,
+    "cache_creation_tokens": 71845,
+    "cache_read_tokens": 1418197,
+    "output_tokens": 11943,
+    "api_call_count": 27
+  }
+}
