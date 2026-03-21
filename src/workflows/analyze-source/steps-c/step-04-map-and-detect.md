@@ -187,7 +187,7 @@ Replace `[Appended by step-04-map-and-detect]` under Integration Points with:
 
 Update {outputFile} frontmatter:
 ```yaml
-stepsCompleted: ['step-01-init', 'step-02-scan-project', 'step-03-identify-units', 'step-04-map-and-detect']
+stepsCompleted: [append 'step-04-map-and-detect' to existing array]
 lastStep: 'step-04-map-and-detect'
 stack_skill_candidates: [{list flagged candidate groupings}]
 ```

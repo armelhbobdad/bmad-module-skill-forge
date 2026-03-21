@@ -17,8 +17,8 @@ description: >
 
 **Frontmatter rules (agentskills.io specification):**
 
-- `name`: 1-64 characters, lowercase alphanumeric + hyphens only, must match parent directory name
-- `description`: 1-1024 characters, trigger-optimized for agent matching
+- `name`: 1-64 characters, lowercase alphanumeric + hyphens only, must match parent directory name. Prefer gerund form (`processing-pdfs`, `analyzing-spreadsheets`) for clarity; noun phrases and action-oriented forms are acceptable alternatives.
+- `description`: 1-1024 characters, trigger-optimized for agent matching. MUST use third-person voice ("Processes..." not "I can..." or "You can...").
 - Only 6 fields permitted: `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`
 - `version` and `author` belong in metadata.json, NOT in frontmatter
 
@@ -166,6 +166,7 @@ Each reference file includes:
 - Complete usage examples
 - Related functions cross-references
 - Temporal annotations (Deep tier: T2-past, T2-future)
+- **Table of contents** (required for files exceeding 100 lines) — a `## Contents` section at the top listing all sub-sections for agent discoverability
 
 ---
 

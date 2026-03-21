@@ -5,7 +5,7 @@ description: 'Calculate completeness score from coverage and coherence findings'
 nextStepFile: './step-06-report.md'
 outputFile: '{forge_data_folder}/{skill_name}/test-report-{skill_name}.md'
 scoringRulesFile: '../data/scoring-rules.md'
-sourceAccessProtocol: '../data/{sourceAccessProtocol}'
+sourceAccessProtocol: '../data/source-access-protocol.md'
 ---
 
 # Step 5: Score

@@ -179,7 +179,7 @@ Replace `[Appended by step-06-generate-briefs]` with:
 
 Update {outputFile} frontmatter:
 ```yaml
-stepsCompleted: ['step-01-init', 'step-02-scan-project', 'step-03-identify-units', 'step-04-map-and-detect', 'step-05-recommend', 'step-06-generate-briefs']
+stepsCompleted: [append 'step-06-generate-briefs' to existing array]
 lastStep: 'step-06-generate-briefs'
 nextWorkflow: '{primary recommendation}'
 ```

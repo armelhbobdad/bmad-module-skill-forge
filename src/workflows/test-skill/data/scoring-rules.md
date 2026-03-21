@@ -83,4 +83,6 @@ If no integration patterns exist, combined coherence equals reference validity.
 | Medium | Missing type or interface documentation |
 | Medium | Migration section present/absent mismatch with T2-future annotation data (Deep tier) |
 | Low | Missing optional metadata or examples |
+| Low | Description trigger optimization recommended (third-person voice, negative triggers, or keyword coverage gaps) |
 | Info | Style suggestions, non-blocking observations |
+| Info | Discovery testing not performed — realistic prompt testing recommended before export |

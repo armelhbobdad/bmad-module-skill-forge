@@ -36,7 +36,9 @@ description: >
 
 **Frontmatter constraints:**
 - `name`: 1-64 characters, lowercase alphanumeric + hyphens, must match parent directory name
+  - **Naming convention:** Prefer gerund form (verb + -ing) for clarity: `processing-pdfs`, `analyzing-spreadsheets`, `managing-databases`. Noun phrases (`pdf-processing`) and action-oriented forms (`process-pdfs`) are acceptable alternatives. Avoid vague names (`helper`, `utils`, `tools`).
 - `description`: 1-1024 characters, trigger-optimized for agent matching
+  - **MUST use third-person voice.** The description is injected into the system prompt; inconsistent point-of-view causes discovery problems. Write "Processes Excel files and generates reports" — never "I can help you process Excel files" or "You can use this to process Excel files."
 
 **Body:** Free-form markdown — no structural restrictions, but Skill Forge follows a consistent section order (see skill-sections.md in create-skill/data/).
 
@@ -141,6 +143,24 @@ the user's configuration against the expected structure.
 - Line count is a guideline — exceeding 500 lines produces a warning
 - Path validation prevents broken references in the published skill
 
+## MCP Tool References
+
+If a skill references MCP (Model Context Protocol) tools, always use fully qualified names to avoid "tool not found" errors: `ServerName:tool_name` (e.g., `BigQuery:bigquery_schema`, `GitHub:create_issue`). Without the server prefix, agents may fail to locate the tool when multiple MCP servers are available.
+
+## Script Quality
+
+Skills that include executable scripts in `scripts/` must follow these principles:
+
+- **Solve, don't punt.** Scripts handle errors explicitly rather than failing and leaving the agent to figure it out. Provide fallback behavior, descriptive error messages, and recovery paths.
+- **No voodoo constants.** Every magic number or configuration value must be justified with a comment explaining why that value was chosen. If you don't know the right value, the agent won't either.
+- **Descriptive error output.** Write error messages to stdout/stderr that enable agents to self-correct without user intervention (e.g., "Field 'signature_date' not found. Available fields: customer_name, order_total").
+
+## Development Methodology
+
+- **Evaluation-driven development.** Define 2-3 concrete use cases and realistic test prompts before building the skill. Build evaluations before writing extensive documentation — this ensures the skill solves real problems rather than documenting imagined ones.
+- **Realistic test prompts.** Test with prompts the way real users actually talk — with typos, casual abbreviations, and incomplete context. A skill tested only with clean prompts will break in unexpected ways in production.
+- **Iterative refinement.** Observe how agents navigate and use the skill. Watch for unexpected exploration paths, missed references, overreliance on certain sections, and ignored content. Iterate based on observed behavior, not assumptions.
+
 ## Anti-Patterns
 
 - Writing skills as documentation (README-style) instead of procedural agent instructions
@@ -148,6 +168,9 @@ the user's configuration against the expected structure.
 - Vague descriptions ("helps with databases") — descriptions must be specific and trigger-optimized
 - Including redundant content that duplicates what the agent already knows (standard language features, basic CLI commands)
 - Bundling large library code inside skills — skills reference existing tools, not replace them
+- Time-sensitive instructions ("If before August 2025, use the old API") — use versioned sections instead
+- Offering too many tool/library options without a clear default — provide one recommended approach with escape hatches for edge cases
+- Inconsistent terminology — mixing synonyms ("API endpoint", "URL", "route") confuses agent execution
 
 ## Related Fragments
 

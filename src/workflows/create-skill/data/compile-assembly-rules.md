@@ -14,8 +14,8 @@ description: >
 
 **Frontmatter rules:**
 
-- `name`: lowercase alphanumeric + hyphens only, must match the skill output directory name
-- `description`: non-empty, max 1024 chars, optimized for agent discovery
+- `name`: lowercase alphanumeric + hyphens only, must match the skill output directory name. Prefer gerund form (`processing-pdfs`, `analyzing-spreadsheets`) for clarity.
+- `description`: non-empty, max 1024 chars, optimized for agent discovery. **MUST use third-person voice** ("Processes Excel files..." not "I can help you..." or "You can use this to..."). Inconsistent point-of-view causes discovery problems since the description is injected into the system prompt.
 - Only `name` and `description` in frontmatter — `version` and `author` go in metadata.json
 - No other frontmatter fields for standard skills (only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted by spec)
 
@@ -108,3 +108,36 @@ Do NOT repeat Tier 1's name/purpose/key-params table format in Tier 2. Tier 2 is
 4. If Tier 1 alone exceeds 300 lines, reduce Key API Summary and Architecture at a Glance
 5. Tier 1 sections are kept short enough that `split-body` targets the larger Tier 2 sections (`## Full ...` headings) instead
 6. After split-body, SKILL.md must still contain all Tier 1 sections with actionable content
+
+### Reference File Rules
+
+- **Table of contents required** for any reference file exceeding 100 lines — include a `## Contents` section at the top listing all sub-sections. This ensures agents can see the full scope even when previewing with partial reads.
+- One file per major function group or type — group by module, file, or functional area
+- Name files descriptively: `form_validation_rules.md`, not `doc2.md`
+
+### Content Quality Rules
+
+These rules apply to all content assembled in SKILL.md and reference files.
+
+**Degrees of freedom:** Match instruction specificity to the task's fragility and variability:
+- **High freedom** (text guidance): When multiple approaches are valid and context determines the best one. Example: code review patterns, architecture suggestions.
+- **Medium freedom** (pseudocode/parameterized scripts): When a preferred pattern exists but variation is acceptable. Example: configuration templates, report generation.
+- **Low freedom** (exact scripts, no parameters): When operations are fragile and consistency is critical. Example: database migrations, deployment sequences. Use "Run exactly this" language.
+
+**Consistent terminology:** Choose one term per concept and use it throughout the skill. Do not mix synonyms (e.g., "API endpoint" vs "URL" vs "route", or "field" vs "box" vs "element"). Consistency helps agents understand and follow instructions deterministically.
+
+**Avoid time-sensitive information:** Do not include date-conditional instructions ("If before August 2025, use the old API"). Instead, document the current method and place deprecated patterns in a collapsible "Old patterns" section with the deprecation date.
+
+**Template and examples patterns:**
+- **For strict requirements** (API responses, data formats): Provide an exact template with "ALWAYS use this exact structure" language.
+- **For flexible guidance** (reports, analysis): Provide a sensible default template with "Adjust sections as needed" language.
+- **Input/output examples:** When output quality depends on seeing examples and concrete pairs exist in source tests or official docs, include 2-3 input/output pairs sourced from those tests or docs. Examples help agents understand desired style and detail more clearly than descriptions alone. If no examples exist in source, note the gap rather than fabricating pairs — zero hallucination applies.
+
+**Workflow checklist pattern:** When a skill includes multi-step workflows, provide a copy-paste checklist that agents can track progress against:
+```markdown
+Copy this checklist and track your progress:
+- [ ] Step 1: {action}
+- [ ] Step 2: {action}
+```
+
+**Verifiable intermediate outputs:** For skills involving batch operations, destructive changes, or complex validation, recommend the plan-validate-execute pattern: create a structured plan file (e.g., `changes.json`), validate it with a script, then execute. This catches errors before changes are applied.

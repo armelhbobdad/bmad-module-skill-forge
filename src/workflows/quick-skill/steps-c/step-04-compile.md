@@ -79,8 +79,8 @@ description: >
 ```
 
 **Frontmatter rules:**
-- `name`: lowercase alphanumeric + hyphens only, must match the skill output directory name
-- `description`: non-empty, max 1024 chars, optimized for agent discovery
+- `name`: lowercase alphanumeric + hyphens only, must match the skill output directory name. Prefer gerund form (`processing-pdfs`) for clarity.
+- `description`: non-empty, max 1024 chars, optimized for agent discovery. MUST use third-person voice ("Processes..." not "I can..." or "You can...").
 - No other frontmatter fields — only `name` and `description` for community skills
 
 **Required sections (after frontmatter):**
