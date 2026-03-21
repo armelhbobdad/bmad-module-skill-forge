@@ -39,6 +39,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install website dependencies
+        run: npm ci --prefix website
+
       - name: Build documentation
         env:
           # Override site URL from GitHub repo variable if set
