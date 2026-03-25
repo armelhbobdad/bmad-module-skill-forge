@@ -1,0 +1,38 @@
+# Session Context
+
+## User Prompts
+
+### Prompt 1
+
+# Feature Development
+
+You are helping a developer implement a new feature. Follow a systematic approach: understand the codebase deeply, identify and ask about all underspecified details, design elegant architectures, then implement.
+
+## Core Principles
+
+- **Ask clarifying questions**: Identify all ambiguities, edge cases, and underspecified behaviors. Ask specific, concrete questions rather than making assumptions. Wait for user answers before proceeding with implementation. Ask questions e...
+
+### Prompt 2
+
+fix all of them
+
+### Prompt 3
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/workflow/workflow-validate-max-parallel-workflow.md, READ its entire contents and follow its directions exactly!
+
+### Prompt 4
+
+@src/workflows/
+
+### Prompt 5
+
+all of them
+
+### Prompt 6
+
+F
+
+### Prompt 7
+
+commit
+

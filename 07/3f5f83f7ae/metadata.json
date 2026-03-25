@@ -1,0 +1,63 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "073f5f83f7ae",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "CHANGELOG.md",
+    "docs/concepts.md",
+    "docs/how-it-works.md",
+    "package.json",
+    "src/knowledge/progressive-capability.md",
+    "src/workflows/analyze-source/data/skill-brief-schema.md",
+    "src/workflows/analyze-source/data/unit-detection-heuristics.md",
+    "src/workflows/analyze-source/steps-c/step-04-map-and-detect.md",
+    "src/workflows/audit-skill/data/drift-report-template.md",
+    "src/workflows/audit-skill/workflow-plan-audit-skill.md",
+    "src/workflows/brief-skill/data/skill-brief-schema.md",
+    "src/workflows/brief-skill/steps-c/step-01-gather-intent.md",
+    "src/workflows/create-skill/data/extraction-patterns.md",
+    "src/workflows/create-skill/steps-c/step-01-load-brief.md",
+    "src/workflows/create-skill/steps-c/step-02-ecosystem-check.md",
+    "src/workflows/create-skill/steps-c/step-02b-ccc-discover.md",
+    "src/workflows/create-skill/steps-c/step-06-validate.md",
+    "src/workflows/create-skill/steps-c/step-07-generate-artifacts.md",
+    "src/workflows/create-skill/steps-c/step-08-report.md",
+    "src/workflows/create-skill/workflow-plan-create-skill.md",
+    "src/workflows/create-stack-skill/steps-c/step-01-init.md",
+    "src/workflows/create-stack-skill/steps-c/step-05-detect-integrations.md",
+    "src/workflows/create-stack-skill/steps-c/step-08-validate.md",
+    "src/workflows/create-stack-skill/workflow.md",
+    "src/workflows/export-skill/workflow-plan-export-skill.md",
+    "src/workflows/quick-skill/data/skill-template.md",
+    "src/workflows/quick-skill/steps-c/step-02-ecosystem-check.md",
+    "src/workflows/setup-forge/steps-c/step-01-detect-and-tier.md",
+    "src/workflows/setup-forge/steps-c/step-01b-ccc-index.md",
+    "src/workflows/setup-forge/steps-c/step-02-write-config.md",
+    "src/workflows/setup-forge/steps-c/step-04-report.md",
+    "src/workflows/setup-forge/workflow-plan-setup-forge.md",
+    "src/workflows/test-skill/templates/test-report-template.md",
+    "src/workflows/test-skill/validation-report.md",
+    "src/workflows/update-skill/steps-c/step-01-init.md",
+    "src/workflows/update-skill/steps-c/step-05-validate.md",
+    "src/workflows/update-skill/steps-c/step-06-write.md",
+    "tools/cli/commands/status.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/07/3f5f83f7ae/0/metadata.json",
+      "transcript": "/07/3f5f83f7ae/0/full.jsonl",
+      "context": "/07/3f5f83f7ae/0/context.md",
+      "content_hash": "/07/3f5f83f7ae/0/content_hash.txt",
+      "prompt": "/07/3f5f83f7ae/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 19864,
+    "cache_creation_tokens": 177090,
+    "cache_read_tokens": 10249935,
+    "output_tokens": 45003,
+    "api_call_count": 77
+  }
+}
