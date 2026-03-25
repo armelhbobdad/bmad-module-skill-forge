@@ -134,6 +134,26 @@ Update forge-tier.yaml with the cleaned registry.
 
 **If no stale entries:** Skip this section silently.
 
+### 5b. CCC Index Registry Hygiene (Forge+ and Deep with ccc)
+
+**IF `tools.ccc` is true in forge-tier.yaml (regardless of whether QMD hygiene ran):**
+
+Read the `ccc_index_registry` array from forge-tier.yaml.
+
+For each entry, verify the indexed path still exists on disk:
+
+**Healthy** — path exists: no action needed.
+
+**Stale** — path does not exist (source directory removed or moved):
+- Remove the stale entry from `ccc_index_registry`
+- Log: "Removed stale CCC index registry entry: {path} (path no longer exists)"
+
+Update forge-tier.yaml with the cleaned registry.
+
+Store `{ccc_registry_stale_cleaned: count}` in context for step-04 reporting.
+
+**IF `tools.ccc` is false:** Skip this section silently.
+
 ### 6. Store Hygiene Results and Auto-Proceed
 
 Store in context for step-04 reporting:
@@ -143,6 +163,7 @@ Store in context for step-04 reporting:
 {hygiene_orphaned_removed: count}
 {hygiene_orphaned_kept: count}
 {hygiene_stale_cleaned: count}
+{ccc_registry_stale_cleaned: count}
 ```
 
 "**Proceeding to forge status report...**"

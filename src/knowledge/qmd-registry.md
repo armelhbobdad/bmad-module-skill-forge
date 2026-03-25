@@ -95,6 +95,20 @@ Human readability alone is not sufficient justification — the file is already 
 
 **Rejection reason:** Decision artifact, not a compilation input. The analyze-source report tells users which skills to create, but create-stack-skill works from individual skill artifacts, not the analysis report. The only consumer would be a human reading the file — which they can do directly.
 
+## Relationship to CCC Index Registry
+
+The `ccc_index_registry` array in forge-tier.yaml is a **parallel but separate** registry from `qmd_collections`. They track different things:
+
+| Aspect | QMD Collections | CCC Index Registry |
+|--------|----------------|-------------------|
+| **What is indexed** | Curated workflow artifacts (SKILL.md, briefs, temporal data) | Source code (the actual codebase) |
+| **Index engine** | QMD (BM25 + optional vector search) | cocoindex-code (AST + vector embeddings) |
+| **Lifecycle** | Per-skill: created by create-skill, consumed by audit/update-skill | Per-project: created by setup-forge, verified by create-skill |
+| **Janitor** | setup-forge step-03 (orphan/stale QMD collection cleanup) | setup-forge step-03 section 5b (stale path cleanup) |
+| **Availability** | Deep tier only | Forge+ and Deep tiers |
+
+These registries are orthogonal — they never reference each other, and their janitor sections operate independently.
+
 ## Pattern Examples
 
 ### Example 1: Producer Registration (create-skill)

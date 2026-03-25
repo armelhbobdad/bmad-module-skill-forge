@@ -137,6 +137,23 @@ Continue without T2 enrichment — this is not an error.
 **IF forge tier is Quick, Forge, or Forge+:**
 Skip this section. Temporal context requires Deep tier.
 
+### 4b. CCC Rename Detection (Forge+ and Deep with ccc)
+
+**IF `tools.ccc` is true in forge-tier.yaml:**
+
+For each export in the skill baseline that was NOT found at its recorded file path during re-extraction (potential "deleted" export):
+
+1. Run `ccc_bridge.search("{export_name}", source_root, top_k=5)` to find candidate current locations
+2. If CCC returns files containing the export name:
+   - Run ast-grep verification on each candidate file
+   - If verified at a new location: reclassify from "deleted" to "moved" with the new file:line reference
+   - This reduces false-positive structural drift findings where exports were relocated, not removed
+3. If CCC returns no results or verification fails: keep the "deleted" classification
+
+CCC failures: skip rename detection silently, proceed with standard structural diff.
+
+**IF `tools.ccc` is false:** Skip this section silently.
+
 ### 5. Validate Extraction Completeness
 
 "**Extraction complete.**

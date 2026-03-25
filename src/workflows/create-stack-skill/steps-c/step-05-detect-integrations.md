@@ -71,6 +71,16 @@ For each library pair (A, B):
 
 **Threshold:** A pair must have 2+ co-import files to qualify as an integration pattern (single file co-imports may be incidental).
 
+**CCC Semantic Augmentation (Forge+ and Deep with ccc):**
+
+If `tools.ccc` is true in forge-tier.yaml, augment co-import detection with semantic search:
+
+For each library pair that has exactly 1 co-import file (below the 2-file threshold), run `ccc_bridge.search("{libA} {libB}", source_root, top_k=10)` to find files where the two libraries interact semantically — even without explicit import co-location. If CCC returns additional files where both libraries appear, add them to the pair's co-import candidate list and re-evaluate against the 2-file threshold.
+
+For pairs that already qualify (2+ files), CCC is not needed for detection — but the CCC results may surface additional integration files for richer classification in section 3.
+
+CCC failures: skip augmentation silently, proceed with grep-only results.
+
 ### 3. Classify Integration Types
 
 Load `{integrationPatterns}` for classification rules.

@@ -131,6 +131,21 @@ Based on detected language, identify public API surface:
 **Detected Exports/Entry Points:**
 {numbered list of public-facing items found}"
 
+**Semantic Signals (Forge+ and Deep with ccc only):**
+
+If `tools.ccc` is true in forge-tier.yaml, supplement the module listing with a semantic discovery pass:
+
+Run `ccc_bridge.search("{repo_name} public API exports modules", source_path, top_k=10)`.
+
+If results are returned, display:
+
+"**Semantic Signals (ccc):**
+{numbered list of file:snippet pairs from CCC results — top 5 most relevant}"
+
+This supplements — never replaces — the explicit module list above. CCC may surface non-obvious entry points (dynamically constructed exports, re-export chains) that static directory analysis misses.
+
+If CCC is unavailable or returns no results: skip this subsection silently.
+
 ### 5. Report Analysis Summary
 
 Present the complete analysis:

@@ -81,6 +81,10 @@ DO NOT BE LAZY — For EACH qualifying unit, launch a subprocess (or analyze in 
 2. Counts and categorizes exports based on forge tier:
    - **Quick tier:** Count files by type, identify index/barrel files, list directory structure
    - **Forge tier:** Parse export statements, identify public API surface, count exported functions/classes/types
+   - **Forge+ tier:** All Forge analysis plus:
+     - If `tools.ccc` is true: run `ccc_bridge.search("{unit_name} exports public API", top_k=15)` to discover semantically relevant files beyond directory scan
+     - Merge CCC-discovered files with scoped file list — files from CCC that are within the unit's directory are added to the analysis queue
+     - Record CCC signals in per-unit findings: top 3 CCC-ranked file names (or "—" if no ccc results)
    - **Deep tier:** All Forge analysis plus:
      - ast-grep structural export extraction: `ast-grep -p 'export $$$' --lang typescript` or equivalent per language to build a verified export inventory
      - ast-grep type/interface mapping: `ast-grep -p 'interface $NAME' --lang typescript` or `ast-grep -p 'class $NAME($$$)' --lang python`
@@ -98,7 +102,7 @@ DO NOT BE LAZY — For EACH qualifying unit, launch a subprocess (or analyze in 
 
 | Unit | Files | Exports | Export Pattern | API Surface | Scripts/Assets |
 |------|-------|---------|----------------|-------------|----------------|
-| {name} | {count} | {count} | {pattern} | {small/medium/large} | {N scripts, M assets or --} |
+| {name} | {count} | {count} | {pattern} | {small/medium/large} | {N scripts, M assets or --} | {CCC signals or --} |
 
 ### 3. Map Import Graph
 
