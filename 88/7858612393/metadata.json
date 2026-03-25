@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "887858612393",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/how-it-works.md",
+    "src/knowledge/ccc-bridge.md",
+    "src/knowledge/overview.md",
+    "src/workflows/audit-skill/workflow.md",
+    "src/workflows/create-skill/data/extraction-patterns.md",
+    "src/workflows/create-skill/data/skill-sections.md",
+    "src/workflows/create-skill/steps-c/step-01-load-brief.md",
+    "src/workflows/create-skill/steps-c/step-02b-ccc-discover.md",
+    "src/workflows/create-skill/workflow.md",
+    "src/workflows/create-stack-skill/data/stack-skill-template.md",
+    "src/workflows/setup-forge/data/tier-rules.md",
+    "src/workflows/setup-forge/steps-c/step-01b-ccc-index.md",
+    "src/workflows/setup-forge/steps-c/step-03-auto-index.md",
+    "src/workflows/setup-forge/workflow.md",
+    "src/workflows/test-skill/data/scoring-rules.md",
+    "src/workflows/test-skill/workflow-plan-test-skill.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/88/7858612393/0/metadata.json",
+      "transcript": "/88/7858612393/0/full.jsonl",
+      "context": "/88/7858612393/0/context.md",
+      "content_hash": "/88/7858612393/0/content_hash.txt",
+      "prompt": "/88/7858612393/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8790,
+    "cache_creation_tokens": 348932,
+    "cache_read_tokens": 51901031,
+    "output_tokens": 94797,
+    "api_call_count": 251
+  }
+}
