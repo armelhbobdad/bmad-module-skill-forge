@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "99af2c3f43f0",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/workflows.md",
+    "src/knowledge/architecture-verification.md",
+    "src/module-help.csv",
+    "src/workflows/create-stack-skill/data/compose-mode-rules.md",
+    "src/workflows/create-stack-skill/steps-c/step-05-detect-integrations.md",
+    "src/workflows/create-stack-skill/steps-c/step-06-compile-stack.md",
+    "src/workflows/refine-architecture/steps-c/step-01-init.md",
+    "src/workflows/refine-architecture/steps-c/step-02-gap-analysis.md",
+    "src/workflows/refine-architecture/steps-c/step-03-issue-detection.md",
+    "src/workflows/refine-architecture/steps-c/step-04-improvements.md",
+    "src/workflows/refine-architecture/steps-c/step-05-compile.md",
+    "src/workflows/refine-architecture/steps-c/step-06-report.md",
+    "src/workflows/refine-architecture/workflow.md",
+    "src/workflows/verify-stack/data/coverage-patterns.md",
+    "src/workflows/verify-stack/data/feasibility-report-template.md",
+    "src/workflows/verify-stack/steps-c/step-02-coverage.md",
+    "src/workflows/verify-stack/steps-c/step-05-synthesize.md",
+    "src/workflows/verify-stack/steps-c/step-06-report.md",
+    "test/test-installation-components.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/99/af2c3f43f0/0/metadata.json",
+      "transcript": "/99/af2c3f43f0/0/full.jsonl",
+      "context": "/99/af2c3f43f0/0/context.md",
+      "content_hash": "/99/af2c3f43f0/0/content_hash.txt",
+      "prompt": "/99/af2c3f43f0/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10602,
+    "cache_creation_tokens": 198328,
+    "cache_read_tokens": 2599144,
+    "output_tokens": 23224,
+    "api_call_count": 33
+  }
+}
