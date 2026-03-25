@@ -146,7 +146,7 @@ Linear pipeline with tool-delegated heavy lifting. No high-priority subprocess o
 
 - Data flows logically: brief → ecosystem → extraction → enrichment → compilation → validation → generation → report
 - No contradictions between steps
-- Tier-dependent behavior consistent across all 8 steps (Quick/Forge/Deep)
+- Tier-dependent behavior consistent across all 8 steps (Quick/Forge/Forge+/Deep)
 - Error handling consistent: graceful degradation everywhere except file write failures (which correctly halt)
 - Provenance citation format consistent (`[AST:{file}:L{line}]`, `[SRC:{file}:L{line}]`, `[QMD:{collection}:{doc}]`)
 - Overall narrative is a clear compilation pipeline

@@ -24,12 +24,13 @@ With knowledge files:
 |------------------------------------------------------------|-------------------------------------------------------------------|------------------------------------|
 | [zero-hallucination.md](zero-hallucination.md)             | Every claim traces to source; uncitable content excluded          | AN, BS, CS, QS, SS, US, AS, TS     |
 | [confidence-tiers.md](confidence-tiers.md)                 | T1/T1-low/T2/T3 trust model and citation formats                  | AN, BS, CS, QS, SS, US, AS, TS, EX |
-| [progressive-capability.md](progressive-capability.md)     | Quick/Forge/Deep tier philosophy and behavior adaptation          | All 10                             |
+| [progressive-capability.md](progressive-capability.md)     | Quick/Forge/Forge+/Deep tier philosophy and behavior adaptation          | All 10                             |
 | [agentskills-spec.md](agentskills-spec.md)                 | agentskills.io output format principles and compliance            | CS, QS, SS, US, TS, EX             |
 | [skill-lifecycle.md](skill-lifecycle.md)                   | End-to-end pipeline, artifact flow, workflow selection            | All 10                             |
 | [provenance-tracking.md](provenance-tracking.md)           | Provenance-map.json entries and file_entries, evidence reports, claim traceability | CS, QS, SS, US, AS, TS             |
 | [manual-section-integrity.md](manual-section-integrity.md) | \[MANUAL\] marker preservation and merge algorithm                | CS, US, AS, TS, EX                 |
 | [qmd-registry.md](qmd-registry.md)                         | Progressive QMD collection registry and collection gate principle | SF, BS, CS, US, AS                 |
+| [ccc-bridge.md](ccc-bridge.md)                             | ccc_bridge interface, indexing lifecycle, Forge+ discovery-before-extraction | SF, CS, SS, AS, US, BS             |
 | [split-body-strategy.md](split-body-strategy.md)           | Selective vs full split-body, detection pattern, agent accuracy   | CS, QS, US, TS, EX                |
 
 ## JiT Loading Protocol

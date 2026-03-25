@@ -403,7 +403,7 @@ No subprocess optimization needed. The workflow is appropriately simple and sequ
 |-------------|------------|---------|
 | Initialize forge environment | Yes — all 4 steps address this | High |
 | Detect tools (ast-grep, gh, qmd) | Yes — step-01 verifies all 3 | High |
-| Set tier (Quick/Forge/Deep) | Yes — step-01 calculates, step-02 writes | High |
+| Set tier (Quick/Forge/Forge+/Deep) | Yes — step-01 calculates, step-02 writes | High |
 | Auto-index project | Yes — step-03 (Deep tier only) | High |
 
 #### Classification Attributes

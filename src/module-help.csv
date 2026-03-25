@@ -1,5 +1,5 @@
 module,phase,name,code,sequence,workflow-file,command,required,agent,options,description,output-location,outputs,
-skf,anytime,Setup Forge,SF,,_bmad/skf/workflows/skillforge/setup-forge/workflow.md,skf_setup_forge,false,ferris,Create Mode,"Initialize forge environment — detect tools and set capability tier (Quick/Forge/Deep)",,forge-config.yaml,
+skf,anytime,Setup Forge,SF,,_bmad/skf/workflows/skillforge/setup-forge/workflow.md,skf_setup_forge,false,ferris,Create Mode,"Initialize forge environment — detect tools and set capability tier (Quick/Forge/Forge+/Deep)",,forge-config.yaml,
 skf,anytime,Analyze Source,AN,,_bmad/skf/workflows/skillforge/analyze-source/workflow.md,skf_analyze_source,false,ferris,Create Mode,"Discover what to skill in a large repo — produces recommended skill briefs",forge_data_folder,skill-brief.yaml,
 skf,anytime,Brief Skill,BS,,_bmad/skf/workflows/skillforge/brief-skill/workflow.md,skf_brief_skill,false,ferris,Create Mode,"Design a skill scope through guided discovery",forge_data_folder,skill-brief.yaml,
 skf,anytime,Create Skill,CS,,_bmad/skf/workflows/skillforge/create-skill/workflow.md,skf_create_skill,false,ferris,Create Mode,"Compile a skill from a brief — supports --batch for multiple briefs",skills_output_folder,SKILL.md,

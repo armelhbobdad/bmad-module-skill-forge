@@ -76,7 +76,7 @@ Cognitive completeness verification — Verifies that a skill is complete enough
 - No frontmatter configuration for steps
 - No data files, templates, or output format specifications
 - Batch mode mechanics are unspecified
-- No forge tier awareness — coverage depth must scale with Quick/Forge/Deep tiers
+- No forge tier awareness — coverage depth must scale with Quick/Forge/Forge+/Deep tiers
 - No reference to forge-tier.yaml sidecar state for tier detection
 - Zero hallucination principle not encoded — scoring must trace to AST citations
 
@@ -274,7 +274,7 @@ Ferris (Audit mode): methodical, precise, evidence-based. Zero hallucination —
 workflowType: 'test-skill'
 skillName: '{skill_name}'
 testMode: '{naive|contextual}'
-forgeTier: '{Quick|Forge|Deep}'
+forgeTier: '{Quick|Forge|Forge+|Deep}'
 testResult: '{pass|fail}'
 score: '{N%}'
 threshold: '{N%}'

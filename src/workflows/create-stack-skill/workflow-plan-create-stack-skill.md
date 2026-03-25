@@ -111,7 +111,7 @@ Multi-file document-producing workflow:
 ### Address (gaps identified from memory)
 
 - `manifest_reader` does not exist — needs self-contained dependency detection with fallback chain (npm/PyPI/crates.io/Cargo registry APIs → file parsing → web search)
-- No forge-tier awareness — must implement Quick/Forge/Deep tier behavior matching create-skill, quick-skill, test-skill, export-skill patterns
+- No forge-tier awareness — must implement Quick/Forge/Forge+/Deep tier behavior matching create-skill, quick-skill, test-skill, export-skill patterns
 - No tool bridge specifications — needs gh_bridge (all tiers), ast_bridge (Forge/Deep), qmd_bridge (Deep only)
 - No error handling matrix — needs hard halt / graceful degradation / silent skip / advisory categories
 - "Absorbs analyze-stack internally" undefined — must define concrete analyze-stack functionality within steps 01-05
@@ -273,7 +273,7 @@ create-stack-skill/
 
 **Step 01 (init):**
 - Load SKF module config from `_bmad/skf/config.yaml`
-- Load forge-tier.yaml from sidecar: determine Quick/Forge/Deep tier and available tools
+- Load forge-tier.yaml from sidecar: determine Quick/Forge/Forge+/Deep tier and available tools
 - Validate prerequisites: forge-tier.yaml exists, project root accessible
 - Accept optional explicit dependency list (skip auto-detection if provided)
 - Accept optional scope overrides per library

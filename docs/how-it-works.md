@@ -419,7 +419,7 @@ src/
 │   └── README.md
 ├── knowledge/
 │   ├── skf-knowledge-index.csv
-│   └── *.md (11 fragments)
+│   └── *.md (12 fragments)
 └── workflows/
     ├── setup-forge/
     ├── analyze-source/

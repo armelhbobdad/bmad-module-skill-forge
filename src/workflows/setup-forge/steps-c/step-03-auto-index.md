@@ -61,7 +61,7 @@ Read `{calculated_tier}` from context.
 
 **If tier is Quick or Forge:** Proceed directly to section 6 (Auto-Proceed) — no output, no messaging.
 
-**If tier is Forge+:** Skip QMD hygiene (qmd is not available at Forge+). Proceed directly to section 6 (Auto-Proceed) — no output, no messaging.
+**If tier is Forge+:** Skip QMD hygiene (qmd is not available at Forge+). Proceed directly to section 5b (CCC Index Registry Hygiene) — no QMD output, no messaging.
 
 **If tier IS Deep:** Continue to section 2.
 

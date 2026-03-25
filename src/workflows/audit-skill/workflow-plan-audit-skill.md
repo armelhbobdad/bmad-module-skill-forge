@@ -70,7 +70,7 @@ Drift report with severity levels (added/removed/changed exports, breaking chang
 - Document-producing output aligns with drift report use case
 
 **What needs improvement (fix during build):**
-- **Missing Quick tier path** — All SKF workflows support Quick/Forge/Deep with graceful degradation; Quick tier needs text-diff fallback
+- **Missing Quick tier path** — All SKF workflows support Quick/Forge/Forge+/Deep with graceful degradation; Quick tier needs text-diff fallback
 - **No provenance map format specification** — Step 01 loads it, but must reference known `provenance-map.json` from create-skill's `forge-data/{name}/` output
 - **No confidence tier labels (T1/T2/T3)** — Every SKF workflow uses these for traceability; drift findings need confidence scoring
 - **Step 04 conditional skip** — semantic-diff is Deep-only but spec has no skip logic or degradation behavior for Forge/Quick tiers

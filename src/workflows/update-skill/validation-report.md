@@ -413,7 +413,7 @@ This workflow is a well-architected surgical pipeline that achieves its goal of 
 
 1. **Zero-hallucination principle** enforced throughout — every statement must trace to actual artifacts
 2. **[MANUAL] section preservation** treated as highest priority with multiple safeguards (inventory in step-01, preservation in step-04, integrity verification in step-05, write verification in step-06)
-3. **Tier-aware extraction** well-implemented across Quick/Forge/Deep with graceful degradation
+3. **Tier-aware extraction** well-implemented across Quick/Forge/Forge+/Deep with graceful degradation
 4. **Subprocess optimization** strategically placed at the right steps (02-parallel, 03-per-file, 03-QMD, 05-parallel)
 5. **Error handling** is comprehensive (missing artifacts → abort with helpful message, missing provenance → degraded mode, [MANUAL] conflicts → user resolution)
 6. **Workflow chaining** properly integrated with input/output contracts

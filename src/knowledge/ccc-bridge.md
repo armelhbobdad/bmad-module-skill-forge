@@ -4,6 +4,17 @@
 
 `ccc_bridge.*` references in workflow steps are **conceptual interfaces**, not callable functions. They describe a semantic code discovery operation to perform. Use the `ccc` MCP server tools (when available) or `ccc` CLI commands to execute these operations. See the TOOL/SUBPROCESS FALLBACK rule — if ccc is unavailable, the calling step falls back to direct ast-grep or source reading without ccc pre-discovery.
 
+## Rationale
+
+Without ccc pre-discovery, extraction steps scan all source files uniformly — processing them in directory order or entry-point-first order. On large codebases (500+ files), this means AST extraction in CLI streaming mode uses `head -N` cutoffs that may miss relevant exports in files that appear late in the scan. Integration detection in Stack Skill relies on grep-based co-import counting, which misses semantic relationships between libraries that don't appear in the same file.
+
+With ccc pre-discovery:
+- Extraction steps receive a relevance-ranked file queue — the most semantically important files are processed first, before any streaming cutoff
+- Integration detection gains semantic augmentation — pairs below the 2-file co-import threshold can be evaluated via natural language queries
+- Audit workflows can detect renamed/moved exports via semantic search before classifying them as deleted
+
+The key architectural constraint: ccc discovers, ast-grep verifies. Discovery method is orthogonal to confidence tier. This keeps the 4-tier confidence system (T1/T1-low/T2/T3) clean and avoids tier proliferation.
+
 ## When ccc Is Used
 
 ccc is a **discovery layer only**. It answers "where should I look?" — it does not produce citations or structural claims. Every path or symbol returned by ccc_bridge must be verified by `ast_bridge` (T1) or source reading (T1-low) before it enters the extraction inventory. ccc results never appear in provenance citations.

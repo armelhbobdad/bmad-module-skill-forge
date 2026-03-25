@@ -125,7 +125,7 @@ Document-producing workflow that outputs:
 
 ### Missing Features to Add During Conversion
 
-1. Tier-aware re-extraction (Quick/Forge/Deep graceful degradation)
+1. Tier-aware re-extraction (Quick/Forge/Forge+/Deep graceful degradation)
 2. Degraded mode for missing provenance map (fallback to full re-extraction)
 3. Stack skill multi-file update support
 4. Batch mode with checkpoint resume

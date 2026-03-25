@@ -45,6 +45,11 @@ tessl evaluates SKILL.md body content only — it does not read `references/*.md
 - Type Coverage: AST-verified type completeness
 - Full scoring formula applied
 
+### Forge+ Tier (ast-grep + ccc)
+- Same scoring as Forge tier — ccc provides pre-ranking but does not change scoring weights
+- Improved extraction coverage (from ccc pre-discovery) may increase T1 count, but scoring formula is identical to Forge
+- Full scoring formula applied
+
 ### Deep Tier (ast-grep + gh + QMD)
 - All Forge tier checks plus:
 - Cross-repository reference verification

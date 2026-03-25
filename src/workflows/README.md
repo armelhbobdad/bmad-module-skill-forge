@@ -91,7 +91,7 @@ Steps execute sequentially via just-in-time loading. Only the current step is in
 
 **4 steps** | **Data:** tier-rules.md
 
-Detects available tools (ast-grep, gh, QMD), determines the capability tier (Quick/Forge/Deep), writes `forge-tier.yaml` to the sidecar, and optionally indexes the project. Run this first — all other workflows adapt behavior to the detected tier.
+Detects available tools (ast-grep, gh, QMD), determines the capability tier (Quick/Forge/Forge+/Deep), writes `forge-tier.yaml` to the sidecar, and optionally indexes the project. Run this first — all other workflows adapt behavior to the detected tier.
 
 ### analyze-source (AN)
 

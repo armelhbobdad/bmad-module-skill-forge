@@ -150,7 +150,7 @@ Decomposition engine — discover what to skill, recommend stack skill. Analyzes
 **Inputs Required:**
 - Required: Project root or repo path
 - Required: SKF module config (forge_data_folder, skills_output_folder, forge_tier)
-- Required: forge-tier.yaml (determines Quick/Forge/Deep analysis depth)
+- Required: forge-tier.yaml (determines Quick/Forge/Forge+/Deep analysis depth)
 - Optional: Scope hints (monorepo packages, service directories to focus on)
 - Optional: Exclusion patterns (vendor dirs, test dirs, generated code to skip)
 - Prerequisites: setup-forge workflow must have been run

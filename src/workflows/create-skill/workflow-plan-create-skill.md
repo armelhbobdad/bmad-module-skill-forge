@@ -138,7 +138,7 @@ Compile a skill from a brief — the core compilation engine. Takes a skill-brie
 - Pattern: Linear with conditional branches within steps (tier-dependent)
 - Phases: Load → Check → Extract → Enrich → Compile → Validate → Generate → Report
 - Estimated steps: 8
-- Conditional logic: Steps 03/04 branch internally by forge tier (Quick/Forge/Deep)
+- Conditional logic: Steps 03/04 branch internally by forge tier (Quick/Forge/Forge+/Deep)
 - No branching steps — conditions stay within each step
 
 **User Interaction:**
@@ -257,7 +257,7 @@ create-skill/
 - If --batch: discover all briefs in specified directory
 - Load and validate brief structure (required fields: name, version, source_repo, language, scope)
 - Resolve source code location (local path or GitHub owner/repo)
-- Load forge-tier.yaml from sidecar — determine tier (Quick/Forge/Deep)
+- Load forge-tier.yaml from sidecar — determine tier (Quick/Forge/Forge+/Deep)
 - If forge-tier.yaml missing: halt with "Run [SF] Setup Forge first"
 - Auto-proceed to step-02
 

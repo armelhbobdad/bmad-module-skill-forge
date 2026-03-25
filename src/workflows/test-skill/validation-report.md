@@ -299,7 +299,7 @@ Subprocess optimization correctly concentrated in steps 03 and 04 (heavy analysi
 ### Strengths:
 
 1. Rigorous traceability (zero hallucination with file:line citations)
-2. Three-tier depth scaling (Quick/Forge/Deep)
+2. Three-tier depth scaling (Quick/Forge/Forge+/Deep)
 3. Clean separation of concerns with explicit FORBIDDEN markers
 4. Well-designed subprocess optimization with structured return formats
 5. Actionable remediation quality rules with good/bad examples

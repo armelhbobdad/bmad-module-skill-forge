@@ -69,7 +69,7 @@ Indexed format targeting ~80-120 tokens per stack:
   "name": "{project}-stack",
   "version": "1.0.0",
   "generation_date": "{ISO-8601}",
-  "confidence_tier": "{Quick|Forge|Deep}",
+  "confidence_tier": "{Quick|Forge|Forge+|Deep}",
   "source_authority": "{official|community|internal}",
   "exports": [],
   "library_count": 0,

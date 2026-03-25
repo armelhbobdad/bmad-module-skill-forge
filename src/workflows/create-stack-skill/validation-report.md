@@ -309,7 +309,7 @@ The workflow progresses logically from initialization through discovery, confirm
 **Strengths:**
 - Integration layer as primary value — not just concatenated library docs
 - Confidence tier system (T1/T1-low/T2) throughout all outputs
-- Forge-tier dependent extraction (Quick/Forge/Deep)
+- Forge-tier dependent extraction (Quick/Forge/Forge+/Deep)
 - Workspace artifacts (provenance-map.json, evidence-report.md) for traceability
 - Graceful degradation (single library failure doesn't halt; zero integrations is valid)
 

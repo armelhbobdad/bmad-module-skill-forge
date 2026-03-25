@@ -499,7 +499,7 @@ All steps include: "TOOL/SUBPROCESS FALLBACK: If any instruction references a su
 - **Evidence-based approach** — every recommendation backed by specific file citations
 - **Well-placed collaborative gate** (step 05) — user has agency without slowing autonomous analysis
 - **Complete data flow** — no orphaned data, every piece feeds forward
-- **Tier-aware analysis depth** — adapts to Quick/Forge/Deep
+- **Tier-aware analysis depth** — adapts to Quick/Forge/Forge+/Deep
 - **Continuation support** — large repo analysis can resume across sessions
 - **Stack skill candidate detection** — value beyond individual skills
 - **Schema validation before writing** — prevents downstream workflow failures
@@ -647,7 +647,7 @@ A developer onboarding a brownfield project would experience:
 - Complete evidence-based analysis pipeline with zero-hallucination principle
 - Well-placed collaborative gate at step 05 with Y/N/M + "why?" support
 - Perfect data flow — every step builds on previous work
-- Tier-aware analysis depth (Quick/Forge/Deep)
+- Tier-aware analysis depth (Quick/Forge/Forge+/Deep)
 - Continuation support for interrupted sessions
 - Schema validation before file writing
 - Clear downstream workflow recommendations

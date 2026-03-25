@@ -13,12 +13,14 @@
 
 ## Tier Calculation
 
-| Tier | Required Tools | Rule |
-|------|---------------|------|
-| Quick | None | Default when no tools are available |
-| Forge | ast-grep | ast-grep available, without ccc/gh/qmd |
-| Forge+ | ast-grep + ccc | ast-grep AND ccc available, regardless of gh/qmd |
-| Deep | ast-grep + gh + qmd | All three core tools available and functional |
+| Priority | Tier | Required Tools | Rule |
+|----------|------|---------------|------|
+| 1 (highest) | Deep | ast-grep + gh + qmd | All three core tools available and functional |
+| 2 | Forge+ | ast-grep + ccc | ast-grep AND ccc available, regardless of gh/qmd |
+| 3 | Forge | ast-grep | ast-grep available, without ccc/gh/qmd |
+| 4 (default) | Quick | None | Default when no tools are available |
+
+**Evaluation order:** Check Deep first, then Forge+, then Forge. The first match wins. This ensures Deep always takes priority when all tools are present.
 
 **Override:** If `tier_override` is set in preferences.yaml, use that value instead of calculated tier.
 

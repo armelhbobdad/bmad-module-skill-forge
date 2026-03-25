@@ -56,7 +56,7 @@ For Quick and Forge tiers, or when ccc is unavailable, skip silently and proceed
 
 Read `{ccc}` from step-01 context.
 
-**If `{ccc}` is false:** Set `{ccc_index_status: "none", ccc_indexed_path: null, ccc_last_indexed: null}`. Proceed directly to section 5 (Auto-Proceed) — no output, no messaging.
+**If `{ccc}` is false:** Set `{ccc_index_result: "none", ccc_indexed_path: null, ccc_last_indexed: null}`. Proceed directly to section 5 (Auto-Proceed) — no output, no messaging.
 
 **If `{ccc}` is true:** Continue to section 2.
 
@@ -67,26 +67,24 @@ Read existing forge-tier.yaml at `{project-root}/_bmad/_memory/forger-sidecar/fo
 Check the `ccc_index` section:
 - If `ccc_index.indexed_path` matches `{project-root}` AND `ccc_index.status` is `"fresh"`:
   - Check freshness: if `ccc_index.last_indexed` is within `staleness_threshold_hours` (default 24h) of now → index is fresh
-  - Store `{ccc_index_status: "fresh", ccc_indexed_path: {project-root}, ccc_last_indexed: {existing timestamp}}`
+  - Store `{ccc_index_result: "fresh", ccc_indexed_path: {project-root}, ccc_last_indexed: {existing timestamp}}`
   - Proceed to section 5
 
 - If `ccc_index.indexed_path` matches `{project-root}` but timestamp is older than threshold:
-  - Store `{ccc_index_status: "stale"}` — proceed to section 3 for re-index
+  - Store `{ccc_index_result: "stale"}` — proceed to section 3 for re-index
 
 - If `ccc_index` is missing, has null values, or path doesn't match:
   - Proceed to section 3 for initial index
 
-### 3. Check Daemon Readiness
+### 3. Create or Refresh CCC Index
 
-**If `{ccc_daemon}` is `"stopped"`:**
+**If `{ccc_daemon}` is `"stopped"` or undefined (healthy daemon where no explicit state was recorded):**
 
-Attempt to start the daemon by running `ccc index {project-root}` — the index command typically starts the daemon automatically.
+The `ccc index` command auto-starts the daemon when needed. Proceed with indexing below.
 
-**If `{ccc_daemon}` is `"running"` or `"error"`:**
+**If `{ccc_daemon}` is `"error"`:**
 
-Proceed to section 4. Errors will be caught during indexing.
-
-### 4. Create or Refresh CCC Index
+Attempt indexing anyway — errors will be caught below.
 
 Run:
 ```bash
@@ -102,11 +100,11 @@ ccc index
 
 **If succeeds:**
 - Run `ccc status` to get file count
-- Store `{ccc_index_status: "fresh", ccc_indexed_path: {project-root}, ccc_last_indexed: {current ISO timestamp}, ccc_file_count: {count from status}}`
+- Store `{ccc_index_result: "created", ccc_indexed_path: {project-root}, ccc_last_indexed: {current ISO timestamp}, ccc_file_count: {count from status}}`
 - Display: "**CCC index created.** {file_count} files indexed for semantic discovery."
 
 **If fails:**
-- Store `{ccc_index_status: "failed", ccc_indexed_path: null, ccc_last_indexed: null}`
+- Store `{ccc_index_result: "failed", ccc_indexed_path: null, ccc_last_indexed: null}`
 - Display: "CCC indexing failed: {error}. Semantic discovery will be unavailable. Forge+ capabilities active without ccc pre-search."
 - Continue — this is NOT a workflow error
 

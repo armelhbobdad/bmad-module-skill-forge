@@ -413,7 +413,7 @@ The audit-skill workflow is a well-designed, cohesive 6-step pipeline that achie
 ### Strengths
 
 1. **Zero-hallucination principle** enforced consistently — every finding traces to actual code
-2. **Graceful degradation** at every level — tier-aware (Quick/Forge/Deep), missing provenance (degraded mode)
+2. **Graceful degradation** at every level — tier-aware (Quick/Forge/Forge+/Deep), missing provenance (degraded mode)
 3. **Structured output** with file:line citations and confidence tier labels on all findings
 4. **Actionable remediation** — specific suggestions per finding (what to change, where, why)
 5. **Workflow chaining** — update-skill recommendation when CRITICAL/HIGH drift found
@@ -441,7 +441,7 @@ The audit-skill workflow is a well-designed, cohesive 6-step pipeline that achie
 |-------------|-------------|---------|--------|
 | Drift detection between skill and source | workflow.md + all 6 steps | High | ✅ |
 | Ferris Audit mode | workflow.md + all step role reinforcements | High | ✅ |
-| Tier-aware depth (Quick/Forge/Deep) | Steps 01-04 adapt per tier | High | ✅ |
+| Tier-aware depth (Quick/Forge/Forge+/Deep) | Steps 01-04 adapt per tier | High | ✅ |
 | Drift report with severity levels | Steps 03-06 build categorized report | High | ✅ |
 
 ### Classification Validation
@@ -534,7 +534,7 @@ None identified. All requirements from the plan are fully implemented.
 ### Key Strengths
 
 - Zero-hallucination principle enforced consistently throughout
-- Graceful tier-aware degradation (Quick/Forge/Deep)
+- Graceful tier-aware degradation (Quick/Forge/Forge+/Deep)
 - Well-chosen subprocess patterns with graceful fallbacks
 - Clean data flow: provenance → extraction → diff → classification → report
 - Actionable remediation suggestions with workflow chaining

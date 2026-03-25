@@ -74,6 +74,10 @@ When `{ccc_discovery}` is present and non-empty:
 3. If the CCC intersection with scoped files produces <10 files: include all scoped files (CCC results too narrow)
 4. Proceed with the AST Extraction Protocol on the pre-ranked list
 
+### ast-grep Patterns
+
+Same patterns as Forge tier — see Forge tier section above. CCC pre-ranking does not change which AST patterns are used, only which files are processed first.
+
 ### Confidence
 
 All results: T1 (AST-verified) — identical to Forge tier. CCC is upstream discovery only and is invisible in the output artifact.

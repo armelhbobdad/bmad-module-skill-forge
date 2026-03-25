@@ -32,7 +32,7 @@ Initialize forge environment, detect tools, set tier, auto-index project
 ### Original Steps (Complete List)
 
 **Step 1:** detect-tools - Check for gh, ast-grep, QMD availability
-**Step 2:** determine-tier - Set Quick/Forge/Deep based on tools found
+**Step 2:** determine-tier - Set Quick/Forge/Forge+/Deep based on tools found
 **Step 3:** create-config - Generate forge-config.yaml with tier and tool flags
 **Step 4:** auto-index - Index current project as QMD collection (Deep only)
 **Step 5:** report - Display forge status, tier, and capabilities
@@ -65,7 +65,7 @@ Initialize forge environment, detect tools, set tier, auto-index project
 
 **What works well in original:**
 - Clear 5-step decomposition with logical progression
-- Well-defined progressive tier system (Quick/Forge/Deep)
+- Well-defined progressive tier system (Quick/Forge/Forge+/Deep)
 - Three distinct output artifacts with clear purposes
 - Correctly identified as foundation workflow all others depend on
 

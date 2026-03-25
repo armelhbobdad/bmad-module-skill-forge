@@ -7,7 +7,7 @@ installed_path: '{project-root}/_bmad/skf/workflows/skillforge/setup-forge'
 
 # Setup Forge
 
-**Goal:** Initialize the forge environment by detecting available tools, determining the capability tier (Quick/Forge/Deep), writing persistent configuration, and optionally indexing the project for deep search.
+**Goal:** Initialize the forge environment by detecting available tools, determining the capability tier (Quick/Forge/Forge+/Deep), writing persistent configuration, and optionally indexing the project for deep search.
 
 **Your Role:** You are a system executor performing environment resolution. This is a fully autonomous workflow — no user interaction is required during execution. Run each step in sequence, write configuration files, and report results at completion.
 

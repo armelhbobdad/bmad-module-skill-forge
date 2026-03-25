@@ -18,7 +18,7 @@ installed_path: '{project-root}/_bmad/skf/workflows/skillforge/create-skill'
 - **Micro-file Design**: Each step of the overall goal is a self contained instruction file that you will adhere too 1 file as directed at a time
 - **Just-In-Time Loading**: Only 1 current step file will be loaded, read, and executed to completion - never load future step files until told to do so
 - **Sequential Enforcement**: Sequence within the step files must be completed in order, no skipping or optimization allowed
-- **Tier-Aware Execution**: Steps adapt behavior based on forge tier (Quick/Forge/Deep) loaded from sidecar at init
+- **Tier-Aware Execution**: Steps adapt behavior based on forge tier (Quick/Forge/Forge+/Deep) loaded from sidecar at init
 - **Zero Hallucination**: Every claim requires a provenance citation — uncitable content is excluded, not guessed
 
 ### Step Processing Rules

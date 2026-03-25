@@ -17,6 +17,7 @@ For Quick and Forge tiers, or when ccc is unavailable, skip silently and proceed
 ### Universal Rules:
 
 - 📖 CRITICAL: Read the complete step file before taking any action
+- 🎯 ALWAYS follow the exact instructions in the step file
 - 🔄 CRITICAL: When loading next step, ensure entire file is read
 - ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a tool you do not have access to, you MUST still achieve the outcome in your main context thread
 - ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`

@@ -24,7 +24,7 @@ This uses **step-file architecture** for disciplined execution:
 - **Sequential Enforcement**: Sequence within the step files must be completed in order, no skipping or optimization allowed
 - **State Tracking**: Document progress in output file frontmatter using `stepsCompleted` array
 - **Append-Only Building**: Build the drift report by appending sections as directed to the output file
-- **Tier-Aware Execution**: Adapt analysis depth based on detected forge tier (Quick/Forge/Deep) with graceful degradation
+- **Tier-Aware Execution**: Adapt analysis depth based on detected forge tier (Quick/Forge/Forge+/Deep) with graceful degradation
 
 ### Step Processing Rules
 

@@ -56,7 +56,7 @@ SKILL.md uses a two-tier structure to ensure actionable content survives `split-
 - Tier 1 sections are kept short enough that `split-body` targets the larger Tier 2 sections (`## Full` headings) into `references/`
 - After split-body, SKILL.md retains all Tier 1 content — actionable without loading references
 - An agent loading only SKILL.md (no references) must get enough to act
-- **Section 4b (Migration & Deprecation Warnings)** is conditional: only emitted for Deep tier when T2-future annotations exist. Quick/Forge tiers and Deep tiers without T2-future annotations omit it entirely (no empty section). Parsers and validators must treat this section as optional.
+- **Section 4b (Migration & Deprecation Warnings)** is conditional: only emitted for Deep tier when T2-future annotations exist. Quick/Forge/Forge+ tiers and Deep tiers without T2-future annotations omit it entirely (no empty section). Parsers and validators must treat this section as optional.
 - **Section 7b (Scripts & Assets)** is conditional: only emitted when `scripts_inventory` or `assets_inventory` is non-empty. Omitted entirely when no scripts or assets are detected. Parsers and validators must treat this section as optional.
 
 ### Provenance Citation Format
@@ -120,7 +120,7 @@ Indexed pipe-delimited format for CLAUDE.md managed section (~80-120 tokens per 
   "source_repo": "{github-url}",
   "source_root": "{resolved-source-path}",
   "source_commit": "{commit-hash}",
-  "confidence_tier": "{Quick|Forge|Deep}",
+  "confidence_tier": "{Quick|Forge|Forge+|Deep}",
   "spec_version": "1.3",
   "generation_date": "{ISO-8601}",
   "description": "{SKILL.md frontmatter description}",
