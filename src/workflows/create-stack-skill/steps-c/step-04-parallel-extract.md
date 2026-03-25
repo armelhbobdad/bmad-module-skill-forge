@@ -50,6 +50,18 @@ For each confirmed dependency, extract key exports, usage patterns, and API surf
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
 
+### 0. Check Compose Mode
+
+**If `compose_mode` is true:**
+
+"**Extraction data already available from individual skills. Skipping extraction phase.**"
+
+For each confirmed skill, load the full SKILL.md content into context as the extraction result. The skill's existing confidence tiers (T1, T1-low, T2) are inherited directly.
+
+Auto-proceed to next step.
+
+**If not compose_mode:** Continue with section 1 (existing flow).
+
 ### 1. Prepare Extraction Plan
 
 **AST Tool Availability Check (Forge/Deep only):**

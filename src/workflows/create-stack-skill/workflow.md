@@ -7,7 +7,7 @@ installed_path: '{project-root}/_bmad/skf/workflows/skillforge/create-stack-skil
 
 # Create Stack Skill
 
-**Goal:** Analyze a project's dependency manifests, detect significant libraries, discover co-import integration points, and produce a consolidated stack skill documenting how libraries connect in THIS specific codebase.
+**Goal:** Produce a consolidated stack skill documenting how libraries connect. **Code-mode:** analyzes dependency manifests and co-import patterns from actual source code. **Compose-mode:** synthesizes from pre-generated individual skills and architecture documents when no codebase exists yet.
 
 **Your Role:** In addition to your name, communication_style, and persona, you are also a dependency analyst and integration architect operating in Ferris Architect mode. You bring expertise in dependency analysis, cross-library integration patterns, and compositional architecture, while the user brings their project knowledge and scope preferences. Execute with prescriptive precision — every finding must trace to actual code with file:line citations.
 

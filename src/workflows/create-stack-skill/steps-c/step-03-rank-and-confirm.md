@@ -52,6 +52,18 @@ Count import frequency for each dependency across the codebase, rank by usage, a
 
 ### 1. Count Import Frequency
 
+**If `compose_mode` is true:**
+
+Skip import counting entirely. All skills are included by default.
+
+Present skills sorted by architectural layer (from architecture doc if available):
+- Parse architecture doc for section headers to determine layer grouping
+- If no architecture doc or layers not detectable: present alphabetically
+
+User confirms inclusion/exclusion at the gate (same [C] menu as code-mode).
+
+**If not compose_mode:**
+
 For each dependency in `raw_dependencies`:
 
 **Launch a subprocess** that runs grep across all source files in the project to count import statements for each library. Return only the counts, not file contents.

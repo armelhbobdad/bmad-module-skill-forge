@@ -99,6 +99,14 @@ Check if the user provided:
 - If provided, store as `scope_overrides` for use in step 03
 - Format: `library_name: include|exclude`
 
+**Compose mode detection:**
+- If user provides `compose_from: skills/` or an architecture document path → set `compose_mode: true`
+- If no manifest files exist in project root AND skills exist in `{skills_output_folder}` → suggest compose mode
+- Store `compose_mode: true` and `architecture_doc_path` as workflow state
+
+If compose_mode:
+- Display: "**Compose mode detected.** Synthesizing stack skill from {N} existing skills + architecture document."
+
 If no optional inputs provided, auto-detection will be used.
 
 ### 4. Display Initialization Summary
@@ -113,7 +121,7 @@ If no optional inputs provided, auto-detection will be used.
 - Deep: + Temporal integration evolution
 
 **Available Tools:** {tool_list}
-**Input Mode:** {auto-detect | explicit dependency list}
+**Input Mode:** {auto-detect | explicit dependency list | compose mode}
 
 **Proceeding to manifest detection...**"
 

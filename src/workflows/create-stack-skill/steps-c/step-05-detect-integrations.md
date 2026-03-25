@@ -4,6 +4,7 @@ description: 'Detect co-import patterns and integration points between confirmed
 
 nextStepFile: './step-06-compile-stack.md'
 integrationPatterns: '../data/integration-patterns.md'
+composeModeRules: '../data/compose-mode-rules.md'
 ---
 
 # Step 5: Detect Integrations
@@ -60,6 +61,29 @@ From `confirmed_dependencies`, generate all unique pairs:
 Report: "**Analyzing {pair_count} library pairs for integration patterns...**"
 
 ### 2. Detect Co-Import Files
+
+**If `compose_mode` is true:**
+
+Instead of co-import grep, detect integrations from architecture document:
+
+1. Load the architecture document from `{architecture_doc_path}`
+2. Use prose-based co-mention analysis: find paragraphs mentioning 2+ confirmed skill names
+3. For each detected integration pair:
+   - Load both skills' export lists and API signatures
+   - Compose an integration section documenting how the two libraries connect
+   - Include VS feasibility verdict if a feasibility report exists in `{forge_data_folder}/`
+   - Cite evidence from both skills: `[from skill: {skill_name}]`
+4. Load `{composeModeRules}` for integration evidence format rules
+
+All integration evidence inherits confidence tiers from the source skills.
+
+If no architecture document available:
+- Infer potential integrations from skills that share language or domain
+- Mark inferred integrations: `[inferred from shared domain]`
+
+Skip to section 3 (Classify Integration Types) with the compose-mode pairs.
+
+**If not compose_mode:**
 
 For each library pair (A, B):
 

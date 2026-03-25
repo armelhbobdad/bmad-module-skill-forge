@@ -50,6 +50,30 @@ Scan the project root for dependency manifest files, parse each to extract depen
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
 
+### 0. Check Compose Mode
+
+**If `compose_mode` is true:**
+
+Scan `{skills_output_folder}` for subdirectories containing SKILL.md and metadata.json.
+
+For each skill found:
+1. Read metadata.json
+2. Extract: name, language, confidence_tier, source_repo, exports count, version
+3. Store as `raw_dependencies` with source: "existing_skill"
+
+Display:
+"**Loaded {N} existing skills as dependencies.**
+
+| Skill | Language | Tier | Exports | Source |
+|-------|----------|------|---------|--------|
+| {name} | {lang} | {tier} | {count} | {repo} |
+
+**Proceeding to scope confirmation...**"
+
+Skip to section 4 (Display Detection Summary) then auto-proceed.
+
+**If not compose_mode:** Continue with section 1 (existing flow).
+
 ### 1. Check for Explicit Dependency List
 
 **If `explicit_deps` was provided in step 01:**
