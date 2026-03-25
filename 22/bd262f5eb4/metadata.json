@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "22bd262f5eb4",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "CHANGELOG.md",
+    "README.md",
+    "docs/how-it-works.md",
+    "docs/index.md",
+    "docs/workflows.md",
+    "src/knowledge/overview.md",
+    "src/knowledge/skill-lifecycle.md",
+    "src/workflows/create-stack-skill/data/compose-mode-rules.md",
+    "src/workflows/create-stack-skill/steps-c/step-02-detect-manifests.md",
+    "src/workflows/create-stack-skill/steps-c/step-05-detect-integrations.md",
+    "src/workflows/refine-architecture/steps-c/step-01-init.md",
+    "src/workflows/refine-architecture/steps-c/step-05-compile.md",
+    "src/workflows/refine-architecture/steps-c/step-06-report.md",
+    "src/workflows/verify-stack/steps-c/step-01-init.md",
+    "src/workflows/verify-stack/steps-c/step-05-synthesize.md",
+    "src/workflows/verify-stack/steps-c/step-06-report.md",
+    "test/test-installation-components.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/22/bd262f5eb4/0/metadata.json",
+      "transcript": "/22/bd262f5eb4/0/full.jsonl",
+      "context": "/22/bd262f5eb4/0/context.md",
+      "content_hash": "/22/bd262f5eb4/0/content_hash.txt",
+      "prompt": "/22/bd262f5eb4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 23676,
+    "cache_creation_tokens": 839444,
+    "cache_read_tokens": 42128348,
+    "output_tokens": 100104,
+    "api_call_count": 167
+  }
+}

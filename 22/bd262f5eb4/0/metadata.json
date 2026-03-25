@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "22bd262f5eb4",
+  "session_id": "6252f3ff-487b-4b79-a0df-6b3c2d457311",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-25T21:49:55.272138415Z",
+  "branch": "dev",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "CHANGELOG.md",
+    "README.md",
+    "docs/how-it-works.md",
+    "docs/index.md",
+    "docs/workflows.md",
+    "src/knowledge/overview.md",
+    "src/knowledge/skill-lifecycle.md",
+    "src/workflows/create-stack-skill/data/compose-mode-rules.md",
+    "src/workflows/create-stack-skill/steps-c/step-02-detect-manifests.md",
+    "src/workflows/create-stack-skill/steps-c/step-05-detect-integrations.md",
+    "src/workflows/refine-architecture/steps-c/step-01-init.md",
+    "src/workflows/refine-architecture/steps-c/step-05-compile.md",
+    "src/workflows/refine-architecture/steps-c/step-06-report.md",
+    "src/workflows/verify-stack/steps-c/step-01-init.md",
+    "src/workflows/verify-stack/steps-c/step-05-synthesize.md",
+    "src/workflows/verify-stack/steps-c/step-06-report.md",
+    "test/test-installation-components.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "a99ab8eaa17c",
+  "token_usage": {
+    "input_tokens": 23676,
+    "cache_creation_tokens": 839444,
+    "cache_read_tokens": 42128348,
+    "output_tokens": 100104,
+    "api_call_count": 167
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-25T21:49:48.46683973Z",
+    "agent_lines": 47,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 47,
+    "agent_percentage": 100
+  }
+}
