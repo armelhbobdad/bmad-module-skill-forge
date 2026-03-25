@@ -3,7 +3,7 @@
   "checkpoint_id": "99af2c3f43f0",
   "strategy": "manual-commit",
   "branch": "dev",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "docs/workflows.md",
     "src/knowledge/architecture-verification.md",
@@ -32,13 +32,20 @@
       "context": "/99/af2c3f43f0/0/context.md",
       "content_hash": "/99/af2c3f43f0/0/content_hash.txt",
       "prompt": "/99/af2c3f43f0/0/prompt.txt"
+    },
+    {
+      "metadata": "/99/af2c3f43f0/1/metadata.json",
+      "transcript": "/99/af2c3f43f0/1/full.jsonl",
+      "context": "/99/af2c3f43f0/1/context.md",
+      "content_hash": "/99/af2c3f43f0/1/content_hash.txt",
+      "prompt": "/99/af2c3f43f0/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 10602,
-    "cache_creation_tokens": 198328,
-    "cache_read_tokens": 2599144,
-    "output_tokens": 23224,
-    "api_call_count": 33
+    "input_tokens": 34279,
+    "cache_creation_tokens": 1045287,
+    "cache_read_tokens": 45176306,
+    "output_tokens": 123473,
+    "api_call_count": 201
   }
 }
