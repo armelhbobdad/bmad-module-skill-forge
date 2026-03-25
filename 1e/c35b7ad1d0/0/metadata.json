@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "1ec35b7ad1d0",
+  "session_id": "1125c0b2-92cb-4788-ab97-55a87bb1aeae",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-25T16:35:48.871297185Z",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/workflows/create-skill/data/extraction-patterns.md",
+    "src/workflows/create-skill/steps-c/step-02-ecosystem-check.md",
+    "src/workflows/create-skill/steps-c/step-02b-ccc-discover.md",
+    "src/workflows/create-skill/steps-c/step-03-extract.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "dd743371e072",
+  "checkpoint_transcript_start": 1223,
+  "transcript_lines_at_start": 1223,
+  "token_usage": {
+    "input_tokens": 15,
+    "cache_creation_tokens": 16460,
+    "cache_read_tokens": 3079606,
+    "output_tokens": 5287,
+    "api_call_count": 15
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-25T16:35:46.683476956Z",
+    "agent_lines": 0,
+    "human_added": 197,
+    "human_modified": 3,
+    "human_removed": 0,
+    "total_committed": 197,
+    "agent_percentage": 0
+  }
+}
