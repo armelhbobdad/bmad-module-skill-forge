@@ -1,0 +1,51 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "c65d8593d225",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/forger/forge-tier.yaml",
+    "src/forger/preferences.yaml",
+    "src/knowledge/ccc-bridge.md",
+    "src/knowledge/confidence-tiers.md",
+    "src/knowledge/progressive-capability.md",
+    "src/knowledge/skf-knowledge-index.csv",
+    "src/workflows/analyze-source/steps-c/step-01-init.md",
+    "src/workflows/audit-skill/steps-c/step-01-init.md",
+    "src/workflows/audit-skill/steps-c/step-02-re-index.md",
+    "src/workflows/audit-skill/steps-c/step-04-semantic-diff.md",
+    "src/workflows/brief-skill/steps-c/step-01-gather-intent.md",
+    "src/workflows/create-skill/steps-c/step-01-load-brief.md",
+    "src/workflows/create-skill/steps-c/step-03b-fetch-temporal.md",
+    "src/workflows/create-skill/steps-c/step-04-enrich.md",
+    "src/workflows/create-stack-skill/steps-c/step-01-init.md",
+    "src/workflows/export-skill/steps-c/step-01-load-skill.md",
+    "src/workflows/export-skill/steps-c/step-02-package.md",
+    "src/workflows/setup-forge/data/tier-rules.md",
+    "src/workflows/setup-forge/steps-c/step-01-detect-and-tier.md",
+    "src/workflows/setup-forge/steps-c/step-01b-ccc-index.md",
+    "src/workflows/setup-forge/steps-c/step-02-write-config.md",
+    "src/workflows/setup-forge/steps-c/step-03-auto-index.md",
+    "src/workflows/setup-forge/steps-c/step-04-report.md",
+    "src/workflows/test-skill/steps-c/step-01-init.md",
+    "src/workflows/update-skill/steps-c/step-01-init.md",
+    "src/workflows/update-skill/steps-c/step-03-re-extract.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c6/5d8593d225/0/metadata.json",
+      "transcript": "/c6/5d8593d225/0/full.jsonl",
+      "context": "/c6/5d8593d225/0/context.md",
+      "content_hash": "/c6/5d8593d225/0/content_hash.txt",
+      "prompt": "/c6/5d8593d225/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8634,
+    "cache_creation_tokens": 207896,
+    "cache_read_tokens": 15220597,
+    "output_tokens": 48047,
+    "api_call_count": 116
+  }
+}
