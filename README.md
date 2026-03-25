@@ -102,8 +102,9 @@ SKF builds on these excellent open-source tools:
 |--------------------------------------------------------------|--------------------------------------------------------------------|
 | [agentskills.io](https://github.com/agentskills/agentskills) | Skill specification and ecosystem standard                         |
 | [GitHub CLI](https://cli.github.com/)                        | Source code access and repository intelligence (all tiers)         |
-| [ast-grep](https://github.com/ast-grep/ast-grep)             | AST-based structural code extraction (Forge/Deep tiers)            |
+| [ast-grep](https://github.com/ast-grep/ast-grep)             | AST-based structural code extraction (Forge/Forge+/Deep tiers)     |
 | [ast-grep MCP](https://github.com/ast-grep/ast-grep-mcp)     | MCP server for memory-efficient AST queries (recommended)          |
+| [cocoindex-code](https://github.com/cocoindex-io/cocoindex-code) | Semantic code search and file discovery pre-ranking (Forge+ tier)  |
 | [QMD](https://github.com/tobi/qmd)                           | Local hybrid search engine for knowledge indexing (Deep tier)      |
 | [skill-check](https://github.com/thedaviddias/skill-check)   | Skill validation, auto-fix, quality scoring, and security scanning |
 | [Snyk Agent Scan](https://github.com/snyk/agent-scan)   | Security scanning for prompt injection and data exposure (optional) |
