@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "210684020276",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/create-stack-skill/data/compose-mode-rules.md",
+    "src/workflows/create-stack-skill/steps-c/step-01-init.md",
+    "src/workflows/create-stack-skill/steps-c/step-05-detect-integrations.md",
+    "src/workflows/create-stack-skill/workflow.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/21/0684020276/0/metadata.json",
+      "transcript": "/21/0684020276/0/full.jsonl",
+      "context": "/21/0684020276/0/context.md",
+      "content_hash": "/21/0684020276/0/content_hash.txt",
+      "prompt": "/21/0684020276/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 19952,
+    "cache_creation_tokens": 784388,
+    "cache_read_tokens": 30081865,
+    "output_tokens": 84764,
+    "api_call_count": 139
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "210684020276",
+  "session_id": "6252f3ff-487b-4b79-a0df-6b3c2d457311",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-25T21:29:19.865798046Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/create-stack-skill/data/compose-mode-rules.md",
+    "src/workflows/create-stack-skill/steps-c/step-01-init.md",
+    "src/workflows/create-stack-skill/steps-c/step-05-detect-integrations.md",
+    "src/workflows/create-stack-skill/workflow.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "171c220ccd9c",
+  "token_usage": {
+    "input_tokens": 19952,
+    "cache_creation_tokens": 784388,
+    "cache_read_tokens": 30081865,
+    "output_tokens": 84764,
+    "api_call_count": 139
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-25T21:29:14.901731533Z",
+    "agent_lines": 92,
+    "human_added": 48,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 140,
+    "agent_percentage": 65.71428571428571
+  }
+}
