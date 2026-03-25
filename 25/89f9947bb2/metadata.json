@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "2589f9947bb2",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/analyze-source/steps-c/step-04-map-and-detect.md",
+    "src/workflows/create-skill/steps-c/step-07-generate-artifacts.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/25/89f9947bb2/0/metadata.json",
+      "transcript": "/25/89f9947bb2/0/full.jsonl",
+      "context": "/25/89f9947bb2/0/context.md",
+      "content_hash": "/25/89f9947bb2/0/content_hash.txt",
+      "prompt": "/25/89f9947bb2/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10336,
+    "cache_creation_tokens": 593584,
+    "cache_read_tokens": 54681552,
+    "output_tokens": 87987,
+    "api_call_count": 212
+  }
+}
