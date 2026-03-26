@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "65a6519024d3",
+  "session_id": "9652b728-aed5-4057-9684-fb45ab8f01a3",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-26T06:48:04.675628588Z",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/workflows/verify-stack/steps-c/step-03-integrations.md",
+    "src/workflows/verify-stack/steps-c/step-05-synthesize.md",
+    "src/workflows/refine-architecture/steps-c/step-02-gap-analysis.md",
+    "src/workflows/refine-architecture/steps-c/step-03-issue-detection.md",
+    "src/workflows/refine-architecture/steps-c/step-04-improvements.md",
+    "src/workflows/refine-architecture/steps-c/step-01-init.md",
+    "src/workflows/refine-architecture/data/refinement-rules.md",
+    "src/workflows/create-stack-skill/steps-c/step-09-report.md",
+    "src/workflows/create-stack-skill/steps-c/step-07-generate-output.md",
+    "src/workflows/create-stack-skill/steps-c/step-01-init.md",
+    "src/workflows/create-stack-skill/steps-c/step-08-validate.md",
+    "src/workflows/setup-forge/steps-c/step-04-report.md",
+    "src/knowledge/split-body-strategy.md",
+    "src/workflows/create-skill/steps-c/step-01-load-brief.md",
+    "src/workflows/update-skill/steps-c/step-05-validate.md",
+    "docs/workflows.md",
+    "docs/how-it-works.md",
+    "docs/getting-started.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "59855457d70a",
+  "checkpoint_transcript_start": 1449,
+  "transcript_lines_at_start": 1449,
+  "token_usage": {
+    "input_tokens": 17,
+    "cache_creation_tokens": 27979,
+    "cache_read_tokens": 2592997,
+    "output_tokens": 11858,
+    "api_call_count": 15
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-26T06:48:02.484507872Z",
+    "agent_lines": 37,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 37,
+    "agent_percentage": 100
+  }
+}

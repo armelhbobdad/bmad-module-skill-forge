@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "65a6519024d3",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/getting-started.md",
+    "docs/how-it-works.md",
+    "docs/workflows.md",
+    "src/knowledge/split-body-strategy.md",
+    "src/workflows/create-skill/steps-c/step-01-load-brief.md",
+    "src/workflows/create-stack-skill/steps-c/step-01-init.md",
+    "src/workflows/create-stack-skill/steps-c/step-07-generate-output.md",
+    "src/workflows/create-stack-skill/steps-c/step-08-validate.md",
+    "src/workflows/create-stack-skill/steps-c/step-09-report.md",
+    "src/workflows/refine-architecture/data/refinement-rules.md",
+    "src/workflows/refine-architecture/steps-c/step-01-init.md",
+    "src/workflows/refine-architecture/steps-c/step-02-gap-analysis.md",
+    "src/workflows/refine-architecture/steps-c/step-03-issue-detection.md",
+    "src/workflows/refine-architecture/steps-c/step-04-improvements.md",
+    "src/workflows/setup-forge/steps-c/step-04-report.md",
+    "src/workflows/update-skill/steps-c/step-05-validate.md",
+    "src/workflows/verify-stack/steps-c/step-03-integrations.md",
+    "src/workflows/verify-stack/steps-c/step-05-synthesize.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/65/a6519024d3/0/metadata.json",
+      "transcript": "/65/a6519024d3/0/full.jsonl",
+      "context": "/65/a6519024d3/0/context.md",
+      "content_hash": "/65/a6519024d3/0/content_hash.txt",
+      "prompt": "/65/a6519024d3/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 17,
+    "cache_creation_tokens": 27979,
+    "cache_read_tokens": 2592997,
+    "output_tokens": 11858,
+    "api_call_count": 15
+  }
+}
