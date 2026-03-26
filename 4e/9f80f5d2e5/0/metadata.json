@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "4e9f80f5d2e5",
+  "session_id": "0ed9ea62-4ea1-4bd9-8616-69c989fef5dd",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-26T17:24:27.093416483Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/agents/forger.agent.yaml",
+    "src/module-help.csv",
+    "src/workflows/create-stack-skill/steps-c/step-01-init.md",
+    "src/workflows/export-skill/steps-c/step-04-update-context.md",
+    "src/workflows/setup-forge/steps-c/step-02-write-config.md",
+    "src/workflows/setup-forge/steps-c/step-03-auto-index.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "bbf7b13c780f",
+  "token_usage": {
+    "input_tokens": 61,
+    "cache_creation_tokens": 492474,
+    "cache_read_tokens": 6361996,
+    "output_tokens": 39064,
+    "api_call_count": 48
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-26T17:24:24.351379949Z",
+    "agent_lines": 15,
+    "human_added": 54,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 69,
+    "agent_percentage": 21.73913043478261
+  }
+}
