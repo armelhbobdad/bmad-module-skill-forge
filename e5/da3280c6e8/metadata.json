@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e5da3280c6e8",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/examples.md",
+    "docs/how-it-works.md",
+    "src/workflows/audit-skill/steps-c/step-04-semantic-diff.md",
+    "src/workflows/create-stack-skill/steps-c/step-04-parallel-extract.md",
+    "src/workflows/create-stack-skill/steps-c/step-07-generate-output.md",
+    "src/workflows/refine-architecture/steps-c/step-06-report.md",
+    "src/workflows/verify-stack/data/integration-verification-rules.md",
+    "src/workflows/verify-stack/steps-c/step-01-init.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e5/da3280c6e8/0/metadata.json",
+      "transcript": "/e5/da3280c6e8/0/full.jsonl",
+      "context": "/e5/da3280c6e8/0/context.md",
+      "content_hash": "/e5/da3280c6e8/0/content_hash.txt",
+      "prompt": "/e5/da3280c6e8/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 9,
+    "cache_creation_tokens": 15785,
+    "cache_read_tokens": 1752073,
+    "output_tokens": 4117,
+    "api_call_count": 9
+  }
+}
