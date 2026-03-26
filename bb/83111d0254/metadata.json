@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "bb83111d0254",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/agents.md",
+    "docs/concepts.md",
+    "docs/getting-started.md",
+    "docs/how-it-works.md",
+    "src/workflows/create-skill/data/skill-sections.md",
+    "src/workflows/create-skill/steps-c/step-06-validate.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/bb/83111d0254/0/metadata.json",
+      "transcript": "/bb/83111d0254/0/full.jsonl",
+      "context": "/bb/83111d0254/0/context.md",
+      "content_hash": "/bb/83111d0254/0/content_hash.txt",
+      "prompt": "/bb/83111d0254/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 61,
+    "cache_creation_tokens": 492474,
+    "cache_read_tokens": 6361996,
+    "output_tokens": 39064,
+    "api_call_count": 48
+  }
+}
