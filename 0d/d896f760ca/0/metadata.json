@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0dd896f760ca",
+  "session_id": "0ed9ea62-4ea1-4bd9-8616-69c989fef5dd",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-26T14:35:20.996985155Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/create-skill/steps-c/step-01-load-brief.md",
+    "src/workflows/create-skill/steps-c/step-08-report.md",
+    "src/workflows/refine-architecture/steps-c/step-01-init.md",
+    "src/workflows/setup-forge/workflow.md",
+    "src/workflows/verify-stack/steps-c/step-01-init.md",
+    "test/test-installation-components.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "bbf7b13c780f",
+  "token_usage": {
+    "input_tokens": 61,
+    "cache_creation_tokens": 492474,
+    "cache_read_tokens": 6361996,
+    "output_tokens": 39064,
+    "api_call_count": 48
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-26T14:35:18.02458258Z",
+    "agent_lines": 6,
+    "human_added": 80,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 87,
+    "agent_percentage": 6.896551724137931
+  }
+}
