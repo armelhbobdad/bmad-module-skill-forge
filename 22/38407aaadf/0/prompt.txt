@@ -1,0 +1,1566 @@
+# Feature Development
+
+You are helping a developer implement a new feature. Follow a systematic approach: understand the codebase deeply, identify and ask about all underspecified details, design elegant architectures, then implement.
+
+## Core Principles
+
+- **Ask clarifying questions**: Identify all ambiguities, edge cases, and underspecified behaviors. Ask specific, concrete questions rather than making assumptions. Wait for user answers before proceeding with implementation. Ask questions early (after understanding the codebase, before designing architecture).
+- **Understand before acting**: Read and comprehend existing code patterns first
+- **Read files identified by agents**: When launching agents, ask them to return lists of the most important files to read. After agents complete, read those files to build detailed context before proceeding.
+- **Simple and elegant**: Prioritize readable, maintainable, architecturally sound code
+- **Use TodoWrite**: Track all progress throughout
+
+---
+
+## Phase 1: Discovery
+
+**Goal**: Understand what needs to be built
+
+Initial request: before I manually push everything, run a last ultra deep review of the last 7 recent commits to detect any missing impacts, bug, improvements, etc...
+
+**Actions**:
+1. Create todo list with all phases
+2. If feature unclear, ask user for:
+   - What problem are they solving?
+   - What should the feature do?
+   - Any constraints or requirements?
+3. Summarize understanding and confirm with user
+
+---
+
+## Phase 2: Codebase Exploration
+
+**Goal**: Understand relevant existing code and patterns at both high and low levels
+
+**Actions**:
+1. Launch 2-3 code-explorer agents in parallel. Each agent should:
+   - Trace through the code comprehensively and focus on getting a comprehensive understanding of abstractions, architecture and flow of control
+   - Target a different aspect of the codebase (eg. similar features, high level understanding, architectural understanding, user experience, etc)
+   - Include a list of 5-10 key files to read
+
+   **Example agent prompts**:
+   - "Find features similar to [feature] and trace through their implementation comprehensively"
+   - "Map the architecture and abstractions for [feature area], tracing through the code comprehensively"
+   - "Analyze the current implementation of [existing feature/area], tracing through the code comprehensively"
+   - "Identify UI patterns, testing approaches, or extension points relevant to [feature]"
+
+2. Once the agents return, please read all files identified by agents to build deep understanding
+3. Present comprehensive summary of findings and patterns discovered
+
+---
+
+## Phase 3: Clarifying Questions
+
+**Goal**: Fill in gaps and resolve all ambiguities before designing
+
+**CRITICAL**: This is one of the most important phases. DO NOT SKIP.
+
+**Actions**:
+1. Review the codebase findings and original feature request
+2. Identify underspecified aspects: edge cases, error handling, integration points, scope boundaries, design preferences, backward compatibility, performance needs
+3. **Present all questions to the user in a clear, organized list**
+4. **Wait for answers before proceeding to architecture design**
+
+If the user says "whatever you think is best", provide your recommendation and get explicit confirmation.
+
+---
+
+## Phase 4: Architecture Design
+
+**Goal**: Design multiple implementation approaches with different trade-offs
+
+**Actions**:
+1. Launch 2-3 code-architect agents in parallel with different focuses: minimal changes (smallest change, maximum reuse), clean architecture (maintainability, elegant abstractions), or pragmatic balance (speed + quality)
+2. Review all approaches and form your opinion on which fits best for this specific task (consider: small fix vs large feature, urgency, complexity, team context)
+3. Present to user: brief summary of each approach, trade-offs comparison, **your recommendation with reasoning**, concrete implementation differences
+4. **Ask user which approach they prefer**
+
+---
+
+## Phase 5: Implementation
+
+**Goal**: Build the feature
+
+**DO NOT START WITHOUT USER APPROVAL**
+
+**Actions**:
+1. Wait for explicit user approval
+2. Read all relevant files identified in previous phases
+3. Implement following chosen architecture
+4. Follow codebase conventions strictly
+5. Write clean, well-documented code
+6. Update todos as you progress
+
+---
+
+## Phase 6: Quality Review
+
+**Goal**: Ensure code is simple, DRY, elegant, easy to read, and functionally correct
+
+**Actions**:
+1. Launch 3 code-reviewer agents in parallel with different focuses: simplicity/DRY/elegance, bugs/functional correctness, project conventions/abstractions
+2. Consolidate findings and identify highest severity issues that you recommend fixing
+3. **Present findings to user and ask what they want to do** (fix now, fix later, or proceed as-is)
+4. Address issues based on user decision
+
+---
+
+## Phase 7: Summary
+
+**Goal**: Document what was accomplished
+
+**Actions**:
+1. Mark all todos complete
+2. Summarize:
+   - What was built
+   - Key decisions made
+   - Files modified
+   - Suggested next steps
+
+---
+
+---
+
+<task-notification>
+<task-id>ac3ba411596570d65</task-id>
+<tool-use-id>toolu_01RsopVzikEqk1aATnMugxvu</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/ac3ba411596570d65.output</output-file>
+<status>completed</status>
+<summary>Agent "Review inter-workflow integration" completed</summary>
+<result>Now I have a complete picture. Let me compile the full integration findings report.
+
+---
+
+# Integration Review: SS → VS → RA Pipeline
+
+**Scope:** Reviewing data flow and handoff points across the `create-stack-skill` (SS), `verify-stack` (VS), and `refine-architecture` (RA) workflows. Analysis covers all step files, data templates, module configuration, agent registration, and knowledge fragment wiring.
+
+---
+
+## CRITICAL Findings
+
+---
+
+### CRITICAL-1: `skill-lifecycle.md` documents wrong filename for RA output — breaks the implied contract downstream
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/skill-lifecycle.md`, line 135
+
+**Evidence:**
+
+The `skill-lifecycle.md` artifact-flow diagram documents RA's output as:
+
+```
+RA → refined-architecture.md (gaps filled, issues flagged, improvements suggested)
+```
+
+But the actual output filename pattern used throughout RA's step files (`step-05-compile.md` line 5, `step-06-report.md` line 5) is:
+
+```
+{output_folder}/refined-architecture-{project_name}.md
+```
+
+And `module-help.csv` line 13 confirms:
+```
+outputs: refined-architecture-{project_name}.md
+```
+
+The `skill-lifecycle.md` omits `{project_name}` from the filename. This is an authoritative knowledge fragment that Ferris loads JiT across VS, RA, and SS workflows. If Ferris resolves the filename from this fragment rather than the step's own frontmatter, it will probe the wrong path — `refined-architecture.md` instead of `refined-architecture-{project_name}.md` — and silently fail to find the file.
+
+**Confidence: 82**
+
+**Fix:** Update `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/skill-lifecycle.md` line 135 to:
+```
+RA → refined-architecture-{project_name}.md (gaps filled, issues flagged, improvements suggested)
+```
+
+---
+
+### CRITICAL-2: `skill-lifecycle.md` documents wrong filename for VS output — same class of defect
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/skill-lifecycle.md`, line 133
+
+**Evidence:**
+
+The diagram documents VS's output as:
+```
+VS → feasibility-report.md (verdict + integration verdicts)
+```
+
+All actual step files (`step-01-init.md` line 112, `step-02-coverage.md` line 7, `step-03-integrations.md` line 7, `step-05-synthesize.md` line 6, `step-06-report.md` line 5) and `module-help.csv` line 12 all use:
+
+```
+{forge_data_folder}/feasibility-report-{project_name}.md
+```
+
+The `skill-lifecycle.md` fragment omits `{project_name}`. The RA auto-probe in `step-01-init.md` (line 75) correctly probes `{forge_data_folder}/feasibility-report-{project_name}.md`, so the operational steps are self-consistent. But the knowledge fragment used as a conceptual reference across workflows carries the wrong filename, creating a discrepancy that could mislead Ferris when reasoning from this fragment.
+
+**Confidence: 82**
+
+**Fix:** Update `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/skill-lifecycle.md` line 133 to:
+```
+VS → feasibility-report-{project_name}.md (verdict + integration verdicts)
+```
+
+---
+
+## HIGH Findings
+
+---
+
+### HIGH-1: SS step-09-report recommends `[VS]` only in compose-mode, but [VS] is appropriate regardless of mode
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-stack-skill/steps-c/step-09-report.md`, lines 115–118
+
+**Evidence:**
+
+The "Recommend Next Workflows" section reads:
+```
+{IF compose_mode:}
+- **[VS] verify-stack** — Re-run if you made architecture changes during [RA] to confirm the stack is still feasible
+```
+
+This gates the VS recommendation behind `compose_mode`. But VS is a pre-code feasibility tool that applies to any stack — including stacks forged in code-mode. The recommended pipeline in `architecture-verification.md` and `skill-lifecycle.md` is `CS×N → VS → RA → SS`, meaning VS runs before SS, not after. In code-mode (post-codebase analysis), recommending VS as a re-run makes equal sense. Users running code-mode SS will never see a mention of VS in the report unless they happen to be in compose-mode.
+
+Additionally, the wording "Re-run if you made architecture changes during [RA]" implies VS was already run, which is only true in the compose-mode post-pipeline scenario. For a first-time user, VS should be recommended without that qualifier.
+
+**Confidence: 85**
+
+**Fix:** Restructure the Next Steps section to always include VS as a recommendation, with mode-appropriate framing:
+- Default (code-mode): "**[VS] verify-stack** — Validate the stack's integration feasibility against your architecture doc"
+- Compose-mode: "**[VS] verify-stack** — Re-run to confirm feasibility after any architecture changes from [RA]"
+
+---
+
+### HIGH-2: RA's `step-01-init.md` checks for `output_folder` but VS's `step-01-init.md` never checks for `forge_data_folder` — asymmetric prerequisite validation
+
+**Files:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/steps-c/step-01-init.md`, lines 106–109
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-01-init.md` (entire file)
+
+**Evidence:**
+
+RA's init step explicitly checks (lines 106–109):
+```
+**Check output_folder:**
+- Verify `output_folder` was resolved from config.yaml and is non-empty
+- If undefined or empty: "Cannot proceed..."
+- HALT workflow
+```
+
+VS writes its output to `{forge_data_folder}/feasibility-report-{project_name}.md` starting in step 01 (line 112). However, VS's init step has no check that `forge_data_folder` was resolved from config and is non-empty. If a user's `config.yaml` lacks the `forge_data_folder` key (which has a default of `forge-data` in `module.yaml` but could be absent in a manually created config), VS will silently fail to create the report file in step 01 without a diagnostic halt.
+
+**Confidence: 80**
+
+**Fix:** Add to VS `step-01-init.md` section 3 "Validate Minimum Requirements", a check:
+```
+**Check forge_data_folder:**
+- Verify `forge_data_folder` was resolved from config.yaml and is non-empty
+- If undefined or empty: "Cannot proceed. `forge_data_folder` is not configured in config.yaml. Add a `forge_data_folder` path and re-run [VS]."
+- HALT workflow
+```
+
+---
+
+### HIGH-3: `compose-mode-rules.md` references VS per-pair verdicts with values that do not match the template's frontmatter field names
+
+**Files:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-stack-skill/data/compose-mode-rules.md`, lines 48–51
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/data/feasibility-report-template.md`, lines 1–20
+
+**Evidence:**
+
+`compose-mode-rules.md` specifies extracting the overall VS verdict as:
+```
+VS overall verdict (`FEASIBLE`, `CONDITIONALLY FEASIBLE`, or `NOT FEASIBLE`)
+per-pair verdicts (`Verified`, `Plausible`, `Risky`, or `Blocked`)
+```
+
+The `feasibility-report-template.md` frontmatter has the field:
+```yaml
+overall_verdict: ''
+```
+
+This is consistent for the overall verdict. However, the per-pair verdicts (`Verified`, `Plausible`, `Risky`, `Blocked`) are written as prose in the `## Integration Verdicts` section body, not in frontmatter fields. The compose-mode rule says to "Load the VS overall verdict ... and per-pair verdicts" — the overall verdict can be reliably parsed from frontmatter, but the per-pair verdicts require parsing the free-form markdown prose of the Integration Verdicts section.
+
+There is no structured field in the report template for per-pair verdicts (the frontmatter only has aggregate counts: `integrations_verified`, `integrations_plausible`, `integrations_risky`, `integrations_blocked`). Compose-mode would need to either parse the prose table or read the aggregate counts. The rule instructs to "include the verdict in the integration evidence" with `VS pair: {Verified|Plausible|Risky|Blocked}`, which requires per-pair resolution, not just counts.
+
+This creates a parsing ambiguity: Ferris must infer which specific pair got which verdict by scanning the markdown prose table, which is fragile and not specified in the compose-mode rules.
+
+**Confidence: 83**
+
+**Fix:** Add a note to `compose-mode-rules.md` specifying the parsing method for per-pair verdicts: "Parse the `## Integration Verdicts` table from `{outputFile}` — each row contains `Library A | Library B | ... | Verdict`." Alternatively, add a structured YAML block to the feasibility report template that serializes per-pair verdicts for machine-reliable consumption.
+
+---
+
+## MEDIUM Findings
+
+---
+
+### MEDIUM-1: `architecture-verification.md` knowledge fragment is never explicitly directed to load from any VS or RA step file
+
+**Files:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/skf-knowledge-index.csv`, line 13 (tags: `architecture,verification,stack,feasibility,integration,vs,ra`)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/overview.md`, line 34 (Key Workflows: VS, RA, SS)
+- All VS and RA step files (no `knowledge` or `architecture-verification` reference found)
+
+**Evidence:**
+
+The grep search for `knowledge|skf-knowledge-index` in both `src/workflows/verify-stack` and `src/workflows/refine-architecture` returns no matches. None of the VS or RA step files instruct Ferris to load `architecture-verification.md` before execution.
+
+The agent-level loading protocol relies on two mechanisms: (1) `forger.agent.yaml` critical_actions line 4 instructs Ferris to consult `skf-knowledge-index.csv` and load relevant fragments, and (2) individual steps should direct loading when needed. The VS and RA workflow.md files also do not reference the knowledge index.
+
+The `architecture-verification.md` fragment (tagged `core` tier) defines the verification lifecycle, evidence citation format, and the iteration loop — content that is directly relevant to VS and RA execution. Relying solely on the agent-level JiT lookup without any step-level directive means this fragment may not be loaded during workflow execution if Ferris does not independently recognize the need.
+
+**Confidence: 80**
+
+**Fix:** Add a knowledge-loading directive to the VS `workflow.md` INITIALIZATION SEQUENCE and RA `workflow.md` INITIALIZATION SEQUENCE:
+```
+### 0. Load Relevant Knowledge Fragments
+Consult `skf-knowledge-index.csv` and load `architecture-verification.md` before beginning step execution.
+```
+
+---
+
+### MEDIUM-2: SS step-09-report's compose-mode `[VS]` recommendation uses wrong workflow ordering framing
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-stack-skill/steps-c/step-09-report.md`, lines 115–118
+
+**Evidence:**
+
+The recommendation reads:
+```
+- **[VS] verify-stack** — Re-run if you made architecture changes during [RA] to confirm the stack is still feasible
+```
+
+This implies the user made changes "during [RA]" — but at the point SS is running in compose-mode (the post-RA scenario), RA has already completed. VS was the step before RA in the canonical pipeline (`VS → RA → SS compose`). The phrase "Re-run if you made architecture changes during [RA]" is logically correct but temporally confusing because the wording implies RA is currently in progress.
+
+More importantly, the `{IF compose_mode:}` condition means this recommendation is always absent from the non-compose-mode code path, as noted in HIGH-1 above.
+
+**Confidence: 80**
+
+This is a consequence of HIGH-1 — the fix for HIGH-1 resolves this as well.
+
+---
+
+### MEDIUM-3: VS `step-01-init.md` minimum skill requirement (≥2) is more restrictive than RA `step-01-init.md` (≥1), with no documented rationale in the step
+
+**Files:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-01-init.md`, line 103
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/steps-c/step-01-init.md`, line 103
+
+**Evidence:**
+
+VS requires ≥2 skills:
+```
+At least 2 valid skills must exist (a stack requires multiple libraries)
+```
+
+RA requires ≥1 skill:
+```
+At least 1 valid skill must exist
+```
+
+The asymmetry itself is intentional and correct — VS verifies integration between libraries (meaningless with one library), while RA can refine an architecture document using a single skill (issue detection and improvement detection both work with one skill, gap analysis warns appropriately). The RA step-02 gap analysis even has an explicit path for N==1.
+
+However, VS step-01's error message says:
+```
+"A stack requires at least 2 skills. Generate more skills with [CS] Create Skill or [QS] Quick Skill, then re-run [VS]."
+```
+
+This message omits [SS] (Stack Skill) as an alternative source. If a user already has a stack skill (`{project_name}-stack/SKILL.md`), VS would count it as a valid skill, but the error message does not acknowledge this. This is a minor UX inconsistency rather than a functional defect.
+
+**Confidence: 80**
+
+**Fix:** Update the VS halt message to acknowledge [SS] as a potential source:
+```
+"Generate more skills with [CS] Create Skill, [QS] Quick Skill, or [SS] Stack Skill, then re-run [VS]."
+```
+
+---
+
+## LOW Findings
+
+---
+
+### LOW-1: `module-help.csv` output-location column for RA uses `output_folder` but VS uses `forge_data_folder` — inconsistent column semantics
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/module-help.csv`, lines 12–13
+
+**Evidence:**
+
+```csv
+VS: output-location=forge_data_folder, outputs=feasibility-report-{project_name}.md
+RA: output-location=output_folder,      outputs=refined-architecture-{project_name}.md
+```
+
+Both entries correctly identify the variable name as the output-location, which is the intended design (the column holds the config variable, not a literal path). These match the actual step implementations: VS writes to `{forge_data_folder}/...` and RA writes to `{output_folder}/...`. The CSV is consistent with actual behavior.
+
+However, `output_folder` is described in `module.yaml` comments as a "Variable from Core Config inserted" (line 22) — meaning it comes from the core BMAD config, not the SKF module config. This is not documented in `module-help.csv` itself. If a user's core config does not define `output_folder`, RA will fail to write its output. The VS prerequisite check defect (HIGH-2) applies to RA's `output_folder` dependency as well — RA does check for `output_folder` (as documented in HIGH-2 above, RA does validate this correctly). So this LOW finding is informational.
+
+**Confidence: 80**
+
+No fix required for the CSV itself — RA already validates `output_folder` in step-01. But the missing validation in VS for `forge_data_folder` remains (HIGH-2).
+
+---
+
+## Summary Table
+
+| ID | Severity | Area | Description |
+|----|----------|------|-------------|
+| CRITICAL-1 | CRITICAL | Knowledge fragment | `skill-lifecycle.md` documents `refined-architecture.md` missing `{project_name}` suffix |
+| CRITICAL-2 | CRITICAL | Knowledge fragment | `skill-lifecycle.md` documents `feasibility-report.md` missing `{project_name}` suffix |
+| HIGH-1 | HIGH | SS→VS handoff | `step-09-report.md` gates VS recommendation behind compose-mode; code-mode users never see VS recommendation |
+| HIGH-2 | HIGH | VS prerequisites | VS `step-01-init.md` missing `forge_data_folder` validation that RA already has for `output_folder` |
+| HIGH-3 | HIGH | Compose-mode→VS | Per-pair verdict parsing from feasibility report is unspecified in compose-mode-rules; frontmatter only has aggregate counts |
+| MEDIUM-1 | MEDIUM | Knowledge loading | No step in VS or RA workflow explicitly directs loading of `architecture-verification.md`; depends solely on agent-level JiT |
+| MEDIUM-2 | MEDIUM | SS→VS recommendation | VS recommendation wording in step-09 is temporally confusing (resolved by HIGH-1 fix) |
+| MEDIUM-3 | MEDIUM | VS error messaging | VS halt message omits [SS] as a valid skill source for reaching ≥2 skills |
+| LOW-1 | LOW | module-help.csv | `output_folder` origin (core config, not SKF config) not documented; RA validates it correctly so no functional defect |
+
+---
+
+## Key Structural Observations (No Bug)
+
+These are observations that confirm things are working correctly and required deliberate cross-checking:
+
+1. **SS → VS filename handoff is correct.** SS writes to `{skills_output_folder}/{project_name}-stack/SKILL.md + metadata.json`, and VS step-01 scans `{skills_output_folder}` for subdirectories containing both files. The path contract is intact.
+
+2. **VS → RA filename handoff is correct.** VS writes `{forge_data_folder}/feasibility-report-{project_name}.md`. RA step-01 auto-probes exactly `{forge_data_folder}/feasibility-report-{project_name}.md`. These match.
+
+3. **compose-mode-rules overall verdict parsing is correct.** The overall verdict is in the frontmatter field `overall_verdict`, which compose-mode-rules correctly identifies as the source for `VS overall: {FEASIBLE|...}`. Only the per-pair verdict parsing has an issue (HIGH-3).
+
+4. **Agent registration is complete.** Both VS and RA are fully registered in `forger.agent.yaml` (lines 83–89) with correct workflow paths and trigger codes. There are no missing entries.
+
+5. **RA output path uses `output_folder`, not `forge_data_folder`.** This is intentional design — the refined architecture is a user-facing document delivered to the user's output folder, while the feasibility report is a forge workspace artifact in `forge_data_folder`. The distinction is architecturally sound.</result>
+<usage><total_tokens>61813</total_tokens><tool_uses>41</tool_uses><duration_ms>157761</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/ac3ba411596570d65.output
+
+---
+
+<task-notification>
+<task-id>a72afa4e44dbc315f</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a72afa4e44dbc315f.output</output-file>
+<status>completed</status>
+<summary>Agent "Deep review RA workflow files" completed</summary>
+<result>Now I have a thorough picture of every file and all cross-references. Let me compile the full findings report.
+
+---
+
+## Refine Architecture (RA) Workflow — Deep Review Report
+
+Reviewing 8 files: `workflow.md`, `steps-c/step-01-init.md` through `step-06-report.md`, and `data/refinement-rules.md`.
+
+---
+
+## CRITICAL
+
+---
+
+### CRITICAL-1: `{outputFile}` written by steps 02-04 before it is ever created
+
+**Files:** `step-02-gap-analysis.md:150`, `step-03-issue-detection.md:153`, `step-04-improvements.md:140`
+
+Steps 02, 03, and 04 each instruct the agent to **append a durability comment block** to `{outputFile}`. However, `{outputFile}` — `{output_folder}/refined-architecture-{project_name}.md` — is not created until **step-05-compile.md:132**, where the compiled document is first written. No step prior to 05 creates or initialises that file.
+
+The result: on a first run, all three durability writes (steps 02, 03, 04) are attempted against a file that does not yet exist. An agent that respects the instruction will either create a partial/empty file in advance (silently corrupting the base for step 05) or fail the write entirely (losing the durability mechanism it was designed to provide).
+
+**Fix:** Either (a) have step-01 create an empty/skeleton `{outputFile}` as part of its output validation so the file exists before steps 02–04 try to append to it, or (b) change the durability strategy in steps 02–04 to write to a separate scratch file (e.g. `{forge_data_folder}/ra-state-{project_name}.md`) and have step 05 read from there. Option (b) also avoids the risk that the durability HTML comments from steps 02–04 pollute the final refined document.
+
+---
+
+### CRITICAL-2: `{outputFile}` durability comments will be embedded in the final document
+
+**Files:** `step-02-gap-analysis.md:150`, `step-03-issue-detection.md:153`, `step-04-improvements.md:140`, `step-05-compile.md:51–54`
+
+Even if the file-creation sequencing problem above is resolved, steps 02–04 append `<!-- [RA-GAPS] -->`, `<!-- [RA-ISSUES] -->`, and `<!-- [RA-IMPROVEMENTS] -->` HTML comment blocks to `{outputFile}`. Step 05's instruction to "start with the original as a base — every line of the original MUST appear in the refined document, unmodified" does not mention stripping or repositioning these durability comments. Step 05 section 1 says only "Load the complete original architecture document" — it loads the **original**, not `{outputFile}`. But step-05 section 6 then writes the refined document to `{outputFile}`, **overwriting** the file that previously held the durability comments.
+
+This creates a race: if the agent reconstructs from context (not the durability file) and then writes the compiled result to `{outputFile}`, the durability comments are lost in the overwrite and their value was moot. If the agent tries to read the durability comments from `{outputFile}` before writing, it must deal with the garbage appended by steps 02–04 being mixed into the base document. Neither case is clearly handled.
+
+The durability strategy has a structural contradiction: it relies on `{outputFile}` as a persistent scratch space, but step 05 unconditionally overwrites that same path with the final compiled document.
+
+**Fix:** Use a separate state/scratch file path (e.g., `{forge_data_folder}/ra-state-{project_name}.md`) for the three durability appends. Step 05 reads from that scratch path when recovering from context degradation, then writes the final result to `{outputFile}`. The Refinement Summary in the compiled document should not contain raw durability comment blocks.
+
+---
+
+### CRITICAL-3: Inconsistent severity variable names between step-03 and step-06
+
+**Files:** `step-03-issue-detection.md:139`, `step-06-report.md:68`
+
+Step 03 sets severity breakdowns using the variable names `{critical_count}`, `{major_count}`, and `{minor_count}` (line 139). Step 06 reads them back as `{critical}`, `{major}`, and `{minor}` (line 68). These are different tokens — the agent will substitute them as separate unresolved variables.
+
+Step 06 line 87 then uses `{critical_count}` (the step-03 naming convention) in the conditional warning block, creating a further inconsistency within step 06 itself: lines 68 and 87 in the same file reference the same data with two different variable names.
+
+**Fix:** Standardise to one convention throughout. The step-03 names (`{critical_count}`, `{major_count}`, `{minor_count}`) are more explicit and should be used in step-06 lines 68 and 87 consistently.
+
+---
+
+### CRITICAL-4: Inconsistent value-tier variable names between step-04 and step-06
+
+**Files:** `step-04-improvements.md:126`, `step-06-report.md:69`
+
+The exact same pattern as CRITICAL-3 applies to improvements. Step 04 uses `{high_count}`, `{medium_count}`, `{low_count}` (line 126). Step 06 uses `{high}`, `{medium}`, `{low}` (line 69) — three different, shorter names that will not resolve to the step-04 values.
+
+**Fix:** Standardise to `{high_count}`, `{medium_count}`, `{low_count}` throughout steps 04 and 06.
+
+---
+
+## HIGH
+
+---
+
+### HIGH-1: Step-05 compile has no recovery path for missing context — it only reads `{outputFile}` but never checks for the durability comments
+
+**File:** `step-05-compile.md:51–54` (CONTEXT BOUNDARIES section)
+
+The comment durability mechanism (CRITICAL-1 and CRITICAL-2 describe the structural problems) was designed so "Step 05 can read this back if context degrades." However, step 05's mandatory sequence contains no instruction to actually read back and validate the durability comments. Section 1 says only "Load the complete original architecture document." There is no recovery branch: "If context does not contain gap/issue/improvement findings, read from `<!-- [RA-GAPS] -->` etc." A context-degraded run will silently produce a document with zero refinements without any error signal, violating the durability guarantee the mechanism was supposed to provide.
+
+**Fix:** Add a section after step 05 section 1 that explicitly checks: "Are gap/issue/improvement findings present in context? If any are absent, attempt to read back the corresponding durability comment blocks from `{outputFile}` (or the scratch file per CRITICAL-2 fix). If still absent, surface a warning: 'Context for [pass] was not available — this section may be empty. Re-run [RA] if needed.'"
+
+---
+
+### HIGH-2: `{outputFile}` in step-02 and step-03 frontmatter references `{output_folder}` — this folder is never validated before those steps run
+
+**Files:** `step-02-gap-analysis.md:7`, `step-03-issue-detection.md:7`, `step-04-improvements.md:7`
+
+Step 01 validates that `output_folder` is non-empty (step-01 lines 106–109) but does **not** verify that the directory physically exists or create it. Steps 02, 03, and 04 attempt to write to `{outputFile}` inside that folder. If the directory does not exist, the write will fail silently or with an error that is not handled by any step's failure branch.
+
+The VS workflow's step 01 comparison is instructive: VS step 01 explicitly creates the output file (`forge_data_folder/feasibility-report-{project_name}.md`) as part of its init step. RA's step 01 has no equivalent directory/file creation.
+
+**Fix:** In step-01 section 3 (or a new section 3b), add: "Verify `output_folder` path exists; if the directory does not exist, create it. HALT with error if creation fails."
+
+---
+
+### HIGH-3: `{architecture_doc_name}` and `{vs_report_name}` are display-friendly names referenced but never defined as formal variables
+
+**Files:** `step-01-init.md:127–128`
+
+The initialization summary table uses `{architecture_doc_name}` and `{vs_report_name}`. These names never appear as frontmatter variables in any step file. They are implicitly expected to be derived from the file path the user provides — but there is no instruction telling the agent to derive a display name from the path and store it under these tokens. The agent may substitute the raw full path or leave the token unresolved.
+
+Step 05 section 5 also uses `{skill_count}` in the Refinement Summary header, and step 06 uses `{skill_count}` in line 70, neither of which is a declared frontmatter variable anywhere.
+
+**Fix:** In step-01 section 1, after validating the architecture document path, add explicit instructions: "Derive `architecture_doc_name` as the filename portion of the provided path." Similarly for `vs_report_name`. Declare `skill_count` explicitly in step 01's inventory building section.
+
+---
+
+### HIGH-4: Step-02 applies the `{outputFile}` durability write **before** the output folder exists — and does it with no error handling for a missing folder
+
+**Files:** `step-02-gap-analysis.md:150`
+
+This is distinct from CRITICAL-1/2 (which address the structural contradiction). Even if step 01 creates the directory, step 02 appends to `{outputFile}` at the end of its sequence (after displaying results) without any conditional: "if write fails, [action]." The SYSTEM FAILURE list in step 02 does not mention write failures at all. An agent operating in a sandboxed or restricted context could silently swallow the write failure and proceed to step 03 with the durability record absent.
+
+**Fix:** After the durability append instruction in step 02 (and symmetrically in steps 03 and 04), add: "If the write fails, log a warning but do NOT halt — continue with in-context state only."
+
+---
+
+### HIGH-5: Step-06 "Review" walkthrough loops indefinitely with no documented escape besides 'X', but 'X' is at the menu level, not shown as available during walkthrough
+
+**File:** `step-06-report.md:95–99`, `step-06-report.md:89–105`
+
+The R option triggers a full evidence walkthrough "After completing the walkthrough, redisplay the menu." During the walkthrough itself, there is no instruction permitting the user to interrupt or skip sections. For a project with dozens of gaps, issues, and improvements, this creates a potentially very long locked sequence before the menu reappears. More practically, the agent has no guidance on what constitutes "completing the walkthrough" if the user provides a response mid-walkthrough — should it interpret any input as an interruption or continue to completion? This is undefined.
+
+The analogous VS step-06-report.md handles this the same way — it is a shared pattern — but RA adds a third category (gaps, issues, improvements vs. just two in VS) making the walkthrough even longer.
+
+**Fix:** Add to the R menu handling logic: "Present each category header (Gaps, Issues, Improvements) as a checkpoint. After each section, prompt 'Continue to next section? [Y/N/X]' — Y continues, N skips remaining sections and returns to menu, X exits."
+
+---
+
+### HIGH-6: Step-05 menu feedback loop references a non-existent Markdown anchor
+
+**File:** `step-05-compile.md:166`
+
+The feedback handling instruction reads: "then [Redisplay Menu Options](#8-present-menu-options)". The actual section heading is `### 8. Present MENU OPTIONS` (line 154). In standard Markdown anchor generation, this becomes `#8-present-menu-options` — however, the leading digit and "MENU OPTIONS" (uppercase with space) make this anchor non-portable. GitHub renders it as `#8-present-menu-options`, but the heading text is `MENU OPTIONS` (all caps), and different renderers generate different slugs. More importantly, this is a self-referential link inside an agent instruction file, not a rendered HTML page — an AI agent following these instructions will interpret the parenthetical as a label to return to, but the section numbering (`### 8.`) and the anchor slug have no guaranteed relationship in this context.
+
+**Fix:** Replace the anchor reference with a prose instruction: "Return to Section 8 (Present MENU OPTIONS) and redisplay the menu." This is unambiguous for an agent regardless of renderer.
+
+---
+
+## MEDIUM
+
+---
+
+### MEDIUM-1: Plausible verdict handling is inconsistent between `refinement-rules.md` and `step-03-issue-detection.md`
+
+**Files:** `data/refinement-rules.md:54`, `step-03-issue-detection.md:108`, `step-03-issue-detection.md:133`
+
+`refinement-rules.md` line 54 states: "Plausible verdicts **with weak evidence** become potential issues worth noting." Step 03 line 108 refines this: flag Plausible only if the VS rationale text explicitly states "no direct API evidence" or "weak evidence". But step 03 line 133 classifies these as **Minor** severity. The rules file says "potential issues worth noting" — it does not assign Minor severity. An agent following the rules file might classify them differently than an agent following step 03's explicit severity table.
+
+More critically: the `[ISSUE]` citation format in step 03 lines 119–128 has `{IF VS report}: VS verdict: {RISKY|BLOCKED} for {pair}`. The format enumerates only RISKY and BLOCKED — Plausible is excluded from the format template despite the step instructing agents to flag some Plausible cases as Minor issues. A Minor Plausible issue would be documented with a gap in its citation block.
+
+**Fix:** Update the citation format template at step-03 line 119 to include `{IF VS report AND verdict is Plausible with weak evidence}: VS verdict: PLAUSIBLE (weak evidence) for {pair}`. Align the rules file language with "Minor severity" explicitly.
+
+---
+
+### MEDIUM-2: Step-01 minimum skill requirement is 1 but step-02 gap analysis requires at least 2
+
+**Files:** `step-01-init.md:101–104`, `step-02-gap-analysis.md:144–148`
+
+Step 01 allows the workflow to proceed with exactly 1 valid skill. Step 02 includes a display branch for the 1-skill case: "Gap analysis skipped — only 1 skill loaded. Pairwise integration analysis requires at least 2 skills." This is handled gracefully, but the step 01 minimum requirement description does not warn the user that gap analysis will be unavailable. A user who proceeds with 1 skill may not know they are getting a partial run until step 02.
+
+Compare with VS step-01 which requires at least 2 skills and halts immediately with a clear message. RA's design allows a degraded run with 1 skill — which is a valid design choice — but step 01's validation message says only "Cannot proceed. No skills found" (zero case); it does not say "Warning: only 1 skill found — gap analysis will be skipped." The user enters step 02 with no prior warning.
+
+**Fix:** In step-01 section 3, add a warning branch: "If exactly 1 valid skill found: 'Proceeding with 1 skill. Note: gap analysis will be skipped — pairwise analysis requires at least 2 skills. Issue detection and improvement detection will proceed normally.'"
+
+---
+
+### MEDIUM-3: `{refinementRulesData}` is declared in steps 02, 03, 04, and 05 frontmatter but NOT in step-05's actual use
+
+**File:** `step-05-compile.md:7`
+
+Step 05 declares `refinementRulesData: '../data/refinement-rules.md'` in its frontmatter but the body of step 05 never references `{refinementRulesData}` anywhere. This is dead frontmatter in step 05 — it contributes no runtime value. The rules are consumed in steps 02, 03, and 04; step 05 only arranges and writes findings, not re-reads rules.
+
+This is low-risk as unused frontmatter causes no execution error, but it is misleading — it implies step 05 uses the rules data in a way it does not.
+
+**Fix:** Remove `refinementRulesData` from step-05 frontmatter to keep frontmatter declarations honest, or add an explicit rule use (e.g., use the Preservation Rules from refinement-rules.md as a checklist in step 05 section 1). The latter is the better option since step 05 is responsible for preservation but never references the preservation rules directly.
+
+---
+
+### MEDIUM-4: Step-02 Mermaid limitation warning is conditional on detection but the trigger condition is ambiguous
+
+**File:** `step-02-gap-analysis.md:75`
+
+The instruction says: "If ` ```mermaid ` blocks are present in the architecture document, inform the user..." This requires the agent to detect the presence of fenced code block markers with the `mermaid` language tag. The condition is "detecting the fenced code block markers" only — but the instruction that follows says "This does not require parsing the diagrams — only detecting the fenced code block markers." The warning only fires if Mermaid blocks are found, which means for documents that use exclusively prose for integrations, the warning never fires. That is correct.
+
+However: the instruction says the warning is informational and "does not require" stopping — but it is placed inside section 2's mandatory sequence. An agent may read this as a blocking display requirement. There is no explicit instruction that this warning is non-blocking and the agent should continue the co-mention analysis immediately after displaying it.
+
+**Fix:** Add "Display this warning informatively and immediately continue — this does not halt or modify the analysis sequence."
+
+---
+
+### MEDIUM-5: `step-06` `{outputFile}` frontmatter is the only variable declared — but the step reads `{gap_count}`, `{issue_count}`, etc. which are not sourced from `{outputFile}` in any structured way
+
+**File:** `step-06-report.md:5`, `step-06-report.md:57`
+
+Step 06 section 1 says "Read the `{outputFile}` to have all data available" and "Verify the Refinement Summary section is present with accurate counts." The counts (`{gap_count}`, `{issue_count}`, etc.) are expected to come from the Refinement Summary section that step 05 appended. This is correct in intent.
+
+However, step 05's Refinement Summary spec (step-05 lines 125–128) describes the summary as containing a "Changes Made table: Gaps Filled ({gap_count})..." — these are the same variable names, and step 05 is expected to substitute them with real numbers when it writes the document. The problem: step 06 reads these back from the written document. If step 05 wrote `{gap_count}` literally (because the substitution failed or the agent treated it as template text), step 06 will display the unresolved placeholder.
+
+There is no validation check in step 06 that the counts are numeric, nor a fallback if the Refinement Summary is malformed.
+
+**Fix:** In step 06 section 1, add: "When verifying the Refinement Summary, confirm that gap_count, issue_count, and improvement_count are numeric values. If any appear as unresolved template placeholders (e.g., literal `{gap_count}`), report: 'Warning: Refinement Summary data may be incomplete. Counts may be inaccurate.'"
+
+---
+
+### MEDIUM-6: Step-03 issue citation format uses a conflicting label for Plausible-sourced Minor issues
+
+**File:** `step-03-issue-detection.md:120–128`
+
+The citation format block shows the tag as `**[ISSUE]**`. However, step 03 lines 108 and 133 establish that some VS Plausible-verdict findings are classified only as potential Minor issues. The refinement-rules.md uses the term "potential issues worth noting" for Plausible cases. The `[ISSUE]` label does not distinguish between a confirmed contradiction (API Mismatch, Protocol Contradiction) and a "potential issue" sourced from weak VS evidence. Step 06's walkthrough will present both under the same label with no differentiation, which may confuse the reviewer.
+
+**Fix:** Either use a `[POTENTIAL ISSUE]` label for Plausible-sourced findings, or add a `(Potential)` qualifier inside the citation block: `**[ISSUE]** (Potential — VS weak evidence)`.
+
+---
+
+## LOW
+
+---
+
+### LOW-1: `step-06-report.md` has no `refinementRulesData` or `nextStepFile` frontmatter — this is correct by design but inconsistent with how other final-step files document the "no nextStepFile" case
+
+**File:** `step-06-report.md:1–6`
+
+Step 06 frontmatter only declares `name`, `description`, and `outputFile`. Steps 02–05 all declare `nextStepFile` explicitly. The step 06 body states "This is the FINAL step — no nextStepFile" in prose. This is correct. However, for tooling that parses frontmatter to build a step chain, the absence of `nextStepFile` is ambiguous — it could mean "not yet defined" or "intentionally absent." The sibling VS step-06-report.md has the same pattern.
+
+**Fix (Low priority):** Add `nextStepFile: null` or `nextStepFile: ''` explicitly to the frontmatter to make the terminal state machine-readable.
+
+---
+
+### LOW-2: `workflow.md` `installed_path` uses `{project-root}` syntax but the module does not define a `project-root` resolution mechanism
+
+**File:** `workflow.md:5`
+
+`installed_path: '{project-root}/_bmad/skf/workflows/skillforge/refine-architecture'` — the `{project-root}` token appears in `installed_path` but the INITIALIZATION SEQUENCE references `{project-root}/_bmad/skf/config.yaml`. The module.yaml defines `skills_output_folder` as `{project-root}/{value}`, confirming the token is used project-wide. However, `workflow.md` does not contain an instruction for how `{project-root}` itself is resolved, and neither does the initialization sequence — it is implicitly expected to already be known from the BMAD framework context.
+
+This is a documentation gap, not a runtime bug, but a developer reading only `workflow.md` cannot determine how the path is resolved.
+
+**Fix (Low priority):** Add a note in the Initialization Sequence: "`{project-root}` resolves to the root directory of the user's project, as established by the BMAD installer."
+
+---
+
+### LOW-3: `refinement-rules.md` ends without a trailing newline or final separator
+
+**File:** `data/refinement-rules.md:103` (last line)
+
+The file ends at line 103 with the last content being the Preservation Rules list item 5, with no closing `---` separator or trailing newline. All other section dividers in the file use `---`. While this has no functional impact for an AI agent reading the file, it is stylistically inconsistent and could confuse tooling that parses sections by separator.
+
+**Fix (Low priority):** Add a `---` separator and a trailing newline after line 103.
+
+---
+
+### LOW-4: Step-04 uses "Medium" in its value tier label but step-06 uses `{medium}` / `{medium_count}` — there is also a display inconsistency in step-04's output template itself
+
+**File:** `step-04-improvements.md:126`, `step-04-improvements.md:129`
+
+Step 04 line 126 says "{medium_count} medium" (lowercase). The display table in line 129 uses a `{value}` column. Step 06 line 69 expects `{medium}` (not `{medium_count}`, the naming inconsistency already flagged in CRITICAL-4). Inside step 04 itself, the improvement categories are labelled "High Value", "Medium Value", "Low Value" in section 5, but the step-05 compile template shows `({value} value)` as a single field — no explicit instruction on how "High Value" from step 04 maps to the `{value}` placeholder in step 05's improvement subsection template.
+
+**Fix:** In step-05 section 4, be explicit: "`{value}` is the category label from Step 04 — one of: 'High', 'Medium', or 'Low'."
+
+---
+
+## Summary Table
+
+| ID | Severity | File | Line(s) | Description |
+|----|----------|------|---------|-------------|
+| CRITICAL-1 | CRITICAL | step-02:150, step-03:153, step-04:140 | Writes to `{outputFile}` before the file is created by step-05 |
+| CRITICAL-2 | CRITICAL | step-02:150, step-03:153, step-04:140, step-05:132 | Durability comments appended to `{outputFile}` are silently overwritten by step-05's final write |
+| CRITICAL-3 | CRITICAL | step-03:139, step-06:68,87 | Severity variables `{critical_count}` vs `{critical}` inconsistent between steps |
+| CRITICAL-4 | CRITICAL | step-04:126, step-06:69 | Value-tier variables `{high_count}` vs `{high}` inconsistent between steps |
+| HIGH-1 | HIGH | step-05:51–54 | No recovery branch to read back durability comments when context degrades |
+| HIGH-2 | HIGH | step-01:106–109, step-02:7 | `output_folder` validated for emptiness but directory existence never verified or created |
+| HIGH-3 | HIGH | step-01:127–128 | `{architecture_doc_name}`, `{vs_report_name}`, `{skill_count}` used but never formally defined/assigned |
+| HIGH-4 | HIGH | step-02:150, step-03:153, step-04:140 | Durability writes have no error handling path |
+| HIGH-5 | HIGH | step-06:95–99 | Walkthrough during R option has no interrupt/skip mechanism |
+| HIGH-6 | HIGH | step-05:166 | Self-referential Markdown anchor `#8-present-menu-options` is fragile |
+| MEDIUM-1 | MEDIUM | refinement-rules.md:54, step-03:108,133 | Plausible verdict handling diverges between rules file and step-03; citation format omits Plausible case |
+| MEDIUM-2 | MEDIUM | step-01:101–104, step-02:144–148 | 1-skill case allows degraded run but user is not warned in step-01 |
+| MEDIUM-3 | MEDIUM | step-05:7 | `refinementRulesData` declared in step-05 frontmatter but never used in step-05 body |
+| MEDIUM-4 | MEDIUM | step-02:75 | Mermaid warning display is not explicitly marked as non-blocking |
+| MEDIUM-5 | MEDIUM | step-06:57 | No validation that Refinement Summary counts are numeric when read back from `{outputFile}` |
+| MEDIUM-6 | MEDIUM | step-03:120–128 | `[ISSUE]` label does not distinguish confirmed issues from Plausible-sourced potential issues |
+| LOW-1 | LOW | step-06:1–6 | `nextStepFile` absent from frontmatter — terminal state not machine-readable |
+| LOW-2 | LOW | workflow.md:5 | `{project-root}` resolution not documented |
+| LOW-3 | LOW | refinement-rules.md:103 | File ends without trailing separator |
+| LOW-4 | LOW | step-04:126, step-05:104 | "High Value/Medium Value/Low Value" label mapping to `{value}` in step-05 template is undocumented |
+
+---
+
+## Key Files for Reference
+
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/steps-c/step-01-init.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/steps-c/step-02-gap-analysis.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/steps-c/step-03-issue-detection.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/steps-c/step-04-improvements.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/steps-c/step-05-compile.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/steps-c/step-06-report.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/data/refinement-rules.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/workflow.md`</result>
+<usage><total_tokens>43743</total_tokens><tool_uses>38</tool_uses><duration_ms>226574</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a72afa4e44dbc315f.output
+
+---
+
+<task-notification>
+<task-id>ae1d2b679f263151a</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/ae1d2b679f263151a.output</output-file>
+<status>completed</status>
+<summary>Agent "Deep review VS workflow files" completed</summary>
+<result>Now I have all the information I need for a thorough, structured findings report. Let me compile it.
+
+---
+
+# Verify Stack (VS) Workflow — Ultra-Deep Review Report
+
+Reviewing 10 files across the VS workflow: `workflow.md`, 6 step files (`step-01-init.md` through `step-06-report.md`), and 3 data files (`coverage-patterns.md`, `feasibility-report-template.md`, `integration-verification-rules.md`).
+
+---
+
+## CRITICAL
+
+---
+
+### FINDING C-1: 0% Coverage Branch Does Not Proceed to Next Step
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-02-coverage.md`, lines 141-154
+
+**Description:** The `{IF coverage_percentage is NOT 0%}` branch correctly loads and executes `{nextStepFile}`. However, the `{IF coverage_percentage is 0%}` branch — specifically the `[C] Continue anyway` path — does not include a `Load, read the full file and then execute {nextStepFile}` instruction. The agent is told to print a message but is never told to actually advance to step-03. Execution silently stalls after the continuation message.
+
+The `[X]` halt path is correctly handled (END workflow). The `[C]` path is not.
+
+```
+- IF C: "**Continuing with 0% coverage — results will be limited.**"
+                                                                     ← no nextStepFile load here
+{IF coverage_percentage is NOT 0%:}
+"**Proceeding to integration analysis...**"
+Load, read the full file and then execute `{nextStepFile}`.          ← only reachable if coverage > 0%
+```
+
+**Fix:** After the `[C]` continuation message, add `Load, read the full file and then execute {nextStepFile}.`
+
+---
+
+### FINDING C-2: `outputFile` Frontmatter Variable Missing from Step-01 — Path Hardcoded in Prose Instead
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-01-init.md`, lines 39 and 112
+
+**Description:** Step-01 is the step that **creates** the output file. Every subsequent step (02–06) declares `outputFile: '{forge_data_folder}/feasibility-report-{project_name}.md'` in its frontmatter so the variable is available for reference. Step-01 does not declare this variable in its frontmatter. The path only appears inline in prose at line 112:
+
+```
+Load `{reportTemplate}` and create the output file at `{forge_data_folder}/feasibility-report-{project_name}.md`.
+```
+
+And at line 39, the execution protocol references `{reportTemplate}` (which is in frontmatter) but references no `{outputFile}` equivalent. This is inconsistent with all downstream steps. While the prose reference works for the creation step itself, it is a structural inconsistency that violates the pattern every other step follows. If a future step is inserted before step-02, it will not have a frontmatter-declared `outputFile` to follow the established pattern.
+
+More critically, line 39's execution protocol bullet says `💾 Create feasibility report from {reportTemplate} with populated frontmatter` but there is no SUCCESS metric verifying the correct `outputFile` path was used. The SYSTEM FAILURE metrics at line 164 explicitly state "Hardcoded paths instead of frontmatter variables" — step-01 violates its own failure criterion by inlining the output path in prose rather than as a frontmatter variable.
+
+**Fix:** Add `outputFile: '{forge_data_folder}/feasibility-report-{project_name}.md'` to step-01 frontmatter, and reference `{outputFile}` in line 112 instead of the inline path.
+
+---
+
+### FINDING C-3: Verdict Decision Logic Gap — 100% Coverage With No Integration Pairs Produces Incorrect FEASIBLE
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-05-synthesize.md`, lines 61-74
+
+**Description:** The FEASIBLE condition at line 73 reads:
+
+```
+Coverage is 100% (no Missing skills) AND all integrations are Verified or Plausible AND
+requirements are all Fulfilled (or requirements pass was skipped) AND no Blocked or Risky integrations
+```
+
+The condition "all integrations are Verified or Plausible" is vacuously true when there are **zero integration pairs** (because all zero integrations trivially satisfy the condition). This is a valid logical case: a user could have a stack where the architecture document mentions all technologies in silos, with no prose-based co-mentions detected. In that case step-03 would produce zero pairs, all four counts would be 0, and the verdict would be FEASIBLE — even though no integration compatibility was actually verified. This is a silent false-positive verdict.
+
+**Fix:** Add an explicit guard: if no integration pairs were extracted (all four counts are 0 and the architecture document references multiple technologies), the verdict should be CONDITIONALLY FEASIBLE with a note that no integration claims were found in the architecture document and manual review is recommended.
+
+---
+
+## HIGH
+
+---
+
+### FINDING H-1: `source_root` Accepted in Step-01 But Silently Ignored in Step-02 Matching
+
+**Files:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-01-init.md`, line 91
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-02-coverage.md`, lines 49 and 89
+
+**Description:** Step-01 explicitly states it will extract `` `source_repo` or `source_root` `` from `metadata.json` (line 91). Step-02 only instructs matching via `source_repo` (lines 49 and 89) — `source_root` is never mentioned as a matching candidate. Skills generated from local directories (which would have `source_root` rather than `source_repo`) will always fail the source-based fallback match, producing spurious "Missing" verdicts for technologies that do have skills.
+
+**Fix:** In step-02, lines 49 and 89, extend both references to: "use `source_repo` or `source_root` field in metadata.json if skill name differs from technology name."
+
+---
+
+### FINDING H-2: Step-04 Display Table Uses `Partial` but Frontmatter and Logic Use `Partially Fulfilled`
+
+**Files:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-04-requirements.md`, line 116
+- Same file, lines 102, 108, 118, 125
+
+**Description:** The display table column sample at line 116 shows:
+
+```
+| {Fulfilled/Partial/Not Addressed} |
+```
+
+But the defined verdicts throughout the step are `Fulfilled`, `Partially Fulfilled`, and `Not Addressed`. The abbreviated `Partial` in the table column sample is inconsistent with the verdict names defined at lines 102, 108, 118, and 125. An LLM agent following these instructions literally could adopt the abbreviated form `Partial` in the actual report, causing a mismatch with how step-05 and step-06 read and interpret those strings (both reference `Partially Fulfilled`).
+
+**Fix:** Change line 116's column sample to `{Fulfilled/Partially Fulfilled/Not Addressed}` to be consistent with the defined verdict vocabulary.
+
+---
+
+### FINDING H-3: Step-06 Summary Table Omits `Requirements Partially Fulfilled` Row
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-06-report.md`, lines 67-77
+
+**Description:** The summary metrics table in step-06 has a row for `Requirements Fulfilled` and `Requirements Not Addressed`, but no row for `Requirements Partially Fulfilled`. The frontmatter template declares `requirements_partial: 0`, step-04 sets this count, and step-05 uses Partially Fulfilled items in both its recommendation logic and verdict decision. Yet step-06's summary table — the one the user sees at the end — completely drops this metric.
+
+A user could have several `Partially Fulfilled` items and get a CONDITIONALLY FEASIBLE verdict with no mention of the partial count in the top-level summary.
+
+**Fix:** Add a `| **Requirements Partially Fulfilled** | {partial_count or 'N/A — no PRD'} |` row to the summary table between the Fulfilled and Not Addressed rows.
+
+---
+
+### FINDING H-4: Delta Comparison Logic Does Not Account for Report File Being Overwritten Before It Is Backed Up
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-05-synthesize.md`, lines 102-115
+
+**Description:** Step-05's note at line 102-104 correctly explains the overwrite issue, but the problem is not fully closed:
+
+Step-01 **creates** the output file at `{forge_data_folder}/feasibility-report-{project_name}.md` (overwriting any previous file). However, step-01 also prompts the user for a `previous_report` path (line 61-62) before this file is created. If the user provides the same path as the current output path (i.e., if they provide the existing feasibility report without making a copy first), step-01 will overwrite it moments later in section 4 before step-05 ever reads it. Step-05 then loads the `previous_report` path from the current report's frontmatter and finds either an overwritten or empty file.
+
+There is no guard at step-01 to detect this collision: "if the provided `previous_report` path is the same as `{forge_data_folder}/feasibility-report-{project_name}.md`, warn the user that this file will be overwritten and halt until a backup path is provided."
+
+**Fix:** In step-01, section 1, after accepting the `previous_report` path, add: compare the resolved `previous_report` path against the output path `{forge_data_folder}/feasibility-report-{project_name}.md`. If they are identical, warn: "The previous report path points to the same location as the new report. This file will be overwritten during this run. Provide a path to a backup copy, or leave empty to skip delta comparison." HALT until resolved.
+
+---
+
+### FINDING H-5: `{suggested_alternative}` Placeholder in Step-05 Recommendation Is Unresolvable
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-05-synthesize.md`, line 92
+
+**Description:** The "Blocked integration — fundamental incompatibility" recommendation template contains:
+
+```
+"Replace `{blocked_lib}` with `{suggested_alternative}` or redesign the integration path."
+```
+
+`{suggested_alternative}` has no defined source. The step forbids new analysis (line 38: "FORBIDDEN to discover new findings or re-analyze skills"). There is no data source, no prior step output, and no algorithm that could populate `{suggested_alternative}`. An agent following this instruction would either hallucinate a library name or emit a raw unfilled placeholder. Neither outcome is acceptable.
+
+The language barrier variant at line 91 is better-formed (it references `{lib_b_language}`, which is derivable from metadata), but the "fundamental incompatibility" variant is not.
+
+**Fix:** Remove `{suggested_alternative}` and replace with a well-scoped instruction: "Replace `{blocked_lib}` with an alternative that is compatible with `{lib_b}` in the `{shared_language_or_protocol}` domain, or redesign the integration path in the architecture document." This keeps the recommendation grounded in existing evidence.
+
+---
+
+## MEDIUM
+
+---
+
+### FINDING M-1: `{count}` in `feasibility-report-template.md` Is Unresolved
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/data/feasibility-report-template.md`, line 27
+
+**Description:** The template header section uses:
+
+```
+**Skills Analyzed:** {count}
+```
+
+But the frontmatter field for this is `skills_analyzed` (line 9 of the same file). When step-01 populates the template, it fills the frontmatter field `skills_analyzed: {count}` correctly (step-01 line 117), but the prose body of the template uses `{count}` as a template variable with no defined binding. The step-01 instructions do not explicitly tell the agent to replace `{count}` in the document body with the actual number. An agent could leave `{count}` as a literal string in the report body while the frontmatter is correctly populated.
+
+**Fix:** Either replace `{count}` in the template body with `{skills_analyzed}` (matching the frontmatter field name), or explicitly instruct step-01 to substitute the `{count}` placeholder in the document body.
+
+---
+
+### FINDING M-2: Step-02 Auto-Proceeds Without a Menu but Step-01 States "No A/P Menu"
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-01-init.md`, line 33
+
+**Description:** Step-01's "Step-Specific Rules" section says `No A/P menu — this is an auto-proceed init step`. This phrasing implies that later steps do have A/P (Approve/Proceed) menus. However, steps 02-05 all auto-proceed without any user menu (only step-02 has a conditional halt for 0% coverage, and step-06 has an end-menu). The note in step-01 is potentially misleading: it implies a contrast with other steps that isn't there, which could lead a reader to expect menus in steps 02-05 that don't exist.
+
+This is a documentation-clarity issue, not a logic bug, but it could cause an LLM agent to invent approval menus in steps 02-05 where none are specified.
+
+**Fix:** Change the note to: `Auto-proceed init step — no user confirmation needed. Halts only on validation errors.`
+
+---
+
+### FINDING M-3: Step-03 Has No Explicit Handling When Zero Integration Pairs Are Found
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-03-integrations.md`, lines 129-161
+
+**Description:** Step-03's section 5 (Display Results) and section 6 (Append to Report) have no conditional branch for the case where zero integration pairs were found (because no co-mention prose was detected or all pairs involved Missing skills). The display template presents an empty table with no rows, but there is no explicit message telling the user why the table is empty or what to do about it. The integration counts will all be 0, and the FEASIBLE verdict condition in step-05 will be vacuously satisfied (see C-3).
+
+**Fix:** Add a conditional in section 5: `{IF zero integration pairs found:}` — print an explicit note: "No integration claims detected in the architecture document prose. Ensure your architecture document describes relationships between technologies in text form (not exclusively in Mermaid diagrams). Coverage-only analysis was performed."
+
+---
+
+### FINDING M-4: Step-06 Detailed Findings Section Missing `Partially Fulfilled` Display
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-06-report.md`, lines 108-114
+
+**Description:** The "Present Detailed Findings" section (section 3) conditionally shows "Not Addressed" requirements but has no display block for "Partially Fulfilled" requirements:
+
+```
+{IF any Not Addressed:}
+- **Not Addressed:** {list of unaddressed requirements}"
+```
+
+There is no `{IF any Partially Fulfilled:}` block. A user with multiple Partially Fulfilled items would see a CONDITIONALLY FEASIBLE verdict but get no visual indication of which requirements are partially covered in the detailed findings walkthrough. They would only discover this by selecting `[R]` to walk the full report.
+
+**Fix:** Add `{IF any Partially Fulfilled:}` — `**Partially Fulfilled:** {list of partially covered requirements with gap description}` after the Not Addressed block.
+
+---
+
+### FINDING M-5: `{architecture_doc_name}` and `{previous_report_name}` Are Display Variables With No Defined Source
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-01-init.md`, lines 129-130
+
+**Description:** The initialization summary table uses `{architecture_doc_name}` and `{previous_report_name}` as display variables, but these are never defined anywhere. The stored variables are `architecture_doc` (the full path) and `previous_report` (the full path). The `_name` suffix implies a derived short name (filename only), but no instruction tells the agent to derive a short name from the stored path, nor are these declared in frontmatter.
+
+**Fix:** Either use `{architecture_doc}` and `{previous_report}` directly (displaying the full path), or add an explicit instruction: "For display purposes, extract the filename from the full path (e.g., `architecture.md` from `/path/to/architecture.md`)."
+
+---
+
+### FINDING M-6: Step-05 Verdict Logic Uses Non-Exclusive Conditions That Can Silently Conflict
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-05-synthesize.md`, lines 65-69
+
+**Description:** The CONDITIONALLY FEASIBLE block lists four separate bullet conditions, all of which independently trigger CONDITIONALLY FEASIBLE. The phrasing is:
+
+```
+- Any technology is Missing → CONDITIONALLY FEASIBLE
+- Any integration is Risky (but none Blocked) → CONDITIONALLY FEASIBLE
+- Requirements have any Not Addressed items → CONDITIONALLY FEASIBLE
+- Requirements have any Partially Fulfilled items (but none Not Addressed) → CONDITIONALLY FEASIBLE
+```
+
+The parenthetical qualifier `(but none Blocked)` on the second bullet and `(but none Not Addressed)` on the fourth bullet introduces asymmetry. The first three bullets have no such qualifier — they would match even if integrations are also Blocked, causing NOT FEASIBLE and CONDITIONALLY FEASIBLE to both match. The instruction `the first matching condition wins` handles this (NOT FEASIBLE is evaluated first), but the qualifier wording on bullet 4 is inconsistent: it implies the fourth bullet only triggers when bullet 3 is false, but the "first matching condition wins" rule already makes bullet 4 unreachable when bullet 3 is true. The qualifier creates the illusion of dependency where none is needed.
+
+**Fix:** Remove the parenthetical qualifiers from the CONDITIONALLY FEASIBLE bullets — they are unnecessary given the "first match wins" rule and add confusion:
+- Bullet 2: "Any integration is **Risky**"
+- Bullet 4: "Requirements have any **Partially Fulfilled** items"
+
+---
+
+## LOW
+
+---
+
+### FINDING L-1: `coverage-patterns.md` Has No Alias Table
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/data/coverage-patterns.md`
+
+**Description:** Step-02 instructs the agent to "Apply alias resolution from `{coveragePatternsData}` (e.g., 'React' matches 'react', 'PostgreSQL' matches 'postgres')" at line 74, and "Match by alias from `{coveragePatternsData}`" at line 88. However, `coverage-patterns.md` contains no alias table. The only alias example given is inline in the data file header ("React" also matches "ReactJS", "react.js"), but there is no structured, exhaustive alias mapping that the agent can use for lookup. The reference in step-02 suggests a structured data source; the data file provides only a prose description.
+
+**Fix:** Add a structured alias table to `coverage-patterns.md` (e.g., a markdown table mapping canonical names to aliases), or revise step-02 to say "use general knowledge of common library aliases" rather than citing `{coveragePatternsData}` as if it contains an alias registry.
+
+---
+
+### FINDING L-2: `integration-verification-rules.md` Language Boundary Table Is Incomplete
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/data/integration-verification-rules.md`, lines 25-31
+
+**Description:** The language boundary check table covers TypeScript↔Rust, TypeScript↔Python, and Any↔C/C++, but omits common combinations that arise in modern stacks: Python↔Rust (relevant for AI/ML + backend stacks), Go↔TypeScript, Java/Kotlin↔TypeScript, and Same-language scenarios for Python, Go, etc. The table header says "A Language | B Language | Assessment" but the first row is "Same language | Same language | No boundary" which conflates all same-language pairs into one row without specifying whether this applies to Python↔Python, Go↔Go, etc.
+
+This is a data completeness issue. An agent using this table to assess a Python-only stack would have no explicit "Python↔Python = same language, no boundary" row to cite as evidence, which could cause inconsistent verdicts.
+
+**Fix:** Add explicit rows for at least Python↔Python, Go↔Go, and Python↔Rust. Alternatively, make the "Same language" row explicitly universal: "Any language ↔ Same language."
+
+---
+
+### FINDING L-3: `{N}` Placeholder in Step-05 and Step-06 Recommendation Text Has No Defined Source
+
+**Files:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-05-synthesize.md`, line 136
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-06-report.md`, line 129
+
+**Description:** Both files reference `{N}` in the CONDITIONALLY FEASIBLE user message: "Address the `{N}` recommendations above". `{N}` is not defined as a frontmatter variable, not set by any prior step, and not computed by any formula in either step. An agent must infer it means "the total count of recommendations generated," which is correct in practice, but is not explicitly specified.
+
+**Fix:** Add an instruction in step-05 section 4 (or step-06 section 4) to count the total recommendations and bind it to a named variable before constructing the user message.
+
+---
+
+### FINDING L-4: Step-06 Does Not Verify `stepsCompleted` Contains All Expected Steps Before Presenting Report
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-06-report.md`, lines 53-57
+
+**Description:** Step-06 section 1 says "Verify all expected sections are present: Coverage Matrix, Integration Verdicts, Requirements Coverage (or skipped notation), Synthesis & Recommendations." It checks section content but does not check the `stepsCompleted` frontmatter array. If a prior step failed silently or was interrupted mid-write, a section heading could be present in the file (from the template skeleton) but have no actual content. The verification only catches a missing section header, not an empty/template-placeholder section.
+
+**Fix:** Add a check: if any section body still contains only its template comment (e.g., `<!-- Appended by step-02-coverage -->`), warn the user that the section appears empty and recommend re-running the affected step.
+
+---
+
+### FINDING L-5: `workflow.md` Initialization Does Not Mention `output_folder` But Refine-Architecture Does
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/workflow.md`, lines 54-56
+
+**Description:** VS `workflow.md` resolves `skills_output_folder` and `forge_data_folder` from `config.yaml` (line 56). The sibling RA workflow explicitly also resolves `output_folder` (RA `workflow.md` line 57). The `module.yaml` defines `output_folder` as a standard Core Config variable. VS does not reference `output_folder` anywhere, and based on the workflow's scope this appears intentional (VS writes to `forge_data_folder`, not `output_folder`). However, if `forge_data_folder` is ever absent from the config (e.g., a partial install), there is no fallback instruction and no error message — the workflow would produce an unparseable path.
+
+**Fix:** Add a brief validation note in the initialization sequence: "If `forge_data_folder` is not set in config.yaml, halt with: 'forge_data_folder not configured. Re-run [SF] Setup Forge to initialize.'"
+
+---
+
+## Summary Table
+
+| ID | Severity | File | Issue |
+|----|----------|------|-------|
+| C-1 | CRITICAL | `step-02-coverage.md:141-154` | `[C] Continue` branch at 0% coverage never loads next step file — execution stalls |
+| C-2 | CRITICAL | `step-01-init.md:39,112` | `outputFile` not declared in step-01 frontmatter; step violates its own "no hardcoded paths" failure criterion |
+| C-3 | CRITICAL | `step-05-synthesize.md:72-73` | FEASIBLE verdict vacuously satisfied when zero integration pairs exist — false-positive feasibility |
+| H-1 | HIGH | `step-01-init.md:91` / `step-02-coverage.md:49,89` | `source_root` accepted in step-01 but never used in step-02 matching — local-directory skills always fail source fallback match |
+| H-2 | HIGH | `step-04-requirements.md:116` | Display table uses `Partial` abbreviation; defined verdicts use `Partially Fulfilled` — vocabulary mismatch affects downstream step parsing |
+| H-3 | HIGH | `step-06-report.md:67-77` | Summary table omits `Requirements Partially Fulfilled` row; metric exists in frontmatter and verdict logic but never surfaced to user |
+| H-4 | HIGH | `step-05-synthesize.md:102-115` / `step-01-init.md:61-78` | No guard against user providing current report path as previous report — file is overwritten before delta can be read |
+| H-5 | HIGH | `step-05-synthesize.md:92` | `{suggested_alternative}` placeholder is unresolvable; no data source defined; violates no-new-analysis rule |
+| M-1 | MEDIUM | `feasibility-report-template.md:27` | `{count}` in template body is unbound; frontmatter uses `skills_analyzed`; agent may leave literal `{count}` in report body |
+| M-2 | MEDIUM | `step-01-init.md:33` | "No A/P menu" note misleadingly implies other steps have A/P menus |
+| M-3 | MEDIUM | `step-03-integrations.md:129-161` | No explicit message when zero integration pairs found; contributes to C-3 false-positive |
+| M-4 | MEDIUM | `step-06-report.md:108-114` | Detailed findings section missing `{IF any Partially Fulfilled}` display block |
+| M-5 | MEDIUM | `step-01-init.md:129-130` | `{architecture_doc_name}` and `{previous_report_name}` display variables are undefined; no derivation instruction exists |
+| M-6 | MEDIUM | `step-05-synthesize.md:65-69` | Redundant parenthetical qualifiers in CONDITIONALLY FEASIBLE bullets create false dependency illusion |
+| L-1 | LOW | `coverage-patterns.md` | No structured alias table; step-02 references it as a lookup source but none exists |
+| L-2 | LOW | `integration-verification-rules.md:25-31` | Language boundary table incomplete; missing common pairs (Python↔Python, Go↔Go, Python↔Rust) |
+| L-3 | LOW | `step-05-synthesize.md:136` / `step-06-report.md:129` | `{N}` recommendation count placeholder undefined; must be computed before use |
+| L-4 | LOW | `step-06-report.md:53-57` | Section completeness check only detects missing headings; does not detect template-placeholder-only sections |
+| L-5 | LOW | `workflow.md:54-56` | No fallback error if `forge_data_folder` is absent from config; would produce unparseable output paths |</result>
+<usage><total_tokens>49879</total_tokens><tool_uses>57</tool_uses><duration_ms>270136</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/ae1d2b679f263151a.output
+
+---
+
+<task-notification>
+<task-id>a9369b0f6d255892c</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a9369b0f6d255892c.output</output-file>
+<status>completed</status>
+<summary>Agent "Review cross-cutting docs and tests" completed</summary>
+<result>The prose says "two install-time variables" but the table has 3 variables above `tier_override` (skills_output_folder, forge_data_folder, output_folder). Even if `output_folder` comes from BMad core config and is not technically an SKF install-time variable, the table includes it without distinction — and the count "two" is inconsistent with the table having three rows above the runtime preference. This is a real inaccuracy.
+
+Now I have enough information for a comprehensive findings report. Let me compile it.
+
+---
+
+## Findings Report: Cross-Cutting Files Review (Last 7 Commits)
+
+Scope: 21 files reviewed. The analysis cross-references actual filesystem contents, workflow step files, configuration files, tests, and documentation for internal consistency.
+
+---
+
+### CRITICAL
+
+---
+
+**C-1: `module-help.csv` lists stale output filename for Setup Forge**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/module-help.csv`, line 2
+
+The `outputs` column for the Setup Forge (SF) row contains `forge-config.yaml`. The actual setup-forge workflow writes `forge-tier.yaml` to the sidecar — this is confirmed by every step file in the setup-forge workflow (`step-02-write-config.md` writes to `_bmad/_memory/forger-sidecar/forge-tier.yaml`, `step-03-auto-index.md` reads from the same path). The string `forge-config.yaml` does not appear anywhere in the live workflow code.
+
+This is a direct functional inaccuracy in the help catalog that ships to end users and drives IDE command metadata.
+
+Fix: Change `forge-config.yaml` to `forge-tier.yaml` in the SF row's `outputs` field.
+
+Confidence: 100
+
+---
+
+**C-2: `src/workflows/README.md` directory structure shows stale build artifacts**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/README.md`, lines 88-89
+
+The directory structure template shows two entries as "build artifacts":
+```
+├── workflow-plan-*.md       # Design plan (build artifact)
+└── validation-report.md     # BMAD validation results (build artifact)
+```
+
+Neither `workflow-plan-*.md` files nor `validation-report.md` files exist in any workflow directory in the repository. A glob search confirms zero matches for both patterns across the entire `src/workflows/` tree. These were apparently deleted in the recent cleanup commits but the directory structure documentation was not updated.
+
+This misleads contributors and users who attempt to find or create these files.
+
+Fix: Remove the two stale lines from the directory structure example (lines 88-89). The closing bracket on line 84's `data/` block should become the last entry.
+
+Confidence: 100
+
+---
+
+### HIGH
+
+---
+
+**H-1: `test-installation-components.js` does not test step files for `create-skill` and `update-skill`**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/test/test-installation-components.js`, line 183 (stepFileChains definition)
+
+Test Suite 5 validates step and data files for `create-stack-skill`, `verify-stack`, and `refine-architecture` only. The four recently-modified step files (`create-skill/steps-c/step-03-extract.md`, `create-skill/steps-c/step-07-generate-artifacts.md`, `create-skill/steps-c/step-08-report.md`, `update-skill/steps-c/step-03-re-extract.md`) are not covered by any test assertion for file existence. Additionally, `create-skill`'s data files (`extraction-patterns.md`, `extraction-patterns-tracing.md`, `compile-assembly-rules.md`, `source-resolution-protocols.md`, `tier-degradation-rules.md`, `skill-sections.md`) are untested.
+
+Since these files were explicitly modified in the last 7 commits, the absence of existence tests means a deleted or renamed step file in `create-skill` or `update-skill` would not be caught by CI.
+
+Fix: Add `create-skill` and `update-skill` entries to the `stepFileChains` object with their primary step files and data files.
+
+Confidence: 95
+
+---
+
+**H-2: `docs/getting-started.md` prose contradicts its own table (install-time variable count)**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/getting-started.md`, line 73
+
+The prose states "SKF has **two** install-time variables (defined in `src/module.yaml`) and one runtime preference." The table directly below lists **three** variables before `tier_override`: `skills_output_folder`, `forge_data_folder`, and `output_folder`.
+
+Cross-checking `src/module.yaml` confirms only two SKF-owned install-time variables (`skills_output_folder` and `forge_data_folder`). The `output_folder` is documented in `module.yaml` as a Core Config variable injected from BMad core (shown in the comment `## output_folder` under `# Variables from Core Config inserted:`). However, the table presents all three as equivalent install-time variables without any distinction, making the "two" count in the prose wrong relative to the table.
+
+Fix: Either change the prose to "three variables" (and clarify `output_folder` comes from BMad core config), or restructure the table to visually separate the SKF-owned variables from the inherited Core Config variable.
+
+Confidence: 92
+
+---
+
+**H-3: `docs/getting-started.md` prerequisites table is missing `cocoindex-code`**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/getting-started.md`, lines 58-65
+
+The prerequisites table lists: Node.js, gh, ast-grep (CLI), ast-grep MCP server, qmd, and SNYK_TOKEN. It does not mention `cocoindex-code`, which is required for Forge+ mode. The `docs/how-it-works.md` explicitly documents Forge+ tier as requiring cocoindex-code (`+ ccc_bridge` column), and `how-it-works.md` line 227 even includes a troubleshooting tip specifically about installing cocoindex-code for Forge+ mode. The `module.yaml` description names it directly: "Uses ast-grep for structural truth, cocoindex-code for semantic discovery."
+
+A user following only the getting-started guide cannot discover how to unlock Forge+ mode.
+
+Fix: Add a row for `cocoindex-code (CLI semantic indexer)` with "Forge+ and Deep modes" and the GitHub link `https://github.com/cocoindex-io/cocoindex-code`.
+
+Confidence: 90
+
+---
+
+### MEDIUM
+
+---
+
+**M-1: `src/knowledge/overview.md` table is missing itself as an entry**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/overview.md`, lines 23-36 (Knowledge Map table)
+
+The Knowledge Map in `overview.md` lists 12 fragments but does not include `overview.md` itself, even though the CSV index (`skf-knowledge-index.csv` line 2) includes `overview` as the first record. The total CSV count is 13 records (confirmed), matching the test assertion at `test-knowledge-base.js:91`. The introductory paragraph in `how-it-works.md` correctly states "13 knowledge fragments." But the table in `overview.md` itself only shows 12 rows, which is inconsistent with the stated count in `how-it-works.md` and `CHANGELOG.md` ("13 knowledge fragments").
+
+This creates confusion: a developer reading `overview.md` counts 12 entries in the map but the authoritative count is 13. The overview file is in the index but does not reference itself.
+
+Fix: Add a row to the Knowledge Map table in `overview.md` for `overview.md` itself, e.g.: `| [overview.md](overview.md) | Knowledge map and JiT loading protocol | (entry point — loaded to understand the KB itself) |`
+
+Confidence: 88
+
+---
+
+**M-2: `docs/agents.md` menu shows `[FM] Full Menu` but `forger.agent.yaml` has no corresponding entry**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/agents.md`, line 76
+
+The documented Ferris menu in `docs/agents.md` includes `[FM] Full Menu` as a menu item. The `forger.agent.yaml` file has exactly 13 menu entries (all workflows plus WS for Workflow Status) and no FM entry. The test at `test-installation-components.js:104` asserts `menu.length === 13`, which passes, confirming FM is absent from the YAML.
+
+If FM is a BMad core framework feature (not SKF-specific), the documentation should note this distinction. If it is intended to be an SKF agent capability, it needs to be added to the YAML.
+
+Fix: Either remove `[FM] Full Menu` from the `docs/agents.md` menu representation and add a footnote that it's a BMad core feature, or add a corresponding non-workflow action entry to `forger.agent.yaml` for FM.
+
+Confidence: 85
+
+---
+
+**M-3: `src/knowledge/overview.md` states "32 operational data/ files" — count is correct but fragile**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/overview.md`, line 9
+
+The text claims "32 operational `data/` files." The actual count of `src/workflows/*/data/*.md` files is exactly 32 (verified by glob). The count is currently correct. However, this hardcoded number in a knowledge fragment that is JiT-loaded by workflows will silently become wrong whenever a data file is added or removed, with no test or automated check to flag the drift.
+
+This is not a current bug but a maintenance trap created by hardcoding a count that changes with project evolution.
+
+Fix: Remove the specific number "32" and replace with "numerous" or "workflow-specific" to avoid the maintenance burden, or add a CI check that validates the count against the actual file count.
+
+Confidence: 83
+
+---
+
+### LOW
+
+---
+
+**L-1: `src/workflows/README.md` "Workflow Details" section data file lists are abbreviated without acknowledgement**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/README.md`, lines 118-120
+
+The create-skill entry reads: `**8 steps** | **Data:** extraction-patterns.md, skill-sections.md`. The actual `create-skill/data/` directory contains 6 files: `extraction-patterns.md`, `extraction-patterns-tracing.md`, `compile-assembly-rules.md`, `source-resolution-protocols.md`, `tier-degradation-rules.md`, `skill-sections.md`. Similarly, the brief-skill entry says `**Data:** skill-brief-schema.md` but also has `scope-templates.md`. These truncated lists will mislead developers who look to this README to understand what data files each workflow uses.
+
+Fix: Either list all data files for each workflow or add a note like "(primary data files only)" to avoid implying the list is exhaustive.
+
+Confidence: 82
+
+---
+
+**L-2: `CHANGELOG.md` does not capture changes from recent commits in the last 7**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/CHANGELOG.md`
+
+The CHANGELOG contains only one entry (`[1.0.0] - Unreleased`) with a single "Initial Release" section. The 7 commits reviewed include significant changes: adding the `[RA] Refine Architecture` workflow, fixing 45+ review findings across VS/RA/SS compose-mode and cross-cutting files, addressing validation findings, and updating docs. None of these changes are reflected in the CHANGELOG.
+
+Given the version is still "Unreleased," this is not a release-critical issue, but the CHANGELOG provides zero traceability for the development history that occurred. For an "Unreleased" version, unreleased changes are typically tracked in an "Unreleased" or development section.
+
+Fix: Add a development section to CHANGELOG.md capturing the major additions (VS, RA workflows; SS compose-mode; compose-mode-rules.md; architecture-verification.md knowledge fragment; RA workflow files).
+
+Confidence: 80
+
+---
+
+## Summary Table
+
+| ID | Severity | File | Line(s) | Issue |
+|----|----------|------|---------|-------|
+| C-1 | CRITICAL | `src/module-help.csv` | 2 | SF outputs `forge-config.yaml` — should be `forge-tier.yaml` |
+| C-2 | CRITICAL | `src/workflows/README.md` | 88-89 | Shows `workflow-plan-*.md` and `validation-report.md` as directory entries — neither exists anywhere |
+| H-1 | HIGH | `test/test-installation-components.js` | 183 | No step/data file tests for `create-skill` and `update-skill` (the 4 recently modified files are untested) |
+| H-2 | HIGH | `docs/getting-started.md` | 73 | Prose says "two install-time variables" but table has three rows before the runtime preference |
+| H-3 | HIGH | `docs/getting-started.md` | 58-65 | Prerequisites table omits `cocoindex-code` (required for Forge+ mode) |
+| M-1 | MEDIUM | `src/knowledge/overview.md` | 23-36 | Knowledge Map table lists 12 fragments but the total is 13; `overview.md` itself is indexed but absent from its own map |
+| M-2 | MEDIUM | `docs/agents.md` | 76 | Menu shows `[FM] Full Menu` with no corresponding entry in `forger.agent.yaml` |
+| M-3 | MEDIUM | `src/knowledge/overview.md` | 9 | Hardcoded "32 operational data/ files" — currently correct but has no test, will silently drift |
+| L-1 | LOW | `src/workflows/README.md` | 118-120 | Data file lists are silently truncated (create-skill shows 2 of 6 data files) |
+| L-2 | LOW | `CHANGELOG.md` | entire | No changelog entries for the 7 commits' changes under the Unreleased version |</result>
+<usage><total_tokens>104296</total_tokens><tool_uses>109</tool_uses><duration_ms>360896</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a9369b0f6d255892c.output
+
+---
+
+<task-notification>
+<task-id>aeafd29cf221bca81</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/aeafd29cf221bca81.output</output-file>
+<status>completed</status>
+<summary>Agent "Deep review SS compose-mode changes" completed</summary>
+<result>Now I have all the information needed for a comprehensive findings report. Let me compile everything.
+
+---
+
+## Findings Report: create-stack-skill Compose-Mode Review
+
+Files reviewed: all 11 specified files plus VS workflow files for cross-reference validation.
+
+---
+
+### CRITICAL
+
+---
+
+**[C-1] Compose-mode activation path leaves `compose_mode` unset when user declines the suggestion**
+
+File: `steps-c/step-01-init.md`, lines 102–110
+
+The auto-detect path (line 104) says "suggest compose mode to the user and ask for optional architecture document path," but there is no branch documenting what happens if the user declines. Line 105 reads: "Store `compose_mode: true` and `architecture_doc_path` (may be `null` if user chose not to provide one) as workflow state." This conflates two independent choices: (1) whether to activate compose mode at all, and (2) whether to supply an architecture document. An agent following this literally will set `compose_mode: true` unconditionally the moment any skill files are found, even if the user says "no, I want to use code-mode." There is no `compose_mode: false` default assignment anywhere in step-01, and no instruction to handle the user declining the suggestion. This means every downstream `If compose_mode is true` branch in steps 02–09 is operating on an implicit boolean that may never have been explicitly assigned, which causes undefined behavior in all subsequent steps.
+
+Fix: Add an explicit default assignment `compose_mode: false` before the detection block, and add a branch for "if user declines → set `compose_mode: false` and continue with code-mode."
+
+---
+
+**[C-2] Step-02 compose-mode scan includes the output skill being built (self-referencing loop risk)**
+
+File: `steps-c/step-02-detect-manifests.md`, lines 57–62; `data/compose-mode-rules.md`, lines 7–10
+
+Both step-02 and compose-mode-rules.md say to scan `{skills_output_folder}` for subdirectories containing both `SKILL.md` and `metadata.json`. The output of the current SS workflow is also written to `{skills_output_folder}/{project_name}-stack/` (step-07, line 60–66). On a re-run, the previous `{project_name}-stack` skill directory will be found during this scan and loaded as a source skill. Since a stack skill's `metadata.json` has `"skill_type": "stack"` while individual skills presumably have a different type, there is no filter instruction in step-02 or compose-mode-rules.md to exclude previously generated stack skills. An agent will happily load `{project_name}-stack/metadata.json`, treat it as a source dependency, and attempt to compose a stack skill from a stack skill. Neither compose-mode-rules.md nor step-02 instructs to filter by `skill_type` or exclude the current `{project_name}-stack` directory.
+
+Fix: In compose-mode-rules.md Skill Loading and step-02 section 0, add: "Skip any skill directory where `metadata.json` has `skill_type: stack`" or more specifically "Skip any directory named `{project_name}-stack`."
+
+---
+
+**[C-3] Step-03 compose-mode skips sections 2, 3, and 4 but section 4 contains the `confirmed_dependencies` store for code-mode — compose-mode has a duplicate/orphaned `confirmed_dependencies` set**
+
+File: `steps-c/step-03-rank-and-confirm.md`, lines 55–73
+
+In compose-mode, section 1 sets `confirmed_dependencies` directly (line 59), then says "Skip to section 5 (Present MENU OPTIONS)" (line 73). Section 4 (Process User Response) is the code-mode path where `confirmed_dependencies` is also stored. In compose-mode, after the user responds to the menu in section 5, the menu handling logic at line 161 says: "IF C: Store confirmed_dependencies." But `confirmed_dependencies` was already set in section 1 — the "IF Any other" path at line 162 says "Process as scope modification (add/remove skills from `confirmed_dependencies`)." This is actually fine for the modification case, but the "IF C" handler is written for the code-mode flow where `confirmed_dependencies` has not yet been stored. In compose-mode, pressing C stores `confirmed_dependencies` a second time, overwriting the one set in section 1. If the user modified the list between section 1 and section 5's menu, the overwrite uses the original pre-modification value rather than the modified list because the C handler says "Store confirmed_dependencies" without specifying it should be the current (possibly modified) one. This is a subtle state corruption risk in the modification path.
+
+Fix: The compose-mode branch in section 1 should set `confirmed_dependencies` as a mutable draft. The C handler in section 5 should be clarified to "Store current `confirmed_dependencies` (including any modifications)."
+
+---
+
+### HIGH
+
+---
+
+**[H-1] `{N}` placeholder in step-01 compose-mode display message uses an unresolved value**
+
+File: `steps-c/step-01-init.md`, line 108
+
+The message "**Compose mode detected.** Synthesizing stack skill from {N} existing skills + architecture document." uses `{N}` as a placeholder. But step-01 is initialized before step-02, which is where the actual skill scan and count happens. At the point this message is displayed in step-01 section 3, no scan of `{skills_output_folder}` has occurred. The agent cannot know the count of existing skills. The auto-detect case (line 104) checks that "at least one subdirectory" exists, but does not count them. Step-02 section 0 is where skills are loaded and the full count is known. Displaying `{N}` in step-01 will either produce a literal `{N}` in the output, or the agent will invent a number.
+
+Fix: Either remove `{N}` and display "Synthesizing stack skill from existing skills" without a count, or move this display message to step-02 section 0 after the scan completes (the "Loaded {N} existing skills as dependencies" message in step-02 line 65 already serves this purpose).
+
+---
+
+**[H-2] Step-05 compose-mode fallback (no architecture doc) is inconsistently specified between step-05 and compose-mode-rules.md**
+
+File: `steps-c/step-05-detect-integrations.md`, lines 81–83; `data/compose-mode-rules.md`, lines 55–59
+
+compose-mode-rules.md specifies two inference methods when no architecture doc is available:
+1. Infer from skills sharing the same `language` field
+2. Infer from skills sharing domain keywords in their `SKILL.md` descriptions
+
+Step-05 line 82 only says "Infer potential integrations from skills that share language or domain." The "domain keywords in their SKILL.md descriptions" part is omitted. More critically, compose-mode-rules.md line 59 explicitly says to use `[inferred from shared domain]` as the suffix "instead of `[composed]`" for inferred integrations. Step-05 line 83 correctly marks them `[inferred from shared domain]`, but does not mention the `[composed]` suffix distinction. An agent following step-05 alone (as it is supposed to do — the step is the active file in memory) without a reminder of the distinction might apply both suffixes simultaneously.
+
+Additionally, compose-mode-rules.md instructs to look at `SKILL.md` descriptions for domain keywords (line 57), but step-04 compose-mode (line 59) loads "the full SKILL.md content into context." The step-05 inferred fallback path does not explicitly re-reference the already-loaded SKILL.md content; it only says "skills that share language or domain" without connecting to the SKILL.md content already in context from step-04.
+
+Fix: Step-05 fallback block should explicitly state: use SKILL.md content loaded in step-04 for domain keyword extraction, and add a note that the `[inferred from shared domain]` suffix replaces (does not augment) `[composed]`.
+
+---
+
+**[H-3] The `[composed]` confidence suffix is never instructed to be applied in step-05 or step-06 — it only exists in compose-mode-rules.md**
+
+File: `data/compose-mode-rules.md`, lines 30, 43; `steps-c/step-05-detect-integrations.md`, lines 65–85; `steps-c/step-06-compile-stack.md` (no compose-mode confidence suffix instructions)
+
+compose-mode-rules.md line 30 states all compose-mode integrations must add the `[composed]` suffix: "T1 [composed]", "T1-low [composed, +T2 annotations]". The Integration Evidence Format at line 43 shows `Confidence: {inherited_tier} [composed]` as required. However, step-05 (the active step where integrations are detected and composed) only says "All integration evidence inherits confidence tiers from the source skills" (line 79) without ever mentioning the `[composed]` suffix. Step-06 has no compose-mode confidence labeling instruction at all. An agent faithfully following step-05 and step-06 without independently recalling compose-mode-rules.md will output bare tier labels (T1, T1-low) without the `[composed]` suffix.
+
+Step-05 does load `{composeModeRules}` at section 2 step 1 (line 69) and instructs to "compose an integration section following the format from `{composeModeRules}`" (line 75). However, this only applies to the architecture-document path. The inferred fallback path (lines 81–83) references only `[inferred from shared domain]` with no load of composeModeRules, and the inheritance for architecture-doc integrations is stated only as "inherits confidence tiers" without the suffix reminder.
+
+Fix: Add an explicit instruction in step-05 architecture-doc path and step-06 section 3 to apply the `[composed]` suffix per compose-mode-rules.md, including the T2 annotation variant.
+
+---
+
+**[H-4] VS feasibility report loading in step-05 has no instruction for how to locate the overall verdict vs per-pair verdicts in the report file**
+
+File: `steps-c/step-05-detect-integrations.md`, line 76; `data/compose-mode-rules.md`, lines 48–51
+
+compose-mode-rules.md line 49 says: "Load the VS overall verdict ... and per-pair verdicts." The feasibility report file structure (from VS `feasibility-report-template.md`) stores the `overall_verdict` in the YAML frontmatter field, while per-pair verdicts appear in a prose `## Integration Verdicts` section as a Markdown table. Step-05 line 76 says "Include VS feasibility verdict if a feasibility report exists" with no parsing instructions. There are two issues:
+
+First, an agent needs to know to read the frontmatter `overall_verdict` field for the overall verdict and parse the Integration Verdicts table section for per-pair verdicts. This is not stated.
+
+Second, compose-mode-rules.md line 51 says "Flag any pairs where VS reported `Risky` or `Blocked` verdicts," but neither step-05 nor step-06 contains any instruction about what "flag" means in practice: does it add a warning annotation to the integration entry, change the confidence label, add a note in the evidence-report, or something else? The flagging action is undefined in all step files.
+
+Fix: Add parsing instructions in step-05 compose-mode block specifying: read `overall_verdict` from report frontmatter for the overall verdict, and parse the `## Integration Verdicts` table for per-pair verdicts. Define what "flag" means operationally (e.g., append a `[VS: Risky]` warning annotation to the integration entry and add to evidence-report warnings).
+
+---
+
+**[H-5] Step-03 compose-mode reads `architecture_doc_path` for layer sorting but this variable may be `null` — no null guard**
+
+File: `steps-c/step-03-rank-and-confirm.md`, lines 61–63
+
+Step-03 compose-mode block says: "Present skills sorted by architectural layer (from architecture doc if available): Parse architecture doc for section headers to determine layer grouping." It references "architecture doc if available" but step-01 explicitly allows `architecture_doc_path` to be `null`. Line 63 handles the null case: "If no architecture doc or layers not detectable: present alphabetically." However, the instruction "Parse architecture doc for section headers" (line 62) does not have a preceding null-check instruction. An agent will attempt to parse a null path before reaching the fallback. While the fallback exists, the ordering of the instructions invites a read attempt before the guard. This is a low-risk ambiguity in step-03 but a real execution hazard since step-03 is an active execution context, not a reference document.
+
+Fix: Reorder to: "If `architecture_doc_path` is not null: parse section headers for layer grouping. Otherwise: present alphabetically."
+
+---
+
+**[H-6] Step-04 compose-mode auto-proceeds without displaying an extraction summary, breaking the evidence chain for step-06**
+
+File: `steps-c/step-04-parallel-extract.md`, lines 55–63
+
+Step-04 compose-mode block says only: display one message, load SKILL.md content for each confirmed skill, then "Auto-proceed to next step." It omits the extraction summary table that section 4 produces for code-mode:
+
+```
+| Library | Exports | Patterns | Confidence | Status |
+```
+
+Step-06 (compile stack) section 3 and 4 rely on `per_library_extractions[]` being structured data with `exports`, `patterns`, and `confidence` fields. In compose-mode, step-04 loads "full SKILL.md content" informally without binding it to the `per_library_extractions[]` structure that steps 05–07 expect. Step-05 context boundaries (line 47) explicitly lists "From step 04: per_library_extractions[] with exports and patterns." If compose-mode step-04 does not produce data in this structure, steps 05, 06, and 07 will be operating on undefined structured data.
+
+Fix: Step-04 compose-mode block should explicitly instruct the agent to build `per_library_extractions[]` entries (with library, exports, patterns, confidence fields) from each SKILL.md's content, and display an extraction summary confirming how many skills were loaded.
+
+---
+
+### MEDIUM
+
+---
+
+**[M-1] `{project_name}-stack` output directory is scanned by compose-mode in step-02, but the stack skill output directory itself contains both `SKILL.md` and `metadata.json`**
+
+File: `steps-c/step-02-detect-manifests.md`, line 57; `steps-c/step-07-generate-output.md`, lines 60–66
+
+This is the runtime complement to C-2 above. Even if the `skill_type` filter is added, step-02 line 57 says "Scan `{skills_output_folder}` for subdirectories containing SKILL.md and metadata.json." The target output path for the stack skill is `{skills_output_folder}/{project_name}-stack/` (step-07). This directory is inside `{skills_output_folder}`. If `{skills_output_folder}` and `{skills_output_folder}` are the same root (which they always are), the scan must specifically exclude the `{project_name}-stack` subdirectory by name. compose-mode-rules.md does not mention this exclusion either.
+
+This is already noted under C-2 but deserves a separate tracking entry because even after adding a `skill_type` filter, a non-stack skill named coincidentally as `{project_name}-stack` could still be included.
+
+---
+
+**[M-2] Step-07 context-snippet `{dep-1}@{v1}` version tokens are undefined in compose-mode**
+
+File: `steps-c/step-07-generate-output.md`, lines 104–110
+
+The context-snippet format includes `|stack: {dep-1}@{v1}, {dep-2}@{v2}`. In code-mode, versions come from manifest parsing (step-02). In compose-mode, there are no manifest files; versions come from source skill `metadata.json` (step-07 line 80). However, step-07 section 5 (context-snippet) has no compose-mode annotation for the version tokens. An agent generating the context-snippet in compose-mode has no explicit instruction to use the skill metadata versions for the `@{v1}` tokens. There is a parenthetical "(in compose-mode: version from source skill metadata.json)" on line 80 for reference files, but section 5 (the context-snippet) has no such annotation.
+
+Fix: Add a compose-mode annotation to step-07 section 5 specifying that `{dep}@{version}` should use the version extracted from each skill's `metadata.json`.
+
+---
+
+**[M-3] Step-08 validate checks `confidence_tier` in metadata.json "matches tier from step 01" but in compose-mode the tier is a mixed/inherited value — the validation rule is ambiguous**
+
+File: `steps-c/step-08-validate.md`, line 115
+
+The validation says: "confidence_tier matches tier from step 01 (in compose-mode: tier reflects the inherited confidence from source skills, not the forge tier)." In compose-mode, the confidence distribution is not a single tier — it is a mix of T1, T1-low, and potentially T2 inherited from multiple skills. The `metadata.json` schema (step-07 line 127) includes `confidence_distribution` as a breakdown, but also has a single `confidence_tier` field. There is no instruction in step-07 about what value to write to the single `confidence_tier` field in compose-mode (e.g., "lowest inherited tier" or "most common tier"). The validation in step-08 cannot check this field meaningfully without a rule defining how it should be derived.
+
+Fix: Add an instruction in step-07 section 6 specifying what single value to write to `confidence_tier` in compose-mode (e.g., "use the lowest confidence tier present in the distribution").
+
+---
+
+**[M-4] Step-05 section 1 generates all library pairs from `confirmed_dependencies` but in compose-mode these are skill objects, not library objects — the pair generation logic does not distinguish**
+
+File: `steps-c/step-05-detect-integrations.md`, lines 56–59
+
+Section 1 says: "From `confirmed_dependencies`, generate all unique pairs: N libraries → N*(N-1)/2 pairs." This instruction has no compose-mode conditional. In compose-mode, `confirmed_dependencies` contains skill objects (with `source: "existing_skill"`, `name`, `language`, `confidence_tier`, `source_repo`, `exports`, `version`) rather than library manifest entries (with `ecosystem`, `runtime/dev-only` category). Section 1 is executed unconditionally in both modes. The "N*(N-1)/2 pairs" formula and "Skip pairs where either library had extraction failure in step 04" logic are code-mode concepts — in compose-mode, "extraction failure" doesn't apply since there is no extraction process (step-04 compose-mode skips extraction entirely and there are no warnings or failures to skip).
+
+Fix: Add a compose-mode note in section 1: skip the "extraction failure" filter since it does not apply in compose-mode.
+
+---
+
+**[M-5] Inferred integration confidence rule in compose-mode-rules.md is ambiguous for a T2-only skill pair**
+
+File: `data/compose-mode-rules.md`, lines 26–30
+
+The confidence tier inheritance rules state:
+- T1 + T1 → T1
+- Either T1-low → T1-low
+- Either T2 → inherit lower of T1/T1-low from the pair
+
+But what about a pair where both skills are T2 and neither has T1 or T1-low? The rules assume at least one skill in a pair has a T1 or T1-low base tier to "inherit from." A T2 + T2 pair has no T1/T1-low floor defined by these rules. This is an edge case in the confidence inheritance algorithm that has no specified outcome.
+
+Fix: Add a rule: "If both skills are T2, the integration confidence is T1-low [composed, +T2 annotations from both]" or equivalent. T2 (temporal enrichment) depends on T1/T1-low structural extraction having been done first, so this should not be possible in a well-formed skill, but the rules should be defensive.
+
+---
+
+**[M-6] Step-09 compose-mode note in confidence distribution section is conditional but never gated by an explicit compose_mode check in the section header**
+
+File: `steps-c/step-09-report.md`, lines 68–71
+
+Section 2 displays the confidence distribution table, then has: `{IF compose_mode:}` followed by a note about inherited tiers. This is a template-style conditional, consistent with other uses. However, the surrounding text of section 2 ("T1: AST-verified structural extraction," "T2: QMD-enriched temporal context") describes code-mode extraction methods. In compose-mode, these descriptions are misleading because T1 means the source skill used AST extraction — not that the current compose run did. The entire confidence description text should also be conditionally replaced, not just have a note appended.
+
+Fix: Make the descriptions in the T1/T2 rows conditional: in compose-mode, change "AST-verified structural extraction" to "Inherited from source skill (AST-verified)" to avoid implying the current run performed AST extraction.
+
+---
+
+**[M-7] Step-09 next steps recommendation for compose-mode mentions `[VS] verify-stack` as a re-run recommendation, but the context describes re-running after `[RA]` architecture changes — this is a correct workflow but only named generically**
+
+File: `steps-c/step-09-report.md`, lines 115–117
+
+The compose-mode next-steps block says: "`[VS] verify-stack` — Re-run if you made architecture changes during [RA] to confirm the stack is still feasible." This is accurate but incomplete. In the typical compose-mode workflow path, the user already ran VS before SS (as VS step-06-report.md line 124 recommends: "[SS] Create Stack Skill — compose-mode activates automatically"). The step-09 recommendation does not mention that if VS has not been run at all yet (user went directly to SS in compose-mode without running VS), running VS first would be beneficial before or after the stack skill. This is a documentation gap rather than a logic error.
+
+---
+
+### LOW
+
+---
+
+**[L-1] The `source_skill_path` value in compose-mode provenance-map.json uses a hardcoded relative path prefix**
+
+File: `steps-c/step-07-generate-output.md`, line 164
+
+The compose-mode provenance-map.json template shows `"source_skill_path": "skills/{skill_name}/"`. This is a hardcoded relative path prefix "skills/" which may not match the actual `{skills_output_folder}` path configured in config.yaml. If the user has configured `skills_output_folder` to a different path, this provenance record will be incorrect and mislead anyone trying to trace back to the source skill.
+
+Fix: Use `{skills_output_folder}/{skill_name}/` instead of `skills/{skill_name}/`.
+
+---
+
+**[L-2] The compose-mode-rules.md file is only explicitly loaded in step-05, but it also contains the Skill Loading rules that govern step-02's compose-mode behavior**
+
+File: `steps-c/step-02-detect-manifests.md`, lines 55–73; `data/compose-mode-rules.md`, lines 1–10
+
+Step-05 front-matter declares `composeModeRules: '../data/compose-mode-rules.md'` and loads it explicitly. Step-02's compose-mode section duplicates the skill loading rules (scan for SKILL.md + metadata.json, extract fields, store as raw_dependencies) inline without referencing or loading compose-mode-rules.md. The two copies are currently consistent, but any future change to compose-mode-rules.md Skill Loading section will not be reflected in step-02's inline instructions, creating a divergence risk. Step-02 should reference compose-mode-rules.md or at minimum note its authority.
+
+---
+
+**[L-3] Step-01 initialization summary (section 4) always says "Proceeding to manifest detection..." even in compose-mode**
+
+File: `steps-c/step-01-init.md`, line 126
+
+The initialization summary ending message is "**Proceeding to manifest detection...**" This message appears regardless of mode. In compose-mode, step-02 skips manifest detection and loads skills instead. While functionally harmless, it produces a misleading terminal message in compose-mode. Compose-mode users will see "Proceeding to manifest detection..." followed immediately by "Loaded {N} existing skills as dependencies" with no manifest detection.
+
+Fix: Make the proceed message conditional: in compose-mode, say "Proceeding to skill loading..." and in code-mode, "Proceeding to manifest detection..."
+
+---
+
+**[L-4] Step-06 compile section 3 and 4 have compose-mode notes embedded as parenthetical inline text rather than conditional blocks**
+
+File: `steps-c/step-06-compile-stack.md`, lines 101 and 125
+
+The compose-mode instructions in step-06 are presented as parenthetical qualifications: "(in compose-mode: order by integration connectivity, then skill confidence tier...)" and "(in compose-mode: replace the Imports column...)". Unlike steps 02, 03, 04, and 05 which use explicit `If compose_mode is true:` conditional blocks, step-06 uses inline parentheticals. This is inconsistent with the pattern used elsewhere and more likely to be missed by an agent doing a sequential read. The pattern should be consistent.
+
+---
+
+**[L-5] Step-05 section 3 classification note has reversed emphasis on threshold applicability**
+
+File: `steps-c/step-05-detect-integrations.md`, lines 113–114
+
+The note states: "(in compose-mode: all architecture-document-detected pairs qualify automatically — the 2+ co-import file threshold applies only in code-mode; in code-mode: pair must have 2+ co-import files)." The second clause "(in code-mode: pair must have 2+ co-import files)" restates what is already the default non-compose behavior described earlier in section 2. This creates a double-statement of the same rule. More importantly, the note does not address what happens to the threshold for inferred integrations in compose-mode (when there is no architecture doc) — do all inferred pairs qualify automatically, or is there a minimum shared-domain evidence threshold?
+
+Fix: Add clarification: inferred integrations in compose-mode (no architecture doc) also qualify automatically — they are included based on language/domain match with no file-count threshold.
+
+---
+
+### Summary Table
+
+| ID | Severity | File | Line(s) | Issue |
+|----|----------|------|---------|-------|
+| C-1 | CRITICAL | step-01-init.md | 102–110 | User declining compose suggestion leaves `compose_mode` unset |
+| C-2 | CRITICAL | step-02-detect-manifests.md, compose-mode-rules.md | 57–62, 7–10 | No filter to exclude stack skills from compose-mode scan — self-reference loop |
+| C-3 | CRITICAL | step-03-rank-and-confirm.md | 55–73, 161 | `confirmed_dependencies` state corruption in compose-mode modification path |
+| H-1 | HIGH | step-01-init.md | 108 | `{N}` placeholder in compose-mode message is unresolvable in step-01 |
+| H-2 | HIGH | step-05-detect-integrations.md, compose-mode-rules.md | 81–83, 55–59 | Inferred fallback incompletely specified; `[composed]` vs `[inferred]` suffix distinction not enforced |
+| H-3 | HIGH | step-05-detect-integrations.md, step-06-compile-stack.md, compose-mode-rules.md | 79, all, 30/43 | `[composed]` confidence suffix never propagated into step-05/step-06 output instructions |
+| H-4 | HIGH | step-05-detect-integrations.md, compose-mode-rules.md | 76, 48–51 | No instructions for parsing VS report structure; "flag" action undefined |
+| H-5 | HIGH | step-03-rank-and-confirm.md | 61–63 | `architecture_doc_path` null-check missing before parse attempt |
+| H-6 | HIGH | step-04-parallel-extract.md | 55–63 | Compose-mode produces no structured `per_library_extractions[]`, breaking steps 05–07 |
+| M-1 | MEDIUM | step-02-detect-manifests.md, step-07-generate-output.md | 57, 60–66 | Output directory inside scan scope (runtime variant of C-2) |
+| M-2 | MEDIUM | step-07-generate-output.md | 104–110 | context-snippet version tokens undefined in compose-mode |
+| M-3 | MEDIUM | step-08-validate.md | 115 | Single `confidence_tier` field derivation rule missing for compose-mode |
+| M-4 | MEDIUM | step-05-detect-integrations.md | 56–59 | Section 1 pair filter uses code-mode "extraction failure" concept in compose-mode unconditionally |
+| M-5 | MEDIUM | compose-mode-rules.md | 26–30 | T2+T2 pair has no defined confidence outcome in inheritance rules |
+| M-6 | MEDIUM | step-09-report.md | 68–71 | Confidence description rows are misleading in compose-mode (should be conditional) |
+| M-7 | MEDIUM | step-09-report.md | 115–117 | VS re-run recommendation incomplete for first-time compose users |
+| L-1 | LOW | step-07-generate-output.md | 164 | Hardcoded "skills/" path prefix in compose-mode provenance-map |
+| L-2 | LOW | step-02-detect-manifests.md | 55–73 | compose-mode-rules.md not loaded in step-02; duplicated rules create divergence risk |
+| L-3 | LOW | step-01-init.md | 126 | "Proceeding to manifest detection" message shown in compose-mode |
+| L-4 | LOW | step-06-compile-stack.md | 101, 125 | Compose-mode noted as parentheticals instead of explicit conditional blocks |
+| L-5 | LOW | step-05-detect-integrations.md | 113–114 | Inferred integrations threshold applicability not defined in compose-mode |</result>
+<usage><total_tokens>75252</total_tokens><tool_uses>101</tool_uses><duration_ms>423569</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/aeafd29cf221bca81.output
+
+---
+
+yes filx all
+
+---
+
+commit
