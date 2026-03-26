@@ -1,0 +1,1253 @@
+# Feature Development
+
+You are helping a developer implement a new feature. Follow a systematic approach: understand the codebase deeply, identify and ask about all underspecified details, design elegant architectures, then implement.
+
+## Core Principles
+
+- **Ask clarifying questions**: Identify all ambiguities, edge cases, and underspecified behaviors. Ask specific, concrete questions rather than making assumptions. Wait for user answers before proceeding with implementation. Ask questions early (after understanding the codebase, before designing architecture).
+- **Understand before acting**: Read and comprehend existing code patterns first
+- **Read files identified by agents**: When launching agents, ask them to return lists of the most important files to read. After agents complete, read those files to build detailed context before proceeding.
+- **Simple and elegant**: Prioritize readable, maintainable, architecturally sound code
+- **Use TodoWrite**: Track all progress throughout
+
+---
+
+## Phase 1: Discovery
+
+**Goal**: Understand what needs to be built
+
+Initial request: before I manually push everything, run a last ultra deep review @src/ and @docs/  to detect any missing impacts, bug, improvements, etc...
+
+**Actions**:
+1. Create todo list with all phases
+2. If feature unclear, ask user for:
+   - What problem are they solving?
+   - What should the feature do?
+   - Any constraints or requirements?
+3. Summarize understanding and confirm with user
+
+---
+
+## Phase 2: Codebase Exploration
+
+**Goal**: Understand relevant existing code and patterns at both high and low levels
+
+**Actions**:
+1. Launch 2-3 code-explorer agents in parallel. Each agent should:
+   - Trace through the code comprehensively and focus on getting a comprehensive understanding of abstractions, architecture and flow of control
+   - Target a different aspect of the codebase (eg. similar features, high level understanding, architectural understanding, user experience, etc)
+   - Include a list of 5-10 key files to read
+
+   **Example agent prompts**:
+   - "Find features similar to [feature] and trace through their implementation comprehensively"
+   - "Map the architecture and abstractions for [feature area], tracing through the code comprehensively"
+   - "Analyze the current implementation of [existing feature/area], tracing through the code comprehensively"
+   - "Identify UI patterns, testing approaches, or extension points relevant to [feature]"
+
+2. Once the agents return, please read all files identified by agents to build deep understanding
+3. Present comprehensive summary of findings and patterns discovered
+
+---
+
+## Phase 3: Clarifying Questions
+
+**Goal**: Fill in gaps and resolve all ambiguities before designing
+
+**CRITICAL**: This is one of the most important phases. DO NOT SKIP.
+
+**Actions**:
+1. Review the codebase findings and original feature request
+2. Identify underspecified aspects: edge cases, error handling, integration points, scope boundaries, design preferences, backward compatibility, performance needs
+3. **Present all questions to the user in a clear, organized list**
+4. **Wait for answers before proceeding to architecture design**
+
+If the user says "whatever you think is best", provide your recommendation and get explicit confirmation.
+
+---
+
+## Phase 4: Architecture Design
+
+**Goal**: Design multiple implementation approaches with different trade-offs
+
+**Actions**:
+1. Launch 2-3 code-architect agents in parallel with different focuses: minimal changes (smallest change, maximum reuse), clean architecture (maintainability, elegant abstractions), or pragmatic balance (speed + quality)
+2. Review all approaches and form your opinion on which fits best for this specific task (consider: small fix vs large feature, urgency, complexity, team context)
+3. Present to user: brief summary of each approach, trade-offs comparison, **your recommendation with reasoning**, concrete implementation differences
+4. **Ask user which approach they prefer**
+
+---
+
+## Phase 5: Implementation
+
+**Goal**: Build the feature
+
+**DO NOT START WITHOUT USER APPROVAL**
+
+**Actions**:
+1. Wait for explicit user approval
+2. Read all relevant files identified in previous phases
+3. Implement following chosen architecture
+4. Follow codebase conventions strictly
+5. Write clean, well-documented code
+6. Update todos as you progress
+
+---
+
+## Phase 6: Quality Review
+
+**Goal**: Ensure code is simple, DRY, elegant, easy to read, and functionally correct
+
+**Actions**:
+1. Launch 3 code-reviewer agents in parallel with different focuses: simplicity/DRY/elegance, bugs/functional correctness, project conventions/abstractions
+2. Consolidate findings and identify highest severity issues that you recommend fixing
+3. **Present findings to user and ask what they want to do** (fix now, fix later, or proceed as-is)
+4. Address issues based on user decision
+
+---
+
+## Phase 7: Summary
+
+**Goal**: Document what was accomplished
+
+**Actions**:
+1. Mark all todos complete
+2. Summarize:
+   - What was built
+   - Key decisions made
+   - Files modified
+   - Suggested next steps
+
+---
+
+---
+
+<task-notification>
+<task-id>ac072dfd4a34989e3</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/ac072dfd4a34989e3.output</output-file>
+<status>completed</status>
+<summary>Agent "Review cross-cutting consistency" completed</summary>
+<result>Good. Now I have a clear picture. Let me formulate all confirmed findings.
+
+---
+
+## Consolidated Review Report
+
+Reviewing the entire `/home/armel/Projects/OSS/bmad-module-skill-forge/` project across `src/` and `docs/`.
+
+---
+
+### CRITICAL Findings
+
+None confirmed at CRITICAL severity after full verification.
+
+---
+
+### HIGH Findings
+
+---
+
+**HIGH-1: `docs/how-it-works.md` — Internally inconsistent knowledge fragment count**
+
+- **Files:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/how-it-works.md` (lines 43 and 428)
+- **What the inconsistency is:** Two lines in the same file contradict each other. Line 43 in the Architecture table states "13 reusable fragments." Line 428 in the Module Structure diagram comment states "12 knowledge fragments + overview.md index" — which implies 12 fragments, with overview.md counted separately. The actual directory contains 13 `.md` files total (12 topical fragments + `overview.md`). Line 43 counts `overview.md` as a fragment; line 428 does not.
+- **What should be corrected:** Harmonize to a single unambiguous count. Line 428 comment should read `*.md (13 knowledge files — 12 topic fragments + overview.md)` to match line 43's "13 reusable fragments," or alternatively update line 43 to read "12 knowledge fragments (+ overview.md index)" so both lines exclude `overview.md` from the fragment count.
+- **Confidence:** HIGH
+
+---
+
+**HIGH-2: `src/workflows/README.md` — create-skill data file inventory is incomplete**
+
+- **Files:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/README.md` (line 116) and `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-skill/data/`
+- **What the inconsistency is:** The README states `**Data:** extraction-patterns.md, skill-sections.md` for the create-skill workflow. The actual `data/` directory contains six files: `extraction-patterns.md`, `skill-sections.md`, `tier-degradation-rules.md`, `extraction-patterns-tracing.md`, `compile-assembly-rules.md`, and `source-resolution-protocols.md`. Four files are undocumented in the inventory.
+- **What should be corrected:** Update line 116 of `src/workflows/README.md` to list all six data files: `extraction-patterns.md, skill-sections.md, tier-degradation-rules.md, extraction-patterns-tracing.md, compile-assembly-rules.md, source-resolution-protocols.md`
+- **Confidence:** HIGH
+
+---
+
+**HIGH-3: `docs/getting-started.md` — `forge-tier.yaml` described as tracking "parallel settings" but no such field exists**
+
+- **Files:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/getting-started.md` (line 83) and `/home/armel/Projects/OSS/bmad-module-skill-forge/src/forger/forge-tier.yaml`
+- **What the inconsistency is:** `docs/getting-started.md` line 83 states: "Runtime configuration (tool detection, tier, **parallel settings**) is managed by the `setup-forge` workflow in `forge-tier.yaml`." The actual `forge-tier.yaml` template contains fields: `tools`, `tier`, `tier_detected_at`, `ccc_index`, `ccc_index_registry`, `qmd_collections`. There is no `parallel` field or parallel settings tracked in this file.
+- **What should be corrected:** Remove "parallel settings" from the description. Corrected: "Runtime configuration (tool detection, tier, and QMD collection state) is managed by the `setup-forge` workflow and persisted in `forge-tier.yaml`."
+- **Confidence:** HIGH
+
+---
+
+**HIGH-4: `src/module-help.csv` — `KI` (Knowledge Index) entry has no corresponding trigger in `forger.agent.yaml`**
+
+- **Files:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/module-help.csv` (line 15) and `/home/armel/Projects/OSS/bmad-module-skill-forge/src/agents/forger.agent.yaml` (entire menu section, lines 50–101)
+- **What the inconsistency is:** `module-help.csv` defines a `KI` "Knowledge Index" entry (command `skf_knowledge_index`, workflow `_bmad/skf/knowledge/skf-knowledge-index.csv`). The agent's `menu` array in `forger.agent.yaml` has no `KI` trigger and no reference to the knowledge index as a menu item. It appears only in the module help catalog but is unreachable via the agent's defined triggers.
+- **What should be corrected:** Either add a `KI` trigger to the agent's `menu` in `forger.agent.yaml`, or remove the `KI` row from `module-help.csv` if it is not intended to be a user-invokable trigger.
+- **Confidence:** HIGH
+
+---
+
+**HIGH-5: `src/workflows/README.md` — create-skill step count (8) is inconsistent with the actual sub-step file count**
+
+- **Files:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/README.md` (line 116) and `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-skill/steps-c/`
+- **What the inconsistency is:** The README states create-skill has "8 steps." The actual `steps-c/` directory contains 11 files: `step-01-load-brief.md`, `step-02-ecosystem-check.md`, `step-02b-ccc-discover.md`, `step-03-extract.md`, `step-03b-fetch-temporal.md`, `step-03c-fetch-docs.md`, `step-04-enrich.md`, `step-05-compile.md`, `step-06-validate.md`, `step-07-generate-artifacts.md`, `step-08-report.md`. The count of 8 only holds if the three sub-steps (`step-02b`, `step-03b`, `step-03c`) are excluded. The `how-it-works.md` table caption says "5–11 sequential files per workflow" which accommodates this, but the per-workflow README entry should clarify the counting convention.
+- **What should be corrected:** Update the create-skill entry to read "8 primary steps + 3 sub-steps (11 total step files)" or adopt a consistent counting convention across all workflow entries. Currently create-skill is the only workflow with sub-steps, so the inconsistency only affects this entry.
+- **Confidence:** HIGH
+
+---
+
+### MEDIUM Findings
+
+---
+
+**MEDIUM-1: `docs/how-it-works.md` — Deep tier row in Tier table ambiguously implies ccc is required**
+
+- **Files:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/how-it-works.md` (lines 100–105, tier table)
+- **What the inconsistency is:** The Progressive Capability table uses additive "+" notation per row:
+  - Forge: `+ ast_bridge`
+  - Forge+: `+ ccc_bridge`
+  - Deep: `+ gh_bridge + qmd_bridge`
+
+  The "+" for the Deep row implies it adds to the Forge+ row (which has ccc), making it seem Deep = ast-grep + ccc + gh + qmd. But `tier-rules.md` unambiguously states Deep requires only `ast-grep + gh + qmd` — ccc is not required and is explicitly listed as an "edge case" that simply enhances Deep when present. `docs/concepts.md` correctly states "Deep — Full pipeline: requires ast-grep + GitHub CLI + QMD (all three)." The table notation contradicts the concepts page.
+- **What should be corrected:** Change the Deep row's Required Tools column to explicitly list `ast-grep + gh + qmd` rather than using the additive prefix, or add a footnote: "(ccc optional — enhances when installed, not required)."
+- **Confidence:** HIGH
+
+---
+
+**MEDIUM-2: `docs/agents.md` — Agent `docs/` path links use directory references that don't align with actual doc file names**
+
+- **Files:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/getting-started.md` (lines 227–229)
+- **What the inconsistency is:** Getting-started.md (lines 227–229) links to `../agents/`, `../workflows/`, and `../examples/` using directory references. The actual files are `docs/agents.md`, `docs/workflows.md`, and `docs/examples.md`. Whether these directory references resolve correctly depends on the documentation hosting system (they would fail as relative links if served from flat files, but would work with directory-index conventions). This is a potential broken link issue.
+- **What should be corrected:** Verify that the documentation hosting system supports directory-index links. If not, update to explicit file references: `../agents.md`, `../workflows.md`, `../examples.md`.
+- **Confidence:** MEDIUM (depends on hosting configuration)
+
+---
+
+**MEDIUM-3: `docs/how-it-works.md` module structure — `steps-c/*.md` description says "5–11 sequential files" but the range is now 4–11**
+
+- **Files:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/how-it-works.md` (line 33)
+- **What the inconsistency is:** The Building Blocks table (line 33) states: `**Create** steps — primary execution, 5–11 sequential files per workflow`. Checking actual step counts across all 12 workflows:
+  - setup-forge: 4 steps (`step-01` through `step-04`)
+  - brief-skill: 5 steps
+  - quick-skill: 6 steps
+  - export-skill: 6 steps
+  - audit-skill: 6 steps
+  - test-skill: 6 steps
+  - analyze-source: 7 steps
+  - update-skill: 7 steps
+  - refine-architecture: 6 steps
+  - verify-stack: 6 steps
+  - create-stack-skill: 9 steps
+  - create-skill: 11 files (including sub-steps)
+
+  `setup-forge` has only 4 step files. The documented minimum of 5 is incorrect.
+- **What should be corrected:** Update line 33 to "4–11 sequential files per workflow."
+- **Confidence:** HIGH
+
+---
+
+**MEDIUM-4: `docs/workflows.md` — Workflow Categories table omits a category for Utility/Reference workflows**
+
+- **Files:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/workflows.md` (lines 230–237)
+- **What the inconsistency is:** The Workflow Categories table at the bottom of `docs/workflows.md` lists 6 categories covering SF, AN, BS, CS, QS, SS, VS, RA, US, AS, TS, and EX — all 12 workflows. WS (Workflow Status) is listed in `forger.agent.yaml` as a menu item and in `module-help.csv` as an entry, but is absent from both the main workflow table in `docs/workflows.md` and the categories table. WS is not a file-based workflow but it is a user-invokable action documented elsewhere.
+- **What should be corrected:** Either note WS under a "Reference" or "Utility" category in the table, or add a footnote explaining WS is an in-agent action rather than a file-based workflow.
+- **Confidence:** HIGH
+
+---
+
+**MEDIUM-5: `docs/how-it-works.md` — Ferris Operating Modes table lists CS under Architect but create-skill's workflow.md does not explicitly state a mode**
+
+- **Files:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/how-it-works.md` (line 72), `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-skill/workflow.md`
+- **What the inconsistency is:** `how-it-works.md` and `docs/agents.md` both list CS under "Architect" mode. The `create-skill/workflow.md` `Your Role` section describes "a skill compilation engine" without naming the Architect mode. Compare to: `update-skill/workflow.md` explicitly says "operating in Surgeon mode," `audit-skill/workflow.md` explicitly says "operating in Ferris Audit mode," `verify-stack/workflow.md` explicitly says "operating in Ferris Audit mode," and `export-skill/workflow.md` says "delivery and packaging specialist" (no explicit mode name). The mode is implied by role description in CS but not explicitly stated.
+- **What should be corrected:** Add an explicit mode statement to `create-skill/workflow.md`'s `Your Role` section: "operating in Ferris Architect mode." This ensures consistency with all other workflows that explicitly name their mode.
+- **Confidence:** HIGH
+
+---
+
+### Summary
+
+| # | Severity | File(s) | Issue |
+|---|----------|---------|-------|
+| HIGH-1 | HIGH | `docs/how-it-works.md` lines 43, 428 | Knowledge fragment count inconsistent: "13 reusable fragments" vs "12 knowledge fragments + overview.md" |
+| HIGH-2 | HIGH | `src/workflows/README.md` line 116 | create-skill data inventory lists 2 of 6 actual data files |
+| HIGH-3 | HIGH | `docs/getting-started.md` line 83 | `forge-tier.yaml` described as tracking "parallel settings" — field does not exist |
+| HIGH-4 | HIGH | `src/module-help.csv` line 15 vs `src/agents/forger.agent.yaml` | `KI` entry in module-help.csv has no matching trigger in agent menu |
+| HIGH-5 | HIGH | `src/workflows/README.md` line 116 | create-skill step count says "8 steps" but there are 11 step files including sub-steps |
+| MED-1 | MEDIUM | `docs/how-it-works.md` tier table lines 100–105 | Deep tier row additive "+" notation ambiguously implies ccc is required |
+| MED-2 | MEDIUM | `docs/getting-started.md` lines 227–229 | "What's Next?" links use directory references (`../agents/`) not file references (`../agents.md`) |
+| MED-3 | MEDIUM | `docs/how-it-works.md` line 33 | Steps-c range states "5–11 files" but setup-forge has only 4 steps |
+| MED-4 | MEDIUM | `docs/workflows.md` categories table | WS (Workflow Status) absent from the 12-workflow table and categories table |
+| MED-5 | MEDIUM | `src/workflows/create-skill/workflow.md` `Your Role` | Mode not explicitly named (all other workflows explicitly state their mode) |</result>
+<usage><total_tokens>99864</total_tokens><tool_uses>92</tool_uses><duration_ms>335973</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/ac072dfd4a34989e3.output
+
+---
+
+<task-notification>
+<task-id>a0197f78bcbb3f163</task-id>
+<tool-use-id>toolu_01TmotbkozktkGTydxZL9PVK</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a0197f78bcbb3f163.output</output-file>
+<status>completed</status>
+<summary>Agent "Review docs for accuracy/completeness" completed</summary>
+<result>That's consistent. Now I have all the data I need to provide the complete review.
+
+---
+
+## Ultra-Deep Documentation Review: /home/armel/Projects/OSS/bmad-module-skill-forge/docs/
+
+Reviewing all 8 documentation files against source files. Here are all findings with HIGH and MEDIUM confidence.
+
+---
+
+## CRITICAL Severity
+
+None found.
+
+---
+
+## HIGH Severity
+
+### FINDING H1 — Internal Contradiction: Knowledge Fragment Count
+
+**Severity:** HIGH
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/how-it-works.md`
+**Lines:** 43 vs 428
+**Confidence:** HIGH
+
+Two statements in the same file contradict each other.
+
+Line 43 (Building Blocks table):
+```
+| `knowledge/*.md` | 13 reusable fragments — cross-cutting principles and patterns ...
+```
+
+Line 428 (Module Structure section):
+```
+└── *.md (12 knowledge fragments + overview.md index)
+```
+
+**Ground truth from source:** There are exactly 13 `.md` files in `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/`. They are: `zero-hallucination.md`, `confidence-tiers.md`, `progressive-capability.md`, `ccc-bridge.md`, `agentskills-spec.md`, `skill-lifecycle.md`, `provenance-tracking.md`, `manual-section-integrity.md`, `qmd-registry.md`, `doc-fetcher.md`, `architecture-verification.md`, `split-body-strategy.md`, and `overview.md`. The `overview.md` is the index/navigation file (its own content says "Entry point — knowledge map, JiT loading protocol"). The CSV index also classifies it as "knowledge,navigation,jit-loading".
+
+The Module Structure section at line 428 is correct: 12 reusable fragments + `overview.md` (index). The Building Blocks table at line 43 is wrong to call all 13 files "reusable fragments".
+
+**Fix:** Change line 43 from "13 reusable fragments" to "12 reusable fragments + overview.md index". For example:
+```
+| `knowledge/*.md` | 12 reusable fragments + overview.md index — cross-cutting principles and patterns (e.g., `zero-hallucination.md`, `confidence-tiers.md`, `ccc-bridge.md`) | Selectively read into context when a step directs |
+```
+
+---
+
+### FINDING H2 — Factual Error: Deep Tier Requirements Mismatch in Capability Tiers Table
+
+**Severity:** HIGH
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/how-it-works.md`
+**Line:** 105
+**Confidence:** HIGH
+
+The Progressive Capability Model table states:
+
+```
+| **Deep** | + `gh_bridge` (gh) + `qmd_bridge` (QMD) | Knowledge search... |
+```
+
+This implies Deep adds `gh_bridge` and `qmd_bridge` on top of Forge+ (which requires ast-grep + ccc). But the actual tier requirements from `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/setup-forge/data/tier-rules.md` are:
+
+```
+Deep: ast-grep + gh + qmd  (all three core tools)
+```
+
+Deep does NOT require `ccc`. It requires `ast-grep + gh + qmd`. The `+` notation in the table (inheriting from the previous row) is misleading because it implies Deep = Forge+ + gh + qmd, but Deep = Forge + gh + qmd (ast-grep only, not ccc). The `ccc` enhances Deep when present but is not required for the Deep tier.
+
+The source confirms: "ast-grep + ccc + gh but no qmd → Forge+ (qmd required for Deep)" and "ast-grep + gh + qmd + ccc → Deep (Deep subsumes Forge+; ccc enhances transparently)".
+
+The table also notes "Deep | Yes | opt. (enhances when installed) | Yes" in the "Tier Constrains Authority" table (line 183), which correctly shows CCC as optional for Deep. But the progressive capability table at line 105 does not make this distinction clear — the additive `+` notation implies Deep builds strictly on Forge+ which requires ccc.
+
+**Fix:** Clarify the Deep row to show its actual requirements: `ast-grep + gh + qmd` (ccc is optional). For example:
+```
+| **Deep** | `ast_bridge` (ast-grep) + `gh_bridge` (gh) + `qmd_bridge` (QMD). CCC optional but enhances when installed. | Knowledge search. Temporal provenance. Drift detection. Full intelligence. |
+```
+
+---
+
+## MEDIUM Severity
+
+### FINDING M1 — Inaccurate Description: Surgeon Mode Behavior in How-It-Works Table
+
+**Severity:** MEDIUM
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/how-it-works.md`
+**Line:** 73
+**Confidence:** HIGH
+
+The Ferris Operating Modes table describes Surgeon mode as:
+```
+| **Surgeon** | US | Precise, preserving — extracts and compiles with provenance |
+```
+
+But the `update-skill/workflow.md` describes the Surgeon mode as: "Surgically update existing skills when source code changes, preserving all [MANUAL] developer content while re-extracting only affected exports." The phrase "extracts and compiles with provenance" describes what Architect/CS does, not what Surgeon/US uniquely does. The key characteristic of Surgeon mode is the surgical preservation of `[MANUAL]` sections, not general extraction.
+
+Curiously, the `agents.md` version of this same table (line 39) reads: "Precise, semantic diffing, preserves [MANUAL]" — which is accurate. The `how-it-works.md` version ("extracts and compiles with provenance") is inconsistent with the `agents.md` version of the same table.
+
+**Fix:** Align the `how-it-works.md` Surgeon description with `agents.md`:
+```
+| **Surgeon** | US | Precise, semantic diffing — preserves [MANUAL] sections during regeneration |
+```
+
+---
+
+### FINDING M2 — Incomplete/Misleading Step Description: Setup Forge Key Steps
+
+**Severity:** MEDIUM
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/workflows.md`
+**Line:** 22
+**Confidence:** HIGH
+
+The Setup Forge section lists:
+```
+Key Steps: Detect tools + Determine tier → CCC index check (Forge+) → Write forge-tier.yaml → QMD hygiene (Deep)
+```
+
+The actual setup-forge workflow has 5 step files: `step-01-detect-and-tier.md`, `step-01b-ccc-index.md`, `step-02-write-config.md`, `step-03-auto-index.md` (QMD hygiene), and `step-04-report.md`. The final step — `step-04-report.md` — generates the "Forge initialized. Tools: ... Tier: ..." output that users see. This is the only step that produces visible output to the user.
+
+The key steps description omits the report step entirely, even though the `how-it-works.md` page (lines 113–115) gives a concrete example of the output ("Forge initialized. Tools: gh, ast-grep, ccc, QMD. Tier: Deep. Ready.") which comes from that report step.
+
+**Fix:** Add the report step to the key steps description:
+```
+Key Steps: Detect tools + Determine tier → CCC index check (Forge+) → Write forge-tier.yaml → QMD hygiene (Deep) → Status report
+```
+
+---
+
+### FINDING M3 — Terminology Inconsistency: "step-03-auto-index" vs. "QMD hygiene"
+
+**Severity:** MEDIUM
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/workflows.md`
+**Line:** 22
+**Confidence:** MEDIUM
+
+The setup-forge Key Steps entry references "QMD hygiene (Deep)" as the last described step. In the source, the step file is named `step-03-auto-index.md` but its frontmatter description says "Verify and clean QMD collections against the forge-tier.yaml registry." The docs call this "QMD hygiene" which is consistent with the step's description. However, the same docs page does not mention that step-03 also handles CCC index registry hygiene (Forge+/Deep) — the step's description says "and CCC index registry hygiene (Forge+/Deep)". The docs only mention the QMD portion.
+
+This is minor but could mislead a developer investigating the workflow. The step is actually dual-purpose (QMD hygiene + CCC index registry hygiene), not just QMD hygiene.
+
+**Fix:** Update the key steps description to: "QMD hygiene + CCC registry cleanup (Deep/Forge+)" or simply "Collection hygiene (Deep/Forge+)".
+
+---
+
+### FINDING M4 — Missing Content: `[WS] Workflow Status` Not Documented in Workflows Reference
+
+**Severity:** MEDIUM
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/workflows.md`
+**Lines:** 1–238 (entire file)
+**Confidence:** HIGH
+
+The `agents.md` page clearly lists `[WS] Workflow Status — Show current lifecycle position` in Ferris's menu (line 75–76). The `forger.agent.yaml` also defines it (trigger: `WS or fuzzy match on workflow-status`). However, the `workflows.md` reference page documents all 12 workflows but contains no entry for `[WS] Workflow Status`.
+
+Since `[WS]` is an action (not a full workflow file) — the `forger.agent.yaml` defines it as `action: "Show current lifecycle position, active skill briefs, and forge tier status"` rather than routing to a workflow file — it is not strictly a workflow. However:
+- The `index.md` claims "All 12 workflows" and the count of 12 is correct (excluding WS).
+- The `workflows.md` intro says "SKF has 12 workflows" — also correct.
+- But `agents.md` shows WS in the menu right alongside all workflows, with no disclaimer that it's different.
+
+A reader of `agents.md` who sees `[WS]` in the menu and goes to `workflows.md` to learn more will find nothing about it. The Agents page should clarify that `[WS]` is an in-context action rather than a workflow, or `workflows.md` should include a brief mention under a "Utility Actions" section.
+
+**Fix:** Add a note in `docs/agents.md` after the menu block clarifying that `[WS]` is an in-context action (not a workflow file) that displays current lifecycle position, active briefs, and forge tier — or add a brief mention in `docs/workflows.md` under a "Non-Workflow Commands" section.
+
+---
+
+### FINDING M5 — Potential Confusion: `getting-started.md` Deep Mode Description May Overstate gh's Optional Role
+
+**Severity:** MEDIUM
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/getting-started.md`
+**Line:** 61 and 174
+**Confidence:** MEDIUM
+
+The prerequisites table at line 61 says `gh` is required for "Deep mode (optional convenience for other modes)". The phrase "optional convenience for other modes" is technically supported by `progressive-capability.md` ("Uses `gh_bridge` for file structure when available as a convenience, not a requirement" for Quick tier). However, line 174 in the same file says:
+
+> "If `ast-grep`, `gh`, and `qmd` are all available, Ferris activates Deep mode."
+
+This is accurate. But a reader of the prerequisites table could interpret "optional convenience for other modes" as meaning `gh` is optional for Deep mode — which is incorrect. `gh` is required for Deep mode. The parenthetical "optional convenience for other modes" could be misread as qualifying the Deep mode requirement, not adding additional context about other tiers.
+
+**Fix:** Rephrase line 61 for unambiguous clarity:
+```
+| `gh` (GitHub CLI) | Required for Deep mode. Used as an optional convenience in Quick/Forge/Forge+ modes for source access. | <https://cli.github.com> |
+```
+
+---
+
+### FINDING M6 — Factual Inaccuracy: `spec_version` Placeholder in Example JSON
+
+**Severity:** MEDIUM
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/how-it-works.md`
+**Line:** 246
+**Confidence:** MEDIUM
+
+The `metadata.json` example in the "Output Architecture" section shows:
+```json
+"spec_version": "{current-spec-version}",
+```
+
+This is an un-substituted template placeholder. In a documentation example that is supposed to illustrate what real output looks like, this placeholder will confuse readers who wonder what actual value appears here. This is distinct from intentional placeholder documentation — the surrounding values like `"generated_at": "2026-02-25T14:30:00Z"` and `"version": "2.1.0"` are given as concrete example values, making `{current-spec-version}` appear to be an oversight.
+
+**Fix:** Replace with a concrete example value such as `"spec_version": "1.0.0"` or add an annotation explaining this is a runtime-substituted value referencing the bundled agentskills.io spec version.
+
+---
+
+### FINDING M7 — Link Format Inconsistency: Mixed Markdown Link Styles
+
+**Severity:** MEDIUM
+**Files:** Multiple docs files
+**Lines:** Various
+**Confidence:** HIGH
+
+Several internal links in the documentation use inconsistent path styles:
+
+In `getting-started.md` line 14: `[Concepts](../concepts.md)` — uses `.md` extension
+In `how-it-works.md` line 8: `[Concepts](../concepts.md)` — uses `.md` extension
+In `concepts.md` line 56: `[How It Works](../how-it-works.md)` — uses `.md` extension
+
+But in `index.md` lines 41–46, all links use directory-style paths without `.md`:
+```
+- **[Getting Started](./getting-started/)** 
+- **[Concepts](./concepts/)** 
+- **[How It Works](./how-it-works/)** 
+```
+
+And in `getting-started.md` lines 226–229:
+```
+- Check out the [Agents Reference](../agents/) — directory style
+- Browse the [Workflows Reference](../workflows/) — directory style
+- See [Examples](../examples/) — directory style
+```
+
+The same file mixes both styles — `../concepts.md` (line 14) and `../agents/` (line 227). In a static site generator (the frontmatter uses `template: splash` suggesting Starlight/Astro), `.md` extensions and directory-style links may resolve differently and create broken links depending on the output configuration.
+
+**Fix:** Standardize all internal links to use either the `.md` extension form or the directory form consistently. Given that `index.md` already uses the directory style and the site appears to use directory-based URLs (e.g., `/getting-started/`), update all cross-doc links to the directory style: `../concepts/` instead of `../concepts.md`.
+
+The files affected are:
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/getting-started.md` (line 14: `../concepts.md`)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/how-it-works.md` (line 8: `../concepts.md`)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/concepts.md` (line 56: `../how-it-works.md`)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/workflows.md` (line 8: `../agents.md` and `../concepts.md`)
+
+---
+
+## LOW Severity (reported due to high confidence)
+
+### FINDING L1 — Missing Workflow: `analyze-source` Not Listed in `index.md` Documentation Index
+
+**Severity:** LOW
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/index.md`
+**Lines:** 41–46
+**Confidence:** HIGH
+
+The documentation index on the home page lists 6 documentation pages but does not include `analyze-source` as a standalone section — it is mentioned only within the Workflows page. This is by design since there is no separate `analyze-source.md` doc page. This is fine; no issue here. This is recorded as LOW only to confirm the review covered this.
+
+Actually upon reflection, this is a non-issue. The index lists the 6 doc pages, `analyze-source` is a workflow covered in `workflows.md`. No finding.
+
+---
+
+### FINDING L2 — Style: `forge-tier.yaml` Path Reference in `getting-started.md`
+
+**Severity:** LOW
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/getting-started.md`
+**Line:** 83 and 240
+**Confidence:** HIGH
+
+Line 83 says: "Runtime configuration... is managed by the `setup-forge` workflow in `forge-tier.yaml`."
+
+Line 240 says: "Check `forge-tier.yaml` in your forger sidecar for your current configuration."
+
+The actual path for this file at runtime is `_bmad/_memory/forger-sidecar/forge-tier.yaml` (per `forger.agent.yaml` and `how-it-works.md` line 121). The bare `forge-tier.yaml` reference without path context is ambiguous — a user could confuse it with the template at `src/forger/forge-tier.yaml`. Both files exist in the repo.
+
+**Fix:** Disambiguate by using the full path: "`_bmad/_memory/forger-sidecar/forge-tier.yaml`".
+
+---
+
+## Summary
+
+| # | Severity | File | Issue |
+|---|----------|------|-------|
+| H1 | HIGH | `how-it-works.md` lines 43 vs 428 | Internal contradiction: "13 reusable fragments" vs "12 knowledge fragments + overview.md index" |
+| H2 | HIGH | `how-it-works.md` line 105 | Deep tier table row implies it requires Forge+ (ccc) — it requires only ast-grep + gh + qmd |
+| M1 | MEDIUM | `how-it-works.md` line 73 | Surgeon mode description inconsistent with `agents.md`; doesn't capture [MANUAL] preservation |
+| M2 | MEDIUM | `workflows.md` line 22 | Setup Forge key steps omits the user-visible status report step |
+| M3 | MEDIUM | `workflows.md` line 22 | Step-03 handles both QMD hygiene and CCC registry hygiene; doc only mentions QMD |
+| M4 | MEDIUM | `workflows.md` (entire) / `agents.md` line 75 | `[WS] Workflow Status` command in agent menu has no corresponding entry or explanation in workflows reference |
+| M5 | MEDIUM | `getting-started.md` line 61 | `gh` prerequisite parenthetical "optional convenience for other modes" is ambiguous and could suggest gh is optional for Deep |
+| M6 | MEDIUM | `how-it-works.md` line 246 | Un-substituted template placeholder `"{current-spec-version}"` in concrete metadata.json example |
+| M7 | MEDIUM | Multiple doc files | Inconsistent internal link styles (`.md` extension vs directory-style paths) within the same files |
+| L2 | LOW | `getting-started.md` lines 83, 240 | `forge-tier.yaml` referenced without full path; ambiguous between src template and runtime sidecar |</result>
+<usage><total_tokens>86239</total_tokens><tool_uses>83</tool_uses><duration_ms>337036</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a0197f78bcbb3f163.output
+
+---
+
+<task-notification>
+<task-id>a1b6b450afac8d1d6</task-id>
+<tool-use-id>toolu_01XZPVp9bG21boGDPbxg5qwg</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a1b6b450afac8d1d6.output</output-file>
+<status>completed</status>
+<summary>Agent "Review knowledge files and data" completed</summary>
+<result>I have all the data needed. Now let me compile the findings:
+
+---
+
+## Review: SKF Knowledge Files and Workflow Data Files
+
+Reviewing all 14 knowledge files in `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/` and all workflow data files in `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/*/data/`.
+
+---
+
+## Critical Findings
+
+### CRITICAL-1: Scoring Weights in `progressive-capability.md` Do Not Match `scoring-rules.md`
+
+**Severity:** CRITICAL
+**Confidence:** HIGH
+
+**Files:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/progressive-capability.md` — lines 97-98
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/test-skill/data/scoring-rules.md` — lines 11-16
+
+**Issue:** The two authoritative weight tables are contradictory. An agent reading `progressive-capability.md` will apply different weights than `scoring-rules.md` prescribes. `scoring-rules.md` is the file actually loaded by `test-skill` step-05 (via `scoringRulesFile` frontmatter), making it the operative source — but `progressive-capability.md` is the cross-cutting knowledge reference.
+
+| Category | `progressive-capability.md` (Forge/contextual) | `scoring-rules.md` (Forge/contextual) |
+|---|---|---|
+| Export Coverage | 40% | 36% |
+| Signature Accuracy | 25% | 22% |
+| Type Coverage | 15% | 14% |
+| Coherence | 20% | 18% |
+| External Validation | not stated | 10% |
+
+`progressive-capability.md` states Forge contextual weights that total only 100% if External Validation is omitted (40+25+15+20=100), but `scoring-rules.md` allocates 10% to External Validation and adjusts the others downward. The knowledge file presents a completely inconsistent weight table.
+
+**What should be corrected:** Update `progressive-capability.md` lines 97-99 to reflect the actual weights from `scoring-rules.md`: Export Coverage 36%, Signature Accuracy 22%, Type Coverage 14%, Coherence 18%, External Validation 10%.
+
+---
+
+## High Findings
+
+### HIGH-1: `brief-skill/data/skill-brief-schema.md` — Scope Object Definition Omits `docs-only` But YAML Template Includes It
+
+**Severity:** HIGH
+**Confidence:** HIGH
+
+**Files:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/brief-skill/data/skill-brief-schema.md` — line 51 vs line 74
+
+**Issue:** The Scope Object Structure section at line 51 lists only three scope types:
+
+```yaml
+type: full-library | specific-modules | public-api
+```
+
+But the YAML Template section at line 74 of the same file includes `docs-only` as a valid fourth value:
+
+```yaml
+type: "{full-library|specific-modules|public-api|docs-only}"
+```
+
+Additionally, the Validation Rules at line 117 say "`scope.type` must be one of the **three** defined types", which contradicts the YAML template in the same file that shows four types.
+
+The `analyze-source/data/skill-brief-schema.md` (a parallel schema file) correctly shows four types at line 45. The `brief-skill` steps also reference `scope.type: "docs-only"` as a valid value (e.g., `brief-skill/steps-c/step-03-scope-definition.md` line 87). The Scope Object Structure definition and the validation rule count are simply wrong.
+
+**What should be corrected:**
+- Line 51: Change to `type: full-library | specific-modules | public-api | docs-only`
+- Line 117: Change "three defined types" to "four defined types"
+
+---
+
+### HIGH-2: `confidence_distribution` Key Casing Is Inconsistent Across Files
+
+**Severity:** HIGH
+**Confidence:** HIGH
+
+**Files:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/confidence-tiers.md` — lines 128-133 (uses lowercase: `"t1"`, `"t1_low"`, `"t2"`, `"t3"`)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/zero-hallucination.md` — lines 67-73 (uses lowercase: `t1`, `t1_low`, `t2`, `t3` in YAML)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/quick-skill/data/skill-template.md` — lines 78-83 (uses lowercase: `"t1"`, `"t1_low"`, `"t2"`, `"t3"`)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-stack-skill/data/stack-skill-template.md` — lines 79-83 (uses Title Case: `"T1"`, `"T1-low"`, `"T2"`)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-stack-skill/steps-c/step-07-generate-output.md` — line 127 (uses Title Case: `"T1"`, `"T1-low"`, `"T2"`)
+
+**Issue:** The `confidence_distribution` object uses inconsistent key casing. Knowledge files and quick-skill use lowercase underscore (`t1`, `t1_low`, `t2`, `t3`). Stack-skill uses Title Case with hyphen (`T1`, `T1-low`, `T2`). Additionally the key for T1-low differs: `t1_low` (lowercase files) vs `T1-low` (stack-skill). This inconsistency will cause downstream tooling (audit, update, scoring) that reads `confidence_distribution` to potentially fail to find the expected keys.
+
+**What should be corrected:** Standardize to one format across all files. The knowledge file (`confidence-tiers.md`) uses lowercase, and the most files follow that pattern — change `stack-skill-template.md` and `step-07-generate-output.md` to use `"t1"`, `"t1_low"`, `"t2"`, `"t3"` keys.
+
+---
+
+### HIGH-3: `skill-sections.md` `stats` Object Is Missing `confidence_t1_low` Field
+
+**Severity:** HIGH
+**Confidence:** HIGH
+
+**Files:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-skill/data/skill-sections.md` — lines 140-148
+
+**Issue:** The `metadata.json` `stats` object in `skill-sections.md` includes `"confidence_t1": 0`, `"confidence_t2": 0`, `"confidence_t3": 0` but does not include a `confidence_t1_low` field. The T1-low tier is a first-class confidence tier used extensively throughout the system — it has its own citation format, is tracked in `confidence_distribution`, and is compared by `update-skill/steps-c/step-06-write.md` which updates `confidence_t1`, `confidence_t2`, `confidence_t3` (also missing `confidence_t1_low`). This omission means T1-low claims have no dedicated stats tracking in metadata, and auditors/validators cannot easily determine how much of a skill is T1-low vs T1.
+
+**What should be corrected:** Add `"confidence_t1_low": 0` to the `stats` object in the metadata.json structure in `skill-sections.md`, between `confidence_t1` and `confidence_t2`. Update `update-skill/steps-c/step-06-write.md` accordingly.
+
+---
+
+### HIGH-4: `quick-skill/data/skill-template.md` — Context Snippet Missing `key-types` Line
+
+**Severity:** HIGH
+**Confidence:** HIGH
+
+**Files:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/quick-skill/data/skill-template.md` — lines 54-60
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-skill/data/skill-sections.md` — lines 88-96 (the authoritative snippet format)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/export-skill/data/snippet-format.md` — lines 13-22
+
+**Issue:** The `quick-skill` context-snippet template omits the `key-types` line that is present in every other snippet format definition. The authoritative snippet format (`snippet-format.md` and `skill-sections.md`) both include:
+
+```
+|key-types:{SKILL.md#key-types} — {inline summary of most important type values}
+```
+
+The `quick-skill` template has only:
+```
+|quick-start:{SKILL.md#quick-start}
+|api: {top-5 exports with () for functions}
+|gotchas: {1-2 most critical pitfalls if known}
+```
+
+Skills produced by the quick-skill workflow will generate snippets missing the `key-types` anchor, which `split-body-strategy.md` and `export-skill/steps-c/step-03-generate-snippet.md` both explicitly rely on for anchor verification. Downstream tools expecting `#key-types` will find it absent.
+
+**What should be corrected:** Add `|key-types:{SKILL.md#key-types} — {inline summary of most important type values}` between the `api` and `gotchas` lines in `quick-skill/data/skill-template.md`.
+
+---
+
+### HIGH-5: `quick-skill/data/skill-template.md` — `metadata.json` Missing Several Required Fields Present in `skill-sections.md`
+
+**Severity:** HIGH
+**Confidence:** HIGH
+
+**Files:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/quick-skill/data/skill-template.md` — lines 64-93
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-skill/data/skill-sections.md` — lines 113-154
+
+**Issue:** The quick-skill `metadata.json` template is missing several fields that `skill-sections.md` defines as part of the standard structure and that downstream workflows (`export-skill/steps-c/step-01-load-skill.md` line 91) validate:
+
+Missing from quick-skill metadata template:
+- `source_root` — required for source resolution in test-skill and audit-skill
+- `source_commit` — required for provenance
+- `confidence_tier` field casing is correct (`"Quick"`) but `description` is absent
+- `language` is present
+- `ast_node_count` — expected by export-skill validation
+- `tool_versions` object — expected for reproducibility
+- `dependencies` — present in standard schema
+- `compatibility` — present in standard schema
+
+`export-skill/steps-c/step-01-load-skill.md` explicitly validates `source_authority`, `exports`, `generation_date`, and `confidence_tier`. Several of these are present. However `source_root` and `source_commit` are used by `test-skill/data/source-access-protocol.md` (State 1 logic at line 21: reads `source_root` from `metadata.json`). A quick-skill skill sent through test-skill will fail State 1 resolution silently because `source_root` is absent.
+
+**What should be corrected:** Add `source_root`, `source_commit`, `description`, `tool_versions`, `dependencies`, and `compatibility` fields to the quick-skill `metadata.json` template to align with the standard schema in `skill-sections.md`.
+
+---
+
+## Medium Findings
+
+### MEDIUM-1: `overview.md` Knowledge Map — `split-body-strategy.md` Lists Wrong Tier Tag
+
+**Severity:** MEDIUM
+**Confidence:** HIGH
+
+**File:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/overview.md` — line 37
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/skf-knowledge-index.csv` — line 14
+
+**Issue:** `overview.md` line 37 lists `split-body-strategy.md` with tier tag `core`. The CSV index at line 14 also lists it as `core`. However `split-body-strategy.md` contains no tier-gating logic — it is relevant at any tier where compilation occurs. More importantly, `doc-fetcher.md` is listed as `extended` in the CSV (line 12) while `split-body-strategy.md` is `core`. This categorization is inconsistent: `doc-fetcher.md` is used in any scenario where T3 external docs are needed (affects CS, QS, SS as stated in the knowledge map), making it arguably as core as split-body. This is a classification inconsistency, not a broken reference, but agents using the CSV to filter `core` vs `extended` may load or skip the wrong files.
+
+**What should be corrected:** Reconsider the `tier` classification of `doc-fetcher.md` in `skf-knowledge-index.csv` — change from `extended` to `core` to be consistent with the scope described in the knowledge map (referenced by CS, QS, SS workflows).
+
+---
+
+### MEDIUM-2: `doc-fetcher.md` Conflict Resolution Priority Is Inconsistent with `confidence-tiers.md`
+
+**Severity:** MEDIUM
+**Confidence:** HIGH
+
+**Files:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/doc-fetcher.md` — line 17
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/confidence-tiers.md` — lines 113-116
+
+**Issue:** `doc-fetcher.md` line 17 states the conflict resolution priority as:
+
+```
+T1 > T2 > source reading > T3
+```
+
+But `confidence-tiers.md` defines "source reading" as T1-low, not a separate tier. The correct priority order — consistent with the four-tier model — should be:
+
+```
+T1 > T1-low > T2 > T3
+```
+
+The insertion of "source reading" as a label between T2 and T3 in `doc-fetcher.md` implies T1-low outranks T2, which contradicts `confidence-tiers.md` where T2 (QMD-enriched) is presented as a distinct tier with its own trust level and where the tier precedence in updates is T1 > T1-low > T2 additive (T2 never replaces T1/T1-low). This is ambiguous but the framing in doc-fetcher.md is non-standard and will confuse agents.
+
+**What should be corrected:** Change `doc-fetcher.md` line 17 from `T1 > T2 > source reading > T3` to `T1 > T1-low > T2 > T3` using the standard tier labels. Add a note clarifying T2 is additive enrichment on top of T1/T1-low, not a pure priority replacement.
+
+---
+
+### MEDIUM-3: `analyze-source/data/skill-brief-schema.md` Includes `docs-only` as Scope Type But Scope Types Table Lists Only Three
+
+**Severity:** MEDIUM
+**Confidence:** HIGH
+
+**File:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/analyze-source/data/skill-brief-schema.md` — lines 45 and 54-58
+
+**Issue:** The Scope Object at line 45 includes `docs-only` as a fourth type:
+```yaml
+type: full-library | specific-modules | public-api | docs-only
+```
+
+But the Scope Types table at lines 54-58 lists only three entries (`full-library`, `specific-modules`, `public-api`) with no entry for `docs-only`. An agent reading this table will not understand when to use `docs-only` scope, what it means, or what `include`/`exclude` patterns apply to it. This is an incomplete definition.
+
+**What should be corrected:** Add a `docs-only` row to the Scope Types table in `analyze-source/data/skill-brief-schema.md` with the use-case description: "When source_type is docs-only — no source code available, all content from doc_urls".
+
+---
+
+### MEDIUM-4: `architecture-verification.md` Missing Source Reference / Attribution
+
+**Severity:** MEDIUM
+**Confidence:** MEDIUM
+
+**File:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/architecture-verification.md`
+
+**Issue:** This is the only knowledge file that lacks a `_Source:` attribution footer at the bottom. Every other knowledge file ends with a `_Source: ...` line documenting where the content was synthesized from. The absence is inconsistent with the established pattern across all 13 other knowledge files and makes the file harder to trace for maintenance purposes.
+
+**What should be corrected:** Add a `_Source:` footer, for example: `_Source: synthesized from verify-stack/workflow.md, refine-architecture/workflow.md, and create-stack-skill compose-mode-rules.md_`
+
+---
+
+### MEDIUM-5: `stack-skill-template.md` `confidence_distribution` Uses Title-Case Keys Without `t3`
+
+**Severity:** MEDIUM
+**Confidence:** HIGH
+
+**File:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-stack-skill/data/stack-skill-template.md` — lines 79-83
+
+**Issue:** The stack-skill `metadata.json` `confidence_distribution` uses keys `"T1"`, `"T1-low"`, `"T2"` — three keys only — with no `T3` key. Stack skills can include T3 evidence when compose-mode references skills that themselves contain T3 citations (from doc-fetched sources). The absence of a `T3` key from the stack-skill confidence distribution means T3 citations in a composed stack skill cannot be accounted for. This is compounded by the inconsistent casing already noted in HIGH-2.
+
+**What should be corrected:** Add `"T3": 0` (or `"t3": 0` after casing standardization) to the `confidence_distribution` object in `stack-skill-template.md`.
+
+---
+
+### MEDIUM-6: `quick-skill/data/skill-template.md` — `metadata.json` Uses Hardcoded `"version": "0.1.0"`
+
+**Severity:** MEDIUM
+**Confidence:** HIGH
+
+**File:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/quick-skill/data/skill-template.md` — line 67
+
+**Issue:** The quick-skill `metadata.json` template hardcodes `"version": "0.1.0"` as a literal value rather than the template placeholder `"{source-version}"` used by every other metadata template. The `skill-sections.md` (authoritative metadata schema) uses `"{source-version}"`. The `context-snippet.md` format requires the version to come from source detection (per note in `skill-sections.md` line 108: "Version comes from source detection (per issue #32), not brief default"). A hardcoded `0.1.0` will produce incorrect version signals in every quick-skill output.
+
+**What should be corrected:** Change line 67 in `quick-skill/data/skill-template.md` from `"version": "0.1.0"` to `"version": "{source-version or 0.1.0}"` to match the source-detection-first pattern.
+
+---
+
+## Low Findings
+
+### LOW-1: `agentskills-spec.md` States "Full activation loads < 500 lines" But Other Files Say 5000 Tokens
+
+**Severity:** LOW
+**Confidence:** MEDIUM
+
+**File:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/agentskills-spec.md` — lines 18, 67
+
+**Issue:** The Progressive Disclosure Model table at line 67 states activation token cost is `< 5000 tokens`. Line 18 states "Full activation loads < 500 lines of structured instructions". These are different units (lines vs tokens) and are not directly convertible without knowing average line length, but 500 lines at ~20 tokens/line yields ~10,000 tokens — double the 5,000 token claim. This inconsistency within the same document is confusing, though it may reflect that 500 lines is a ceiling and 5,000 tokens is an approximation of a well-written 500-line file. This is a low-severity clarity issue.
+
+**What should be corrected:** Add a clarifying note that "< 500 lines" and "< 5000 tokens" are two different expressions of the same constraint at different approximation granularities, or reconcile the numbers to be mutually consistent.
+
+---
+
+### LOW-2: `overview.md` Knowledge Map References `RA` Workflow But Key Table Header Row Is Misaligned
+
+**Severity:** LOW
+**Confidence:** MEDIUM
+
+**File:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/overview.md` — line 27
+
+**Issue:** The `progressive-capability.md` entry in the Knowledge Map states "not VS, RA — tier-agnostic" in the Key Workflows column. However `architecture-verification.md` at line 84 describes a lifecycle where SS compose-mode is used post-RA: `(CS|QS)×N → VS → RA → SS (compose) → TS → EX → Implementation → SS (code)`. The claim that VS and RA are tier-agnostic is correct because they read skills (not source), but the parenthetical note in the knowledge map could mislead agents into thinking tier is irrelevant for all aspects of VS/RA, when in fact the individual skills they read were compiled with tier-specific confidence.
+
+This is an informational accuracy nuance — low severity.
+
+**What should be corrected:** Consider rewording the `progressive-capability.md` Key Workflows entry from `"not VS, RA — tier-agnostic"` to `"not VS, RA — these workflows read existing skills, tier of compiled skills is inherited"` for precision.
+
+---
+
+## Summary Table
+
+| # | Severity | File(s) | Issue |
+|---|---|---|---|
+| CRITICAL-1 | CRITICAL | `knowledge/progressive-capability.md` vs `test-skill/data/scoring-rules.md` | Scoring weights for Forge/contextual mode disagree: progressive-capability shows 40/25/15/20 (no external val), scoring-rules shows 36/22/14/18/10 |
+| HIGH-1 | HIGH | `brief-skill/data/skill-brief-schema.md` | Scope Object Structure defines 3 types but YAML Template and step files support 4; Validation Rule 4 says "three defined types" |
+| HIGH-2 | HIGH | `knowledge/confidence-tiers.md`, `quick-skill/data/skill-template.md` vs `create-stack-skill/data/stack-skill-template.md` | `confidence_distribution` uses lowercase `t1_low` in some files, Title Case `T1-low` in others |
+| HIGH-3 | HIGH | `create-skill/data/skill-sections.md` | `stats` object missing `confidence_t1_low` field despite T1-low being a first-class confidence tier |
+| HIGH-4 | HIGH | `quick-skill/data/skill-template.md` | Context snippet template missing `key-types` line present in all other snippet format definitions |
+| HIGH-5 | HIGH | `quick-skill/data/skill-template.md` | `metadata.json` missing `source_root`, `source_commit`, `description`, `tool_versions`, `dependencies`, `compatibility` fields required by downstream workflows |
+| MEDIUM-1 | MEDIUM | `knowledge/skf-knowledge-index.csv` | `doc-fetcher.md` listed as `extended` but is used by CS/QS/SS (as core as other `core` files) |
+| MEDIUM-2 | MEDIUM | `knowledge/doc-fetcher.md` | Conflict resolution priority uses non-standard label "source reading" instead of `T1-low` |
+| MEDIUM-3 | MEDIUM | `analyze-source/data/skill-brief-schema.md` | `docs-only` appears in Scope Object type definition but is absent from the Scope Types table |
+| MEDIUM-4 | MEDIUM | `knowledge/architecture-verification.md` | Only knowledge file without a `_Source:` attribution footer |
+| MEDIUM-5 | MEDIUM | `create-stack-skill/data/stack-skill-template.md` | `confidence_distribution` missing T3 key; stack skills can include T3 citations from composed individual skills |
+| MEDIUM-6 | MEDIUM | `quick-skill/data/skill-template.md` | Hardcoded `"version": "0.1.0"` instead of source-detection placeholder |
+| LOW-1 | LOW | `knowledge/agentskills-spec.md` | "< 500 lines" and "< 5000 tokens" are inconsistent units within the same document |
+| LOW-2 | LOW | `knowledge/overview.md` | "not VS, RA — tier-agnostic" note could mislead about tier inheritance in VS/RA inputs |</result>
+<usage><total_tokens>111020</total_tokens><tool_uses>90</tool_uses><duration_ms>340587</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a1b6b450afac8d1d6.output
+
+---
+
+<task-notification>
+<task-id>a594f6e4fcbdddc01</task-id>
+<tool-use-id>toolu_016bgUArtUByXitgZ9252QDE</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a594f6e4fcbdddc01.output</output-file>
+<status>completed</status>
+<summary>Agent "Review workflows for bugs/logic errors" completed</summary>
+<result>I now have complete coverage of all workflow files. Here is the complete review report.
+
+---
+
+## Ultra-Deep Review: All Workflow Files
+
+Reviewed all workflow files in `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/` — 8 workflows, every step file, and every data file. The review was exhaustive: workflow.md, all steps-c/ files in sequence, then all data/ files, for each of: setup-forge, brief-skill, create-skill, create-stack-skill, verify-stack, refine-architecture, audit-skill, export-skill.
+
+Two genuine bugs of functional significance were found. One additional inconsistency of moderate concern was identified. All other potential issues examined were either confirmed as non-issues or were already fixed in recent commits.
+
+---
+
+## Critical
+
+### CRITICAL-1: docs-only mode auto-proceed instruction is nullified by unconditional Gate 2 halt
+
+**Confidence: 97**
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-skill/steps-c/step-03-extract.md`
+
+**Section 3 (line 78) says:**
+
+> "Auto-proceed through Gate 2 (section 6) — display the empty inventory and note that T3 content will be produced by the doc-fetcher step."
+
+**Section 7 (lines 210-213) says — unconditionally, with no docs-only exception:**
+
+> "ALWAYS halt and wait for user input after presenting the extraction summary"
+> "This is Gate 2 — user must confirm before compilation proceeds"
+
+An AI following this file in docs-only mode will: display the empty inventory in section 6, then reach section 7 and halt for user input. The "Auto-proceed" instruction in section 3 is overridden by section 7's unconditional halt rule because section 7 has no conditional bypass for docs-only mode. The docs-only workflow is supposed to be fully autonomous (no user interaction before step-04 enrichment), but docs-only briefs will block at Gate 2 waiting for user input that should never be required.
+
+**Fix:** Add a docs-only bypass at the top of section 7's execution rules:
+
+```
+- IF docs-only mode (`extraction_mode: "docs-only"`): Auto-proceed immediately to `{nextStepFile}` — no user interaction required
+- OTHERWISE: ALWAYS halt and wait for user input after presenting the extraction summary
+```
+
+---
+
+### CRITICAL-2: step-03b success metrics cite wrong destination step, creating self-verification contradiction
+
+**Confidence: 99**
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-skill/steps-c/step-03b-fetch-temporal.md`
+
+Three points within this file must agree on the next step destination. Two agree correctly, one does not:
+
+- Line 4 (frontmatter `nextStepFile`): `./step-03c-fetch-docs.md` — correct
+- Line 198 (section 5 execution rule): "load, read entire file, then execute `{nextStepFile}`" — resolves to step-03c, correct
+- Line 211 (CRITICAL STEP COMPLETION NOTE): "will you proceed to load `{nextStepFile}` for **QMD enrichment**" — calls the destination "QMD enrichment", which is step-04's purpose, not step-03c's. This is a misleading description.
+- Line 227 (SYSTEM SUCCESS metric): "**Auto-proceeded to step-04**" — explicitly names the wrong step
+
+An AI using the success metrics to verify completion will look for evidence of proceeding to "step-04". If it self-corrects by trusting the success metrics over the `nextStepFile` frontmatter, it will skip step-03c-fetch-docs.md entirely. This is the worst-case failure mode: documentation fetch (step-03c) is bypassed, producing a skill with no T3 content even when `doc_urls` are present in the brief.
+
+**Fix 1:** Line 227 — change "Auto-proceeded to step-04" to "Auto-proceeded to step-03c"
+
+**Fix 2:** Line 211 — change "for QMD enrichment" to "for documentation fetch" to match step-03c's actual purpose
+
+---
+
+## High
+
+### HIGH-1: step-03-auto-index.md declared name contradicts its filename
+
+**Confidence: 90**
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/setup-forge/steps-c/step-03-auto-index.md`
+**Line 2:** `name: 'step-03-qmd-hygiene'`
+
+The file is named `step-03-auto-index.md`, is referenced as `./step-03-auto-index.md` by `step-02-write-config.md`'s `nextStepFile`, and its section heading (line 8) reads "Step 3: QMD Collection Hygiene". The frontmatter `name` field and the heading title are internally consistent with each other but inconsistent with the filename. Any system or agent that references both the frontmatter `name` and the filename to identify a step (e.g., for logging, telemetry, or cross-step references in documentation) will observe a mismatch. The file content also describes a broader role than "QMD hygiene" — it handles both QMD collection hygiene (Deep tier) and CCC index registry hygiene (Forge+/Deep).
+
+**Fix:** Update frontmatter to `name: 'step-03-auto-index'` to match the filename and the step's actual dual responsibility (or, alternatively, rename the file to `step-03-qmd-hygiene.md` and update the `nextStepFile` reference in `step-02-write-config.md`). The former is lower risk.
+
+---
+
+## Confirmed Non-Issues (examined and dismissed)
+
+The following potential issues were investigated and confirmed to be non-issues:
+
+- **create-stack-skill step-01 "skill loading" messaging**: After reading step-02-detect-manifests.md section 0, the compose-mode handling does occur in step-02 exactly as the init summary implies. The messaging calls it "skill loading step" which accurately describes what section 0 of step-02 does. Acceptable.
+
+- **export-skill step-03/step-04 passive_context skip path with `{nextStepFile}` placeholder**: Both skip paths correctly auto-proceed to their respective `nextStepFile` values. The passive_context:false case in step-04 explicitly says "Auto-proceed immediately to `{nextStepFile}`" which resolves to step-05-token-report.md. The skip path is handled identically in both steps and is correct.
+
+- **export-skill step-04 skill index scan with `*/context-snippet.md` glob**: The single-level wildcard correctly addresses both single skills and stack skills since both are stored at one level under `skills_output_folder`. The skill type differentiation is driven by reading metadata, not directory depth.
+
+- **create-skill step-08 batch loop context reset**: Step-01 re-loads forge-tier.yaml, re-discovers the brief, and re-resolves the source on each loop iteration. The batch-state.yaml checkpoint mechanism correctly tracks `current_index`. Each iteration starts fresh from step-01 which is the correct reset point.
+
+- **setup-forge step-04-report.md uses emoji in rules**: The existing `web_bundle`, `communication_language`, `tier_rules` data references are all correctly structured. Emoji are used in this file's rule-enforcement markers which is consistent with the project's convention in workflow files (although the project CLAUDE.md guidance applies to the reviewer's output, not the workflow content itself).</result>
+<usage><total_tokens>76689</total_tokens><tool_uses>97</tool_uses><duration_ms>458604</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a594f6e4fcbdddc01.output
+
+---
+
+<task-notification>
+<task-id>a3176bae896af4df2</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a3176bae896af4df2.output</output-file>
+<status>completed</status>
+<summary>Agent "Review forger and agents code" completed</summary>
+<result>The `_bmad/core/workflows/` files exist in the project (they are bundled as part of the installed BMAD framework). The external workflow references in `step-05-recommend.md` (`advanced-elicitation` and `party-mode`) are not actually a standalone module violation — they're built-in BMAD core utilities that ship with the framework. However, `module.yaml` says "Standalone module — no other modules required" which is at least a documentation accuracy issue. Let me check whether this is accurate enough to call out.
+
+Now I have everything needed to write the full findings report. Let me compose it.
+
+---
+
+## Ultra-Deep Review: `/src/agents/` and `/src/forger/`
+
+Reviewing all files in `/home/armel/Projects/OSS/bmad-module-skill-forge/src/agents/` and `/home/armel/Projects/OSS/bmad-module-skill-forge/src/forger/`, with cross-reference analysis across all workflow step files, data files, and knowledge artifacts they depend on.
+
+---
+
+## CRITICAL Severity
+
+### CRITICAL-1: Step File Name Does Not Match Frontmatter `name` — Fragile Step Chain
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/setup-forge/steps-c/step-03-auto-index.md`, line 2
+
+**Issue:** The file on disk is named `step-03-auto-index.md`, but the frontmatter declares `name: 'step-03-qmd-hygiene'`. The file content describes "QMD Collection Hygiene" — aligning with the frontmatter name, not the filename. The name was changed to reflect the step's actual behavior (QMD hygiene only, no auto-indexing), but the filename was not updated.
+
+The upstream step (`step-02-write-config.md` line 5) chains to this step using `nextStepFile: './step-03-auto-index.md'` — the old, incorrect name. This works at runtime because the filesystem lookup uses the filename, but there is now a permanent semantic mismatch: the file is named after removed behavior ("auto-index") that the SYSTEM FAILURE section (line 207) explicitly prohibits. Any developer reading the step chain will be misled, and any refactoring tool that resolves `name:` references instead of filenames will break.
+
+**Correction:** Rename `step-03-auto-index.md` to `step-03-qmd-hygiene.md` and update `step-02-write-config.md`'s `nextStepFile` to `'./step-03-qmd-hygiene.md'`. Also update the `setup-forge/workflow.md` if it references the filename directly.
+
+**Confidence:** 95
+
+---
+
+## HIGH Severity
+
+### HIGH-1: `forger.agent.yaml` Metadata Field Naming Inconsistency — `sidecar-folder` vs camelCase Convention
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/agents/forger.agent.yaml`, line 10
+
+**Issue:** The metadata field is named `sidecar-folder` (kebab-case) while all other metadata fields use camelCase: `hasSidecar`, `sidecar-path`. The paired field on line 11 uses `sidecar-path`, which is also kebab-case, but `hasSidecar` on line 9 uses camelCase. This inconsistency is within a single block — three consecutive lines use two different naming conventions:
+
+```yaml
+hasSidecar: true          # camelCase
+sidecar-folder: forger-sidecar   # kebab-case
+sidecar-path: "..."       # kebab-case
+```
+
+If the BMAD framework loader uses consistent key lookup (e.g., camelCase normalization), `sidecar-folder` would fail to resolve while `hasSidecar` succeeds. The agent's ability to locate its sidecar memory depends on this being parsed correctly.
+
+**Correction:** Standardize to one convention. If the framework expects camelCase: rename to `sidecarFolder` and `sidecarPath`. If kebab-case is correct, rename `hasSidecar` to `has-sidecar`. Review how other agents in the BMAD ecosystem declare these fields and match their pattern.
+
+**Confidence:** 82
+
+---
+
+### HIGH-2: `forger.agent.yaml` `critical_actions` Path Inconsistency — Sidecar Path Hardcoded Differently Than `sidecar-path` Metadata
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/agents/forger.agent.yaml`, lines 44-45 vs line 11
+
+**Issue:** The `sidecar-path` metadata field on line 11 declares:
+```yaml
+sidecar-path: "{project-root}/_bmad/_memory/forger-sidecar/"
+```
+
+The `critical_actions` on lines 44-45 use the same path:
+```yaml
+- "Load COMPLETE file {project-root}/_bmad/_memory/forger-sidecar/preferences.yaml"
+- "Load COMPLETE file {project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"
+```
+
+However, all workflow step files that read the sidecar use `{sidecar_path}` as a resolved variable (e.g., `step-01-detect-and-tier.md`, `step-01-init.md` in update-skill and audit-skill). The `critical_actions` bypass the `{sidecar_path}` variable and hardcode the physical path directly. If the sidecar install path ever changes (e.g., a BMAD core update changes `_bmad/_memory/` to a different location), the `critical_actions` will break while workflows using `{sidecar_path}` will automatically adapt.
+
+**Correction:** Replace the hardcoded paths in `critical_actions` with `{sidecar_path}`:
+```yaml
+- "Load COMPLETE file {sidecar_path}/preferences.yaml"
+- "Load COMPLETE file {sidecar_path}/forge-tier.yaml"
+```
+
+This is consistent with how every workflow step file references the sidecar.
+
+**Confidence:** 85
+
+---
+
+### HIGH-3: `forger.agent.yaml` Missing Workflow Trigger — `create-stack-skill` Not in Menu
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/agents/forger.agent.yaml`, lines 50-101
+
+**Issue:** The agent menu has 13 entries. The trigger on line 71 is:
+```yaml
+- trigger: SS or fuzzy match on create-stack-skill
+  workflow: "...create-stack-skill/workflow.md"
+  description: "[SS] Stack Skill — consolidated project stack skill"
+```
+
+There is no entry for `quick-skill` despite having `[QS]` on line 67. Wait — this is present. The actual gap is: the menu lists `[WS] Workflow Status` as an `action:` item (line 100-101) with no `workflow:` key — meaning it has no step file to load. The action string is `"Show current lifecycle position, active skill briefs, and forge tier status"` — this is purely in-agent behavior. This is by design.
+
+Re-examining for the actual missing item: `create-stack-skill` uses trigger `SS`, but the description says "Stack Skill" not "Create Stack Skill". More importantly, `[SS]` could ambiguously match "setup-forge" if a user types "ss setup" — but the fuzzy match system should handle disambiguation. This is LOW confidence — not reportable.
+
+Actual HIGH finding: The `[WS] Workflow Status` menu item (line 99-101) specifies an `action:` but provides no implementation guidance in the agent YAML for how the agent should determine "current lifecycle position" and "active skill briefs". The agent has no persistent in-context state tracking mechanism — it reads the sidecar for forge tier but there is no sidecar field for "active skill briefs" or "workflow position." The agent cannot fulfill this action without hallucinating unless a specific lookup mechanism is defined.
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/agents/forger.agent.yaml`, lines 99-101
+
+**Issue:** The `[WS] Workflow Status` menu item promises to "show current lifecycle position, active skill briefs, and forge tier status" but provides no implementation guidance. The sidecar files (`forge-tier.yaml` and `preferences.yaml`) contain forge tier data but have no `active_skill_briefs` field or `workflow_position` tracker. The agent has no reliable source of truth for "active skill briefs" or "current lifecycle position" — it can only report what is currently in context, which violates the zero-hallucination principle if the session has no active workflow.
+
+**Correction:** Either (a) add an `active_workflows` tracking field to `forge-tier.yaml` that workflows update when they start/complete, and reference it here, or (b) narrow the action description to what is actually retrievable: `"Show forge tier from sidecar and list skill folders in {skills_output_folder}/ — lifecycle position requires an active workflow session"`.
+
+**Confidence:** 80
+
+---
+
+### HIGH-4: `analyze-source/step-05-recommend.md` References External Core Workflows — Contradicts Module Standalone Claim
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/analyze-source/steps-c/step-05-recommend.md`, lines 8-9
+
+**Issue:** The step frontmatter declares:
+```yaml
+advancedElicitationTask: '{project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml'
+partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+```
+
+Both files exist in the project under `_bmad/core/workflows/` (confirmed in the repo), but `module.yaml` line 5 states: `"Standalone module — no other modules required."` The analyze-source workflow's optional menu items (step 8) directly invoke these core workflows. If a user installs SKF as a standalone module without the BMAD core, selecting `[A] Advanced Elicitation` or `[P] Party Mode` at the recommendations gate will fail.
+
+The `TOOL/SUBPROCESS FALLBACK` rule in the step's universal rules (line 27: "If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread") partially mitigates this, but the agent would have no guidance on what the outcome of "party mode" or "advanced elicitation" should be in-context.
+
+**Correction:** Update `module.yaml` to state "Recommended alongside BMAD Core for advanced elicitation and party-mode features in analyze-source" — OR — add inline fallback instructions in the menu handling logic for when these workflow files are unavailable (e.g., "If `{advancedElicitationTask}` is not found, perform a simplified brainstorming session inline").
+
+**Confidence:** 83
+
+---
+
+### HIGH-5: `forge-tier.yaml` Missing `tier_override` Field — Sidecar Schema Incomplete
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/forger/forge-tier.yaml`
+
+**Issue:** Multiple workflow steps read `tier_override` from `preferences.yaml` to override the detected tier. However, the `critical_actions` in `forger.agent.yaml` (line 44) loads BOTH sidecar files at session start. The `forge-tier.yaml` template has no `tier_override` field and no comment indicating it is in `preferences.yaml`. More critically, `forge-tier.yaml` has a `tier:` field (line 14) but `preferences.yaml` has a `tier_override:` field — these serve different purposes but the naming similarity can confuse.
+
+The deeper issue: `forge-tier.yaml` documents `tools.security_scan: ~` (line 10) but no workflow in the entire system reads or writes `security_scan`. The setup-forge step-01-detect-and-tier.md does not detect or tier security_scan tools, and no workflow uses this field. It's a declared schema field with no consumer.
+
+**Correction for `security_scan`:** Either remove `security_scan` from the forge-tier.yaml template schema, or add detection logic in setup-forge/step-01-detect-and-tier.md and a tier-gate use case. A commented-out schema field with no consumers misleads contributors about supported capabilities.
+
+**Confidence:** 81
+
+---
+
+## MEDIUM Severity
+
+### MEDIUM-1: `workflows/README.md` create-skill Data Section Incomplete — Missing 4 of 6 Data Files
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/README.md`
+
+**Issue:** The create-skill data files section lists only 2 files (`extraction-patterns.md`, `skill-sections.md`), but the actual `create-skill/data/` directory contains at least 6 files referenced by step frontmatter: `extraction-patterns.md`, `skill-sections.md`, `extraction-patterns-tracing.md`, `tier-degradation-rules.md`, `source-resolution-protocols.md`, `compile-assembly-rules.md`. New contributors reading the README will not know these data files exist and will lack the context to understand the extraction pipeline's data-driven architecture.
+
+**Correction:** Update the workflows/README.md create-skill section to list all 6 data files with one-line descriptions of each.
+
+**Confidence:** 88
+
+---
+
+### MEDIUM-2: `forger.agent.yaml` `webskip: true` While All 12 Workflows Have `web_bundle: true` — Missing Explicit Reasoning
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/agents/forger.agent.yaml`, line 2
+
+**Issue:** The agent declares `webskip: true`, excluding it from web bundles. All 12 SKF workflows declare `web_bundle: true`, meaning they are included in web bundles. This creates an asymmetry: in a web bundle deployment, all workflow files would be present but the agent that orchestrates them (Ferris) would be absent. There is no comment or documentation explaining this design decision. Contributors adding future workflows would see `web_bundle: true` as the pattern and follow it, without understanding why the agent itself is excluded.
+
+**Correction:** Add a comment above `webskip: true` explaining the rationale, e.g.:
+```yaml
+# webskip: true — Ferris is only deployed in full BMAD installations.
+# Web bundle users access SKF workflows directly without the agent wrapper.
+```
+
+**Confidence:** 82
+
+---
+
+### MEDIUM-3: `preferences.yaml` Missing `communication_language` and `document_output_language` Fields — Incomplete Schema
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/forger/preferences.yaml`
+
+**Issue:** The workflow init sequences in `setup-forge/workflow.md` (line 46) and other workflows load `communication_language` and `document_output_language` from `config.yaml`, not from the sidecar. However, every step file's universal rules reference `{communication_language}` as if it is a session-time variable, and step-01 of setup-forge is where the agent initializes with these values.
+
+The `preferences.yaml` template has an `output_language: ~` field (line 12) but there is no explicit connection between this field and the `{communication_language}` / `{document_output_language}` variables used in step files. The template does not document whether `output_language` maps to `document_output_language`, `communication_language`, or both. A user editing preferences.yaml to change language output has no guidance on what `output_language` actually controls.
+
+**Correction:** Either rename `output_language` to `document_output_language` to match the config variable name directly, or add a comment: `# Controls document_output_language; communication_language is set in config.yaml`. This removes ambiguity for users editing the file.
+
+**Confidence:** 80
+
+---
+
+### MEDIUM-4: `forger.agent.yaml` `critical_actions` Knowledge Index Rule Missing JiT Loading Constraint
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/agents/forger.agent.yaml`, lines 47-48
+
+**Issue:** The `critical_actions` rules 4 and 5 state:
+```yaml
+- "Consult {project-root}/_bmad/skf/knowledge/skf-knowledge-index.csv to select knowledge fragments under knowledge/ and load only the files needed for the current task"
+- "Load the referenced fragment(s) from {project-root}/_bmad/skf/knowledge/ before giving recommendations"
+```
+
+This instruction has a timing problem: it says to load fragments "before giving recommendations" but does not specify WHEN in the workflow lifecycle to consult the index. Multiple step files explicitly say "consult knowledge/ when a step directs" (mirrored in the agent's own principles, line 41). The `critical_actions` rule contradicts the JiT loading model by suggesting the agent should proactively load knowledge before recommendations — which could trigger premature loading of knowledge files at session start rather than waiting for step direction.
+
+The workflow steps themselves have explicit knowledge-load directives. The agent's `critical_actions` rule creates an ambiguity about whether the agent should also proactively load knowledge outside of step-directed contexts.
+
+**Correction:** Tighten the phrasing to clarify that knowledge loading is step-directed only:
+```yaml
+- "When a workflow step directs knowledge consultation, consult {project-root}/_bmad/skf/knowledge/skf-knowledge-index.csv to select the relevant fragment(s) and load only those files"
+```
+
+**Confidence:** 80
+
+---
+
+## Summary
+
+| ID | Severity | File | Confidence |
+|----|----------|------|------------|
+| CRITICAL-1 | CRITICAL | `setup-forge/steps-c/step-03-auto-index.md` (filename) + `step-02-write-config.md:5` | 95 |
+| HIGH-1 | HIGH | `agents/forger.agent.yaml:10` | 82 |
+| HIGH-2 | HIGH | `agents/forger.agent.yaml:44-45` | 85 |
+| HIGH-3 | HIGH | `agents/forger.agent.yaml:99-101` | 80 |
+| HIGH-4 | HIGH | `analyze-source/steps-c/step-05-recommend.md:8-9` | 83 |
+| HIGH-5 | HIGH | `forger/forge-tier.yaml:10` | 81 |
+| MEDIUM-1 | MEDIUM | `workflows/README.md` | 88 |
+| MEDIUM-2 | MEDIUM | `agents/forger.agent.yaml:2` | 82 |
+| MEDIUM-3 | MEDIUM | `forger/preferences.yaml:12` | 80 |
+| MEDIUM-4 | MEDIUM | `agents/forger.agent.yaml:47-48` | 80 |
+
+**Previously identified false positives (excluded after verification):**
+- `update-skill` and `audit-skill` reading `source_root` from metadata.json — both `source_repo` (GitHub URL) and `source_root` (resolved local path) are valid, distinct fields in the metadata.json schema per `skill-sections.md` lines 120-121. Not a bug.
+- `analyze-source` using `{output_folder}` for the report path — `output_folder` is a legitimate Core Config variable loaded by the workflow init. The report is intentionally placed in the general output folder, not the forge workspace. Not a bug.
+- `source_root` / `source_repo` field name inconsistency in update-skill — disproven by examining the metadata schema. Both fields coexist.
+
+**Relevant files:**
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/agents/forger.agent.yaml`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/forger/forge-tier.yaml`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/forger/preferences.yaml`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/setup-forge/steps-c/step-03-auto-index.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/setup-forge/steps-c/step-02-write-config.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/analyze-source/steps-c/step-05-recommend.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/README.md`</result>
+<usage><total_tokens>58791</total_tokens><tool_uses>115</tool_uses><duration_ms>541393</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a3176bae896af4df2.output
+
+---
+
+1
