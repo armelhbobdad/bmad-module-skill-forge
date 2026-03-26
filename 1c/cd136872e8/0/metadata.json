@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "1ccd136872e8",
+  "session_id": "084142d8-b7da-432e-bf56-a94e3af5fed6",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-26T19:06:05.664789965Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/create-stack-skill/data/compose-mode-rules.md",
+    "src/workflows/create-stack-skill/steps-c/step-02-detect-manifests.md",
+    "src/workflows/create-stack-skill/steps-c/step-03-rank-and-confirm.md",
+    "src/workflows/create-stack-skill/steps-c/step-04-parallel-extract.md",
+    "src/workflows/create-stack-skill/steps-c/step-05-detect-integrations.md",
+    "src/workflows/create-stack-skill/steps-c/step-07-generate-output.md",
+    "src/workflows/refine-architecture/steps-c/step-01-init.md",
+    "src/workflows/refine-architecture/steps-c/step-05-compile.md",
+    "src/workflows/refine-architecture/steps-c/step-06-report.md",
+    "src/workflows/verify-stack/data/feasibility-report-template.md",
+    "src/workflows/verify-stack/steps-c/step-05-synthesize.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "88fb27fd22fe",
+  "token_usage": {
+    "input_tokens": 37,
+    "cache_creation_tokens": 78211,
+    "cache_read_tokens": 1204501,
+    "output_tokens": 12242,
+    "api_call_count": 22
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-26T19:06:05.093546159Z",
+    "agent_lines": 49,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 49,
+    "agent_percentage": 100
+  }
+}
