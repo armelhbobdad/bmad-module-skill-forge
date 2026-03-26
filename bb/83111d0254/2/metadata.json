@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "bb83111d0254",
+  "session_id": "9421369f-d2f2-4163-971f-6bbb7c7902cd",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-26T10:05:53.74841956Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/agents.md",
+    "docs/concepts.md",
+    "docs/examples.md",
+    "docs/getting-started.md",
+    "docs/how-it-works.md",
+    "docs/workflows.md",
+    "src/forger/README.md",
+    "src/forger/forge-tier.yaml",
+    "src/workflows/README.md",
+    "src/workflows/analyze-source/data/skill-brief-schema.md",
+    "src/workflows/brief-skill/data/scope-templates.md",
+    "src/workflows/create-skill/data/skill-sections.md",
+    "src/workflows/create-skill/steps-c/step-06-validate.md",
+    "src/workflows/quick-skill/steps-c/step-04-compile.md",
+    "src/workflows/test-skill/data/scoring-rules.md",
+    "src/workflows/update-skill/steps-c/step-03-re-extract.md",
+    "src/workflows/update-skill/steps-c/step-06-write.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "b9cdaa6fc47c",
+  "token_usage": {
+    "input_tokens": 32,
+    "cache_creation_tokens": 214345,
+    "cache_read_tokens": 1444753,
+    "output_tokens": 29686,
+    "api_call_count": 23
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-26T10:05:51.748295999Z",
+    "agent_lines": 64,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 64,
+    "agent_percentage": 100
+  }
+}

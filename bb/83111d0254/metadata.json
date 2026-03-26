@@ -3,16 +3,25 @@
   "checkpoint_id": "bb83111d0254",
   "strategy": "manual-commit",
   "branch": "dev",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "docs/agents.md",
     "docs/concepts.md",
+    "docs/examples.md",
     "docs/getting-started.md",
     "docs/how-it-works.md",
+    "docs/workflows.md",
+    "src/forger/README.md",
     "src/forger/forge-tier.yaml",
     "src/workflows/README.md",
+    "src/workflows/analyze-source/data/skill-brief-schema.md",
+    "src/workflows/brief-skill/data/scope-templates.md",
     "src/workflows/create-skill/data/skill-sections.md",
-    "src/workflows/create-skill/steps-c/step-06-validate.md"
+    "src/workflows/create-skill/steps-c/step-06-validate.md",
+    "src/workflows/quick-skill/steps-c/step-04-compile.md",
+    "src/workflows/test-skill/data/scoring-rules.md",
+    "src/workflows/update-skill/steps-c/step-03-re-extract.md",
+    "src/workflows/update-skill/steps-c/step-06-write.md"
   ],
   "sessions": [
     {
@@ -28,13 +37,20 @@
       "context": "/bb/83111d0254/1/context.md",
       "content_hash": "/bb/83111d0254/1/content_hash.txt",
       "prompt": "/bb/83111d0254/1/prompt.txt"
+    },
+    {
+      "metadata": "/bb/83111d0254/2/metadata.json",
+      "transcript": "/bb/83111d0254/2/full.jsonl",
+      "context": "/bb/83111d0254/2/context.md",
+      "content_hash": "/bb/83111d0254/2/content_hash.txt",
+      "prompt": "/bb/83111d0254/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 64,
-    "cache_creation_tokens": 503405,
-    "cache_read_tokens": 6791313,
-    "output_tokens": 39600,
-    "api_call_count": 51
+    "input_tokens": 96,
+    "cache_creation_tokens": 717750,
+    "cache_read_tokens": 8236066,
+    "output_tokens": 69286,
+    "api_call_count": 74
   }
 }
