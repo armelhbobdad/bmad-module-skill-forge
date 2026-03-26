@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "4717aa2e044e",
+  "session_id": "77b1367e-b309-466c-8847-232857e55c44",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-26T18:33:48.692833313Z",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/forger/forge-tier.yaml",
+    "src/knowledge/split-body-strategy.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "bfc0fb4b11ed",
+  "checkpoint_transcript_start": 1442,
+  "transcript_lines_at_start": 1442,
+  "token_usage": {
+    "input_tokens": 2,
+    "cache_creation_tokens": 10747,
+    "cache_read_tokens": 329486,
+    "output_tokens": 131,
+    "api_call_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-26T18:33:46.219864578Z",
+    "agent_lines": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 0,
+    "agent_percentage": 0
+  }
+}
