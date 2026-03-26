@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "4717aa2e044e",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/audit-skill/workflow.md",
+    "src/workflows/create-skill/data/source-resolution-protocols.md",
+    "src/workflows/create-skill/steps-c/step-03-extract.md",
+    "src/workflows/create-skill/steps-c/step-03b-fetch-temporal.md",
+    "src/workflows/create-skill/steps-c/step-03c-fetch-docs.md",
+    "src/workflows/create-skill/steps-c/step-04-enrich.md",
+    "src/workflows/create-skill/steps-c/step-05-compile.md",
+    "src/workflows/create-skill/steps-c/step-07-generate-artifacts.md",
+    "src/workflows/export-skill/data/snippet-format.md",
+    "src/workflows/export-skill/steps-c/step-05-token-report.md",
+    "src/workflows/export-skill/workflow.md",
+    "src/workflows/refine-architecture/steps-c/step-02-gap-analysis.md",
+    "src/workflows/refine-architecture/steps-c/step-03-issue-detection.md",
+    "src/workflows/refine-architecture/steps-c/step-04-improvements.md",
+    "src/workflows/setup-forge/steps-c/step-01-detect-and-tier.md",
+    "src/workflows/setup-forge/steps-c/step-01b-ccc-index.md",
+    "src/workflows/setup-forge/steps-c/step-04-report.md",
+    "src/workflows/verify-stack/steps-c/step-05-synthesize.md",
+    "test/test-installation-components.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/47/17aa2e044e/0/metadata.json",
+      "transcript": "/47/17aa2e044e/0/full.jsonl",
+      "context": "/47/17aa2e044e/0/context.md",
+      "content_hash": "/47/17aa2e044e/0/content_hash.txt",
+      "prompt": "/47/17aa2e044e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 61,
+    "cache_creation_tokens": 492474,
+    "cache_read_tokens": 6361996,
+    "output_tokens": 39064,
+    "api_call_count": 48
+  }
+}
