@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "fd57777a78c1",
+  "session_id": "2ae9932f-0e07-4d09-9eb3-8e26342b9f52",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-26T05:40:53.019486825Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "test/test-installation-components.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "3c7ed05153d8",
+  "token_usage": {
+    "input_tokens": 10604,
+    "cache_creation_tokens": 207052,
+    "cache_read_tokens": 2848733,
+    "output_tokens": 23386,
+    "api_call_count": 35
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-26T05:40:52.090636471Z",
+    "agent_lines": 14,
+    "human_added": 106,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 120,
+    "agent_percentage": 11.666666666666666
+  }
+}
