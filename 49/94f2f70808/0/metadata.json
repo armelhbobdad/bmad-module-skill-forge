@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "4994f2f70808",
+  "session_id": "9652b728-aed5-4057-9684-fb45ab8f01a3",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-26T06:39:46.923468546Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/getting-started.md",
+    "docs/how-it-works.md",
+    "src/workflows/analyze-source/workflow.md",
+    "src/workflows/audit-skill/workflow.md",
+    "src/workflows/create-skill/steps-c/step-07-generate-artifacts.md",
+    "src/workflows/create-skill/steps-c/step-08-report.md",
+    "src/workflows/create-stack-skill/steps-c/step-02-detect-manifests.md",
+    "src/workflows/create-stack-skill/steps-c/step-05-detect-integrations.md",
+    "src/workflows/export-skill/workflow.md",
+    "src/workflows/quick-skill/workflow.md",
+    "src/workflows/refine-architecture/steps-c/step-01-init.md",
+    "src/workflows/refine-architecture/steps-c/step-02-gap-analysis.md",
+    "src/workflows/refine-architecture/steps-c/step-03-issue-detection.md",
+    "src/workflows/refine-architecture/steps-c/step-04-improvements.md",
+    "src/workflows/refine-architecture/steps-c/step-05-compile.md",
+    "src/workflows/test-skill/workflow.md",
+    "src/workflows/update-skill/steps-c/step-03-re-extract.md",
+    "src/workflows/update-skill/workflow.md",
+    "src/workflows/verify-stack/data/feasibility-report-template.md",
+    "src/workflows/verify-stack/steps-c/step-01-init.md",
+    "src/workflows/verify-stack/steps-c/step-04-requirements.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "c14fb63878b3",
+  "token_usage": {
+    "input_tokens": 49,
+    "cache_creation_tokens": 116085,
+    "cache_read_tokens": 2963931,
+    "output_tokens": 22564,
+    "api_call_count": 32
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-26T06:39:45.238246059Z",
+    "agent_lines": 61,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 61,
+    "agent_percentage": 100
+  }
+}
