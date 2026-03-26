@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "4c47adcfd55f",
+  "session_id": "0ed9ea62-4ea1-4bd9-8616-69c989fef5dd",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-26T18:03:26.481227666Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/update-skill/steps-c/step-02-detect-changes.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "bbf7b13c780f",
+  "token_usage": {
+    "input_tokens": 61,
+    "cache_creation_tokens": 492474,
+    "cache_read_tokens": 6361996,
+    "output_tokens": 39064,
+    "api_call_count": 48
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-26T18:03:23.492589366Z",
+    "agent_lines": 1,
+    "human_added": 104,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 105,
+    "agent_percentage": 0.9523809523809524
+  }
+}
