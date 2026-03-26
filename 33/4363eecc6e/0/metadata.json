@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "334363eecc6e",
+  "session_id": "9652b728-aed5-4057-9684-fb45ab8f01a3",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-26T06:43:15.328895597Z",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/workflows/verify-stack/steps-c/step-05-synthesize.md",
+    "src/workflows/verify-stack/steps-c/step-06-report.md",
+    "src/workflows/refine-architecture/steps-c/step-01-init.md",
+    "src/workflows/refine-architecture/steps-c/step-06-report.md",
+    "src/workflows/create-stack-skill/steps-c/step-07-generate-output.md",
+    "src/workflows/create-stack-skill/steps-c/step-03-rank-and-confirm.md",
+    "src/workflows/create-skill/steps-c/step-01-load-brief.md",
+    "src/knowledge/confidence-tiers.md",
+    "src/knowledge/zero-hallucination.md",
+    "src/workflows/quick-skill/data/skill-template.md",
+    "src/workflows/update-skill/steps-c/step-06-write.md",
+    "src/workflows/create-stack-skill/data/stack-skill-template.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "c14fb63878b3",
+  "checkpoint_transcript_start": 1277,
+  "transcript_lines_at_start": 1277,
+  "token_usage": {
+    "input_tokens": 19,
+    "cache_creation_tokens": 28761,
+    "cache_read_tokens": 2821114,
+    "output_tokens": 7144,
+    "api_call_count": 19
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-26T06:43:13.462867979Z",
+    "agent_lines": 36,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 36,
+    "agent_percentage": 100
+  }
+}
