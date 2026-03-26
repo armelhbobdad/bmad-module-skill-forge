@@ -1,0 +1,457 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/workflow/workflow-validate-max-parallel-workflow.md, READ its entire contents and follow its directions exactly!
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/workflow/workflow-validate-max-parallel-workflow.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/workflows/
+
+---
+
+all
+
+---
+
+<task-notification>
+<task-id>afa0dc99f71befb2e</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/afa0dc99f71befb2e.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate test-skill workflow" completed</summary>
+<result>The validation report has been written to `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/test-skill/validation-report-2026-03-26.md`.
+
+Here is a summary of the findings:
+
+**Overall Status: WARNINGS (non-blocking) -- 0 critical issues, 10 warnings**
+
+**Checks that passed cleanly (8 of 11):**
+- Frontmatter Validation -- all 28 variables across 7 files are consumed in their step bodies, all paths use correct formats, no forbidden patterns
+- Critical Path Violations -- zero hardcoded paths in step bodies, all 15 file references resolve to existing files
+- Menu Handling Validation -- all 7 steps use appropriate menu patterns (auto-proceed for 01-05/04b, C-only for final step 06)
+- Step Type Validation -- all 7 steps match designed types with all 6 required sections present
+- Output Format Validation -- structured template matches design, Direct-to-Final pattern, write-before-proceed enforced in all steps
+- Validation Design Check -- N/A (the workflow itself IS a validator)
+- Instruction Style Check -- all prescriptive, appropriate for audit domain
+- Subprocess Optimization -- correctly concentrated in steps 03 and 04 with proper fallbacks
+
+**Primary issue -- File Structure & Size (FAIL):** 6 of 7 step files exceed the 200-line recommended limit. step-03-coverage-check.md at 245 lines is approaching the 250-line absolute maximum. Extraction of tier-specific instructions and inline templates into data files would resolve this.
+
+**Other warnings:** Batch mode is referenced in the plan but unimplemented, step-02 references a threshold value before it is loaded by step-05, and some qualitative language in step-04's integration pattern criteria could benefit from more concrete measurements.
+
+**Key strengths identified:** Zero-hallucination enforcement, sophisticated 5-state source access protocol, four-tier depth scaling, external validator integration with graceful fallbacks, and well-externalized data files.</result>
+<usage><total_tokens>79782</total_tokens><tool_uses>26</tool_uses><duration_ms>279562</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/afa0dc99f71befb2e.output
+
+---
+
+<task-notification>
+<task-id>ab90a58941d189be7</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/ab90a58941d189be7.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate refine-architecture workflow" completed</summary>
+<result>The validation report has been written to `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/validation-report-2026-03-26.md` (492 lines).
+
+## Summary of Findings
+
+**Overall Rating: STRONG PASS** with 12 findings (3 critical, 4 major, 5 minor).
+
+### Critical Findings (3)
+
+All three are the same issue: **Steps 02, 03, and 04 use `{outputFile}` in their body text** (for durability comment block writes) **but do not declare `outputFile` in their frontmatter.** This violates the frontmatter golden rule. Fix: add `outputFile: '{output_folder}/refined-architecture-{project_name}.md'` to each step's frontmatter.
+
+### Major Findings (4)
+
+- **F2.4:** `step-05-compile.md` declares `refinementRulesData` in frontmatter but never references `{refinementRulesData}` in its body. Fix: remove it from frontmatter.
+- **F4.1 (promoted from minor):** Menu section ordering in step-05 is inverted (EXECUTION RULES before Handler instead of after).
+- **F10.1:** Missed subprocess optimization opportunity -- steps 02-04 load individual SKILL.md files per skill, which is a Pattern 2 (per-file deep analysis) scenario that would benefit from subprocess directives with "DO NOT BE LAZY" language.
+
+### Minor Findings (5)
+
+- Menu section ordering inversion in step-05 (cosmetic).
+- Missing "NEVER generate without user input" universal rule across all steps (mitigated by the workflow's analytical, non-generative nature).
+- Missing "YOU ARE A FACILITATOR" universal rule across all steps (same mitigation).
+
+### Strengths
+
+The workflow demonstrates strong design: disciplined scope boundaries with FORBIDDEN directives, consistent evidence citation format, clean gate checkpoint at step 05, graceful degradation for edge cases (single-skill, missing VS report), and a clever context durability mechanism using HTML comment blocks.</result>
+<usage><total_tokens>63874</total_tokens><tool_uses>44</tool_uses><duration_ms>251713</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/ab90a58941d189be7.output
+
+---
+
+<task-notification>
+<task-id>ade4c369ba6113953</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/ade4c369ba6113953.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate quick-skill workflow" completed</summary>
+<result>The validation report has been written to `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/quick-skill/validation-report-2026-03-26.md`.
+
+**Summary of findings:**
+
+**Overall Status: PASS with WARNINGS**
+
+All 11 validation checks were performed by reading every file in the workflow folder (workflow.md, workflow-plan-quick-skill.md, 2 data files, 6 step files, and the previous validation report) against the 8 reference standard files.
+
+**Key findings:**
+
+- **3 size warnings:** step-01 (165 lines, Init guideline is 150), step-04 (212 lines, Middle Simple limit is 200), step-05 (213 lines, Middle Simple limit is 200). None exceed the 250-line absolute maximum.
+- **Previous validation report inaccuracy detected:** The 2026-02-27 report listed step-04 as 180 lines and step-05 as 150 lines, but actual counts are 212 and 213 respectively, indicating post-validation modifications were made.
+- **All other checks passed cleanly:** frontmatter (all variables used, correct paths, no forbidden patterns), critical path (no hardcoded paths, no dead links), menu handling (compliant across all 6 steps), step types (all match expected patterns), output format (compile-then-write pattern appropriate), validation design (advisory inline check appropriate), instruction style (prescriptive consistently applied), collaborative experience (4/5, efficient partnership), subprocess optimization (no opportunities, linear pipeline), and cohesive review (Very Good rating).
+
+**No critical issues. Recommendation: Ready to use.**</result>
+<usage><total_tokens>75810</total_tokens><tool_uses>37</tool_uses><duration_ms>279868</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/ade4c369ba6113953.output
+
+---
+
+<task-notification>
+<task-id>ad25ec1f34a266ae4</task-id>
+<tool-use-id>toolu_01Jc8NNJLm89tCJrFMX19ZpU</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/ad25ec1f34a266ae4.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate setup-forge workflow" completed</summary>
+<result>The validation report has been written to `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/setup-forge/validation-report-2026-03-26.md`.
+
+## Validation Summary
+
+All 11 checks completed across 5 step files, 1 data file, and the workflow entry point. Key findings:
+
+**Overall Status:** PASS with WARNINGS
+
+**No critical issues found.**
+
+**2 Warnings:**
+
+1. **Autonomy Contradiction** -- `workflow.md` declares "fully autonomous workflow -- no user interaction" but `step-03-auto-index.md` includes a user prompt (`[R]emove` / `[K]eep`) for orphaned QMD collection handling in Deep tier. The step self-documents this, but the workflow-level declaration is inaccurate.
+
+2. **step-03 file size** -- At 210 lines, it exceeds the 200-line recommended limit (but stays under the 250-line absolute maximum). It handles both QMD hygiene and CCC registry hygiene, which could be split.
+
+**2 Informational notes:**
+
+1. **step-03 naming mismatch** -- Filename `step-03-auto-index.md` no longer matches the actual content ("QMD Collection Hygiene"). The old auto-index behavior was explicitly removed, but the filename was not updated.
+
+2. **Previous validation report outdated** -- The existing `validation-report.md` (2026-02-26) predates the addition of `step-01b-ccc-index.md` and the refactoring of step-03, and is no longer accurate.
+
+All frontmatter variables are correctly used, all file references resolve, all paths are relative where required, prescriptive style is appropriate, and the step chain (01 -> 01b -> 02 -> 03 -> 04) is complete with no dead links.</result>
+<usage><total_tokens>72443</total_tokens><tool_uses>37</tool_uses><duration_ms>287274</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/ad25ec1f34a266ae4.output
+
+---
+
+<task-notification>
+<task-id>a8f2776f53a393f19</task-id>
+<tool-use-id>toolu_01R3tzVJh14MoQeAVGUhotcm</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a8f2776f53a393f19.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate export-skill workflow" completed</summary>
+<result>Validation report written successfully. Here is a summary of the findings:
+
+**Workflow:** export-skill (6-step create-only utility workflow for packaging skills and updating agent context files)
+
+**Overall Status: PASS -- all 11 checks passed with 0 issues.**
+
+Key findings across the 11 validation checks:
+
+1. **File Structure & Size** -- All files within limits. step-04 at 223 lines is the largest but justified by three-case CLAUDE.md logic. step-01 at 199 lines is at the boundary (200 max for Init with Input Discovery).
+
+2. **Frontmatter Validation** -- All frontmatter variables are used in their respective step bodies. No unused variables, no forbidden patterns, correct relative path formats.
+
+3. **Critical Path Violations** -- Complete unbroken nextStepFile chain (01 -> 02 -> 03 -> 04 -> 05 -> 06). Both data file references resolve correctly.
+
+4. **Menu Handling** -- Steps 01 and 04 use P2 (C-only) with proper handler sections, halt-and-wait, and redisplay logic. Steps 02, 03, 05 use P3 (auto-proceed). Step 06 is final with no menu.
+
+5. **Step Type Validation** -- All 6 steps match their declared types from the workflow plan.
+
+6. **Output Format** -- N/A (action-based workflow, not document-producing). Correctly classified.
+
+7. **Validation Design** -- N/A (create-only utility with inline validation). No steps-v/ needed.
+
+8. **Instruction Style** -- Consistently prescriptive throughout, appropriate for deterministic utility operations.
+
+9. **Collaborative Experience** -- Good checkpoint placement (2 gates at high-impact decisions), consistent edge case handling for dry-run and passive_context across all steps.
+
+10. **Subprocess Optimization** -- N/A (lightweight linear pipeline). All steps include the subprocess fallback rule regardless.
+
+11. **Cohesive Review** -- Quality score 8.5/10. Strong safety model for shared file modification, excellent data consistency, clean three-phase progression arc.
+
+Report written to: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/export-skill/validation-report-2026-03-26.md`</result>
+<usage><total_tokens>73263</total_tokens><tool_uses>45</tool_uses><duration_ms>268813</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a8f2776f53a393f19.output
+
+---
+
+<task-notification>
+<task-id>a577492248a2f1ac2</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a577492248a2f1ac2.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate brief-skill workflow" completed</summary>
+<result>The validation report has been written to `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/brief-skill/validation-report-2026-03-26.md`.
+
+## Summary of Findings
+
+**Overall Assessment: EXCELLENT** -- The brief-skill workflow is production-ready.
+
+**All 11 checks completed:**
+- 9 checks: PASS
+- 2 checks: EXCELLENT (Collaborative Experience 5/5, Cohesive Review)
+- 0 critical issues
+
+**3 Warnings identified:**
+1. **step-02-analyze-target.md** at 218 lines exceeds the 200-line per-type max for Middle (Simple) steps (CCC semantic signals and multi-language detection logic are contributors)
+2. **step-05-write-brief.md** at 211 lines exceeds the 200-line per-type max for Final steps (QMD Collection Registration is the contributor)
+3. **`{sidecar_path}/preferences.yaml`** in step-01 is a hardcoded file reference not captured in frontmatter, inconsistent with the `forgeTierFile` pattern
+
+**Notable changes since prior validation (2026-02-27):** The workflow gained significant features (docs-only mode, QMD integration, CCC support, version auto-detection, tier override, scope template extraction to data file) while maintaining clean architecture and BMAD standards compliance.</result>
+<usage><total_tokens>81357</total_tokens><tool_uses>43</tool_uses><duration_ms>300062</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a577492248a2f1ac2.output
+
+---
+
+<task-notification>
+<task-id>aaa175baf1ec987a7</task-id>
+<tool-use-id>toolu_01EHTuEDttSw16wUAf8Yjqka</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/aaa175baf1ec987a7.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate create-stack-skill workflow" completed</summary>
+<result>The validation report has been written to `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-stack-skill/validation-report-2026-03-26.md`.
+
+**Summary of findings:**
+
+**Overall Status: EXCELLENT** -- All 11 validation checks pass.
+
+**Files analyzed:** 16 files total (workflow.md, workflow-plan, 9 step files, 4 data files, 1 prior validation report).
+
+**Key results across the 11 checks:**
+
+1. **File Structure & Size:** PASS. 8/9 steps under 200 lines. step-07 at 229 lines (advisory).
+2. **Frontmatter Validation:** PASS. Zero unused variables. All paths correct.
+3. **Critical Path Violations:** PASS. No hardcoded paths, no dead links, correct module awareness.
+4. **Menu Handling:** PASS. Both gate steps (03, 06) have handler sections, "halt and wait", and redisplay logic. Minor section ordering advisory in step-03.
+5. **Step Type Validation:** PASS. All 9 steps match their designated types.
+6. **Output Format:** N/A (non-document action-based workflow).
+7. **Validation Design:** PASS. Internal step-08 with skill-check integration is appropriate.
+8. **Instruction Style:** PASS. Consistent prescriptive style across all 9 steps.
+9. **Collaborative Experience:** PASS. Appropriate for prescriptive pipeline with 2 strategic user gates.
+10. **Subprocess Optimization:** PASS. 3 subprocess patterns (grep, parallel) with fallbacks in all 9 steps.
+11. **Cohesive Review:** EXCELLENT. Well-structured pipeline with compose-mode enhancement.
+
+**3 Advisory items** (no must-fix issues): step-07 size (229 lines), step-03 menu section ordering, intentional omission of "NEVER generate without user input" universal rule.
+
+**Key changes since prior validation (2026-02-27):** Compose mode added across all steps, skill-check integration in step-08, CCC semantic augmentation in step-05, new `data/compose-mode-rules.md` data file.</result>
+<usage><total_tokens>91240</total_tokens><tool_uses>52</tool_uses><duration_ms>302920</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/aaa175baf1ec987a7.output
+
+---
+
+<task-notification>
+<task-id>aceca2bc63695f581</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/aceca2bc63695f581.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate create-skill workflow" completed</summary>
+<result>The validation report has been written to `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-skill/validation-report-2026-03-26.md`.
+
+**Summary of findings:**
+
+The create-skill workflow receives an overall rating of **9.0/10** with a status of **PASS WITH FINDINGS**. It is a high-quality, production-grade workflow with exemplary tier-aware architecture, zero hallucination enforcement, and graceful degradation patterns.
+
+**4 findings identified:**
+
+| ID | Severity | Issue |
+|----|----------|-------|
+| F1.1 | HIGH | `step-03-extract.md` at 255 lines exceeds the 250-line absolute maximum |
+| F1.2 | HIGH | `step-07-generate-artifacts.md` at 260 lines exceeds the 250-line absolute maximum |
+| F1.3 | LOW | `step-06-validate.md` at 250 lines is at the exact boundary |
+| F8.1 | LOW | `step-03c-fetch-docs.md` has inconsistent emoji markers in Universal Rules section |
+
+The workflow has grown significantly since the previous validation on 2026-02-26, adding 3 new step files and 4 new data files. The size violations are a direct result of this feature growth and could be resolved by extracting sub-steps (e.g., `step-07b-register-collections.md`) or moving logic to data files.
+
+All other 9 validation checks passed cleanly: frontmatter, critical paths, menu handling, step types, output format, validation design, instruction style, collaborative experience, and subprocess optimization.</result>
+<usage><total_tokens>111468</total_tokens><tool_uses>58</tool_uses><duration_ms>298360</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/aceca2bc63695f581.output
+
+---
+
+<task-notification>
+<task-id>a0766fb2f016230c1</task-id>
+<tool-use-id>toolu_01Q78RzujA1CC6rLBt9m9Rem</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a0766fb2f016230c1.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate verify-stack workflow" completed</summary>
+<result>The validation report has been written to `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/validation-report-2026-03-26.md`.
+
+**Summary of findings:**
+
+**Overall Status: EXCELLENT** -- 0 must-fix issues, 3 minor advisories.
+
+All 11 validation checks passed:
+
+1. **File Structure & Size:** All 6 step files under 200 lines, proper folder structure with workflow.md, steps-c/, and data/.
+2. **Frontmatter:** All variables in all 6 steps are used in body content, no unused variables, correct path formats.
+3. **Critical Paths:** No hardcoded paths, no dead links, module config variables properly loaded via workflow.md.
+4. **Menu Handling:** step-06 has proper R/X menu with handler and execution rules. step-02 has a conditional gate (minor formatting advisory).
+5. **Step Types:** All steps match expected patterns (init, validation sequence, final).
+6. **Output Format:** Progressive append to semi-structured template with proper step-to-section mapping.
+7. **Validation Design:** Every step has explicit SUCCESS/FAILURE metrics.
+8. **Instruction Style:** Prescriptive throughout, correct for analytical pipeline domain.
+9. **Collaborative Experience:** Clear progression arc, meaningful interaction points, consistent role reinforcement.
+10. **Subprocess Optimization:** No subprocess needed at expected scale; universal fallback rule present in all steps.
+11. **Cohesive Review:** 10 strengths identified, clean data flow between steps, evidence-backed verdicts enforced.
+
+**3 advisory items:** step-02 conditional menu could use standard headers, step-06 could update stepsCompleted, and module config variables in step-01 body could optionally be declared in frontmatter.</result>
+<usage><total_tokens>73377</total_tokens><tool_uses>56</tool_uses><duration_ms>300685</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a0766fb2f016230c1.output
+
+---
+
+<task-notification>
+<task-id>a8b6a86a9b2438e88</task-id>
+<tool-use-id>toolu_01K7hqVks7K4tTw6WQ1mytdC</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a8b6a86a9b2438e88.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate update-skill workflow" completed</summary>
+<result>The validation report has been written to `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/update-skill/validation-report-2026-03-26.md`.
+
+## Summary of Findings
+
+**Overall Status: PASS with 1 violation** (improved from the previous 2026-02-27 validation)
+
+### What was validated
+All 14 files in the update-skill workflow were read and analyzed across all 11 validation checks: workflow.md, workflow-plan, 7 step files, and 4 data files.
+
+### Key findings
+
+**Must Fix (1 violation):**
+- **step-03-re-extract.md** has an unused frontmatter variable `tierDegradationRulesData: '../data/tier-degradation-rules.md'`. The data file exists but is never referenced via `{tierDegradationRulesData}` in the step body. Either remove it from frontmatter or add a load reference in the body.
+
+**Previous issues fixed:**
+- The step-02 hardcoded path violation flagged in the 2026-02-27 validation has been fixed (now uses `{noChangeReportFile}`)
+- The step-06 evidence-report creation edge case has been addressed
+
+**Warnings:**
+- 6 of 7 step files are at or exceeding recommended size limits. Step-03 (234 lines) and step-04 (239 lines) are closest to the 250-line absolute limit. Feature additions like docs-only mode, CCC ranking, gap-driven mode, and script/asset support have driven growth since the last validation.
+
+**Rating: EXCELLENT** -- ready to use after fixing the 1 frontmatter violation. The workflow's surgical pipeline architecture, multi-layered [MANUAL] preservation, tier-aware extraction, and two-phase validation design are all strong.</result>
+<usage><total_tokens>88100</total_tokens><tool_uses>36</tool_uses><duration_ms>336402</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/a8b6a86a9b2438e88.output
+
+---
+
+<task-notification>
+<task-id>ab34c8c5c58ab21bc</task-id>
+<tool-use-id>toolu_013RnkejriUkhzSKK6zR6Spx</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/ab34c8c5c58ab21bc.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate audit-skill workflow" completed</summary>
+<result>The validation report has been written to `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/audit-skill/validation-report-2026-03-26.md`.
+
+**Summary of the complete 11-check validation:**
+
+**Overall Status: PASS** -- 0 violations, 0 critical issues
+
+Key findings across all 11 checks:
+
+1. **File Structure & Size:** PASS with 4 warnings. Steps 02/03/05/06 exceed the 200-line recommended limit (218/208/210/217) but all stay under the 250-line absolute maximum. Dense table/template content justifies the overage.
+
+2. **Frontmatter Validation:** PASS (0 violations). All frontmatter variables are used in their respective step bodies. **Correction:** The prior validation report (2026-02-27) falsely flagged an unused `severityRulesFile` in step-01-init.md; that variable does not exist in step-01's frontmatter. It only exists in step-05, where it is used correctly 5 times.
+
+3. **Critical Path Violations:** PASS. No hardcoded paths, no dead links, no forbidden patterns, correct module awareness.
+
+4. **Menu Handling:** PASS. Step-01 has a proper C-only gate with halt/wait/redisplay. Steps 02-05 correctly auto-proceed. Step-06 has no menu (final step).
+
+5. **Step Type Validation:** PASS. All 6 steps match their design types from the workflow plan.
+
+6. **Output Format:** PASS. Structured template with correct Direct-to-Final progressive append pattern and proper step-to-output mapping.
+
+7. **Validation Design Check:** PASS. Create-only workflow that is itself a validation tool; no steps-v/ needed.
+
+8. **Instruction Style:** PASS. Prescriptive style is correct for this deterministic analysis domain.
+
+9. **Collaborative Experience:** GOOD. Single user gate at init, autonomous analysis, actionable completion with workflow chaining.
+
+10. **Subprocess Optimization:** PASS. 4 subprocess patterns correctly matched to operation types with graceful fallbacks.
+
+11. **Cohesive Review:** EXCELLENT. Strong linear progression, consistent voice, clean data flow, comprehensive completion with 12 identified strengths.</result>
+<usage><total_tokens>82930</total_tokens><tool_uses>48</tool_uses><duration_ms>362432</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/ab34c8c5c58ab21bc.output
+
+---
+
+<task-notification>
+<task-id>aaadcf227cfcefef7</task-id>
+<tool-use-id>toolu_016MeocFFGcMkMaesQ5B7s58</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/aaadcf227cfcefef7.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate analyze-source workflow" completed</summary>
+<result>The validation report has been written to `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/analyze-source/validation-report-2026-03-26.md`.
+
+## Summary of Findings
+
+**Overall Status: PASS (with warnings)**
+
+All 11 validation checks were performed against the analyze-source workflow (13 files across workflow.md, 7 step files, 2 data files, 1 template, and the plan).
+
+**Key findings:**
+
+- **0 critical issues, 0 violations** across frontmatter, critical paths, menu handling, step types, and output format checks.
+- **6 warnings**, primarily around file size creep:
+  - 5 step files are now in the 200-250 line warning zone (up from 4 at the original 2026-02-27 validation). `step-01-init.md` has crossed the 200-line threshold (now 202, was 191). `step-04-map-and-detect.md` at 243 lines is closest to the 250-line absolute maximum.
+  - 1 minor plan-implementation divergence: Party Mode included at step-05 despite tools config marking it "excluded" (reasonable design override).
+- **Notable enhancements since initial validation**: Steps 04 and 05 now include a custom `[D] Discover Additional Source` option enabling multi-repo analysis mid-workflow. Step-01 gained tier_override support from preferences.yaml.
+- **Strengths**: Evidence-based pipeline with zero-hallucination principle, well-placed collaborative gate, perfect data flow, tier-aware analysis depth with graceful degradation, continuation support, and downstream workflow recommendations.
+- **Recommended action**: Extract tier-specific instructions and presentation templates to `data/` files to bring step files below the 200-line recommended limit.</result>
+<usage><total_tokens>95308</total_tokens><tool_uses>56</tool_uses><duration_ms>387243</duration_ms></usage>
+</task-notification>
+Full transcript available at: /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/1125c0b2-92cb-4788-ab97-55a87bb1aeae/tasks/aaadcf227cfcefef7.output
+
+---
+
+F
+
+---
+
+A
+
+---
+
+can we safely delete all validation-report.md (e.g: @src/workflows/test-skill/validation-report.md )  and workflow-plan-<name>.md files (e.g: @src/workflows/test-skill/workflow-plan-test-skill.md )  ?
+
+---
+
+yes
+
+---
+
+can we do the same with all validation-report files (e.g @src/workflows/test-skill/validation-report.md )?
+
+---
+
+yes delete
+
+---
+
+[Request interrupted by user]
+
+---
+
+move them in @_bmad-output folder
+
+---
+
+X
