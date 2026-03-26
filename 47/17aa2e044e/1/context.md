@@ -20,3 +20,7 @@ It feels like we’ve been going in circles. We’ve already made over 20 fix co
 
 read the 20 recents fix commit, squash them with a clean message commit.
 
+### Prompt 4
+
+now, review this squashed commit for the last time using a geniune strategy that will never produce additional bug, regression, missing impact.
+
