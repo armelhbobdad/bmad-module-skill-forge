@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "be3ccbf4e7fa",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/getting-started.md",
+    "docs/how-it-works.md",
+    "src/workflows/audit-skill/workflow.md",
+    "src/workflows/create-skill/steps-c/step-01-load-brief.md",
+    "src/workflows/create-skill/steps-c/step-03-extract.md",
+    "src/workflows/create-skill/steps-c/step-08-report.md",
+    "src/workflows/refine-architecture/steps-c/step-01-init.md",
+    "src/workflows/setup-forge/steps-c/step-01-detect-and-tier.md",
+    "src/workflows/setup-forge/steps-c/step-02-write-config.md",
+    "src/workflows/setup-forge/workflow.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/be/3ccbf4e7fa/0/metadata.json",
+      "transcript": "/be/3ccbf4e7fa/0/full.jsonl",
+      "context": "/be/3ccbf4e7fa/0/context.md",
+      "content_hash": "/be/3ccbf4e7fa/0/content_hash.txt",
+      "prompt": "/be/3ccbf4e7fa/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 25,
+    "cache_creation_tokens": 101536,
+    "cache_read_tokens": 1103820,
+    "output_tokens": 14508,
+    "api_call_count": 16
+  }
+}
