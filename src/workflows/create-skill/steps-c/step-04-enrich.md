@@ -70,7 +70,7 @@ Before searching, check which QMD collections are available:
 3. **If no enrichment collections exist** (no `"temporal"` or `"docs"` type collections): report this and auto-proceed. Display:
 
 "**Enrichment: no enrichment collections available.**
-Only brief-type or extraction-type QMD collections found — no temporal context (issues, PRs, changelogs) or docs collections indexed. Enrichment skipped (expected for first-run skill creation). Enrichment becomes available when temporal or docs context is indexed into QMD collections.
+Only brief-type or extraction-type QMD collections found — no temporal context (issues, PRs, changelogs) or docs collections indexed. {IF extraction_mode is 'docs-only' AND T3 items exist in extraction_inventory: 'T3 documentation content is available in extraction inventory — enrichment via QMD is skipped but T3 content will be compiled.'} {ELSE: 'Enrichment skipped (expected for first-run skill creation). Enrichment becomes available when temporal or docs context is indexed into QMD collections.'}
 
 Proceeding to compilation..."
 

@@ -27,6 +27,17 @@ With confidence tiers:
 | T2 | QMD-enriched | Knowledge base | QMD semantic search + synthesis | Deep |
 | T3 | External reference | Docs, URLs | External documentation lookup | All tiers |
 
+## T2 Sub-Types
+
+T2 enrichment content maps to temporal scopes that control where annotations surface:
+
+| Sub-type | Content | Surface Level |
+| --- | --- | --- |
+| T2-past | Closed issues, merged PRs, changelogs — historical context explaining why the API looks the way it does | `references/` (full temporal context) |
+| T2-future | Open PRs, deprecation warnings, RFCs — forward-looking context about upcoming changes | `SKILL.md` Section 4b (Migration & Deprecation Warnings) + `references/` |
+
+The T2-past/T2-future distinction is operationally significant: T2-future annotations trigger the presence of a Migration & Deprecation Warnings section in SKILL.md, while T2-past annotations live in progressive disclosure reference files only.
+
 ## Citation Formats
 
 Each tier has a defined citation format used consistently across all skill output:
@@ -131,7 +142,7 @@ Every generated skill includes a confidence distribution in `metadata.json`:
     "t2": 12,
     "t3": 3
   },
-  "extraction_tier": "deep"  // valid values: "quick", "forge", "forge+", "deep"
+  "confidence_tier": "Deep"  // valid values: "Quick", "Forge", "Forge+", "Deep"
 }
 ```
 

@@ -86,6 +86,8 @@ Read the skill metadata (loaded in step 01) and check:
 - Default to **naive mode** (conservative — fewer checks, less chance of false negatives from missing context)
 - Note the default in the report
 
+**Quick-tier adjustment (applies to both modes):** If `forge_tier` is `Quick`, Signature Accuracy and Type Coverage are skipped during scoring (no AST available). Their weights are redistributed proportionally to remaining active categories. See `scoring-rules.md` Tier-Dependent Scoring section for details.
+
 ### 3. Update Output Document
 
 Update `{outputFile}` frontmatter:

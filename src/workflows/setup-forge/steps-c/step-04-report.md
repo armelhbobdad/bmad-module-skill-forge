@@ -115,10 +115,10 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 
 ### 3. Handle --update-spec Flag (Optional)
 
-**If `--update-spec` was passed:**
+**If the user included `--update-spec` in their workflow invocation (e.g., `@Ferris SF --update-spec`):**
 - Attempt to fetch the latest agentskills.io specification schema
 - Use `gh` or `curl` to retrieve the spec
-- Store in `{project-root}/forge-data/agentskills-spec.json` (or appropriate format)
+- Store in `{forge_data_folder}/agentskills-spec.json` (or appropriate format)
 - If fetch succeeds: display "agentskills.io spec updated."
 - If fetch fails: display "Could not fetch agentskills.io spec. Existing spec (if any) unchanged."
 - Do NOT fail the workflow over this — it is purely optional

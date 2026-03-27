@@ -17,6 +17,8 @@
 
 ## Naive Mode Weight Redistribution
 
+The following weights replace the default table for naive mode. The 18% coherence weight from the default table has been proportionally redistributed into these values. Do not apply a second redistribution.
+
 When running in naive mode (no coherence category):
 - Export Coverage: 45%
 - Signature Accuracy: 25%
@@ -38,6 +40,7 @@ tessl evaluates SKILL.md body content only — it does not read `references/*.md
 - Signature Accuracy: skipped (no AST)
 - Type Coverage: skipped (no AST)
 - Score based on: structural completeness only
+- Weight redistribution: skipped categories' weights (Signature Accuracy 22% + Type Coverage 14%) redistributed proportionally to remaining active categories
 
 ### Forge Tier (ast-grep)
 - Export Coverage: AST-backed export comparison

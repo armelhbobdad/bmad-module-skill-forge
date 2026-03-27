@@ -82,7 +82,7 @@ Continue to section 2.
 ### 2. Query Original Knowledge Context
 
 Launch a subprocess (Pattern 3 — data operations) that:
-1. Loads the QMD collection for the project
+1. Read the `qmd_collections` registry from `{sidecar_path}/forge-tier.yaml`. Find the entry where `skill_name` matches `{skill_name}` AND `type` is `"extraction"`. Use the `name` field from that entry as the collection to query. If no matching entry exists, log: "No QMD extraction collection found for {skill_name}. Semantic diff skipped." → Auto-proceed to {nextStepFile}.
 2. Queries for knowledge context around each export documented in the skill
 3. Retrieves: usage patterns, conventions, architectural context, dependency relationships
 4. Returns structured findings to parent

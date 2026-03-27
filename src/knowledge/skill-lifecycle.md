@@ -2,7 +2,7 @@
 
 ## Principle
 
-The 10 SKF workflows form an end-to-end pipeline from source discovery through verified export. Each workflow produces artifacts consumed by downstream workflows. Understanding the lifecycle enables Ferris to recommend the right workflow for a user's situation and to maintain artifact continuity across the pipeline.
+The 12 SKF workflows form an end-to-end pipeline from source discovery through verified export, with a pre-code architecture verification path. Each workflow produces artifacts consumed by downstream workflows. Understanding the lifecycle enables Ferris to recommend the right workflow for a user's situation and to maintain artifact continuity across the pipeline.
 
 ## Rationale
 
@@ -26,6 +26,7 @@ With lifecycle awareness:
 | Discovery | AN (Analyze Source) | Scan project, identify skillable units | Analysis report, skill briefs |
 | Design | BS (Brief Skill) | Interactive scope definition for one skill | `skill-brief.yaml` |
 | Compilation | CS, QS, SS (Create/Quick/Stack) | Extract source and compile skill | `SKILL.md`, metadata, provenance, `scripts/`, `assets/` (when source contains them) |
+| Architecture Verification | VS, RA (Verify Stack, Refine Architecture) | Pre-code feasibility check and architecture refinement | Feasibility report, refined architecture doc |
 | Maintenance | US, AS (Update/Audit) | Detect drift and refresh skills | Updated `SKILL.md`, drift report |
 | Verification | TS (Test Skill) | Quality gate — completeness scoring | Test report, pass/fail decision |
 | Distribution | EX (Export Skill) | Package and inject into agent context | agentskills.io bundle, snippets |
@@ -66,6 +67,20 @@ SF → QS → EX
 2. **QS** resolves a package name or URL to source and compiles directly — no brief needed
 3. **EX** packages for distribution (optional TS between QS and EX for quality assurance)
 
+### Pre-Code Stack Verification
+
+```
+SF → CS×N (per library) → VS → RA → SS (compose) → TS → EX
+```
+
+1. **SF** ensures environment is configured
+2. **CS** compiles individual skills for each library in the stack
+3. **VS** cross-references skills against architecture and PRD — produces a feasibility report with verdicts
+4. **RA** refines the architecture document using skill API evidence and VS findings
+5. **SS** (compose-mode) synthesizes the stack skill from individual skills + refined architecture
+6. **TS** verifies the composed stack skill
+7. **EX** packages for distribution
+
 ### Maintenance
 
 ```
@@ -92,6 +107,7 @@ AS → US → TS → EX
 | User has a package name, wants fast results | QS |
 | User wants to skill their entire project | AN → CS (batch) |
 | User has an existing skill that may be outdated | AS → US |
+| User wants to verify tech stack before building | CS×N → VS → RA → SS (compose) |
 
 **Key Points:**
 - SF is always prerequisite (but only needs to run once per project)
@@ -113,12 +129,19 @@ CS → SKILL.md + metadata.json + provenance-map.json + scripts/ + assets/ (when
 TS → test-report.md (pass/fail gate)
        ↓ (passing skill consumed by EX)
 EX → agentskills.io bundle + context snippets
+
+VS → feasibility-report-{project_name}.md (verdict + integration verdicts)
+       ↓ (report consumed by RA)
+RA → refined-architecture-{project_name}.md (gaps filled, issues flagged, improvements suggested)
+       ↓ (refined doc consumed by SS compose-mode)
+SS (compose) → SKILL.md (stack skill synthesized from individual skills + architecture)
 ```
 
 **Key Points:**
 - `forge-tier.yaml` is the universal dependency — all workflows read it
 - Skill briefs are the handoff between discovery/design and compilation
 - TS acts as a gate — failing skills do not proceed to EX
+- VS/RA form a pre-code verification loop — rerun after architecture changes
 
 ### Example 3: Stack Skill vs. Individual Skills
 
@@ -139,6 +162,7 @@ EX → agentskills.io bundle + context snippets
 - **Analyze Source** and **Brief Skill** are alternative entry points to compilation
 - **Test Skill** is optional but recommended — the quality gate before export
 - **Audit Skill** and **Update Skill** form the maintenance loop
+- **Verify Stack** and **Refine Architecture** form the pre-code verification path
 - **Export Skill** is the terminal workflow — it produces the distributable artifact
 
 ## Related Fragments
@@ -147,4 +171,4 @@ EX → agentskills.io bundle + context snippets
 - [agentskills-spec.md](agentskills-spec.md) — the output format that export-skill packages
 - [provenance-tracking.md](provenance-tracking.md) — how provenance flows through the pipeline
 
-_Source: synthesized from all 10 workflow.md files and module-help.csv_
+_Source: synthesized from all 12 workflow.md files (including VS, RA) and module-help.csv_

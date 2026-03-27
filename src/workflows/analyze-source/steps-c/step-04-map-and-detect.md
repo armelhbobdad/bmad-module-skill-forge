@@ -3,7 +3,7 @@ name: 'step-04-map-and-detect'
 description: 'Map exports per unit and detect cross-unit integration points, flag stack skill candidates'
 
 nextStepFile: './step-05-recommend.md'
-outputFile: '{output_folder}/analyze-source-report-{project_name}.md'
+outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 heuristicsFile: '../data/unit-detection-heuristics.md'
 ---
 

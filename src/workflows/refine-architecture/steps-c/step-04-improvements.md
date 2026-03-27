@@ -16,23 +16,23 @@ Identify capability expansions — library features documented in the generated 
 
 ### Universal Rules:
 
-- CRITICAL: Read the complete step file before taking any action
-- CRITICAL: When loading next step with 'C', ensure entire file is read
-- TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
+- 📖 CRITICAL: Read the complete step file before taking any action
+- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
+- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
+- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
 
 ### Role Reinforcement:
 
-- You are an architecture refinement analyst identifying untapped capabilities
-- Every improvement must cite specific APIs from the generated skills — no speculation
-- Improvements are suggestions, not mandates — present them as optional enhancements
+- ✅ You are an architecture refinement analyst identifying untapped capabilities
+- ✅ Every improvement must cite specific APIs from the generated skills — no speculation
+- ✅ Improvements are suggestions, not mandates — present them as optional enhancements
 
 ### Step-Specific Rules:
 
-- Focus ONLY on capability expansions not leveraged in the architecture
-- FORBIDDEN to detect gaps (Step 02) or issues (Step 03) — those are already captured
-- Improvements are ADDITIVE suggestions — they enhance, not contradict, the architecture
-- Every improvement MUST include evidence citations from actual skill content
+- 🎯 Focus ONLY on capability expansions not leveraged in the architecture
+- 🚫 FORBIDDEN to detect gaps (Step 02) or issues (Step 03) — those are already captured
+- 🎯 Improvements are ADDITIVE suggestions — they enhance, not contradict, the architecture
+- 💬 Every improvement MUST include evidence citations from actual skill content
 
 ## EXECUTION PROTOCOLS:
 
@@ -53,9 +53,9 @@ Identify capability expansions — library features documented in the generated 
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
 
-### 1. Load Refinement Rules
+### 1. Reference Refinement Rules
 
-Load `{refinementRulesData}` for improvement detection rules.
+Use the refinement rules loaded in Step 01 from `{refinementRulesData}`. If not available in context, reload from `{refinementRulesData}`.
 
 Extract: improvement classification (Unused Capability, Cross-Library Synergy, Alternative Pattern), detection method, and citation format.
 
@@ -114,9 +114,9 @@ Suggestion: {how to incorporate this capability into the architecture}
 ```
 
 **Categorize improvements:**
-- **High Value:** Capabilities that address known architectural concerns or significantly expand functionality
-- **Medium Value:** Capabilities that add convenience or efficiency improvements
-- **Low Value:** Capabilities that are nice-to-have but not impactful
+- **High:** Capabilities that address known architectural concerns or significantly expand functionality
+- **Medium:** Capabilities that add convenience or efficiency improvements
+- **Low:** Capabilities that are nice-to-have but not impactful
 
 ### 6. Display Improvement Suggestions
 
@@ -136,7 +136,7 @@ Suggestion: {how to incorporate this capability into the architecture}
 
 **Proceeding to compile refined architecture...**"
 
-Store all improvement findings as workflow state for Step 05.
+Store all improvement findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-IMPROVEMENTS] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted improvement findings** (full citation blocks with evidence, value ratings, and suggestions — not just counts) — Step 05 can read this back if context degrades. **Do NOT write to `{output_folder}/refined-architecture-{project_name}.md` — that file is created only in step-05.**
 
 ### 7. Auto-Proceed to Next Step
 
@@ -144,9 +144,9 @@ Load, read the full file and then execute `{nextStepFile}`.
 
 ---
 
-## SYSTEM SUCCESS/FAILURE METRICS
+## 🚨 SYSTEM SUCCESS/FAILURE METRICS
 
-### SUCCESS:
+### ✅ SUCCESS:
 
 - Refinement rules loaded from {refinementRulesData}
 - Architecture usage map built for each referenced library
@@ -158,7 +158,7 @@ Load, read the full file and then execute `{nextStepFile}`.
 - Improvement findings stored as workflow state for Step 05
 - Auto-proceeded to step 05
 
-### SYSTEM FAILURE:
+### ❌ SYSTEM FAILURE:
 
 - Improvements without evidence from actual skills (speculation)
 - Re-detecting gaps (Step 02) or issues (Step 03)

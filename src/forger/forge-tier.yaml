@@ -7,7 +7,8 @@ tools:
   gh_cli: ~
   qmd: ~
   ccc: ~
-  security_scan: ~
+  ccc_daemon: ~
+  security_scan: ~ # Detected but not yet consumed by downstream workflows — reserved for future validation pre-check
 
 # Capability tier (derived from tool availability)
 # Quick = no tools | Forge = + ast-grep | Forge+ = + ast-grep + ccc | Deep = + ast-grep + gh + QMD

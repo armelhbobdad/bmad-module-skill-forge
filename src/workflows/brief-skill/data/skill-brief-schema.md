@@ -2,26 +2,27 @@
 
 ## Required Fields
 
-| Field | Type | Description | Validation |
-|-------|------|-------------|------------|
-| name | string | Kebab-case skill name | Must match `[a-z0-9-]+` |
-| version | string | Semantic version | Must match `X.Y.Z` pattern. Auto-detect from source (see Version Detection below), fall back to "1.0.0" |
-| source_repo | string | GitHub URL or local path | Must be accessible |
-| language | string | Primary programming language | Must be detected or user-specified |
-| scope | object | Inclusion/exclusion boundaries | Must have type + at least one pattern |
-| description | string | What this skill covers | 1-3 sentences |
-| forge_tier | string | Compilation tier | One of: quick, forge, forge+, deep |
-| created | string | Creation date | ISO date format |
-| created_by | string | User who created the brief | From config user_name |
+| Field | Type | Constraint | Description |
+|-------|------|------------|-------------|
+| name | string | kebab-case `[a-z0-9-]+` | Unique skill identifier |
+| version | string | Semantic `X.Y.Z` | Auto-detect from source (see Version Detection below), fall back to `1.0.0` |
+| source_repo | string | GitHub URL or local path | Repository or project root (optional when `source_type: "docs-only"`) |
+| language | string | Recognized language | Primary programming language |
+| scope | object | See Scope Object below | Boundary definition |
+| description | string | 1-3 sentences | What the skill covers |
+| forge_tier | string | `Quick` / `Forge` / `Forge+` / `Deep` | Inherited from forge-tier.yaml (Title Case) |
+| created | string | ISO date `YYYY-MM-DD` | Generation date |
+| created_by | string | user_name from config | Who generated the brief |
 
 ## Optional Fields
 
-| Field | Type | Description | Validation |
-|-------|------|-------------|------------|
-| source_type | string | Source mode: `source` or `docs-only` | Default `source`. When `docs-only`: `source_repo` optional, `doc_urls` required |
-| doc_urls | array | Documentation URLs for T3 content | Each entry: `{url, label}`. Required when `source_type: "docs-only"` |
-| `scripts_intent` | string | Describes whether scripts should be extracted. Values: `detect` (auto-detect from source — default when absent), `none` (skip scripts), or a free-text description of expected scripts (e.g., "CLI validation tools in bin/"). |
-| `assets_intent` | string | Describes whether assets should be extracted. Values: `detect` (auto-detect from source — default when absent), `none` (skip assets), or a free-text description of expected assets (e.g., "JSON schemas in schemas/"). |
+| Field | Type | Constraint | Description |
+|-------|------|------------|-------------|
+| source_type | string | `source` or `docs-only` | Default `source`. When `docs-only`: `source_repo` optional, `doc_urls` required |
+| doc_urls | array | `{url, label}` objects | Documentation URLs for T3 content. Required when `source_type: "docs-only"` |
+| `scripts_intent` | string | `detect` / `none` / free-text | Describes whether scripts should be extracted. Values: `detect` (auto-detect from source — default when absent), `none` (skip scripts), or a free-text description of expected scripts (e.g., "CLI validation tools in bin/"). |
+| `assets_intent` | string | `detect` / `none` / free-text | Describes whether assets should be extracted. Values: `detect` (auto-detect from source — default when absent), `none` (skip assets), or a free-text description of expected assets (e.g., "JSON schemas in schemas/"). |
+| `source_authority` | string | `official` / `community` / `internal` | Default `community`. Set to `official` only when the skill creator is the library maintainer. Forced to `community` when `source_type: "docs-only"`. |
 
 When `source_type: "docs-only"`:
 - `source_repo` becomes optional (set to doc site URL for reference)
@@ -48,7 +49,7 @@ The create-skill workflow (step-03-extract) also performs version reconciliation
 
 ```yaml
 scope:
-  type: full-library | specific-modules | public-api
+  type: full-library | specific-modules | public-api | docs-only
   include:
     - "src/**/*.ts"           # Glob patterns for included files/directories
   exclude:
@@ -67,7 +68,7 @@ source_type: "source"                    # "source" (default) or "docs-only"
 source_repo: "{github-url-or-local-path}"
 language: "{detected-language}"
 description: "{brief-description}"
-forge_tier: "{quick|forge|forge+|deep}"
+forge_tier: "{Quick|Forge|Forge+|Deep}"
 created: "{date}"
 created_by: "{user_name}"
 scope:
@@ -83,12 +84,13 @@ scope:
 #     label: "API Reference"
 # scripts_intent: detect         # Optional: detect | none | description
 # assets_intent: detect          # Optional: detect | none | description
+# source_authority: community    # Optional: official | community | internal
 ---
 ```
 
 ## Human-Readable Presentation Format
 
-When presenting the brief for confirmation (step 04), display as:
+When presenting the brief for confirmation (brief-skill step 04 only — not applicable to analyze-source batch generation), display as:
 
 ```
 Skill Brief: {name}
@@ -114,8 +116,8 @@ Created by: {created_by}
 1. `name` must be unique within {forge_data_folder}
 2. `source_repo` must be accessible (gh api for GitHub, path exists for local)
 3. `language` must be a recognized programming language
-4. `scope.type` must be one of the three defined types
-5. `scope.include` must have at least one pattern
-6. `forge_tier` must be one of: quick, forge, forge+, deep (must match the tier from forge-tier.yaml, or default to quick)
+4. `scope.type` must be one of the four defined types
+5. `scope.include` must have at least one pattern (exception: `docs-only` scope, where include patterns are optional since no source code is available)
+6. `forge_tier` must be one of: Quick, Forge, Forge+, Deep (Title Case, must match the tier from forge-tier.yaml, or default to Quick)
 7. When `source_type: "docs-only"`: `doc_urls` must have >= 1 entry, `source_repo` becomes optional
 8. Each `doc_urls` entry must have a valid `url` field

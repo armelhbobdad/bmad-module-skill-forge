@@ -64,7 +64,11 @@ Forge tier: **{tier}**"
 |------|-------|-------------|
 | T1 | {count} | AST-verified structural extraction |
 | T1-low | {count} | Source reading inference |
-| T2 | {count} | QMD-enriched temporal context |"
+| T2 | {count} | QMD-enriched temporal context |
+
+{IF compose_mode:}
+*Note: Confidence tiers above are inherited from source skills — they reflect the extraction method used when those skills were originally generated, not the current compose run.*
+{END IF}"
 
 ### 3. Display Output File Summary
 
@@ -107,7 +111,9 @@ Forge tier: **{tier}**"
 
 "**Next steps:**
 - **[TS] test-skill** — Validate the stack skill against its own assertions
-- **[ES] export-skill** — Package for distribution or agent loading
+- **[EX] export-skill** — Package for distribution or agent loading
+
+- **[VS] verify-stack** — Validate the stack's integration feasibility against your architecture document{IF compose_mode:} (re-run to confirm feasibility after any architecture changes from **[RA] refine-architecture**){END IF}
 
 **Workflow complete.**"
 

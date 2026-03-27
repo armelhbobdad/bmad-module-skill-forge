@@ -15,22 +15,22 @@ Present the complete refinement summary to the user. Display counts of gaps fill
 
 ### Universal Rules:
 
-- CRITICAL: Read the complete step file before taking any action
-- TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
+- 📖 CRITICAL: Read the complete step file before taking any action
+- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
+- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
 
 ### Role Reinforcement:
 
-- You are an architecture refinement analyst delivering the final summary
-- Present findings clearly and concisely — the user needs to decide which refinements to keep
-- Next step recommendations must be specific and actionable
+- ✅ You are an architecture refinement analyst delivering the final summary
+- ✅ Present findings clearly and concisely — the user needs to decide which refinements to keep
+- ✅ Next step recommendations must be specific and actionable
 
 ### Step-Specific Rules:
 
-- Focus ONLY on presenting the completed refinement — no new analysis
-- FORBIDDEN to discover new gaps, issues, or improvements
-- FORBIDDEN to modify the refined document — only read and present
-- This is the FINAL step — no nextStepFile
+- 🎯 Focus ONLY on presenting the completed refinement — no new analysis
+- 🚫 FORBIDDEN to discover new gaps, issues, or improvements
+- 🚫 FORBIDDEN to modify the refined document — only read and present
+- 📋 This is the FINAL step — no nextStepFile
 
 ## EXECUTION PROTOCOLS:
 
@@ -54,7 +54,9 @@ Present the complete refinement summary to the user. Display counts of gaps fill
 
 Read the `{outputFile}` to have all data available for presentation.
 
-Verify the Refinement Summary section is present with accurate counts.
+Verify the `## Refinement Summary` section is present. If it is absent, HALT: "⚠️ Refinement Summary not found in `{outputFile}`. Step 05 may not have completed successfully. Re-run [RA] from the beginning."
+
+**Extract metrics from the Refinement Summary section:** Parse `gap_count`, `issue_count`, `improvement_count`, `critical_count`, `major_count`, `minor_count`, `high_count`, `medium_count`, `low_count`, and `skill_count` from the Changes Made table and Evidence Sources table. Use these extracted values in the summary table and next-steps sections below.
 
 ### 2. Display Summary
 
@@ -65,9 +67,13 @@ Verify the Refinement Summary section is present with accurate counts.
 | Metric | Count |
 |--------|-------|
 | **Gaps Filled** | {gap_count} |
-| **Issues Flagged** | {issue_count} (Critical: {c}, Major: {m}, Minor: {n}) |
-| **Improvements Suggested** | {improvement_count} (High: {h}, Medium: {m}, Low: {l}) |
+| **Issues Flagged** | {issue_count} (Critical: {critical_count}, Major: {major_count}, Minor: {minor_count}) |
+| **Improvements Suggested** | {improvement_count} (High: {high_count}, Medium: {medium_count}, Low: {low_count}) |
 | **Skills Used as Evidence** | {skill_count} |
+
+**Evidence Sources:** (which skills contributed evidence)
+
+{Display the Evidence Sources table from the Refinement Summary section of the document}
 
 ---
 
@@ -80,11 +86,11 @@ The original architecture content is fully preserved. All refinements are clearl
 "**Recommended next steps:**
 
 1. **Review the refined document** — accept, modify, or remove individual refinements
-2. **[SS] compose-mode** — synthesize your stack skill from individual skills + this refined architecture
+2. **[SS] Stack Skill** — compose-mode activates automatically when SS detects existing individual skills without a codebase; provide this refined architecture doc as the architecture document when prompted
 3. **Re-run [VS] Verify Stack** if you made changes based on issue corrections — to confirm resolution
 
 {IF issues with Critical severity were found:}
-**Attention:** {critical_count} critical issue(s) were flagged. These indicate fundamental contradictions between your architecture and the verified API surfaces. Address these before proceeding to stack skill composition."
+**⚠️ Attention:** {critical_count} critical issue(s) were flagged. These indicate fundamental contradictions between your architecture and the verified API surfaces. Address these before proceeding to stack skill composition."
 
 ### 4. Present Menu
 
@@ -116,9 +122,9 @@ This is the final step of the refine-architecture workflow. When the user select
 
 ---
 
-## SYSTEM SUCCESS/FAILURE METRICS
+## 🚨 SYSTEM SUCCESS/FAILURE METRICS
 
-### SUCCESS:
+### ✅ SUCCESS:
 
 - Refined document loaded and verified for Refinement Summary section
 - Summary displayed with accurate counts for gaps, issues, and improvements
@@ -129,7 +135,7 @@ This is the final step of the refine-architecture workflow. When the user select
 - Detailed review walkthrough available on R selection with full evidence citations
 - Workflow exits cleanly on X with saved file path
 
-### SYSTEM FAILURE:
+### ❌ SYSTEM FAILURE:
 
 - Discovering new findings or changing refinements in this step
 - Modifying the refined document content

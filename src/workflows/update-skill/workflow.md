@@ -2,7 +2,7 @@
 name: update-skill
 description: Smart regeneration preserving [MANUAL] sections. Detects individual vs stack internally.
 web_bundle: true
-installed_path: '{project-root}/_bmad/skf/workflows/update-skill'
+installed_path: '{project-root}/_bmad/skf/workflows/skillforge/update-skill'
 ---
 
 # Update Skill

@@ -81,6 +81,7 @@ Extract:
 **Tier-dependent tools:**
 - **Quick:** gh_bridge (source reading) — graceful degradation to local file reading if unavailable
 - **Forge:** ast_bridge (ast-grep structural analysis) — required for Forge tier
+- **Forge+:** ast_bridge + ccc_bridge (ccc semantic co-import augmentation) — ccc available for step-05
 - **Deep:** qmd_bridge (QMD temporal enrichment) — required for Deep tier
 
 Report tool availability. If a tier-required tool is missing, downgrade tier and note:
@@ -100,12 +101,16 @@ Check if the user provided:
 - Format: `library_name: include|exclude`
 
 **Compose mode detection:**
-- If user provides `compose_from: skills/` or an architecture document path → set `compose_mode: true`
-- If no manifest files exist in project root AND skills exist in `{skills_output_folder}` → suggest compose mode
-- Store `compose_mode: true` and `architecture_doc_path` as workflow state
+
+Set `compose_mode: false` as the default.
+
+- If user provides an architecture document path for composition or explicitly requests compose mode → set `compose_mode: true` and store `architecture_doc_path`
+- If no manifest files exist in project root AND at least one subdirectory in `{skills_output_folder}` contains both `SKILL.md` and `metadata.json` → suggest compose mode to the user and ask for optional architecture document path
+  - If user accepts → set `compose_mode: true` and store `architecture_doc_path` (may be `null` if user chose not to provide one)
+  - If user declines → `compose_mode` remains `false`, continue with code-mode
 
 If compose_mode:
-- Display: "**Compose mode detected.** Synthesizing stack skill from {N} existing skills + architecture document."
+- Display: "**Compose mode detected.** Synthesizing stack skill from existing skills + architecture document."
 
 If no optional inputs provided, auto-detection will be used.
 
@@ -114,16 +119,19 @@ If no optional inputs provided, auto-detection will be used.
 "**Stack Skill Forge initialized.**
 
 **Project:** {project_name}
-**Forge Tier:** {tier_description}
-- Quick: Source reading and import counting
-- Forge: + AST-backed structural analysis
-- Forge+: + CCC semantic co-import augmentation
-- Deep: + Temporal integration evolution
+**Forge Tier:** {forge_tier} — {tier_description}
+
+Where tier_description follows positive capability framing:
+- Quick: "Source reading and import counting"
+- Forge: "AST-backed structural analysis"
+- Forge+: "AST structural + CCC semantic co-import augmentation"
+- Deep: "Full intelligence — structural + contextual + temporal"
 
 **Available Tools:** {tool_list}
 **Input Mode:** {auto-detect | explicit dependency list | compose mode}
 
-**Proceeding to manifest detection...**"
+**If compose mode:** Proceeding to skill loading...
+**If code mode:** Proceeding to manifest detection..."
 
 ### 5. Auto-Proceed to Next Step
 

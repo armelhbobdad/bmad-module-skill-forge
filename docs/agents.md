@@ -34,9 +34,9 @@ Ferris handles all SKF workflows. You always interact with Ferris — he switche
 
 | Mode | Behavior | Workflows |
 |------|----------|-----------|
-| **Architect** | Exploratory, structural, assembling | SF, AN, BS, CS, QS, SS |
+| **Architect** | Exploratory, structural, assembling | SF, AN, BS, CS, QS, SS, RA |
 | **Surgeon** | Precise, semantic diffing, preserves [MANUAL] | US |
-| **Audit** | Judgmental, drift reports, completeness scoring | AS, TS |
+| **Audit** | Judgmental, drift reports, completeness scoring | AS, TS, VS |
 | **Delivery** | Packaging, platform-aware, ecosystem-ready | EX |
 
 **Communication Style:**
@@ -58,7 +58,11 @@ CREATE:
   [BS] Brief Skill — Design a skill scope
   [CS] Create Skill — Compile a skill from brief
   [QS] Quick Skill — Fast skill, no brief needed
-  [SS] Stack Skill — Consolidated project stack skill
+  [SS] Stack Skill — Consolidated project stack skill (code-mode or compose-mode)
+
+VERIFY:
+  [VS] Verify Stack — Pre-code architecture feasibility check
+  [RA] Refine Architecture — Improve architecture with skill evidence
 
 MAINTAIN:
   [US] Update Skill — Regenerate after changes
@@ -68,8 +72,8 @@ MAINTAIN:
 DELIVER:
   [EX] Export Skill — Package for distribution
 
-[WS] Workflow Status
-[FM] Full Menu
+[WS] Workflow Status — Show current lifecycle position
+[KI] Knowledge Index — List available knowledge fragments
 ```
 
 **Memory:**

@@ -91,6 +91,9 @@ scope:
 # doc_urls:
 #   - url: "{documentation URL}"
 #     label: "{page label}"
+# scripts_intent: detect         # Optional: detect | none | description of expected scripts
+# assets_intent: detect          # Optional: detect | none | description of expected assets
+# source_authority: community    # Optional: official | community | internal
 ---
 ```
 

@@ -46,7 +46,7 @@ Verify that a generated skill exists for every technology, library, or framework
 
 - Available: Architecture document content, skill inventory from Step 01, coverage patterns data
 - Focus: Technology-to-skill matching only
-- Limits: Do not read skill content (SKILL.md) in detail — name-level matching only
+- Limits: Do not read SKILL.md in detail — use metadata.json for name and source_repo matching only
 - Dependencies: Step 01 must have loaded skill inventory and validated architecture document
 
 ## MANDATORY SEQUENCE
@@ -86,7 +86,7 @@ For each referenced technology in the list:
 **Check if a matching skill exists** in the skill inventory from Step 01.
 - Match by skill name (case-insensitive)
 - Match by alias from {coveragePatternsData}
-- Match by `source_repo` field in metadata.json if skill name differs from technology name
+- Match by `source_repo` or `source_root` field in metadata.json if skill name differs from technology name
 
 **Assign verdict:**
 - **Covered** — a matching skill exists in the inventory
@@ -114,6 +114,9 @@ Extra skills are informational only. They do not affect the coverage verdict.
 
 **Coverage: {covered_count}/{total_count} ({percentage}%)**
 
+{IF 100% coverage AND no Extra skills:}
+**All referenced technologies have a matching skill. No extra skills detected.**
+
 {IF any Missing:}
 **Missing Skills — Action Required:**
 {For each missing technology:}
@@ -135,6 +138,19 @@ Write the **Coverage Matrix** section to `{outputFile}`:
 
 ### 7. Auto-Proceed to Next Step
 
+{IF coverage_percentage is 0%:}
+"**⚠️ 0% coverage — no matching skills found for any referenced technology.** All subsequent analysis (integration, requirements) will be vacuous and produce empty tables.
+
+**Recommended:** Generate skills with [CS] or [QS] for your architecture technologies, then re-run [VS].
+
+**Select:** [X] Halt workflow (recommended) | [C] Continue anyway"
+
+- IF X: "**Workflow halted.** Generate skills and re-run [VS] when ready." — END workflow
+- IF C: "**Continuing with 0% coverage — results will be limited.**"
+
+  Load, read the full file and then execute `{nextStepFile}`.
+
+{IF coverage_percentage is NOT 0%:}
 "**Proceeding to integration analysis...**"
 
 Load, read the full file and then execute `{nextStepFile}`.

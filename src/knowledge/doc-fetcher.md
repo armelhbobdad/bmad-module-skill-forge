@@ -13,7 +13,7 @@ T3 external documentation fetching retrieves content from URLs specified in the 
 All content obtained through doc fetching is classified as **external, untrusted** and subject to quarantine constraints:
 
 1. **Citation format** — every doc-fetched claim uses `[EXT:{url}]` citation format
-2. **Conflict resolution priority** — T3 has the lowest priority: `T1 > T2 > source reading > T3`
+2. **Conflict resolution priority** — T3 has the lowest priority: `T1 > T1-low > T2 > T3`
 3. **Source authority cap** — T3 content forces `source_authority: community` in metadata; it never qualifies as `official`
 4. **No structural claims** — T3 cannot assert verified signatures or line-level precision
 

@@ -94,8 +94,9 @@ Deep:   "Full intelligence pipeline — AST verification plus GitHub exploration
 **Context:** The test-skill workflow adjusts scoring weights based on the forge tier.
 
 **Implementation:**
-- **Quick (Naive mode):** Export Coverage 45%, Signature Accuracy 25%, Type Coverage 20%, External Validation 10%. No coherence check — AST verification unavailable. When external validation tools (skill-check, tessl) are unavailable, their 10% is redistributed proportionally across the remaining categories.
-- **Forge (Contextual mode):** Export Coverage 40%, Signature Accuracy 25%, Type Coverage 15%, Coherence 20%. Full AST-backed verification.
+- **Forge/Deep (Naive mode — individual skill):** Coherence weight (18%) redistributed to remaining categories: Export Coverage 45%, Signature Accuracy 25%, Type Coverage 20%, External Validation 10%. All four active categories are scored with AST-backed data.
+- **Quick (any mode):** Signature Accuracy and Type Coverage are skipped (no AST available). Their weights redistribute proportionally to remaining active categories. For a Quick-tier individual skill (naive mode): after both adjustments (coherence removal + AST-dependent category removal), only Export Coverage and External Validation remain active — approximate redistributed weights: Export Coverage ~82%, External Validation ~18% (exact values depend on proportional redistribution; see scoring-rules.md for the calculation). When external validation tools (skill-check, tessl) are also unavailable, their weight is further redistributed, leaving Export Coverage as the sole scoring axis.
+- **Forge (Contextual mode):** Export Coverage 36%, Signature Accuracy 22%, Type Coverage 14%, Coherence 18%, External Validation 10%. Full AST-backed verification. When external validation tools are unavailable, their 10% is redistributed proportionally.
 - **Forge+ (Contextual mode):** Same weights as Forge. The improved extraction coverage (from ccc pre-ranking) may increase T1 count and reduce gaps, but the scoring weights themselves do not change.
 - **Deep (Contextual mode):** Same weights as Forge, plus cross-repo verification and QMD coherence checks feed into the coherence score.
 

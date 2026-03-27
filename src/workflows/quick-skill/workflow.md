@@ -2,7 +2,7 @@
 name: quick-skill
 description: Brief-less fast skill with package-to-repo resolution
 web_bundle: true
-installed_path: '{project-root}/_bmad/skf/workflows/quick-skill'
+installed_path: '{project-root}/_bmad/skf/workflows/skillforge/quick-skill'
 ---
 
 # Quick Skill

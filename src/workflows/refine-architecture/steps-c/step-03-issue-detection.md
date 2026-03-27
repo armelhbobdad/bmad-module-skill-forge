@@ -16,23 +16,23 @@ Find contradictions between what the architecture document claims and what the g
 
 ### Universal Rules:
 
-- CRITICAL: Read the complete step file before taking any action
-- CRITICAL: When loading next step with 'C', ensure entire file is read
-- TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
+- 📖 CRITICAL: Read the complete step file before taking any action
+- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
+- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
+- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
 
 ### Role Reinforcement:
 
-- You are an architecture refinement analyst performing contradiction detection
-- Every issue must cite evidence from actual skill content AND the architecture claim it contradicts
-- Apply the issue detection rules from {refinementRulesData} strictly
+- ✅ You are an architecture refinement analyst performing contradiction detection
+- ✅ Every issue must cite evidence from actual skill content AND the architecture claim it contradicts
+- ✅ Apply the issue detection rules from {refinementRulesData} strictly
 
 ### Step-Specific Rules:
 
-- Focus ONLY on contradictions between architecture claims and skill API reality
-- FORBIDDEN to detect undocumented integration paths — that was Step 02
-- FORBIDDEN to suggest capability expansions — that is Step 04
-- Every issue MUST cite both the architecture claim AND the contradicting skill evidence
+- 🎯 Focus ONLY on contradictions between architecture claims and skill API reality
+- 🚫 FORBIDDEN to detect undocumented integration paths — that was Step 02
+- 🚫 FORBIDDEN to suggest capability expansions — that is Step 04
+- 💬 Every issue MUST cite both the architecture claim AND the contradicting skill evidence
 
 ## EXECUTION PROTOCOLS:
 
@@ -54,9 +54,9 @@ Find contradictions between what the architecture document claims and what the g
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
 
-### 1. Load Refinement Rules
+### 1. Reference Refinement Rules
 
-Load `{refinementRulesData}` for issue detection rules.
+Use the refinement rules loaded in Step 01 from `{refinementRulesData}`. If not available in context, reload from `{refinementRulesData}`.
 
 Extract: issue classification (API Mismatch, Protocol Contradiction, Language Boundary Ignored, Type Incompatibility), VS report integration rules, and citation format.
 
@@ -102,9 +102,9 @@ For each extracted claim, load the relevant skill(s) and check:
 If `vs_report_available` is true:
 
 **Load the VS feasibility report and extract verdicts:**
-- **RISKY verdicts:** Promote to confirmed issues with the VS evidence as additional citation
-- **BLOCKED verdicts:** Promote to critical issues requiring architecture redesign
-- **Plausible with weak evidence:** Note as potential issues worth flagging
+- **Risky verdicts** (match case-insensitively: "Risky", "RISKY", "risky"): Promote to confirmed issues with the VS evidence as additional citation
+- **Blocked verdicts** (match case-insensitively: "Blocked", "BLOCKED", "blocked"): Promote to critical issues requiring architecture redesign
+- **Plausible verdicts:** Note informatively — Plausible is not an issue by itself. Only flag as a potential issue if the VS rationale text explicitly states "no direct API evidence" or "weak evidence"
 
 **For each VS-sourced issue, include dual citations:**
 - Evidence from the skill content
@@ -121,15 +121,15 @@ For each detected issue, apply the citation format from {refinementRulesData}:
 
 Architecture states: "{quoted claim from original document}" (Section: {section_name})
 Skill reality: {skill_name} exports: `{actual_api}` — {explanation of contradiction}
-{IF VS report}: VS verdict: {RISKY|BLOCKED} for {pair} — {VS rationale}
+{IF VS report}: VS verdict: {Risky|Blocked} for {pair} — {VS rationale}
 
 Suggestion: {specific correction with API evidence}
 ```
 
 **Severity classification:**
-- **Critical:** BLOCKED VS verdicts, fundamental language barriers with no bridge
-- **Major:** RISKY VS verdicts, protocol mismatches, missing bridge layers
-- **Minor:** Weak evidence plausible verdicts, minor type differences with easy conversion
+- **Critical:** Blocked VS verdicts, fundamental language barriers with no bridge
+- **Major:** Risky VS verdicts, protocol mismatches, missing bridge layers
+- **Minor:** Plausible VS verdicts where the VS rationale explicitly states "no direct API evidence" or "weak evidence", minor type differences with easy conversion
 
 ### 6. Display Issue Detection Results
 
@@ -149,7 +149,7 @@ Suggestion: {specific correction with API evidence}
 
 **Proceeding to improvement detection...**"
 
-Store all issue findings as workflow state for Step 05.
+Store all issue findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-ISSUES] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted issue findings** (full citation blocks with architecture claims, skill evidence, VS verdicts, severity, and suggestions — not just counts) — Step 05 can read this back if context degrades. **Do NOT write to `{output_folder}/refined-architecture-{project_name}.md` — that file is created only in step-05.**
 
 ### 7. Auto-Proceed to Next Step
 
@@ -157,9 +157,9 @@ Load, read the full file and then execute `{nextStepFile}`.
 
 ---
 
-## SYSTEM SUCCESS/FAILURE METRICS
+## 🚨 SYSTEM SUCCESS/FAILURE METRICS
 
-### SUCCESS:
+### ✅ SUCCESS:
 
 - Refinement rules loaded from {refinementRulesData}
 - All integration claims extracted from architecture document
@@ -171,7 +171,7 @@ Load, read the full file and then execute `{nextStepFile}`.
 - Issue findings stored as workflow state for Step 05
 - Auto-proceeded to step 04
 
-### SYSTEM FAILURE:
+### ❌ SYSTEM FAILURE:
 
 - Issues without evidence from actual skills (speculation)
 - Not citing the architecture claim that is contradicted

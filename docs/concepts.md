@@ -5,7 +5,7 @@ description: Plain-English definitions of key Skill Forge terms — agent skills
 
 # Concepts
 
-This page defines the key terms you'll encounter in Skill Forge. Each one is explained in plain English with a concrete example.
+This page defines the key terms you'll encounter in Skill Forge, with concrete examples.
 
 ---
 
@@ -15,7 +15,7 @@ An agent skill is an instruction file that tells an AI agent how to use your cod
 
 Skills follow the [agentskills.io](https://agentskills.io) open standard, so they work across Claude, Cursor, Copilot, and other AI tools.
 
-**Example:** A skill for `better-auth` tells your agent: "The function is `authClient.signIn.email()`, it takes `{ email: string, password: string }`, and it returns a `Promise<Session>`. Here's the source: `src/client.ts:L47`."
+**Example:** A skill for [cognee](https://github.com/armelhbobdad/oh-my-skills) tells your agent: "The function is `cognee.search()`, it takes `query_text`, `query_type`, `top_k`, and `session_id`, and it's defined at `cognee/api/v1/search/search.py:L26`." Every parameter and location is AST-verified from the actual source code.
 
 ---
 
@@ -24,10 +24,10 @@ Skills follow the [agentskills.io](https://agentskills.io) open standard, so the
 Provenance means every instruction in a skill traces back to where it came from. For code, that's a file and line number. For documentation, it's a URL. For developer discourse, it's an issue or PR reference. If SKF can't point to a source, it doesn't include the instruction.
 
 **Examples** (from a [real generated skill](https://github.com/armelhbobdad/oh-my-skills)):
-- `[AST:cognee/api/v1/search/search.py:L26]` — extracted from source code via AST parsing
-- `[SRC:cognee/api/v1/session/__init__.py:L8]` — read from source code without AST verification
-- `[EXT:docs.cognee.ai/getting-started/quickstart]` — sourced from external documentation
-- `[QMD:cognee-temporal:issues.md]` — surfaced from indexed developer discourse
+- `[AST:cognee/api/v1/search/search.py:L26]` — extracted from source code via AST parsing (T1)
+- `[SRC:cognee/api/v1/session/__init__.py:L8]` — read from source code without AST verification (T1-low)
+- `[QMD:cognee-temporal:issues.md]` — surfaced from indexed developer discourse (T2)
+- `[EXT:docs.cognee.ai/getting-started/quickstart]` — sourced from external documentation (T3)
 
 ---
 
@@ -35,12 +35,16 @@ Provenance means every instruction in a skill traces back to where it came from.
 
 Each piece of information in a skill carries a confidence level based on where it came from:
 
-- **T1 — AST extraction:** Pulled directly from source code via AST parsing. This is structural truth — the function signature actually exists in the code right now.
-- **T1-low — Source reading:** Found by reading source files directly without AST parsing. The location is correct but the type signature may be inferred. Produced by Quick tier and by Forge/Deep when ast-grep cannot parse a specific file.
-- **T2 — Evidence:** Found in issues, PRs, changelogs, or documentation within the repository. Reliable context, but not as definitive as code.
-- **T3 — External:** Pulled from external documentation or websites. Treated with caution and clearly marked.
+- **T1 — AST extraction:** Pulled directly from source code via AST parsing. This is structural truth — the function signature actually exists in the code right now. Cited as `[AST:file:Lnn]`.
+- **T1-low — Source reading:** Found by reading source files directly without AST parsing. The location is correct but the type signature may be inferred. Produced by Quick tier and by Forge/Forge+/Deep when ast-grep cannot parse a specific file. Cited as `[SRC:file:Lnn]`.
+- **T2 — Evidence (Deep tier only):** Surfaced by QMD knowledge search from issues, PRs, changelogs, or documentation within the repository. Available only when QMD is installed (Deep tier). Reliable context, but not as definitive as code. Cited as `[QMD:collection:document]`. T2 has two temporal subtypes:
+  - **T2-past** — Historical context (closed issues, merged PRs, changelogs) explaining API design decisions. Surfaces in the skill's `references/` directory.
+  - **T2-future** — Forward-looking context (open PRs, deprecation warnings, RFCs) about upcoming changes. Surfaces in SKILL.md Section 4b (Migration & Deprecation Warnings) and `references/`.
+- **T3 — External:** Pulled from external documentation or websites. Treated with caution and clearly marked. Cited as `[EXT:url]`.
 
-**Example:** A function signature is T1. A source-read export without AST verification is T1-low. A deprecation warning from a closed GitHub issue is T2. A usage example from a blog post is T3.
+Forge+ semantic discovery (via cocoindex-code) does not introduce a new confidence tier — it influences *which* files are extracted, not *how* they're cited. Discovered files are verified by ast-grep (T1) or source reading (T1-low).
+
+See the [Provenance](#provenance) examples above for real citations at each tier.
 
 ---
 
@@ -51,9 +55,9 @@ Your capability tier depends on which tools you have installed. Each tier builds
 - **Quick** — No tools required. SKF reads source files and builds best-effort skills. Works in under a minute. GitHub CLI used when available.
 - **Forge** — Adds [ast-grep](https://ast-grep.github.io). SKF uses AST parsing for structural truth. Instructions are verified against the actual code structure.
 - **Forge+** — Adds [cocoindex-code](https://github.com/cocoindex-io/cocoindex-code). SKF uses semantic code search to discover relevant source regions before AST extraction, improving coverage on large codebases.
-- **Deep** — Adds [GitHub CLI](https://cli.github.com) + [QMD](https://github.com/tobi/qmd). Requires ast-grep, gh, and QMD. SKF indexes knowledge for semantic search and performs GitHub repository exploration. Skills get enriched with historical context, deprecation warnings, and cross-reference intelligence.
+- **Deep** — Full pipeline: requires [ast-grep](https://ast-grep.github.io) + [GitHub CLI](https://cli.github.com) + [QMD](https://github.com/tobi/qmd) (all three). SKF indexes knowledge for semantic search and performs GitHub repository exploration. Skills get enriched with historical context, deprecation warnings, and cross-reference intelligence. CCC (cocoindex-code) enhances Deep tier when installed — ast-grep + gh + qmd + ccc gives maximum capability.
 
-You don't need all tools to start. SKF detects what you have and sets your tier automatically. See [How It Works](../how-it-works.md) for the full technical treatment.
+You don't need all tools to start. SKF detects what you have and sets your tier automatically. See [How It Works](../how-it-works/) for the full technical treatment.
 
 ---
 

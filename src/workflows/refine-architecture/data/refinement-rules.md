@@ -51,7 +51,7 @@ Issues are contradictions between architecture claims and verified API reality f
 When a VS feasibility report is available:
 - RISKY verdicts become **confirmed issues** with the VS evidence as additional citation
 - BLOCKED verdicts become **critical issues** requiring architecture redesign
-- Plausible verdicts with weak evidence become **potential issues** worth noting
+- Plausible verdicts become potential issues **only if** the VS rationale text explicitly states "no direct API evidence" or "weak evidence" — otherwise they are informational only
 
 ---
 

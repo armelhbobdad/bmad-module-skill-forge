@@ -150,6 +150,7 @@ testMode: ''
 forgeTier: '{detected_tier}'
 testResult: ''
 score: ''
+threshold: ''
 analysisConfidence: ''
 testDate: '{current_date}'
 stepsCompleted: ['step-01-init']

@@ -41,10 +41,10 @@ Write the detected tool availability and calculated tier to forge-tier.yaml, cre
 
 ## CONTEXT BOUNDARIES:
 
-- Available: {detected_tools}, {calculated_tier}, {previous_tier} from step-01
+- Available: {detected_tools}, {calculated_tier}, {previous_tier} from step-01; {ccc_index_result}, {ccc_indexed_path}, {ccc_last_indexed} from step-01b
 - Focus: file I/O operations only
 - Limits: do not modify preferences.yaml if it exists
-- Dependencies: step-01 must have completed with tool detection results
+- Dependencies: step-01 and step-01b must have completed with tool detection and CCC index results
 
 ## MANDATORY SEQUENCE
 
@@ -76,18 +76,19 @@ tier_detected_at: {current ISO timestamp}
 ccc_index:
   indexed_path: {ccc_indexed_path from step-01b, or ~}
   last_indexed: {ccc_last_indexed from step-01b, or ~}
-  status: {ccc_index_status from step-01b: "fresh"|"created"|"none"|"failed"}
+  status: {ccc_index_result from step-01b: "fresh"|"created"|"none"|"failed"}
   staleness_threshold_hours: 24
 
 # CCC index registry (tracks which source paths have been indexed for skill workflows)
-ccc_index_registry: []
+# PRESERVE existing entries on re-runs — see Note below
+ccc_index_registry: {preserved from existing forge-tier.yaml, or [] if first run}
 
 # QMD collection registry (populated by create-skill, consumed by audit/update-skill)
-# Each entry tracks a QMD collection created during skill workflows
-qmd_collections: []
+# PRESERVE existing entries on re-runs — see Note below
+qmd_collections: {preserved from existing forge-tier.yaml, or [] if first run}
 ```
 
-**Note on re-runs:** The `qmd_collections` and `ccc_index_registry` arrays must be preserved across re-runs. Before overwriting forge-tier.yaml, read the existing `qmd_collections` and `ccc_index_registry` arrays and re-inject them into the new write. These arrays are populated by create-skill workflows and must not be reset.
+**Note on re-runs:** The `qmd_collections`, `ccc_index_registry` arrays, and `staleness_threshold_hours` value must be preserved across re-runs. Before overwriting forge-tier.yaml, read these existing values and re-inject them into the new write. These values are populated by create-skill workflows or customized by users and must not be reset.
 
 **This file is ALWAYS overwritten** on every run — it reflects current tool state.
 
@@ -110,27 +111,25 @@ tier_override: ~
 # Passive context injection (set to false to skip snippet generation and CLAUDE.md updates during export)
 passive_context: true
 
-# Language defaults
-output_language: ~
-skill_format_version: ~
-
-# Output preferences
-citation_style: ~
-confidence_display: ~
+# Reserved for future use — these fields are not yet consumed by any workflow step
+# output_language: ~
+# skill_format_version: ~
+# citation_style: ~
+# confidence_display: ~
 ```
 
 **If it DOES exist:** Do not modify. Preserve entirely.
 
 ### 3. Ensure forge-data/ Directory
 
-Check if `{project-root}/forge-data/` directory exists:
+Check if `{forge_data_folder}` directory exists:
 
 - If missing: create it
 - If exists: skip silently
 
 ### 4. Auto-Proceed
 
-"**Proceeding to auto-index check...**"
+"**Proceeding to QMD collection hygiene...**"
 
 #### Menu Handling Logic:
 

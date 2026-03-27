@@ -2,8 +2,8 @@
 name: 'step-01-load-brief'
 description: 'Load skill-brief.yaml, validate structure, resolve source code location, load forge tier'
 nextStepFile: './step-02-ecosystem-check.md'
-forgeTierFile: '{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml'
-preferencesFile: '{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml'
+forgeTierFile: '{sidecar_path}/forge-tier.yaml'
+preferencesFile: '{sidecar_path}/preferences.yaml'
 ---
 
 # Step 1: Load Brief
@@ -70,14 +70,14 @@ Extract and report:
 ### 2. Discover Skill Brief
 
 **If user provided a specific brief path or skill name:**
-- Search `{project-root}/forge-data/{skill-name}/skill-brief.yaml`
+- If the value looks like a file path (starts with `/`, `./`, `~`, or contains path separators): treat it as a direct file path and load it
+- Otherwise, treat it as a skill name and search `{forge_data_folder}/{skill-name}/skill-brief.yaml`
 - If found, load it completely
 
 **If user invoked with --batch flag:**
-- Search specified directory for all `skill-brief.yaml` files
-- List discovered briefs with skill names
-- Store list for batch loop processing
-- For this run, load the FIRST brief (batch loops back for remaining)
+- Check `{sidecar_path}/batch-state.yaml` for an active batch checkpoint:
+  - If `batch_active: true` and `current_index` is valid: load the brief at `brief_list[current_index]` (resuming a batch loop from step-08)
+  - If no checkpoint exists or `batch_active` is false: search specified directory for all `skill-brief.yaml` files, list discovered briefs with skill names, store list for batch loop processing, and load the FIRST brief
 
 **If no brief found:**
 Halt with: "No skill brief found. Run [BS] Brief Skill to create one, or use [QS] Quick Skill for brief-less generation."
@@ -101,6 +101,8 @@ Check that the loaded skill-brief.yaml contains required fields:
 - `include_patterns` — file glob patterns to include
 - `exclude_patterns` — file glob patterns to exclude
 - `description` — human description of the skill
+- `scripts_intent` — `"none"` to skip scripts detection, omit for default auto-detection
+- `assets_intent` — `"none"` to skip assets detection, omit for default auto-detection
 
 **Docs-only validation:** When `source_type: "docs-only"`, `source_repo` is not required but `doc_urls` must have at least one entry. `source_authority` is forced to `community`.
 
@@ -108,6 +110,8 @@ Check that the loaded skill-brief.yaml contains required fields:
 Halt with specific error: "Brief validation failed: missing required field `{field}`. Update your skill-brief.yaml and re-run."
 
 ### 4. Resolve Source Code Location
+
+**If `source_type: "docs-only"`:** Skip source resolution. Set `source_location: null` in context. Proceed directly to section 5 (Report Initialization) — docs-only skills have no source to resolve.
 
 **If source_repo is a GitHub URL or owner/repo format:**
 - Verify repository exists via `gh_bridge.list_tree(owner, repo, branch)`
@@ -140,7 +144,7 @@ Where tier_description follows positive capability framing:
 - Quick: "Source reading and spec validation"
 - Forge: "AST-backed structural extraction"
 - Forge+: "Semantic-guided precision — ccc pre-ranks files before AST extraction"
-- Deep: "Full intelligence — structural + contextual + temporal"
+- Deep: "Full intelligence — structural + contextual + QMD knowledge synthesis"
 
 ### 6. Menu Handling Logic
 
@@ -166,7 +170,7 @@ ONLY WHEN forge-tier.yaml is loaded, skill-brief.yaml is validated, and source c
 
 - Forge tier loaded from sidecar with tool availability
 - Skill brief loaded and all required fields validated
-- Source code location resolved and accessible
+- Source code location resolved and accessible (or `source_location: null` confirmed for docs-only skills)
 - Initialization summary displayed with tier and capabilities
 - Auto-proceeded to step-02
 

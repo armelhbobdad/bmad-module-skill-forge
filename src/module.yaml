@@ -20,3 +20,6 @@ forge_data_folder:
 ## communication_language
 ## document_output_language
 ## output_folder
+
+# Variables from Agent Sidecar Config:
+## sidecar_path  (from forger.agent.yaml metadata.sidecar-path)

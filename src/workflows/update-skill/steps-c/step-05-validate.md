@@ -69,13 +69,9 @@ Run: `npx skill-check -h`
 
 Launch subprocesses in parallel for each validation category, aggregating results when complete:
 
-**Check A — Spec Compliance (via skill-check):**
+**Check A — Spec Compliance (deferred to post-write):**
 
-**If available**, run: `npx skill-check check <skill-dir> --fix --format json --no-security-scan`
-
-Parse JSON output for quality score (0-100), auto-fixed issues, and remaining diagnostics. If `body.max_lines` reported, prefer selective split: extract only the largest Tier 2 section(s) to `references/`, keeping all Tier 1 content inline (selective split preserves agent accuracy — inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval per Vercel research). Fall back to `npx skill-check split-body <skill-dir> --write` only if selective split is not feasible. After any split, verify `#quick-start` and `#key-types` anchors still resolve in SKILL.md.
-
-**If unavailable**, perform manual check: validate merged SKILL.md structure, verify required sections (exports, usage patterns, conventions), verify export entries have name/type/signature/file:line reference, flag missing sections.
+Skill-check requires written files on disk. This check is deferred to step-06 section 7. Perform manual structural check only: verify merged SKILL.md has required sections (exports, usage patterns, conventions), verify export entries have name/type/signature/file:line reference, flag missing sections.
 
 **Check B — [MANUAL] Section Integrity:**
 - Compare [MANUAL] inventory from step 01 against merged content
@@ -84,7 +80,7 @@ Parse JSON output for quality score (0-100), auto-fixed issues, and remaining di
 
 **Check C — Confidence Tier Consistency:**
 - Verify all re-extracted exports have confidence labels (T1/T1-low/T2)
-- Verify tier labels match forge tier: Quick=T1-low only, Forge=T1 (T1-low for degraded), Deep=T1+T2
+- Verify tier labels match forge tier: Quick=T1-low only, Forge=T1 (T1-low for degraded), Forge+=T1 (same as Forge, CCC improves coverage not confidence), Deep=T1+T2
 - Flag mismatched or missing tier labels
 
 **Check D — Provenance Completeness:**
@@ -166,9 +162,9 @@ ONLY WHEN all validation checks have completed and findings are displayed will y
 
 ### ✅ SUCCESS:
 
-- All six checks executed (spec, [MANUAL], confidence, provenance, diff, security)
-- `npx skill-check check --fix` and `diff` executed if available (or fallbacks used)
-- Quality score captured; auto-fix applied for deterministic issues
+- All six checks executed (spec-manual, [MANUAL], confidence, provenance, diff, security)
+- Checks A (spec compliance via skill-check), E (diff), and F (security scan) deferred to post-write in step-06
+- Manual structural check performed for spec compliance in this step
 - Stack skill reference files validated if applicable
 - Findings reported with severity and specific locations; [MANUAL] integrity verified
 - Auto-proceeds regardless of findings (advisory mode)
@@ -177,7 +173,7 @@ ONLY WHEN all validation checks have completed and findings are displayed will y
 
 - Skipping any of the six checks; blocking on validation warnings
 - Not verifying [MANUAL] integrity; hallucinating findings not backed by comparison
-- Modifying merged content during validation (except via skill-check --fix)
+- Modifying merged content during validation (validation is read-only in this step)
 - Not recording quality score when skill-check is available
 
 **Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

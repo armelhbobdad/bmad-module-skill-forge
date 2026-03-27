@@ -38,7 +38,7 @@ Scan the project root for dependency manifest files, parse each to extract depen
 - 🎯 Load manifest-patterns.md for detection rules
 - 💾 Store manifests found and raw dependency list as workflow state
 - 📖 Auto-proceed to step 03 after successful detection
-- 🚫 HALT if no manifests found and no explicit list provided
+- 🚫 HALT if no manifests found and no explicit list provided — **unless `compose_mode` is true** (compose mode skips manifest detection)
 
 ## CONTEXT BOUNDARIES:
 
@@ -52,14 +52,23 @@ Scan the project root for dependency manifest files, parse each to extract depen
 
 ### 0. Check Compose Mode
 
-**If `compose_mode` is true:**
+**If `compose_mode` is true AND `explicit_deps` was provided in step 01:**
+
+Use the explicit dependency list directly. Store the explicit list as `raw_dependencies` with `source: "explicit"` and skip to [Auto-Proceed to Next Step](#5-auto-proceed-to-next-step).
+
+**If `compose_mode` is true AND `explicit_deps` was NOT provided:**
 
 Scan `{skills_output_folder}` for subdirectories containing SKILL.md and metadata.json.
+
+**Filter:** Skip any subdirectory named `{project_name}-stack` or any skill where `metadata.json` has `"skill_type": "stack"` — stack skills must not be loaded as source dependencies to avoid self-referencing loops.
+
+**If zero skills remain after filtering:** HALT with: "**Cannot proceed in compose-mode.** No individual skills found in `{skills_output_folder}` (after filtering stack skills). Run [CS] Create Skill or [QS] Quick Skill to generate individual skills first, then re-run [SS]."
 
 For each skill found:
 1. Read metadata.json
 2. Extract: name, language, confidence_tier, source_repo, exports count, version
-3. Store as `raw_dependencies` with source: "existing_skill"
+3. Store the subdirectory name as `skill_dir` (distinct from `name` — the directory may differ from the metadata name)
+4. Store as `raw_dependencies` with source: "existing_skill"
 
 Display:
 "**Loaded {N} existing skills as dependencies.**
@@ -70,7 +79,7 @@ Display:
 
 **Proceeding to scope confirmation...**"
 
-Skip to section 4 (Display Detection Summary) then auto-proceed.
+Skip to [Auto-Proceed to Next Step](#5-auto-proceed-to-next-step) — the skills table above serves as the detection summary.
 
 **If not compose_mode:** Continue with section 1 (existing flow).
 
@@ -82,7 +91,7 @@ Skip to section 4 (Display Detection Summary) then auto-proceed.
 
 **Dependencies:** {explicit_deps_count} libraries provided"
 
-Store the explicit list as `raw_dependencies` and skip to section 4.
+Store the explicit list as `raw_dependencies` and skip to [Display Detection Summary](#4-display-detection-summary).
 
 **If no explicit list:** Continue to section 2.
 

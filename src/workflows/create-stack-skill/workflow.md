@@ -23,7 +23,7 @@ This uses **step-file architecture** for disciplined execution:
 - **Just-In-Time Loading**: Only the current step file is in memory — never load future step files until told to do so
 - **Sequential Enforcement**: Sequence within the step files must be completed in order, no skipping or optimization allowed
 - **Append-Only Building**: Build outputs by accumulating state across steps
-- **Zero Hallucination**: All extracted content must trace to actual source code — no inferred or assumed patterns
+- **Zero Hallucination**: All extracted content must trace to actual source code — no inferred or assumed patterns. In compose-mode, inferred integrations are permitted but must be labeled `[inferred from shared domain]` per compose-mode-rules.md
 
 ### Step Processing Rules
 

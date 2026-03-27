@@ -68,6 +68,11 @@ Based on forge tier detected in Step 01:
 - Extract: export name, type (function/class/type/const), full signature, file path, line number
 - Confidence label: T1
 
+**Forge+ tier (ast-grep + ccc available):**
+- Identical extraction to Forge tier: use ast_bridge for AST extraction per source file
+- Confidence label: T1
+- CCC rename detection available (see section 4b)
+
 **Deep tier (ast-grep + QMD available):**
 - Forge extraction (above) PLUS
 - Query qmd_bridge for temporal context: when exports were added, modification history, usage frequency

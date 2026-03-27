@@ -56,7 +56,8 @@ Indexed format targeting ~80-120 tokens per skill:
 |IMPORTANT: {skill_name} v{version} — read SKILL.md before writing {skill_name} code. Do NOT rely on training data.
 |quick-start:{SKILL.md#quick-start}
 |api: {top-5 exports with () for functions}
-|gotchas: {1-2 most critical pitfalls if known}
+|key-types:{SKILL.md#key-types} — {inline summary of most important type values}
+|gotchas: {2-3 most critical pitfalls or breaking changes, inline}
 ```
 
 ## metadata.json Format
@@ -64,23 +65,30 @@ Indexed format targeting ~80-120 tokens per skill:
 ```json
 {
   "name": "{skill_name}",
-  "version": "0.1.0",
+  "version": "{source-version or 1.0.0}",
+  "description": "{brief description of the skill}",
   "skill_type": "single",
   "source_authority": "community",
   "source_repo": "{repo_url}",
+  "source_root": "{resolved_source_path}",
+  "source_commit": "{commit_sha_if_available}",
   "source_package": "{package_name}",
   "language": "{language}",
   "generated_by": "quick-skill",
   "generation_date": "{date}",
   "confidence_tier": "Quick",
-  "extraction_tier": "quick",
   "spec_version": "1.3",
   "exports": ["{export_1}", "{export_2}"],
   "confidence_distribution": {
     "t1": 0,
-    "t1_low": "{exports_count}",
+    "t1_low": "{exports_count (integer, not string)}",
     "t2": 0,
     "t3": 0
+  },
+  "tool_versions": {
+    "ast_grep": null,
+    "qmd": null,
+    "skf": "{skf_version}"
   },
   "stats": {
     "exports_documented": "{number}",
@@ -88,7 +96,11 @@ Indexed format targeting ~80-120 tokens per skill:
     "exports_internal": 0,
     "exports_total": "{number}",
     "public_api_coverage": 1.0,
-    "total_coverage": 1.0
-  }
+    "total_coverage": 1.0,
+    "scripts_count": 0,
+    "assets_count": 0
+  },
+  "dependencies": [],
+  "compatibility": "{semver-range}"
 }
 ```

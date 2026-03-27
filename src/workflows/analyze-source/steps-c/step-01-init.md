@@ -4,7 +4,7 @@ description: 'Initialize analysis workflow — load config, detect continuation,
 
 nextStepFile: './step-02-scan-project.md'
 continueFile: './step-01b-continue.md'
-outputFile: '{output_folder}/analyze-source-report-{project_name}.md'
+outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 templateFile: '../templates/analysis-report-template.md'
 ---
 
@@ -118,7 +118,7 @@ Wait for user input. Document any hints provided.
 
 ### 5. Check for Existing Skills
 
-Scan `{forge_data_folder}/` for existing `skill-brief.yaml` files.
+Scan `{forge_data_folder}/*/skill-brief.yaml` (one level deep — each skill has its own subdirectory) for existing skill briefs.
 
 **IF existing skills found:**
 "**Existing skills detected:**

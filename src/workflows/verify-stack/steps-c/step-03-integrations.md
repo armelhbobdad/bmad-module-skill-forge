@@ -89,7 +89,8 @@ For each library in an integration pair, load the skill artifacts:
 
 **From metadata.json, extract:**
 - `language` — primary programming language
-- `exports` — export count and names
+- `exports` — export names array (populated for individual skills; empty for stack skills)
+- `stats.exports_documented` — export count
 - `confidence_tier` — extraction confidence level
 
 Store loaded API surfaces for cross-referencing.
@@ -136,6 +137,9 @@ For each integration pair `{library_a, library_b}`, apply the verification proto
 
 **Summary:** {verified_count} Verified, {plausible_count} Plausible, {risky_count} Risky, {blocked_count} Blocked
 
+{IF zero integration pairs found:}
+**No integration claims detected in the architecture document prose.** Ensure your architecture document describes relationships between technologies in text form (not exclusively in Mermaid diagrams). Coverage-only analysis was performed.
+
 {IF any Risky:}
 **Risky Integrations — Recommendations:**
 {For each risky pair:}
@@ -155,6 +159,10 @@ Write the **Integration Verdicts** section to `{outputFile}`:
 - Set `integrations_verified`, `integrations_plausible`, `integrations_risky`, `integrations_blocked` counts
 
 ### 7. Auto-Proceed to Next Step
+
+**Early halt guard:** If ALL integration pairs are Blocked, present: "**All integrations are Blocked** — fundamental incompatibilities detected across all library pairs. Remaining analysis will produce limited value. **[X] Halt workflow (recommended)** | **[C] Continue anyway**" — wait for user input. If X: halt with: "**Workflow halted — all integrations blocked.** Integration Verdicts saved to `{outputFile}`. Run **[VS]** after applying architectural changes. **Blocked integrations:** {list each blocked pair with reason}." If C: continue.
+
+{IF NOT halted (user selected C, or early halt guard did not trigger):}
 
 "**Proceeding to requirements verification...**"
 

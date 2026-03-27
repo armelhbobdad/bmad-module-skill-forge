@@ -56,7 +56,19 @@ For each confirmed dependency, extract key exports, usage patterns, and API surf
 
 "**Extraction data already available from individual skills. Skipping extraction phase.**"
 
-For each confirmed skill, load the full SKILL.md content into context as the extraction result. The skill's existing confidence tiers (T1, T1-low, T2) are inherited directly.
+For each confirmed skill, load `{skills_output_folder}/{skill_dir}/SKILL.md` (where `skill_dir` is the subdirectory name stored in step-02, which may differ from the `name` field in metadata.json) into context. Build a `per_library_extractions[]` entry for each skill with the following fields:
+- `library`: skill name from metadata.json
+- `exports`: exports list extracted from the SKILL.md exports section
+- `usage_patterns`: usage patterns from the SKILL.md usage section
+- `confidence`: the skill's existing confidence tier (T1, T1-low, T2) — inherited directly
+
+Display an extraction summary:
+
+"**Loaded {N} skill extractions from existing skills.**
+
+| Skill | Exports | Confidence | Status |
+|-------|---------|------------|--------|
+| {name} | {count} | {tier} | Loaded |"
 
 Auto-proceed to next step.
 

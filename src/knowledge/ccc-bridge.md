@@ -19,7 +19,7 @@ The key architectural constraint: ccc discovers, ast-grep verifies. Discovery me
 
 ccc is a **discovery layer only**. It answers "where should I look?" — it does not produce citations or structural claims. Every path or symbol returned by ccc_bridge must be verified by `ast_bridge` (T1) or source reading (T1-low) before it enters the extraction inventory. ccc results never appear in provenance citations.
 
-ccc is available at **Forge+** and **Deep** tiers (when `tools.ccc: true` in forge-tier.yaml).
+ccc is **required** at the Forge+ tier (it defines Forge+) and **optionally available** at the Deep tier as an enhancement (when `tools.ccc: true` in forge-tier.yaml).
 
 ## Availability
 

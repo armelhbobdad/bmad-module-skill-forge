@@ -4,6 +4,7 @@ description: 'Load generated skills from skills folder, accept architecture doc 
 
 nextStepFile: './step-02-coverage.md'
 reportTemplate: '../data/feasibility-report-template.md'
+outputFile: '{forge_data_folder}/feasibility-report-{project_name}.md'
 ---
 
 # Step 1: Initialize Verification
@@ -22,7 +23,7 @@ Load all generated skills from the skills output folder, accept the architecture
 
 ### Role Reinforcement:
 
-- ✅ You are a stack verification analyst operating in Ferris Architect mode
+- ✅ You are a stack verification analyst operating in Ferris Audit mode
 - ✅ Execute with prescriptive precision — every loaded skill must be validated against actual files
 - ✅ You enforce the zero-hallucination principle: only report skills that physically exist on disk
 
@@ -30,7 +31,7 @@ Load all generated skills from the skills output folder, accept the architecture
 
 - 🎯 Focus ONLY on loading inputs, scanning skills, and creating the report skeleton
 - 🚫 FORBIDDEN to perform any coverage analysis or integration checking
-- 🚫 No A/P menu — this is an auto-proceed init step
+- 🚫 Auto-proceed init step — no user confirmation needed. Halts only on validation errors
 - 💬 Present a clear initialization summary so downstream steps have validated inputs
 
 ## EXECUTION PROTOCOLS:
@@ -57,7 +58,8 @@ Load all generated skills from the skills output folder, accept the architecture
 
 Please provide the following:
 1. **Architecture document path** (REQUIRED) — your project's architecture doc
-2. **PRD or vision document path** (OPTIONAL) — for requirements coverage analysis"
+2. **PRD or vision document path** (OPTIONAL) — for requirements coverage analysis
+3. **Previous feasibility report path** (OPTIONAL) — for delta comparison with a prior run (provide a backup copy)"
 
 Wait for user input.
 
@@ -71,6 +73,12 @@ Wait for user input.
 - If missing → "PRD document not found at `{path}`. Proceeding without PRD — requirements pass will be skipped."
 - Store PRD availability as `prd_available: true|false`
 
+**Validate previous report (if provided):**
+- Confirm the file exists and is readable
+- **Collision check:** Resolve both the provided path and `{outputFile}` to their absolute form before comparing (do not rely on string equality alone). If they resolve to the same location, warn: "The previous report path points to the same location as the new report. This file will be overwritten during this run. Provide a path to a backup copy, or leave empty to skip delta comparison." HALT until resolved.
+- If missing → "Previous report not found at `{path}`. Proceeding without delta comparison."
+- Store as `previous_report: {path}` (or empty string if not provided)
+
 ### 2. Scan Skills Folder
 
 Read the `{skills_output_folder}` directory.
@@ -81,7 +89,7 @@ For each subdirectory, check for the presence of `SKILL.md` and `metadata.json`.
 - `name` — skill name
 - `language` — primary language
 - `confidence_tier` — Quick, Forge, Forge+, or Deep
-- `exports` count — number of documented exports
+- `exports_documented` — read from `stats.exports_documented` in metadata.json (count of documented exports)
 - `source_repo` or `source_root` — original source repository
 
 **Build a skill inventory** as an internal list of all loaded skills with the fields above.
@@ -97,16 +105,23 @@ For each subdirectory, check for the presence of `SKILL.md` and `metadata.json`.
 - If fewer than 2 → "**Cannot proceed.** Only {count} skill(s) found in `{skills_output_folder}`. A stack requires at least 2 skills. Generate more skills with [CS] Create Skill or [QS] Quick Skill, then re-run [VS]."
 - HALT workflow
 
+**Check forge_data_folder:**
+- Verify `forge_data_folder` was resolved from config.yaml and is non-empty
+- If undefined or empty → "**Cannot proceed.** `forge_data_folder` is not configured in config.yaml. Re-run [SF] Setup Forge to initialize."
+- HALT workflow
+
 **Check architecture document:**
 - Confirm it was loaded successfully in section 1
 - If not → HALT with error (should not reach here if section 1 validation passed)
 
 ### 4. Create Feasibility Report
 
-Load `{reportTemplate}` and create the output file at `{forge_data_folder}/feasibility-report-{project_name}.md`.
+Load `{reportTemplate}` and create the output file at `{outputFile}`.
 
 **Populate frontmatter:**
 - `project_name`, `date`, `architecture_doc`, `prd_doc` (or "none")
+- `prd_available: true|false` (from section 1 validation)
+- `previous_report: {path}` (or empty string if not provided)
 - `skills_analyzed: {count}`
 - `overall_verdict: "pending"`
 - `stepsCompleted: ['step-01-init']`
@@ -118,14 +133,15 @@ Load `{reportTemplate}` and create the output file at `{forge_data_folder}/feasi
 | Field | Value |
 |-------|-------|
 | **Skills Loaded** | {count} |
-| **Architecture Doc** | {architecture_doc_name} |
-| **PRD Document** | {prd_doc_name or 'Not provided — requirements pass will be skipped'} |
+| **Architecture Doc** | {architecture_doc} |
+| **PRD Document** | {prd_doc or 'Not provided — requirements pass will be skipped'} |
+| **Previous Report** | {previous_report or 'Not provided — no delta comparison'} |
 
 **Skill Inventory:**
 
 | Skill | Language | Tier | Exports |
 |-------|----------|------|---------|
-| {skill_name} | {language} | {confidence_tier} | {exports_count} |
+| {skill_name} | {language} | {confidence_tier} | {exports_documented} |
 
 **Proceeding to coverage analysis...**"
 

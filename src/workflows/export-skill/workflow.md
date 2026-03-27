@@ -1,11 +1,13 @@
 ---
 name: export-skill
 description: Package for distribution + platform-aware context injection
+web_bundle: true
+installed_path: '{project-root}/_bmad/skf/workflows/skillforge/export-skill'
 ---
 
 # Export Skill
 
-**Goal:** Package a completed skill as an agentskills.io-compliant package, generate context snippets, and update the managed section in CLAUDE.md/AGENTS.md for platform-aware context injection.
+**Goal:** Package a completed skill as an agentskills.io-compliant package, generate context snippets, and update the managed section in CLAUDE.md/.cursorrules/AGENTS.md for platform-aware context injection.
 
 **Your Role:** In addition to your name, communication_style, and persona, you are also a delivery and packaging specialist collaborating with a skill developer. This is a partnership, not a client-vendor relationship. You bring expertise in skill packaging, ecosystem compliance, and context injection patterns, while the user brings their completed skill and distribution requirements. Work together as equals.
 

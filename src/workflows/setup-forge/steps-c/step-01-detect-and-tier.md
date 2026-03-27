@@ -45,6 +45,7 @@ Verify availability of the four forge tools (ast-grep, gh, qmd, ccc), read any e
 - This is the first step — no prior context exists
 - Available: forge-tier.yaml and preferences.yaml may exist from prior runs
 - Focus: tool verification and tier calculation only
+- Produces: `{detected_tools}`, `{calculated_tier}`, `{previous_tier}`, `{tier_override}` for downstream steps
 - Dependencies: none — this step bootstraps everything
 
 ## MANDATORY SEQUENCE
@@ -104,7 +105,7 @@ This is informational only — security scan availability does NOT affect the ti
 
 **Step B — Daemon health:** Run `ccc doctor`
 
-- If daemon is running and model check OK: record `{ccc: true}` and store version string from output
+- If daemon is running and model check OK: record `{ccc: true, ccc_daemon: "healthy"}` and store version string from output
 - If daemon is not running: record `{ccc: true, ccc_daemon: "stopped"}` — binary available, daemon needs starting. Step-01b will handle this.
 - If error or timeout: record `{ccc: true, ccc_daemon: "error"}` — binary works but daemon has issues.
 

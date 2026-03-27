@@ -2,7 +2,7 @@
 
 ## Principle
 
-Selective split is the recommended strategy when `split-body` is needed. Extract only the largest Tier 2 section(s) to stay under the `body.max_lines` limit — keep all actionable Tier 1 content inline. Full split-body reduces agent accuracy because on-demand retrieval underperforms inline passive context.
+Selective split is the recommended strategy when `split-body` is needed. Extract only the largest Tier 2 section(s) to stay under the 500-line body guideline — keep all actionable Tier 1 content inline. Full split-body reduces agent accuracy because on-demand retrieval underperforms inline passive context.
 
 ## Rationale
 
@@ -28,9 +28,15 @@ A split-body skill is identified by:
 
 When processing a split-body skill, any workflow step that reads SKILL.md content must also traverse `references/*.md` to get the complete picture.
 
+## Anti-Patterns
+
+- Running `skill-check split-body --write` without first attempting selective split
+- Moving Tier 1 sections (Quick Start, Key API Summary) to references/ — these must stay inline
+- Splitting before checking whether context snippet anchors will break
+
 ## Recommended Approach
 
-When `body.max_lines` is exceeded:
+When the 500-line body guideline is exceeded:
 1. Identify which Tier 2 section(s) are largest (usually `## Full API Reference`)
 2. Extract only those specific sections to `references/`
 3. Keep all Tier 1 sections and smaller Tier 2 sections inline
@@ -39,3 +45,11 @@ When `body.max_lines` is exceeded:
 ## Scripts and Assets Interaction
 
 Split-body affects only SKILL.md content movement to `references/`. The `scripts/` and `assets/` directories are unaffected — they remain as top-level siblings of SKILL.md regardless of split-body decisions. They do not count toward the body line limit.
+
+## Related Fragments
+
+- [agentskills-spec.md](agentskills-spec.md) — 500-line guideline for SKILL.md body size and the `references/` directory structure
+- [skill-lifecycle.md](skill-lifecycle.md) — where split-body decisions fit in the compilation pipeline
+- `test-skill/data/scoring-rules.md` — tessl/split-body interaction and the pre-split baseline recommendation during test reporting
+
+_Source: derived from agentskills.io split-body guidance and Vercel agent accuracy research (inline vs on-demand retrieval)_

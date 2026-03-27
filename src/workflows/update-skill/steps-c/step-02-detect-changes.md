@@ -110,7 +110,7 @@ Launch subprocesses in parallel that compare source state against provenance map
 
 **Category C — Rename detection:**
 - Cross-reference deleted files/exports with added files/exports
-- If content similarity > 80%: classify as RENAMED instead of deleted+added
+- If content similarity > 80%: classify as RENAMED instead of deleted+added. **Similarity mechanism by tier:** Quick: compare file size ratio (within 20%) and export name overlap (>70% of exports match by name). Forge and above: use ast-grep to compare export signatures between the deleted and added files. Forge+/Deep: use CCC semantic similarity when available
 
 **Category D — Script/asset file changes:**
 - Compare `file_entries` from provenance-map.json against current source files
@@ -177,7 +177,7 @@ The skill `{skill_name}` is current — no update needed.
 | Files moved/renamed | {count} |
 | Exports affected | {total_export_changes} |
 
-**Proceeding to re-extraction of {affected_file_count} changed files...**"
+**Proceeding to re-extraction of {affected_file_count if normal mode, or gap_count if gap-driven mode} changes...**"
 
 ### 6. Present MENU OPTIONS
 

@@ -62,14 +62,17 @@ With zero hallucination enforcement:
 
 **Implementation:** Extraction relies on source reading and pattern matching. All citations use `[SRC:file:Lnn]` format (T1-low confidence). The skill clearly states its extraction tier so consuming agents understand the confidence level.
 
-```yaml
-# metadata.json (excerpt)
-confidence_distribution:
-  t1: 0
-  t1_low: 47
-  t2: 0
-  t3: 3
-extraction_tier: quick
+```json
+// metadata.json (excerpt)
+{
+  "confidence_tier": "Quick",
+  "confidence_distribution": {
+    "t1": 0,
+    "t1_low": 47,
+    "t2": 0,
+    "t3": 3
+  }
+}
 ```
 
 **Key Points:**

@@ -101,8 +101,8 @@ async function runTests() {
       assert(skfAgent.agent.critical_actions !== undefined, 'SKF agent has critical_actions');
       assert(skfAgent.agent.menu !== undefined, 'SKF agent has menu');
       assert(
-        Array.isArray(skfAgent.agent.menu) && skfAgent.agent.menu.length === 13,
-        'SKF agent menu has 13 workflows',
+        Array.isArray(skfAgent.agent.menu) && skfAgent.agent.menu.length === 14,
+        'SKF agent menu has 14 entries (12 workflows + 1 knowledge index + 1 status action)',
         `Found ${Array.isArray(skfAgent.agent.menu) ? skfAgent.agent.menu.length : 'non-array'}`,
       );
 
@@ -154,6 +154,8 @@ async function runTests() {
     'create-skill',
     'quick-skill',
     'create-stack-skill',
+    'verify-stack',
+    'refine-architecture',
     'update-skill',
     'audit-skill',
     'test-skill',
@@ -168,6 +170,177 @@ async function runTests() {
       assert(content.length > 0, `${workflowName}/workflow.md exists`);
     } else {
       assert(false, `${workflowName}/workflow.md exists`, `src/workflows/${workflowName}/workflow.md not found`);
+    }
+  }
+
+  console.log('');
+
+  // ============================================================
+  // Test 5: Step-File Chain and Data File Validation
+  // ============================================================
+  console.log(`${colors.yellow}Test Suite 5: Step-File and Data File Validation${colors.reset}\n`);
+
+  const stepFileChains = {
+    'setup-forge': {
+      steps: [
+        'step-01-detect-and-tier.md',
+        'step-01b-ccc-index.md',
+        'step-02-write-config.md',
+        'step-03-auto-index.md',
+        'step-04-report.md',
+      ],
+      data: ['tier-rules.md'],
+    },
+    'analyze-source': {
+      steps: [
+        'step-01-init.md',
+        'step-01b-continue.md',
+        'step-02-scan-project.md',
+        'step-03-identify-units.md',
+        'step-04-map-and-detect.md',
+        'step-05-recommend.md',
+        'step-06-generate-briefs.md',
+      ],
+      data: ['skill-brief-schema.md', 'unit-detection-heuristics.md'],
+    },
+    'brief-skill': {
+      steps: [
+        'step-01-gather-intent.md',
+        'step-02-analyze-target.md',
+        'step-03-scope-definition.md',
+        'step-04-confirm-brief.md',
+        'step-05-write-brief.md',
+      ],
+      data: ['scope-templates.md', 'skill-brief-schema.md'],
+    },
+    'create-skill': {
+      steps: [
+        'step-01-load-brief.md',
+        'step-02-ecosystem-check.md',
+        'step-02b-ccc-discover.md',
+        'step-03-extract.md',
+        'step-03b-fetch-temporal.md',
+        'step-03c-fetch-docs.md',
+        'step-04-enrich.md',
+        'step-05-compile.md',
+        'step-06-validate.md',
+        'step-07-generate-artifacts.md',
+        'step-08-report.md',
+      ],
+      data: [
+        'compile-assembly-rules.md',
+        'extraction-patterns.md',
+        'extraction-patterns-tracing.md',
+        'skill-sections.md',
+        'source-resolution-protocols.md',
+        'tier-degradation-rules.md',
+      ],
+    },
+    'quick-skill': {
+      steps: [
+        'step-01-resolve-target.md',
+        'step-02-ecosystem-check.md',
+        'step-03-quick-extract.md',
+        'step-04-compile.md',
+        'step-05-validate.md',
+        'step-06-write.md',
+      ],
+      data: ['registry-resolution.md', 'skill-template.md'],
+    },
+    'create-stack-skill': {
+      steps: [
+        'step-01-init.md',
+        'step-02-detect-manifests.md',
+        'step-03-rank-and-confirm.md',
+        'step-04-parallel-extract.md',
+        'step-05-detect-integrations.md',
+        'step-06-compile-stack.md',
+        'step-07-generate-output.md',
+        'step-08-validate.md',
+        'step-09-report.md',
+      ],
+      data: ['integration-patterns.md', 'manifest-patterns.md', 'stack-skill-template.md', 'compose-mode-rules.md'],
+    },
+    'update-skill': {
+      steps: [
+        'step-01-init.md',
+        'step-02-detect-changes.md',
+        'step-03-re-extract.md',
+        'step-04-merge.md',
+        'step-05-validate.md',
+        'step-06-write.md',
+        'step-07-report.md',
+      ],
+      data: ['manual-section-rules.md', 'merge-conflict-rules.md', 'remote-source-resolution.md'],
+    },
+    'audit-skill': {
+      steps: [
+        'step-01-init.md',
+        'step-02-re-index.md',
+        'step-03-structural-diff.md',
+        'step-04-semantic-diff.md',
+        'step-05-severity-classify.md',
+        'step-06-report.md',
+      ],
+      data: ['drift-report-template.md', 'severity-rules.md'],
+    },
+    'test-skill': {
+      steps: [
+        'step-01-init.md',
+        'step-02-detect-mode.md',
+        'step-03-coverage-check.md',
+        'step-04-coherence-check.md',
+        'step-04b-external-validators.md',
+        'step-05-score.md',
+        'step-06-report.md',
+      ],
+      data: ['output-section-formats.md', 'scoring-rules.md', 'source-access-protocol.md'],
+    },
+    'verify-stack': {
+      steps: [
+        'step-01-init.md',
+        'step-02-coverage.md',
+        'step-03-integrations.md',
+        'step-04-requirements.md',
+        'step-05-synthesize.md',
+        'step-06-report.md',
+      ],
+      data: ['coverage-patterns.md', 'feasibility-report-template.md', 'integration-verification-rules.md'],
+    },
+    'refine-architecture': {
+      steps: [
+        'step-01-init.md',
+        'step-02-gap-analysis.md',
+        'step-03-issue-detection.md',
+        'step-04-improvements.md',
+        'step-05-compile.md',
+        'step-06-report.md',
+      ],
+      data: ['refinement-rules.md'],
+    },
+    'export-skill': {
+      steps: [
+        'step-01-load-skill.md',
+        'step-02-package.md',
+        'step-03-generate-snippet.md',
+        'step-04-update-context.md',
+        'step-05-token-report.md',
+        'step-06-summary.md',
+      ],
+      data: ['managed-section-format.md', 'snippet-format.md'],
+    },
+  };
+
+  for (const [workflow, files] of Object.entries(stepFileChains)) {
+    for (const step of files.steps) {
+      const stepPath = path.join(projectRoot, `src/workflows/${workflow}/steps-c/${step}`);
+      const exists = await pathExists(stepPath);
+      assert(exists, `${workflow}/steps-c/${step} exists`, `Missing step file: ${stepPath}`);
+    }
+    for (const dataFile of files.data) {
+      const dataPath = path.join(projectRoot, `src/workflows/${workflow}/data/${dataFile}`);
+      const exists = await pathExists(dataPath);
+      assert(exists, `${workflow}/data/${dataFile} exists`, `Missing data file: ${dataPath}`);
     }
   }
 

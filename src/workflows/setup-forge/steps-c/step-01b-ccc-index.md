@@ -71,7 +71,7 @@ Check the `ccc_index` section:
   - Proceed to section 4
 
 - If `ccc_index.indexed_path` matches `{project-root}` but timestamp is older than threshold:
-  - Store `{ccc_index_result: "stale", ccc_indexed_path: {existing path}, ccc_last_indexed: {existing timestamp}}` — proceed to section 3 for re-index
+  - Note index is stale — proceed to section 3 for re-index (section 3 will overwrite `ccc_index_result` to `"created"` or `"failed"`)
 
 - If `ccc_index` is missing, has null values, or path doesn't match:
   - Proceed to section 3 for initial index

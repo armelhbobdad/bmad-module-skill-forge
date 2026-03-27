@@ -73,17 +73,17 @@ Where `{primary_confidence}` is the predominant confidence tier (T1 if Forge/Dee
 |------|-------|-------------|
 | T1 (AST) | {t1_count} | Structurally verified via ast-grep |
 | T1-low (Source) | {t1_low_count} | Inferred from source reading |
-| T2 (QMD) | {t2_count} | Enriched with temporal context |
+| T2 (QMD) | {t2_count} | QMD-enriched semantic context |
 | T3 (External) | {t3_count} | Sourced from external documentation URLs |
 
 **Output Files:**
-- `skills/{name}/SKILL.md` — Active skill with trigger-based usage
-- `skills/{name}/context-snippet.md` — Passive context for CLAUDE.md
-- `skills/{name}/metadata.json` — Machine-readable birth certificate
-- `skills/{name}/references/` — Progressive disclosure ({ref_count} files)
-- `forge-data/{name}/provenance-map.json` — Source map with AST bindings
-- `forge-data/{name}/evidence-report.md` — Build audit trail
-- `forge-data/{name}/extraction-rules.yaml` — Reproducible extraction schema"
+- `{skills_output_folder}/{name}/SKILL.md` — Active skill with trigger-based usage
+- `{skills_output_folder}/{name}/context-snippet.md` — Passive context for CLAUDE.md
+- `{skills_output_folder}/{name}/metadata.json` — Machine-readable birth certificate
+- `{skills_output_folder}/{name}/references/` — Progressive disclosure ({ref_count} files)
+- `{forge_data_folder}/{name}/provenance-map.json` — Source map with AST bindings
+- `{forge_data_folder}/{name}/evidence-report.md` — Build audit trail
+- `{forge_data_folder}/{name}/extraction-rules.yaml` — Reproducible extraction schema"
 
 ### 3. Display Warnings (If Any)
 
@@ -100,7 +100,7 @@ If no warnings, omit this section entirely.
 
 "**Recommended next steps:**
 - **[TS] Test Skill** — verify completeness and accuracy before export
-- **[ES] Export Skill** — publish to your skill library or agentskills.io
+- **[EX] Export Skill** — publish to your skill library or agentskills.io
 - **[US] Update Skill** — edit specific sections or add manual content
 
 To use this skill immediately, add the context snippet to your CLAUDE.md:
@@ -116,9 +116,23 @@ To use this skill immediately, add the context snippet to your CLAUDE.md:
 
 {If more remaining:} Proceeding to next brief: {next_skill_name}..."
 
-Update sidecar checkpoint with batch progress, then loop back to step-01 for the next brief.
+Update the batch checkpoint in `{sidecar_path}/batch-state.yaml` with:
 
-**If not batch mode or all batch briefs complete:**
+```yaml
+batch_active: true
+brief_list: [{full list of brief paths}]
+current_index: {index of next brief to process, 0-based}
+completed: [{list of completed skill names}]
+last_updated: {ISO timestamp}
+```
+
+Then loop back to step-01 for the next brief. Step-01 detects an active batch via `batch-state.yaml` and loads the brief at `current_index`.
+
+**If all batch briefs complete:**
+
+Set `batch_active: false` in `{sidecar_path}/batch-state.yaml` to prevent stale state. Display: "Batch complete. {completed_count} skills compiled."
+
+**If not batch mode:**
 
 End workflow. No further steps.
 

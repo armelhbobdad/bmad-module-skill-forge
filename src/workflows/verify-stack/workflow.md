@@ -53,8 +53,8 @@ This uses **step-file architecture** for disciplined execution:
 
 Load and read full config from {project-root}/_bmad/skf/config.yaml and resolve:
 
-- `project_name`, `user_name`, `communication_language`, `document_output_language`
-- `skills_output_folder`, `forge_data_folder`, `sidecar_path`
+- `project_name`, `user_name`, `communication_language`
+- `skills_output_folder`, `forge_data_folder`, `document_output_language`
 
 ### 2. First Step Execution
 

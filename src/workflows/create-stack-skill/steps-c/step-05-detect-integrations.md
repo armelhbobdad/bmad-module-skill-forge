@@ -43,7 +43,7 @@ Analyze co-import patterns between confirmed libraries to identify integration p
 
 ## CONTEXT BOUNDARIES:
 
-- From step 03: confirmed_dependencies[] with file lists per library
+- From step 03: confirmed_dependencies[] — in code-mode, includes file lists per library; in compose-mode, file lists are not present (use per_library_extractions[] from step 04 for skill content)
 - From step 04: per_library_extractions[] with exports and patterns
 - This step produces: integration_graph {pairs[], types[], files[]}
 - This is the VALUE-ADD step — what makes stack skills different from individual skills
@@ -66,20 +66,24 @@ Report: "**Analyzing {pair_count} library pairs for integration patterns...**"
 
 Instead of co-import grep, detect integrations from architecture document:
 
-1. Load the architecture document from `{architecture_doc_path}`
-2. Use prose-based co-mention analysis: find paragraphs mentioning 2+ confirmed skill names
-3. For each detected integration pair:
+1. Load `{composeModeRules}` for integration evidence format rules
+2. **If `{architecture_doc_path}` is null or not available:** Skip directly to the "If no architecture document available" fallback below
+3. Load the architecture document from `{architecture_doc_path}`
+4. Use prose-based co-mention analysis: find paragraphs mentioning 2+ confirmed skill names
+5. For each detected integration pair:
    - Load both skills' export lists and API signatures
-   - Compose an integration section documenting how the two libraries connect
-   - Include VS feasibility verdict if a feasibility report exists in `{forge_data_folder}/`
+   - Compose an integration section following the format from `{composeModeRules}`
+   - Include VS feasibility verdict if a feasibility report (`feasibility-report-{project_name}.md`) exists in `{forge_data_folder}/`
    - Cite evidence from both skills: `[from skill: {skill_name}]`
-4. Load `{composeModeRules}` for integration evidence format rules
 
-All integration evidence inherits confidence tiers from the source skills.
+All integration evidence inherits confidence tiers from the source skills. Load and apply the full **Confidence Tier Inheritance** matrix from `{composeModeRules}` to compute the correct tier for each pair (covers T1+T1, T1+T1-low, T1-low+T1-low, T1+T2, T1-low+T2, T2+T2 cases). Apply the `[composed]` suffix to all confidence labels — e.g., `T1 [composed]`, `T1-low [composed, +T2 annotations]`.
+
+**VS verdict parsing (if feasibility report exists):** Read the `overall_verdict` from the report's YAML frontmatter. Parse the `## Integration Verdicts` markdown table for per-pair verdicts. For each architecture-detected pair, include `VS overall: {verdict}` and `VS pair: {verdict}` in the integration evidence per the format in `{composeModeRules}`. VS verdicts do not apply to inferred integrations since the VS report operates on architecture-described interactions only. Additionally, flag any pairs where VS reported `Risky` or `Blocked` by appending a `[VS: Risky]` or `[VS: Blocked]` warning annotation to the integration entry.
 
 If no architecture document available:
-- Infer potential integrations from skills that share language or domain
-- Mark inferred integrations: `[inferred from shared domain]`
+- Infer potential integrations from skills sharing the same `language` field or sharing domain keywords in their SKILL.md descriptions (use the `usage_patterns` and `exports` fields from `per_library_extractions[]` built in step-04, or reload `{skills_output_folder}/{skill_dir}/SKILL.md` if full prose text is needed for keyword extraction)
+- Mark inferred integrations: `[inferred from shared domain]` — use this suffix instead of `[composed]` for inferred integrations
+- Inferred integrations qualify automatically — no file-count threshold applies
 
 Skip to section 3 (Classify Integration Types) with the compose-mode pairs.
 
@@ -109,7 +113,7 @@ CCC failures: skip augmentation silently, proceed with grep-only results.
 
 Load `{integrationPatterns}` for classification rules.
 
-For each qualifying pair (2+ co-import files), analyze the co-import files to classify the integration type:
+For each qualifying pair, analyze to classify the integration type (**in compose-mode**: all architecture-document-detected pairs qualify automatically — the 2+ co-import file threshold applies only in code-mode; **in code-mode**: pair must have 2+ co-import files):
 
 - **Type 1: Middleware Chain** — Sequential function calls piping output between libraries
 - **Type 2: Shared Types** — Type definitions exchanged between libraries

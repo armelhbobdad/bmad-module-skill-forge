@@ -40,7 +40,7 @@
 
 ## Rules
 
-- **api line**: Top exports from metadata.json `exports` array. Append `()` to function names. Comma-separated.
+- **api line**: Top exports from metadata.json `exports` array (up to 10 for Deep tier, up to 5 for all other tiers). Append `()` to function names. Comma-separated.
 - **key-types line**: Anchor to `#key-types` section + inline summary (~10 words) of the most important type values
 - **gotchas line**: Derived from: T2-future annotations (breaking changes), async requirements, version-specific behavior. If no gotchas available, omit the line.
 - **stack line**: Component versions from metadata.json `components` for stack skills

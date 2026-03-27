@@ -22,7 +22,7 @@
 | Cursor | `cursor` | .cursorrules |
 | Copilot | `copilot` | AGENTS.md |
 
-## Three-Case Logic
+## Four-Case Logic
 
 ### Case 1: Create (No File Exists)
 
@@ -52,6 +52,13 @@ Target file contains `<!-- SKF:BEGIN` and `<!-- SKF:END -->` markers. Replace co
 3. Find `<!-- SKF:END -->` line (preserve everything after it)
 4. Replace everything between markers (inclusive) with new managed section
 5. Write file
+
+### Case 4: Malformed Markers (Halt)
+
+Target file contains `<!-- SKF:BEGIN` but no matching `<!-- SKF:END -->` marker. This indicates a corrupted managed section.
+
+1. Halt workflow with error: "Malformed managed section — `<!-- SKF:BEGIN` found but no `<!-- SKF:END -->`. Fix the markers manually before re-running export."
+2. Do not modify the file
 
 ## Regeneration: Full Index Rebuild
 

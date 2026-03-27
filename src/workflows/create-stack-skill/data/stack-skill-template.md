@@ -70,17 +70,39 @@ Indexed format targeting ~80-120 tokens per stack:
   "version": "1.0.0",
   "generation_date": "{ISO-8601}",
   "confidence_tier": "{Quick|Forge|Forge+|Deep}",
+  "spec_version": "1.3",
   "source_authority": "{official|community|internal}",
+  "generated_by": "create-stack-skill",
   "exports": [],
   "library_count": 0,
   "integration_count": 0,
   "libraries": ["lib1", "lib2"],
   "integration_pairs": [["lib1", "lib2"]],
+  "language": "{primary language or list of languages from constituent skills}",
+  "ast_node_count": "{number-or-omitted-if-no-ast}",
   "confidence_distribution": {
-    "T1": 0,
-    "T1-low": 0,
-    "T2": 0
-  }
+    "t1": 0,
+    "t1_low": 0,
+    "t2": 0,
+    "t3": 0
+  },
+  "tool_versions": {
+    "ast_grep": "{version-or-null}",
+    "qmd": "{version-or-null}",
+    "skf": "{skf_version}"
+  },
+  "stats": {
+    "exports_documented": 0,
+    "exports_public_api": 0,
+    "exports_internal": 0,
+    "exports_total": 0,
+    "public_api_coverage": 0.0,
+    "total_coverage": 0.0,
+    "scripts_count": 0,
+    "assets_count": 0
+  },
+  "dependencies": [],
+  "compatibility": "{semver-range}"
 }
 ```
 
@@ -90,7 +112,7 @@ Indexed format targeting ~80-120 tokens per stack:
 # {library_name} Reference
 
 **Version:** {version_from_manifest}
-**Import count:** {count} files
+**Import count:** {count} files *(compose-mode: replace with **Export count:** {count} exports)*
 **Confidence:** {T1/T1-low/T2}
 
 ## Key Exports
@@ -110,7 +132,7 @@ Indexed format targeting ~80-120 tokens per stack:
 
 **Type:** {pattern_type}
 **Co-import files:** {count}
-**Confidence:** {T1/T1-low}
+**Confidence:** {T1/T1-low/T2 [composed]}
 
 ## Integration Pattern
 [Detailed description of how these libraries connect]

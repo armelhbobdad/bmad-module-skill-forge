@@ -106,12 +106,12 @@ Runs pending database migrations in sequence.
 | Severity | Condition | Resolution |
 | --- | --- | --- |
 | HIGH | Regenerated content overlaps \[MANUAL\] position | Present both versions, user chooses |
-| WARNING | Parent section deleted, \[MANUAL\] block orphaned | Flag orphaned block, user decides to keep or remove |
+| HIGH | Parent section deleted, \[MANUAL\] block orphaned | Flag orphaned block, user decides to keep or remove |
 | MEDIUM | \[MANUAL\] references a deleted export | Flag stale reference for user review |
 | LOW | New export generated adjacent to \[MANUAL\] block | Auto-resolve: place new content before the block |
 
 **Key Points:**
-- HIGH and WARNING conflicts always require user input — never auto-resolved
+- HIGH conflicts always require user input — never auto-resolved
 - MEDIUM conflicts are flagged but do not block the update
 - LOW conflicts are auto-resolved with a deterministic rule (new content before block)
 

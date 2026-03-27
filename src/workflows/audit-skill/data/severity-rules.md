@@ -48,5 +48,5 @@
 |-------|--------|-------------|
 | T1 | AST extraction (ast-grep) | High — structural truth |
 | T1-low | Text pattern matching (no AST) | Moderate — pattern-based |
-| T2 | QMD temporal context | High — evidence-backed |
+| T2 | QMD semantic context | High — evidence-backed temporal context |
 | T3 | External documentation reference | Variable — secondary source |

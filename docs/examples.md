@@ -44,7 +44,7 @@ Provenance tags trace each instruction to its source:
 - `[EXT:url]` — sourced from external documentation
 - `[QMD:collection:doc]` — surfaced from indexed developer discourse (issues, PRs, changelogs)
 
-See [How It Works](../how-it-works.md) for the full output structure.
+See [How It Works](../how-it-works/) for the full output structure.
 
 **Full skill directory structure:**
 
@@ -113,6 +113,21 @@ Armel's full-stack project: Next.js + Serwist + SpacetimeDB + better-auth.
 
 Ferris detects 8 significant dependencies, finds 5 co-import integration points. Generates a consolidated stack skill. The agent now knows: "When you modify the auth flow, update the Serwist cache exclusion at `src/sw.ts:L23`." Integration intelligence no other tool provides.
 
+### Pre-Code Architecture Verification — Greenfield Confidence
+
+Jordan is designing a new TypeScript backend with Hono + Drizzle + SpacetimeDB. Architecture doc written, but no code yet. Wants to verify the stack works before building.
+
+```
+@Ferris QS hono          # Quick Skill per library
+@Ferris QS drizzle-orm
+@Ferris QS spacetimedb-sdk
+@Ferris VS               # Verify Stack — feasibility report
+@Ferris RA               # Refine Architecture — enrich with API evidence
+@Ferris SS               # Stack Skill — compose-mode (no codebase needed)
+```
+
+VS finds a Risky integration between Drizzle and SpacetimeDB (incompatible query models) and returns CONDITIONALLY FEASIBLE. Jordan adds a bridge layer to the architecture, re-runs VS → FEASIBLE. RA fills in verified API signatures. SS compose-mode synthesizes the stack skill from existing skills + refined architecture. The agent now has integration intelligence for a project that doesn't have code yet.
+
 ---
 
 ## Common Scenarios
@@ -172,7 +187,7 @@ Start with Quick mode (no setup required), upgrade to Forge (install ast-grep), 
 
 ### Batch Operations
 
-Use `--batch` with `create-skill` and `test-skill` to process multiple skills at once. Progress is checkpointed — use `--continue` to resume if interrupted.
+Use `--batch` with `create-skill` to process multiple briefs at once. Progress is checkpointed — if interrupted, re-run `@Ferris CS --batch` and Ferris will resume automatically from where it left off.
 
 ### Stack Skills + Individual Skills
 
@@ -196,8 +211,8 @@ If your source repo includes executable scripts (`scripts/`, `bin/`) or static a
 
 ### Common Issues
 
-**"Forge halted: ast-grep not found"**
-Install ast-grep to unlock Forge mode: <https://ast-grep.github.io>
+**Forge reports ast-grep is unavailable**
+If setup-forge reports that ast-grep was not detected, install it to unlock Forge mode: <https://ast-grep.github.io>
 
 **"No brief found"**
 Run `@Ferris BS` first to create a skill brief, or use `@Ferris QS` for brief-less generation.

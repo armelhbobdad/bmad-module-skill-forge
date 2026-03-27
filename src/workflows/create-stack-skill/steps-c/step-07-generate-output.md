@@ -77,10 +77,10 @@ Write `{skills_output_folder}/{project_name}-stack/SKILL.md` with the approved s
 For each confirmed library, write `{skills_output_folder}/{project_name}-stack/references/{library_name}.md`:
 
 Load structure from `{stackSkillTemplate}` references section:
-- Library name, version from manifest
-- Import count and file count
+- Library name, version from manifest (**in compose-mode**: version from source skill `metadata.json`)
+- Import count and file count (**in compose-mode**: export count from source skill metadata)
 - Key exports with signatures
-- Usage patterns with file:line citations
+- Usage patterns with file:line citations (**in compose-mode**: usage patterns from source skill SKILL.md)
 - Confidence tier label
 
 ### 4. Write Integration Pair Reference Files
@@ -102,7 +102,7 @@ Write `{skills_output_folder}/{project_name}-stack/context-snippet.md`:
 
 Use the Vercel-aligned indexed format targeting ~80-120 tokens:
 ```
-[{project_name}-stack v{version}]|root: skills/{project_name}-stack/
+[{project_name}-stack v{version — in code-mode: primary_library_version or 1.0.0; in compose-mode: highest version across constituent skill metadata.json files, or 1.0.0 if none}]|root: skills/{project_name}-stack/
 |IMPORTANT: {project_name}-stack — read SKILL.md before writing integration code. Do NOT rely on training data.
 |stack: {dep-1}@{v1}, {dep-2}@{v2}, {dep-3}@{v3}
 |integrations: {pattern-1}, {pattern-2}
@@ -113,6 +113,8 @@ Use the Vercel-aligned indexed format targeting ~80-120 tokens:
 
 Write `{skills_output_folder}/{project_name}-stack/metadata.json`:
 
+Populate all fields from the metadata.json schema defined in `{stackSkillTemplate}`:
+
 ```json
 {
   "skill_type": "stack",
@@ -120,11 +122,34 @@ Write `{skills_output_folder}/{project_name}-stack/metadata.json`:
   "version": "{primary_library_version or 1.0.0}",
   "generation_date": "{current_date}",
   "confidence_tier": "{tier}",
+  "spec_version": "1.3",
+  "source_authority": "{official|community|internal — use the lowest authority among constituent skills}",
+  "generated_by": "create-stack-skill",
+  "exports": [],
   "library_count": N,
   "integration_count": N,
   "libraries": ["lib1", "lib2"],
   "integration_pairs": [["lib1", "lib2"]],
-  "confidence_distribution": {"T1": N, "T1-low": N, "T2": N}
+  "language": "{primary language or list of languages from constituent skills}",
+  "ast_node_count": "{number or omit if no AST extraction performed}",
+  "confidence_distribution": {"t1": N, "t1_low": N, "t2": N, "t3": N},
+  "tool_versions": {
+    "ast_grep": "{version or null}",
+    "qmd": "{version or null}",
+    "skf": "{skf_version}"
+  },
+  "stats": {
+    "exports_documented": N,
+    "exports_public_api": N,
+    "exports_internal": N,
+    "exports_total": N,
+    "public_api_coverage": 0.0,
+    "total_coverage": 0.0,
+    "scripts_count": N,
+    "assets_count": N
+  },
+  "dependencies": [],
+  "compatibility": "{semver-range}"
 }
 ```
 
@@ -133,6 +158,8 @@ Write `{skills_output_folder}/{project_name}-stack/metadata.json`:
 Write workspace artifacts to `{forge_data_folder}/{project_name}-stack/`:
 
 **provenance-map.json:**
+
+**In code-mode:**
 ```json
 {
   "libraries": {
@@ -148,6 +175,27 @@ Write workspace artifacts to `{forge_data_folder}/{project_name}-stack/`:
     "libA+libB": {
       "detection_method": "co-import grep",
       "co_import_files": N,
+      "type": "pattern_type"
+    }
+  }
+}
+```
+
+**In compose-mode:**
+```json
+{
+  "libraries": {
+    "lib_name": {
+      "source_skill_path": "skills/{skill_dir}/",
+      "compose_source": "architecture_co_mention|inferred_from_shared_domain",
+      "confidence": "T1|T1-low|T2",
+      "source_skill_tier": "{original skill confidence tier}",
+      "exports_found": N
+    }
+  },
+  "integrations": {
+    "libA+libB": {
+      "detection_method": "architecture_co_mention|inferred_from_shared_domain",
       "type": "pattern_type"
     }
   }

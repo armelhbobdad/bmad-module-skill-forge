@@ -2,7 +2,7 @@
 name: 'step-06-generate-briefs'
 description: 'Generate skill-brief.yaml per confirmed unit, write analysis summary, recommend next workflow'
 
-outputFile: '{output_folder}/analyze-source-report-{project_name}.md'
+outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 schemaFile: '../data/skill-brief-schema.md'
 ---
 
@@ -218,7 +218,7 @@ nextWorkflow: '{primary recommendation}'
 ### ✅ SUCCESS:
 
 - Every confirmed unit has a skill-brief.yaml generated and validated
-- All 9 required schema fields present and valid in each brief
+- All required schema fields present and all 8 validation rules passed in each brief
 - Files written to correct paths in forge_data_folder
 - User confirmed before files were written
 - Next workflow recommended per unit

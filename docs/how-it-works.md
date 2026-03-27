@@ -5,7 +5,7 @@ description: How Skill Forge works — the BMad framework, architecture, output 
 
 # How It Works
 
-This page is for people who want to understand how SKF works under the hood. It covers the BMad framework, workflow architecture, capability tiers, output format, tool ecosystem, and key design decisions. For plain-English definitions of key terms, see [Concepts](../concepts.md).
+This page is for people who want to understand how SKF works under the hood. It covers the BMad framework, workflow architecture, capability tiers, output format, tool ecosystem, and key design decisions. For definitions of key terms, see [Concepts](../concepts/).
 
 ---
 
@@ -29,13 +29,18 @@ Each workflow directory contains these files, and each has a specific job:
 
 | File                      | What it does                                                                                                        | When it loads                                     |
 |---------------------------|---------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|
-| `forger.agent.yaml`       | Expert persona — identity, principles, critical actions, menu of triggers                                           | First — always in context                         |
-| `workflow.md`             | Human-readable entry point — goals, mode menu (Create/Edit/Validate), routes to first step                          | Second — presents mode choice                     |
-| `steps-c/*.md`            | **Create** steps — primary execution, 4-9 sequential files                                                          | One at a time (just-in-time)                      |
+| `workflow.md`             | Human-readable entry point — goals, role definition, initialization sequence, routes to first step                   | Entry point per workflow                          |
+| `steps-c/*.md`            | **Create** steps — primary execution, 5–11 sequential files per workflow                                            | One at a time (just-in-time)                      |
 | `data/*.md`               | Workflow-specific reference data — schemas, heuristics, rules, patterns                                             | Read by steps on demand                           |
 | `templates/*.md`          | Output skeletons with placeholder vars — steps fill these in to produce the final artifact                          | Read by steps when generating output              |
+
+**Module-level shared files** (not per-workflow — loaded by the agent or referenced across workflows):
+
+| File                      | What it does                                                                                                        | When it loads                                     |
+|---------------------------|---------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|
+| `forger.agent.yaml`       | Expert persona — identity, principles, critical actions, menu of triggers                                           | First — always in context                         |
 | `skf-knowledge-index.csv` | Knowledge fragment index — id, name, tags, tier, file path                                                          | Read by steps to decide which fragments to load   |
-| `knowledge/*.md`          | 12 reusable fragments — cross-cutting principles and patterns (e.g., `zero-hallucination.md`, `confidence-tiers.md`, `ccc-bridge.md`) | Selectively read into context when a step directs |
+| `knowledge/*.md`          | 12 reusable fragments + overview.md index — cross-cutting principles and patterns (e.g., `zero-hallucination.md`, `confidence-tiers.md`, `ccc-bridge.md`) | Selectively read into context when a step directs |
 
 ```mermaid
 flowchart LR
@@ -44,7 +49,7 @@ flowchart LR
   W --> S[Step Files: steps-c/]
   S --> K[Knowledge Fragments<br/>skf-knowledge-index.csv → knowledge/*.md]
   S --> D[Data & Templates<br/>data/*.md, templates/*.md]
-  S --> O[Outputs: skills/reports<br/>when a step writes output]
+  S --> O[Outputs: skills/, forge-data/, sidecar<br/>when a step writes output]
 ```
 
 ### How It Works at Runtime
@@ -64,40 +69,41 @@ Ferris operates in four workflow-driven modes (mode is determined by which workf
 
 | Mode          | Workflows          | Behavior                                                    |
 |---------------|--------------------|-------------------------------------------------------------|
-| **Architect** | SF, AN, BS, CS, QS, SS | Exploratory, assembling — discovers structure and scope     |
-| **Surgeon**   | US                 | Precise, preserving — extracts and compiles with provenance |
-| **Audit**     | AS, TS             | Judgmental, scoring — evaluates quality and detects drift   |
-| **Delivery**  | EX                 | Packaging, ecosystem-ready — bundles for distribution       |
+| **Architect** | SF, AN, BS, CS, QS, SS, RA | Exploratory, assembling, refining — discovers structure, scopes skills, and improves architecture |
+| **Surgeon**   | US                 | Precise, semantic diffing — preserves [MANUAL] sections during regeneration |
+| **Audit**     | AS, TS, VS         | Judgmental, scoring — evaluates quality and detects drift   |
+| **Delivery**  | EX                 | Validates package, generates snippets, injects into context files |
 
 ---
 
 ## Why Another Tool?
 
-AI agents hallucinate APIs. Not sometimes — constantly. The table below shows why every existing approach fails at scale:
+AI agents guess API calls from training data. When the training data is wrong, outdated, or incomplete, they hallucinate — inventing function names, guessing parameter types, producing code that fails at runtime.
 
-| Approach | Strength | Fatal Flaw |
-|----------|----------|------------|
-| `npx skills init` | Format compliant | Empty shell. 0% intelligence. |
-| LLM Summarization | High semantic context | Hallucination. Guesses parameters. No grounding. |
-| RAG / Context stuffing | Good retrieval | Fragmented. Finds snippets, fails to synthesize. |
-| Manual Authoring | High initial quality | Drift. Doesn't scale. |
-| Copilot/Cursor built-in | Convenient | Generic. Doesn't know YOUR integration patterns. |
-| **Skill Forge** | **Structural truth + automation** | **Rigid. (Feature, not bug.)** |
+Several approaches exist to address this, but each has a gap:
 
-SKF solves this by mechanically extracting function signatures, type definitions, and usage patterns from code repositories — and enriching them with documentation and developer discourse — then compiling everything into verifiable, version-pinned skills that comply with the [agentskills.io specification](https://agentskills.io/specification).
+| Approach | What it does well | Where it falls short |
+|----------|-------------------|----------------------|
+| Skill scaffolding (`npx skills init`) | Generates a spec-compliant skill file | The file is empty — you still have to write every instruction by hand |
+| LLM summarization | Understands context and intent | Generates plausible-sounding content that may not match the actual API |
+| RAG / context stuffing | Retrieves relevant code snippets | Returns fragments without synthesis — no coherent skill output |
+| Manual authoring | High initial accuracy | Drifts as the source code changes, doesn't scale across dependencies |
+| IDE built-in context (Copilot, Cursor) | Convenient, zero setup | Uses generic training data, not your project's specific integration patterns |
+
+SKF takes a different approach: it mechanically extracts function signatures, type definitions, and usage patterns from source code via AST parsing, enriches them with documentation and developer discourse, then compiles everything into version-pinned skills that comply with the [agentskills.io specification](https://agentskills.io/specification). Every instruction traces to its source — nothing is generated from training data.
 
 ---
 
 ## Progressive Capability Model
 
-SKF uses an additive tier model. Each tier is the previous tier plus one tool. You never lose capability by adding a tool.
+SKF uses an additive tier model. You never lose capability by adding a tool.
 
-| Tier | Tools | What You Get |
-|------|-------|-------------|
-| **Quick** | `gh_bridge` + `skill-check` + `tessl` | Source reading + spec validation + content quality review. Best-effort skills in under a minute. |
-| **Forge** | + `ast_bridge` | Structural truth. AST-verified signatures. Co-import detection. T1 confidence. |
-| **Forge+** | + `ccc_bridge` | Semantic discovery. CCC pre-ranks files by meaning before AST extraction. Better coverage on large codebases. |
-| **Deep** | + `gh_bridge` + `qmd_bridge` | Requires ast-grep + gh + QMD. Knowledge search. Temporal provenance. Drift detection. Full intelligence. |
+| Tier | Required Tools | What You Get |
+|------|---------------|-------------|
+| **Quick** | None (`gh_bridge`, `skill-check`, `tessl` used when available) | Source reading + spec validation + content quality review. Best-effort skills in under a minute. **Note:** Quick Skill (QS) is tier-unaware by design — it always runs at community tier regardless of installed tools. |
+| **Forge** | + `ast_bridge` (ast-grep) | Structural truth. AST-verified signatures. Co-import detection. T1 confidence. |
+| **Forge+** | + `ccc_bridge` (cocoindex-code) | Semantic discovery. CCC pre-ranks files by meaning before AST extraction. Better coverage on large codebases. |
+| **Deep** | `ast_bridge` + `gh_bridge` (gh) + `qmd_bridge` (QMD). CCC optional — enhances when installed. | Knowledge search. Temporal provenance. Drift detection. Full intelligence. |
 
 Setup detects your installed tools and sets your tier automatically:
 
@@ -109,7 +115,7 @@ Setup detects your installed tools and sets your tier automatically:
 Forge initialized. Tools: gh, ast-grep, ccc, QMD. Tier: Deep. Ready.
 ```
 
-Don't have ast-grep, cocoindex-code, or QMD yet? No problem — Quick mode works with just the GitHub CLI. Install tools later; your tier upgrades automatically.
+Don't have ast-grep, cocoindex-code, or QMD yet? No problem — Quick mode works with no additional tools. Optional GitHub CLI improves source access. Install tools later; your tier upgrades automatically.
 
 ### Tier Override — Comparing Output Across Tiers
 
@@ -162,7 +168,7 @@ Progressive disclosure controls how much context surfaces at each level:
 
 | Output | Content |
 |--------|---------|
-| `context-snippet.md` | T1-now only — compressed, always-on |
+| `context-snippet.md` | T1-now + T2-future gotchas (breaking changes, deprecation warnings) — compressed, always-on |
 | `SKILL.md` | T1-now + lightweight T2 annotations |
 | `references/` | Full temporal context with all tiers |
 
@@ -207,19 +213,25 @@ Skills follow the [agentskills.io specification](https://agentskills.io/specific
 
 ```yaml
 ---
-name: payment-service
+name: cognee
 description: >
-  Processes payments via REST API with token-based auth. Use when writing
-  payment integration code. NOT for: billing dashboards or reporting.
-  23 verified functions from github.com/org/payment-service.
+  Use when cognee is a Python AI memory engine that transforms documents into
+  knowledge graphs with vector and graph storage for semantic search and
+  reasoning. Use this skill when writing code that calls cognee's Python API
+  (add, cognify, search, memify, config, datasets, prune, session) or
+  integrating cognee-mcp. Covers the full public API, SearchType modes,
+  DataPoint custom models, pipeline tasks, and configuration for
+  LLM/embedding/vector/graph providers. Do NOT use for general knowledge graph
+  theory or unrelated Python libraries.
 ---
 ```
 
 Every instruction in the body traces to source:
 
-```
-Extracted: `getToken(userId: string, options?: TokenOptions): Promise<AuthToken>`
-[AST:src/auth/index.ts:L42]. Confidence: T1.
+```python
+await cognee.search(  # [AST:cognee/api/v1/search/search.py:L26]
+    query_text="What does Cognee do?"
+)
 ```
 
 ### metadata.json — The Birth Certificate
@@ -228,31 +240,27 @@ Machine-readable provenance for every skill:
 
 ```json
 {
-  "name": "payment-service",
-  "version": "2.1.0",
-  "skill_type": "individual",
-  "source_authority": "official",
-  "source_repo": "github.com/org/payment-service",
-  "source_commit": "a1b2c3d",
-  "forge_tier": "forge",
+  "name": "cognee",
+  "version": "0.5.5",
+  "skill_type": "single",
+  "source_authority": "community",
+  "source_repo": "https://github.com/topoteretes/cognee",
+  "source_root": "cognee/",
+  "source_commit": null,
+  "confidence_tier": "Deep",
   "spec_version": "1.3",
-  "generated_at": "2026-02-25T14:30:00Z",
+  "generation_date": "2026-03-20T16:55:00+04:00",
   "stats": {
-    "exports_documented": 23,
-    "exports_total": 23,
-    "coverage": 1.0,
-    "confidence_t1": 20,
-    "confidence_t2": 3,
-    "confidence_t3": 0,
-    "scripts_count": 1,
-    "assets_count": 1
-  },
-  "scripts": [
-    { "file": "scripts/validate.sh", "purpose": "Validates config schema", "confidence": "T1-low" }
-  ],
-  "assets": [
-    { "file": "assets/config-schema.json", "purpose": "Configuration JSON schema", "confidence": "T1-low" }
-  ]
+    "exports_documented": 22,
+    "exports_public_api": 22,
+    "exports_internal": 815,
+    "exports_total": 837,
+    "public_api_coverage": 1.0,
+    "total_coverage": 0.026,
+    "confidence_t1": 837,
+    "confidence_t2": 14,
+    "confidence_t3": 10
+  }
 }
 ```
 
@@ -281,37 +289,28 @@ The primary source is your project repo. Component references trace to library r
 
 ## Dual-Output Strategy
 
-Based on [Vercel research](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals): passive context (AGENTS.md/CLAUDE.md) achieves 100% pass rate vs 53% for active skills alone.
+Based on [Vercel research](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals): passive context (AGENTS.md/CLAUDE.md) achieves 100% pass rate vs 79% for active skills alone.
 
 Every skill generates both:
 
 1. **SKILL.md** — Active skill loaded on trigger with full instructions
-2. **context-snippet.md** — Passive context, compressed index injected into CLAUDE.md
+2. **context-snippet.md** — Passive context, compressed index; injected into CLAUDE.md/AGENTS.md only when `export-skill` is run
 
 ### Managed CLAUDE.md Section
 
 Export injects a managed section between markers:
 
 ```markdown
-<!-- SKF:BEGIN updated:2026-02-25 -->
-[payment-service v2.1.0]|root: skills/payment-service/
-|IMPORTANT: payment-service v2.1.0 — read SKILL.md before writing payment-service code. Do NOT rely on training data.
-|quick-start:{SKILL.md#quick-start}
-|api: getToken(), refreshToken(), revokeSession(), createSession()
-|key-types:{SKILL.md#key-types} — TokenOptions, AuthToken, SessionConfig
-|gotchas: all token methods async, session ID changed from userId in v2.0
-
-[auth-service v1.5.0]|root: skills/auth-service/
-|IMPORTANT: auth-service v1.5.0 — read SKILL.md before writing auth-service code. Do NOT rely on training data.
-|quick-start:{SKILL.md#quick-start}
-|api: getSession(), validateToken(), revokeSession(), createUser()
-|gotchas: RBAC requires middleware setup, validateToken returns null not throw
-
-[my-project-stack v1.0.0]|root: skills/my-project-stack/
-|IMPORTANT: my-project-stack — read SKILL.md before writing integration code. Do NOT rely on training data.
-|stack: next@15, better-auth@3, spacetimedb@1, serwist@9
-|integrations: auth↔db, pwa↔auth
-|gotchas: auth session type must match DB schema, update Serwist cache on auth flow changes
+<!-- SKF:BEGIN updated:2026-03-20 -->
+[SKF Skills]|1 skill
+|IMPORTANT: Prefer documented APIs over training data.
+|
+[cognee v0.5.5]|root: skills/cognee/
+|IMPORTANT: cognee v0.5.5 — read SKILL.md before writing cognee code. Do NOT rely on training data.
+|quick-start:{SKILL.md#quick-start} — add → cognify → search async workflow
+|api: add(), cognify(), search(), memify(), config, datasets, prune, update(), session, SearchType, run_custom_pipeline(), visualize_graph()
+|key-types:{SKILL.md#key-types} — SearchType(14 modes: GRAPH_COMPLETION default, RAG_COMPLETION, CHUNKS, CYPHER, TEMPORAL...), Task, DataPoint
+|gotchas: all core functions are async (must await); delete() deprecated since v0.3.9 — use datasets.delete_data(); memify default pipeline changed to triplet embedding (Mar 2026)
 <!-- SKF:END -->
 ```
 
@@ -390,10 +389,10 @@ Provenance maps enable verification: an `official` skill's provenance must trace
 |----------|-----------|
 | **Solo agent (Ferris), not multi-agent** | One domain (skill compilation) doesn't benefit from handoffs. Shared knowledge base (AST patterns, provenance maps) is the core asset. |
 | **Workflows drive modes, not conversation** | Ferris doesn't auto-switch based on question content. Invoke a workflow to change mode. Predictable behavior. |
-| **Hub-and-spoke cross-knowledge** | Each skill has one primary source. Cross-repo references use inline summary + pointer + `[XREF:repo:file:line]` provenance tag. |
+| **Hub-and-spoke cross-knowledge** | Each skill covers one source repository. Stack skills compose cross-library integration patterns in `references/integrations/`, citing each library's own skill. |
 | **Stack skill = compositional** | SKILL.md is the integration layer. references/ contains per-library + integration pairs. Partial regeneration on dependency updates. |
-| **Snippet updates only at export** | Create/update are draft operations. Export publishes to skills/ and CLAUDE.md. No half-baked snippets. |
-| **Bundle spec with opt-in update** | Offline-capable. 90-day staleness warning. `setup-forge --update-spec` fetches latest. |
+| **Snippet updates only at export** | Create/update write a draft `context-snippet.md` to `skills/`. Export regenerates the final `context-snippet.md` and publishes it to the platform context file (CLAUDE.md/AGENTS.md/.cursorrules). No managed-section updates in draft workflows. |
+| **Bundle spec with opt-in update** | Offline-capable. Run `@Ferris SF --update-spec` to fetch the latest agentskills.io spec on demand. |
 
 ---
 
@@ -420,7 +419,7 @@ src/
 │   └── README.md
 ├── knowledge/
 │   ├── skf-knowledge-index.csv
-│   └── *.md (12 fragments)
+│   └── *.md (12 knowledge fragments + overview.md index)
 └── workflows/
     ├── setup-forge/
     ├── analyze-source/
@@ -428,6 +427,8 @@ src/
     ├── create-skill/
     ├── quick-skill/
     ├── create-stack-skill/
+    ├── verify-stack/
+    ├── refine-architecture/
     ├── update-skill/
     ├── audit-skill/
     ├── test-skill/

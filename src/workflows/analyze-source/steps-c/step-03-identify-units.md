@@ -3,7 +3,7 @@ name: 'step-03-identify-units'
 description: 'Classify discrete skillable units from scan results using detection heuristics and assign scope types'
 
 nextStepFile: './step-04-map-and-detect.md'
-outputFile: '{output_folder}/analyze-source-report-{project_name}.md'
+outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 heuristicsFile: '../data/unit-detection-heuristics.md'
 ---
 

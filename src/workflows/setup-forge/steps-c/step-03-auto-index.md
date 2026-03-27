@@ -59,7 +59,7 @@ For Quick and Forge tiers (without ccc), skip silently and proceed. For Forge+ t
 
 Read `{calculated_tier}` from context.
 
-**If tier is Quick or Forge:** Proceed directly to section 6 (Auto-Proceed) — no output, no messaging.
+**If tier is Quick or Forge:** Set `{ccc_registry_stale_cleaned: 0}`. Proceed directly to section 6 (Auto-Proceed) — no output, no messaging.
 
 **If tier is Forge+:** Skip QMD hygiene (qmd is not available at Forge+). Proceed directly to section 5b (CCC Index Registry Hygiene) — no QMD output, no messaging.
 

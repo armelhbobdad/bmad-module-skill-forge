@@ -41,11 +41,11 @@ agent:
       - "Agent-level knowledge informs judgment across workflows — consult knowledge/ when a step directs, not from memory"
 
   critical_actions:
-    - "Load COMPLETE file {project-root}/_bmad/_memory/forger-sidecar/preferences.yaml"
-    - "Load COMPLETE file {project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"
-    - "ONLY read/write files in {project-root}/_bmad/_memory/forger-sidecar/"
-    - "Consult {project-root}/_bmad/skf/knowledge/skf-knowledge-index.csv to select knowledge fragments under knowledge/ and load only the files needed for the current task"
-    - "Load the referenced fragment(s) from {project-root}/_bmad/skf/knowledge/ before giving recommendations"
+    - "Load COMPLETE file {sidecar_path}/preferences.yaml"
+    - "Load COMPLETE file {sidecar_path}/forge-tier.yaml"
+    - "ONLY write STATE files to {project-root}/_bmad/_memory/forger-sidecar/ — reading from knowledge/ and workflow files is expected"
+    - "When a workflow step directs knowledge consultation, consult {project-root}/_bmad/skf/knowledge/skf-knowledge-index.csv to select the relevant fragment(s) and load only those files"
+    - "Load the referenced fragment(s) from {project-root}/_bmad/skf/ using the path in the fragment_file column (e.g., knowledge/overview.md resolves to {project-root}/_bmad/skf/knowledge/overview.md) before giving recommendations on the topic the step directed"
 
   menu:
     - trigger: SF or fuzzy match on setup-forge
@@ -95,6 +95,10 @@ agent:
     - trigger: EX or fuzzy match on export-skill
       workflow: "{project-root}/_bmad/skf/workflows/skillforge/export-skill/workflow.md"
       description: "[EX] Export Skill — package for distribution"
+
+    - trigger: KI or fuzzy match on knowledge-index
+      action: "Load and display {project-root}/_bmad/skf/knowledge/skf-knowledge-index.csv — cross-cutting knowledge fragments available for JiT loading"
+      description: "[KI] Knowledge Index — list available knowledge fragments"
 
     - trigger: WS or fuzzy match on workflow-status
       action: "Show current lifecycle position, active skill briefs, and forge tier status"

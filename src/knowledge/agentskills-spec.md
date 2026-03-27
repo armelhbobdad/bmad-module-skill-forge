@@ -63,7 +63,7 @@ The format implements a three-phase loading model:
 | Phase | What Loads | Token Cost | When |
 | --- | --- | --- | --- |
 | Discovery | `name` + `description` from frontmatter | ~50-100 tokens | Agent startup, all skills |
-| Activation | Full `SKILL.md` body | < 5000 tokens | Task matches skill description |
+| Activation | Full `SKILL.md` body | < 5000 tokens (~500 lines guideline) | Task matches skill description |
 | Execution | Files from `scripts/`, `references/`, `assets/` | Variable | SKILL.md directs agent to load |
 
 ## Pattern Examples

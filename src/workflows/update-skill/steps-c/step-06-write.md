@@ -74,7 +74,9 @@ Update `{skills_output_folder}/{skill_name}/metadata.json`:
   - `exports_total`: `exports_public_api` + `exports_internal`
   - `public_api_coverage`: `exports_documented / exports_public_api` (`null` if `exports_public_api` is 0)
   - `total_coverage`: `exports_documented / exports_total` (`null` if `exports_total` is 0)
-  - `confidence_t1`, `confidence_t2`, `confidence_t3`: update counts from re-extraction results
+- Update `confidence_distribution` from re-extraction results:
+  - `confidence_distribution.t1`, `confidence_distribution.t1_low`, `confidence_distribution.t2`, `confidence_distribution.t3`: update counts from re-extraction results
+  - `scripts_count`, `assets_count`: update from re-extraction results if scripts/assets changed
 - For stack skills: update `library_count`, `integration_count` if changed
 
 ### 3. Write Updated provenance-map.json
@@ -154,7 +156,7 @@ For each affected reference file from the merge:
 - Regenerate `context-snippet.md` with updated export summaries
 - Verify [MANUAL] sections preserved in each reference file
 
-**If skill_type != "stack":** Skip with notice.
+**If skill_type != "stack":** Skip reference file updates. However, if exports changed (added, removed, or renamed), warn: "⚠️ `context-snippet.md` was NOT updated — exports have changed. Run **[EX] Export Skill** to regenerate the context snippet and update CLAUDE.md/AGENTS.md."
 
 ### 6. Verify All Writes
 
@@ -182,6 +184,7 @@ External tool checks deferred from step-05 now run against the written files:
 
 **If skill-check available:**
 - Run: `npx skill-check check {skills_output_folder}/{skill_name} --fix --format json --no-security-scan`
+- **Context sync after --fix:** If `fixed[]` is non-empty (i.e., `--fix` modified files on disk), re-read the modified SKILL.md to update the in-context copy. This prevents silent divergence between the in-context SKILL.md and the on-disk version that step-07-report will reference.
 - If `body.max_lines` reported, prefer selective split — extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). Fall back to `npx skill-check split-body {skills_output_folder}/{skill_name} --write` if not feasible. Verify anchors resolve after split.
 - Run: `npx skill-check diff` if original version was preserved
 - Run: `npx skill-check check {skills_output_folder}/{skill_name} --format json` for security scan

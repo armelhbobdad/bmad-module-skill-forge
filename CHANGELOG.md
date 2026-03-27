@@ -11,12 +11,12 @@ Skill Forge (SKF) — an agent skill compiler that transforms code repositories,
 ### Highlights
 
 - **1 agent** — Ferris (Skill Architect & Integrity Guardian) with 4 workflow-driven modes
-- **10 workflows** — full lifecycle from source analysis to ecosystem-ready export
+- **12 workflows** — full lifecycle from source analysis to ecosystem-ready export, with pre-code architecture verification
 - **Progressive capability model** — Quick (gh), Forge (+ast-grep), Forge+ (+ccc), Deep (+QMD)
 - **Zero hallucination tolerance** — every instruction traces to source code with provenance citations
 - **Dual-output strategy** — active skills (SKILL.md) + passive context (context-snippet.md) in ADR-L v2 format
 - **CLI installer** — `npx bmad-module-skill-forge install` with IDE command generation for 7 IDEs
-- **12 knowledge fragments** — curated cross-cutting principles loaded just-in-time by workflows
+- **13 knowledge fragments** — curated cross-cutting principles loaded just-in-time by workflows
 
 ### Workflows
 
@@ -31,6 +31,8 @@ Skill Forge (SKF) — an agent skill compiler that transforms code repositories,
 | US | Update Skill | Smart regeneration preserving manual sections |
 | AS | Audit Skill | Drift detection between skill and current source |
 | TS | Test Skill | Cognitive completeness verification |
+| VS | Verify Stack | Pre-code stack feasibility verification against architecture |
+| RA | Refine Architecture | Improve architecture doc using verified skill data |
 | EX | Export Skill | Package for distribution, inject into CLAUDE.md |
 
 ### Confidence Tiers

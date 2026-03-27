@@ -43,7 +43,7 @@ To fetch temporal context (issues, PRs, changelogs, release notes) from the sour
 ## CONTEXT BOUNDARIES:
 
 - Available: brief_data, tier, source_location from step-01; extraction_inventory from step-03
-- **Used from extraction_inventory:** `top_exports[]` — the list of top-level public API function names (typically 10-20). Used for targeted GitHub searches (section 3b).
+- **Used from extraction_inventory:** `top_exports[]` — the list of top-level public API function names (typically 10-20). Used for targeted GitHub searches (section 3b). If `extraction_mode: "docs-only"` or `top_exports` is absent/empty, skip targeted searches silently.
 - Focus: Creating a QMD temporal collection for the source repository
 - Limits: Do NOT modify extraction data, begin enrichment, or compile content
 - Dependencies: Extraction must be complete from step-03
@@ -208,7 +208,7 @@ After temporal context is fetched and indexed (or skipped for any reason), immed
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY WHEN temporal context is indexed into QMD (or the step is skipped due to eligibility, cache, or failure) will you proceed to load `{nextStepFile}` for QMD enrichment.
+ONLY WHEN temporal context is indexed into QMD (or the step is skipped due to eligibility, cache, or failure) will you proceed to load `{nextStepFile}` for documentation fetch.
 
 ---
 
@@ -224,7 +224,7 @@ ONLY WHEN temporal context is indexed into QMD (or the step is skipped due to el
 - Collection `{skill-name}-temporal` indexed into QMD
 - Registry entry added/updated in forge-tier.yaml with type `"temporal"`
 - Staging directory cleaned up after indexing
-- Auto-proceeded to step-04
+- Auto-proceeded to step-03c
 
 ### ❌ SYSTEM FAILURE:
 

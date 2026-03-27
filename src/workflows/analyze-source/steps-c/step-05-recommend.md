@@ -3,7 +3,7 @@ name: 'step-05-recommend'
 description: 'Present unit recommendations with rationale for user confirmation or rejection'
 
 nextStepFile: './step-06-generate-briefs.md'
-outputFile: '{output_folder}/analyze-source-report-{project_name}.md'
+outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 schemaFile: '../data/skill-brief-schema.md'
 advancedElicitationTask: '{project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml'
 partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'

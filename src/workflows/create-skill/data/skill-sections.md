@@ -132,6 +132,12 @@ Indexed pipe-delimited format for CLAUDE.md managed section (~80-120 tokens per 
     "qmd": "{version-or-null}",
     "skf": "{skf_version}"
   },
+  "confidence_distribution": {
+    "t1": 0,
+    "t1_low": 0,
+    "t2": 0,
+    "t3": 0
+  },
   "stats": {
     "exports_documented": 0,
     "exports_public_api": 0,
@@ -139,18 +145,13 @@ Indexed pipe-delimited format for CLAUDE.md managed section (~80-120 tokens per 
     "exports_total": 0,
     "public_api_coverage": 0.0,
     "total_coverage": 0.0,
-    "confidence_t1": 0,
-    "confidence_t2": 0,
-    "confidence_t3": 0,
     "scripts_count": 0,
     "assets_count": 0
   },
-  "scripts": [
-    { "file": "scripts/{name}", "purpose": "{description}", "source_file": "{source-path}", "confidence": "T1-low" }
-  ],
-  "assets": [
-    { "file": "assets/{name}", "purpose": "{description}", "source_file": "{source-path}", "confidence": "T1-low" }
-  ],
+  // scripts[] and assets[] — include ONLY when inventories are non-empty; omit entirely otherwise
+  // "scripts": [{ "file": "scripts/{name}", "purpose": "{description}", "source_file": "{source-path}", "confidence": "T1-low" }],
+  // "assets": [{ "file": "assets/{name}", "purpose": "{description}", "source_file": "{source-path}", "confidence": "T1-low" }],
+  "generated_by": "{quick-skill|create-skill}",
   "dependencies": [],
   "compatibility": "{semver-range}"
 }
@@ -197,7 +198,7 @@ Each reference file includes:
       "source_file": "src/auth/index.ts",
       "source_line": 42,
       "confidence": "T1",
-      "extraction_method": "ast_bridge.scan_definitions",
+      "extraction_method": "ast-grep",
       "ast_node_type": "export_function_declaration"
     }
   ],
@@ -235,7 +236,7 @@ Each reference file includes:
 ## Extraction Summary
 - Files scanned: {count}
 - Exports found: {count}
-- Confidence: T1={n}, T2={n}, T3={n}
+- Confidence: T1={n}, T1-low={n}, T2={n}, T3={n}
 
 ## Validation Results
 - Schema: {pass/fail}

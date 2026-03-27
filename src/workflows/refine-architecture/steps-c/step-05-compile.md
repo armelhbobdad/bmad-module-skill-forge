@@ -16,21 +16,21 @@ Produce the refined architecture document by starting with the original as a bas
 
 ### Universal Rules:
 
-- CRITICAL: Read the complete step file before taking any action
-- TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
+- 📖 CRITICAL: Read the complete step file before taking any action
+- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
+- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
 
 ### Role Reinforcement:
 
-- You are an architecture refinement analyst compiling the final refined document
-- Additive, not destructive — preserve every word of the original, only add refinements
-- The document must be in `{document_output_language}`
+- ✅ You are an architecture refinement analyst compiling the final refined document
+- ✅ Additive, not destructive — preserve every word of the original, only add refinements
+- ✅ The document must be in `{document_output_language}`
 
 ### Step-Specific Rules:
 
-- FORBIDDEN to discover new gaps, issues, or improvements — use only what Steps 02-04 produced
-- FORBIDDEN to delete, reword, or rearrange original architecture content
-- Present compiled document for user review (Gate checkpoint)
+- 🚫 FORBIDDEN to discover new gaps, issues, or improvements — use only what Steps 02-04 produced
+- 🚫 FORBIDDEN to delete, reword, or rearrange original architecture content
+- 💬 Present compiled document for user review (Gate checkpoint)
 
 ## EXECUTION PROTOCOLS:
 
@@ -51,6 +51,8 @@ Produce the refined architecture document by starting with the original as a bas
 Load the complete original architecture document.
 
 This is the base. Every line of the original MUST appear in the refined document, unmodified.
+
+**Context recovery check:** If gap, issue, or improvement findings from Steps 02-04 are not available in context (e.g., due to context degradation in long runs), attempt to read the durability state from `{forge_data_folder}/ra-state-{project_name}.md`. Parse the `<!-- [RA-GAPS] -->`, `<!-- [RA-ISSUES] -->`, and `<!-- [RA-IMPROVEMENTS] -->` comment blocks to recover the complete formatted findings (each block contains full citation text with evidence, not just counts). If a section is still missing or contains only summary counts after recovery, HALT: "⚠️ Context for the [Gaps|Issues|Improvements] analysis was lost and the durability state is insufficient to reconstruct findings. Re-run [RA] from the beginning — step 01 will reset the state file, then steps 02-04 will rebuild all findings."
 
 ### 2. Insert Gap-Fill Subsections
 
@@ -91,7 +93,7 @@ For each issue finding from Step 03:
 > **Suggested Correction:** {specific correction with API evidence}
 ```
 
-**Order by severity:** Critical issues first, then Major, then Minor.
+**Placement priority:** Place each issue callout immediately after the contradicted text in its original location. If the contradicted claim is inside a Markdown list item, code block, or table row where inserting a callout block would break syntax, place the callout immediately after the enclosing block instead. If the contradicted claim cannot be precisely located, collect into "## RA: Additional Issues Detected" at the end of the document, ordered by severity (Critical first, then Major, then Minor).
 
 ### 4. Insert Improvement Suggestions
 
@@ -115,14 +117,23 @@ For each improvement finding from Step 04:
 
 **Order by value:** High value improvements first, then Medium, then Low.
 
+**Placement fallback:** If the library's only architecture mention is inside a table, code block, or Mermaid diagram where inserting a subsection would break syntax, collect into `## RA: Additional Improvements Suggested` at the end of the document.
+
 ### 5. Add Refinement Summary Section
 
 Append a `## Refinement Summary` section containing:
 
 - **Header:** "Produced by: Refine Architecture workflow using {skill_count} skills" and date
-- **Changes Made table:** Gaps Filled ({gap_count}), Issues Flagged ({issue_count} with severity breakdown), Improvements Suggested ({improvement_count} with value breakdown)
+- **Changes Made table** with the following rows:
+
+| Category | Count | Breakdown |
+|----------|-------|-----------|
+| Gaps Filled | {gap_count} | — |
+| Issues Flagged | {issue_count} | Critical: {critical_count}, Major: {major_count}, Minor: {minor_count} |
+| Improvements Suggested | {improvement_count} | High: {high_count}, Medium: {medium_count}, Low: {low_count} |
+| Skills Used as Evidence | {skill_count} | — |
 - **Evidence Sources table:** Each skill name and how many refinements cite it
-- **Next Steps:** Review `[!WARNING]` issues, `[!NOTE]` gaps, `[!TIP]` improvements; then run **[SS] compose-mode**
+- **Next Steps:** Review `[!WARNING]` issues, `[!NOTE]` gaps, `[!TIP]` improvements; then run **[SS] Stack Skill** to compose your individual skills into a unified stack skill, providing this refined architecture doc when prompted
 
 ### 6. Write the Refined Document
 
@@ -164,9 +175,9 @@ Display: **Select:** [C] Continue to Final Report
 
 ---
 
-## SYSTEM SUCCESS/FAILURE METRICS
+## 🚨 SYSTEM SUCCESS/FAILURE METRICS
 
-### SUCCESS:
+### ✅ SUCCESS:
 
 - Original architecture document preserved in full without modifications
 - Gap-fill subsections inserted at logical locations with evidence citations
@@ -177,7 +188,7 @@ Display: **Select:** [C] Continue to Final Report
 - User reviewed and approved compilation
 - Proceeded to step 06 only after user selected C
 
-### SYSTEM FAILURE:
+### ❌ SYSTEM FAILURE:
 
 - Deleting, rewording, or rearranging original architecture content
 - Discovering new findings not from Steps 02-04

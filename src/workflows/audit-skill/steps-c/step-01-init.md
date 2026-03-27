@@ -152,6 +152,7 @@ Create `{outputFile}` from `{templateFile}`:
 **Analysis plan based on tier:**
 - {Quick: text-diff comparison (T1-low confidence)}
 - {Forge: AST structural comparison (T1 confidence)}
+- {Forge+: AST structural comparison + CCC-assisted rename detection (T1 confidence)}
 - {Deep: AST structural + QMD semantic comparison (T1 + T2 confidence)}
 
 **Ready to begin drift analysis?**"

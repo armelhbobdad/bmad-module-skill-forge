@@ -68,7 +68,7 @@ Attempt to load `{forgeTierFile}`:
 
 **If not found:**
 - Display: "**Note:** No forge tier configuration found. Defaulting to Quick tier. Run **setup-forge** first for full capabilities."
-- Default to: `forge_tier: quick`
+- Default to: `forge_tier: Quick`
 
 ### 2. Welcome and Explain
 

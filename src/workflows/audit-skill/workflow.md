@@ -2,7 +2,7 @@
 name: audit-skill
 description: "Drift detection. Forge tier: structural. Deep tier: full."
 web_bundle: true
-installed_path: '{project-root}/_bmad/skf/workflows/audit-skill'
+installed_path: '{project-root}/_bmad/skf/workflows/skillforge/audit-skill'
 ---
 
 # Audit Skill
@@ -57,6 +57,7 @@ Load and read full config from {project-root}/_bmad/skf/config.yaml and resolve:
 
 - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`
 - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
+- Generate and store `timestamp` as the current date-time in `YYYYMMDD-HHmmss` format. This value is fixed for the entire workflow run and must not be regenerated in subsequent steps.
 
 ### 2. First Step Execution
 

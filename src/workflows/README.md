@@ -8,17 +8,17 @@ All workflows are triggered via Ferris (`@Ferris <code>`) and execute as step-by
 
 | Code | Workflow | Steps | Mode | Purpose |
 | --- | --- | --- | --- | --- |
-| SF | [setup-forge](setup-forge/workflow.md) | 4 | Architect | Initialize environment, detect tools, set capability tier |
+| SF | [setup-forge](setup-forge/workflow.md) | 5 | Architect | Initialize environment, detect tools, set capability tier |
 | AN | [analyze-source](analyze-source/workflow.md) | 7 | Architect | Discover skillable units in a repo, produce recommended briefs |
 | BS | [brief-skill](brief-skill/workflow.md) | 5 | Architect | Design a skill scope through guided discovery |
-| CS | [create-skill](create-skill/workflow.md) | 8 | Surgeon | Compile a skill from brief with provenance (supports --batch) |
-| QS | [quick-skill](quick-skill/workflow.md) | 6 | Surgeon | Fast skill from package name or GitHub URL — no brief needed |
-| SS | [create-stack-skill](create-stack-skill/workflow.md) | 9 | Surgeon | Consolidated project stack skill with integration patterns (code-mode + compose-mode) |
+| CS | [create-skill](create-skill/workflow.md) | 8 | Architect | Compile a skill from brief with provenance (supports --batch) |
+| QS | [quick-skill](quick-skill/workflow.md) | 6 | Architect | Fast skill from package name or GitHub URL — no brief needed |
+| SS | [create-stack-skill](create-stack-skill/workflow.md) | 9 | Architect | Consolidated project stack skill with integration patterns (code-mode + compose-mode) |
 | VS | [verify-stack](verify-stack/workflow.md) | 6 | Audit | Validate tech stack feasibility against architecture and PRD |
 | RA | [refine-architecture](refine-architecture/workflow.md) | 6 | Architect | Improve architecture doc using verified skill data |
 | US | [update-skill](update-skill/workflow.md) | 7 | Surgeon | Regenerate after source changes, preserving \[MANUAL\] sections |
 | AS | [audit-skill](audit-skill/workflow.md) | 6 | Audit | Drift detection between skill and current source code |
-| TS | [test-skill](test-skill/workflow.md) | 6 | Audit | Cognitive completeness verification — quality gate before export |
+| TS | [test-skill](test-skill/workflow.md) | 7 | Audit | Cognitive completeness verification — quality gate before export |
 | EX | [export-skill](export-skill/workflow.md) | 6 | Delivery | Package for distribution, inject into CLAUDE.md/AGENTS.md |
 
 ## Typical Flows
@@ -83,10 +83,8 @@ Each workflow follows a consistent structure:
 │   └── ...
 ├── data/                    # Reference data — schemas, rules, patterns
 │   └── *.md
-├── templates/               # Output skeletons (only analyze-source, test-skill)
-│   └── *-template.md
-├── workflow-plan-*.md       # Design plan (build artifact)
-└── validation-report.md     # BMAD validation results (build artifact)
+└── templates/               # Output skeletons (only analyze-source, test-skill)
+    └── *-template.md
 ```
 
 ### Step Loading
@@ -97,7 +95,7 @@ Steps execute sequentially via just-in-time loading. Only the current step is in
 
 ### setup-forge (SF)
 
-**4 steps** | **Data:** tier-rules.md
+**5 steps** | **Data:** tier-rules.md
 
 Detects available tools (ast-grep, gh, QMD), determines the capability tier (Quick/Forge/Forge+/Deep), writes `forge-tier.yaml` to the sidecar, and optionally indexes the project. Run this first — all other workflows adapt behavior to the detected tier.
 
@@ -109,13 +107,13 @@ Brownfield onboarding entry point. Scans project structure, identifies skillable
 
 ### brief-skill (BS)
 
-**5 steps** | **Data:** skill-brief-schema.md
+**5 steps** | **Data:** skill-brief-schema.md, scope-templates.md
 
 Interactive guided discovery. Gathers user intent (target repo, language, what to skill), analyzes the target to understand boundaries, walks through scope definition with the user, confirms the brief, then writes a validated `skill-brief.yaml`.
 
 ### create-skill (CS)
 
-**8 steps** | **Data:** extraction-patterns.md, skill-sections.md
+**8 primary steps (11 step files including sub-steps)** | **Data:** extraction-patterns.md, extraction-patterns-tracing.md, skill-sections.md, tier-degradation-rules.md, compile-assembly-rules.md, source-resolution-protocols.md
 
 The core compilation engine. Loads a brief, checks ecosystem context, extracts source with AST-backed provenance (T1 confidence when ast-grep available), enriches with usage patterns, compiles into agentskills.io-compliant sections, validates structural integrity, generates the `SKILL.md` artifact, and produces an evidence report. Supports `--batch` for processing multiple briefs.
 
@@ -145,7 +143,7 @@ Architecture improvement engine. Takes the original architecture document and re
 
 ### update-skill (US)
 
-**7 steps** | **Data:** manual-section-rules.md, merge-conflict-rules.md
+**7 steps** | **Data:** manual-section-rules.md, merge-conflict-rules.md, remote-source-resolution.md (tier-degradation-rules shared from create-skill)
 
 Surgical update engine. Loads the existing skill, detects what changed in source since last compilation, re-extracts only affected exports with fresh provenance, merges new extractions while preserving all `[MANUAL]` developer-authored content, validates the merged result, writes the updated skill, and produces a change report.
 
@@ -157,7 +155,7 @@ Drift detection engine. Loads the skill under audit, re-indexes current source t
 
 ### test-skill (TS)
 
-**6 steps** | **Data:** output-section-formats.md, scoring-rules.md | **Templates:** test-report-template.md
+**7 steps** | **Data:** output-section-formats.md, scoring-rules.md, source-access-protocol.md | **Templates:** test-report-template.md
 
 Quality gate before export. Loads the skill, detects test mode (naive for Quick tier, contextual for Forge/Deep), runs coverage checks against source, runs coherence checks for internal consistency, scores using weighted rubric, and produces a completeness report with pass/fail gate decision.
 

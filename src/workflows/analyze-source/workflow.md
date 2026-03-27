@@ -2,7 +2,7 @@
 name: analyze-source
 description: Decomposition engine — discover what to skill, recommend stack skill
 web_bundle: true
-installed_path: '{project-root}/_bmad/skf/workflows/analyze-source'
+installed_path: '{project-root}/_bmad/skf/workflows/skillforge/analyze-source'
 ---
 
 # Analyze Source
@@ -24,7 +24,7 @@ installed_path: '{project-root}/_bmad/skf/workflows/analyze-source'
 - **Sequential Enforcement**: Sequence within the step files must be completed in order, no skipping or optimization allowed
 - **State Tracking**: Document progress in output file frontmatter using `stepsCompleted` array
 - **Append-Only Building**: Build the analysis report by appending content as directed to the output file
-- **Tier-Aware Analysis**: Scanning depth adapts to forge tier — Quick (file structure), Forge (AST), Deep (AST+QMD)
+- **Tier-Aware Analysis**: Scanning depth adapts to forge tier — Quick (file structure), Forge (AST), Forge+ (AST + CCC semantic pre-ranking), Deep (AST+QMD)
 
 ### Step Processing Rules
 

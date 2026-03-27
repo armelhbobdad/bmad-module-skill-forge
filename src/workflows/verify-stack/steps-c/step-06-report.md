@@ -56,6 +56,8 @@ Read the entire `{outputFile}` to have all data available for presentation.
 
 Verify all expected sections are present: Coverage Matrix, Integration Verdicts, Requirements Coverage (or skipped notation), Synthesis & Recommendations.
 
+**Extract metrics from frontmatter:** Read `skills_analyzed`, `coverage_percentage`, `integrations_verified` (as `verified_count`), `integrations_plausible` (as `plausible_count`), `integrations_risky` (as `risky_count`), `integrations_blocked` (as `blocked_count`), `requirements_fulfilled` (as `fulfilled_count`), `requirements_partial` (as `partial_count`), `requirements_not_addressed` (as `not_addressed_count`), `requirements_pass`, `overall_verdict`, and `recommendation_count`. Use these mapped display names in the summary table and next steps below.
+
 ### 2. Present Summary
 
 "**Verify Stack — Feasibility Report**
@@ -66,21 +68,22 @@ Verify all expected sections are present: Coverage Matrix, Integration Verdicts,
 
 | Metric | Value |
 |--------|-------|
-| **Skills Analyzed** | {count} |
-| **Coverage** | {covered}/{total} ({percentage}%) |
+| **Skills Analyzed** | {skills_analyzed} |
+| **Coverage** | {coverage_percentage}% |
 | **Integrations Verified** | {verified_count} |
 | **Integrations Plausible** | {plausible_count} |
 | **Integrations Risky** | {risky_count} |
 | **Integrations Blocked** | {blocked_count} |
 | **Requirements Fulfilled** | {fulfilled_count or 'N/A — no PRD'} |
+| **Requirements Partially Fulfilled** | {partial_count or 'N/A — no PRD'} |
 | **Requirements Not Addressed** | {not_addressed_count or 'N/A — no PRD'} |
 
-{IF delta from previous run exists:}
+{IF delta_improved is not null (delta from previous run exists):}
 **Delta from Previous Run:**
-- Improved: {count} items
-- Regressed: {count} items
-- New: {count} items
-- Unchanged: {count} items
+- Improved: {delta_improved} items
+- Regressed: {delta_regressed} items
+- New: {delta_new} items
+- Unchanged: {delta_unchanged} items
 
 ---"
 
@@ -110,6 +113,9 @@ Walk through each section briefly, focusing on items that need attention:
 {IF all Fulfilled:}
 - All stated requirements addressed by the stack
 
+{IF any Partially Fulfilled:}
+- **Partially Fulfilled:** {list of partially covered requirements with gap description}
+
 {IF any Not Addressed:}
 - **Not Addressed:** {list of unaddressed requirements}"
 
@@ -118,14 +124,15 @@ Walk through each section briefly, focusing on items that need attention:
 Based on the overall verdict, present the appropriate recommendation:
 
 **IF FEASIBLE:**
-"**Your stack is verified.** All technologies are covered, integrations are compatible, and requirements are addressed.
+"**Your stack is verified.** All technologies are covered, integrations are compatible, and requirements are all fulfilled (or requirements pass was skipped).
 
 **Recommended next steps:**
 1. **[RA] Refine Architecture** — Produce an implementation-ready architecture document enriched with skill-backed API details
-2. **[SS] Stack Skill** — Compose your individual skills into a unified stack skill for holistic project guidance"
+2. **[SS] Create Stack Skill** — compose your individual skills into a unified stack skill, providing the refined architecture doc when prompted
+3. **[TS] Test Skill** → **[EX] Export Skill** — Verify completeness and package for distribution"
 
 **IF CONDITIONALLY FEASIBLE:**
-"**Your stack is conditionally feasible.** There are {N} items to address before proceeding.
+"**Your stack is conditionally feasible.** There are {recommendation_count} items to address before proceeding.
 
 **Required actions:**
 {List the specific recommendations from Step 05 synthesis}
@@ -146,7 +153,7 @@ Display: "**[R] Review full report** | **[X] Exit verification**"
 
 #### Menu Handling Logic:
 
-- **IF R:** Walk through the report section by section, presenting each section's content from {outputFile} in a readable format. After completing the walkthrough, redisplay the menu.
+- **IF R:** Walk through the report section by section, presenting each section's content from {outputFile} in a readable format. After completing the walkthrough, redisplay the menu. (Note: the R walkthrough loop terminates only when the user selects X.)
 - **IF X:** "**Feasibility report saved to:** `{outputFile}`
 
 Re-run **[VS] Verify Stack** anytime after making changes to your skills or architecture document.
@@ -173,7 +180,7 @@ This is the final step of the verify-stack workflow. When the user selects X, th
 - Overall verdict displayed prominently with key metrics
 - Delta from previous run shown if applicable
 - Detailed findings presented with focus on risky/blocked/missing items
-- Next steps match the verdict exactly (FEASIBLE/CONDITIONAL/NOT FEASIBLE)
+- Next steps match the verdict exactly (FEASIBLE/CONDITIONALLY FEASIBLE/NOT FEASIBLE)
 - Menu presented with R and X options
 - Report walkthrough available on R selection
 - Workflow exits cleanly on X with saved file path

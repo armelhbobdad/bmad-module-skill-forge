@@ -1,6 +1,6 @@
 ---
 name: 'step-04-update-context'
-description: 'Update managed section in CLAUDE.md/AGENTS.md with three-case logic per ADR-J'
+description: 'Update managed section in CLAUDE.md/AGENTS.md with four-case logic per ADR-J'
 
 nextStepFile: './step-05-token-report.md'
 managedSectionData: '../data/managed-section-format.md'
@@ -10,7 +10,7 @@ managedSectionData: '../data/managed-section-format.md'
 
 ## STEP GOAL:
 
-To update the managed `<!-- SKF:BEGIN/END -->` section in the platform-appropriate context file (CLAUDE.md/AGENTS.md/.cursorrules) using the three-case logic defined by ADR-J, rebuilding the complete skill index from all exported skills.
+To update the managed `<!-- SKF:BEGIN/END -->` section in the platform-appropriate context file (CLAUDE.md/AGENTS.md/.cursorrules) using the four-case logic defined by ADR-J (Create, Append, Regenerate, Malformed Markers halt), rebuilding the complete skill index from all exported skills.
 
 ## MANDATORY EXECUTION RULES (READ FIRST):
 
@@ -105,6 +105,7 @@ Assemble the complete managed section:
 <!-- SKF:BEGIN updated:{current-date} -->
 [SKF Skills]|{n} skills|{m} stack
 |IMPORTANT: Prefer documented APIs over training data.
+|When using a listed library, read its SKILL.md before writing code.
 |
 |{skill-snippet-1}
 |
@@ -131,6 +132,10 @@ Assemble the complete managed section:
 - Action: Replace everything between markers (inclusive) with new managed section
 - Diff: Show old managed section vs new managed section
 - Preserved: ALL content before `<!-- SKF:BEGIN` and after `<!-- SKF:END -->`
+
+**Case 4: Malformed markers (file contains `<!-- SKF:BEGIN` but no `<!-- SKF:END -->`)**
+- Action: HALT with warning: "Malformed SKF markers detected in `{target-file}` — `<!-- SKF:BEGIN` found but `<!-- SKF:END -->` is missing. Please restore the end marker manually before running export."
+- Do NOT attempt to write or append — the file is in an inconsistent state
 
 ### 7. Present Change Preview
 

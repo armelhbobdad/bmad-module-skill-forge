@@ -35,15 +35,15 @@ This uses **step-file architecture** for disciplined execution:
 
 ### Critical Rules (NO EXCEPTIONS)
 
-- NEVER load multiple step files simultaneously
-- ALWAYS read entire step file before execution
-- NEVER skip steps or optimize the sequence
-- ALWAYS follow the exact instructions in the step file
-- ALWAYS halt at menus and wait for user input
-- NEVER create mental todo lists from future steps
-- TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-- DOCUMENT-PRODUCING: This workflow outputs a refined architecture markdown file
+- 🛑 **NEVER** load multiple step files simultaneously
+- 📖 **ALWAYS** read entire step file before execution
+- 🚫 **NEVER** skip steps or optimize the sequence
+- 🎯 **ALWAYS** follow the exact instructions in the step file
+- ⏸️ **ALWAYS** halt at menus and wait for user input
+- 📋 **NEVER** create mental todo lists from future steps
+- ⚙️ **TOOL/SUBPROCESS FALLBACK**: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
+- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
+- 📝 **DOCUMENT-PRODUCING**: This workflow outputs a refined architecture markdown file
 
 ---
 
@@ -54,7 +54,7 @@ This uses **step-file architecture** for disciplined execution:
 Load and read full config from {project-root}/_bmad/skf/config.yaml and resolve:
 
 - `project_name`, `user_name`, `communication_language`, `document_output_language`
-- `skills_output_folder`, `forge_data_folder`, `output_folder`, `sidecar_path`
+- `skills_output_folder`, `forge_data_folder`, `output_folder`
 
 ### 2. First Step Execution
 

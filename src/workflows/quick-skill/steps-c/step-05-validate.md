@@ -116,7 +116,7 @@ Check context-snippet.md format compliance:
 Check metadata.json has required fields:
 
 - [ ] `name` — present, non-empty
-- [ ] `version` — present (auto-detected or "0.1.0")
+- [ ] `version` — present (auto-detected or "1.0.0")
 - [ ] `source_authority` — must be "community"
 - [ ] `source_repo` — present, valid GitHub URL
 - [ ] `language` — present, non-empty

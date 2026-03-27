@@ -8,10 +8,8 @@ tier_override: ~
 # Passive context injection (set to false to skip snippet generation and CLAUDE.md updates during export)
 passive_context: true
 
-# Language defaults
-output_language: ~
-skill_format_version: ~
-
-# Output preferences
-citation_style: ~
-confidence_display: ~
+# Reserved for future use — these fields are not yet consumed by any workflow step
+# output_language: ~
+# skill_format_version: ~
+# citation_style: ~
+# confidence_display: ~

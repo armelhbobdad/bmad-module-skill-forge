@@ -1,10 +1,14 @@
-# Agent Schema Validation Test Suite
+# SKF Test Suite
 
-Comprehensive test coverage for the BMAD agent schema validation system.
+Test coverage for the SKF module: schema validation, installation components, knowledge base integrity, and workflow state consistency.
 
 ## Overview
 
-This test suite validates the Zod-based schema validator (`tools/schema/agent.js`) that ensures all `*.agent.yaml` files conform to the BMAD agent specification.
+- **Agent Schema Validation** (`test/schema/agent.js`) — Zod-based validator ensuring `*.agent.yaml` files conform to the BMAD agent spec
+- **Installation Components** (`test/test-installation-components.js`) — Module config, agent structure, path references, and step-file chain validation for all 12 workflows (including VS, RA, and compose-mode)
+- **Knowledge Base** (`test/test-knowledge-base.js`) — Fragment count, cross-references, and index integrity for the 13-entry knowledge base
+- **Workflow State** (`test/test-workflow-state.js`) — Frontmatter field consistency, state file patterns, and confidence tier labels across VS, RA, and compose-mode workflows
+- **CLI Integration** (`test/test-cli-integration.js`) — End-to-end CLI command validation
 
 ## Quick Start
 
@@ -12,11 +16,8 @@ This test suite validates the Zod-based schema validator (`tools/schema/agent.js
 # Run all tests
 npm test
 
-# Run with coverage report
-npm run test:coverage
-
 # Run CLI integration tests
-./test/test-cli-integration.sh
+node test/test-cli-integration.js
 
 # Validate actual agent files
 npm run validate:schemas

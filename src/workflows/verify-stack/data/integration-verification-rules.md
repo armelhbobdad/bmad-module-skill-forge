@@ -13,7 +13,7 @@ Rules for cross-referencing API surfaces between two skills to determine integra
 | **Verified** | APIs demonstrably connect — matching types, documented bridge, or shared protocol | At least one export from Skill A is consumable by an API in Skill B (or vice versa) with compatible types |
 | **Plausible** | Compatible types or protocols but no documented integration path | Both libraries operate in compatible domains with compatible data formats, but no direct API bridge is evident |
 | **Risky** | Type mismatch, protocol gap, or language boundary requiring a bridge | A clear gap exists (e.g., TypeScript↔Rust FFI needed) but a workaround is architecturally feasible |
-| **Blocked** | Fundamental incompatibility — no feasible integration path | The two libraries cannot exchange data in any documented way without a major adapter layer |
+| **Blocked** | Fundamental incompatibility — no feasible integration path even with a bridge or adapter layer | The two libraries cannot exchange data in any documented way; requires replacing one of the libraries |
 
 ---
 

@@ -81,10 +81,10 @@ Compatibility: {explanation}
 Architecture verification sits between individual skill generation and stack skill synthesis:
 
 ```
-CS×N → VS → RA → SS (compose) → TS → EX → Implementation → SS (code)
+(CS|QS)×N → VS → RA → SS (compose) → TS → EX → Implementation → SS (code-mode)
 ```
 
-VS and RA are pre-code workflows. SS compose-mode synthesizes the implementation playbook. After the codebase grows, SS code-mode captures actual usage patterns — completing the lifecycle.
+VS and RA are pre-code workflows. SS compose-mode synthesizes the implementation playbook. After the codebase grows, SS code-mode (the standard stack-skill mode that analyzes manifests and source) captures actual usage patterns — completing the lifecycle.
 
 ## Anti-Patterns
 
@@ -98,3 +98,5 @@ VS and RA are pre-code workflows. SS compose-mode synthesizes the implementation
 - [confidence-tiers.md](confidence-tiers.md) — T1/T2/T3 trust model for verdict evidence
 - [skill-lifecycle.md](skill-lifecycle.md) — end-to-end pipeline and workflow connections
 - [progressive-capability.md](progressive-capability.md) — tier philosophy for skill generation
+
+_Source: synthesized from verify-stack/workflow.md, refine-architecture/workflow.md, and create-stack-skill compose-mode-rules.md_

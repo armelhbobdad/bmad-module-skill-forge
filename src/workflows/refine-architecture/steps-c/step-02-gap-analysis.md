@@ -16,23 +16,23 @@ Find undocumented integration paths — library pairs that have compatible APIs 
 
 ### Universal Rules:
 
-- CRITICAL: Read the complete step file before taking any action
-- CRITICAL: When loading next step with 'C', ensure entire file is read
-- TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
+- 📖 CRITICAL: Read the complete step file before taking any action
+- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
+- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
+- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
 
 ### Role Reinforcement:
 
-- You are an architecture refinement analyst performing gap detection
-- Every gap must cite specific APIs from the generated skills — no speculation
-- Apply the gap detection rules from {refinementRulesData} strictly
+- ✅ You are an architecture refinement analyst performing gap detection
+- ✅ Every gap must cite specific APIs from the generated skills — no speculation
+- ✅ Apply the gap detection rules from {refinementRulesData} strictly
 
 ### Step-Specific Rules:
 
-- Focus ONLY on undocumented integration paths (gaps)
-- FORBIDDEN to detect contradictions or issues — that is Step 03
-- FORBIDDEN to suggest capability expansions or improvements — that is Step 04
-- Every gap MUST include evidence citations from actual skill content
+- 🎯 Focus ONLY on undocumented integration paths (gaps)
+- 🚫 FORBIDDEN to detect contradictions or issues — that is Step 03
+- 🚫 FORBIDDEN to suggest capability expansions or improvements — that is Step 04
+- 💬 Every gap MUST include evidence citations from actual skill content
 
 ## EXECUTION PROTOCOLS:
 
@@ -53,9 +53,9 @@ Find undocumented integration paths — library pairs that have compatible APIs 
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
 
-### 1. Load Refinement Rules
+### 1. Reference Refinement Rules
 
-Load `{refinementRulesData}` for gap detection rules.
+Use the refinement rules loaded in Step 01 from `{refinementRulesData}`. If not available in context, reload from `{refinementRulesData}`.
 
 Extract: gap classification (Missing Integration Path, Undocumented Data Flow, Absent Bridge Layer), detection method, and citation format.
 
@@ -70,6 +70,8 @@ Parse the architecture document for statements describing two or more technologi
 - Look for layer boundary descriptions: "{A} at the API layer connects to {B} at the data layer"
 
 **CRITICAL:** Do NOT parse Mermaid diagram syntax. Use only prose text for co-mention detection.
+
+**Mermaid Limitation Warning:** If `` ```mermaid `` blocks are present in the architecture document, inform the user: "Integration paths documented exclusively in Mermaid diagrams are excluded from co-mention analysis and may appear as false-positive gaps. Consider adding prose descriptions for diagram-only integration paths." Display this warning informatively and immediately continue — this does not halt or modify the analysis sequence.
 
 **Build documented pairs list:**
 - Each pair: `{library_a, library_b, architectural_context}`
@@ -136,12 +138,15 @@ Suggestion: {proposed architecture section content}
 
 {For each gap, display the full citation with evidence and suggestion}
 
-{IF no gaps found:}
+{IF no gaps found AND N > 1:}
 **No undocumented integration paths detected.** The architecture document covers all compatible library pairs.
 
-**Proceeding to issue detection...**"
+{IF no gaps found AND N == 1:}
+**⚠️ Gap analysis skipped — only 1 skill loaded.** Pairwise integration analysis requires at least 2 skills. If the architecture references multiple libraries, those without a matching skill are invisible to gap analysis. **Recommendation:** Generate skills for all architecture libraries with [CS] or [QS] before running [RA] for comprehensive gap detection.
 
-Store all gap findings as workflow state for Step 05.
+**Proceeding to issue detection (still produces value with 1 skill)...**"
+
+Store all gap findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-GAPS] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted gap findings** (full citation blocks with evidence and suggestions, not just counts) — Step 05 can read this back if context degrades. **Do NOT write to `{output_folder}/refined-architecture-{project_name}.md` — that file is created only in step-05.**
 
 ### 7. Auto-Proceed to Next Step
 
@@ -149,9 +154,9 @@ Load, read the full file and then execute `{nextStepFile}`.
 
 ---
 
-## SYSTEM SUCCESS/FAILURE METRICS
+## 🚨 SYSTEM SUCCESS/FAILURE METRICS
 
-### SUCCESS:
+### ✅ SUCCESS:
 
 - Refinement rules loaded from {refinementRulesData}
 - Integration claims extracted from architecture document using prose co-mention analysis
@@ -162,7 +167,7 @@ Load, read the full file and then execute `{nextStepFile}`.
 - Gap findings stored as workflow state for Step 05
 - Auto-proceeded to step 03
 
-### SYSTEM FAILURE:
+### ❌ SYSTEM FAILURE:
 
 - Inventing APIs not present in the actual skills
 - Flagging contradictions or issues (that is Step 03)

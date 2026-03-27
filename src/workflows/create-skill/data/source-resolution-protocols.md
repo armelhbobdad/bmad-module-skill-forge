@@ -112,7 +112,7 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
 
    Proceed with Quick tier extraction strategy below. Note the degradation reason in context for the evidence report.
 
-**Ephemeral clone cleanup:** After extraction is complete for all files in scope (whether successful or partially failed), before presenting the Gate 2 summary (Section 6), if `ephemeral_clone_active`, delete the `{temp_path}` directory. Log: "Ephemeral source clone cleaned up." This ensures cleanup runs even if some extractions failed, as long as the step itself is still executing.
+**Ephemeral clone cleanup:** After extraction is complete for all files in scope (whether successful or partially failed), before presenting the Gate 2 summary (Section 6), if `ephemeral_clone_active`, delete the `{temp_path}` directory. Log: "Ephemeral source clone cleaned up." This ensures cleanup runs even if some extractions failed, as long as the step itself is still executing. **If any error halts the extraction step before Gate 2 is reached**, cleanup must still occur: attempt to delete `{temp_path}` before halting. Log the cleanup attempt regardless of success.
 
 ---
 

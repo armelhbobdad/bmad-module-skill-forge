@@ -56,11 +56,23 @@ Count import frequency for each dependency across the codebase, rank by usage, a
 
 Skip import counting entirely. All skills are included by default.
 
+Set `confirmed_dependencies` = all `raw_dependencies` (the list already stored as workflow state from Step 02).
+
+**Apply scope_overrides:** If `scope_overrides` were provided in step 01, apply them now — force-include or force-exclude skills as specified. Log any overrides applied.
+
 Present skills sorted by architectural layer (from architecture doc if available):
-- Parse architecture doc for section headers to determine layer grouping
-- If no architecture doc or layers not detectable: present alphabetically
+- If `architecture_doc_path` is not null: parse architecture doc for section headers to determine layer grouping
+- If `architecture_doc_path` is null or layers not detectable: present alphabetically
+
+Display skills as a table:
+
+| # | Skill | Language | Tier | Architecture Layer |
+|---|-------|----------|------|--------------------|
+| 1 | {name} | {language} | {confidence_tier} | {layer or 'Unclassified'} |
 
 User confirms inclusion/exclusion at the gate (same [C] menu as code-mode).
+
+Skip to [Present MENU OPTIONS](#5-present-menu-options).
 
 **If not compose_mode:**
 
@@ -148,8 +160,8 @@ Display: **Select:** [C] Continue to Extraction
 
 #### Menu Handling Logic:
 
-- IF C: Store confirmed_dependencies, then load, read entire file, then execute {nextStepFile}
-- IF Any other: Process as scope modification, redisplay updated list, then [Redisplay Menu Options](#5-present-menu-options)
+- IF C: Store current `confirmed_dependencies` (including any modifications made since initial presentation), then load, read entire file, then execute {nextStepFile}
+- IF Any other: Process as scope modification (add/remove skills from `confirmed_dependencies`), update the in-memory `confirmed_dependencies` list accordingly, redisplay the updated skills table, then [Redisplay Menu Options](#5-present-menu-options)
 
 ---
 

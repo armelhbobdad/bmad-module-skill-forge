@@ -125,7 +125,7 @@ npx skill-check check <staging-skill-dir> --format json
 
 (Security scan enabled by default when `--no-security-scan` omitted. The scan uses [Snyk Agent Scan](https://github.com/snyk/agent-scan) to check for prompt injection risks, sensitive data exposure, and unsafe tool permissions.)
 
-Record any security warnings in evidence-report. Security findings are advisory — they do not block artifact generation.
+Record any security warnings in evidence-report. Security findings are advisory — they do not block artifact generation. If the full validation re-run produces a different quality score than section 2, update the evidence-report with the newer score.
 
 **If security scan fails due to missing SNYK_TOKEN:**
 
@@ -181,7 +181,7 @@ tessl suggestions:
 Cross-check metadata.json against extraction inventory:
 - `stats.exports_documented` / `stats.exports_public_api` / `stats.exports_internal` / `stats.exports_total` are accurate
 - `stats.public_api_coverage` and `stats.total_coverage` are correctly computed (null when denominator is 0)
-- `confidence_t1`, `confidence_t2`, `confidence_t3` match actual counts
+- `confidence_distribution.t1`, `confidence_distribution.t1_low`, `confidence_distribution.t2`, `confidence_distribution.t3` match actual counts
 - `spec_version` is "1.3"
 - If `scripts[]` or `assets[]` arrays present: verify `stats.scripts_count`/`stats.assets_count` match array lengths; verify `file_entries` count in provenance-map.json matches
 

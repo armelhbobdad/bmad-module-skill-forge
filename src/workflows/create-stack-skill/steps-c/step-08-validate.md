@@ -112,16 +112,16 @@ Parse metadata.json and verify required fields:
 - [ ] `skill_type` equals "stack"
 - [ ] `name` matches `{project_name}-stack`
 - [ ] `version` and `generation_date` present
-- [ ] `confidence_tier` matches tier from step 01
+- [ ] `confidence_tier` matches forge tier from step 01 (Quick/Forge/Forge+/Deep) — in both code-mode and compose-mode, this is the forge tier; per-library inherited confidence is tracked separately in `confidence_distribution`
 - [ ] `library_count` matches actual reference files; `integration_count` matches pair files
 - [ ] `libraries` array present and non-empty
-- [ ] `confidence_distribution` object present with T1/T1-low/T2 keys
+- [ ] `confidence_distribution` object present with `t1`, `t1_low`, `t2`, `t3` keys (lowercase, matching template definition)
 
 Record mismatches as **WARNING** findings.
 
 ### 6. Validate Reference File Completeness
 
-For each confirmed library, verify `references/{library}.md` contains: library name header, version from manifest, Key Exports section, Usage Patterns section.
+For each confirmed library, verify `references/{library}.md` contains: library name header, version from manifest (**in compose-mode**: version from source skill metadata), Key Exports section, Usage Patterns section.
 
 For each integration pair, verify `references/integrations/{libraryA}-{libraryB}.md` contains: integration pair header, type classification, Integration Pattern section, Key Files section.
 

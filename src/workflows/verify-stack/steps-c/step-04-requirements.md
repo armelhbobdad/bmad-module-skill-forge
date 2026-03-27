@@ -54,7 +54,7 @@ If a PRD or vision document was provided in Step 01, verify that the combined ca
 
 ### 1. Check PRD Availability
 
-**If no PRD/vision document was provided in Step 01:**
+**Check `prd_available` from workflow state (set in Step 01). If `prd_available` is false (no PRD/vision document was provided):**
 
 "**Pass 3: Requirements Coverage — Skipped**
 
@@ -66,7 +66,7 @@ To include this pass, re-run **[VS]** with a PRD or vision document path.
 
 Update {outputFile} frontmatter: append `'step-04-requirements'` to `stepsCompleted`, set `requirements_pass: "skipped"`.
 
-Load, read the full file and then execute `{nextStepFile}`. **STOP HERE — do not execute sections 2-5.**
+Load, read the full file and then execute `{nextStepFile}`. **STOP HERE — do not execute sections 2-6.**
 
 **If PRD/vision document was provided:** Continue to section 2.
 
@@ -113,7 +113,7 @@ For each requirement, evaluate whether the combined capabilities of the generate
 
 | ID | Requirement | Category | Verdict | Contributing Skills |
 |----|-------------|----------|---------|-------------------|
-| {id} | {requirement_text} | {category} | {Fulfilled/Partial/Not Addressed} | {skill_names or '—'} |
+| {id} | {requirement_text} | {category} | {Fulfilled/Partially Fulfilled/Not Addressed} | {skill_names or '—'} |
 
 **Coverage: {fulfilled_count} Fulfilled, {partial_count} Partially Fulfilled, {not_addressed_count} Not Addressed**
 
@@ -133,6 +133,7 @@ Write the **Requirements Coverage** section to `{outputFile}`:
 - Include the full requirements coverage table
 - Include recommendations for Not Addressed and Partially Fulfilled items
 - Update frontmatter: append `'step-04-requirements'` to `stepsCompleted`
+- Set `requirements_pass: "completed"`
 - Set `requirements_fulfilled`, `requirements_partial`, `requirements_not_addressed` counts
 
 ### 6. Auto-Proceed to Next Step

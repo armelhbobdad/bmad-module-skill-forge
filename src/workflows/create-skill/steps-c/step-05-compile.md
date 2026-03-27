@@ -39,7 +39,7 @@ To assemble the complete skill content from the extraction inventory and enrichm
 ## EXECUTION PROTOCOLS:
 
 - 🎯 Follow MANDATORY SEQUENCE exactly
-- 💾 Build all content in context or write to a staging directory (`_bmad-output/{name}/`)
+- 💾 Build all content in context AND write to the staging directory (`_bmad-output/{name}/`) — staging write is mandatory for step-06 validation
 - 📖 Follow agentskills.io section structure from data file
 - 🚫 Do not promote any output files to final `skills/` or `forge-data/` directories — that's step-07
 
@@ -100,7 +100,8 @@ Following the structure from the skill-sections data file:
 - Set `description` from the SKILL.md frontmatter `description` field (already assembled in section 2)
 - Set `language` from source analysis (e.g., `"typescript"`, `"python"`) — use the primary language of the entry point file
 - Set `ast_node_count` from extraction stats if ast-grep was used (Forge/Deep tier), otherwise omit
-- Set `tool_versions` based on tier and available tools. Resolve `{skf_version}` from the SKF module's `package.json` `version` field (run `node -p "require('./node_modules/bmad-module-skill-forge/package.json').version"` or read the installed module's `package.json`). If unresolvable, fall back to `git describe --tags --abbrev=0` in the SKF module root. Never hardcode the version.
+- Set `tool_versions` based on tier and available tools. Resolve `{skf_version}` from the installed module's `package.json` at `{project-root}/_bmad/skf/package.json`. If unresolvable there, fall back to `node -p "require('./node_modules/bmad-module-skill-forge/package.json').version"`. If still unresolvable, use `"unknown"` and add a warning to the evidence report. Never hardcode the version.
+- Store `commit_short` = first 8 characters of `source_commit` (or `"unknown"` if unavailable) for use in step-08 report.
 - If `scripts_inventory` is non-empty, populate `scripts[]` array and set `stats.scripts_count`. If `assets_inventory` is non-empty, populate `assets[]` array and set `stats.assets_count`. Omit these fields entirely when inventories are empty.
 
 ### 5. Build references/ Content
@@ -119,7 +120,7 @@ One entry per extracted export: export_name, export_type, params[] (typed string
 
 ### 7. Build evidence-report.md Content
 
-Compilation audit trail: generation date, forge tier, source info, tool versions, extraction summary (files/exports/confidence), validation results (populated in step-06), warnings. See `{skillSectionsData}` for full template. Use the same `{skf_version}` value resolved in section 4 when populating the Tool Versions block.
+Compilation audit trail: generation date, forge tier, source info, tool versions, extraction summary (files/exports/confidence), warnings. For validation-specific fields (Schema, Body, Security, Content Quality, tessl, Metadata), insert the placeholder text `[PENDING — populated by step-06]`. Step-06 will replace these placeholders with actual results. See `{skillSectionsData}` for full template. Use the same `{skf_version}` value resolved in section 4 when populating the Tool Versions block.
 
 ### 8. Menu Handling Logic
 

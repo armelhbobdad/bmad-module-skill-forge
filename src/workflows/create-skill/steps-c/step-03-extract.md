@@ -46,7 +46,7 @@ To extract all public exports, function signatures, type definitions, and co-imp
 
 ## CONTEXT BOUNDARIES:
 
-- Available: brief_data, tier, source_location, file_tree from step-01; ecosystem_status from step-02
+- Available: brief_data, tier, source_location, file_tree from step-01; ecosystem check outcome from step-02 (proceed/halt decision — no named variable stored)
 - Focus: Source code extraction and inventory building
 - Limits: Do NOT compile, assemble, or write any output
 - Dependencies: Source code must be accessible (resolved in step-01)
@@ -75,7 +75,7 @@ Build the filtered file list from the source tree resolved in step-01. Record th
 
 "**Docs-only mode:** No source code to extract. Documentation content will be fetched from `doc_urls` in step-03c."
 
-Build an empty extraction inventory with zero exports. Set `extraction_mode: "docs-only"` in context. Auto-proceed through Gate 2 (section 5) — display the empty inventory and note that T3 content will be produced by the doc-fetcher step.
+Build an empty extraction inventory with zero exports. Set `extraction_mode: "docs-only"` in context. Auto-proceed through Gate 2 (section 6) — display the empty inventory and note that T3 content will be produced by the doc-fetcher step.
 
 **If `source_type: "source"` (default):** Continue with extraction below.
 
@@ -126,24 +126,21 @@ Degrade to Quick tier extraction. Note the degradation reason in context for the
 - If a file cannot be read: log warning, skip file, continue with remaining files
 - If AST parsing fails on a file: fall back to source reading for that file, continue
 
-**Re-export tracing (Forge/Deep only):**
-
-After the initial AST scan, check for public exports from the entry point (`__init__.py`, `index.ts`, `lib.rs`) that were NOT found by AST extraction. These are likely module-level re-exports. Follow the **Re-Export Tracing** protocol in `{extractionPatternsTracingData}` to resolve them to their actual definition files. This ensures module re-export patterns (common in Python libraries with clean public APIs) do not create gaps in the extraction inventory.
+**Re-export tracing (Forge/Deep only):** After the initial AST scan, check for unresolved public exports from entry points (`__init__.py`, `index.ts`, `lib.rs`). Follow the **Re-Export Tracing** protocol in `{extractionPatternsTracingData}` to resolve them to their definition files.
 
 ### 4b. Validate Exports Against Package Entry Point
 
 After extraction, validate the collected exports against the package's actual public API surface:
 
-- **Python:** Read `{source_root}/__init__.py` — extract all import statements to build the actual public export list. Compare against AST-extracted exports:
-  - In AST results but not in `__init__.py` → mark as internal (exclude from `metadata.json` exports, keep in provenance-map with a note)
-  - In `__init__.py` but not in AST results → flag as extraction gap (add to inventory, trace via re-export protocol)
-- **TypeScript/JavaScript:** Read `index.ts`/`index.js` — extract named exports. Same comparison logic.
-- **Rust:** Read `lib.rs` — extract `pub use` items. Same comparison logic.
-- **Go:** Scan package-level files for exported (capitalized) identifiers.
+- **Python:** Read `{source_root}/__init__.py` — extract imports to build the public export list. Compare against AST results:
+  - In AST but not entry point → mark as internal (exclude from `metadata.json` exports)
+  - In entry point but not AST → flag as extraction gap (trace via re-export protocol)
+- **TypeScript/JS:** Read `index.ts`/`index.js` — same comparison logic.
+- **Rust:** Read `lib.rs` — extract `pub use` items. Same logic. **Go:** Scan for exported (capitalized) identifiers.
 
-Use the entry point as the authoritative source for `metadata.json`'s `exports[]` array. This prevents internal symbols from inflating the exports list and ensures all public API items are captured.
+Use the entry point as the authoritative source for `metadata.json`'s `exports[]` array.
 
-**If entry point is missing or unreadable:** Skip validation with a warning. Use the AST-extracted list as-is.
+**If entry point is missing or unreadable:** Skip validation with a warning.
 
 ### 4c. Detect and Inventory Scripts/Assets
 
@@ -152,10 +149,8 @@ Use the entry point as the authoritative source for `metadata.json`'s `exports[]
 After export extraction, scan the source for scripts and assets using the detection patterns in `{extractionPatternsTracingData}`:
 
 1. Scan source tree for directories/files matching detection heuristics (scripts/, bin/, tools/, cli/ for scripts; assets/, templates/, schemas/, configs/, examples/ for assets)
-2. For each candidate: verify file exists, check size (flag if >500 lines for user confirmation), exclude binary files
-3. Compute SHA-256 content hash for each included file
-4. Extract purpose from file header comments, shebang, README references, or schema `title`/`description` fields. If no purpose found, use filename.
-5. Record: file_path, purpose, source_path, language (for scripts), type (for assets), content_hash, confidence (T1-low)
+2. For each candidate: verify existence, check size (flag >500 lines), exclude binaries, compute SHA-256 hash
+3. Extract purpose from header comments, shebang, README references, or schema fields. Record: file_path, purpose, source_path, language/type, content_hash, confidence (T1-low)
 
 Add results to `scripts_inventory[]` and `assets_inventory[]` alongside the existing export inventory.
 
@@ -214,8 +209,9 @@ Display: "**Extraction Summary — Select an Option:** [C] Continue to compilati
 
 #### EXECUTION RULES:
 
-- ALWAYS halt and wait for user input after presenting the extraction summary
-- This is Gate 2 — user must confirm before compilation proceeds
+- IF docs-only mode (`extraction_mode: "docs-only"`): Auto-proceed immediately to `{nextStepFile}` — no user interaction required
+- OTHERWISE: ALWAYS halt and wait for user input after presenting the extraction summary
+- This is Gate 2 — user must confirm before compilation proceeds (except docs-only mode)
 - User may ask questions about the extraction results before continuing
 
 #### Menu Handling Logic:

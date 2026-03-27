@@ -59,6 +59,16 @@ Prompt: "Which of these would you like to include? (Enter numbers, or 'all'):"
 Exclusions will include all internal implementation files, tests, and utilities.
 Prompt: "Any additional items you'd like to include or exclude?"
 
+### Docs-Only Boundaries
+
+**No source code access.** Scope is defined by the `doc_urls` collected during intent gathering.
+
+- All content derived from external documentation
+- No include/exclude patterns — coverage determined by fetched documentation
+- All extractions labeled T3 (`[EXT:{url}]` citations)
+
+Prompt: "Any additional documentation URLs to include? Or URLs to exclude from the ones collected?"
+
 ## Scripts & Assets Detection (Optional Refinement)
 
 When `scripts_intent` or `assets_intent` is `detect` (default), SKF auto-detects from source directories matching: `scripts/`, `bin/`, `tools/`, `cli/` (for scripts) and `assets/`, `templates/`, `schemas/`, `configs/`, `examples/` (for assets). Detection applies to all scope types except `docs-only`.

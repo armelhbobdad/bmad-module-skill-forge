@@ -2,7 +2,7 @@
 name: 'step-01b-continue'
 description: 'Handle workflow continuation from previous session'
 
-outputFile: '{output_folder}/analyze-source-report-{project_name}.md'
+outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 nextStepOptions:
   step-02: './step-02-scan-project.md'
   step-03: './step-03-identify-units.md'

@@ -3,7 +3,7 @@ name: 'step-02-scan-project'
 description: 'Map project structure, detect service boundaries, and identify package manifests'
 
 nextStepFile: './step-03-identify-units.md'
-outputFile: '{output_folder}/analyze-source-report-{project_name}.md'
+outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 heuristicsFile: '../data/unit-detection-heuristics.md'
 ---
 

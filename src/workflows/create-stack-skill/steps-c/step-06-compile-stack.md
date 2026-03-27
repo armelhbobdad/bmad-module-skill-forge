@@ -80,6 +80,8 @@ description: >
 
 **This is the core value of the stack skill.** Compile in order:
 
+**Zero-integration guard:** If the integration graph from step 05 has zero edges (no detected integration pairs), skip the integration layer compilation and note: "No integration patterns detected — stack skill will contain library summaries without an integration layer." Proceed directly to section 4 (Per-Library Sections).
+
 **Cross-cutting patterns** (if any):
 - Patterns spanning 3+ libraries
 - Middleware chains, shared configuration, common architectural patterns
@@ -98,7 +100,7 @@ description: >
 
 ### 4. Compile Per-Library Sections
 
-For each confirmed library (ordered by integration connectivity, then import count):
+For each confirmed library (ordered by integration connectivity, then import count — **in compose-mode**, order by integration connectivity, then skill confidence tier since import counts are not available):
 
 - Role in stack (one-line description)
 - Key exports used in this project
@@ -121,6 +123,8 @@ Create the reference index table:
 | Library | Imports | Key Exports | Confidence | Reference |
 |---------|---------|-------------|------------|-----------|
 | ... | ... | ... | ... | ... |
+
+(**in compose-mode**: replace the Imports column with Export Count from source skill metadata, since import counts are not available)
 
 ### 7. Present Compiled SKILL.md Preview
 
