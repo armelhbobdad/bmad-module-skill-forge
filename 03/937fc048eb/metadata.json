@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "03937fc048eb",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/workflows.md",
+    "src/workflows/create-stack-skill/data/compose-mode-rules.md",
+    "src/workflows/create-stack-skill/steps-c/step-03-rank-and-confirm.md",
+    "src/workflows/create-stack-skill/steps-c/step-05-detect-integrations.md",
+    "src/workflows/create-stack-skill/steps-c/step-06-compile-stack.md",
+    "src/workflows/create-stack-skill/steps-c/step-07-generate-output.md",
+    "src/workflows/refine-architecture/steps-c/step-01-init.md",
+    "src/workflows/refine-architecture/steps-c/step-04-improvements.md",
+    "src/workflows/refine-architecture/steps-c/step-05-compile.md",
+    "src/workflows/refine-architecture/steps-c/step-06-report.md",
+    "src/workflows/verify-stack/data/feasibility-report-template.md",
+    "src/workflows/verify-stack/steps-c/step-01-init.md",
+    "src/workflows/verify-stack/steps-c/step-03-integrations.md",
+    "src/workflows/verify-stack/steps-c/step-05-synthesize.md",
+    "src/workflows/verify-stack/steps-c/step-06-report.md",
+    "src/workflows/verify-stack/workflow.md",
+    "test/README.md",
+    "test/test-workflow-state.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/03/937fc048eb/0/metadata.json",
+      "transcript": "/03/937fc048eb/0/full.jsonl",
+      "context": "/03/937fc048eb/0/context.md",
+      "content_hash": "/03/937fc048eb/0/content_hash.txt",
+      "prompt": "/03/937fc048eb/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 2898,
+    "cache_creation_tokens": 108263,
+    "cache_read_tokens": 3873877,
+    "output_tokens": 25252,
+    "api_call_count": 52
+  }
+}

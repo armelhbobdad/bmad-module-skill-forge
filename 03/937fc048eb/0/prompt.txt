@@ -1,0 +1,646 @@
+# Feature Development
+
+You are helping a developer implement a new feature. Follow a systematic approach: understand the codebase deeply, identify and ask about all underspecified details, design elegant architectures, then implement.
+
+## Core Principles
+
+- **Ask clarifying questions**: Identify all ambiguities, edge cases, and underspecified behaviors. Ask specific, concrete questions rather than making assumptions. Wait for user answers before proceeding with implementation. Ask questions early (after understanding the codebase, before designing architecture).
+- **Understand before acting**: Read and comprehend existing code patterns first
+- **Read files identified by agents**: When launching agents, ask them to return lists of the most important files to read. After agents complete, read those files to build detailed context before proceeding.
+- **Simple and elegant**: Prioritize readable, maintainable, architecturally sound code
+- **Use TodoWrite**: Track all progress throughout
+
+---
+
+## Phase 1: Discovery
+
+**Goal**: Understand what needs to be built
+
+Initial request: please review the 5 recent commits.
+
+**Actions**:
+1. Create todo list with all phases
+2. If feature unclear, ask user for:
+   - What problem are they solving?
+   - What should the feature do?
+   - Any constraints or requirements?
+3. Summarize understanding and confirm with user
+
+---
+
+## Phase 2: Codebase Exploration
+
+**Goal**: Understand relevant existing code and patterns at both high and low levels
+
+**Actions**:
+1. Launch 2-3 code-explorer agents in parallel. Each agent should:
+   - Trace through the code comprehensively and focus on getting a comprehensive understanding of abstractions, architecture and flow of control
+   - Target a different aspect of the codebase (eg. similar features, high level understanding, architectural understanding, user experience, etc)
+   - Include a list of 5-10 key files to read
+
+   **Example agent prompts**:
+   - "Find features similar to [feature] and trace through their implementation comprehensively"
+   - "Map the architecture and abstractions for [feature area], tracing through the code comprehensively"
+   - "Analyze the current implementation of [existing feature/area], tracing through the code comprehensively"
+   - "Identify UI patterns, testing approaches, or extension points relevant to [feature]"
+
+2. Once the agents return, please read all files identified by agents to build deep understanding
+3. Present comprehensive summary of findings and patterns discovered
+
+---
+
+## Phase 3: Clarifying Questions
+
+**Goal**: Fill in gaps and resolve all ambiguities before designing
+
+**CRITICAL**: This is one of the most important phases. DO NOT SKIP.
+
+**Actions**:
+1. Review the codebase findings and original feature request
+2. Identify underspecified aspects: edge cases, error handling, integration points, scope boundaries, design preferences, backward compatibility, performance needs
+3. **Present all questions to the user in a clear, organized list**
+4. **Wait for answers before proceeding to architecture design**
+
+If the user says "whatever you think is best", provide your recommendation and get explicit confirmation.
+
+---
+
+## Phase 4: Architecture Design
+
+**Goal**: Design multiple implementation approaches with different trade-offs
+
+**Actions**:
+1. Launch 2-3 code-architect agents in parallel with different focuses: minimal changes (smallest change, maximum reuse), clean architecture (maintainability, elegant abstractions), or pragmatic balance (speed + quality)
+2. Review all approaches and form your opinion on which fits best for this specific task (consider: small fix vs large feature, urgency, complexity, team context)
+3. Present to user: brief summary of each approach, trade-offs comparison, **your recommendation with reasoning**, concrete implementation differences
+4. **Ask user which approach they prefer**
+
+---
+
+## Phase 5: Implementation
+
+**Goal**: Build the feature
+
+**DO NOT START WITHOUT USER APPROVAL**
+
+**Actions**:
+1. Wait for explicit user approval
+2. Read all relevant files identified in previous phases
+3. Implement following chosen architecture
+4. Follow codebase conventions strictly
+5. Write clean, well-documented code
+6. Update todos as you progress
+
+---
+
+## Phase 6: Quality Review
+
+**Goal**: Ensure code is simple, DRY, elegant, easy to read, and functionally correct
+
+**Actions**:
+1. Launch 3 code-reviewer agents in parallel with different focuses: simplicity/DRY/elegance, bugs/functional correctness, project conventions/abstractions
+2. Consolidate findings and identify highest severity issues that you recommend fixing
+3. **Present findings to user and ask what they want to do** (fix now, fix later, or proceed as-is)
+4. Address issues based on user decision
+
+---
+
+## Phase 7: Summary
+
+**Goal**: Document what was accomplished
+
+**Actions**:
+1. Mark all todos complete
+2. Summarize:
+   - What was built
+   - Key decisions made
+   - Files modified
+   - Suggested next steps
+
+---
+
+---
+
+<task-notification>
+<task-id>a8f861f35944708ca</task-id>
+<tool-use-id>toolu_01VRXaDgsUnFRvwwCjRjcuvP</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/f4c959a6-9fa8-404f-8b47-dc714f5668f9/tasks/a8f861f35944708ca.output</output-file>
+<status>completed</status>
+<summary>Agent "Review VS workflow commit" completed</summary>
+<result>Now I have all the information needed to produce a complete and accurate review. Let me compile the findings.
+
+---
+
+## Code Review: Commit 3275418 — `[VS] Verify Stack` Workflow
+
+Reviewing all files in `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/` plus the supporting knowledge file, compared against the `create-skill` and `refine-architecture` workflow patterns.
+
+---
+
+## Critical Issues
+
+### 1. CONDITIONALLY FEASIBLE verdict logic has an unreachable condition branch (confidence: 90)
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-05-synthesize.md`, lines 65–71
+
+The CONDITIONALLY FEASIBLE decision table lists:
+
+```
+- Requirements have any **Not Addressed** items
+- Requirements have any **Partially Fulfilled** items (but none Not Addressed)
+```
+
+The parenthetical `(but none Not Addressed)` on the Partially Fulfilled line is logically inconsistent within a flat `ANY of the following apply` list. A list using `ANY` already implies conditions are checked independently. The parenthetical creates a silent sub-ordering that is never enforced: if both `Not Addressed` and `Partially Fulfilled` exist simultaneously, the `Partially Fulfilled` bullet's restriction "but none Not Addressed" would exclude it — but the `Not Addressed` bullet above it already triggers CONDITIONALLY FEASIBLE regardless. The parenthetical is inert but misleading: it suggests the evaluator should skip the `Partially Fulfilled` bullet when `Not Addressed` items exist, which is meaningless since the condition is already satisfied and first-match behavior was only defined for the top-level NOT FEASIBLE / CONDITIONALLY FEASIBLE / FEASIBLE ordering, not within the CONDITIONALLY FEASIBLE sub-bullets. This is a clarity bug — an LLM agent reading this strictly could either double-count or incorrectly exclude a finding.
+
+**Fix:** Remove the parenthetical. The line should read simply: `- Requirements have any **Partially Fulfilled** items`
+
+---
+
+### 2. Step-03 early-halt guard always falls through to the "Proceeding..." message even after an X-halt (confidence: 88)
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-03-integrations.md`, lines 163–165
+
+Section 7 reads as one continuous prose block:
+
+> "**Early halt guard:** … If X: halt with `{message}`. If C: continue."
+> 
+> "**Proceeding to requirements verification...**"
+>
+> Load, read the full file and then execute `{nextStepFile}`.
+
+The unconditional `"Proceeding to requirements verification..."` message and the `Load…execute` instruction are written after the early-halt guard without any conditional wrapper. An LLM agent following the text literally could print the proceed message and load the next step even in the X (halt) path, because the halt instruction inside the guard clause uses an inline "halt with:" message, which may not fully suppress the subsequent unconditional lines. Every other auto-proceed instruction in the workflow (e.g., step-02 section 7, step-04 section 6) is correctly structured with `{IF condition}` blocks gating the proceed message. Here no such gating exists.
+
+Compare to step-02 section 7, which properly wraps both the proceed message and the `Load…execute` call inside `{IF coverage_percentage is NOT 0%}`.
+
+**Fix:** Wrap the "Proceeding..." message and `Load…execute` instruction inside `{IF C:}` or `{IF NOT halted:}`, so it is skipped when the X path fires.
+
+---
+
+## Important Issues
+
+### 3. `workflow.md` initialization does not resolve `document_output_language` (confidence: 85)
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/workflow.md`, lines 54–57
+
+The config resolution block resolves only:
+
+```
+project_name, user_name, communication_language, skills_output_folder, forge_data_folder
+```
+
+Every other workflow that produces a written output document also resolves `document_output_language` from `config.yaml` — including `create-skill`, `create-stack-skill`, `quick-skill`, `refine-architecture`, `export-skill`, `audit-skill`, `brief-skill`, `update-skill`, `analyze-source`, `setup-forge`, and `test-skill`. The feasibility report is a written document (`feasibility-report-{project_name}.md`). Without `document_output_language`, any agent using the config to determine the language to write the report in will have no value available.
+
+`refine-architecture` is the closest sibling workflow (also produces an analysis document, not a skill) and explicitly resolves `document_output_language`.
+
+**Fix:** Add `document_output_language` to the config resolution list in `workflow.md` line 56.
+
+---
+
+### 4. Step-04 skip path updates frontmatter but the template has no `requirements_pass` initial value that matches what step-04 would find (confidence: 82)
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/data/feasibility-report-template.md`, line 18; `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-04-requirements.md`, lines 67 and 135
+
+The template initializes `requirements_pass: ''` (empty string). Step-04 sets it to `"skipped"` or `"completed"`. Step-06 reads it to decide whether to show the requirements section in the detailed findings. Step-06 line 111 checks `{IF requirements pass completed:}` — this is a string match against `"completed"`. If the field starts as `''` and step-04 is skipped for any reason other than a normal `prd_available: false` path (e.g., a crash between steps), step-06 would silently omit the requirements section with no indication of why. The template default of `''` is fine, but step-06's condition guard is a brittle string-match with no fallback for the empty-string case.
+
+More concretely: step-06 also reads `requirements_fulfilled`, `requirements_partial`, `requirements_not_addressed` from frontmatter and shows them as `N/A — no PRD`. The template initializes all three to `0`, not `null` or `"N/A"`. An agent reading `0` for those metrics when the pass was skipped would show `0` in the summary table rather than `N/A`, contradicting the intended display logic in step-06 line 77 which shows `{fulfilled_count or 'N/A — no PRD'}`.
+
+**Fix:** In the template, either initialize `requirements_fulfilled`, `requirements_partial`, `requirements_not_addressed` to `null` (to trigger the `or 'N/A'` fallback correctly), or document clearly that `0` means "skipped" when `requirements_pass` is `"skipped"`. Step-06 display logic at lines 77–79 should be changed to check `requirements_pass` rather than relying on falsy coercion of `0`.
+
+---
+
+### 5. Step-05 verdict for FEASIBLE uses incorrect rationale text when requirements were skipped (confidence: 83)
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-05-synthesize.md`, line 74–75
+
+The FEASIBLE condition includes the clause `requirements are all Fulfilled (or requirements pass was skipped)`. The rationale for FEASIBLE on the following line reads: `the stack can support the architecture as described — all requirements fully fulfilled`. When the requirements pass was skipped (no PRD provided), this rationale is factually wrong — requirements were not fully fulfilled; they were not checked at all. An LLM agent following the decision logic would write "all requirements fully fulfilled" into the report for a run with no PRD, which is misleading to the user.
+
+**Fix:** The rationale should branch: when `requirements_pass` is `"skipped"`, the rationale should read something like "the stack can support the architecture as described — requirements pass was skipped (no PRD provided)".
+
+---
+
+### 6. Step-06 presents delta section even when `previous_report` state may not have been preserved through all steps (confidence: 80)
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-06-report.md`, lines 81–87
+
+Step-06 displays the delta section by checking `{IF delta from previous run exists:}`. The delta is computed in step-05, section 3, which reads `previous_report` from the current report's frontmatter. However, the delta data itself (improved/regressed/new/unchanged counts and specific items) is only described as being written to the Synthesis section of `{outputFile}`. Step-06 reads those values back from the report. But step-05 section 4 shows the Synthesis section assembly includes "Delta from previous run (if applicable)" as narrative content, not as structured frontmatter fields. Step-06 reads `{count}` for improved/regressed/new/unchanged — these are template placeholders, not named frontmatter keys.
+
+There are no frontmatter fields defined in the template for delta values (`delta_improved`, `delta_regressed`, `delta_new`, `delta_unchanged` are absent from `feasibility-report-template.md`). Step-06 would need to parse the Synthesis section prose to extract these counts, which is fragile. The consistency between step-05 (writes delta into narrative prose) and step-06 (reads delta as structured counts) is broken.
+
+**Fix:** Either add `delta_improved`, `delta_regressed`, `delta_new`, `delta_unchanged` frontmatter fields to the template and have step-05 populate them, or change step-06 to reference the delta as a section of prose rather than reading discrete count variables.
+
+---
+
+## Minor Issues
+
+### 7. Step-01 refers to "SS Stack Skill" as a skill generation tool in the minimum-skill error message (confidence: 80)
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-01-init.md`, line 105
+
+The halt message for fewer than 2 skills reads: `Generate more skills with [CS] Create Skill, [QS] Quick Skill, or [SS] Stack Skill`. Stack Skill (`[SS]`) in compose-mode synthesizes an integration playbook _from existing skills_ — it does not generate new individual skills from library source code. Pointing users at `[SS]` as a way to fix a "not enough skills" error is incorrect and could cause confusion. `[SS]` requires individual skills to already exist. The knowledge file `architecture-verification.md` explicitly lists `(CS|QS)×N → VS` as the correct pipeline order.
+
+**Fix:** Remove `[SS] Stack Skill` from the error message. The correct tools to generate new skills are `[CS]` and `[QS]`.
+
+---
+
+### 8. The FEASIBLE verdict's `Suggested next workflow` in step-05 redundantly describes `[SS]` compose-mode behavior (confidence: 80)
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-05-synthesize.md`, line 144
+
+The suggested next workflow for FEASIBLE says: `"[SS] Create Stack Skill — compose-mode activates automatically when SS detects existing individual skills without a codebase; provide the refined architecture doc as the architecture document when prompted"`. This is implementation detail about another workflow's internal detection logic, which could become stale if `[SS]` changes. The equivalent text in step-06 (line 132) repeats it verbatim. Knowledge about `[SS]` compose-mode behavior should live in that workflow, not duplicated in `[VS]` output text.
+
+This is a maintainability concern rather than a functional bug, but it appears in the synthesized report text that will be surfaced to users.
+
+---
+
+### Summary Table
+
+| # | Severity | File | Lines | Issue |
+|---|----------|------|-------|-------|
+| 1 | Critical | `step-05-synthesize.md` | 70 | Inert/misleading parenthetical in CONDITIONALLY FEASIBLE logic |
+| 2 | Critical | `step-03-integrations.md` | 163–167 | Early-halt guard falls through to proceed message unconditionally |
+| 3 | Important | `workflow.md` | 56 | `document_output_language` not resolved from config |
+| 4 | Important | `feasibility-report-template.md` / `step-04-requirements.md` / `step-06-report.md` | 18, 67/135, 77–79 | `requirements_*` counter fields initialized to `0` instead of null; step-06 display guard relies on falsy coercion |
+| 5 | Important | `step-05-synthesize.md` | 74–75 | FEASIBLE rationale claims "all requirements fully fulfilled" when requirements pass was skipped |
+| 6 | Important | `step-06-report.md` / `feasibility-report-template.md` | 81–87 / (absent) | Delta display reads structured count variables that are never written to frontmatter |
+| 7 | Minor | `step-01-init.md` | 105 | `[SS] Stack Skill` incorrectly listed as a skill-generation tool |
+| 8 | Minor | `step-05-synthesize.md` / `step-06-report.md` | 144 / 132 | `[SS]` compose-mode implementation details duplicated in VS output text |</result>
+<usage><total_tokens>45682</total_tokens><tool_uses>37</tool_uses><duration_ms>212250</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a03cc830c3c566406</task-id>
+<tool-use-id>toolu_018JnESowtQ1LoVZuPGUAPPK</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/f4c959a6-9fa8-404f-8b47-dc714f5668f9/tasks/a03cc830c3c566406.output</output-file>
+<status>completed</status>
+<summary>Agent "Review quality fixes and docs commits" completed</summary>
+<result>I now have a comprehensive view of the codebase. Let me compile my findings.
+
+---
+
+## Review of Commits 16996cc, b050584, and Legacy File Deletions
+
+Reviewing against: `/home/armel/Projects/OSS/bmad-module-skill-forge`
+
+---
+
+### Area 1: Legacy File Deletions (validation-report.md, workflow-plan-*.md)
+
+**Result: Clean.**
+
+A global search for `validation-report` and `workflow-plan` across the entire repository returns zero matches. No dangling references remain anywhere in source, tests, or documentation.
+
+---
+
+### Area 2: Commit b050584 — "resolve 18 review findings"
+
+#### VS Workflow Fixes
+
+**VS step-03-integrations.md exports structure**
+The fix describes correcting the `exports` field reference to include both the export names array and the separate `stats.exports_documented` count. The current file at line 92-93 reads both fields explicitly:
+```
+- `exports` — export names array
+- `stats.exports_documented` — export count
+```
+This is correctly differentiated and matches the actual metadata.json schema (which has a top-level `exports` array of names and a `stats.exports_documented` numeric count). The fix is present and accurate.
+
+**VS step-01-init auto-probe timing**
+Step-01-init is for VS (verify-stack). VS does not perform an auto-probe — that is RA's feature. The VS step-01-init asks the user for a previous report path, not a VS report. The auto-probe that the commit claims to fix is in the RA workflow (step-01-init section 3b). Examining VS step-01-init confirms it does not do auto-probing at all, which is correct: VS creates its own fresh report, it does not need to find one. The RA step-01-init at section 3b does contain the auto-probe, correctly guarded by a check that `forge_data_folder` is validated first (so the probe only runs after the directory is confirmed to exist). The ordering fix claim is verified.
+
+#### SS Compose-Mode Fixes
+
+**skill_name vs skill_dir binding**
+Step-02-detect-manifests.md line 68 correctly stores `skill_dir` as the subdirectory name (distinct from `name` in metadata). Step-04-parallel-extract.md line 59 correctly references `{skill_dir}` in the path: `{skills_output_folder}/{skill_dir}/SKILL.md`. This is consistent. The fix is present.
+
+**Zero-integration guard in step-06-compile-stack.md**
+Step-06-compile-stack.md section 3 (line 83) correctly contains:
+> "Zero-integration guard: If the integration graph from step 05 has zero edges... skip the integration layer compilation and note..."
+
+In compose-mode the guard adds a note about ordering by skill confidence tier. This is present and functional.
+
+**Confidence tier matrix in compose-mode-rules.md**
+The Confidence Tier Inheritance section in compose-mode-rules.md covers: T1+T1, T1+T1-low, T1-low+T2, T1-low+T1-low+T2, and T2+T2 cases. Step-05-detect-integrations.md line 79 explicitly references loading the "full Confidence Tier Inheritance matrix" from `{composeModeRules}`. This cross-reference is intact and correctly scoped.
+
+#### RA Workflow Fixes
+
+**State paths**
+All three analysis steps (02, 03, 04) correctly write to `{forge_data_folder}/ra-state-{project_name}.md` and explicitly forbid writing to `{output_folder}/refined-architecture-{project_name}.md`. Step-05-compile.md correctly reads from `{forge_data_folder}/ra-state-{project_name}.md` for context recovery. The path is consistent across all steps.
+
+**Skills Used row**
+Step-05-compile.md line 134 defines `| Skills Used as Evidence | {skill_count} | — |` in the Changes Made table. Step-06-report.md line 72 reads `| **Skills Used as Evidence** | {skill_count} |` and line 59 explicitly lists `skill_count` in the parsing instruction from the Refinement Summary section. The label is consistent between the writer (step-05) and reader (step-06).
+
+**Recovery instructions in step-05-compile.md**
+The context recovery HALT message at line 55 correctly instructs to re-run from "step 02" (not step 01), noting that step 01 resets the state file. This is accurate.
+
+#### Documentation Fixes
+
+**Mermaid rendering in docs/workflows.md**
+The two Mermaid diagrams at lines 196-214 (standard path) and 218-225 (pre-code verification path) use valid `flowchart TD` syntax with properly escaped node labels. No bare colons or unquoted characters that would cause rendering failures. The fix is present.
+
+**Taxonomy alignment in docs/workflows.md**
+The Workflow Categories table at line 232 lists "Feature" as containing `QS, SS, AN, AS, TS`. The Workflow Index table at line 11 lists SS under "Feature Workflows" section. The docs/agents.md menu shows SS under "CREATE" and VS/RA under "VERIFY". These categories are consistent.
+
+---
+
+### Area 3: Commit 16996cc — Quality and Documentation Fixes
+
+#### Documentation Accuracy
+
+**docs/how-it-works.md — Knowledge Base count**
+Line 43 states `12 reusable fragments + overview.md index`. The actual `src/knowledge/` directory contains: provenance-tracking.md, skill-lifecycle.md, doc-fetcher.md, qmd-registry.md, confidence-tiers.md, zero-hallucination.md, agentskills-spec.md, manual-section-integrity.md, ccc-bridge.md, overview.md, progressive-capability.md, architecture-verification.md, split-body-strategy.md. That is 13 files total: 12 content fragments + overview.md. The count is correct.
+
+**test-knowledge-base.js line 91 fragment count**
+The test asserts `records.length === 13`. The CSV at `src/knowledge/skf-knowledge-index.csv` has 13 data rows (lines 2-14, confirmed by reading). The assertion matches reality.
+
+**docs/how-it-works.md — Module Structure tree**
+Line 423 states `*.md (12 knowledge fragments + overview.md index)`. This matches the actual file count of 12 non-overview fragments plus overview.md. Correct.
+
+**docs/workflows.md — Workflow count**
+The header at line 2 says `description: All 12 SKF workflows`. The Workflow Categories table at line 232 lists a row for "In-Agent" containing `WS, KI` — these are noted as "in-agent, no file-based workflow". The 12 file-based workflows are correctly enumerated. Consistent.
+
+**src/workflows/README.md CS step count discrepancy**
+
+This is a finding. The README at line 116 states:
+> **create-skill:** 8 primary steps (11 step files including sub-steps)
+
+But `test-installation-components.js` at line 218 lists exactly 11 step files for create-skill (`step-01` through `step-08` plus `step-02b`, `step-03b`, `step-03c`). The "8 primary" framing refers to numbered steps where some have lettered sub-steps. This is internally consistent but relies on a distinction (primary vs. total) that is not defined anywhere in the README. The count of "11 step files" matches the test, so the test will pass. This is an informational inconsistency in documentation, not a defect.
+
+#### Test Coverage
+
+**No test coverage for VS and RA workflow step chains**
+
+This is a real finding. The `test-installation-components.js` at lines 183-332 validates step-file chains for all 12 workflows. Both `verify-stack` (lines 299-309) and `refine-architecture` (lines 310-319) are included — `verify-stack` checks for 6 steps and 3 data files, `refine-architecture` checks for 6 steps and 1 data file.
+
+**No behavioral or integration tests for VS or RA workflows**
+
+The test suite (`test-knowledge-base.js`, `test-installation-components.js`, `test-cli-integration.js`, `test-agent-schema.js`) covers: schema validation, installation component presence, knowledge base integrity, and CLI integration. None of the tests exercise VS or RA workflow logic or step sequencing beyond file existence. This was true before these commits and remains true after them. Both VS and RA are the most recently added workflows. The README at `/home/armel/Projects/OSS/bmad-module-skill-forge/test/README.md` makes no mention of VS or RA in its description of what is covered.
+
+---
+
+## Findings Summary
+
+### Critical
+
+None.
+
+### Important
+
+**Finding 1 — Test coverage gap for VS and RA behavioral logic**
+Confidence: 80
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/test/README.md`, `/home/armel/Projects/OSS/bmad-module-skill-forge/test/test-installation-components.js`
+
+The test suite covers VS and RA only through file-existence checks (step files and data files are present). No tests validate the multi-step state flow that these workflows depend on — specifically: the `ra-state-{project_name}.md` durability mechanism (step-01 resets it, steps 02-04 append to it, step-05 reads it back), the VS feasibility report frontmatter field names used across 6 steps, and the compose-mode confidence tier inheritance logic. These are exactly the areas the b050584 fixes touched. Given that these fixes were reactive (resolving 18 prior review findings), the absence of regression tests means the same categories of issue could re-emerge undetected.
+
+Suggested addition: a `test-workflow-state.js` test that validates the RA state file comment block format, the VS frontmatter field set, and the compose-mode inheritance tier labels — all as string-pattern tests against the actual step files, similar to how `test-knowledge-base.js` validates cross-fragment links.
+
+**Finding 2 — VS step-03 `exports` field is documented as two separate fields but metadata.json schema has `exports` as names-array only**
+Confidence: 82
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/verify-stack/steps-c/step-03-integrations.md`, lines 92-93
+
+Step-03-integrations.md instructs the agent to load two separate fields from metadata.json:
+```
+- `exports` — export names array
+- `stats.exports_documented` — export count
+```
+
+Step-01-init.md (VS) at line 92 instructs loading `exports_documented` with the note "read from `stats.exports_documented` in metadata.json". The RA step-01-init.md at line 84 does the same. However, in the actual metadata.json schema shown in how-it-works.md (line 250), `exports` is defined as an empty array `[]` at the top level and `exports_documented` lives under `stats`. The VS step-03 instruction is technically accurate, but the `exports` field for a stack skill in step-07-generate-output.md (line 127) is written as `"exports": []` — an empty array even when libraries have exports. This creates a situation where step-03 will find a top-level `exports: []` (empty) in any stack skill's metadata.json, and must fall back to reading SKILL.md for actual export content. The instruction in step-03 to read "`exports` — export names array" from metadata.json is only useful for individual skills (where this array is populated), not stack skills. Since VS operates on individual skills to verify integrations, this is correct in practice. However, it is a latent confusion point: the instruction does not state it applies only to individual skills.
+
+No code is broken by this, but the documentation is incomplete and could cause an agent to incorrectly interpret a stack skill's metadata.json as having no exports.
+
+### Minor
+
+**Finding 3 — test/README.md does not describe VS, RA, or compose-mode in test scope**
+Confidence: 80
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/test/README.md`
+
+The README describes only the agent schema validation suite. The test suite now includes `test-installation-components.js` (which covers all 12 workflows including VS and RA) and `test-knowledge-base.js` (which covers the 13-fragment knowledge base including `architecture-verification.md`). The README is not updated to reflect this scope, which means a new contributor reading the README will not know these tests exist or what they cover.
+
+**Finding 4 — docs/workflows.md Workflow Categories table inconsistency: "Feature" category description excludes VS/RA**
+Confidence: 80
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/workflows.md`, line 237
+
+The table at the bottom of the page lists:
+```
+| Feature | QS, SS, AN, AS, TS | Quick skill, stack skill, analyze, audit, and test |
+```
+
+`AS` (Audit Skill) is placed in "Feature" in this table, but the page body places Audit Skill under "Feature Workflows" section (line 120). Meanwhile VS and RA are in a separate "Architecture Verification Workflows" section on the page (line 146). The table at line 237 does show `VS, RA` in their own "Architecture Verification" row. This is internally consistent within the table. However, `AS` (Audit Skill) appears in the "Feature" category of the table but VS/RA appear in their own dedicated category. An "Audit" category would be more accurate given that AS, TS, and VS are all in Audit mode per the agent definition. This is a taxonomy judgment call, not a defect, but it differs from the agent.md classification (`Audit` mode = `AS, TS, VS`).</result>
+<usage><total_tokens>133791</total_tokens><tool_uses>67</tool_uses><duration_ms>323465</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a7b0a76665145750e</task-id>
+<tool-use-id>toolu_01VDum3M3NeunopsqtTEbcXQ</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/f4c959a6-9fa8-404f-8b47-dc714f5668f9/tasks/a7b0a76665145750e.output</output-file>
+<status>completed</status>
+<summary>Agent "Review compose-mode and RA commits" completed</summary>
+<result>Now I have a complete picture. Let me compile the final review report.
+
+---
+
+## Code Review: Commits 76d5890 and 153b451
+
+Reviewing all files in `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-stack-skill/` and `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/`.
+
+---
+
+## Create Stack Skill (compose-mode) — Findings
+
+### Critical
+
+**[CSS-1] Confidence tier matrix in step-05 references cases not present in compose-mode-rules.md**
+Confidence: 92
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-stack-skill/steps-c/step-05-detect-integrations.md` line 79
+
+Step-05 instructs: "Load and apply the full Confidence Tier Inheritance matrix from `{composeModeRules}` to compute the correct tier for each pair (covers T1+T1, T1+T1-low, T1-low+T2, T1-low+T1-low+T2, T2+T2 cases)."
+
+The actual matrix in `compose-mode-rules.md` (lines 29–35) covers:
+- T1+T1 → T1
+- T1-low in either → T1-low (handles T1+T1-low and T1-low+T1-low)
+- T2 in either → inherit lower of T1/T1-low from pair (handles T1+T2 and T1-low+T2)
+- T2+T2 → T1-low [composed, +T2 annotations from both]
+
+Two problems: First, the composite case `T1-low+T1-low+T2` listed in step-05 (a three-skill compound case) does not exist in the compose-mode-rules.md matrix at all. Since integrations are always pairwise, it is not clear what this case means; applying the existing rules would produce T1-low (the T1-low bullet handles it), but the agent is told to look up a matrix entry that doesn't exist, creating confusion. Second, the `T1+T2` case is handled implicitly by line 32 of compose-mode-rules.md but yields `T1 [composed, +T2 annotations]` — a label form that is not in the examples at line 35, so agents will not know how to format the output label for that case.
+
+Fix: Either add an explicit `T1+T2` row to the matrix in compose-mode-rules.md and remove the ambiguous `T1-low+T1-low+T2` compound case from step-05's parenthetical (it is already covered by the T1-low bullet), or expand compose-mode-rules.md to cover all enumerated cases. The step-05 parenthetical should enumerate only the cases that have explicit rows.
+
+---
+
+**[CSS-2] context-snippet.md root path: step-07 generates an absolute path, template and step-08 validate a relative path**
+Confidence: 88
+
+Files:
+- Step-07: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-stack-skill/steps-c/step-07-generate-output.md` line 105
+- Template: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-stack-skill/data/stack-skill-template.md` line 57
+- Step-08: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-stack-skill/steps-c/step-08-validate.md` line 143
+
+Step-07 writes:
+```
+[{project_name}-stack v{version}]|root: {skills_output_folder}/{project_name}-stack/
+```
+
+The template and step-08 validation both expect:
+```
+[{project}-stack v{version}]|root: skills/{project}-stack/
+```
+
+The `root:` field is supposed to be a relative path for portability (consistent with the Vercel-aligned format), but step-07 instructs writing the full expanded `{skills_output_folder}` value, which would be an absolute path in practice. Step-08 then validates the wrong pattern and will produce spurious `WARNING` findings for every generated skill. On top of that, `{project}` vs `{project_name}` is an inconsistency between the template variable name and the workflow state variable name — they refer to the same thing, but could confuse an implementing agent.
+
+Fix: Align step-07 line 105 to use `skills/{project_name}-stack/` (the relative form matching the template and the step-08 check), or if an absolute path is intentional, update the template and step-08 check to match step-07.
+
+---
+
+### Important
+
+**[CSS-3] compose-mode zero-integration ordering instruction in step-06 is logically inconsistent**
+Confidence: 82
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-stack-skill/steps-c/step-06-compile-stack.md` line 83
+
+When the zero-integration guard fires, the instruction reads: "In compose-mode, order libraries by skill confidence tier only (since integration connectivity is zero for all)." This instruction fires only inside the integration graph zero-edges branch. However, the ordering instruction for the Per-Library Sections at line 103 says: "in compose-mode, order by integration connectivity, then skill confidence tier." When integration_count is zero, integration connectivity is zero for every library — so these two orderings collapse to the same thing (sort by confidence tier). But the guard at line 83 is inside the integration layer section and appears to be instructing ordering for the per-library sections, creating instruction in the wrong place. An agent could reasonably interpret it as a second ordering rule contradicting line 103.
+
+Fix: Remove the ordering note from the zero-integration guard at line 83. The per-library ordering is already handled at line 103 and degrades correctly to confidence-tier ordering when connectivity is zero for all libraries.
+
+---
+
+**[CSS-4] step-02 halts with `[SS]` shortcode for a workflow named `create-stack-skill`**
+Confidence: 80
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-stack-skill/steps-c/step-02-detect-manifests.md` line 65
+
+The zero-skill halt message says: "re-run [SS] Create Skill or [QS] Quick Skill". But the shortcode `[SS]` appears to refer to `create-stack-skill` (the workflow being executed), not `create-skill`. Looking at step-09-report.md line 113, `[SS]` consistently refers to `create-stack-skill`, and "Create Skill" has shortcode `[CS]`. The halt message should read `[CS]` not `[SS]`, otherwise it instructs the user to re-run the current workflow recursively instead of going to create-skill.
+
+This exact text is: `"Run [CS] Create Skill or [QS] Quick Skill to generate individual skills first, then re-run [SS]."` — the `[SS]` at the end of that sentence is correct (re-run the stack skill workflow), but `[CS]` at the start is wrong (it currently says `[SS]` there too).
+
+Fix at line 65: Change `"No individual skills found ... Run [CS] Create Skill or [QS] Quick Skill"` — the `[SS]` before `Create Skill` should be `[CS]`.
+
+Actually, re-reading the exact text at line 65: "Run [CS] Create Skill or [QS] Quick Skill to generate individual skills first, then re-run [SS]." — that reads as already correct in this phrasing. Let me recheck the actual text:
+
+The line reads: `"**Cannot proceed in compose-mode.** No individual skills found in \`{skills_output_folder}\` (after filtering stack skills). Run [CS] Create Skill or [QS] Quick Skill to generate individual skills first, then re-run [SS]."` — this is consistent: `[CS]` to create individual skills, `[SS]` to re-run the stack skill. This is fine. Withdraw this finding.
+
+---
+
+**[CSS-5] step-03 compose-mode branch references `{skill_name}` but the stored state variable is `name` from metadata.json**
+Confidence: 82
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-stack-skill/steps-c/step-03-rank-and-confirm.md` line 71
+
+In the compose-mode display table at line 71, the column uses `{skill_name}` as the row template variable. However, per step-02 line 68-70, the fields stored in `raw_dependencies` are `name`, `language`, `confidence_tier`, etc. There is no `skill_name` variable defined anywhere in the compose-mode flow — it is `name` from metadata.json (and separately `skill_dir` for the directory). The table should use `{name}` (or make explicit that `skill_name` is an alias for `name`). While an LLM executing this workflow would likely resolve this correctly, the inconsistency creates ambiguity about whether to use the metadata `name` or the directory `skill_dir` when rendering the table.
+
+Fix: Change `{skill_name}` at step-03 line 71 to `{name}` to match the field name established in step-02.
+
+---
+
+## Refine Architecture Workflow — Findings
+
+### Critical
+
+**[RA-1] Undefined `{pass}` variable in step-05 HALT message**
+Confidence: 95
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/steps-c/step-05-compile.md` line 55
+
+The context recovery HALT message reads: `"⚠️ Context for {pass} was lost and the durability state is insufficient to reconstruct findings."` The token `{pass}` is never defined anywhere in the RA workflow — it does not appear in any frontmatter, in any prior step's state, or in workflow.md. The intended meaning is the pass name (Gaps/Issues/Improvements), which would need to be substituted dynamically based on which comment block was missing. As written, the message will literally display `{pass}` as text, or cause a substitution failure depending on the agent's template engine.
+
+Fix: Replace `{pass}` with a dynamic reference to the missing section, e.g. `"Context for [gap|issue|improvement] analysis was lost..."` or instruct the agent to name the specific pass: `"Context for the {missing_pass_name} pass was lost, where {missing_pass_name} is whichever of Gaps/Issues/Improvements was unrecoverable."` Alternatively, make the message generic: `"⚠️ Context for one or more analysis passes was lost..."`.
+
+---
+
+**[RA-2] step-05 HALT recovery message contradicts itself: says "Re-run from step 02" then parenthetically says "step 01 resets the state file"**
+Confidence: 88
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/steps-c/step-05-compile.md` line 55
+
+The HALT reads: `"Re-run [RA] from **step 02** to rebuild findings (step 01 resets the state file, so the full workflow must re-execute from the analysis phase)."` 
+
+The parenthetical says the full workflow must re-execute from the analysis phase, but the main instruction says to re-run from step 02, skipping step 01. Step 01 is the step that creates `ra-state-{project_name}.md` (see step-01-init.md line 129). If step 01 is skipped, the state file from the previous (failed) run is not reset, so stale data from the previous run persists in the state file and could contaminate the recovered run. This is self-contradictory: the parenthetical correctly identifies that step 01 must run to reset the state, yet the main instruction tells the user to skip step 01.
+
+Fix: Change the instruction to "Re-run [RA] from **step 01**" to ensure the state file is reset before the analysis passes execute. Remove the contradictory parenthetical, or rewrite it to simply explain why step 01 must be included.
+
+---
+
+### Important
+
+**[RA-3] step-06 instructs "Re-run [RA] from step 05" — but step-file architecture has no step re-entry mechanism**
+Confidence: 85
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/steps-c/step-06-report.md` line 57
+
+The HALT reads: `"⚠️ Refinement Summary not found ... Re-run [RA] from step 05."` The workflow's Critical Rules explicitly state sequential enforcement with no skipping — steps must be loaded and executed in order from the beginning. There is no defined entry-point mechanism to start at an arbitrary step. The user cannot "re-run from step 05" without either re-running the entire workflow or manually orchestrating step-file loading. This instruction will confuse users and may lead agents to attempt an undefined shortcut.
+
+Fix: Change to "Re-run [RA] from the beginning. Step 05 (compile) may not have completed successfully." This is consistent with how other step-file workflows handle fatal errors.
+
+---
+
+**[RA-4] `{forge_data_folder}` is treated as both a pre-existing and to-be-created directory in step-01**
+Confidence: 80
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/steps-c/step-01-init.md` lines 107–112
+
+The RA workflow's step-01 context boundary at line 47 explicitly states: "No dependency on setup-forge or forge-tier — this workflow operates on skill content only." Yet lines 109 and 111 tell the agent to HALT with instructions to "Re-run [SF] Setup Forge to initialize" if `forge_data_folder` is not configured or the directory cannot be created. This creates a hard dependency on the Setup Forge workflow that contradicts the stated context boundary. A user who has never run Setup Forge but has manually created skills and an architecture document cannot use RA because the forge_data_folder validation will block them with a Setup Forge instruction that is architecturally incompatible with the stated independence.
+
+Fix: Either remove the explicit Setup Forge reference from the error message (replacing it with "create the directory manually at `{forge_data_folder}`"), or update the Context Boundaries to acknowledge that `forge_data_folder` from config.yaml is a soft dependency.
+
+---
+
+### Minor
+
+**[RA-5] Improvement value categorization terminology is inconsistent between step-04 and step-05/step-06**
+Confidence: 80
+
+Files:
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/steps-c/step-04-improvements.md` lines 116–119
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/steps-c/step-05-compile.md` lines 118, 133
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/steps-c/step-06-report.md` lines 59, 71
+
+Step-04 categorizes improvements as "High Value", "Medium Value", and "Low Value" (with the word "Value" in the label). Step-05's improvement callout block template at line 109 uses `({value} value)` as the displayed label (lowercase `{value}` is a substituted category name). Step-05's Refinement Summary table at line 133 uses `{high_count}`, `{medium_count}`, `{low_count}` as variable names. Step-06 line 71 uses these same variable names.
+
+The issue is that when an agent in step-04 classifies improvements as "High Value" / "Medium Value" / "Low Value", the value category string includes the word "Value". But step-05 line 109 would render this as "High Value value" (redundant). An agent generating the summary table needs to strip "Value" from the category to populate `{high_count}` correctly, but this normalization is not documented. If the agent counts "High Value" improvements as high-value improvements, the count itself is correct — but the display rendering at step-05 line 109 will be slightly odd.
+
+Fix: Standardize the category labels to simply "High", "Medium", "Low" in step-04 (lines 116–119), or update step-05 line 109 to `({value})` without "value" suffix.
+
+---
+
+**[RA-6] `{date}` token in step-01 ra-state file header is informal and not linked to any defined variable**
+Confidence: 80
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/refine-architecture/steps-c/step-01-init.md` line 132
+
+The state file header template uses `{date}` but this variable is not bound anywhere in the workflow state — the workflow initializes `project_name`, `skills_output_folder`, `forge_data_folder`, `output_folder`, etc., but never sets `{date}`. The likely intent is the current system date. While an LLM agent will correctly infer this, it is inconsistent with the workflow's stated anti-pattern of hardcoded values (the success metrics list this as a SYSTEM FAILURE). Other places in the codebase use `{current_date}` (e.g., step-07 metadata.json in create-stack-skill).
+
+Fix: Change `{date}` to `{current_date}` for consistency with the broader codebase convention, or add `current_date` to the resolved variables list in workflow.md.
+
+---
+
+## Summary Table
+
+| ID | Severity | Workflow | File | Line | Issue |
+|----|----------|----------|------|------|-------|
+| CSS-1 | Critical | create-stack-skill | step-05-detect-integrations.md | 79 | Confidence tier matrix enumeration references `T1-low+T1-low+T2` case not in compose-mode-rules.md; `T1+T2` label form undocumented |
+| CSS-2 | Critical | create-stack-skill | step-07-generate-output.md | 105 | context-snippet root path uses absolute `{skills_output_folder}` but template/step-08 validate relative `skills/` path |
+| CSS-3 | Important | create-stack-skill | step-06-compile-stack.md | 83 | Zero-integration guard places ordering instruction in the wrong section, creating apparent contradiction with line 103 |
+| CSS-5 | Important | create-stack-skill | step-03-rank-and-confirm.md | 71 | `{skill_name}` table variable undefined in compose-mode; should be `{name}` per step-02 state |
+| RA-1 | Critical | refine-architecture | step-05-compile.md | 55 | `{pass}` token in HALT message is undefined; will render as literal text |
+| RA-2 | Critical | refine-architecture | step-05-compile.md | 55 | HALT recovery instruction ("Re-run from step 02") contradicts parenthetical ("step 01 resets the state file") |
+| RA-3 | Important | refine-architecture | step-06-report.md | 57 | "Re-run [RA] from step 05" is impossible in the sequential step-file architecture |
+| RA-4 | Important | refine-architecture | step-01-init.md | 107–112 | Hard dependency on Setup Forge contradicts stated "No dependency on setup-forge" context boundary |
+| RA-5 | Minor | refine-architecture | step-04-improvements.md / step-05-compile.md | 116–119 / 109 | "High Value" category label produces "High Value value" display rendering |
+| RA-6 | Minor | refine-architecture | step-01-init.md | 132 | `{date}` token not defined in workflow state; should be `{current_date}` per codebase convention |</result>
+<usage><total_tokens>80888</total_tokens><tool_uses>97</tool_uses><duration_ms>499306</duration_ms></usage>
+</task-notification>
+
+---
+
+fix all
+
+---
+
+commit
