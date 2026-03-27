@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "00582cd0981e",
+  "session_id": "25062908-4190-4d06-9a1d-4fcab58e29f9",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-27T22:22:12.499373083Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/setup-forge/steps-c/step-01b-ccc-index.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "51a57101d751",
+  "token_usage": {
+    "input_tokens": 38,
+    "cache_creation_tokens": 32142,
+    "cache_read_tokens": 936804,
+    "output_tokens": 5727,
+    "api_call_count": 27
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-27T22:22:12.29058204Z",
+    "agent_lines": 4,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 4,
+    "agent_percentage": 100
+  }
+}
