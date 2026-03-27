@@ -1,0 +1,37 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/
+
+---
+
+[Request interrupted by user]
+
+---
+
+continue
+
+---
+
+V
+
+---
+
+do we need to update @docs/ ?
+
+---
+
+the url is not correct for the documentation. It should point to the file from the remote repo.
+
+---
+
+D
+
+---
+
+commit
