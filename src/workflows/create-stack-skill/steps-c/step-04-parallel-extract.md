@@ -27,7 +27,7 @@ For each confirmed dependency, extract key exports, usage patterns, and API surf
 
 ### Step-Specific Rules:
 
-- 🎯 Extract per-library using Pattern 4 (parallel subprocess) when available
+- 🎯 Extract per-library using Pattern 4 (parallel): In Claude Code, use multiple parallel Agent tool calls or `run_in_background: true`. In Cursor, use parallel requests (IDE-dependent). In CLI, use `xargs -P` or background processes. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md)
 - 💬 Each subprocess returns structured extraction, not raw file contents
 - 🚫 FORBIDDEN to analyze cross-library integrations — that is step 05
 - ⚙️ If parallel subprocess unavailable, extract libraries sequentially in main thread
@@ -105,14 +105,25 @@ For each library in `confirmed_dependencies`, determine extraction strategy base
 - Confidence: T1 (AST-verified structural extraction)
 
 **Deep Tier (adds to Forge):**
-- Use qmd_bridge for temporal usage evolution
-- Identify deprecated patterns and migration paths
-- Track API changes across project history
-- Confidence: T2 (QMD-enriched temporal context)
+- Perform all Forge tier extractions (T1)
+- Additionally: query existing QMD temporal collections for each library
+- Read the `qmd_collections` registry from `{sidecar_path}/forge-tier.yaml`
+- For each library in `confirmed_dependencies`, search for a registry entry where `skill_name` matches the library name AND `type` is `"temporal"`
+- **If a matching temporal collection exists:**
+  - Query `qmd_bridge.search("{library_name} deprecated OR removed OR breaking change")` for deprecation context
+  - Query `qmd_bridge.search("{library_name} migration OR upgrade")` for migration patterns
+  - Query `qmd_bridge.search("{library_name} version issue OR bug OR workaround")` for version-specific warnings
+  - **Tool resolution for qmd_bridge:** Use QMD MCP tools — `mcp__plugin_qmd-plugin_qmd__search` (Claude Code), qmd MCP server (Cursor), `qmd search "{query}"` (CLI). See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md)
+  - Classify each result as T2-past (historical) or T2-future (planned changes) per confidence-tiers.md
+  - Append temporal findings to the library's extraction as T2 annotations with `[QMD:{collection}:{doc}]` citations
+- **If no matching temporal collection found:**
+  - Log: "No temporal collection for {library_name}. T2 enrichment skipped."
+  - Continue with T1/T1-low extraction only
+- Confidence: T1 for structural (AST), T2 for temporal annotations (QMD-enriched)
 
 ### 2. Launch Parallel Extraction
 
-**Launch subprocesses in parallel** (max_parallel_generation) — one per confirmed library:
+**Launch subprocesses in parallel** (max_parallel_generation: 3–5 concurrent Agent tool calls in Claude Code, IDE-dependent in Cursor, CPU core count in CLI) — one per confirmed library:
 
 Each subprocess:
 1. Reads all files importing the library (from step 03 file lists)
@@ -129,7 +140,13 @@ Each subprocess:
   usage_patterns: ["pattern description with file:line"],
   confidence: "T1|T1-low|T2",
   files_analyzed: count,
-  warnings: []
+  warnings: [],
+  temporal: {
+    deprecated_exports: ["export_name — reason [QMD:collection:doc]"],
+    migration_notes: ["note [QMD:collection:doc]"],
+    version_warnings: ["warning [QMD:collection:doc]"],
+    t2_annotation_count: count
+  }
 }
 ```
 
@@ -161,6 +178,8 @@ For each library extraction:
 
 **Results:** {success_count}/{total_count} libraries extracted
 **Confidence distribution:** T1: {count}, T1-low: {count}, T2: {count}
+{If Deep tier:} **T2 enrichment:** {enriched_count}/{total_count} libraries had temporal collections available
+{If libraries without temporal > 0:} **Tip:** Run [CS] Create Skill at Deep tier for individual libraries to generate temporal collections, then re-run [SS] for full T2 enrichment.
 {If warnings:} **Warnings:** {warning_count} issues noted
 
 **Proceeding to integration detection...**"

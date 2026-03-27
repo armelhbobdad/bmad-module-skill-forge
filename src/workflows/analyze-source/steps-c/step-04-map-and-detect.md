@@ -33,7 +33,7 @@ To analyze each qualifying unit's export surface and import graph, detect cross-
 
 ### Step-Specific Rules:
 
-- 🎯 Use subprocess optimization (Pattern 2) — per-unit analysis for export mapping
+- 🎯 Use subprocess optimization (Pattern 2 — per-unit deep analysis): In Claude Code, use Agent tool for each unit sequentially. In CLI, use a per-unit script. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md)
 - 💬 DO NOT BE LAZY — For EACH qualifying unit, perform thorough export surface analysis
 - 🚫 FORBIDDEN to make recommendations in this step (that's step 05)
 - 📋 Tier-aware depth: Quick (file-level exports), Forge (AST export analysis), Deep (AST + semantic relationships)
@@ -82,7 +82,7 @@ DO NOT BE LAZY — For EACH qualifying unit, launch a subprocess (or analyze in 
    - **Quick tier:** Count files by type, identify index/barrel files, list directory structure
    - **Forge tier:** Parse export statements, identify public API surface, count exported functions/classes/types
    - **Forge+ tier:** All Forge analysis plus:
-     - If `tools.ccc` is true: run `ccc_bridge.search("{unit_name} exports public API", top_k=15)` to discover semantically relevant files beyond directory scan
+     - If `tools.ccc` is true: run `ccc_bridge.search("{unit_name} exports public API", top_k=15)` — **Tool resolution:** `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `ccc search` CLI; see [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md) — to discover semantically relevant files beyond directory scan
      - Merge CCC-discovered files with scoped file list — files from CCC that are within the unit's directory are added to the analysis queue
      - Record CCC signals in per-unit findings: top 3 CCC-ranked file names (or "—" if no ccc results)
    - **Deep tier:** All Forge analysis plus:

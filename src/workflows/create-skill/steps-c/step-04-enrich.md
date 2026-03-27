@@ -96,6 +96,8 @@ For each function, derive the **module context** from the extraction inventory's
 
 4. **Semantic migration context:** `qmd_bridge.vector_search("{module_context} {function_name} migration deprecated")` — adds semantic matches (synonyms, paraphrases) that BM25 keyword search may miss. Merge results with search #3, deduplicating by document ID. If `vector_search` fails (VRAM, GPU driver, model loading), discard silently — the BM25 results from search #3 provide baseline coverage.
 
+**Tool resolution for qmd_bridge:** Use QMD MCP tools — `mcp__plugin_qmd-plugin_qmd__search` for BM25 search, `mcp__plugin_qmd-plugin_qmd__vector_search` for semantic search (Claude Code). Cursor: qmd MCP server. CLI: `qmd search "{query}"` / `qmd vector_search "{query}"`. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md).
+
 **For each QMD result:**
 
 - Create a T2 annotation: `[QMD:{collection}:{doc}]`

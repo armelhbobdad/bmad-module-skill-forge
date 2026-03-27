@@ -135,4 +135,4 @@ Update the working version in context to the source version. Record the mismatch
 
 **If no version file is found or version cannot be extracted:** keep `brief.version` as-is. No warning needed.
 
-**If source is remote and accessed via Quick tier (gh_bridge, no local files):** attempt to read the version file via `gh_bridge.read_file(owner, repo, "{version_file}")` for the primary version file of the detected language. If the read fails, keep `brief.version`.
+**If source is remote and accessed via Quick tier (gh_bridge, no local files):** attempt to read the version file via `gh_bridge.read_file(owner, repo, "{version_file}")` — resolved as `gh api repos/{owner}/{repo}/contents/{version_file}` or direct file read if local (see [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md)) — for the primary version file of the detected language. If the read fails, keep `brief.version`.

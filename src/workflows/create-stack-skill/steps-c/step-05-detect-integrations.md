@@ -29,7 +29,7 @@ Analyze co-import patterns between confirmed libraries to identify integration p
 
 ### Step-Specific Rules:
 
-- 🎯 Focus on detecting cross-library patterns using Pattern 1 (grep) subprocess
+- 🎯 Focus on detecting cross-library patterns using Pattern 1 (grep/search): In Claude Code, use the Grep tool or Bash with `rg`. In Cursor, use built-in search. In CLI, use `grep`/`rg` directly. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md)
 - 🚫 FORBIDDEN to compile SKILL.md — that is step 06
 - 💬 Integration detection is the core differentiator of stack skills vs individual skills
 - ⚙️ If subprocess unavailable, perform grep operations in main thread
@@ -93,6 +93,8 @@ For each library pair (A, B):
 
 **Launch a subprocess** that greps across all source files to find files importing BOTH library A and library B. Return only file paths and import line numbers.
 
+**Subprocess resolution:** Use the Grep tool (Claude Code), built-in search (Cursor), or `grep`/`rg` (CLI). See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md).
+
 **Subprocess returns:** `{pair: [A, B], co_import_files: [{path, line_A, line_B}], count: N}`
 
 **If subprocess unavailable:** Intersect the file lists from step 03 import counts for each pair.
@@ -104,6 +106,8 @@ For each library pair (A, B):
 If `tools.ccc` is true AND `ccc_index.status` is `"fresh"` or `"stale"` in forge-tier.yaml, augment co-import detection with semantic search (max 1 query per library pair):
 
 For each library pair that has exactly 1 co-import file (below the 2-file threshold), run `ccc_bridge.search("{libA} {libB}", source_root, top_k=10)` to find files where the two libraries interact semantically — even without explicit import co-location. If CCC returns additional files where both libraries appear, add them to the pair's co-import candidate list and re-evaluate against the 2-file threshold.
+
+**Tool resolution for ccc_bridge.search:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `ccc search "{libA} {libB}" --path {source_root} --top 10` (CLI). See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md).
 
 For pairs that already qualify (2+ files), CCC is not needed for detection — but the CCC results may surface additional integration files for richer classification in section 3.
 

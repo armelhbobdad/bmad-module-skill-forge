@@ -114,7 +114,7 @@ Halt with specific error: "Brief validation failed: missing required field `{fie
 **If `source_type: "docs-only"`:** Skip source resolution. Set `source_location: null` in context. Proceed directly to section 5 (Report Initialization) — docs-only skills have no source to resolve.
 
 **If source_repo is a GitHub URL or owner/repo format:**
-- Verify repository exists via `gh_bridge.list_tree(owner, repo, branch)`
+- Verify repository exists via `gh_bridge.list_tree(owner, repo, branch)` — **Tool resolution:** `gh api repos/{owner}/{repo}/git/trees/{branch}?recursive=1` or direct file listing if local; see [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md)
 - If branch not specified, detect default branch
 - Store resolved: owner, repo, branch, file tree
 

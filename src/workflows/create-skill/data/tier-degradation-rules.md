@@ -20,7 +20,7 @@ When `source_repo` is a remote URL (GitHub URL or owner/repo format) and the tie
 - The extraction step MUST warn the user explicitly before degrading
 - **create-skill:** Warning must include actionable guidance — clone locally and update `source_repo` in the brief to the local path
 - **update-skill:** Warning must include actionable guidance — clone locally, re-run [CS] Create Skill with the local path to regenerate provenance data, then re-run the update
-- Extraction proceeds using Quick tier strategy (source reading via gh_bridge)
+- Extraction proceeds using Quick tier strategy (source reading via gh_bridge — resolved as `gh api` commands or direct file I/O; see [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md))
 - All results labeled T1-low with `[SRC:...]` citations
 - The degradation reason is recorded in the evidence report
 

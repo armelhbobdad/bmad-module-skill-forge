@@ -30,7 +30,7 @@ Count import frequency for each dependency across the codebase, rank by usage, a
 - 🎯 Focus on counting imports, ranking, and getting user confirmation
 - 🚫 FORBIDDEN to extract library documentation — that is step 04
 - 💬 Present data clearly so user can make informed scope decisions
-- 🎯 Use subprocess (Pattern 1 grep) for import counting when available
+- 🎯 Use subprocess (Pattern 1 — grep/search): In Claude Code, use the Grep tool or Bash with `rg`. In Cursor, use built-in search. In CLI, use `grep`/`rg` directly. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md)
 
 ## EXECUTION PROTOCOLS:
 
@@ -79,6 +79,8 @@ Skip to [Present MENU OPTIONS](#5-present-menu-options).
 For each dependency in `raw_dependencies`:
 
 **Launch a subprocess** that runs grep across all source files in the project to count import statements for each library. Return only the counts, not file contents.
+
+**Subprocess resolution:** Use the Grep tool (Claude Code), built-in search (Cursor), or `grep`/`rg` (CLI). See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md).
 
 Use ecosystem-appropriate import patterns:
 - JavaScript/TypeScript: `import .* from ['"]library`, `require\(['"]library`

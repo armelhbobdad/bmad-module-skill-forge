@@ -34,7 +34,7 @@ Grade every drift finding from Steps 03 and 04 by severity level (CRITICAL/HIGH/
 - 🎯 Focus only on classifying severity of existing findings
 - 🚫 FORBIDDEN to discover new drift items — only classify what Steps 03-04 found
 - 🚫 FORBIDDEN to suggest remediation — that happens in Step 06
-- 💬 Use subprocess Pattern 3 (data operations) to load severity rules and classify
+- 💬 Use subprocess Pattern 3 (data operations — main thread Read + process in Claude Code, script in CLI) to load severity rules and classify. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md)
 - ⚙️ If subprocess unavailable, load rules and classify in main thread
 
 ## EXECUTION PROTOCOLS:

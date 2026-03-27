@@ -31,6 +31,7 @@ With knowledge files:
 | [manual-section-integrity.md](manual-section-integrity.md) | \[MANUAL\] marker preservation and merge algorithm                | CS, US, AS, TS, EX                 |
 | [qmd-registry.md](qmd-registry.md)                         | Progressive QMD collection registry and collection gate principle | SF, BS, CS, US, AS                 |
 | [ccc-bridge.md](ccc-bridge.md)                             | ccc_bridge interface, indexing lifecycle, Forge+ discovery-before-extraction | SF, AN, CS, SS, US, AS             |
+| [tool-resolution.md](tool-resolution.md)                   | Bridge-to-tool and subprocess-to-tool mapping per IDE environment | CS, QS, SS, US, AS, AN, BS, RA     |
 | [architecture-verification.md](architecture-verification.md) | Pre-code verification pipeline, integration verdicts, iteration loop | VS, RA, SS                        |
 | [doc-fetcher.md](doc-fetcher.md)                           | T3 external documentation fetching, quarantine rules, tool-agnostic | CS, QS                             |
 | [split-body-strategy.md](split-body-strategy.md)           | Selective vs full split-body, detection pattern, agent accuracy   | CS, QS, US, TS, EX                |

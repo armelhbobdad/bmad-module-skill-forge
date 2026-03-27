@@ -33,7 +33,7 @@ Compare the original provenance map extractions from create-skill against the cu
 - 🎯 Focus only on structural comparison — added/removed/changed exports
 - 🚫 FORBIDDEN to classify severity — that happens in Step 05
 - 🚫 FORBIDDEN to suggest remediation — that happens in Step 06
-- 💬 Use subprocess Pattern 4 (parallel execution) when available to compare export categories simultaneously
+- 💬 Use subprocess Pattern 4 (parallel): In Claude Code, use multiple parallel Agent tool calls or `run_in_background: true`. In Cursor, use parallel requests (IDE-dependent). In CLI, use `xargs -P` or background processes. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md)
 - ⚙️ If subprocess unavailable, compare categories sequentially in main thread
 
 ## EXECUTION PROTOCOLS:
@@ -70,7 +70,7 @@ Normalize both sets for comparison:
 
 ### 2. Detect Added Exports
 
-**Launch subprocess (Pattern 4 — parallel execution):**
+**Launch subprocess (Pattern 4 — parallel execution):** In Claude Code, use multiple parallel Agent tool calls. In CLI, use `xargs -P` or equivalent.
 
 Find exports that exist in current scan but NOT in provenance map.
 

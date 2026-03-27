@@ -86,9 +86,9 @@ The `ccc index` command auto-starts the daemon when needed. Proceed with indexin
 
 Attempt indexing anyway — errors will be caught below.
 
-Run:
+Run (CWD must be `{project-root}`):
 ```bash
-ccc init {project-root}
+ccc init
 ```
 
 **If init fails** (project may already be initialized): continue — this is not an error.
@@ -97,6 +97,8 @@ Then run:
 ```bash
 ccc index
 ```
+
+**Note:** `ccc index` can take several minutes on large codebases (1000+ files). Run with an extended timeout or in background mode. Use `ccc status` to verify completion — check that `Chunks` and `Files` counts are non-zero.
 
 **If succeeds:**
 - Run `ccc status` to get file count

@@ -28,7 +28,13 @@ Source reading via gh_bridge — infer exports from file structure and content.
 
 Structural extraction via ast-grep — verified exports with line-level citations.
 
-> **Note:** `ast_bridge.*`, `qmd_bridge.*`, and `ccc_bridge.*` references below are **conceptual interfaces**, not callable functions. They describe the operation to perform. Use ast-grep (MCP tool or CLI) for `ast_bridge.*` operations, QMD (MCP tool or CLI) for `qmd_bridge.*` operations, and ccc CLI or MCP for `ccc_bridge.*` operations. See the AST Extraction Protocol section below and the TOOL/SUBPROCESS FALLBACK rule for dispatch details.
+> **Note:** `ast_bridge.*`, `qmd_bridge.*`, and `ccc_bridge.*` references below are **conceptual interfaces**, not callable functions. Resolve them as follows:
+> - `ast_bridge.*` → ast-grep MCP tools (`mcp__ast-grep__find_code`, `mcp__ast-grep__find_code_by_rule`) or `ast-grep` CLI
+> - `qmd_bridge.*` → QMD MCP tools (`mcp__plugin_qmd-plugin_qmd__search`, `vector_search`) or `qmd` CLI
+> - `ccc_bridge.*` → `/ccc` skill (Claude Code), ccc MCP server (Cursor), or `ccc` CLI
+> - `gh_bridge.*` → `gh api` commands or direct file I/O for local sources
+>
+> See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md) for the complete resolution table. Also see the AST Extraction Protocol section below and the TOOL/SUBPROCESS FALLBACK rule for dispatch details.
 
 ### Strategy
 

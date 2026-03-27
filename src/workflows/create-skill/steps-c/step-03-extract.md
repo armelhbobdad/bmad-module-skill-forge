@@ -92,6 +92,8 @@ Load `{sourceResolutionData}` completely. Follow the **Remote Source Resolution*
 5. Infer types from JSDoc, docstrings, type annotations
 6. Confidence: All results T1-low — `[SRC:{file}:L{line}]`
 
+**Tool resolution for gh_bridge:** Use `gh api repos/{owner}/{repo}/git/trees/{branch}?recursive=1` for list_tree, `gh api repos/{owner}/{repo}/contents/{path}` for read_file. If source is local, use direct file listing/reading instead. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md).
+
 **Forge/Forge+/Deep Tier (AST available):**
 
 **CCC Discovery Integration (Forge+ and Deep with ccc only):**
@@ -114,6 +116,8 @@ If `{ccc_discovery}` is empty or not in context: proceed with existing file orde
 4. Use `ast_bridge.detect_co_imports(path, libraries[])` to find integration points
 5. Build extraction rules YAML data for reproducibility
 6. Confidence: All results T1 — `[AST:{file}:L{line}]`
+
+**Tool resolution for ast_bridge:** Use ast-grep MCP tools (`mcp__ast-grep__find_code`, `mcp__ast-grep__find_code_by_rule`) as specified in the AST Extraction Protocol above, or `ast-grep` CLI. For `detect_co_imports`, use `find_code_by_rule` with a co-import YAML rule scoped to the libraries list. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md).
 
 **If AST tool is unavailable at Forge/Deep tier** (see `{tierDegradationRulesData}` for full rules):
 

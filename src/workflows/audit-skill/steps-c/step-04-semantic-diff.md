@@ -33,7 +33,7 @@ Compare QMD knowledge context between the original skill creation and current st
 - 🎯 Focus only on semantic/meaning-level changes via QMD context
 - 🚫 FORBIDDEN to classify severity — that happens in Step 05
 - 🚫 FORBIDDEN to repeat structural findings from Step 03
-- 💬 Use subprocess Pattern 3 (data operations) when available for QMD queries
+- 💬 Use subprocess Pattern 3 (data operations — main thread Read + process in Claude Code, script in CLI) when available for QMD queries. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md)
 - ⚙️ If subprocess unavailable, query QMD in main thread
 - 🔀 CONDITIONAL: Skip entire analysis at Quick/Forge/Forge+ tier — append skip notice only
 

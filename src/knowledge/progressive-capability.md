@@ -84,6 +84,8 @@ Deep:   "Full intelligence pipeline — AST verification plus GitHub exploration
 - **Forge+:** Identical extraction to Forge, plus ccc semantic pre-discovery narrows the file set before ast-grep runs. For large codebases, `ccc_bridge.search()` produces a ranked candidate list. ast-grep operates on that list rather than the full tree. All results remain T1 (AST-verified) — ccc is upstream, not in the extraction chain.
 - **Deep:** Identical extraction to Forge, plus QMD enrichment in a separate step. T2 annotations layer on top of the T1 base without replacing it.
 
+*Bridge names (`gh_bridge`, `ast_bridge`, `ccc_bridge`, `qmd_bridge`) are conceptual interfaces. See [tool-resolution.md](tool-resolution.md) for concrete tool resolution per IDE.*
+
 **Key Points:**
 - Extraction quality increases with tier, but every tier produces complete output
 - Forge and Deep share the same extraction core — Deep adds enrichment, not better parsing

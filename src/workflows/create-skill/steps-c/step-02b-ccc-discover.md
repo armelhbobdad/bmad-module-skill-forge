@@ -75,6 +75,8 @@ Read `ccc_index` from forge-tier.yaml:
 - If `ccc_index.status` is `"stale"`: display brief note — "CCC index is stale — discovery results may miss recent changes." Continue to section 3.
 - If `ccc_index.status` is `"none"` or `"failed"`: attempt lazy indexing via `ccc_bridge.ensure_index(source_root)`. If indexing succeeds, continue to section 3. If indexing fails, set `{ccc_discovery: []}` and auto-proceed to section 5.
 
+**Tool resolution for ccc_bridge.ensure_index:** Use `/ccc` skill indexing (Claude Code), ccc MCP server (Cursor), or `ccc init` + `ccc index {source_root}` (CLI). See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md).
+
 ### 3. Construct Semantic Query
 
 Build the discovery query from the brief data:
@@ -90,6 +92,8 @@ Where:
 ### 4. Execute CCC Semantic Search
 
 Run `ccc_bridge.search(query, source_root, top_k=20)`:
+
+**Tool resolution for ccc_bridge.search:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `ccc search "{query}" --path {source_root} --top 20` (CLI). See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md).
 
 **If search succeeds:**
 

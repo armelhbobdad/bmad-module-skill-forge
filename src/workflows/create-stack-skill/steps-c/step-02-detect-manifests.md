@@ -99,10 +99,11 @@ Store the explicit list as `raw_dependencies` and skip to [Display Detection Sum
 
 Load `{manifestPatterns}` for supported ecosystem detection patterns.
 
-Scan the project root (depth 0-1) for manifest files:
+Scan the project root (depth 0-1) for manifest files, **excluding directories listed in the Scan Exclusion Patterns section of `{manifestPatterns}`**:
 
 - Search for each supported manifest filename
 - Record: file path, ecosystem type, file size
+- **Apply exclusion patterns** from `{manifestPatterns}` — skip `node_modules/`, `.venv/`, `vendor/`, `dist/`, `build/`, `target/`, `.git/`, and all hidden directories when globbing
 - Note any unusual structures (monorepo with multiple manifests, workspace configurations)
 
 **If no manifest files found:**

@@ -83,7 +83,7 @@ Load `{sidecar_path}/forge-tier.yaml` to detect available tools.
 
 **If found:**
 - Extract tier level: Quick / Forge / Forge+ / Deep
-- Extract available tools: gh_bridge, ast_bridge, qmd_bridge
+- Extract available tools: gh_bridge, ast_bridge, qmd_bridge — see [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md) for concrete tool resolution per IDE
 
 **Apply tier override:** Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, Forge+, or Deep), use it instead of the detected tier.
 

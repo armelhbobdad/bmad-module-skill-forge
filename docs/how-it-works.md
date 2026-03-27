@@ -332,6 +332,8 @@ Export injects a managed section between markers:
 | **`qmd_bridge`** | QMD (local search) | BM25 keyword search, vector semantic search, collection indexing |
 | **`doc_fetcher`** | Environment web tools | Remote documentation fetching for T3-confidence content. Tool-agnostic — uses whatever web fetching is available (Firecrawl, WebFetch, curl, etc.). Output quarantined as T3. |
 
+Bridge names are **conceptual interfaces** used throughout workflow steps. Each bridge resolves to concrete MCP tools, CLI commands, or fallback behavior depending on the IDE environment. See [`src/knowledge/tool-resolution.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/knowledge/tool-resolution.md) for the complete resolution table.
+
 ### Conflict Resolution
 
 When tools disagree, higher priority wins for instructions. Lower priority is preserved as annotations:

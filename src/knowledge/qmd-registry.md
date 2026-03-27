@@ -21,7 +21,7 @@ The progressive registry solves all three by indexing **curated workflow artifac
 | Role | Workflow | Responsibility |
 | --- | --- | --- |
 | **Producer** | brief-skill, create-skill | Creates QMD collections from workflow artifacts and registers them in forge-tier.yaml |
-| **Consumer** | audit-skill, update-skill | Reads the registry, discovers collections by skill name and type, queries via qmd_bridge |
+| **Consumer** | audit-skill, update-skill, create-stack-skill | Reads the registry, discovers collections by skill name and type, queries via qmd_bridge (see [tool-resolution.md](tool-resolution.md) for concrete resolution) |
 | **Janitor** | setup-forge | Cross-references live QMD collections against the registry, cleans orphans and stale entries |
 
 ### Registry Schema

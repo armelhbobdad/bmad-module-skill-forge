@@ -135,7 +135,7 @@ Based on detected language, identify public API surface:
 
 If `tools.ccc` is true in forge-tier.yaml, supplement the module listing with a semantic discovery pass:
 
-Run `ccc_bridge.search("{repo_name} public API exports modules", source_path, top_k=10)`.
+Run `ccc_bridge.search("{repo_name} public API exports modules", source_path, top_k=10)` — **Tool resolution:** `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `ccc search` CLI. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md).
 
 If results are returned, display:
 

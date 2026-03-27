@@ -35,7 +35,7 @@ Compare current source code state against the provenance map to produce a comple
 - 🎯 Focus ONLY on detecting and classifying changes — do not extract or merge
 - 🚫 FORBIDDEN to modify any files — read-only change detection
 - 🚫 FORBIDDEN to re-extract content — that is step 03
-- 💬 Use subprocess optimization Pattern 4 for parallel comparison when available
+- 💬 Use subprocess Pattern 4 (parallel): In Claude Code, use multiple parallel Agent tool calls or `run_in_background: true`. In Cursor, use parallel requests (IDE-dependent). In CLI, use `xargs -P` or background processes. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md)
 - ⚙️ If subprocess unavailable, perform comparison sequentially in main thread
 
 ## EXECUTION PROTOCOLS:

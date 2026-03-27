@@ -84,6 +84,8 @@ Extract:
 - **Forge+:** ast_bridge + ccc_bridge (ccc semantic co-import augmentation) — ccc available for step-05
 - **Deep:** qmd_bridge (QMD temporal enrichment) — required for Deep tier
 
+See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md) for how each bridge name resolves to concrete tools per IDE environment.
+
 Report tool availability. If a tier-required tool is missing, downgrade tier and note:
 
 "**Tier adjusted:** {original_tier} → {adjusted_tier} — {missing_tool} unavailable."

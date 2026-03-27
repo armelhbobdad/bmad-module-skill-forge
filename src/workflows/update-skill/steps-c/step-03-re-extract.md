@@ -101,6 +101,8 @@ Perform tier-aware extraction on only the changed files identified in step 02, p
 - QMD provides: usage patterns, historical context, related documentation
 - Confidence: T1 for structural, T2 for semantic enrichment
 
+**Tool resolution:** `ast_bridge` → ast-grep MCP tools (`find_code`, `find_code_by_rule`) or `ast-grep` CLI. `qmd_bridge` → QMD MCP tools (`mcp__plugin_qmd-plugin_qmd__search`, `vector_search`) or `qmd` CLI. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md).
+
 ### 2. Extract Changed Files
 
 DO NOT BE LAZY — For EACH file in the change manifest with status MODIFIED, ADDED, or RENAMED, launch a subprocess that:
@@ -128,7 +130,7 @@ DO NOT BE LAZY — For EACH file in the change manifest with status MODIFIED, AD
 
 Before aggregating extraction results, use CCC to assess semantic significance of changes:
 
-1. Run `ccc_bridge.search("{skill_name}", source_root, top_k=15)` to get the skill's most semantically central files
+1. Run `ccc_bridge.search("{skill_name}", source_root, top_k=15)` — **Tool resolution:** `/ccc` skill search (Claude Code), ccc MCP (Cursor), `ccc search` (CLI) — to get the skill's most semantically central files
 2. Cross-reference the change manifest files with CCC results
 3. Files appearing in BOTH the change manifest AND CCC's top results are **semantically significant changes** — flag them for priority in the merge step
 4. Store `{ccc_significant_changes: [{file, score}]}` in context

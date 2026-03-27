@@ -33,7 +33,7 @@ Validate the merged skill content against the agentskills.io specification, veri
 
 - 🎯 Focus ONLY on validation — do not fix issues (that's the user's choice)
 - 🚫 FORBIDDEN to modify merged content — validation is read-only
-- 💬 Launch parallel validation checks when subprocess available (Pattern 4)
+- 💬 Launch parallel validation checks when subprocess available (Pattern 4): In Claude Code, use multiple parallel Agent tool calls. In Cursor, use parallel requests (IDE-dependent). In CLI, use `xargs -P`. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md)
 - ⚙️ If subprocess unavailable, perform checks sequentially in main thread
 
 ## EXECUTION PROTOCOLS:

@@ -78,6 +78,8 @@ Based on forge tier detected in Step 01:
 - Query qmd_bridge for temporal context: when exports were added, modification history, usage frequency
 - Confidence labels: T1 for structural, T2 for temporal context
 
+**Tool resolution:** `gh_bridge` → `gh api` commands or direct file I/O if local. `ast_bridge` → ast-grep MCP tools (`find_code`, `find_code_by_rule`) or `ast-grep` CLI. `qmd_bridge` → QMD MCP tools (`search`, `vector_search`) or `qmd` CLI. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md).
+
 ### 2. Scan Source Files
 
 Identify all source files in the source directory that contain public exports.
@@ -148,7 +150,7 @@ Skip this section. Temporal context requires Deep tier.
 
 For each export in the skill baseline that was NOT found at its recorded file path during re-extraction (potential "deleted" export):
 
-1. Run `ccc_bridge.search("{export_name}", source_root, top_k=5)` to find candidate current locations
+1. Run `ccc_bridge.search("{export_name}", source_root, top_k=5)` — **Tool resolution:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `ccc search "{export_name}" --path {source_root} --top 5` (CLI) — to find candidate current locations
 2. If CCC returns files containing the export name:
    - Run ast-grep verification on each candidate file
    - If verified at a new location: reclassify from "deleted" to "moved" with the new file:line reference

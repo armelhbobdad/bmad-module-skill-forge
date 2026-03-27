@@ -2,7 +2,7 @@
 
 ## Principle
 
-`ccc_bridge.*` references in workflow steps are **conceptual interfaces**, not callable functions. They describe a semantic code discovery operation to perform. Use the `ccc` MCP server tools (when available) or `ccc` CLI commands to execute these operations. See the TOOL/SUBPROCESS FALLBACK rule — if ccc is unavailable, the calling step falls back to direct ast-grep or source reading without ccc pre-discovery.
+`ccc_bridge.*` references in workflow steps are **conceptual interfaces**, not callable functions. They describe a semantic code discovery operation to perform. Use the `ccc` MCP server tools (when available) or `ccc` CLI commands to execute these operations. See the TOOL/SUBPROCESS FALLBACK rule — if ccc is unavailable, the calling step falls back to direct ast-grep or source reading without ccc pre-discovery. For the complete bridge-to-tool resolution table covering all IDE environments, see [tool-resolution.md](tool-resolution.md).
 
 ## Rationale
 
@@ -103,6 +103,7 @@ To prevent excessive daemon calls, workflow steps cap ccc queries:
 
 ## Related Fragments
 
+- [tool-resolution.md](tool-resolution.md) — canonical bridge-to-tool and subprocess-to-tool mapping per IDE
 - [progressive-capability.md](progressive-capability.md) — Forge+ tier definition and positive framing
 - [confidence-tiers.md](confidence-tiers.md) — why ccc does not create a new confidence tier
 - [qmd-registry.md](qmd-registry.md) — the parallel but separate registry for QMD collections
