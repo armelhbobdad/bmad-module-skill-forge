@@ -1,0 +1,89 @@
+look at @docs/getting-started.md , section "I want the highest accuracy possible" is not accurate with what we did with Forge+ mode. use the memory plugin to get accurate insight to update this section.
+
+---
+
+I don't like the introduction "This page defines the key terms you’ll encounter in Skill Forge. Each one is explained in plain English with a concrete example." in @docs/concepts.md . It is not professionnal to say "...in plain English..."
+
+---
+
+Replace this example with a verified one from cognee: "Example: A skill for better-auth tells your agent: “The function is authClient.signIn.email(), it takes { email: string, password: string }, and it returns a Promise<Session>. Here’s the source: src/client.ts:L47.”"
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+here is the path: /home/armel/Projects/OSS/oh-my-skills/skills/cognee/
+
+---
+
+The "Confidence Tiers (T1/T1-low/T2/T3)" is not complete with what SKF really does.
+
+---
+
+we don't need to repeat the example here. It is already done in the abose section
+
+---
+
+just complete the example from the provenance section
+
+---
+
+The introduction section in @docs/how-it-works.md page also contains "For plain-English"
+
+---
+
+commit
+
+---
+
+Can you verified or improved the "Why Another Tool?". I do not personnally get it.
+
+---
+
+update the "SKILL.md Format" samples with the one from cognee
+
+---
+
+also update the metadata.json — The Birth Certificate
+
+---
+
+also update the "Managed CLAUDE.md Section"
+
+---
+
+[Request interrupted by user]
+
+---
+
+also update the "Managed CLAUDE.md Section"
+
+---
+
+Can you veriry the line "Hub-and-spoke cross-knowledge    Each skill has one primary source. Cross-repo references use inline summary + pointer + [XREF:repo:file:line] provenance tag." in "Key Design Decisions"? It is my first time to read [XREF:repo:file:line] provenance tag
+
+---
+
+also verify this line "Bundle spec with opt-in update    Offline-capable. Run @Ferris SF --update-spec to fetch the latest agentskills.io spec on demand."
+
+---
+
+The @docs/workflows.md page also contains "plain-English" in the introduction
+
+---
+
+Export Skill (EX) workflow really package the skill for distribution or it just generate the snippet?
+
+---
+
+also apply the update in "Utility Workflows" section.
+
+---
+
+replace the Workflow Connections diagram with a mermaid one
+
+---
+
+commit
