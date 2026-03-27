@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "bmad-module-skill-forge",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "BMAD module — Turn code and docs into instructions AI agents can actually follow. Progressive capability tiers (Quick/Forge/Forge+/Deep).",
   "keywords": [
     "bmad",
