@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "5920515e1463",
+  "session_id": "9564a2ac-79bc-4745-a1a2-2e03cfa03d48",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-28T21:48:49.075049855Z",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/workflows/create-skill/steps-c/step-03-extract.md",
+    "src/knowledge/ccc-bridge.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "5a7407ad70e2",
+  "checkpoint_transcript_start": 341,
+  "transcript_lines_at_start": 341,
+  "token_usage": {
+    "input_tokens": 36,
+    "cache_creation_tokens": 25993,
+    "cache_read_tokens": 4451483,
+    "output_tokens": 4550,
+    "api_call_count": 24
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-28T21:48:48.289261599Z",
+    "agent_lines": 2,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 2,
+    "agent_percentage": 100
+  }
+}
