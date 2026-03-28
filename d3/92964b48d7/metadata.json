@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d392964b48d7",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/brief-skill/steps-c/step-02-analyze-target.md",
+    "src/workflows/create-skill/data/compile-assembly-rules.md",
+    "src/workflows/create-skill/data/extraction-patterns.md",
+    "src/workflows/create-skill/data/skill-sections.md",
+    "src/workflows/create-skill/steps-c/step-02b-ccc-discover.md",
+    "src/workflows/create-skill/steps-c/step-05-compile.md",
+    "src/workflows/create-skill/steps-c/step-06-validate.md",
+    "src/workflows/test-skill/data/source-access-protocol.md",
+    "src/workflows/test-skill/steps-c/step-03-coverage-check.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d3/92964b48d7/0/metadata.json",
+      "transcript": "/d3/92964b48d7/0/full.jsonl",
+      "context": "/d3/92964b48d7/0/context.md",
+      "content_hash": "/d3/92964b48d7/0/content_hash.txt",
+      "prompt": "/d3/92964b48d7/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 20147,
+    "cache_creation_tokens": 135471,
+    "cache_read_tokens": 2091034,
+    "output_tokens": 21125,
+    "api_call_count": 29
+  }
+}

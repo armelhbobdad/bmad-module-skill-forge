@@ -1,0 +1,175 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/
+
+---
+
+Take a look at @_bmad-output/todo. We should fix all of them and also fix missing impacts, regression, bug. Go to party mode for different perspectives.
+
+---
+
+<task-notification>
+<task-id>a592944c0f806f131</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/57da5f29-a36f-45bf-9e5a-bba1918e08d2/tasks/a592944c0f806f131.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix issues 018, 022 in step-06" completed</summary>
+<result>Both edits look correct. Let me verify the key aspects:
+
+1. **Edit 1 (line 79):** The "Description preservation after --fix" paragraph was successfully added right after the "Context sync after --fix" paragraph, before the "Note" paragraph.
+
+2. **Edit 2 (lines 102-120):** Section 4 was completely rewritten with all the new content:
+   - The duplicated sentence ("The rationale: inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval (per Vercel research).") from issue U2 is gone
+   - "Description preservation" paragraph added before split operations
+   - "Preferred approach" changed to "Mandatory approach" with more specific Tier 2 identification guidance
+   - "FORBIDDEN" paragraph added about `split-body --write`
+   - Fallback guidance rewritten to avoid automated split
+   - "Tier 1 preservation check" paragraph added
+   - "Anchor validation and remediation" expanded with remediation instructions
+   - The bash code block for `split-body --write` was removed (no longer presented as a normal option)
+
+All three issues are fixed:
+- **018:** Description preservation added in Section 2 (after --fix) and Section 4 (before split)
+- **022:** Section 4 completely rewritten with stronger guardrails against destructive `split-body --write`
+- **U2:** The duplicated sentence about "inline passive context achieves 100% task accuracy vs 79%" is eliminated -- it now appears only once in the rewritten Section 4</result>
+<usage><total_tokens>22144</total_tokens><tool_uses>4</tool_uses><duration_ms>57681</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aeec35d57ba7b293b</task-id>
+<tool-use-id>toolu_01B8bSoUBqxvbFWVes7Zq9rq</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/57da5f29-a36f-45bf-9e5a-bba1918e08d2/tasks/aeec35d57ba7b293b.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix issues 019, 020 extraction patterns" completed</summary>
+<result>All four edits have been applied successfully. Here is a summary of what was done:
+
+1. **Edit 1 (line 54):** Updated the ast-grep patterns bullet list to include arrow function (`export const $NAME = ($$$PARAMS) => $BODY`) and class (`export class $NAME`) patterns alongside the existing JS/TS patterns.
+
+2. **Edit 2 (after line 261):** Added three new sections after the `js-exported-constants` YAML recipe:
+   - **Exported arrow functions** recipe with `js-exported-arrow-functions` YAML block
+   - A blockquote explaining JS/TS pattern merging and deduplication priority
+   - **Exported classes** recipe with `js-exported-classes` YAML block and a note about using `find_code()` over `find_code_by_rule()`
+   - **Re-export detection** guidance using `find_code()` with the `export { $$$NAMES } from $SOURCE` pattern
+
+3. **Edit 3 (Go recipe):** Changed the Go `go-exported-functions` rule from a single pattern to an `any` block with two patterns: one with return type (`func $NAME($$$PARAMS) $RET`) and one without (`func $NAME($$$PARAMS)`).
+
+4. **Edit 4 (new section):** Added a "Known ast-grep Limitations" section before the "Re-Export Tracing" section, documenting four limitations: `find_code_by_rule` class export issues, re-export multi-node matching, anonymous default export handling, and a fallback protocol for zero-result scenarios.</result>
+<usage><total_tokens>25406</total_tokens><tool_uses>6</tool_uses><duration_ms>55356</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a493f282a0e434949</task-id>
+<tool-use-id>toolu_01BvtKe3exAz3B7FRKeRVL4A</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/57da5f29-a36f-45bf-9e5a-bba1918e08d2/tasks/a493f282a0e434949.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix issues 024, U3 compile files" completed</summary>
+<result>All edits verified successfully. Here is a summary of what was done:
+
+**File 1: `step-05-compile.md`** (3 edits)
+- **Edit 1a (line 62):** Inserted new subsection "1b. Signature Fidelity Rule" between Section 1 "Load Data Files" and Section 2 "Build SKILL.md Content". This establishes T1 AST-extracted signatures as authoritative, prevents T2/T3 sources from replacing structural signature data, defines conflict resolution with evidence-report logging, and introduces the `signature_source` field.
+- **Edit 1b (line 106):** Clarified `exports_public_api` definition to derive from step-03's entry-point validation rather than provenance-map entry count, addressing bug U3 (exports_public_api ambiguity).
+- **Edit 1c (line 135):** Added `signature_source` field to the provenance-map.json field list.
+
+**File 2: `compile-assembly-rules.md`** (1 edit)
+- **Edit 2 (line 119):** Added assembly rule 7 on signature fidelity, reinforcing that `params` and `return_type` from provenance-map entries (T1/AST-backed) are authoritative and must not be substituted from documentation or enrichment sources.
+
+**File 3: `skill-sections.md`** (1 edit)
+- **Edit 3 (line 203):** Added `"signature_source": "T1"` to the provenance-map.json JSON example entry, making the schema example consistent with the new field requirement.</result>
+<usage><total_tokens>29190</total_tokens><tool_uses>13</tool_uses><duration_ms>52203</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a9bd39c0084d4531a</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/57da5f29-a36f-45bf-9e5a-bba1918e08d2/tasks/a9bd39c0084d4531a.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix issues 025, 026 test-skill" completed</summary>
+<result>All edits are applied correctly. Here is a summary of the four changes made:
+
+**File 1: `source-access-protocol.md`**
+
+- **Edit 1a (Issue 025), part 1 (line 24):** Changed `"If present"` to `"If present AND contains at least 1 entry"` in the State 2 provenance-map check. This prevents empty provenance-maps from activating State 2 with a denominator of 0.
+
+- **Edit 1a (Issue 025), part 2 (lines 26-30):** Added the "Cross-reference with metadata.json" paragraph after the baseline sentence. This instructs the agent to compare provenance-map entry count against `metadata.json`'s `exports[]` array and use the union as the coverage denominator when they diverge, with gap reporting and a fallback note when metadata is unavailable.
+
+- **Edit 1b (Issue 026, line 32):** Replaced the sentence claiming strings match exactly in create-then-test flows with the more accurate guidance acknowledging that enrichment (step-04) and doc-fetching (step-03c) can alter signatures, so string-level mismatches should be treated as compilation artifacts rather than source drift signals.
+
+**File 2: `step-03-coverage-check.md`**
+
+- **Issue 025 (line 188):** Added the "State 2 denominator validation" note directly after the Export Coverage / Signature Accuracy / Type Coverage formulas in Section 4 (Load Scoring Rules), instructing the agent to cross-reference provenance-map entry count against `metadata.json`'s `exports[]` array before computing Export Coverage and use the union when they diverge.</result>
+<usage><total_tokens>23739</total_tokens><tool_uses>8</tool_uses><duration_ms>59274</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a7253b9b90c97e7ea</task-id>
+<tool-use-id>toolu_01YLJJJQHWikUKEUVHZ2W2Uq</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/57da5f29-a36f-45bf-9e5a-bba1918e08d2/tasks/a7253b9b90c97e7ea.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix issues 023, 015, 016 remote/CCC" completed</summary>
+<result>All four edits are correctly in place. Here is a summary of what was done:
+
+**File 1** (`/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-skill/steps-c/step-02b-ccc-discover.md`) -- Issue 023:
+
+- **Edit 1a (line 70):** Added a "Remote source guard" paragraph after the existing tier eligibility checks in Section 1. When `source_root` is a remote URL (not yet cloned), CCC discovery is skipped with an appropriate message and auto-proceeds to the next step.
+- **Edit 1b (line 50):** Added a note to the `source_root` entry in the Context Boundaries section clarifying that for remote sources, `source_root` may not be a local path until step-03 performs the ephemeral clone.
+
+**File 2** (`/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/brief-skill/steps-c/step-02-analyze-target.md`) -- Issues 015 and 016:
+
+- **Edit 2a (lines 64-67):** Added "Truncation detection" instructions after the `gh api` tree fetch call. When the GitHub API response has `truncated: true`, it displays a note, records the partial listing in the analysis summary, and suggests local clone for very large repos.
+- **Edit 2b (line 142):** Added a "Remote source guard" before the CCC semantic discovery invocation instructions. When the target was resolved via GitHub API (remote), the CCC subsection is skipped with a note explaining CCC will be available during create-skill if the source is cloned locally.</result>
+<usage><total_tokens>22806</total_tokens><tool_uses>9</tool_uses><duration_ms>45795</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aaa583e12ae81973b</task-id>
+<tool-use-id>toolu_017Q12hXLbELZZAmCGZm4VUZ</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/57da5f29-a36f-45bf-9e5a-bba1918e08d2/tasks/aaa583e12ae81973b.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix issues 013, 014, 017, 021, U1" completed</summary>
+<result>All fixes are complete. Here is a summary of what was done:
+
+---
+
+**Issue 013 + U1 (Party Mode and Advanced Elicitation path fixes) -- 3 files:**
+
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/brief-skill/steps-c/step-03-scope-definition.md` -- Replaced frontmatter keys `advancedElicitationTask` and `partyModeWorkflow` with `advancedElicitationSkill: '/bmad-advanced-elicitation'` and `partyModeSkill: '/bmad-party-mode'`. Updated body references from `Execute {advancedElicitationTask}` / `Execute {partyModeWorkflow}` to `Invoke {advancedElicitationSkill}` / `Invoke {partyModeSkill}`.
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/brief-skill/steps-c/step-04-confirm-brief.md` -- Same frontmatter and body fixes.
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/analyze-source/steps-c/step-05-recommend.md` -- Same frontmatter and body fixes.
+
+**Issue 014 (Subsection ordering) -- 1 file:**
+
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/brief-skill/steps-c/step-03-scope-definition.md` -- Renamed `### 2c. Confirm Supplemental Documentation` to `### 2b.` and `### 2b. Offer Scope Templates` to `### 2c.`, so they now appear in correct alphabetical order (2b before 2c).
+
+**Issue 017 (Version schema pre-release) -- 2 files:**
+
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/brief-skill/data/skill-brief-schema.md` -- Changed version constraint from `Semantic X.Y.Z` to `Semantic version (X.Y.Z or X.Y.Z-prerelease)` and added pre-release handling paragraph after the Version Detection section.
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/analyze-source/data/skill-brief-schema.md` -- Same changes.
+
+**Issue 021 (QMD relative path doubling) -- 3 files with relative paths fixed:**
+
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-skill/steps-c/step-03b-fetch-temporal.md` -- Fixed `qmd collection add _bmad-output/...` to `qmd collection add {project-root}/_bmad-output/...` and similarly fixed `rm -rf` cleanup command.
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-skill/steps-c/step-03c-fetch-docs.md` -- Fixed `qmd collection add _bmad-output/...` to `qmd collection add {project-root}/_bmad-output/...` and similarly fixed `rm -rf` cleanup command.
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/qmd-registry.md` -- Fixed `qmd collection add skills/{name}` to `qmd collection add {project-root}/skills/{name}`.
+- The other 2 checked files (step-05-write-brief.md and step-07-generate-artifacts.md) already used proper variable-prefixed paths (`{forge_data_folder}/` and `{skills_output_folder}/`) and required no changes.</result>
+<usage><total_tokens>52974</total_tokens><tool_uses>43</tool_uses><duration_ms>132833</duration_ms></usage>
+</task-notification>
+
+---
+
+commit

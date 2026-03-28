@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d392964b48d7",
+  "session_id": "ba453d79-7738-4a3e-bbf5-e568fa280088",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-28T15:10:59.27389921Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/brief-skill/steps-c/step-02-analyze-target.md",
+    "src/workflows/create-skill/data/compile-assembly-rules.md",
+    "src/workflows/create-skill/data/extraction-patterns.md",
+    "src/workflows/create-skill/data/skill-sections.md",
+    "src/workflows/create-skill/steps-c/step-02b-ccc-discover.md",
+    "src/workflows/create-skill/steps-c/step-05-compile.md",
+    "src/workflows/create-skill/steps-c/step-06-validate.md",
+    "src/workflows/test-skill/data/source-access-protocol.md",
+    "src/workflows/test-skill/steps-c/step-03-coverage-check.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "088155631251",
+  "token_usage": {
+    "input_tokens": 20147,
+    "cache_creation_tokens": 135471,
+    "cache_read_tokens": 2091034,
+    "output_tokens": 21125,
+    "api_call_count": 29
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-28T15:10:58.569390827Z",
+    "agent_lines": 92,
+    "human_added": 25,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 117,
+    "agent_percentage": 78.63247863247864
+  }
+}
