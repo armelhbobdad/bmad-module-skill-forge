@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "9f7d9042d437",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/knowledge/qmd-registry.md",
+    "src/workflows/brief-skill/data/skill-brief-schema.md",
+    "src/workflows/brief-skill/steps-c/step-01-gather-intent.md",
+    "src/workflows/brief-skill/steps-c/step-02-analyze-target.md",
+    "src/workflows/brief-skill/steps-c/step-03-scope-definition.md",
+    "src/workflows/brief-skill/steps-c/step-04-confirm-brief.md",
+    "src/workflows/brief-skill/steps-c/step-05-write-brief.md",
+    "src/workflows/brief-skill/workflow.md",
+    "src/workflows/create-skill/data/extraction-patterns.md",
+    "src/workflows/create-skill/data/source-resolution-protocols.md",
+    "src/workflows/create-skill/steps-c/step-01-load-brief.md",
+    "src/workflows/create-skill/steps-c/step-02b-ccc-discover.md",
+    "src/workflows/create-skill/steps-c/step-03-extract.md",
+    "src/workflows/create-skill/steps-c/step-03b-fetch-temporal.md",
+    "src/workflows/create-skill/steps-c/step-03c-fetch-docs.md",
+    "src/workflows/create-skill/steps-c/step-05-compile.md",
+    "src/workflows/create-skill/steps-c/step-07-generate-artifacts.md",
+    "src/workflows/quick-skill/steps-c/step-04-compile.md",
+    "src/workflows/test-skill/data/output-section-formats.md",
+    "src/workflows/test-skill/data/scoring-rules.md",
+    "src/workflows/test-skill/steps-c/step-03-coverage-check.md",
+    "src/workflows/test-skill/steps-c/step-04-coherence-check.md",
+    "src/workflows/test-skill/steps-c/step-04b-external-validators.md",
+    "src/workflows/test-skill/steps-c/step-05-score.md",
+    "tools/cli/lib/installer.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9f/7d9042d437/0/metadata.json",
+      "transcript": "/9f/7d9042d437/0/full.jsonl",
+      "context": "/9f/7d9042d437/0/context.md",
+      "content_hash": "/9f/7d9042d437/0/content_hash.txt",
+      "prompt": "/9f/7d9042d437/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 7,
+    "cache_creation_tokens": 12374,
+    "cache_read_tokens": 531677,
+    "output_tokens": 545,
+    "api_call_count": 5
+  }
+}
