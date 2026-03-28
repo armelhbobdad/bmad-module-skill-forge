@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "fad61b900891",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/test-skill/data/output-section-formats.md",
+    "src/workflows/test-skill/data/scoring-rules.md",
+    "src/workflows/test-skill/steps-c/step-03-coverage-check.md",
+    "src/workflows/test-skill/steps-c/step-04-coherence-check.md",
+    "src/workflows/test-skill/steps-c/step-04b-external-validators.md",
+    "src/workflows/test-skill/steps-c/step-05-score.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fa/d61b900891/0/metadata.json",
+      "transcript": "/fa/d61b900891/0/full.jsonl",
+      "context": "/fa/d61b900891/0/context.md",
+      "content_hash": "/fa/d61b900891/0/content_hash.txt",
+      "prompt": "/fa/d61b900891/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 31,
+    "cache_creation_tokens": 85726,
+    "cache_read_tokens": 1354572,
+    "output_tokens": 15913,
+    "api_call_count": 23
+  }
+}

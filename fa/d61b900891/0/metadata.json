@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "fad61b900891",
+  "session_id": "3b38d19f-bcd9-42cd-97f9-e820bd09cc9a",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-28T12:22:25.934070647Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/test-skill/data/output-section-formats.md",
+    "src/workflows/test-skill/data/scoring-rules.md",
+    "src/workflows/test-skill/steps-c/step-03-coverage-check.md",
+    "src/workflows/test-skill/steps-c/step-04-coherence-check.md",
+    "src/workflows/test-skill/steps-c/step-04b-external-validators.md",
+    "src/workflows/test-skill/steps-c/step-05-score.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "f418e6b82cb1",
+  "token_usage": {
+    "input_tokens": 31,
+    "cache_creation_tokens": 85726,
+    "cache_read_tokens": 1354572,
+    "output_tokens": 15913,
+    "api_call_count": 23
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-28T12:22:25.244254314Z",
+    "agent_lines": 125,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 125,
+    "agent_percentage": 100
+  }
+}
