@@ -96,9 +96,30 @@ Load `{sourceResolutionData}` completely. Follow the **Remote Source Resolution*
 
 **Forge/Forge+/Deep Tier (AST available):**
 
+**Deferred CCC Discovery (Forge+ and Deep — remote sources only):**
+
+If ALL of these conditions are true:
+- `tools.ccc` is true in forge-tier.yaml
+- `{ccc_discovery}` is empty (step-02b deferred because source was remote)
+- `ephemeral_clone_active` is true (clone succeeded in source resolution above)
+- Tier is Forge+ or Deep
+
+Then run CCC indexing and discovery on the ephemeral clone:
+
+1. **Index the clone:** Run `ccc init {temp_path}` then `ccc index` with an extended timeout or in background mode — indexing can take several minutes on large codebases (1000+ files). Use `ccc status` to verify completion — check that `Chunks` and `Files` counts are non-zero. If init fails or indexing fails, set `{ccc_discovery: []}` and continue — this is not an error.
+
+2. **Construct semantic query:** Build from brief data: `"{brief.name} {brief.scope}"`. Truncate to 80 characters — keep the full skill name and trim `brief.scope` from the end. If `brief.scope` is very short (< 10 chars), append terms from `brief.description` to fill the remaining space.
+
+3. **Execute search:** Run `ccc_bridge.search(query, temp_path, top_k=20)`:
+   - **Tool resolution:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `ccc search "{query}" --path {temp_path} --top 20` (CLI). See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md).
+
+4. **Store results:** If search succeeds, store as `{ccc_discovery: [{file, score, snippet}]}`. Display: "**CCC semantic discovery (post-clone): {N} relevant regions identified across {M} unique files.**"
+
+5. **On failure:** Set `{ccc_discovery: []}`. Display: "CCC post-clone discovery unavailable — proceeding with standard extraction." Do NOT halt.
+
 **CCC Discovery Integration (Forge+ and Deep with ccc only):**
 
-If `{ccc_discovery}` is in context and non-empty (populated by step-02b):
+If `{ccc_discovery}` is in context and non-empty (populated by step-02b or deferred discovery above):
 - Sort the filtered file list by CCC relevance score: files appearing in `{ccc_discovery}` results move to the front of the extraction queue, sorted by their relevance score descending
 - Files NOT in CCC results remain in the queue after ranked files — they are not excluded, only deprioritized
 - Display: "**CCC discovery: {N} files pre-ranked by semantic relevance** — extraction will prioritize these first."

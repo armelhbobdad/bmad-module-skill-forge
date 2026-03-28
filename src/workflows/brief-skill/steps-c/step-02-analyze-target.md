@@ -139,7 +139,7 @@ Based on detected language, identify public API surface:
 
 **Semantic Signals (Forge+ and Deep with ccc only):**
 
-**Remote source guard:** If the target source was resolved via GitHub API (remote URL, not a local file path), skip this CCC subsection — CCC requires a local source index and cannot operate on remote-only sources. Note: "CCC semantic discovery skipped — target is remote. CCC will be available during create-skill if the source is cloned locally."
+**Remote source guard:** If the target source was resolved via GitHub API (remote URL, not a local file path), skip this CCC subsection — CCC requires a local source index and cannot operate on remote-only sources. Note: "CCC semantic discovery skipped — target is remote. CCC discovery will run automatically during create-skill after the source is cloned."
 
 If `tools.ccc` is true in forge-tier.yaml, supplement the module listing with a semantic discovery pass:
 

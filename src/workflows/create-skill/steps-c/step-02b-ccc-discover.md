@@ -65,9 +65,11 @@ Set `{ccc_discovery: []}` in context. Auto-proceed silently. Display no message.
 
 Check `tools.ccc` from forge-tier.yaml. If `tools.ccc` is false, set `{ccc_discovery: []}` in context and auto-proceed to section 5.
 
-If `tools.ccc` is true, continue to section 2.
+If `tools.ccc` is true, check the remote source guard **before** proceeding to section 2:
 
-**Remote source guard:** If `source_root` is a remote URL (GitHub repository not yet cloned locally — ephemeral clone happens in step-03), CCC cannot operate. Set `{ccc_discovery: []}` and display: "CCC discovery skipped — remote source not yet available locally. CCC requires a local source index." Auto-proceed to the step completion / next step section.
+**Remote source guard:** If `source_root` is a remote URL (GitHub repository not yet cloned locally — ephemeral clone happens in step-03), CCC cannot operate yet. Set `{ccc_discovery: []}` and display: "CCC discovery deferred — remote source will be indexed after ephemeral clone in step-03." Auto-proceed to section 5 (step completion). Step-03 will detect the deferred scenario and run CCC discovery on the ephemeral clone before AST extraction begins.
+
+If `source_root` is a local path, continue to section 2.
 
 ### 2. Check CCC Index State
 

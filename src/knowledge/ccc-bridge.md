@@ -77,6 +77,36 @@ The ccc search is invisible in the output artifact. A Forge+ skill's citations a
 - A stale index still produces useful results — the workflow proceeds with the stale index and notes the staleness
 - setup-forge is the designated refresh authority
 
+### Exclusion Patterns
+
+CCC stores its configuration at `{project-root}/.cocoindex_code/settings.yml`. This file contains `exclude_patterns` and `include_patterns` arrays in glob format. `ccc init` creates the file with sensible defaults (excludes `node_modules`, `__pycache__`, hidden dirs, etc.).
+
+**SKF infrastructure exclusions:** setup-forge step-01b appends SKF-specific exclusion patterns after `ccc init` creates the default config. These patterns prevent indexing of framework and output directories that have zero value for source extraction:
+
+| Pattern | Purpose |
+|---------|---------|
+| `**/_bmad` | SKF framework module (workflow instructions, agents, knowledge) |
+| `**/_bmad-output` | Build output artifacts (TODO files, reports) |
+| `**/.claude` | Claude Code configuration |
+| `**/_skf-learn` | SKF learning materials |
+| `**/{skills_output_folder}` | Generated skill files (from manifest, default: `skills`) |
+| `**/{forge_data_folder}` | Compilation workspace (from manifest, default: `forge-data`) |
+
+The `skills_output_folder` and `forge_data_folder` values are read from `_bmad/_config/skf-manifest.yaml` when available, falling back to the defaults `skills` and `forge-data`. Patterns are appended only if not already present — user customizations to `settings.yml` are preserved.
+
+The configured exclusion patterns are stored in `ccc_index.exclude_patterns` in forge-tier.yaml for reference.
+
+### Deferred Discovery (Remote Sources)
+
+For remote repository sources (GitHub URLs), CCC cannot operate during step-02b because no local code exists yet. The ephemeral clone happens in step-03. To provide CCC pre-ranking for remote sources:
+
+1. **step-02b:** Detects remote source, sets `{ccc_discovery: []}`, displays deferred message
+2. **step-03:** After ephemeral clone succeeds, detects the deferred scenario (`tools.ccc == true AND {ccc_discovery} is empty AND ephemeral_clone_active == true AND tier is Forge+/Deep`)
+3. **step-03:** Runs `ccc init {temp_path}` + `ccc index` on the ephemeral clone (extended timeout or background mode, verified via `ccc status`)
+4. **step-03:** Executes CCC search and populates `{ccc_discovery}` before AST extraction begins
+
+The ephemeral clone index is not registered in `ccc_index_registry` — the clone is deleted after extraction and the CCC daemon's own GC handles orphaned indexes.
+
 ### Relationship to QMD Registry
 
 ccc_index and qmd_collections are **orthogonal**:
@@ -100,6 +130,8 @@ To prevent excessive daemon calls, workflow steps cap ccc queries:
 - Running ccc_bridge.ensure_index() without checking ccc_index.status first — unnecessary re-indexing
 - Passing ccc results directly to the extraction inventory — they are candidates, not extractions
 - Listing ccc as "unavailable" in reports for Quick/Forge tiers — ccc is a Forge+ capability, not something Quick/Forge tiers are missing
+- Indexing without configuring SKF exclusions — framework and output directories pollute search results
+- Skipping CCC discovery for remote sources without deferring to step-03 — remote repos deserve the same pre-ranking as local sources
 
 ## Related Fragments
 

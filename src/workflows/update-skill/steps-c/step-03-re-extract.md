@@ -139,6 +139,8 @@ This helps the merge step (section 4) prioritize which changes are most likely t
 
 CCC failures: skip ranking silently, all changes treated equally.
 
+**Note on remote sources:** If `source_root` is an ephemeral clone (remote source), the clone path is not indexed by CCC. The search will return empty results and semantic ranking will be skipped. This is expected — deferred CCC indexing is implemented in create-skill step-03 but not in update-skill. All changes are treated equally for remote sources.
+
 **IF `tools.ccc` is false:** Skip this section silently.
 
 ### 3. Deep Tier QMD Enrichment (Conditional)
