@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "76bb45a1572e",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/knowledge/ccc-bridge.md",
+    "src/workflows/brief-skill/steps-c/step-02-analyze-target.md",
+    "src/workflows/create-skill/steps-c/step-02b-ccc-discover.md",
+    "src/workflows/create-skill/steps-c/step-03-extract.md",
+    "src/workflows/setup-forge/steps-c/step-01b-ccc-index.md",
+    "src/workflows/setup-forge/steps-c/step-02-write-config.md",
+    "src/workflows/update-skill/steps-c/step-03-re-extract.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/76/bb45a1572e/0/metadata.json",
+      "transcript": "/76/bb45a1572e/0/full.jsonl",
+      "context": "/76/bb45a1572e/0/context.md",
+      "content_hash": "/76/bb45a1572e/0/content_hash.txt",
+      "prompt": "/76/bb45a1572e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 13571,
+    "cache_creation_tokens": 264518,
+    "cache_read_tokens": 7975779,
+    "output_tokens": 44817,
+    "api_call_count": 76
+  }
+}
