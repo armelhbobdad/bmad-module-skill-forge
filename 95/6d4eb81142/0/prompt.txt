@@ -1,0 +1,237 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/
+
+---
+
+<task-notification>
+<task-id>a08a7e836f727891e</task-id>
+<tool-use-id>toolu_019kiNyWzwD16BictDM8cojG</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/57da5f29-a36f-45bf-9e5a-bba1918e08d2/tasks/a08a7e836f727891e.output</output-file>
+<status>completed</status>
+<summary>Agent "Find additional bugs/regressions" completed</summary>
+<result>Found another critical bug! Step-07 uses `{source_root}` but doesn't have it in available context. It only has compiled content from step-05 and validation from step-06, but step-05 doesn't preserve `source_root` in metadata or context.
+
+Now I have enough findings. Let me compile the final comprehensive analysis:
+
+Based on my thorough analysis of the create-skill workflow files, I have identified **12 distinct bugs and regressions** beyond the 5 known TODO issues (007-011). Here is the comprehensive report:
+
+## COMPREHENSIVE BUG ANALYSIS: CREATE-SKILL WORKFLOW
+
+### KNOWN ISSUES (TODO 007-011)
+Already documented and tracked in `/home/armel/Projects/OSS/bmad-module-skill-forge/_bmad-output/todo/`:
+- **007**: SKF version resolution fails in installed projects
+- **008**: Local source repos skip temporal fetch (no GitHub remote detection)
+- **009**: CCC index status "created" undocumented in step-02b decision tree
+- **010**: AST streaming head cap too low for full-library skills
+- **011**: Doc fetch root page heuristic too conservative
+
+---
+
+### ADDITIONAL BUGS FOUND (012-023)
+
+#### BUG 012: CRITICAL — Variable Name Mismatch: `source_root` vs `source_location`
+**Severity:** CRITICAL (Data Flow Break)
+**Affected Steps:** step-01-load-brief.md → step-02b-ccc-discover.md, step-03-extract.md
+**Issue:**
+- Step-01 loads and sets `source_location: null` (for docs-only) in context (line 66, step-01)
+- Step-02b expects `source_root` from step-01 (section 2, "Available: source_root (resolved source path) from step-01")
+- Step-03 lists available context as "source_location, file_tree from step-01" but uses `{source_root}` in section 4b when reading `{source_root}/__init__.py`
+- **Impact:** If step-02b or step-03 runs and tries to access `{source_root}`, it will be undefined. Agents strictly following the spec will fail.
+**Files:**
+- `/src/workflows/create-skill/steps-c/step-01-load-brief.md` — never sets `source_root`
+- `/src/workflows/create-skill/steps-c/step-02b-ccc-discover.md` — expects `source_root` (line ~46)
+- `/src/workflows/create-skill/steps-c/step-03-extract.md` — lists "source_location" available but uses `{source_root}` in section 4b, lines 142-143
+
+---
+
+#### BUG 013: CRITICAL — `source_root` Not Available in Step-07 Context
+**Severity:** CRITICAL (Data Flow Break)
+**Affected Step:** step-07-generate-artifacts.md, section 5b
+**Issue:**
+- Step-07 context boundaries state: "Available: All compiled content from step-05, validation results from step-06"
+- Step-07 section 5b (CCC Index Registry Registration) references `{source_root}` on line 195: `path: "{source_root}"`
+- `source_root` was set in step-01 but is not passed through steps 05-06 to step-07
+- Neither metadata.json nor evidence-report.md stores the original source path
+- **Impact:** Step-07 cannot register the CCC index because `source_root` is undefined
+**Files:**
+- `/src/workflows/create-skill/steps-c/step-07-generate-artifacts.md` — lines 195 uses undefined `{source_root}`
+
+---
+
+#### BUG 014: Variable Name Inconsistency — `extraction_mode` vs `source_type`
+**Severity:** HIGH (Conditional Logic Break)
+**Affected Steps:** step-03b-fetch-temporal.md, step-04-enrich.md
+**Issue:**
+- Step-03-extract sets `extraction_mode: "docs-only"` in context (section 3, step-03-extract.md)
+- Step-03b-fetch-temporal checks `extraction_mode: "docs-only"` (line 46)
+- Step-04-enrich reports references to `extraction_mode: 'docs-only'` in the message template (line 73)
+- But the brief contains `source_type: "docs-only"`, not `extraction_mode`
+- **Impact:** If step-03 doesn't set `extraction_mode`, step-03b and step-04 will see undefined variable
+**Files:**
+- `/src/workflows/create-skill/steps-c/step-03-extract.md` — sets `extraction_mode: "docs-only"` (line 77)
+- `/src/workflows/create-skill/steps-c/step-03b-fetch-temporal.md` — references `extraction_mode: "docs-only"` (line 46)
+- `/src/workflows/create-skill/steps-c/step-04-enrich.md` — references `extraction_mode is 'docs-only'` (line 73, in message template)
+
+---
+
+#### BUG 015: Missing `source_commit` Resolution Protocol
+**Severity:** MEDIUM (Missing Data)
+**Affected Steps:** step-01-load-brief.md → step-05-compile.md, step-08-report.md
+**Issue:**
+- Step-01 loads source but never extracts `source_commit` (git commit hash)
+- Step-05-compile expects to set `source_commit` from "resolved source (if available)" (line 92)
+- Step-08-report displays `{commit_short}` in the summary table (line 69)
+- No step between step-01 and step-05 actually retrieves the current commit hash
+- **Impact:** metadata.json gets no source_commit value, evidence-report shows "unknown", audit-skill cannot identify which commit was compiled
+**Files:**
+- `/src/workflows/create-skill/steps-c/step-01-load-brief.md` — section 4 never resolves commit
+- `/src/workflows/create-skill/steps-c/step-05-compile.md` — line 92 expects `source_commit` to exist
+
+---
+
+#### BUG 016: CCC Collection Registry Deduplication Logic Unclear
+**Severity:** MEDIUM (Logic Gap)
+**Affected Step:** step-07-generate-artifacts.md, section 5b
+**Issue:**
+- Step-07 section 5b says "Deduplicate by `source_repo` + `skill_name` (NOT local `path`, which may be ephemeral)"
+- But the registry entry uses `path: "{source_root}"` which might change across runs
+- No guidance on how to handle multiple compilations from different local paths pointing to the same remote repo
+- **Impact:** CCC registry could accumulate duplicate entries or overwrite valid ones
+**File:**
+- `/src/workflows/create-skill/steps-c/step-07-generate-artifacts.md` — section 5b, lines 189-199
+
+---
+
+#### BUG 017: Missing Fallback for Non-GitHub Local Sources in Step-03b
+**Severity:** MEDIUM (Incomplete Error Handling) — Related to Issue 008
+**Affected Step:** step-03b-fetch-temporal.md
+**Issue:**
+- Section 1 eligibility check skips if source is a local path
+- No guidance on what happens if it's a local clone of a Gitea, GitLab, or other VCS repo
+- Issue 008 addresses GitHub remotes, but other VCS systems are still unhandled
+- **Impact:** Non-GitHub VCS repos always skip temporal fetching even if accessible
+**File:**
+- `/src/workflows/create-skill/steps-c/step-03b-fetch-temporal.md` — section 1 eligibility
+
+---
+
+#### BUG 018: Inconsistent QMD Collection Type Handling in Step-04
+**Severity:** MEDIUM (Documentation Gap)
+**Affected Step:** step-04-enrich.md, section 2
+**Issue:**
+- Step-04 section 2 lists collection types to search: `"temporal"` and `"docs"`
+- But it explicitly excludes `"extraction"` and `"brief"` type collections
+- If step-07 creates `{name}-extraction` collection in Deep tier, step-04 won't know to exclude it from the second run's enrichment
+- **Impact:** Unclear whether a fresh extraction collection should be indexed for re-enrichment in subsequent runs
+**File:**
+- `/src/workflows/create-skill/steps-c/step-04-enrich.md` — section 2, line 69
+
+---
+
+#### BUG 019: `top_exports` Field Not Guaranteed to Exist in Extraction Inventory
+**Severity:** MEDIUM (Defensive Programming Gap)
+**Affected Steps:** step-03b-fetch-temporal.md, step-05-compile.md
+**Issue:**
+- Step-03 section 5 says to build `top_exports[]` "sorted list of the top 10-20 public API function names"
+- Step-03b section 3b says "If `extraction_mode: "docs-only"` or `top_exports` is absent/empty, skip targeted searches silently"
+- But the extraction inventory building in step-03 section 5 doesn't specify WHERE in the inventory this field lives (root level? under stats?)
+- **Impact:** Step-03b cannot reliably check for `top_exports` if inventory structure is ambiguous
+**Files:**
+- `/src/workflows/create-skill/steps-c/step-03-extract.md` — section 5, line 179
+- `/src/workflows/create-skill/steps-c/step-03b-fetch-temporal.md` — section 3b, line 46
+
+---
+
+#### BUG 020: Missing Timestamp Update in CCC Registry
+**Severity:** LOW (Metadata Gap)
+**Affected Step:** step-07-generate-artifacts.md, section 5b
+**Issue:**
+- The ccc_index_registry entry includes `indexed_at: "{current ISO date}"` but step-01b already wrote `last_indexed` to `ccc_index` state
+- Inconsistent naming and timing — when is `ccc_index.last_indexed` updated vs when is `ccc_index_registry[].indexed_at` updated?
+- **Impact:** Audit trail is confusing; cache invalidation logic in step-03b may not work correctly
+**File:**
+- `/src/workflows/create-skill/steps-c/step-07-generate-artifacts.md` — section 5b
+- `/src/workflows/setup-forge/steps-c/step-02-write-config.md` — compare `ccc_index.last_indexed` vs `ccc_index_registry[].indexed_at` semantics
+
+---
+
+#### BUG 021: QMD Collection Cache Check Uses Wrong Deduplication Key
+**Severity:** MEDIUM (Logic Error)
+**Affected Step:** step-03b-fetch-temporal.md, section 2
+**Issue:**
+- Cache check: "Look for a `qmd_collections` entry where `skill_name` matches the current brief AND `type` is `"temporal"`"
+- But if a skill is recompiled with a different `source_repo` (e.g., source moved), the old collection won't be detected as a cache hit
+- A skill_name could theoretically have multiple entries for different source_repos
+- **Impact:** Cache logic may regenerate temporal collections unnecessarily or miss stale entries
+**File:**
+- `/src/workflows/create-skill/steps-c/step-03b-fetch-temporal.md` — section 2, lines 68-74
+
+---
+
+#### BUG 022: Step-06 Validation References Undefined `{staging-skill-dir}`
+**Severity:** LOW (Path Resolution Gap)
+**Affected Step:** step-06-validate.md, sections 2-5
+**Issue:**
+- Step-06 assumes a staging directory exists with path `{staging-skill-dir}` or `<staging-skill-dir>`
+- Step-05 mentions staging writes to `_bmad-output/{name}/` but step-06 doesn't define where this is
+- The `skill-check` command expects a skill directory structure, but step-05 and step-06 don't clearly document the staging directory layout
+- **Impact:** Implementation ambiguity about where validate operates and whether it modifies files that step-07 will use
+**Files:**
+- `/src/workflows/create-skill/steps-c/step-05-compile.md` — mentions staging but doesn't define path variable
+- `/src/workflows/create-skill/steps-c/step-06-validate.md` — sections 2-5 reference `<staging-skill-dir>` without defining it
+
+---
+
+#### BUG 023: Missing Guidance on Zero-Export Source-Mode Skills
+**Severity:** MEDIUM (Edge Case Handling)
+**Affected Steps:** step-03-extract.md → step-04 → step-05 → step-08
+**Issue:**
+- Docs-only mode (source_type: "docs-only") is handled with empty extraction inventory + T3 content from doc-fetch
+- But if a source-mode skill finds zero exports (e.g., pure-Python infrastructure repo, no public exports), there's no documented flow
+- Can a skill compile with zero exports? Will step-05 assemble empty SKILL.md? Will step-06 or step-08 reject it?
+- **Impact:** Agents might halt unexpectedly or produce invalid skills when source repos have no public exports
+**File:**
+- `/src/workflows/create-skill/steps-c/step-03-extract.md` — section 6 presentation, no guidance on zero-export handling for source mode
+
+---
+
+## SUMMARY TABLE
+
+| Issue | Severity | Category | Impact | Files |
+|-------|----------|----------|--------|-------|
+| 007 (TODO) | MEDIUM | Version Resolution | SKF version always "unknown" | step-05, evidence-report |
+| 008 (TODO) | HIGH | Temporal Fetch | No temporal context for local repos | step-03b |
+| 009 (TODO) | LOW | CCC Status | Undocumented status value | step-02b |
+| 010 (TODO) | MEDIUM | AST Extraction | Large skills get truncated exports | step-03, extraction-patterns |
+| 011 (TODO) | LOW | Doc Fetch | Root pages miss subpage discovery | step-03c |
+| 012 | CRITICAL | Variable Naming | `source_root` vs `source_location` mismatch | step-01, step-02b, step-03 |
+| 013 | CRITICAL | Data Flow | `source_root` not available in step-07 | step-07 |
+| 014 | HIGH | Variable Naming | `extraction_mode` vs `source_type` inconsistency | step-03, step-03b, step-04 |
+| 015 | MEDIUM | Missing Protocol | No commit hash extraction | step-01, step-05, step-08 |
+| 016 | MEDIUM | Logic Gap | CCC deduplication unclear | step-07 |
+| 017 | MEDIUM | Error Handling | Non-GitHub VCS repos unhandled | step-03b |
+| 018 | MEDIUM | Documentation | QMD collection type filtering unclear | step-04 |
+| 019 | MEDIUM | Defensive Code | `top_exports` field location ambiguous | step-03, step-03b, step-05 |
+| 020 | LOW | Metadata Gap | Inconsistent timestamp fields | step-07, setup-forge |
+| 021 | MEDIUM | Logic Error | Cache deduplication incomplete | step-03b |
+| 022 | LOW | Path Resolution | Staging directory path undefined | step-05, step-06 |
+| 023 | MEDIUM | Edge Case | No guidance for zero-export source skills | step-03 → step-08 |
+
+---
+
+## CRITICAL PATH ITEMS (Must Fix Before Release)
+1. **Bug 012** — Variable naming breaks step-02b and step-03
+2. **Bug 013** — Variable missing breaks step-07 CCC registration
+3. **Bug 014** — Variable inconsistency breaks docs-only conditional logic
+4. **Bug 015** — No commit extraction blocks reproducibility
+
+All other bugs are medium-to-low severity with graceful degradation paths, but these four are **blocking** workflow execution.</result>
+<usage><total_tokens>142070</total_tokens><tool_uses>67</tool_uses><duration_ms>230913</duration_ms></usage>
+</task-notification>
+
+---
+
+commit

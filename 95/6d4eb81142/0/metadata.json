@@ -1,0 +1,41 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "956d4eb81142",
+  "session_id": "83bc4309-168a-405c-b722-7ab376885b10",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-28T11:39:11.112945614Z",
+  "branch": "dev",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/knowledge/qmd-registry.md",
+    "src/workflows/create-skill/data/extraction-patterns.md",
+    "src/workflows/create-skill/data/source-resolution-protocols.md",
+    "src/workflows/create-skill/steps-c/step-01-load-brief.md",
+    "src/workflows/create-skill/steps-c/step-02b-ccc-discover.md",
+    "src/workflows/create-skill/steps-c/step-03-extract.md",
+    "src/workflows/create-skill/steps-c/step-03b-fetch-temporal.md",
+    "src/workflows/create-skill/steps-c/step-03c-fetch-docs.md",
+    "src/workflows/create-skill/steps-c/step-05-compile.md",
+    "src/workflows/create-skill/steps-c/step-07-generate-artifacts.md",
+    "src/workflows/quick-skill/steps-c/step-04-compile.md",
+    "tools/cli/lib/installer.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "80f5da232ea2",
+  "token_usage": {
+    "input_tokens": 71,
+    "cache_creation_tokens": 130129,
+    "cache_read_tokens": 5386847,
+    "output_tokens": 24926,
+    "api_call_count": 60
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-28T11:39:10.591663007Z",
+    "agent_lines": 72,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 72,
+    "agent_percentage": 100
+  }
+}
