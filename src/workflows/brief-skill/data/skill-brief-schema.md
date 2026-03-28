@@ -106,6 +106,21 @@ Scope: {scope.type}
   Exclude: {scope.exclude patterns, one per line}
   Notes:   {scope.notes}
 
+{If source_type is "docs-only":}
+Source Type: docs-only
+Doc URLs:
+  {doc_urls, one per line with labels}
+
+{If source_type is "source" AND supplemental doc_urls collected:}
+Supplemental Docs:
+  {doc_urls, one per line with labels}
+
+{If scripts_intent or assets_intent was explicitly set (not default "detect"):}
+Scripts:    {scripts_intent}
+Assets:     {assets_intent}
+
+Source Authority: {source_authority}
+
 Version:    {version}
 Created:    {created}
 Created by: {created_by}

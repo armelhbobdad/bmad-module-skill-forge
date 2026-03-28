@@ -100,7 +100,12 @@ Following the structure from the skill-sections data file:
 - Set `description` from the SKILL.md frontmatter `description` field (already assembled in section 2)
 - Set `language` from source analysis (e.g., `"typescript"`, `"python"`) — use the primary language of the entry point file
 - Set `ast_node_count` from extraction stats if ast-grep was used (Forge/Deep tier), otherwise omit
-- Set `tool_versions` based on tier and available tools. Resolve `{skf_version}` from the installed module's `package.json` at `{project-root}/_bmad/skf/package.json`. If unresolvable there, fall back to `node -p "require('./node_modules/bmad-module-skill-forge/package.json').version"`. If still unresolvable, use `"unknown"` and add a warning to the evidence report. Never hardcode the version.
+- Set `tool_versions` based on tier and available tools. Resolve `{skf_version}` using this resolution chain (try each in order, use the first that succeeds):
+  1. `{project-root}/_bmad/skf/package.json` → read `.version` field
+  2. `node -p "require('./node_modules/bmad-module-skill-forge/package.json').version"`
+  3. `{project-root}/_bmad/skf/VERSION` → read plain text file (single line containing version string, written by the SKF installer)
+  4. `"unknown"` (final fallback — add a warning to the evidence report)
+  Never hardcode the version.
 - Store `commit_short` = first 8 characters of `source_commit` (or `"unknown"` if unavailable) for use in step-08 report.
 - If `scripts_inventory` is non-empty, populate `scripts[]` array and set `stats.scripts_count`. If `assets_inventory` is non-empty, populate `assets[]` array and set `stats.assets_count`. Omit these fields entirely when inventories are empty.
 

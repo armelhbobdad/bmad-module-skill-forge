@@ -40,7 +40,12 @@ qmd_collections:
     source_workflow: "brief-skill"
     skill_name: "my-lib"
     created_at: "2026-03-14"
+    # status: "pending"    # Optional — see below
 ```
+
+**Optional field: `status`**
+
+The `status` field is only present when QMD embed verification fails during collection creation. When `status: "pending"` is set, the collection exists in QMD but vector embeddings may be incomplete — only BM25 keyword `search` is reliable. `vector_search` and `deep_search` may return no results until re-embedded. Collections without a `status` field are fully operational. The setup-forge janitor should flag `"pending"` collections for re-embedding.
 
 ### Collection Types
 

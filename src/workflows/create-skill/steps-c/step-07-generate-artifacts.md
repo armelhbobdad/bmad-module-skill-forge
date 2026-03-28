@@ -43,7 +43,7 @@ To write all compiled content to disk — 4 deliverable files to `{skills_output
 
 ## CONTEXT BOUNDARIES:
 
-- Available: All compiled content from step-05, validation results from step-06
+- Available: All compiled content from step-05, validation results from step-06, source_root from step-01 (needed for section 5b CCC registration)
 - Focus: File system operations — create directories, write files
 - Limits: Do NOT modify content during writing
 - Dependencies: All content must be compiled and validated in context

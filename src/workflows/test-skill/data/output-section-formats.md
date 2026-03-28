@@ -17,6 +17,21 @@
 **Structural Issues:** {count}
 ```
 
+## Coherence Analysis — Naive Mode: Reference Consistency (split-body)
+
+Only rendered when `references/` directory exists alongside SKILL.md.
+
+```markdown
+### Reference Consistency (split-body)
+
+| # | Reference File | Export | Issue | SKILL.md Line | Reference Line |
+|---|---------------|--------|-------|---------------|---------------|
+| {per-mismatch rows} |
+
+**Exports Cross-Checked:** {count}
+**Mismatches Found:** {count}
+```
+
 ## Coherence Analysis — Contextual Mode
 
 ```markdown

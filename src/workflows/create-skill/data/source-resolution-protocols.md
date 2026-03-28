@@ -102,7 +102,7 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
 
    After checkout, apply the original glob `include_patterns` as file-level filters when building the extraction file list — sparse-checkout gets the right directories, glob filtering narrows to the exact files. When `--no-cone` mode was used, most exclude filtering is already done at the git level, but apply `exclude_patterns` as a final pass to catch any edge cases where gitignore pattern matching diverges from the brief's glob semantics. Always-included root files (see above) are exempt from post-checkout filtering.
 
-3. **If clone succeeds:** Update the working source path to `{temp_path}` for all subsequent AST operations in this step. Proceed with the **Forge/Deep Tier** extraction strategy below. Mark `ephemeral_clone_active = true` for cleanup.
+3. **If clone succeeds:** Update the working source path to `{temp_path}` for all subsequent AST operations in this step. Capture the source commit: `git -C {temp_path} rev-parse HEAD` — store as `source_commit` in context. Proceed with the **Forge/Deep Tier** extraction strategy below. Mark `ephemeral_clone_active = true` for cleanup.
 
 4. **If clone fails (network error, auth failure, timeout):**
 
@@ -113,6 +113,20 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
    Proceed with Quick tier extraction strategy below. Note the degradation reason in context for the evidence report.
 
 **Ephemeral clone cleanup:** After extraction is complete for all files in scope (whether successful or partially failed), before presenting the Gate 2 summary (Section 6), if `ephemeral_clone_active`, delete the `{temp_path}` directory. Log: "Ephemeral source clone cleaned up." This ensures cleanup runs even if some extractions failed, as long as the step itself is still executing. **If any error halts the extraction step before Gate 2 is reached**, cleanup must still occur: attempt to delete `{temp_path}` before halting. Log the cleanup attempt regardless of success.
+
+---
+
+## Source Commit Capture (all tiers, source mode only)
+
+**If `source_type: "docs-only"`:** skip — set `source_commit: null`.
+
+After the source path is accessible, capture the current commit hash for provenance tracking:
+
+- **Local path:** `git -C {source_root} rev-parse HEAD` — if the path is a git repo
+- **Ephemeral clone (Forge/Deep):** already captured during clone (step 3 above)
+- **Quick tier (remote, no clone):** `gh api repos/{owner}/{repo}/commits/{branch} --jq '.sha'`
+
+Store the result as `source_commit` in context. If capture fails (not a git repo, API unavailable), set `source_commit: null` — this is not an error.
 
 ---
 

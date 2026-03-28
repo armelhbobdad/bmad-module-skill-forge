@@ -185,6 +185,10 @@ class Installer {
         await fs.copy(src, path.join(skfDir, file));
       }
     }
+
+    // Write VERSION file for SKF version resolution in installed projects
+    const packageJson = require('../../../package.json');
+    await fs.writeFile(path.join(skfDir, 'VERSION'), packageJson.version, 'utf8');
   }
 
   /**

@@ -90,6 +90,20 @@ Wait for confirmation. Then skip to section 5 (Summarize Scope Decisions) with:
 
 **If `source_type: "source"` (default):** Continue to scope templates below.
 
+### 2c. Confirm Supplemental Documentation (if doc_urls collected)
+
+**If `source_type: "source"` AND supplemental `doc_urls` were collected in step 01:**
+
+"**Supplemental documentation URLs:**
+{numbered list of collected doc_urls with labels}
+
+These will be included as T3 external references in the skill brief.
+Add, remove, or confirm these URLs."
+
+Wait for confirmation. Record any changes to `doc_urls`.
+
+**If no supplemental doc_urls were collected:** Skip this subsection.
+
 ### 2b. Offer Scope Templates
 
 Load `{scopeTemplatesFile}` for the scope type options ([F], [M], [P]) and their descriptions.

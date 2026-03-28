@@ -87,19 +87,36 @@ scope:
   exclude:
     - "{approved exclude patterns}"
   notes: "{approved scope notes or empty string}"
-# Include doc_urls when source_type is "docs-only" or when supplemental doc URLs were provided
-# doc_urls:
-#   - url: "{documentation URL}"
-#     label: "{page label}"
-# scripts_intent: detect         # Optional: detect | none | description of expected scripts
-# assets_intent: detect          # Optional: detect | none | description of expected assets
-# source_authority: community    # Optional: official | community | internal
 ---
 ```
 
-**If `source_type: "docs-only"`:** Include `doc_urls` array (required). `source_repo` may be set to the doc site URL for reference or omitted. `source_authority` must be `community`.
+**Conditional optional field inclusion:**
 
-**If `doc_urls` were collected during scope definition (supplemental mode):** Include the `doc_urls` array even when `source_type: "source"`.
+**If `source_type: "docs-only"` OR supplemental `doc_urls` were collected:**
+Include the `doc_urls` array (uncommented) in the generated YAML:
+```yaml
+doc_urls:
+  - url: "{documentation URL}"
+    label: "{page label}"
+```
+When `source_type: "docs-only"`: `doc_urls` is required (at least one entry), `source_repo` may be set to the doc site URL for reference or omitted.
+
+**If `scripts_intent` was collected and is not the default `"detect"`:**
+Include the `scripts_intent` field (uncommented):
+```yaml
+scripts_intent: "{none or description}"
+```
+
+**If `assets_intent` was collected and is not the default `"detect"`:**
+Include the `assets_intent` field (uncommented):
+```yaml
+assets_intent: "{none or description}"
+```
+
+**Always include** `source_authority` (default: `"community"`, forced to `"community"` when `source_type: "docs-only"`):
+```yaml
+source_authority: "{official|community|internal}"
+```
 
 ### 4. Write the File
 
@@ -128,6 +145,13 @@ qmd collection add {forge_data_folder}/{skill-name} --name {skill-name}-brief --
 qmd embed
 ```
 
+**Embed verification:**
+
+After `qmd embed` completes, verify the collection was embedded:
+- Run `qmd status` or `qmd collection list` and confirm `{skill-name}-brief` shows document count > 0
+- If verification succeeds: proceed to registry update normally
+- If verification fails: log warning "QMD embed verification failed for {skill-name}-brief — collection may not be searchable yet", still proceed to registry update but add `status: "pending"` field to the registry entry
+
 **Registry update:**
 
 Read `{sidecar_path}/forge-tier.yaml` and update the `qmd_collections` array.
@@ -140,6 +164,7 @@ If an entry with `name: "{skill-name}-brief"` already exists, replace it. Otherw
     source_workflow: "brief-skill"
     skill_name: "{skill-name}"
     created_at: "{current ISO date}"
+    # status: "pending"    # Added only when embed verification fails
 ```
 
 Write the updated forge-tier.yaml.

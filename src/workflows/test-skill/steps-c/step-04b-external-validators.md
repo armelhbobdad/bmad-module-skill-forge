@@ -60,7 +60,15 @@ Read {outputFile} frontmatter to get the skill directory path (`skillDir`).
 
 Before running external validators, check if `{forge_data_folder}/{skill_name}/evidence-report.md` contains validation results (a `## Validation Results` section with quality scores).
 
-**Staleness check:** Compare the evidence report's generation date against SKILL.md's last-modified timestamp (or `metadata.json` `generation_date`). If SKILL.md was modified after the evidence report was generated (e.g., after update-skill), the cached results are stale — skip auto-reuse and proceed to section 2 for a fresh run.
+**Staleness check:** Determine whether SKILL.md has changed since the evidence report was generated.
+
+**Primary (git-tracked):** Run `git log -1 --format=%cI -- {skillDir}/SKILL.md` to get the last commit date of SKILL.md. Compare against the evidence report's generation date (from its frontmatter or the `## Validation Results` timestamp). If SKILL.md's last commit is newer, results are stale.
+
+**Secondary (uncommitted changes):** Run `git diff --name-only -- {skillDir}/SKILL.md`. If output is non-empty, SKILL.md has uncommitted changes — treat results as stale regardless of commit dates.
+
+**Fallback (non-git environments):** If git commands fail (not a git repository), fall back to `metadata.json` `generation_date` comparison with a warning: "Staleness check using metadata.json — may be identical to evidence report timestamp. Consider a git-tracked directory for reliable staleness detection."
+
+If SKILL.md was modified after the evidence report was generated (e.g., after update-skill), the cached results are stale — skip auto-reuse and proceed to section 2 for a fresh run.
 
 If recent, non-stale results exist (from a create-skill run that just completed), auto-reuse them — skip re-running validators and use the existing scores. Record: "External validation: reused from create-skill evidence report." Skip to section 5 (append results).
 

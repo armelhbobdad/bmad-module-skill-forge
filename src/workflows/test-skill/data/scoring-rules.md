@@ -42,6 +42,18 @@ tessl evaluates SKILL.md body content only — it does not read `references/*.md
 - Score based on: structural completeness only
 - Weight redistribution: skipped categories' weights (Signature Accuracy 22% + Type Coverage 14%) redistributed proportionally to remaining active categories
 
+### Docs-Only Mode (Quick tier, all [EXT:...] citations)
+
+When `docs_only_mode: true` is set by step-03 (indicating a Quick tier skill where all SKILL.md citations are `[EXT:...]` format with no local source code):
+
+- **Signature Accuracy:** Not scored (no source to compare against)
+- **Type Coverage:** Not scored (no source to compare against)
+- **Weight redistribution:** Same as Quick tier — Signature Accuracy (22%) and Type Coverage (14%) weights redistributed proportionally to remaining active categories
+- **Export Coverage basis:** Documentation completeness rather than source coverage. Score = (documented_items_with_complete_descriptions / total_documented_items) * 100. A "complete" item has: description, parameters (if function/method), and return type (if function/method).
+- **Coherence:** Standard rules for the detected mode (naive or contextual) apply unchanged
+
+This is functionally identical to Quick tier weight redistribution but with a different coverage denominator (self-consistency instead of source comparison).
+
 ### Forge Tier (ast-grep)
 - Export Coverage: AST-backed export comparison
 - Signature Accuracy: AST-verified signature matching

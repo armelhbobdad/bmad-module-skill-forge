@@ -87,6 +87,38 @@ Build the **documented inventory** — a list of everything the SKILL.md claims 
 
 **Split-body traversal:** If a `references/` directory exists alongside SKILL.md and SKILL.md's `## Full` headings are absent or stubs (not a stack skill's structural references), extend the documented inventory scan to include all `references/*.md` files. After split-body, Tier 2 content (Full API Reference, Full Type Definitions) lives in reference files — the inventory must reflect the full skill content regardless of where it resides.
 
+### 1b. Cross-Check Split-Body Consistency
+
+**Only execute if a `references/` directory exists alongside SKILL.md** (detected during split-body traversal in Section 1). Skip silently otherwise.
+
+For each function, class, type, or interface that appears in BOTH the SKILL.md body AND any `references/*.md` file, compare the documented signatures:
+
+- **Parameters:** name, type, order, optionality
+- **Return types:** exact type match
+- **Description:** no contradictions (brief vs detailed is acceptable; conflicting semantics is not)
+
+**SKILL.md body is authoritative.** When a mismatch is found, the reference file is the one that needs updating.
+
+Build a split-body consistency findings list:
+
+```json
+{
+  "cross_check_mismatches": [
+    {
+      "export": "formatDate",
+      "skill_md_line": 42,
+      "reference_file": "references/api-reference.md",
+      "reference_line": 18,
+      "issue": "SKILL.md shows (date: Date) => string, reference shows (date: Date, format?: string) => string"
+    }
+  ],
+  "exports_cross_checked": 12,
+  "mismatches_found": 1
+}
+```
+
+Flag each mismatch as **High severity** — signature inconsistency between SKILL.md body and reference files undermines agent trust. These findings feed into the gap report (step-06).
+
 ### 2. Analyze Source Code (Tier-Dependent)
 
 Start from the package entry point (see 0b) and identify the public API surface. Then analyze those exports at the appropriate tier depth.
@@ -181,11 +213,13 @@ Append the **Coverage Analysis** section to `{outputFile}`:
 
 ### Category Scores
 
-| Category | Score | Weight | Weighted |
-|----------|-------|--------|----------|
-| Export Coverage | {N}% | {weight}% | {weighted}% |
-| Signature Accuracy | {N}% | {weight}% | {weighted}% |
-| Type Coverage | {N}% | {weight}% | {weighted}% |
+| Category | Score |
+|----------|-------|
+| Export Coverage | {N}% |
+| Signature Accuracy | {N}% or N/A |
+| Type Coverage | {N}% or N/A |
+
+Note: Weight application is deferred to step-05 where all category weights are calculated after external validation availability is known.
 ```
 
 ### 6. Report Coverage Results

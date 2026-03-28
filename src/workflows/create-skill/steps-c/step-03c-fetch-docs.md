@@ -85,14 +85,20 @@ Content fetched from external URLs is classified as **T3** (external, untrusted)
 
 After fetching a URL, apply the following heuristic to detect documentation root pages that contain no useful API content. This is common with modern documentation sites (Mintlify, Docusaurus, ReadTheDocs, GitBook) that render API content on subpages.
 
-**Root page detection heuristic — apply only when the URL path ends in `/`, `/index`, `/index.html`, has no path component (bare domain), or has 1 path segment (e.g., `/docs`). For deeper URL paths (2+ segments like `/api/reference`), skip this heuristic and keep the content as-is.**
+**Root page detection — apply only when the URL path ends in `/`, `/index`, `/index.html`, has no path component (bare domain), or has 1 path segment (e.g., `/docs`). For deeper URL paths (2+ segments like `/api/reference`), skip this heuristic and keep the content as-is.**
 
-**A page is classified as a root if BOTH conditions are true:**
+Subpage discovery is triggered if **either** of the following independent triggers fires:
+
+**Trigger 1 — Content-based (both conditions must be true):**
 
 1. **Zero API content indicators:** The fetched markdown contains none of: fenced code blocks (`` ``` ``), parameter tables (`|---|`), or function signature patterns (`def `, `function `, `fn `, `func `, `export `).
 2. **High link density:** More than 70% of non-empty lines are markdown links (matching `[text](url)` with no other substantive content on the line).
 
-If only one condition is true, treat the page as having partial content — keep it as-is and do NOT trigger subpage discovery.
+**Trigger 2 — URL-based (independent of content analysis):**
+
+The URL matches the path criteria above (ends in `/`, bare domain, or 1 segment) AND the fetched content is under **2000 words**. Short content on root-like URLs almost certainly indicates a navigation hub or landing page, even if it contains introductory code examples that would prevent Trigger 1 from firing. This handles modern doc sites (Mintlify, Docusaurus, GitBook) that include hero sections with code snippets on their root pages.
+
+If neither trigger fires, keep the page content as-is and do NOT trigger subpage discovery.
 
 **If a root URL with minimal content is detected:**
 

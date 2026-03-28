@@ -145,7 +145,7 @@ Generate metadata.json following the exact structure defined in {skillTemplateDa
   "tool_versions": {
     "ast_grep": null,
     "qmd": null,
-    "skf": "{skf_version}"
+    "skf": "{skf_version}"   // Resolution chain: _bmad/skf/package.json → npm require → _bmad/skf/VERSION → "unknown"
   },
   "stats": {
     "exports_documented": "{number of exports found}",

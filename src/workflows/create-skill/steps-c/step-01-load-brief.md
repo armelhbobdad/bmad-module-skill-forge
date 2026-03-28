@@ -111,16 +111,16 @@ Halt with specific error: "Brief validation failed: missing required field `{fie
 
 ### 4. Resolve Source Code Location
 
-**If `source_type: "docs-only"`:** Skip source resolution. Set `source_location: null` in context. Proceed directly to section 5 (Report Initialization) — docs-only skills have no source to resolve.
+**If `source_type: "docs-only"`:** Skip source resolution. Set `source_root: null` in context. Proceed directly to section 5 (Report Initialization) — docs-only skills have no source to resolve.
 
 **If source_repo is a GitHub URL or owner/repo format:**
 - Verify repository exists via `gh_bridge.list_tree(owner, repo, branch)` — **Tool resolution:** `gh api repos/{owner}/{repo}/git/trees/{branch}?recursive=1` or direct file listing if local; see [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md)
 - If branch not specified, detect default branch
-- Store resolved: owner, repo, branch, file tree
+- Store resolved: owner, repo, branch, file tree — note: `source_root` for remote repos is set to the ephemeral clone path during extraction (step-03)
 
 **If source_repo is a local path:**
 - Verify path exists and contains source files
-- Store resolved: local path, file listing
+- Store resolved: local path as `source_root`, file listing
 
 **If source cannot be resolved:**
 Halt with: "Source not found: `{source_repo}`. Verify the repository exists and is accessible."
@@ -170,7 +170,7 @@ ONLY WHEN forge-tier.yaml is loaded, skill-brief.yaml is validated, and source c
 
 - Forge tier loaded from sidecar with tool availability
 - Skill brief loaded and all required fields validated
-- Source code location resolved and accessible (or `source_location: null` confirmed for docs-only skills)
+- Source code location resolved and accessible (or `source_root: null` confirmed for docs-only skills)
 - Initialization summary displayed with tier and capabilities
 - Auto-proceeded to step-02
 

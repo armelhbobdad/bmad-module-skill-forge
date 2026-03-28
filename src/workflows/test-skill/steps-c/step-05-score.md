@@ -64,6 +64,8 @@ Load `{scoringRulesFile}` to get:
 - Tier-dependent scoring adjustments
 - Any custom threshold override from workflow input
 
+**Docs-only mode check:** If the Coverage Analysis section in `{outputFile}` notes docs-only mode (set by step-03 for skills with all `[EXT:...]` citations and no local source), apply Quick-tier weight redistribution: Signature Accuracy and Type Coverage are not scored, their weights (22% + 14%) are redistributed proportionally to remaining active categories. Coverage score is based on documentation completeness rather than source coverage (as calculated by step-03).
+
 ### 2. Read Category Scores from Output
 
 Read `{outputFile}` and extract the category scores calculated in previous steps:

@@ -57,10 +57,25 @@ To fetch temporal context (issues, PRs, changelogs, release notes) from the sour
 Evaluate the following conditions sequentially. **If ANY condition fails, skip silently to section 5 (auto-proceed) with no output:**
 
 1. **Tier is Deep:** If tier is Quick, Forge, or Forge+, skip silently.
-2. **Source is GitHub:** Verify `source_repo` is a GitHub URL (`https://github.com/...`) or `owner/repo` format. If the source is a local path, a non-GitHub URL, or any other format, skip silently.
+2. **Source is GitHub:** Verify `source_repo` is a GitHub URL (`https://github.com/...`) or `owner/repo` format. If the source is a local path, a non-GitHub URL, or any other format, attempt GitHub remote detection (section 1b) before skipping.
 3. **`gh` CLI is available:** Run `gh auth status` to verify the CLI is installed and authenticated. If it fails, skip silently.
 
 All three conditions must pass to proceed to section 2.
+
+### 1b. GitHub Remote Detection for Local Sources
+
+**Only runs when condition 2 above fails because `source_repo` is a local path.**
+
+Local repositories that are clones of GitHub repos contain temporal context (issues, PRs, releases) accessible via `gh`. Detect this automatically:
+
+1. Check if the local path is a git repository: `git -C {source_repo} rev-parse --is-inside-work-tree`
+2. If not a git repo: skip silently to section 5 (current behavior).
+3. Extract the origin remote: `git -C {source_repo} remote get-url origin`
+4. If the remote URL contains `github.com`:
+   - Extract `owner/repo` from the remote URL (strip `.git` suffix, handle both HTTPS and SSH formats)
+   - Log: "**Local source with GitHub remote detected:** {owner}/{repo} — fetching temporal context."
+   - Use the extracted `owner/repo` for all `gh` API calls in sections 3-4. Continue to condition 3 (gh CLI check).
+5. If no remote, or remote is not GitHub: skip silently to section 5 (current behavior).
 
 ### 2. Check Cache (Skip If Fresh)
 

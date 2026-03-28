@@ -168,12 +168,19 @@ find_code_by_rule(
 
 When MCP tools are unavailable or the repo exceeds 500 files in scope, use `--json=stream` (NEVER `--json` or `--json=pretty`) with line-by-line Python processing:
 
+**Head cap selection:** The `| head -N` cap at the end of the pipeline controls how many exports are captured. Select `N` based on scope and tier:
+- **Default (Quick/Forge, any scope):** `N = 200`
+- **Forge+/Deep with `scope.type: "full-library"`:** `N = 500`
+
+For full-library skills at higher tiers, the larger cap prevents silently dropping internal module exports that maintainers need. The cap is applied AFTER exclude-pattern filtering, so useful results are not wasted on excluded files.
+
 ```bash
 # Note: use $$$ for variadic params in ast-grep patterns (e.g., 'def $NAME($$$PARAMS)')
 # {exclude_patterns} = Python list from brief's scope.exclude, e.g. ['tests/**', '**/test_*']
 # If scope.exclude is absent or empty in the brief, inject [] as the default.
 # Patterns are matched against the full file path as emitted by ast-grep.
 # Ensure paths are relative to the same root as the patterns (strip ./ prefix if needed).
+# {HEAD_CAP} = 200 (default) or 500 (Forge+/Deep full-library) — see head cap selection above.
 ast-grep -p '{pattern}' -l {language} --json=stream {path} | python3 -c "
 import sys, json, fnmatch, signal
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
@@ -193,7 +200,7 @@ for line in sys.stdin:
             sig = m.get('text','').split(chr(10))[0].strip()
             print(f'[AST:{f}:L{ln}] {sig}')
     except: pass
-" | head -200
+" | head -{HEAD_CAP}
 ```
 
 **Critical constraints:**
@@ -201,7 +208,7 @@ for line in sys.stdin:
 - ALWAYS use `--json=stream` — never `--json` (loads entire array into memory)
 - ALWAYS process line-by-line (`for line in sys.stdin`) — never `json.load(sys.stdin)`
 - ALWAYS cap output with `| head -N` as a safety valve
-- For repos > 500 files, process in directory batches of 20-50 files each
+- For repos > 500 files, process in directory batches of 20-50 files each: split by top-level source directory, run the CLI streaming template per batch with the same head cap, then merge results and deduplicate by export name (keep the first occurrence if duplicates exist across batches)
 
 ### YAML Rule Recipes by Language
 

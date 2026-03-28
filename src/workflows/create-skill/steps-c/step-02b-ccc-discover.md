@@ -71,7 +71,7 @@ If `tools.ccc` is true, continue to section 2.
 
 Read `ccc_index` from forge-tier.yaml:
 
-- If `ccc_index.status` is `"fresh"`: continue to section 3.
+- If `ccc_index.status` is `"fresh"` or `"created"`: continue to section 3.
 - If `ccc_index.status` is `"stale"`: display brief note — "CCC index is stale — discovery results may miss recent changes." Continue to section 3.
 - If `ccc_index.status` is `"none"` or `"failed"`: attempt lazy indexing via `ccc_bridge.ensure_index(source_root)`. If indexing succeeds, continue to section 3. If indexing fails, set `{ccc_discovery: []}` and auto-proceed to section 5.
 
