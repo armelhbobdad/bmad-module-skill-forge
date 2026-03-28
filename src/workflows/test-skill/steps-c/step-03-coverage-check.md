@@ -185,6 +185,8 @@ Load `{scoringRulesFile}` to determine category scores:
 - **Signature Accuracy:** (matching_signatures / total_documented) * 100 (Forge/Deep only, "N/A" for Quick)
 - **Type Coverage:** (documented_types / total_types) * 100 (Forge/Deep only, "N/A" for Quick)
 
+**State 2 denominator validation:** When using provenance-map as the baseline (State 2), cross-reference the provenance-map entry count against `metadata.json`'s `exports[]` array before computing Export Coverage. If they diverge, use the union as the denominator per the source-access-protocol rules. Log the gap size if any.
+
 ### 5. Append Coverage Analysis to Output
 
 Append the **Coverage Analysis** section to `{outputFile}`:

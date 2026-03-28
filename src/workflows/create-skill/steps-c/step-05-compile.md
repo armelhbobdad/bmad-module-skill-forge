@@ -59,6 +59,17 @@ To assemble the complete skill content from the extraction inventory and enrichm
 
 Load `{skillSectionsData}` and `{assemblyRulesData}` completely. These define the agentskills.io-compliant format and detailed assembly rules for all output artifacts.
 
+### 1b. Signature Fidelity Rule
+
+**When assembling function signatures, parameter lists, and return types in any SKILL.md section or reference file:**
+
+- **T1 provenance-map entries (AST-extracted) are authoritative** for: function name, parameter names, parameter types, parameter order, return type, and optionality markers (e.g., `?`, `Optional`, `= default`).
+- **T2 (QMD-enriched) and T3 (doc-derived) sources may ADD** contextual descriptions, usage notes, behavioral documentation, and examples to function entries, but **MUST NOT REPLACE** structural signature data from T1 entries.
+- **On conflict:** If a T2/T3 source provides a different signature than the T1 extraction for the same export (e.g., different parameter count, different types, missing `Partial<>` wrapper), keep the T1 signature and log a warning in the evidence report: "Signature conflict for `{export_name}`: T1 shows `{t1_signature}`, T2/T3 shows `{other_signature}`. T1 used as authoritative."
+- **`signature_source` field:** Record `signature_source: "T1" | "T1-low" | "T2" | "T3"` in each provenance-map entry to indicate the highest-confidence tier that contributed the structural signature data (params, return_type). This enables test-skill to verify signature provenance.
+
+This rule applies to ALL sections including Tier 1 Key API Summary, Tier 2 Full API Reference, and Section 4b Migration & Deprecation Warnings.
+
 ### 2. Build SKILL.md Content
 
 Assemble each section in order using the assembly rules data file (`{assemblyRulesData}`). The data file specifies frontmatter format, Tier 1 section details (Sections 1-8, including conditional Section 7b for scripts/assets), Tier 2 section details (Sections 9-11), and assembly ordering rules. Follow it exactly. Assemble Section 7b (Scripts & Assets) only if `scripts_inventory` or `assets_inventory` is non-empty.
@@ -92,7 +103,7 @@ Following the structure from the skill-sections data file:
 - Set `source_commit` from resolved source (if available)
 - Set `stats` from extraction aggregate counts:
   - `exports_documented`: count of exports with documentation in the assembled SKILL.md
-  - `exports_public_api`: count of exports from public entry points (`__init__.py`, `index.ts`, `lib.rs`, or equivalent)
+  - `exports_public_api`: count of exports from public entry points (`__init__.py`, `index.ts`, `lib.rs`, or equivalent) — derive this from step-03's entry-point validation (section 4b), NOT from the provenance-map entry count (which may be incomplete if extraction patterns missed some export types)
   - `exports_internal`: count of all other non-underscore-prefixed exports (internal modules, helpers, adapters)
   - `exports_total`: `exports_public_api` + `exports_internal`
   - `public_api_coverage`: `exports_documented / exports_public_api` (1.0 when all public API exports are documented; `null` if `exports_public_api` is 0)
@@ -121,7 +132,7 @@ Group functions logically by module, file, or functional area.
 
 ### 6. Build provenance-map.json Content
 
-One entry per extracted export: export_name, export_type, params[] (typed strings), return_type, source_file, source_line, confidence tier (T1/T1-low/T2), extraction_method, ast_node_type. If `scripts_inventory` or `assets_inventory` is non-empty, add `file_entries[]` with file_name, file_type, source_file, content_hash, confidence, extraction_method. See `{skillSectionsData}` for full schema.
+One entry per extracted export: export_name, export_type, params[] (typed strings), return_type, source_file, source_line, confidence tier (T1/T1-low/T2), extraction_method, ast_node_type, signature_source ("T1"|"T1-low"|"T2"|"T3" — indicates which tier contributed the structural signature). If `scripts_inventory` or `assets_inventory` is non-empty, add `file_entries[]` with file_name, file_type, source_file, content_hash, confidence, extraction_method. See `{skillSectionsData}` for full schema.
 
 ### 7. Build evidence-report.md Content
 

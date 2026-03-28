@@ -47,7 +47,7 @@ For Quick and Forge tiers, or when ccc is unavailable, skip silently and proceed
 
 - Available: tier, tools.ccc, ccc_index from forge-tier.yaml (loaded in step-01)
 - Available: brief_data (name, scope, description) from step-01
-- Available: source_root (resolved source path) from step-01
+- Available: source_root (resolved source path) from step-01 — note: for remote sources, `source_root` may not be a local path until step-03 performs the ephemeral clone
 - Focus: Semantic discovery only — no extraction, no compilation
 - Dependencies: step-02 must have completed
 
@@ -66,6 +66,8 @@ Set `{ccc_discovery: []}` in context. Auto-proceed silently. Display no message.
 Check `tools.ccc` from forge-tier.yaml. If `tools.ccc` is false, set `{ccc_discovery: []}` in context and auto-proceed to section 5.
 
 If `tools.ccc` is true, continue to section 2.
+
+**Remote source guard:** If `source_root` is a remote URL (GitHub repository not yet cloned locally — ephemeral clone happens in step-03), CCC cannot operate. Set `{ccc_discovery: []}` and display: "CCC discovery skipped — remote source not yet available locally. CCC requires a local source index." Auto-proceed to the step completion / next step section.
 
 ### 2. Check CCC Index State
 

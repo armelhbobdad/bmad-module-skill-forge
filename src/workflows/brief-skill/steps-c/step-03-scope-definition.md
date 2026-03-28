@@ -4,8 +4,8 @@ description: 'Collaboratively define skill scope boundaries using analysis findi
 
 nextStepFile: './step-04-confirm-brief.md'
 scopeTemplatesFile: '../data/scope-templates.md'
-advancedElicitationTask: '{project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+advancedElicitationSkill: '/bmad-advanced-elicitation'
+partyModeSkill: '/bmad-party-mode'
 ---
 
 # Step 3: Scope Definition
@@ -90,7 +90,7 @@ Wait for confirmation. Then skip to section 5 (Summarize Scope Decisions) with:
 
 **If `source_type: "source"` (default):** Continue to scope templates below.
 
-### 2c. Confirm Supplemental Documentation (if doc_urls collected)
+### 2b. Confirm Supplemental Documentation (if doc_urls collected)
 
 **If `source_type: "source"` AND supplemental `doc_urls` were collected in step 01:**
 
@@ -104,7 +104,7 @@ Wait for confirmation. Record any changes to `doc_urls`.
 
 **If no supplemental doc_urls were collected:** Skip this subsection.
 
-### 2b. Offer Scope Templates
+### 2c. Offer Scope Templates
 
 Load `{scopeTemplatesFile}` for the scope type options ([F], [M], [P]) and their descriptions.
 
@@ -167,8 +167,8 @@ Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Conti
 
 #### Menu Handling Logic:
 
-- IF A: Execute {advancedElicitationTask}, and when finished redisplay the menu
-- IF P: Execute {partyModeWorkflow}, and when finished redisplay the menu
+- IF A: Invoke {advancedElicitationSkill}, and when finished redisplay the menu
+- IF P: Invoke {partyModeSkill}, and when finished redisplay the menu
 - IF C: Load, read entire file, then execute {nextStepFile}
 - IF Any other comments or queries: help user respond then [Redisplay Menu Options](#6-present-menu-options)
 

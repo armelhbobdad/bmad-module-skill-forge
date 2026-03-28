@@ -116,6 +116,7 @@ Do NOT repeat Tier 1's name/purpose/key-params table format in Tier 2. Tier 2 is
 4. If Tier 1 alone exceeds 300 lines, reduce Key API Summary and Architecture at a Glance
 5. Tier 1 sections are kept short enough that `split-body` targets the larger Tier 2 sections (`## Full ...` headings) instead
 6. After split-body, SKILL.md must still contain all Tier 1 sections with actionable content
+7. **Signature fidelity:** When populating function entries from the extraction inventory, always use the `params` and `return_type` fields from the provenance-map entry (T1/AST-backed). Do not substitute parameter names, types, or return types from documentation, README examples, or enrichment annotations. T2/T3 sources may enrich descriptions and add usage notes, but structural signature data from AST extraction is authoritative.
 
 ### Reference File Rules
 

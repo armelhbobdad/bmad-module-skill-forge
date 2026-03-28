@@ -199,7 +199,8 @@ Each reference file includes:
       "source_line": 42,
       "confidence": "T1",
       "extraction_method": "ast-grep",
-      "ast_node_type": "export_function_declaration"
+      "ast_node_type": "export_function_declaration",
+      "signature_source": "T1"
     }
   ],
   "file_entries": [

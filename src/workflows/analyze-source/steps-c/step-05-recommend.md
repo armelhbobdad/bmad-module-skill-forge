@@ -5,8 +5,8 @@ description: 'Present unit recommendations with rationale for user confirmation 
 nextStepFile: './step-06-generate-briefs.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 schemaFile: '../data/skill-brief-schema.md'
-advancedElicitationTask: '{project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+advancedElicitationSkill: '/bmad-advanced-elicitation'
+partyModeSkill: '/bmad-party-mode'
 ---
 
 # Step 5: Recommend
@@ -193,8 +193,8 @@ Display: "**Select an Option:** [A] Advanced Elicitation [P] Party Mode [D] Disc
 
 #### Menu Handling Logic:
 
-- IF A: Execute {advancedElicitationTask}, and when finished redisplay the menu
-- IF P: Execute {partyModeWorkflow}, and when finished redisplay the menu
+- IF A: Invoke {advancedElicitationSkill}, and when finished redisplay the menu
+- IF P: Invoke {partyModeSkill}, and when finished redisplay the menu
 - IF D: Accept a new repo path/URL from the user. Run a lightweight scan + classify (subset of steps 02-03) for the new source only. Merge new units into the existing report and update `project_paths[]` in frontmatter. Run export mapping for the new units (same logic as step 04 section 2). Generate recommendation cards for the new units and present them for confirmation. Then redisplay this menu.
 - IF C: Save recommendations to {outputFile}, update frontmatter, then load, read entire file, then execute {nextStepFile}
 - IF Any other comments or queries: help user respond then [Redisplay Menu Options](#8-present-menu-options)

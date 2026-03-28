@@ -172,7 +172,7 @@ If a `{skill-name}-temporal` collection already exists, remove and recreate for 
 
 ```bash
 qmd collection remove {skill-name}-temporal
-qmd collection add _bmad-output/{skill-name}-temporal/ --name {skill-name}-temporal --mask "*.md"
+qmd collection add {project-root}/_bmad-output/{skill-name}-temporal/ --name {skill-name}-temporal --mask "*.md"
 qmd embed
 ```
 
@@ -193,7 +193,7 @@ If an entry with `name: "{skill-name}-temporal"` already exists in `qmd_collecti
 **Clean up** the staging directory after successful indexing:
 
 ```bash
-rm -rf _bmad-output/{skill-name}-temporal/
+rm -rf {project-root}/_bmad-output/{skill-name}-temporal/
 ```
 
 **Error handling:**

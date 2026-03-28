@@ -51,7 +51,7 @@ Structural extraction via ast-grep — verified exports with line-level citation
 - Internal/private functions: excluded (not part of public API)
 
 ### ast-grep Patterns
-- JS/TS: `export function $NAME($$$PARAMS): $RET` / `export const $NAME`
+- JS/TS: `export function $NAME($$$PARAMS): $RET` / `export const $NAME = ($$$PARAMS) => $BODY` / `export const $NAME` / `export class $NAME`
 - Rust: `pub fn $NAME($$$PARAMS) -> $RET`
 - Python: function definitions within `__all__` list
 - Go: capitalized function definitions
@@ -260,6 +260,32 @@ rule:
   pattern: 'export const $NAME = $VALUE'
 ```
 
+**JavaScript/TypeScript — exported arrow functions:**
+
+```yaml
+id: js-exported-arrow-functions
+language: typescript
+rule:
+  pattern: 'export const $NAME = ($$$PARAMS) => $BODY'
+```
+
+> **JS/TS Pattern Merging:** Modern TypeScript codebases often use `export const` exclusively for all exports (arrow functions, objects, constants). Run ALL four JS/TS patterns (functions, arrow functions, constants, classes) and merge results by `$NAME`. Priority when deduplicating: arrow function match > function declaration match > constant match. Arrow function matches capture parameters directly; constant matches require inspecting `$VALUE` to extract signatures.
+
+**JavaScript/TypeScript — exported classes (use `find_code`, not `find_code_by_rule`):**
+
+```yaml
+id: js-exported-classes
+language: typescript
+rule:
+  pattern: 'export class $NAME'
+```
+
+> **Important:** For class patterns, use `find_code()` rather than `find_code_by_rule()`. The `find_code_by_rule` API requires explicit AST `kind` rules for class exports, which adds complexity. The simpler `find_code()` pattern approach works reliably for class detection.
+
+**JavaScript/TypeScript — re-export detection (use `find_code`):**
+
+Use `find_code()` with pattern `export { $$$NAMES } from $SOURCE` for re-export detection. Note: this pattern may produce multiple AST node matches. Post-process results to split comma-separated names from `$$$NAMES`. For complex re-export chains (aliased exports, default re-exports, namespace re-exports), fall back to the Re-Export Tracing protocol in `extraction-patterns-tracing.md`.
+
 **Rust — public functions:**
 
 ```yaml
@@ -277,11 +303,28 @@ rule:
 id: go-exported-functions
 language: go
 rule:
-  pattern: 'func $NAME($$$PARAMS) $RET'
+  any:
+    - pattern: 'func $NAME($$$PARAMS) $RET'
+    - pattern: 'func $NAME($$$PARAMS)'
 constraints:
   NAME:
     regex: '^[A-Z]'
 ```
+
+### Known ast-grep Limitations
+
+When using ast-grep for extraction, be aware of these documented limitations:
+
+1. **`find_code_by_rule` requires explicit `kind` for class exports:** The `export class $NAME` pattern needs a `kind` rule specifying the tree-sitter node type when used with `find_code_by_rule`. Use the simpler `find_code()` API instead for class detection.
+
+2. **Re-export patterns produce multiple AST nodes:** `export { A, B, C } from './module'` decomposes into multiple metavariable bindings for `$$$NAMES`. Results require post-processing to split comma-separated names.
+
+3. **Default anonymous exports capture no name:** `export default function $NAME` works, but `export default $EXPR` (anonymous default export) captures no name in `$NAME`. Fall back to source reading (T1-low) for anonymous defaults.
+
+4. **Fallback protocol:** If an ast-grep pattern returns errors or zero results when results are expected:
+   - First: retry with `find_code()` using a simpler pattern (drop type annotations, use broader match)
+   - Second: if `find_code()` also fails, fall back to source reading for that pattern category (T1-low confidence)
+   - Never silently accept zero results for a pattern category that the source language commonly uses
 
 ### Re-Export Tracing and Script/Asset Extraction
 

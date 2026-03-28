@@ -5,8 +5,8 @@ description: 'Present complete skill brief for user review and confirmation befo
 nextStepFile: './step-05-write-brief.md'
 reviseStepFile: './step-03-scope-definition.md'
 briefSchemaFile: '../data/skill-brief-schema.md'
-advancedElicitationTask: '{project-root}/_bmad/core/workflows/advanced-elicitation/workflow.xml'
-partyModeWorkflow: '{project-root}/_bmad/core/workflows/party-mode/workflow.md'
+advancedElicitationSkill: '/bmad-advanced-elicitation'
+partyModeSkill: '/bmad-party-mode'
 ---
 
 # Step 4: Confirm Brief
@@ -165,8 +165,8 @@ Display: **Select an Option:** [R] Revise Scope [A] Advanced Elicitation [P] Par
 #### Menu Handling Logic:
 
 - IF R: Load, read entire file, then execute {reviseStepFile} to re-enter scope definition
-- IF A: Execute {advancedElicitationTask}, and when finished redisplay the menu
-- IF P: Execute {partyModeWorkflow}, and when finished redisplay the menu
+- IF A: Invoke {advancedElicitationSkill}, and when finished redisplay the menu
+- IF P: Invoke {partyModeSkill}, and when finished redisplay the menu
 - IF C: Load, read entire file, then execute {nextStepFile}
 - IF Any other comments or queries: help user respond, apply any field adjustments, re-present brief if changed, then [Redisplay Menu Options](#6-present-menu-options)
 

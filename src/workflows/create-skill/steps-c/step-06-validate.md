@@ -76,6 +76,8 @@ This performs frontmatter validation, description quality checks, body limit enf
 
 **Context sync after --fix:** If `fixed[]` is non-empty (i.e., `--fix` modified files on disk), re-read the modified SKILL.md to update the in-context copy. Verify the re-read content matches expectations before proceeding. This prevents silent divergence between the in-context SKILL.md and the on-disk version that step-07 will use for artifact generation.
 
+**Description preservation after --fix:** After re-reading the modified SKILL.md, compare the frontmatter `description` field against the original step-05 compiled description. If `--fix` replaced the description with a generic or truncated version, restore the original description to the on-disk file and update the in-context copy. The step-05 compiled description is authoritative — auto-fix tools must not replace trigger-optimized descriptions.
+
 **Note:** `skill-check` may return non-zero exit code even when `errorCount` is 0. Always rely on parsed JSON, not the shell exit code.
 
 - **Score ≥ 70:** Record "Schema: PASS (score: {score}/100)" in evidence-report
@@ -101,15 +103,17 @@ If fails: auto-fix (deterministic), re-validate once, record result. If passes: 
 
 **If step 2 reported `body.max_lines` failure:**
 
-**Preferred approach — selective split:** Rather than a full `split-body`, identify which Tier 2 section(s) are largest (usually `## Full API Reference`) and manually extract only those to `references/`. Keep all Tier 1 content and smaller Tier 2 sections inline. This preserves agent accuracy — inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval (per Vercel research). The rationale: inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval (per Vercel research).
+**Description preservation:** Before any split operation, capture the current SKILL.md frontmatter `description` field. After the split completes, verify the `description` was not modified. If it was replaced with a generic placeholder, restore the original immediately.
 
-**If manual selective split is not feasible**, fall back to the automated full split:
+**Mandatory approach — selective split:** Identify Tier 2 sections by their `## Full` heading prefix (e.g., `## Full API Reference`, `## Full Type Definitions`, `## Full Integration Patterns`). Extract ONLY those sections to `references/`, starting with the largest. Keep ALL Tier 1 content and any smaller sections inline. Inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval (per Vercel research).
 
-```bash
-npx skill-check split-body <staging-skill-dir> --write
-```
+**FORBIDDEN:** Running `npx skill-check split-body --write` without prior selective extraction. The `split-body --write` command extracts ALL `##` sections top-to-bottom, destroying Tier 1 inline content that the two-tier design depends on. This command is a LAST RESORT only after selective split has been attempted and proven insufficient.
 
-After any split (selective or full), verify that context snippet section anchors (`#quick-start`, `#key-types`) still resolve to headings in SKILL.md.
+**If selective split alone does not bring body under the limit** (rare — typically only occurs when Tier 1 itself exceeds 300 lines): reduce Tier 1 Key API Summary and Architecture at a Glance sections to fit within limits. Do NOT fall back to automated `split-body --write` to solve a Tier 1 sizing problem.
+
+**Tier 1 preservation check:** After ANY split operation, verify that ALL of the following sections remain inline in SKILL.md (not moved to references/): Overview, Quick Start, Common Workflows, Key API Summary, Migration & Deprecation Warnings (if present), Key Types, Architecture at a Glance, CLI (if present), Scripts & Assets (if present), Manual Sections. If any Tier 1 section was moved to references/, restore it immediately and re-split targeting only Tier 2 sections.
+
+**Anchor validation and remediation:** After any split, verify that context-snippet section anchors (`#quick-start`, `#key-types`) still resolve to headings in SKILL.md. If an anchor no longer resolves (section was split out), restore that section to SKILL.md inline content — the context-snippet must always reference sections that exist in the main file.
 
 Then re-validate: `npx skill-check check <staging-skill-dir> --format json --no-security-scan`
 

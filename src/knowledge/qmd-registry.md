@@ -127,7 +127,7 @@ These registries are orthogonal — they never reference each other, and their j
 
 ```
 qmd collection remove {name}-extraction   (if exists)
-qmd collection add skills/{name} --name {name}-extraction --mask "**/*"
+qmd collection add {project-root}/skills/{name} --name {name}-extraction --mask "**/*"
 qmd embed
 ```
 

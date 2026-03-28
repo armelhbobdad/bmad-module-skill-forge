@@ -60,6 +60,12 @@ To analyze the target repository by resolving its location, reading its structur
 **For GitHub URLs:**
 - Use `gh api repos/{owner}/{repo}` to verify the repository exists
 - Use `gh api repos/{owner}/{repo}/git/trees/HEAD?recursive=1` to get the file tree
+
+**Truncation detection:** After receiving the tree response, check the `truncated` field in the JSON output. If `truncated: true`:
+- Display: "Note: GitHub API returned a truncated tree response ({count} items). Full analysis may require a local clone."
+- Record in analysis summary: "Tree listing is partial — some files may not appear in the analysis."
+- For very large repos (>1000 files in tree response): suggest local clone for complete analysis.
+
 - If inaccessible: **HALT** — "**Error:** Cannot access repository at {url}. Please verify the URL is correct and you have access. If private, ensure `gh auth` is configured."
 
 **For local paths:**
@@ -132,6 +138,8 @@ Based on detected language, identify public API surface:
 {numbered list of public-facing items found}"
 
 **Semantic Signals (Forge+ and Deep with ccc only):**
+
+**Remote source guard:** If the target source was resolved via GitHub API (remote URL, not a local file path), skip this CCC subsection — CCC requires a local source index and cannot operate on remote-only sources. Note: "CCC semantic discovery skipped — target is remote. CCC will be available during create-skill if the source is cloned locally."
 
 If `tools.ccc` is true in forge-tier.yaml, supplement the module listing with a semantic discovery pass:
 

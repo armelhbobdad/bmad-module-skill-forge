@@ -5,7 +5,7 @@
 | Field | Type | Constraint | Description |
 |-------|------|------------|-------------|
 | name | string | kebab-case `[a-z0-9-]+` | Unique skill identifier |
-| version | string | Semantic `X.Y.Z` | Auto-detect from source (see Version Detection below), fall back to `1.0.0` |
+| version | string | Semantic version (`X.Y.Z` or `X.Y.Z-prerelease`) | Auto-detect from source (see Version Detection below), fall back to `1.0.0` |
 | source_repo | string | GitHub URL or local path | Repository or project root (optional when `source_type: "docs-only"`) |
 | language | string | Recognized language | Primary programming language |
 | scope | object | See Scope Object below | Boundary definition |
@@ -44,6 +44,8 @@ If the source is a remote GitHub repo, use `gh api repos/{owner}/{repo}/contents
 If detection succeeds, use the detected version. If it fails or returns a non-semver value, fall back to `"1.0.0"`.
 
 The create-skill workflow (step-03-extract) also performs version reconciliation at extraction time — if the source version has changed since the brief was created, the extraction step warns and uses the source version.
+
+**Pre-release handling:** If the detected version contains a pre-release tag (e.g., `1.0.0-beta.0`, `2.0.0-rc.1`), preserve it as-is. Pre-release tags are valid semver and must not be stripped. When comparing versions during reconciliation, use semver-aware comparison that respects pre-release ordering.
 
 ## Scope Object Structure
 
