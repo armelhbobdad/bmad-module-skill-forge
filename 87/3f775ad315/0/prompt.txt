@@ -1,0 +1,40 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/
+
+---
+
+Take a look at @_bmad-output/todo. We should fix all of them and also fix missing impacts, regression, bug. Go to party mode for different perspectives
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+
+ARGUMENTS: We have two documented bugs in _bmad-output/todo for the Skill Forge module that need fixing, plus we need to identify any missing impacts, regressions, or related bugs. Here are the issues:
+
+**Issue 1: Source resolution not triggered before step-03d component library delegation**
+- Step-03 delegates to step-03d at section 2b for component-library scope, but ephemeral clone protocol is in section 4 which gets skipped
+- Suggested fix: Move source resolution before section 2b (option 1 preferred)
+- Files: steps-c/step-03-extract.md, steps-c/step-03d-component-extraction.md
+
+**Issue 2: No-cone sparse-checkout incorrectly handles individual file patterns**
+- The no-cone conversion rule appends `/**` to patterns without globs, but this breaks individual file paths like `registry.json`
+- Suggested fix: Add file-detection heuristic to distinguish files from directories
+- Files: data/source-resolution-protocols.md
+
+Please discuss: (1) Are the suggested fixes correct? (2) Are there any other files impacted we're missing? (3) Could these bugs cause regressions elsewhere? (4) Are there related bugs or edge cases we should fix at the same time?
+
+---
+
+yes
+
+---
+
+yes
