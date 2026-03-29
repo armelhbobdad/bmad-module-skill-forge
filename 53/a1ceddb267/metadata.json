@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "53a1ceddb267",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/create-skill/data/compile-assembly-rules.md",
+    "src/workflows/create-skill/data/extraction-patterns.md",
+    "src/workflows/create-skill/data/skill-sections.md",
+    "src/workflows/create-skill/steps-c/step-03-extract.md",
+    "src/workflows/create-skill/steps-c/step-03d-component-extraction.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/53/a1ceddb267/0/metadata.json",
+      "transcript": "/53/a1ceddb267/0/full.jsonl",
+      "context": "/53/a1ceddb267/0/context.md",
+      "content_hash": "/53/a1ceddb267/0/content_hash.txt",
+      "prompt": "/53/a1ceddb267/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 3577,
+    "cache_creation_tokens": 31971,
+    "cache_read_tokens": 1191055,
+    "output_tokens": 8388,
+    "api_call_count": 9
+  }
+}
