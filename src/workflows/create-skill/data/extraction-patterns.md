@@ -315,6 +315,67 @@ constraints:
     regex: '^[A-Z]'
 ```
 
+### Component Library YAML Rule Recipes
+
+These patterns are used by `step-03d-component-extraction.md` when `scope.type: "component-library"`. They prioritize Props interfaces and PascalCase component exports.
+
+**React/TypeScript — Props interfaces (primary API contracts):**
+
+```yaml
+id: react-props-interfaces
+language: typescript  # Use 'tsx' for .tsx files
+rule:
+  pattern: 'export interface $NAME { $$$ }'
+constraints:
+  NAME:
+    regex: '.*Props$'
+```
+
+**React/TypeScript — Component function exports (PascalCase):**
+
+> **Language note:** Use `language: tsx` for `.tsx` files. The `export function` pattern may fail with tsx on ast-grep 0.41.x (see Known Limitations #5). Use `export const` patterns as primary and fall back to source reading for `export function` in tsx files.
+
+```yaml
+id: react-component-functions
+language: tsx
+rule:
+  pattern: 'export function $NAME($$$PARAMS)'
+constraints:
+  NAME:
+    regex: '^[A-Z]'
+```
+
+**React/TypeScript — Component arrow function exports:**
+
+```yaml
+id: react-component-arrow-functions
+language: typescript
+rule:
+  pattern: 'export const $NAME = ($$$PARAMS) => $BODY'
+constraints:
+  NAME:
+    regex: '^[A-Z]'
+```
+
+**Vue — defineProps extraction:**
+
+```yaml
+id: vue-define-props
+language: typescript
+rule:
+  pattern: 'defineProps<$TYPE>()'
+```
+
+**Props-to-Component linking strategy:**
+
+After extracting Props interfaces and component exports, link them using this 3-level fallback chain:
+
+1. **Naming convention (primary):** Strip `Props` suffix from interface name → match to component export (e.g., `NativeLiquidButtonProps` → `NativeLiquidButton`)
+2. **File co-location (fallback):** If naming doesn't match, check if a Props interface and a PascalCase export function are defined in the same file — link them
+3. **Generic parameter (deep fallback):** Search for `ComponentProps<typeof $NAME>` or `React.ComponentProps<typeof $NAME>` patterns that reference the component by name
+
+Unlinked Props interfaces are included as standalone type exports. Unlinked component exports are included with a note that no Props interface was found (signature-only, T1-low confidence for API contract).
+
 ### Known ast-grep Limitations
 
 When using ast-grep for extraction, be aware of these documented limitations:

@@ -2,6 +2,7 @@
 name: 'step-03-extract'
 description: 'Tier-dependent source code extraction — AST or source reading for exports, signatures, and types'
 nextStepFile: './step-03b-fetch-temporal.md'
+componentExtractionStepFile: './step-03d-component-extraction.md'
 extractionPatternsData: '../data/extraction-patterns.md'
 extractionPatternsTracingData: '../data/extraction-patterns-tracing.md'
 tierDegradationRulesData: '../data/tier-degradation-rules.md'
@@ -68,6 +69,16 @@ From the brief, apply scope and pattern filters:
 - `exclude_patterns` — file globs to exclude (if specified)
 
 Build the filtered file list from the source tree resolved in step-01. Record the result: "**Filtered file count: {N} files in scope**" — this count is the input to the AST Extraction Protocol decision tree in the extraction patterns data file.
+
+### 2b. Component Library Delegation
+
+**If `scope.type: "component-library"` in the brief:**
+
+"**Component library detected.** Delegating to specialized extraction strategy for registry-first, props-focused extraction."
+
+Load and execute `{componentExtractionStepFile}` completely. When that step completes, it returns control here. Resume at section 5 (Build Extraction Inventory) with the enriched extraction data and `component_catalog[]` from the component extraction step.
+
+**Otherwise:** Continue with standard extraction below.
 
 ### 3. Check for Docs-Only Mode
 
