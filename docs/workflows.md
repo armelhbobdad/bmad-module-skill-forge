@@ -133,7 +133,7 @@ SKF has 12 workflows. You trigger them by typing commands to [Ferris](../agents/
 
 **Command:** `@Ferris TS`
 
-**Purpose:** Cognitive completeness verification. Quality gate before export.
+**Purpose:** Cognitive completeness verification. Naive and contextual modes. Quality gate before export.
 
 **When to Use:** After creating or updating a skill, before exporting.
 

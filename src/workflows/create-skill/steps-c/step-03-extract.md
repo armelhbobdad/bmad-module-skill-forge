@@ -192,7 +192,9 @@ Use the entry point as the authoritative source for `metadata.json`'s `exports[]
 
 ### 4c. Detect and Inventory Scripts/Assets
 
-**If `scripts_intent: "none"` AND `assets_intent: "none"` in brief:** Skip this section.
+**Default resolution:** If `scripts_intent` is absent from the brief, treat as `"detect"` (auto-detection). If `assets_intent` is absent, treat as `"detect"`. Only an explicit `"none"` value disables detection.
+
+**If `scripts_intent` is `"none"` AND `assets_intent` is `"none"`:** Skip this section entirely. **If only one is `"none"`:** Skip that category only, proceed with the other.
 
 After export extraction, scan the source for scripts and assets using the detection patterns in `{extractionPatternsTracingData}`:
 

@@ -40,7 +40,7 @@ Each workflow directory contains these files, and each has a specific job:
 |---------------------------|---------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|
 | `forger.agent.yaml`       | Expert persona — identity, principles, critical actions, menu of triggers                                           | First — always in context                         |
 | `skf-knowledge-index.csv` | Knowledge fragment index — id, name, tags, tier, file path                                                          | Read by steps to decide which fragments to load   |
-| `knowledge/*.md`          | 12 reusable fragments + overview.md index — cross-cutting principles and patterns (e.g., `zero-hallucination.md`, `confidence-tiers.md`, `ccc-bridge.md`) | Selectively read into context when a step directs |
+| `knowledge/*.md`          | 13 reusable fragments + overview.md index — cross-cutting principles and patterns (e.g., `zero-hallucination.md`, `confidence-tiers.md`, `ccc-bridge.md`) | Selectively read into context when a step directs |
 
 ```mermaid
 flowchart LR
@@ -421,7 +421,7 @@ src/
 │   └── README.md
 ├── knowledge/
 │   ├── skf-knowledge-index.csv
-│   └── *.md (12 knowledge fragments + overview.md index)
+│   └── *.md (13 knowledge fragments + overview.md index)
 └── workflows/
     ├── setup-forge/
     ├── analyze-source/
