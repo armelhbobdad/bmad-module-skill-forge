@@ -102,7 +102,7 @@ For remote repository sources (GitHub URLs), CCC cannot operate during step-02b 
 
 1. **step-02b:** Detects remote source, sets `{ccc_discovery: []}`, displays deferred message
 2. **step-03:** After ephemeral clone succeeds, detects the deferred scenario (`tools.ccc == true AND {ccc_discovery} is empty AND ephemeral_clone_active == true AND tier is Forge+/Deep`)
-3. **step-03:** Runs `cd {temp_path} && ccc init` + `ccc index` on the ephemeral clone (extended timeout or background mode, verified via `ccc status`)
+3. **step-03:** Runs `cd {temp_path} && ccc init` on the ephemeral clone, then applies brief `exclude_patterns` (if present) to `{temp_path}/.cocoindex_code/settings.yml` before running `ccc index` (extended timeout or background mode, verified via `ccc status`). This prevents CCC from indexing files the brief explicitly excludes, keeping search results focused on in-scope source code and reducing indexing time for large repositories.
 4. **step-03:** Executes CCC search and populates `{ccc_discovery}` before AST extraction begins
 
 The ephemeral clone index is not registered in `ccc_index_registry` — the clone is deleted after extraction and the CCC daemon's own GC handles orphaned indexes.
@@ -131,6 +131,7 @@ To prevent excessive daemon calls, workflow steps cap ccc queries:
 - Passing ccc results directly to the extraction inventory — they are candidates, not extractions
 - Listing ccc as "unavailable" in reports for Quick/Forge tiers — ccc is a Forge+ capability, not something Quick/Forge tiers are missing
 - Indexing without configuring SKF exclusions — framework and output directories pollute search results
+- Indexing an ephemeral clone without applying brief `exclude_patterns` — excluded files pollute CCC search results and waste indexing time on large repositories
 - Skipping CCC discovery for remote sources without deferring to step-03 — remote repos deserve the same pre-ranking as local sources
 
 ## Related Fragments
