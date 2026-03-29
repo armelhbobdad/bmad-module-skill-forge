@@ -1,0 +1,241 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/
+
+---
+
+Take a look at @_bmad-output/todo. We should fix all of them and also fix missing impacts, regression, bug. Go to party mode for different perspectives
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+
+ARGUMENTS: Analyze these 4 Skill Forge module TODO issues and discuss the best approach to fix them, including any missing impacts, regressions, or additional bugs we should address:
+
+1. **MCP Source Reading Fallback Decision Tree** (issue-mcp-source-fallback-decision-tree.md) - Low severity. Step-03 Section 1b in update-skill lacks explicit fallback ordering for MCP tools (zread → deepwiki → gh API → ephemeral clone). Agents improvise fallback paths.
+
+2. **Staleness Check Untracked Files** (issue-staleness-check-untracked-files.md) - Medium severity. Step 04b staleness check fails silently for untracked SKILL.md files because git commands succeed (exit 0) but return empty output for files never committed.
+
+3. **State 2 Scoring Weight Redistribution** (issue-state2-scoring-weight-redistribution.md) - Low-Medium severity. scoring-rules.md only documents weight redistribution for Quick tier when Signature Accuracy/Type Coverage are N/A, but the same situation occurs at any tier in State 2 (provenance-map only).
+
+4. **QMD Version Detection Stale Resolution Chain** (issue-qmd-version-detection-stale-resolution-chain.md) - Low severity. step-05-compile.md references `pip show qmd-plugin` (wrong ecosystem - QMD is Bun/Node) and discourages `qmd --version` which now works in v2.0.1+.
+
+The module source is at src/ with workflows in src/workflows/, knowledge in src/knowledge/. Discuss: priority ordering, missing impacts or regressions each fix could cause, additional bugs these issues reveal, and the safest implementation approach.
+
+---
+
+<task-notification>
+<task-id>ae1f8b73a609a5d22</task-id>
+<tool-use-id>toolu_01TC8SNgrfdx2CCio2GXoGe5</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/2f19541e-6b64-473d-a4fb-adb743324cda/tasks/ae1f8b73a609a5d22.output</output-file>
+<status>completed</status>
+<summary>Agent "Find affected source files" completed</summary>
+<result>Perfect! Now I have all the key files. Let me create a comprehensive report with all the information requested.
+
+## COMPREHENSIVE ANALYSIS REPORT
+
+I have successfully located and read all the requested files. Here's the complete information organized by issue:
+
+---
+
+## **ISSUE 1: MCP FALLBACK — Update-Skill Workflow Step 03 Re-Extract**
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/update-skill/steps-c/step-03-re-extract.md`
+
+**Key Findings:**
+
+The file contains critical MCP fallback instructions:
+
+1. **Lines 75-104:** AST Extraction Protocol section describes MCP tool resolution:
+   - Explicitly references `ast_bridge` → ast-grep MCP tools (`find_code`, `find_code_by_rule`) or `ast-grep` CLI
+   - States: "Tool resolution: `ast_bridge` → ast-grep MCP tools (`find_code`, `find_code_by_rule`) or `ast-grep` CLI"
+   - Section 1b describes Forge tier using **MCP `find_code()` for small sets** and `find_code_by_rule()` with scoped YAML rules for medium sets
+
+2. **Lines 79-82:** Remote Source Resolution (MCP-first strategy):
+   - **"MCP source access check (before ephemeral clone):"** If MCP source-reading tools are available and `source_repo` is set, use MCP tools to fetch only changed files
+   - Fallback only when "MCP unavailable"
+   - This is MCP-preferred, not fallback-only
+
+3. **Lines 88-96:** Tier Degradation Handling:
+   - References `{tierDegradationRulesData}` for fallback strategy when AST extraction fails
+   - States: "Silent degradation is forbidden — the user must always know when AST extraction was skipped"
+
+4. **Line 104:** Links to tool-resolution.md with explicit bridge mappings
+
+---
+
+## **ISSUE 2: STALENESS CHECK — Test-Skill Step 04b External Validators**
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/test-skill/steps-c/step-04b-external-validators.md`
+
+**Key Findings:**
+
+**Lines 59-76:** Complete staleness check protocol with **three-state waterfall**:
+
+1. **Primary (git-tracked)** — Lines 65:
+   ```
+   Run `git log -1 --format=%cI -- {skillDir}/SKILL.md` to get the last commit date
+   Compare against evidence report's generation date
+   If SKILL.md's last commit is newer → results are stale
+   ```
+
+2. **Secondary (uncommitted changes)** — Lines 67-68:
+   ```
+   Run `git diff --name-only -- {skillDir}/SKILL.md`
+   If output is non-empty → SKILL.md has uncommitted changes → treat results as stale
+   ```
+
+3. **Fallback (non-git environments)** — Lines 69-70:
+   ```
+   If git commands fail → fall back to `metadata.json` `generation_date` comparison
+   Warning: "Staleness check using metadata.json — may be identical to evidence report timestamp"
+   ```
+
+**Reuse Decision Logic** (Lines 71-75):
+- If SKILL.md was **modified after evidence report** → **skip auto-reuse**, run fresh
+- If recent, **non-stale results exist** → **auto-reuse** them, skip re-running validators
+- This enables **no-redundant-work pattern**
+
+---
+
+## **ISSUE 3: SCORING WEIGHTS — Test-Skill Scoring Rules**
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/test-skill/data/scoring-rules.md`
+
+**Complete Weight Table (Lines 8-16):**
+
+| Category | Weight | Description |
+|----------|--------|-------------|
+| Export Coverage | 36% | Percentage of source exports documented in SKILL.md |
+| Signature Accuracy | 22% | Documented signatures match actual source signatures |
+| Type Coverage | 14% | Types and interfaces referenced are complete |
+| Coherence (contextual) | 18% | Cross-references valid, integration patterns complete |
+| Coherence (naive) | 0% | **Not applicable** — weight redistributed to other categories |
+| External Validation | 10% | Average of skill-check + tessl average score |
+
+**Naive Mode Redistribution (Lines 19-26):**
+- Export Coverage: **45%** (was 36%)
+- Signature Accuracy: **25%** (was 22%)
+- Type Coverage: **20%** (was 14%)
+- External Validation: **10%** (unchanged)
+
+**Key Rules:**
+- Lines 28-30: External validation unavailable → redistribute 10% proportionally
+- Lines 32-34: tessl + split-body interaction: tessl scores only SKILL.md body, not `references/*.md` — significant drop expected after split
+- Lines 57-66: Tier-dependent scoring (Quick, Forge, Forge+, Deep) with different weight redistributions
+- Lines 73-74: **Deep tier specific:** Migration & Deprecation Warnings validation — "If T2-future annotations exist, verify Section 4b is present... If no T2-future annotations exist, Section 4b should be absent"
+
+---
+
+## **ISSUE 4: QMD VERSION RESOLUTION — Create-Skill Step 05 Compile**
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/workflows/create-skill/steps-c/step-05-compile.md`
+
+**QMD Version Resolution Chain (Lines 124-128):**
+
+The exact resolution protocol for `{qmd_version}`:
+
+1. **First attempt:**
+   ```
+   `mcp__plugin_qmd-plugin_qmd__status` → parse version from status output
+   ```
+
+2. **Second attempt:**
+   ```
+   `pip show qmd-plugin` → read `Version:` field from pip metadata
+   ```
+
+3. **Final fallback:**
+   ```
+   `"unknown"` (final fallback — add a warning to the evidence report)
+   ```
+
+**Critical Note (Lines 128):**
+> "Note: `qmd --version` and `qmd -V` return usage text instead of a version string — do not use them for version detection."
+
+**Related SKF Version Detection (Lines 114-119):**
+
+SKF version resolution chain (for metadata.json `tool_versions.skf`):
+1. `{project-root}/_bmad/skf/package.json` → `.version` field
+2. `node -p "require('./node_modules/bmad-module-skill-forge/package.json').version"`
+3. `{project-root}/_bmad/skf/VERSION` → plain text file
+4. `"unknown"` (final fallback with warning)
+
+**AST-grep Version (Lines 120-123):**
+1. `ast-grep --version` → parse version string
+2. MCP server metadata (if version exposed)
+3. `"unknown"` fallback
+
+---
+
+## **BONUS: STATE 2 & PROVENANCE-MAP REFERENCES**
+
+**Key Files Found:**
+
+### **1. Source Access Protocol** (`src/workflows/test-skill/data/source-access-protocol.md`)
+
+**State 2 Definition (Lines 23-32):**
+- **Check provenance-map.json** as baseline when local source unavailable
+- Contains structured fields: `export_name`, `export_type`, `params[]`, `return_type`, `source_file`, `source_line`, `confidence`, `ast_node_type`
+- Cross-reference against `metadata.json` `exports[]` array and `stats.exports_public_api`
+- If metadata reports more exports than provenance-map: compute gap and use **union as denominator**
+- Set `analysis_confidence: provenance-map`
+
+**State 2 Limitations (Lines 32):**
+> "Signature verification at State 2 is **string comparison only**, not semantic. Provenance-map stores parameters as flat string arrays... When the SKILL.md was compiled from the same provenance-map (typical for create-then-test flows), most strings will match. However, enrichment (step-04) and doc-fetching (step-03c) during compilation may alter parameter descriptions... Expect some string-level mismatches and treat them as compilation artifacts"
+
+### **2. Coverage Check Step** (`src/workflows/test-skill/steps-c/step-03-coverage-check.md`)
+
+**Lines 188:** State 2 denominator validation:
+> "**State 2 denominator validation:** When using provenance-map as the baseline (State 2), cross-reference the provenance-map entry count against `metadata.json`'s `exports[]` array length and `stats.exports_public_api` count. If they diverge, use the union as the denominator per the source-access-protocol rules."
+
+### **3. Provenance-Map.json Schema** (in `src/workflows/create-skill/data/skill-sections.md`)
+
+**Lines 260-295:** Complete schema:
+- `skill_name`, `source_repo`, `source_commit`, `generated_at`
+- **entries[]** array with:
+  - `export_name`, `export_type`, `params[]` (string array), `return_type`
+  - `source_file`, `source_line`, `confidence` (T1/T1-low/T2)
+  - `extraction_method`, `ast_node_type`
+  - **`signature_source`** field: "T1"|"T1-low"|"T2"|"T3" — indicates highest-confidence tier contributing structural signature
+- **file_entries[]** (optional) for scripts/assets:
+  - `file_name`, `file_type`, `source_file`, `confidence`, `extraction_method`, `content_hash`
+
+### **4. Signature Fidelity Rule** (in `src/workflows/create-skill/steps-c/step-05-compile.md`)
+
+**Lines 62-71:** Critical rule for provenance authority:
+> "**T1 provenance-map entries (AST-extracted) are authoritative** for: function name, parameter names, parameter types, parameter order, return type, and optionality markers... **On conflict:** If a T2/T3 source provides a different signature... keep the T1 signature and log a warning... **`signature_source` field:** Record `signature_source: "T1" | "T1-low" | "T2" | "T3"` in each provenance-map entry to indicate the highest-confidence tier that contributed the structural signature data"
+
+---
+
+## **FULL IMPACT SUMMARY**
+
+These four issues are deeply interconnected:
+
+1. **MCP Fallback** (Issue 1): Determines tool availability for extraction in step-03-re-extract
+2. **Staleness Check** (Issue 2): Prevents redundant validator runs when SKILL.md unchanged
+3. **Scoring Weights** (Issue 3): Dynamically redistributed based on tool availability and tier
+4. **QMD Version** (Issue 4): Part of tool_versions resolution chain, required for evidence report
+
+**Provenance-map & State 2** act as the **core data contract** — when source is unavailable, provenance-map becomes the ground truth, with signature_source field tracking confidence levels through the entire workflow lifecycle.</result>
+<usage><total_tokens>102533</total_tokens><tool_uses>24</tool_uses><duration_ms>56216</duration_ms></usage>
+</task-notification>
+
+---
+
+implement them now
+
+---
+
+zread and deepwiki could have outdated data if nobody did not run the index flow manually.
+
+---
+
+commit
