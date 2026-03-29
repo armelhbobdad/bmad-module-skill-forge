@@ -1,0 +1,24 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/
+
+---
+
+Take a look at @_bmad-output/todo. We should fix all of them and also fix missing impacts, regression, bug. Go to party mode for different perspectives
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+
+ARGUMENTS: Analyze the sidecar_path configuration issue in bmad-module-skill-forge. The problem: `sidecar_path` is referenced in 27 files across the module but is NOT defined in the runtime config that gets written by the installer. It exists only as a comment in module.yaml and as metadata in forger.agent.yaml. We need to: 1) Identify the full impact across all 27 files that reference {sidecar_path}, 2) Find any regressions or bugs this causes, 3) Determine the correct fix approach, 4) Identify any missing impacts not covered in the TODO file. Key files: module.yaml (src/module.yaml), forger.agent.yaml (src/agents/forger.agent.yaml), step-01-gather-intent.md (src/workflows/brief-skill/steps-c/step-01-gather-intent.md). The sidecar_path value should be: _bmad/_memory/forger-sidecar
+
+---
+
+yes proceed
+
+---
+
+commit
