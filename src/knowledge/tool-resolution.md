@@ -13,6 +13,7 @@ Bridge names (`ast_bridge`, `ccc_bridge`, `qmd_bridge`, `gh_bridge`) and subproc
 | `ccc_bridge` | `status()`                       | `/ccc` skill status                                              | ccc MCP server | `ccc --help` + `ccc doctor`                        | Unavailable = `tools.ccc: false` |
 | `qmd_bridge` | `search(query)`                  | `mcp__plugin_qmd-plugin_qmd__search`                             | qmd MCP server | `qmd search "{query}"`                             | Skip enrichment                  |
 | `qmd_bridge` | `vector_search(query)`           | `mcp__plugin_qmd-plugin_qmd__vector_search`                      | qmd MCP server | `qmd vector_search "{query}"`                      | Use BM25 search only             |
+| `qmd_bridge` | `version()`                      | `qmd --version` → parse `"qmd X.Y.Z"` → `"X.Y.Z"`              | qmd MCP server | `qmd --version`                                    | `"unknown"`                      |
 | `gh_bridge`  | `list_tree(owner, repo, branch)` | `gh api repos/{owner}/{repo}/git/trees/{branch}?recursive=1`     | gh CLI         | `gh api ...`                                       | Direct file listing if local     |
 | `gh_bridge`  | `read_file(owner, repo, path)`   | `gh api repos/{owner}/{repo}/contents/{path}`                    | gh CLI         | `gh api ...`                                       | Direct file read if local        |
 

@@ -76,9 +76,25 @@ Perform tier-aware extraction on only the changed files identified in step 02, p
 
 **Remote Source Resolution (Forge/Deep only):**
 
-**MCP source access check (before ephemeral clone):** If MCP source-reading tools are available (zread, deepwiki, gh API, or similar) and `source_repo` is set in metadata.json, use MCP tools to fetch only the changed files from the change manifest. This avoids ephemeral clone overhead entirely. MCP provides full source file content equivalent to a local read. If the fetched content is written to a temp file and analyzed with ast-grep, label confidence as T1. If AST is unavailable (the common case for MCP-fetched content), use pattern-based extraction and label confidence as T1-low.
+**MCP source access (ordered fallback):** When `source_repo` is set in metadata.json, try each MCP tool in order to fetch only the changed files from the change manifest. This avoids ephemeral clone overhead entirely. Tools are ordered by data freshness — gh API returns live GitHub content and is preferred for update-skill where current file versions are required. zread and deepwiki depend on manual indexing and may return stale data if indexes haven't been refreshed since the changes being extracted.
 
-**If MCP unavailable:** Load and follow `{remoteSourceResolutionData}` for ephemeral clone setup, version reconciliation, and AST tool unavailability handling.
+1. **gh API** — `gh api repos/{owner}/{repo}/contents/{path}` for raw file content
+   - If accessible: fetch file content (base64-decoded), always current
+   - If rate-limited, 404, or inaccessible: log tool and reason, continue to next tool
+2. **zread** — `get_repo_structure` + `read_file` for targeted file access
+   - If repo found: fetch changed files, proceed with extraction
+   - If "repo not found" or error: log tool and reason, continue to next tool
+   - Caveat: indexed data — may be stale if index wasn't refreshed after the target changes
+3. **deepwiki** — `ask_question` for targeted export/signature queries
+   - If repo indexed and returns usable source data: extract from response
+   - If no results or repo not indexed: log tool and reason, continue to next tool
+   - Caveat: returns synthesized content, not raw source — extraction quality varies; index may be stale
+
+**Confidence labeling:** MCP-fetched content written to a temp file and analyzed with ast-grep → T1. MCP-fetched content analyzed with pattern matching (AST unavailable) → T1-low.
+
+**If all MCP tools fail for this repo:** Fall back to ephemeral clone — load and follow `{remoteSourceResolutionData}` for clone setup, version reconciliation, and AST tool unavailability handling.
+
+**If all approaches fail (MCP + ephemeral clone):** Degrade to provenance-map-only analysis (State 2, T1 confidence from compilation-time data). Warn user: "Source access failed for {source_repo}. Analysis limited to provenance-map baseline."
 
 **Quick tier (text pattern matching):**
 - Extract function/class/type names via regex patterns

@@ -60,13 +60,20 @@ Read {outputFile} frontmatter to get the skill directory path (`skillDir`).
 
 Before running external validators, check if `{forge_data_folder}/{skill_name}/evidence-report.md` contains validation results (a `## Validation Results` section with quality scores).
 
-**Staleness check:** Determine whether SKILL.md has changed since the evidence report was generated.
+**Staleness check:** Determine whether SKILL.md has changed since the evidence report was generated. Walk through these checks in order:
+
+**Pre-check (untracked or staged-only file):** Run `git ls-files --error-unmatch {skillDir}/SKILL.md 2>/dev/null`.
+- If the command fails (exit code non-zero) or git is not available, the file is either **untracked** (new, never committed) or we're in a **non-git environment**:
+  - Check if `{skillDir}/metadata.json` exists and has a `generation_date` field
+  - Compare `metadata.json` `generation_date` against the evidence report's generation date (from its frontmatter or `## Validation Results` timestamp)
+  - If timestamps match within the same minute (same workflow session): auto-reuse is safe — the evidence report was generated from the same SKILL.md content
+  - If timestamps differ or metadata.json is missing: treat as stale, proceed to section 2 for a fresh run
+  - Note: "Staleness check: SKILL.md is untracked/non-git — using metadata.json timestamp comparison."
+- If the command succeeds (file is tracked by git), continue to Primary check below.
 
 **Primary (git-tracked):** Run `git log -1 --format=%cI -- {skillDir}/SKILL.md` to get the last commit date of SKILL.md. Compare against the evidence report's generation date (from its frontmatter or the `## Validation Results` timestamp). If SKILL.md's last commit is newer, results are stale.
 
-**Secondary (uncommitted changes):** Run `git diff --name-only -- {skillDir}/SKILL.md`. If output is non-empty, SKILL.md has uncommitted changes — treat results as stale regardless of commit dates.
-
-**Fallback (non-git environments):** If git commands fail (not a git repository), fall back to `metadata.json` `generation_date` comparison with a warning: "Staleness check using metadata.json — may be identical to evidence report timestamp. Consider a git-tracked directory for reliable staleness detection."
+**Secondary (uncommitted changes):** Run `git diff --name-only -- {skillDir}/SKILL.md`. If output is non-empty, SKILL.md has uncommitted changes — treat results as stale regardless of commit dates. Also check `git diff --cached --name-only -- {skillDir}/SKILL.md` for staged-but-uncommitted changes — if non-empty, SKILL.md has been staged since last commit, treat results as stale.
 
 If SKILL.md was modified after the evidence report was generated (e.g., after update-skill), the cached results are stale — skip auto-reuse and proceed to section 2 for a fresh run.
 
