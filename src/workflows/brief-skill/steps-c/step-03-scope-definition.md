@@ -106,9 +106,9 @@ Wait for confirmation. Record any changes to `doc_urls`.
 
 ### 2c. Offer Scope Templates
 
-Load `{scopeTemplatesFile}` for the scope type options ([F], [M], [P]) and their descriptions.
+Load `{scopeTemplatesFile}` for the scope type options ([F], [M], [P], [C]) and their descriptions.
 
-Present: "**How broadly should this skill cover the library?**" followed by the three scope type options from the loaded reference.
+Present: "**How broadly should this skill cover the library?**" followed by the scope type options from the loaded reference.
 
 Ask: "Which scope type fits your needs?"
 
@@ -116,7 +116,7 @@ Wait for user selection.
 
 ### 3. Define Boundaries Based on Selection
 
-Using the boundary definitions from `{scopeTemplatesFile}`, present the appropriate flow for the user's selected scope type ([F], [M], or [P]). Follow each type's prompts and wait for user input at each phase before proceeding.
+Using the boundary definitions from `{scopeTemplatesFile}`, present the appropriate flow for the user's selected scope type ([F], [M], [P], or [C]). Follow each type's prompts and wait for user input at each phase before proceeding.
 
 ### 4. Handle Language Override
 
@@ -132,7 +132,7 @@ Wait for confirmation or override.
 
 "**Scope Summary:**
 
-**Type:** {Full Library / Specific Modules / Public API}
+**Type:** {Full Library / Specific Modules / Public API / Component Library}
 
 **Include:**
 {bulleted list of include patterns}
@@ -151,7 +151,7 @@ Wait for confirmation. Make adjustments if requested.
 
 ### 5b. Scripts & Assets Intent (Optional)
 
-**Only ask when `scope.type` is `full-library` or `specific-modules` (skip for `public-api` and `docs-only`).**
+**Only ask when `scope.type` is `full-library`, `specific-modules`, or `component-library` (skip for `public-api` and `docs-only`).**
 
 "Does this library include executable scripts (CLI tools, validation scripts, setup helpers) or static assets (config templates, JSON schemas, example configs) that should be packaged with the skill?"
 
@@ -189,7 +189,7 @@ ONLY WHEN C is selected and scope boundaries are confirmed will you load and rea
 
 ### ✅ SUCCESS:
 
-- Scope type selected by user (Full Library, Specific Modules, or Public API)
+- Scope type selected by user (Full Library, Specific Modules, Public API, or Component Library)
 - Include patterns defined and confirmed
 - Exclude patterns defined and confirmed
 - Language confirmed (or overridden if detection was low confidence)

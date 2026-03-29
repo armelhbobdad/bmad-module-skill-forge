@@ -8,7 +8,7 @@ agent:
     module: skf
     hasSidecar: true
     sidecar-folder: forger-sidecar
-    sidecar-path: "{project-root}/_bmad/_memory/forger-sidecar/"
+    sidecar-path: "{project-root}/_bmad/_memory/forger-sidecar"
 
   persona:
     role: |

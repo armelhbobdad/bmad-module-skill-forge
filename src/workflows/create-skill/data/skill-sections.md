@@ -59,6 +59,82 @@ SKILL.md uses a two-tier structure to ensure actionable content survives `split-
 - **Section 4b (Migration & Deprecation Warnings)** is conditional: only emitted for Deep tier when T2-future annotations exist. Quick/Forge/Forge+ tiers and Deep tiers without T2-future annotations omit it entirely (no empty section). Parsers and validators must treat this section as optional.
 - **Section 7b (Scripts & Assets)** is conditional: only emitted when `scripts_inventory` or `assets_inventory` is non-empty. Omitted entirely when no scripts or assets are detected. Parsers and validators must treat this section as optional.
 
+### Component Library Section Overrides
+
+When `scope.type: "component-library"`, these section formats replace their standard counterparts. All other sections (Overview, Common Workflows, Architecture, CLI, Manual Sections, etc.) use the standard format.
+
+#### Section 4 — Component Catalog (replaces Key API Summary)
+
+```markdown
+## Component Catalog
+
+| Category | Count | Key Components |
+|----------|-------|---------------|
+| {category} | {count} | {ComponentA}, {ComponentB}, {ComponentC}, ... |
+
+**Design system variants:** {primary} (primary), {variant2}, {variant3}
+**Total components:** {unique_count} | **With {variant1}:** {count1} | **With {variant2}:** {count2}
+```
+
+- Source: `component_catalog[]` from step-03d extraction
+- Group by `category` field from registry
+- Show top 3-5 component names per category
+- Cite registry file: `[SRC:{registry_file}:L1]`
+- Budget: ~20 lines (same as standard Section 4)
+
+#### Section 5 — Key Props (replaces Key Types)
+
+```markdown
+## Key Types
+
+### {ComponentName}Props
+
+| Prop | Type | Default | Required |
+|------|------|---------|----------|
+| {propName} | {type} | {default or —} | {yes/no} |
+
+{Repeat for top 5 Props interfaces}
+```
+
+- Show only the 5 most-used Props interfaces (by component count or documentation prominence)
+- Full Props details for all components go in Tier 2 reference
+- Budget: ~20 lines (same as standard Section 5)
+
+#### Tier 2 — Props Reference (replaces Full API Reference)
+
+```markdown
+## Full API Reference
+
+### {ComponentName}
+
+**Install:** `npx {cli} add {component-id}`
+**Available in:** {variant list}
+**Props:** `{ComponentName}Props`
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| {prop} | {type} | {default} | {description from JSDoc or —} |
+
+**Provenance:** `[AST:{file}:L{line}]`
+```
+
+- Organize by component, not by function
+- Each component shows: install command, variant availability, full props table
+- Include JSDoc descriptions for props when available
+- Standard provenance citations apply
+
+#### context-snippet.md — Component Library Format
+
+```markdown
+[{name} v{version}]|root: skills/{name}/
+|IMPORTANT: {name} v{version} — read SKILL.md before writing {name} code. Do NOT rely on training data.
+|install: npx {cli} add <component-id>
+|catalog:{SKILL.md#component-catalog} — {N} components: {category(count), ...}
+|variants: {variant list} — {provider wrapping note if applicable}
+|key-props:{SKILL.md#key-types} — {top props interfaces with key fields}
+|gotchas: {detected gotchas}
+```
+
 ### Provenance Citation Format
 
 | Tier | Format | Example |

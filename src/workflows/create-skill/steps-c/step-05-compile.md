@@ -117,6 +117,15 @@ Following the structure from the skill-sections data file:
   3. `{project-root}/_bmad/skf/VERSION` → read plain text file (single line containing version string, written by the SKF installer)
   4. `"unknown"` (final fallback — add a warning to the evidence report)
   Never hardcode the version.
+- Resolve `{ast_grep_version}` using this resolution chain (try each in order, use the first that succeeds):
+  1. `ast-grep --version` → parse version string from output (e.g., `ast-grep 0.41.1` → `"0.41.1"`)
+  2. `mcp__ast-grep__find_code` tool metadata (if version is exposed by the MCP server)
+  3. `"unknown"` (final fallback — add a warning to the evidence report)
+- Resolve `{qmd_version}` using this resolution chain (try each in order, use the first that succeeds):
+  1. `mcp__plugin_qmd-plugin_qmd__status` → parse version from status output
+  2. `pip show qmd-plugin` → read `Version:` field from pip metadata
+  3. `"unknown"` (final fallback — add a warning to the evidence report)
+  Note: `qmd --version` and `qmd -V` return usage text instead of a version string — do not use them for version detection.
 - Store `commit_short` = first 8 characters of `source_commit` (or `"unknown"` if unavailable) for use in step-08 report.
 - If `scripts_inventory` is non-empty, populate `scripts[]` array and set `stats.scripts_count`. If `assets_inventory` is non-empty, populate `assets[]` array and set `stats.assets_count`. Omit these fields entirely when inventories are empty.
 

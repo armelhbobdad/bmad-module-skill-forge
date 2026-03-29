@@ -130,7 +130,7 @@ Files in scope 101–500
   → Parse compact text output into extraction inventory
 
 Files in scope > 500
-  → CLI streaming fallback: ast-grep --json=stream + line-by-line Python processing
+  → CLI streaming fallback: ast-grep run --json=stream + line-by-line Python processing
   → Process in directory batches, cap per-batch output
   → Merge batch results into extraction inventory
 ```
@@ -171,6 +171,7 @@ When MCP tools are unavailable or the repo exceeds 500 files in scope, use `--js
 **Head cap selection:** The `| head -N` cap at the end of the pipeline controls how many exports are captured. Select `N` based on scope and tier:
 - **Default (Quick/Forge, any scope):** `N = 200`
 - **Forge+/Deep with `scope.type: "full-library"`:** `N = 500`
+- **Forge+/Deep with `scope.type: "component-library"`:** `N = 300` (components have fewer but richer exports; props interfaces are the primary API surface)
 
 For full-library skills at higher tiers, the larger cap prevents silently dropping internal module exports that maintainers need. The cap is applied AFTER exclude-pattern filtering, so useful results are not wasted on excluded files.
 
@@ -181,7 +182,8 @@ For full-library skills at higher tiers, the larger cap prevents silently droppi
 # Patterns are matched against the full file path as emitted by ast-grep.
 # Ensure paths are relative to the same root as the patterns (strip ./ prefix if needed).
 # {HEAD_CAP} = 200 (default) or 500 (Forge+/Deep full-library) — see head cap selection above.
-ast-grep -p '{pattern}' -l {language} --json=stream {path} | python3 -c "
+# IMPORTANT: The explicit 'run' subcommand is required for --json=stream to work.
+ast-grep run -p '{pattern}' -l {language} --json=stream {path} | python3 -c "
 import sys, json, fnmatch, signal
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
@@ -244,9 +246,11 @@ constraints:
 
 **JavaScript/TypeScript — exported functions:**
 
+> **Language selection:** Use `language: typescript` for `.ts` files and `language: tsx` for `.tsx` files. Patterns that work with `typescript` may return zero results with `tsx` and vice versa — they use different tree-sitter parsers. For mixed codebases, run each pattern twice (once per language) and merge results. Note: `export function` patterns may fail with `tsx` on ast-grep 0.41.x (see Known Limitations #5) — use source reading as fallback for those.
+
 ```yaml
 id: js-exported-functions
-language: typescript
+language: typescript  # Use 'tsx' for .tsx files — see language selection note above
 rule:
   pattern: 'export function $NAME($$$PARAMS)'
 ```
@@ -311,6 +315,67 @@ constraints:
     regex: '^[A-Z]'
 ```
 
+### Component Library YAML Rule Recipes
+
+These patterns are used by `step-03d-component-extraction.md` when `scope.type: "component-library"`. They prioritize Props interfaces and PascalCase component exports.
+
+**React/TypeScript — Props interfaces (primary API contracts):**
+
+```yaml
+id: react-props-interfaces
+language: typescript  # Use 'tsx' for .tsx files
+rule:
+  pattern: 'export interface $NAME { $$$ }'
+constraints:
+  NAME:
+    regex: '.*Props$'
+```
+
+**React/TypeScript — Component function exports (PascalCase):**
+
+> **Language note:** Use `language: tsx` for `.tsx` files. The `export function` pattern may fail with tsx on ast-grep 0.41.x (see Known Limitations #5). Use `export const` patterns as primary and fall back to source reading for `export function` in tsx files.
+
+```yaml
+id: react-component-functions
+language: tsx
+rule:
+  pattern: 'export function $NAME($$$PARAMS)'
+constraints:
+  NAME:
+    regex: '^[A-Z]'
+```
+
+**React/TypeScript — Component arrow function exports:**
+
+```yaml
+id: react-component-arrow-functions
+language: typescript
+rule:
+  pattern: 'export const $NAME = ($$$PARAMS) => $BODY'
+constraints:
+  NAME:
+    regex: '^[A-Z]'
+```
+
+**Vue — defineProps extraction:**
+
+```yaml
+id: vue-define-props
+language: typescript
+rule:
+  pattern: 'defineProps<$TYPE>()'
+```
+
+**Props-to-Component linking strategy:**
+
+After extracting Props interfaces and component exports, link them using this 3-level fallback chain:
+
+1. **Naming convention (primary):** Strip `Props` suffix from interface name → match to component export (e.g., `NativeLiquidButtonProps` → `NativeLiquidButton`)
+2. **File co-location (fallback):** If naming doesn't match, check if a Props interface and a PascalCase export function are defined in the same file — link them
+3. **Generic parameter (deep fallback):** Search for `ComponentProps<typeof $NAME>` or `React.ComponentProps<typeof $NAME>` patterns that reference the component by name
+
+Unlinked Props interfaces are included as standalone type exports. Unlinked component exports are included with a note that no Props interface was found (signature-only, T1-low confidence for API contract).
+
 ### Known ast-grep Limitations
 
 When using ast-grep for extraction, be aware of these documented limitations:
@@ -325,6 +390,32 @@ When using ast-grep for extraction, be aware of these documented limitations:
    - First: retry with `find_code()` using a simpler pattern (drop type annotations, use broader match)
    - Second: if `find_code()` also fails, fall back to source reading for that pattern category (T1-low confidence)
    - Never silently accept zero results for a pattern category that the source language commonly uses
+
+5. **TSX `export function` pattern failure:** The `export function $NAME($$$PARAMS)` pattern may return zero results in TSX files with ast-grep 0.41.x. This affects both MCP tools and CLI. `export const` and `export type` patterns are unaffected. **Workaround:** For TSX files, use `export const` patterns first (which work), then fall back to source reading (grep/file read) for `export function` declarations. When a TSX codebase shows zero `export function` matches but source files clearly contain them, this is a known ast-grep tree-sitter tsx parser limitation — not an extraction error. Log it in the evidence report and proceed with T1-low confidence for those exports.
+
+6. **CLI `--json=stream` may produce no output:** On ast-grep 0.41.x, `--json=stream` may produce empty output for certain patterns. The `--json=stream` flag requires the explicit `run` subcommand: use `ast-grep run -p '{pattern}' --json=stream` (not `ast-grep -p '{pattern}' --json=stream`). If streaming still produces no output, fall back to the MCP tool or source reading.
+
+### Component Library Demo/Example Auto-Exclusion
+
+When `scope.type: "component-library"`, auto-detect and propose demo/example exclusions before extraction begins. **User confirmation is required before applying** — some `examples/` directories contain API-level code.
+
+**Auto-detect directory patterns:**
+- `**/demo/**`, `**/demos/**`
+- `**/stories/**`, `**/__stories__/**`, `**/storybook/**`
+- `**/examples/**`, `**/example/**`
+
+**Auto-detect file patterns:**
+- `**/*.stories.*`, `**/*.story.*`
+- `**/*.example.*`, `**/*.demo.*`
+
+If `demo_patterns` is specified in the brief, use those instead of auto-detection.
+
+**Procedure:**
+1. Scan the scoped file tree for matching directories and files
+2. Count matches per pattern category
+3. Present to user: "**Auto-detected {N} demo/example files** in {M} directories matching these patterns: {list}. Confirm exclusion? [Y/n] Or adjust patterns:"
+4. Apply confirmed patterns to the exclude list before AST extraction
+5. Record in extraction inventory: `demo_files_excluded: {count}`
 
 ### Re-Export Tracing and Script/Asset Extraction
 

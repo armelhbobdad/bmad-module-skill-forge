@@ -33,7 +33,7 @@ When either condition is false, calling steps skip ccc discovery silently and pr
 
 ### `ccc_bridge.search(query, path?, top_k?)`
 
-**Resolves to:** `ccc search "{query}" --path {path} --top {top_k}` (CLI) or the `ccc` MCP search tool (preferred)
+**Resolves to:** `cd {path} && ccc search --limit {top_k} "{query}"` (CLI) or the `ccc` MCP search tool (preferred). Note: `ccc search` operates on the index in the current working directory — there is no flag to specify a project directory. The `--path` flag is a file path glob filter within the index, not a project selector.
 
 Returns: list of `{file, score, snippet}` entries ranked by semantic relevance to the query. These are **candidates** for ast-grep extraction — not verified exports.
 
@@ -41,7 +41,7 @@ Returns: list of `{file, score, snippet}` entries ranked by semantic relevance t
 
 ### `ccc_bridge.ensure_index(path)`
 
-**Resolves to:** Check `ccc_index.status` in forge-tier.yaml. If `"none"` or the indexed_path does not match, run `ccc init {path}` then `ccc index` and update forge-tier.yaml.
+**Resolves to:** Check `ccc_index.status` in forge-tier.yaml. If `"none"` or the indexed_path does not match, run `cd {path} && ccc init` then `ccc index` and update forge-tier.yaml. Note: `ccc init` takes no positional arguments — it initializes the index for the current working directory.
 
 **Usage context:** Called by setup-forge step-01b to ensure the project root is indexed. Called lazily by extraction steps when `ccc_index.status` is `"none"` but ccc is available.
 
@@ -102,7 +102,7 @@ For remote repository sources (GitHub URLs), CCC cannot operate during step-02b 
 
 1. **step-02b:** Detects remote source, sets `{ccc_discovery: []}`, displays deferred message
 2. **step-03:** After ephemeral clone succeeds, detects the deferred scenario (`tools.ccc == true AND {ccc_discovery} is empty AND ephemeral_clone_active == true AND tier is Forge+/Deep`)
-3. **step-03:** Runs `ccc init {temp_path}` + `ccc index` on the ephemeral clone (extended timeout or background mode, verified via `ccc status`)
+3. **step-03:** Runs `cd {temp_path} && ccc init` + `ccc index` on the ephemeral clone (extended timeout or background mode, verified via `ccc status`)
 4. **step-03:** Executes CCC search and populates `{ccc_discovery}` before AST extraction begins
 
 The ephemeral clone index is not registered in `ccc_index_registry` — the clone is deleted after extraction and the CCC daemon's own GC handles orphaned indexes.

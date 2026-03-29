@@ -15,11 +15,13 @@ forge_data_folder:
   default: "forge-data"
   result: "{project-root}/{value}"
 
+sidecar_path:
+  prompt: false
+  default: "_bmad/_memory/forger-sidecar"
+  result: "{project-root}/{value}"
+
 # Variables from Core Config inserted:
 ## user_name
 ## communication_language
 ## document_output_language
 ## output_folder
-
-# Variables from Agent Sidecar Config:
-## sidecar_path  (from forger.agent.yaml metadata.sidecar-path)

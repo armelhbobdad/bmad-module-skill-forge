@@ -68,8 +68,8 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
 
    When `exclude_patterns` exist, use `--no-cone` mode to pass both include and exclude patterns directly as gitignore-style rules:
 
-   1. Convert `include_patterns` to gitignore-style patterns. If a pattern contains no glob characters (`*`, `?`, `[`) and does not end with `/`, append `/**` to match directory contents recursively (e.g., `cognee` → `cognee/**`; `cognee/**` → kept as-is).
-   2. Convert `exclude_patterns` to negation patterns by prepending `!`. Apply the same anchoring rule (e.g., `cognee/tests` → `!cognee/tests/**`; `cognee/tests/**` → `!cognee/tests/**`; `**/test_*` → `!**/test_*`).
+   1. Convert `include_patterns` to gitignore-style patterns. For patterns without glob characters (`*`, `?`, `[`) that do not end with `/`, apply the **file-detection heuristic**: if the last path segment contains a `.` (file extension), it is an **individual file** — prepend `/` and keep as-is (e.g., `packages/registry/registry.json` → `/packages/registry/registry.json`). If the last path segment has no extension, it is a **bare directory name** — append `/**` (e.g., `cognee` → `cognee/**`). Patterns that already contain glob characters are kept as-is (e.g., `cognee/**` → kept as-is).
+   2. Convert `exclude_patterns` to negation patterns by prepending `!`. Apply the same file-detection heuristic: individual files (last segment has `.` extension) get `!/` prefix only (e.g., `src/internal/config.json` → `!/src/internal/config.json`); bare directory names get `/**` appended (e.g., `cognee/tests` → `!cognee/tests/**`). Patterns with globs are kept as-is with `!` prefix (e.g., `cognee/tests/**` → `!cognee/tests/**`; `**/test_*` → `!**/test_*`).
    3. **CRITICAL:** List all include patterns BEFORE negated exclude patterns — git processes patterns in order and a negation can only suppress a prior inclusion.
    4. Pass to sparse-checkout — include patterns first, then negated exclude patterns:
 
@@ -79,14 +79,16 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
 
    Example transformation:
    ```
-   Brief include_patterns:        Brief exclude_patterns:
-   cognee/**                      cognee/tests/**
-                                  cognee/alembic/**
-                                  **/test_*
+   Brief include_patterns:          Brief exclude_patterns:
+   cognee/**                        cognee/tests/**
+   packages/registry/registry.json  cognee/alembic/**
+                                    **/test_*
 
    sparse-checkout args (--no-cone):
-   'cognee/**' '!cognee/tests/**' '!cognee/alembic/**' '!**/test_*'
+   'cognee/**' '/packages/registry/registry.json' '!cognee/tests/**' '!cognee/alembic/**' '!**/test_*'
    ```
+
+   Note: `registry.json` is an individual file (has `.json` extension), so it gets `/` prefix instead of `/**` suffix.
 
    **Note:** `--no-cone` mode is slower than cone mode for very large repositories but eliminates downloading excluded blobs entirely.
 
@@ -112,7 +114,13 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
 
    Proceed with Quick tier extraction strategy below. Note the degradation reason in context for the evidence report.
 
-**Ephemeral clone cleanup:** After extraction is complete for all files in scope (whether successful or partially failed), before presenting the Gate 2 summary (Section 6), if `ephemeral_clone_active`, delete the `{temp_path}` directory. Log: "Ephemeral source clone cleaned up." This ensures cleanup runs even if some extractions failed, as long as the step itself is still executing. **If any error halts the extraction step before Gate 2 is reached**, cleanup must still occur: attempt to delete `{temp_path}` before halting. Log the cleanup attempt regardless of success.
+**Ephemeral clone cleanup:** After extraction is complete for all files in scope (whether successful or partially failed), before presenting the Gate 2 summary (Section 6), if `ephemeral_clone_active`:
+
+1. **Reset working directory first:** Before deleting the clone, ensure the shell working directory is not inside the temp path. Run `cd {project-root}` using the **absolute path** captured at workflow start (not a relative path). This prevents `getcwd` errors when the temp directory is deleted while it is the shell's cwd — which happens if `cd {temp_path}` was used during CCC init or extraction operations.
+2. **Delete the clone:** `rm -rf {temp_path}`
+3. **Log:** "Ephemeral source clone cleaned up."
+
+This ensures cleanup runs even if some extractions failed, as long as the step itself is still executing. **If any error halts the extraction step before Gate 2 is reached**, cleanup must still occur: reset cwd to `{project-root}` and attempt to delete `{temp_path}` before halting. Log the cleanup attempt regardless of success.
 
 ---
 
@@ -137,7 +145,11 @@ Store the result as `source_commit` in context. If capture fails (not a git repo
 After the source path is accessible (local path from step-01, or ephemeral clone from above), check whether the source contains a version identifier and reconcile it with `brief.version`. Look for the first matching version file in the resolved source path:
 
 - Python: `pyproject.toml` (`[project] version`), `setup.py` (`version=`), `__version__` in `__init__.py`
-- JavaScript/TypeScript: `package.json` (`"version"`)
+- JavaScript/TypeScript: `package.json` (`"version"`). **Monorepo resolution:** When multiple `package.json` files exist (workspace root + packages), resolve version using this priority:
+  1. Package whose `name` field matches `brief.name` (e.g., the skill's target library name)
+  2. Package with a `bin` field (CLI entry point — represents the published version)
+  3. Root workspace `package.json` version (if present)
+  4. Fall back to `brief.version` if no version found. For monorepos using workspace protocols (pnpm, yarn, npm workspaces), the root `package.json` often has no `version` field — this is expected, not an error.
 - Rust: `Cargo.toml` (`[package] version`)
 - Go: `go.mod` (module version if tagged)
 
