@@ -68,8 +68,8 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
 
    When `exclude_patterns` exist, use `--no-cone` mode to pass both include and exclude patterns directly as gitignore-style rules:
 
-   1. Convert `include_patterns` to gitignore-style patterns. If a pattern contains no glob characters (`*`, `?`, `[`) and does not end with `/`, append `/**` to match directory contents recursively (e.g., `cognee` → `cognee/**`; `cognee/**` → kept as-is).
-   2. Convert `exclude_patterns` to negation patterns by prepending `!`. Apply the same anchoring rule (e.g., `cognee/tests` → `!cognee/tests/**`; `cognee/tests/**` → `!cognee/tests/**`; `**/test_*` → `!**/test_*`).
+   1. Convert `include_patterns` to gitignore-style patterns. For patterns without glob characters (`*`, `?`, `[`) that do not end with `/`, apply the **file-detection heuristic**: if the last path segment contains a `.` (file extension), it is an **individual file** — prepend `/` and keep as-is (e.g., `packages/registry/registry.json` → `/packages/registry/registry.json`). If the last path segment has no extension, it is a **bare directory name** — append `/**` (e.g., `cognee` → `cognee/**`). Patterns that already contain glob characters are kept as-is (e.g., `cognee/**` → kept as-is).
+   2. Convert `exclude_patterns` to negation patterns by prepending `!`. Apply the same file-detection heuristic: individual files (last segment has `.` extension) get `!/` prefix only (e.g., `src/internal/config.json` → `!/src/internal/config.json`); bare directory names get `/**` appended (e.g., `cognee/tests` → `!cognee/tests/**`). Patterns with globs are kept as-is with `!` prefix (e.g., `cognee/tests/**` → `!cognee/tests/**`; `**/test_*` → `!**/test_*`).
    3. **CRITICAL:** List all include patterns BEFORE negated exclude patterns — git processes patterns in order and a negation can only suppress a prior inclusion.
    4. Pass to sparse-checkout — include patterns first, then negated exclude patterns:
 
@@ -79,14 +79,16 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
 
    Example transformation:
    ```
-   Brief include_patterns:        Brief exclude_patterns:
-   cognee/**                      cognee/tests/**
-                                  cognee/alembic/**
-                                  **/test_*
+   Brief include_patterns:          Brief exclude_patterns:
+   cognee/**                        cognee/tests/**
+   packages/registry/registry.json  cognee/alembic/**
+                                    **/test_*
 
    sparse-checkout args (--no-cone):
-   'cognee/**' '!cognee/tests/**' '!cognee/alembic/**' '!**/test_*'
+   'cognee/**' '/packages/registry/registry.json' '!cognee/tests/**' '!cognee/alembic/**' '!**/test_*'
    ```
+
+   Note: `registry.json` is an individual file (has `.json` extension), so it gets `/` prefix instead of `/**` suffix.
 
    **Note:** `--no-cone` mode is slower than cone mode for very large repositories but eliminates downloading excluded blobs entirely.
 

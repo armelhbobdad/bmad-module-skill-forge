@@ -37,10 +37,10 @@ When `scope.type: "component-library"`, perform specialized extraction that trea
 
 ## CONTEXT BOUNDARIES:
 
-- Available: brief_data (including `scope.registry_path`, `scope.ui_variants`, `scope.demo_patterns` if present), tier, source_root, filtered file list from step-03 section 2, CCC discovery results (if available)
+- Available: brief_data (including `scope.registry_path`, `scope.ui_variants`, `scope.demo_patterns` if present), tier, source_root (may be `temp_path` from ephemeral clone for remote repos — use the working source path resolved in step-03 section 2a), filtered file list from step-03 section 2, CCC discovery results (if available from step-03 section 2a)
 - Focus: Component-specific extraction and inventory building
 - Limits: Do NOT compile, assemble, or write output
-- Dependencies: Source code accessible, scope filters already applied
+- Dependencies: Source code accessible (resolved in step-03 section 2a — ephemeral clone for remote repos), scope filters already applied
 
 ## MANDATORY SEQUENCE
 

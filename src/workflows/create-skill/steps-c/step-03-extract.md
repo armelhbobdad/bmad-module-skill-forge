@@ -50,7 +50,7 @@ To extract all public exports, function signatures, type definitions, and co-imp
 - Available: brief_data, tier, source_root, file_tree from step-01; ecosystem check outcome from step-02 (proceed/halt decision — no named variable stored)
 - Focus: Source code extraction and inventory building
 - Limits: Do NOT compile, assemble, or write any output
-- Dependencies: Source code must be accessible (resolved in step-01)
+- Dependencies: Source code must be accessible (local repos resolved in step-01; remote repos cloned in section 2a)
 
 ## MANDATORY SEQUENCE
 
@@ -70,42 +70,9 @@ From the brief, apply scope and pattern filters:
 
 Build the filtered file list from the source tree resolved in step-01. Record the result: "**Filtered file count: {N} files in scope**" — this count is the input to the AST Extraction Protocol decision tree in the extraction patterns data file.
 
-### 2b. Component Library Delegation
+### 2a. Resolve Source Access
 
-**If `scope.type: "component-library"` in the brief:**
-
-"**Component library detected.** Delegating to specialized extraction strategy for registry-first, props-focused extraction."
-
-Load and execute `{componentExtractionStepFile}` completely. When that step completes, it returns control here. Resume at section 5 (Build Extraction Inventory) with the enriched extraction data and `component_catalog[]` from the component extraction step.
-
-**Otherwise:** Continue with standard extraction below.
-
-### 3. Check for Docs-Only Mode
-
-**If `source_type: "docs-only"` in the brief data:**
-
-"**Docs-only mode:** No source code to extract. Documentation content will be fetched from `doc_urls` in step-03c."
-
-Build an empty extraction inventory with zero exports. Set `extraction_mode: "docs-only"` in context. Auto-proceed through Gate 2 (section 6) — display the empty inventory and note that T3 content will be produced by the doc-fetcher step.
-
-**If `source_type: "source"` (default):** Continue with extraction below.
-
-### 4. Execute Tier-Dependent Extraction
-
-Load `{sourceResolutionData}` completely. Follow the **Remote Source Resolution** protocol for Forge/Deep tiers (ephemeral clone, sparse-checkout, cleanup) and the **Version Reconciliation** protocol for all tiers. Apply the protocols before proceeding with the tier-specific extraction strategy below.
-
-**Quick Tier (No AST tools):**
-
-1. Use `gh_bridge.list_tree(owner, repo, branch)` to map source structure (if remote)
-2. Identify entry points: index files, main exports, public modules
-3. Use `gh_bridge.read_file(owner, repo, path)` to read each entry point
-4. Extract from source text: exported function names, parameter lists, return types
-5. Infer types from JSDoc, docstrings, type annotations
-6. Confidence: All results T1-low — `[SRC:{file}:L{line}]`
-
-**Tool resolution for gh_bridge:** Use `gh api repos/{owner}/{repo}/git/trees/{branch}?recursive=1` for list_tree, `gh api repos/{owner}/{repo}/contents/{path}` for read_file. If source is local, use direct file listing/reading instead. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md).
-
-**Forge/Forge+/Deep Tier (AST available):**
+Load `{sourceResolutionData}` completely. Follow the **Remote Source Resolution** protocol for Forge/Deep tiers (ephemeral clone, sparse-checkout, cleanup), the **Source Commit Capture** protocol for all tiers, and the **Version Reconciliation** protocol for all tiers. This ensures source code is accessible regardless of which extraction path is taken below (standard, component-library, or docs-only).
 
 **Deferred CCC Discovery (Forge+ and Deep — remote sources only):**
 
@@ -136,6 +103,43 @@ If `{ccc_discovery}` is in context and non-empty (populated by step-02b or defer
 - Display: "**CCC discovery: {N} files pre-ranked by semantic relevance** — extraction will prioritize these first."
 
 If `{ccc_discovery}` is empty or not in context: proceed with existing file ordering (no change to current behavior).
+
+### 2b. Component Library Delegation
+
+**If `scope.type: "component-library"` in the brief:**
+
+"**Component library detected.** Delegating to specialized extraction strategy for registry-first, props-focused extraction."
+
+Load and execute `{componentExtractionStepFile}` completely. When that step completes, it returns control here. Resume at section 5 (Build Extraction Inventory) with the enriched extraction data and `component_catalog[]` from the component extraction step.
+
+**Otherwise:** Continue with standard extraction below.
+
+### 3. Check for Docs-Only Mode
+
+**If `source_type: "docs-only"` in the brief data:**
+
+"**Docs-only mode:** No source code to extract. Documentation content will be fetched from `doc_urls` in step-03c."
+
+Build an empty extraction inventory with zero exports. Set `extraction_mode: "docs-only"` in context. Auto-proceed through Gate 2 (section 6) — display the empty inventory and note that T3 content will be produced by the doc-fetcher step.
+
+**If `source_type: "source"` (default):** Continue with extraction below.
+
+### 4. Execute Tier-Dependent Extraction
+
+Source resolution, version reconciliation, and CCC discovery were completed in section 2a. Proceed with the tier-specific extraction strategy below.
+
+**Quick Tier (No AST tools):**
+
+1. Use `gh_bridge.list_tree(owner, repo, branch)` to map source structure (if remote)
+2. Identify entry points: index files, main exports, public modules
+3. Use `gh_bridge.read_file(owner, repo, path)` to read each entry point
+4. Extract from source text: exported function names, parameter lists, return types
+5. Infer types from JSDoc, docstrings, type annotations
+6. Confidence: All results T1-low — `[SRC:{file}:L{line}]`
+
+**Tool resolution for gh_bridge:** Use `gh api repos/{owner}/{repo}/git/trees/{branch}?recursive=1` for list_tree, `gh api repos/{owner}/{repo}/contents/{path}` for read_file. If source is local, use direct file listing/reading instead. See [knowledge/tool-resolution.md](../../../knowledge/tool-resolution.md).
+
+**Forge/Forge+/Deep Tier (AST available):**
 
 ⚠️ **CRITICAL:** Before executing AST extraction, load the **AST Extraction Protocol** section from `{extractionPatternsData}`. Follow the decision tree based on the file count from step-01's file tree. This determines whether to use the MCP tool, scoped YAML rules, or CLI streaming. Never use `ast-grep --json` (without `=stream`) — it loads the entire result set into memory and will fail on large codebases. Always use the explicit `run` subcommand with streaming: `ast-grep run -p '{pattern}' --json=stream`.
 
