@@ -59,6 +59,15 @@ Rules for identifying discrete skillable units within a project. A "skillable un
 - Custom wrappers, configurations, or integration code
 - Scope type: `public-api`
 
+### Component Library Boundary
+- Contains a component registry or catalog file (array of component definitions with IDs, names, categories)
+- Has `components/`, `packages/components/`, or similar multi-component directory structure
+- Multiple design system variant directories (e.g., `react-shadcn/`, `react-baseui/`, `react-carbon/`)
+- Significant demo/story/example file ratio (>30% of total files)
+- CLI-based installation pattern (e.g., `npx <tool> add <component-id>`)
+- Props interfaces outnumber function signatures as primary API surface
+- Scope type: `component-library`
+
 ## Disqualification Rules
 
 Do NOT recommend as a skillable unit if:

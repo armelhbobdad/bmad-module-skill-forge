@@ -90,7 +90,7 @@ For EACH qualifying unit, prepare a recommendation card:
 
 **Proposed Brief Fields:**
 - name: {suggested kebab-case name}
-- scope.type: {full-library / specific-modules / public-api}
+- scope.type: {full-library / specific-modules / public-api / component-library}
 - scope.include: {suggested glob patterns}
 - description: {suggested 1-3 sentence description}
 ```

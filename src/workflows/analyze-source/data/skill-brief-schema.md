@@ -55,12 +55,20 @@ The create-skill workflow (step-03-extract) also performs version reconciliation
 
 ```yaml
 scope:
-  type: full-library | specific-modules | public-api | docs-only
+  type: full-library | specific-modules | public-api | component-library | docs-only
   include:
     - 'src/**/*.ts'          # At least one required
   exclude:
     - 'src/**/*.test.ts'     # Optional
   notes: 'Optional rationale for scope decision'
+  # Additional fields when scope.type is "component-library":
+  # registry_path: "path/to/registry.ts"  # Optional — auto-detected if omitted
+  # ui_variants:                           # Optional — design system variants
+  #   - name: "shadcnui"
+  #     package: "packages/components/react-shadcn"
+  # demo_patterns:                         # Optional — auto-detected if omitted
+  #   - "**/demo/**"
+  #   - "**/*.stories.*"
 ```
 
 ### Scope Types
@@ -70,6 +78,7 @@ scope:
 | full-library | Entire codebase of a unit |
 | specific-modules | Selected components or packages |
 | public-api | Only exported interfaces |
+| component-library | UI component libraries with registries, props-based APIs, and design system variants |
 | docs-only | When source_type is docs-only — no source code available, all content from doc_urls |
 
 ## YAML Template
@@ -98,7 +107,7 @@ created_by: '{user_name}'
 1. **Name uniqueness**: No duplicate names within forge_data_folder
 2. **Source accessibility**: source_repo path must exist or be reachable
 3. **Language recognized**: Must be a known programming language
-4. **Scope type valid**: Must match one of the four defined types (full-library, specific-modules, public-api, docs-only)
+4. **Scope type valid**: Must match one of the five defined types (full-library, specific-modules, public-api, component-library, docs-only)
 5. **Include patterns**: At least one include glob pattern required (exception: `docs-only` scope, where include patterns are optional since no source code is available)
 6. **Forge tier match**: Must match value in forge-tier.yaml
 7. **Docs-only mode**: When `source_type: "docs-only"`, `doc_urls` required (>= 1), `source_repo` optional

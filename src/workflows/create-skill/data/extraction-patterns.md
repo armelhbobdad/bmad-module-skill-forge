@@ -171,6 +171,7 @@ When MCP tools are unavailable or the repo exceeds 500 files in scope, use `--js
 **Head cap selection:** The `| head -N` cap at the end of the pipeline controls how many exports are captured. Select `N` based on scope and tier:
 - **Default (Quick/Forge, any scope):** `N = 200`
 - **Forge+/Deep with `scope.type: "full-library"`:** `N = 500`
+- **Forge+/Deep with `scope.type: "component-library"`:** `N = 300` (components have fewer but richer exports; props interfaces are the primary API surface)
 
 For full-library skills at higher tiers, the larger cap prevents silently dropping internal module exports that maintainers need. The cap is applied AFTER exclude-pattern filtering, so useful results are not wasted on excluded files.
 
@@ -332,6 +333,28 @@ When using ast-grep for extraction, be aware of these documented limitations:
 5. **TSX `export function` pattern failure:** The `export function $NAME($$$PARAMS)` pattern may return zero results in TSX files with ast-grep 0.41.x. This affects both MCP tools and CLI. `export const` and `export type` patterns are unaffected. **Workaround:** For TSX files, use `export const` patterns first (which work), then fall back to source reading (grep/file read) for `export function` declarations. When a TSX codebase shows zero `export function` matches but source files clearly contain them, this is a known ast-grep tree-sitter tsx parser limitation — not an extraction error. Log it in the evidence report and proceed with T1-low confidence for those exports.
 
 6. **CLI `--json=stream` may produce no output:** On ast-grep 0.41.x, `--json=stream` may produce empty output for certain patterns. The `--json=stream` flag requires the explicit `run` subcommand: use `ast-grep run -p '{pattern}' --json=stream` (not `ast-grep -p '{pattern}' --json=stream`). If streaming still produces no output, fall back to the MCP tool or source reading.
+
+### Component Library Demo/Example Auto-Exclusion
+
+When `scope.type: "component-library"`, auto-detect and propose demo/example exclusions before extraction begins. **User confirmation is required before applying** — some `examples/` directories contain API-level code.
+
+**Auto-detect directory patterns:**
+- `**/demo/**`, `**/demos/**`
+- `**/stories/**`, `**/__stories__/**`, `**/storybook/**`
+- `**/examples/**`, `**/example/**`
+
+**Auto-detect file patterns:**
+- `**/*.stories.*`, `**/*.story.*`
+- `**/*.example.*`, `**/*.demo.*`
+
+If `demo_patterns` is specified in the brief, use those instead of auto-detection.
+
+**Procedure:**
+1. Scan the scoped file tree for matching directories and files
+2. Count matches per pattern category
+3. Present to user: "**Auto-detected {N} demo/example files** in {M} directories matching these patterns: {list}. Confirm exclusion? [Y/n] Or adjust patterns:"
+4. Apply confirmed patterns to the exclude list before AST extraction
+5. Record in extraction inventory: `demo_files_excluded: {count}`
 
 ### Re-Export Tracing and Script/Asset Extraction
 
