@@ -82,7 +82,7 @@ Scripts and assets are file-level artifacts, not code exports. They follow the *
 - Exclude generated files (`dist/`, `build/`, `.webpack/` output)
 - Exclude vendored/third-party files
 - Flag files >500 lines for user confirmation (may be too large for skill package)
-- If `scripts_intent: "none"` or `assets_intent: "none"` in brief, skip that category
+- If `scripts_intent` is absent from the brief, treat as `"detect"` (auto-detection is the default). If `scripts_intent` is explicitly `"none"`, skip scripts detection. Same rule applies to `assets_intent`.
 
 ### Provenance and Hashing
 
