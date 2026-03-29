@@ -1,0 +1,160 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/
+
+---
+
+Take a look at @_bmad-output/todo. We should adress the proposal and also fix potential missing impacts, regression, bug. Go to party mode for different perspectives
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+---
+
+Do we missed something? Are we ready to plan the implementation?
+
+---
+
+yes
+
+---
+
+use the make-plan
+
+---
+
+Base directory for this skill: /home/armel/.claude/plugins/cache/thedotmack/claude-mem/10.4.3/skills/make-plan
+
+# Make Plan
+
+You are an ORCHESTRATOR. Create an LLM-friendly plan in phases that can be executed consecutively in new chat contexts.
+
+## Delegation Model
+
+Use subagents for *fact gathering and extraction* (docs, examples, signatures, grep results). Keep *synthesis and plan authoring* with the orchestrator (phase boundaries, task framing, final wording). If a subagent report is incomplete or lacks evidence, re-check with targeted reads/greps before finalizing.
+
+### Subagent Reporting Contract (MANDATORY)
+
+Each subagent response must include:
+1. Sources consulted (files/URLs) and what was read
+2. Concrete findings (exact API names/signatures; exact file paths/locations)
+3. Copy-ready snippet locations (example files/sections to copy)
+4. "Confidence" note + known gaps (what might still be missing)
+
+Reject and redeploy the subagent if it reports conclusions without sources.
+
+## Plan Structure
+
+### Phase 0: Documentation Discovery (ALWAYS FIRST)
+
+Before planning implementation, deploy "Documentation Discovery" subagents to:
+1. Search for and read relevant documentation, examples, and existing patterns
+2. Identify the actual APIs, methods, and signatures available (not assumed)
+3. Create a brief "Allowed APIs" list citing specific documentation sources
+4. Note any anti-patterns to avoid (methods that DON'T exist, deprecated parameters)
+
+The orchestrator consolidates findings into a single Phase 0 output.
+
+### Each Implementation Phase Must Include
+
+1. **What to implement** — Frame tasks to COPY from docs, not transform existing code
+   - Good: "Copy the V2 session pattern from docs/examples.ts:45-60"
+   - Bad: "Migrate the existing code to V2"
+2. **Documentation references** — Cite specific files/lines for patterns to follow
+3. **Verification checklist** — How to prove this phase worked (tests, grep checks)
+4. **Anti-pattern guards** — What NOT to do (invented APIs, undocumented params)
+
+### Final Phase: Verification
+
+1. Verify all implementations match documentation
+2. Check for anti-patterns (grep for known bad patterns)
+3. Run tests to confirm functionality
+
+## Key Principles
+
+- Documentation Availability ≠ Usage: Explicitly require reading docs
+- Task Framing Matters: Direct agents to docs, not just outcomes
+- Verify > Assume: Require proof, not assumptions about APIs
+- Session Boundaries: Each phase should be self-contained with its own doc references
+
+## Anti-Patterns to Prevent
+
+- Inventing API methods that "should" exist
+- Adding parameters not in documentation
+- Skipping verification steps
+- Assuming structure without checking examples
+
+
+ARGUMENTS: Implement Proposal P-01: Component Library Extraction Strategy for the Skill Forge module (bmad-module-skill-forge). 
+
+## Context
+The proposal adds a `scope.type: "component-library"` brief option to the create-skill workflow, with registry-first extraction, props-focused API, variant consolidation, and demo auto-exclusion. Full proposal at: _bmad-output/todo/proposal-01-component-library-extraction-strategy.md
+
+## Key Findings from Review (Party Mode)
+15 findings were identified during multi-agent review:
+
+### Bugs
+1. All file paths in proposal use nonexistent `skillforge/` prefix — actual paths are `src/workflows/create-skill/...`
+
+### Missing Impact (files the proposal didn't list)
+- `brief-skill/data/skill-brief-schema.md` — scope type enum (line 54)
+- `brief-skill/data/scope-templates.md` — scope template block
+- `brief-skill/steps-c/step-03-scope-definition.md` — present component-library option
+- `brief-skill/steps-c/step-04-confirm-brief.md` — display confirmation
+- `brief-skill/steps-c/step-05-write-brief.md` — write brief YAML
+- `analyze-source/data/unit-detection-heuristics.md` — when to recommend component-library
+- `analyze-source/steps-c/step-05-recommend.md` — scope type in recommendations
+- `analyze-source/steps-c/step-06-generate-briefs.md` — routing logic
+- `test-skill/steps-c/step-03-coverage-check.md` — scope-aware scoring
+- `test-skill/steps-c/step-05-score.md` — scope-aware scoring
+- `update-skill/steps-c/step-03-re-extract.md` — scope reference
+- `audit-skill/steps-c/step-01-init.md` — scope handling
+- Knowledge files: `progressive-capability.md`, `tool-resolution.md`
+
+### Risks
+- Registry auto-detection false positives (needs confidence scoring or user confirmation)
+- Variant consolidation assumes filename conventions (should use registry-linked approach)
+- Props→Component naming convention is brittle (needs fallback chain)
+- Demo auto-exclusion could silently remove legitimate code (needs user confirmation)
+
+### Architectural Concern
+- Custom extraction phases would be the FIRST scope-type-specific extraction logic — a design precedent
+- No existing data handoff mechanism for intermediate artifacts like `component_catalog[]`
+
+### Resolved
+- `quick-skill` is NOT affected (brief-less, no scope object)
+
+## Recommended Approach: Two-Phase Implementation
+
+### Phase 1 (Low-risk foundation)
+- Add `component-library` to scope type enum
+- Add scope template with boundary definitions
+- Update brief-skill steps to present and handle the new option
+- Add demo auto-exclusion patterns (with user confirmation)
+- Update analyze-source heuristics to recommend it
+- Update affected downstream workflow references
+
+### Phase 2 (Heavy lift — pluggable extraction strategy)
+- Design extraction strategy plugin architecture (first scope-specific extraction)
+- Registry detection with confidence scoring + user confirmation
+- Props-first extraction with fallback chain
+- Variant consolidation using registry data (not filename conventions)
+- Data handoff mechanism for component_catalog[]
+- Custom compilation sections (Component Catalog, Props Reference)
+- Update test-skill scoring for component-library skills
+- Update knowledge files
+
+---
+
+go
+
+---
+
+commit first then continue

@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "92ba0c37185e",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/analyze-source/data/skill-brief-schema.md",
+    "src/workflows/analyze-source/data/unit-detection-heuristics.md",
+    "src/workflows/analyze-source/steps-c/step-05-recommend.md",
+    "src/workflows/analyze-source/steps-c/step-06-generate-briefs.md",
+    "src/workflows/brief-skill/data/scope-templates.md",
+    "src/workflows/brief-skill/data/skill-brief-schema.md",
+    "src/workflows/brief-skill/steps-c/step-03-scope-definition.md",
+    "src/workflows/create-skill/data/extraction-patterns.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/92/ba0c37185e/0/metadata.json",
+      "transcript": "/92/ba0c37185e/0/full.jsonl",
+      "context": "/92/ba0c37185e/0/context.md",
+      "content_hash": "/92/ba0c37185e/0/content_hash.txt",
+      "prompt": "/92/ba0c37185e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 53,
+    "cache_creation_tokens": 180437,
+    "cache_read_tokens": 1603313,
+    "output_tokens": 25065,
+    "api_call_count": 32
+  }
+}
