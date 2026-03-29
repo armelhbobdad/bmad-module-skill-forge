@@ -54,6 +54,18 @@ When `docs_only_mode: true` is set by step-03 (indicating a Quick tier skill whe
 
 This is functionally identical to Quick tier weight redistribution but with a different coverage denominator (self-consistency instead of source comparison).
 
+### State 2 Source Access (Any Tier, Provenance-Map Only)
+
+When source is not locally available and analysis resolves to State 2 (provenance-map baseline per source-access-protocol.md):
+
+- **Signature Accuracy:** N/A — provenance-map stores parameters as flat string arrays; verification is string comparison only, not semantic AST verification. Type aliases (`str` vs `String`, `list` vs `List[Any]`) cannot be resolved without live source.
+- **Type Coverage:** N/A — cannot verify type completeness without local source access for AST re-parsing.
+- **Weight redistribution:** Same as Quick tier — Signature Accuracy (22%) and Type Coverage (14%) weights redistributed proportionally to remaining active categories (Export Coverage, Coherence, External Validation).
+- **Applies regardless of detected tier** (including Forge, Forge+, Deep) whenever `analysis_confidence` is `provenance-map` and local source is unavailable.
+- **Export Coverage denominator:** Uses the union of provenance-map entry names and metadata.json `exports[]` names (per source-access-protocol.md State 2 rules).
+
+Note: When provenance-map entries are predominantly T1 (AST-verified at compilation time), the coverage and name-matching data is already at highest confidence. The N/A categories reflect the inability to re-verify at test time, not low-quality extraction data.
+
 ### Forge Tier (ast-grep)
 - Export Coverage: AST-backed export comparison
 - Signature Accuracy: AST-verified signature matching
