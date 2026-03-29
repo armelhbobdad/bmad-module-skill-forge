@@ -1,0 +1,40 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/
+
+---
+
+Take a look at @_bmad-output/todo. We should fix all of them and also fix missing impacts, regression, bug. Go to party mode for different perspectives
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+
+ARGUMENTS: Review these 7 TODO items from _bmad-output/todo/ for the Skill Forge module at src/. Identify missing impacts, regressions, bugs, and any additional issues not covered by the existing TODOs. The issues are:
+
+Issue-01: CCC CLI flags incorrect (ccc init takes no positional args, --top should be --limit, --path is a filter not a directory selector)
+Issue-02: ast-grep TSX export function pattern returns zero matches
+Issue-03: Ephemeral clone cleanup invalidates shell cwd
+Issue-04: Monorepo version reconciliation lacks guidance for multiple package.json
+Issue-05: QMD version detection fails (qmd --version returns usage text)
+Issue-06: ast-grep CLI --json=stream flag produces no output on v0.41.1
+Proposal-01: Component library extraction strategy
+
+Affected files are in src/workflows/create-skill/ (steps-c/ and data/), src/knowledge/ccc-bridge.md, and src/knowledge/tool-resolution.md.
+
+Focus on: What's missing? What regressions could these fixes cause? What additional bugs exist in the workflow files that aren't covered by these TODOs?
+
+---
+
+go
+
+---
+
+yes
