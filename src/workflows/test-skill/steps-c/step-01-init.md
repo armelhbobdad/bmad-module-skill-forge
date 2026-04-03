@@ -116,11 +116,9 @@ Read `{sidecarFile}` to determine available analysis depth.
 - Read tool availability flags (ast_grep, gh_cli, qmd)
 
 **If forge-tier.yaml missing:**
-"**Warning:** Forge tier not detected. Defaulting to **Quick** tier (structural checks only).
+"**Cannot proceed.** forge-tier.yaml not found at `{sidecarFile}`. Please run the **setup-forge** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
 
-Run **setup-forge** to enable deeper analysis with AST-backed verification."
-
-Default to Quick tier and continue.
+HALT — do not proceed.
 
 ### 4b. Apply Tier Override (if set)
 
@@ -194,7 +192,7 @@ ONLY WHEN all required files are validated, forge tier is loaded, output documen
 ### ✅ SUCCESS:
 
 - Skill path validated (SKILL.md exists)
-- Forge tier state loaded (or gracefully defaulted to Quick), override applied if set in preferences.yaml
+- Forge tier state loaded (HALT if missing), override applied if set in preferences.yaml
 - Skill metadata extracted
 - Output document created from template with initial frontmatter
 - Initialization status reported clearly

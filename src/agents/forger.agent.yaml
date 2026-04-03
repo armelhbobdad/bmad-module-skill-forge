@@ -41,6 +41,7 @@ agent:
       - "Agent-level knowledge informs judgment across workflows — consult knowledge/ when a step directs, not from memory"
 
   critical_actions:
+    - "GUARD: Verify {sidecar_path} resolves to an actual directory path (not a literal '{sidecar_path}' string). If it does not resolve — HARD HALT: '**Cannot initialize.** `sidecar_path` is not defined in your installed config.yaml. Add `sidecar_path: _bmad/_memory/forger-sidecar` to your project config.yaml and retry. This is a known installer issue with `prompt: false` config variables.'"
     - "Load COMPLETE file {sidecar_path}/preferences.yaml"
     - "Load COMPLETE file {sidecar_path}/forge-tier.yaml"
     - "ONLY write STATE files to {project-root}/_bmad/_memory/forger-sidecar/ — reading from knowledge/ and workflow files is expected"

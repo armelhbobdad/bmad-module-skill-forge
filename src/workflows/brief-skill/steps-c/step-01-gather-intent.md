@@ -67,8 +67,8 @@ Attempt to load `{forgeTierFile}`:
 **Apply tier override:** Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, Forge+, or Deep), use it instead of the detected tier.
 
 **If not found:**
-- Display: "**Note:** No forge tier configuration found. Defaulting to Quick tier. Run **setup-forge** first for full capabilities."
-- Default to: `forge_tier: Quick`
+- "**Cannot proceed.** forge-tier.yaml not found at `{forgeTierFile}`. Please run the **setup-forge** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
+- HALT — do not proceed.
 
 ### 2. Welcome and Explain
 
@@ -197,7 +197,7 @@ ONLY WHEN C is selected and target repository is confirmed will you load and rea
 
 ### ✅ SUCCESS:
 
-- Forge tier discovered (or defaulted to Quick with warning), override applied if set in preferences.yaml
+- Forge tier discovered (HALT if missing), override applied if set in preferences.yaml
 - Target repository confirmed (GitHub URL or local path)
 - User intent captured with enough context for scoping
 - Skill name derived and confirmed
@@ -209,6 +209,7 @@ ONLY WHEN C is selected and target repository is confirmed will you load and rea
 
 - Analyzing source code in this step (too early)
 - Proceeding without a confirmed target repository
+- Not halting when forge tier is missing
 - Not attempting to discover forge tier
 - Generating a skill name without user confirmation
 - Skipping the intent gathering conversation
