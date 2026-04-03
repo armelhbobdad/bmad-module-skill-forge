@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "281c962eefd5",
+  "session_id": "f1e9e00f-936e-4b7d-bf13-562a3988683b",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-03T14:57:16.03319299Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/agents/forger.agent.yaml",
+    "src/workflows/brief-skill/steps-c/step-01-gather-intent.md",
+    "src/workflows/test-skill/steps-c/step-01-init.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "a42b7f8325ff",
+  "token_usage": {
+    "input_tokens": 107,
+    "cache_creation_tokens": 85498,
+    "cache_read_tokens": 2492401,
+    "output_tokens": 15352,
+    "api_call_count": 48
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-03T14:57:15.704094358Z",
+    "agent_lines": 8,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 8,
+    "agent_percentage": 100
+  }
+}
