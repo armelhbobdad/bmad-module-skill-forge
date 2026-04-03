@@ -224,6 +224,8 @@ flowchart TD
     TS --> EX[Export Skill]
 ```
 
+> **One workflow per session.** Each arrow in the diagrams above represents a new conversation session. Clear your context between workflows for best results — this prevents leftover step files and extraction data from interfering with the next workflow. See [Session Context](../concepts/#session-context).
+
 ---
 
 ## Workflow Categories

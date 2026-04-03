@@ -111,8 +111,38 @@ Skills can include executable scripts and static assets alongside the main SKILL
 
 ---
 
+## Session Context
+
+Each SKF workflow should run in a clean conversation session. Workflows load step files, knowledge fragments, and extraction data into the LLM's context as they execute. If you run a second workflow in the same session, leftover context from the first workflow can interfere with the second — causing stale references, mode confusion, or degraded output quality.
+
+**Best practice:** Clear your session context (start a new conversation) before invoking a new workflow. For example, after `@Ferris CS` completes a skill, start a fresh session before running `@Ferris TS` to test it.
+
+This applies to sequential workflows in the same session. Sidecar state (forge tier, preferences) persists across sessions automatically — you don't lose any configuration by clearing context.
+
+---
+
+## Full Control Over Scope
+
+You can compile multiple skills from the same target (repo or docs) with different scopes, intents, and audiences. Each brief defines what to extract and why, producing a distinct skill from the same source.
+
+**Example:** From a single library like [cognee](https://github.com/topoteretes/cognee), you could compile:
+
+- `cognee-core` — public API surface for general usage
+- `cognee-graph-types` — type system and data model for schema work
+- `cognee-migration` — upgrade patterns and breaking changes for version transitions
+
+Each skill serves a different use case. You decide the scope — SKF compiles exactly what you specify.
+
+---
+
 ## Best Practices
 
 SKF integrates skill authoring best practices from the Claude platform and community guidelines. Generated skills use third-person descriptions for reliable agent discovery, consistent terminology throughout, and appropriate degrees of freedom (prescriptive for fragile operations like database migrations, flexible for creative tasks like code reviews). These practices are enforced during compilation and verified during testing.
 
 **Example:** A skill description reads "Processes payments via REST API with token-based auth. NOT for: billing dashboards" — third-person voice, specific keywords, and negative triggers help agents select the right skill.
+
+**Operational best practices:**
+
+- **One workflow per session** — clear context between workflows to prevent stale state from affecting results
+- **Multiple skills per target** — compile different skills from the same repo or docs for different use cases and audiences
+- **Progressive capability** — start with Quick mode, upgrade tiers as you install more tools

@@ -74,7 +74,9 @@ You'll be prompted for project name, output folders, and IDE configuration. See 
 
 1. **Set up your environment:** `@Ferris SF` — detects your tools and sets your capability tier
 2. **Generate your first skill:** `@Ferris QS <package-name>` — creates a verified skill in under a minute
-3. **Full quality path:** `@Ferris BS` then `@Ferris CS` — brief first, then compile for maximum accuracy
+3. **Full quality path:** `@Ferris BS` → clear session → `@Ferris CS` — brief first, then compile for maximum accuracy
+
+> **Tip:** Start a fresh conversation before each workflow. SKF workflows load significant context — clearing between them prevents interference.
 
 See the [workflows docs](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/) for all 12 available workflows.
 
@@ -84,6 +86,7 @@ See the [workflows docs](https://armelhbobdad.github.io/bmad-module-skill-forge/
 - **You maintain a library** and want to ship official, verified instruction files so AI agents use your API correctly
 - **You manage a codebase with many dependencies** and want a consolidated "stack skill" that teaches your agent how all the pieces fit together
 - **You use a SaaS API or closed-source tool** with no public code — SKF can generate skills from documentation alone
+- **You need different skills for different use cases** from the same target — compile multiple skills with different scopes from one repo or doc set (e.g., a core API skill and a migration guide skill)
 
 ## Learn More
 

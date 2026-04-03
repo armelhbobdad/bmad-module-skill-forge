@@ -103,13 +103,18 @@ This detects your tools, sets your capability tier, and initializes the forge en
 
 Ferris reads the repository, extracts the public API, and generates a skill in under a minute.
 
-**Full quality path:**
+**Full quality path (one workflow per session):**
 ```
 @Ferris BS    # Brief — scope and design the skill
+# — clear session —
 @Ferris CS    # Create — compile from the brief
+# — clear session —
 @Ferris TS    # Test — verify completeness
+# — clear session —
 @Ferris EX    # Export — package for distribution
 ```
+
+> Start a fresh conversation before each workflow. SKF workflows load significant context — clearing between them prevents interference. See [Session Context](../concepts/#session-context).
 
 ### 3. Stack Skill (for full projects)
 

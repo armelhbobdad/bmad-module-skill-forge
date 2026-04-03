@@ -84,7 +84,9 @@ Alex's team adopts BMAD for 10 microservices (TypeScript, Go, Rust).
 
 ```
 @Ferris SF          # Setup — Deep mode detected
+# — clear session —
 @Ferris AN          # Analyze — 10 services mapped
+# — clear session —
 @Ferris CS --batch  # Create — batch generation
 ```
 
@@ -96,8 +98,11 @@ Sarah prepares v3.0.0 with breaking changes.
 
 ```
 @Ferris AS    # Audit — finds 3 renames, 1 removal, 1 addition
+# — clear session —
 @Ferris US    # Update — preserves [MANUAL] sections, adds annotations
+# — clear session —
 @Ferris TS    # Test — verify completeness
+# — clear session —
 @Ferris EX    # Export — package for npm release
 ```
 
@@ -196,6 +201,14 @@ Stack skills focus on integration patterns. Individual skills focus on API surfa
 ### The Loop
 
 After each sprint's refactor, run `@Ferris US` to regenerate changed components. Export updates CLAUDE.md automatically. Skill generation becomes routine — like running tests.
+
+### One Workflow Per Session
+
+Clear your conversation context (start a new chat) before invoking a new workflow. Each SKF workflow loads step files, knowledge fragments, and extraction data into context. Starting fresh ensures the next workflow operates without interference from prior steps. Sidecar state (forge tier, preferences) persists automatically across sessions — you don't lose configuration.
+
+### Full Control Over Scope
+
+You can compile multiple skills from the same target (repo or docs) with different scopes and intents. Each brief defines what to extract and why, producing a distinct skill from the same source. For example, from a single library you could compile `cognee-core` for the public API, `cognee-graph-types` for the type system, and `cognee-migration` for upgrade patterns — each serving a different use case.
 
 ### Best Practices Built In
 
