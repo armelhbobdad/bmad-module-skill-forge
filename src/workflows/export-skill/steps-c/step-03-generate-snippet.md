@@ -66,6 +66,16 @@ Auto-proceed immediately to {nextStepFile}.
 
 Load {snippetFormatData} and read the format template for the skill type.
 
+### 2.5. Check Existing Snippet
+
+Before generating new snippet content, check for a prior snippet:
+
+1. Read `{skills_output_folder}/{skill-name}/context-snippet.md` if it exists
+2. If it exists, extract the `|gotchas:` line (if any) and store as `prior_gotchas`
+3. If no prior snippet exists, set `prior_gotchas` to empty/null
+
+This preserved value will be used as a fallback in section 3 if new gotchas cannot be derived.
+
 ### 3. Generate Snippet Content
 
 **For single skills (`skill_type: "single"`):**
@@ -74,7 +84,10 @@ Load {snippetFormatData} and read the format template for the skill type.
 2. Select top exports (up to 10 for Deep tier, 5 otherwise). Append `()` to function names.
 3. Read SKILL.md to extract: heading slugs for `#quick-start` and `#key-types`, inline summary of key types (~10 words)
 4. **Anchor verification (split-body awareness):** For each section anchor (`#quick-start`, `#key-types`), verify the heading exists in SKILL.md. If a `references/` directory exists and `## Full` headings in SKILL.md are absent or stubs (indicating split-body, not a stack skill's structural references), rewrite the anchor to point to the reference file path (e.g., `references/{file}.md#key-types`). If the heading cannot be resolved in either location, omit that anchor line from the snippet.
-5. Derive gotchas from: T2-future annotations in evidence report (breaking changes), async requirements, version-specific behavior. If no gotchas, omit the gotchas line.
+5. Derive gotchas from: T2-future annotations in evidence report (breaking changes), async requirements, version-specific behavior.
+   - **If new gotchas are derived:** Use them (they supersede any prior gotchas).
+   - **If NO new gotchas are derived BUT `prior_gotchas` exists (from section 2.5):** Carry forward the prior gotchas line unchanged. Emit warning: "**Gotchas preserved from prior export.** Review and clear manually if no longer applicable."
+   - **If NO new gotchas derived AND no `prior_gotchas`:** Omit the gotchas line.
 
 Generate:
 ```
@@ -88,7 +101,7 @@ Generate:
 
 **If fewer exports than limit:** List all available.
 **If no exports:** Omit the api line.
-**If no gotchas derivable:** Omit the gotchas line.
+**If no gotchas derivable AND no prior gotchas to carry forward:** Omit the gotchas line.
 
 **For stack skills (`skill_type: "stack"`):**
 
@@ -100,6 +113,8 @@ Generate:
 |integrations: {pattern-1}, {pattern-2}
 |gotchas: {pitfall-1}, {pitfall-2}
 ```
+
+**Stack skill gotchas carry-forward:** Same logic as single skills — if no new gotchas are derivable but `prior_gotchas` (from section 2.5) exists, carry forward with the same warning.
 
 ### 4. Verify Token Count
 
@@ -162,10 +177,12 @@ ONLY WHEN snippet generation is complete (or skipped due to passive_context opt-
 - Token count estimated and within target
 - File written (or previewed in dry-run)
 - Passive context opt-out correctly handled (skip when disabled)
+- Prior gotchas checked and carried forward when new derivation yields nothing (with warning)
 - Auto-proceed to step-04
 
 ### ❌ SYSTEM FAILURE:
 
+- Silently dropping prior gotchas without checking for carry-forward
 - Deviating from Vercel-aligned indexed format
 - Including T2 annotations or temporal context
 - Not checking passive_context setting
