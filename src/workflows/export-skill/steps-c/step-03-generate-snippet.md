@@ -71,10 +71,12 @@ Load {snippetFormatData} and read the format template for the skill type.
 Before generating new snippet content, check for a prior snippet:
 
 1. Read `{resolved_skill_package}/context-snippet.md` if it exists (resolved in step-01 — see [knowledge/version-paths.md](../../../knowledge/version-paths.md))
-2. If it exists, extract the `|gotchas:` line (if any) and store as `prior_gotchas`
-3. If no prior snippet exists, set `prior_gotchas` to empty/null
+2. If it exists, extract the `|gotchas:` line (if any). Trim leading whitespace and the `|gotchas:` prefix, then capture the remaining content as `prior_gotchas_content`.
+3. **Detect the carry-forward marker:** If `prior_gotchas_content` starts with the token `[CARRIED]` (whitespace-insensitive), set `prior_gotchas_already_carried = true` and strip the marker before storing the remainder. Otherwise set `prior_gotchas_already_carried = false`.
+4. **Distinguish empty from absent:** If the `|gotchas:` line exists but has no non-whitespace content after the prefix, treat it as **absent** — set `prior_gotchas = null`. Only a non-empty value counts as a prior gotchas line worth carrying forward.
+5. If no prior snippet exists at all, set `prior_gotchas = null` and `prior_gotchas_already_carried = false`.
 
-This preserved value will be used as a fallback in section 3 if new gotchas cannot be derived.
+These values will be used as a fallback in section 3 if new gotchas cannot be derived. The `[CARRIED]` marker provides a **hard one-cycle expiry**: gotchas that were already carried once will be dropped on the next carry-forward attempt rather than preserved indefinitely.
 
 ### 2.7. Resolve Platform Root Path
 
@@ -97,8 +99,9 @@ Store `{platform_root}` for use in snippet generation. The context-snippet.md wr
 3. Read SKILL.md to extract: heading slugs for `#quick-start` and `#key-types`, inline summary of key types (~10 words)
 4. **Anchor verification (split-body awareness):** For each section anchor (`#quick-start`, `#key-types`), verify the heading exists in SKILL.md. If a `references/` directory exists and `## Full` headings in SKILL.md are absent or stubs (indicating split-body, not a stack skill's structural references), rewrite the anchor to point to the reference file path (e.g., `references/{file}.md#key-types`). If the heading cannot be resolved in either location, omit that anchor line from the snippet.
 5. Derive gotchas from: T2-future annotations in evidence report (breaking changes), async requirements, version-specific behavior.
-   - **If new gotchas are derived:** Use them (they supersede any prior gotchas).
-   - **If NO new gotchas are derived BUT `prior_gotchas` exists (from section 2.5):** Carry forward the prior gotchas line unchanged. Emit warning: "**Gotchas preserved from prior export.** Review and clear manually if no longer applicable."
+   - **If new gotchas are derived:** Use them (they supersede any prior gotchas). Write as `|gotchas: {pitfall-1}, {pitfall-2}` with no marker.
+   - **If NO new gotchas are derived BUT `prior_gotchas` exists AND `prior_gotchas_already_carried == false`:** First carry-forward cycle — preserve the prior gotchas line, prefixing the value with `[CARRIED]` so the next export can detect that expiry has been reached. Write as `|gotchas: [CARRIED] {prior gotchas content}`. Emit warning: "**Gotchas preserved from prior export (one-cycle carry-forward).** These gotchas will be DROPPED on the next export unless new gotchas are derived or you manually refresh them. Review now if they are still applicable."
+   - **If NO new gotchas are derived AND `prior_gotchas` exists AND `prior_gotchas_already_carried == true`:** Expiry reached — drop the gotchas line entirely. Emit warning: "**Stale gotchas dropped** — the prior gotchas were already carried forward once and cannot be derived from the current evidence report. The snippet now has no gotchas line. If the prior gotchas are still relevant, re-add them to the evidence report's T2-future section and re-run export."
    - **If NO new gotchas derived AND no `prior_gotchas`:** Omit the gotchas line.
 
 Generate:
@@ -126,7 +129,7 @@ Generate:
 |gotchas: {pitfall-1}, {pitfall-2}
 ```
 
-**Stack skill gotchas carry-forward:** Same logic as single skills — if no new gotchas are derivable but `prior_gotchas` (from section 2.5) exists, carry forward with the same warning.
+**Stack skill gotchas carry-forward:** Same one-cycle expiry logic as single skills. If no new gotchas derived and `prior_gotchas_already_carried == false`, preserve with the `[CARRIED]` prefix. If already carried once (`prior_gotchas_already_carried == true`), drop the line and warn loudly. See the single-skill steps for the complete protocol.
 
 ### 4. Verify Token Count
 

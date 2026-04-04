@@ -3,7 +3,7 @@ name: 'step-05-severity-classify'
 description: 'Grade every drift finding by severity using classification rules'
 
 nextStepFile: './step-06-report.md'
-outputFile: '{forge_data_folder}/{skill_name}/drift-report-{timestamp}.md'
+outputFile: '{forge_version}/drift-report-{timestamp}.md'
 severityRulesFile: '../data/severity-rules.md'
 ---
 

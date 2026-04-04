@@ -3,7 +3,7 @@ name: 'step-02-re-index'
 description: 'Re-scan source code with current tier tools to build fresh extraction snapshot'
 
 nextStepFile: './step-03-structural-diff.md'
-outputFile: '{forge_data_folder}/{skill_name}/drift-report-{timestamp}.md'
+outputFile: '{forge_version}/drift-report-{timestamp}.md'
 ---
 
 # Step 2: Re-Index Source

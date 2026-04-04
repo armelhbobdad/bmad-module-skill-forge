@@ -2,7 +2,7 @@
 name: 'step-06-report'
 description: 'Finalize drift report with audit summary, remediation suggestions, and provenance metadata'
 
-outputFile: '{forge_data_folder}/{skill_name}/drift-report-{timestamp}.md'
+outputFile: '{forge_version}/drift-report-{timestamp}.md'
 ---
 
 # Step 6: Generate Report

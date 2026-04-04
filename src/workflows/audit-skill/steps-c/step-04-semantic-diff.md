@@ -3,7 +3,7 @@ name: 'step-04-semantic-diff'
 description: 'Compare QMD knowledge context for meaning-level changes (Deep tier only, skip at Quick/Forge/Forge+)'
 
 nextStepFile: './step-05-severity-classify.md'
-outputFile: '{forge_data_folder}/{skill_name}/drift-report-{timestamp}.md'
+outputFile: '{forge_version}/drift-report-{timestamp}.md'
 ---
 
 # Step 4: Semantic Diff

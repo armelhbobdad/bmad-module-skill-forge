@@ -68,25 +68,29 @@ You will use these templates and rules to build directory paths, enumerate affec
 
 ### 2. Read Export Manifest
 
-Load `{skills_output_folder}/.export-manifest.json`.
+Load `{skills_output_folder}/.export-manifest.json` if it exists.
 
-**If the file is missing, empty, or contains no `exports` entries:**
+**If the file is missing or empty:** Treat as an empty manifest — proceed to section 3 and rely entirely on the on-disk directory scan. Drafted or never-exported skills can still be renamed. Store `manifest_exists = false` for later use in step-02 (section 6 will not attempt to update a manifest that does not exist).
 
-"**Rename Skill — nothing to rename.** The export manifest at `{skills_output_folder}/.export-manifest.json` is empty or missing. There are no exported skills on record. Run `[EX] Export Skill` first, then return here when you need to rename a skill."
+**If the file exists but contains no `exports` entries:** Same handling — proceed to section 3 with the directory scan. Store `manifest_exists = true` so step-02 still touches the (empty) manifest on write.
 
-HALT the workflow. Do not proceed to section 3.
+**If the file exists with entries:** Parse JSON and verify `schema_version` is `"2"`. If the manifest is v1 (no `schema_version` field), note this but continue — treat every entry as having a single active version derived from its current state. Store `manifest_exists = true`.
 
-**If the file exists:** Parse JSON and verify `schema_version` is `"2"`. If the manifest is v1 (no `schema_version` field), note this but continue — treat every entry as having a single active version derived from its current state.
+**Hard halt condition:** If the file exists but is malformed (not valid JSON), halt with: "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json` — fix or remove the file before renaming."
 
 ### 3. List Available Skills
 
-Build and display a summary of every skill in the manifest. For each skill:
+Build and display a summary of every skill available for rename. Start with the manifest (if any), then augment with on-disk scan.
+
+For each skill in the manifest's `exports` (if `manifest_exists` and entries exist):
 
 1. Read `active_version` from the manifest entry
 2. Count the number of versions in the skill's `versions` map
 3. Display `{skill-name} ({n} versions, active: {active_version})`
 
-Also scan `{skills_output_folder}/` for any top-level directories that are NOT present in the manifest's `exports` object. Record these as "(not in manifest)" — they represent draft or orphaned skills that the rename workflow can also handle.
+Also scan `{skills_output_folder}/` for any top-level directories that are NOT present in the manifest's `exports` object. Record these as "(not in manifest)" — they represent draft or orphaned skills that the rename workflow can also handle. When the manifest is missing or empty, every on-disk skill appears in this category.
+
+**If the combined list is empty** (no manifest entries AND no on-disk skill directories): halt with "**Rename Skill — nothing to rename.** No skills found in `{skills_output_folder}/`. Run `[CS] Create Skill` first."
 
 Display the combined list:
 

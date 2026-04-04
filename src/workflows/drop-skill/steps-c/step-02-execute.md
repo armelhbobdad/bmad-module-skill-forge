@@ -108,7 +108,7 @@ For each IDE in the list:
 2. **Read the current file.**
    - If the file does not exist, skip this platform (nothing to rebuild — the file will be re-created next time export-skill runs)
    - If the file exists but contains no `<!-- SKF:BEGIN -->` marker, skip this platform (no managed section to rewrite)
-   - If the file contains `<!-- SKF:BEGIN -->` but no matching `<!-- SKF:END -->`, halt with: "**Malformed managed section in `{target-file}`** — restore the end marker manually and rerun the drop workflow."
+   - If the file contains `<!-- SKF:BEGIN -->` but no matching `<!-- SKF:END -->`, record the error against that platform and continue to the next IDE — do not halt the entire drop on a malformed context file. The manifest has already been updated in section 2 and is canonical state; the platform file can be repaired manually and rebuilt on the next `[EX] Export Skill` run.
 
 3. **Build the exported skill set (version-aware, deprecated-excluded)** using the same logic as export-skill step-04 section 4b:
    - Read the manifest's `exports` object (already updated in section 2)

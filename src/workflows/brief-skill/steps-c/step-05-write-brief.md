@@ -67,12 +67,19 @@ If `{forge_data_folder}` is not set or doesn't exist:
 
 ### 3. Generate skill-brief.yaml
 
+**Resolve the `version` field before generating the YAML:**
+
+- If `target_version` was set in step 01 (the user explicitly asked for a specific version), use `target_version` as the value of the `version` field. This is the authoritative version for create-skill.
+- Otherwise, use the auto-detected source version from step 02, or `1.0.0` if none was detected.
+
+`target_version` and `version` must never carry different values in the written brief. When the user provided a `target_version`, also include it as a separate `target_version` field so downstream tooling can distinguish "user-requested" from "auto-detected" without re-deriving the provenance — but its value must be identical to `version`.
+
 Generate the YAML file using the approved field values and the schema template:
 
 ```yaml
 ---
 name: "{approved skill name}"
-version: "{detected source version or 1.0.0}"
+version: "{resolved version — target_version if set, else detected source version, else 1.0.0}"
 source_type: "{source or docs-only}"
 source_repo: "{approved source repo or doc site URL}"
 language: "{approved language}"
@@ -93,9 +100,9 @@ scope:
 **Conditional optional field inclusion:**
 
 **If `target_version` was set in step 01:**
-Include the `target_version` field in the generated YAML:
+Include the `target_version` field in the generated YAML — its value MUST be identical to the `version` field above:
 ```yaml
-target_version: "{target_version}"
+target_version: "{target_version — same value as version}"
 ```
 
 **If `source_type: "docs-only"` OR supplemental `doc_urls` were collected:**

@@ -120,7 +120,8 @@ For each version `v` in `affected_versions`, operate on the files inside `{new_s
   - `root: .claude/skills/{old_name}/` → `root: .claude/skills/{new_name}/`
   - `root: .cursor/skills/{old_name}/` → `root: .cursor/skills/{new_name}/`
   - `root: .agents/skills/{old_name}/` → `root: .agents/skills/{new_name}/`
-  - `root: skills/{old_name}/active/{old_name}/` → `root: skills/{new_name}/active/{new_name}/`
+  - `root: skills/{old_name}/` → `root: skills/{new_name}/` (draft form written by create-skill/quick-skill/create-stack-skill before first export)
+  - Legacy pre-fix form `root: skills/{old_name}/active/{old_name}/` (from older skills created before the create-skill template was corrected) → `root: skills/{new_name}/` (also normalize to flat form during rename)
   - Any other `root:` prefix ending in `{old_name}/` → replace the `{old_name}/` segment with `{new_name}/`
 - If the file is missing, record it in `section3_warnings` and continue
 
@@ -178,6 +179,14 @@ Also check the directory listing itself:
 Report: "**Verified** — no structural references to `{old_name}` remain inside the new location across {affected_versions_count} version(s). {if verification_warnings is non-empty: 'Informational body-text mentions retained in SKILL.md: {list}.'}"
 
 ### 6. Update Export Manifest
+
+**If `manifest_exists = false` (step-01 recorded no manifest on disk):**
+
+Skip this section entirely. Set `manifest_updated = false` and `manifest_backup = null`. There is no manifest to re-key — the skill was never exported. Section 7 will find no platform context files to rebuild either (no manifest means no prior export, so no `<!-- SKF:BEGIN -->` markers exist), and any platform file that happens to be present will be left alone by the section 2 marker check.
+
+Report: "**Manifest update skipped** — no `.export-manifest.json` on disk. The rename is a pure on-disk operation."
+
+**If `manifest_exists = true`:**
 
 1. Load `{skills_output_folder}/.export-manifest.json`
 2. **Hold a deep copy in memory** as `manifest_backup` — required for rollback in this section and section 7 on failure
