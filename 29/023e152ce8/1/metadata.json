@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "29023e152ce8",
+  "session_id": "9d47a694-5729-4e0c-98e9-857083329169",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-04T18:18:25.30270104Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/bmad-synergy.md",
+    "docs/concepts.md",
+    "docs/examples.md",
+    "docs/how-it-works.md",
+    "docs/workflows.md",
+    "website/astro.config.mjs"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "0e7cdc584ecc",
+  "token_usage": {
+    "input_tokens": 1771,
+    "cache_creation_tokens": 168645,
+    "cache_read_tokens": 3889429,
+    "output_tokens": 58813,
+    "api_call_count": 42
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-04T18:18:24.79141399Z",
+    "agent_lines": 191,
+    "human_added": 0,
+    "human_modified": 2,
+    "human_removed": 0,
+    "total_committed": 193,
+    "agent_percentage": 98.96373056994818
+  }
+}
