@@ -1,0 +1,61 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/
+
+---
+
+for remote repo during the create-skill workflow, does ccc will include the brief exclusion pattern into its setting before he starts the index process?
+
+---
+
+did you check any missing impacts, regression, bug? DO NOT HALLUCINATE IF YOU THINK EVERYTHING IS OK.
+
+---
+
+COMMIT
+
+---
+
+push and create a PR
+
+---
+
+Do we really generate asset and scripts? I never got them during my multiple tests.
+
+---
+
+yes investigate
+
+---
+
+commit
+
+---
+
+The @docs/ and @README.md had not been checked for a long time. Please check if they are aligned with the actual codebase
+
+---
+
+yes
+
+---
+
+commit
+
+---
+
+push and create a PR
+
+---
+
+[Request interrupted by user]
+
+---
+
+continue
