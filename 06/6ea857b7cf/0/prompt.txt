@@ -1,0 +1,89 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/
+
+---
+
+The skill we generate is not organized by version. If I generate a skill for cognee v0.5.0, when I detect drift in version 0.5.1 or 0.6.0, people using the skill for cognee 0.5.0 got a serious problem.
+I propose an organization like:
+|---- cognee
+|---- 0.5.0 // version aware, user could specifiy what skill to install depending on the one he is using inside his project. He is compatible with skill.sh / https://www.npmjs.com/package/skills ( section Install a Skill -> Source Formats)
+  |------ cognee
+  --- 0.6.0
+  |------- cognee
+
+Go to party mode for different perspectives. Review the changes for any breaking changes, or missing impacts/bugs/regressions and ect... DO NOT HALLUCINATE
+
+---
+
+commit
+
+---
+
+do we need to update @docs/ and @README.md ?
+
+---
+
+maybe we should do a litle update in the README.md at the section How Skill Forge Fixes This?
+
+---
+
+yes
+
+---
+
+do we have a possibility to brief a specific version of a lib/docs (some docs are organised by version and the user need to specify the correct doc link version if applicable)? It is a good idea? go to party mode for multiple perspectives. DO NOT HALUCINATE
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+---
+
+We do plan the implementation now
+
+---
+
+do we need to update @docs/ and @README.md ?
+
+---
+
+the QS cognee@0.5.0 syntax is mentioned inside the doc?
+
+---
+
+how the skf works with a specif version? I want to understand what is really implemented. Does it rely on github tag for example?
+
+---
+
+yes. We should think deeper on that fix. Activate party mode for any breaking changes, or missing impacts/bugs/regressions and ect... DO NOT HALLUCINATE
+
+---
+
+do we need to update @docs/ and @README.md ?
+
+---
+
+yes
+
+---
+
+Ferris should be able to rename a skill (e.g: from cognee to cognee-skf-community) and drop a skill (e.g: drop cognee 0.1.0 because it is deprecated). What do you think? Activate the party mode for more perspectives
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+---
+
+we should take the best decision for a long term, robust and stable support. Let plan the implementation when ready
+
+---
+
+commit

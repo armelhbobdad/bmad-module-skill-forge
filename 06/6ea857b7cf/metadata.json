@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "066ea857b7cf",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "README.md",
+    "docs/concepts.md",
+    "docs/examples.md",
+    "docs/workflows.md",
+    "src/agents/forger.agent.yaml",
+    "src/knowledge/skill-lifecycle.md",
+    "src/knowledge/version-paths.md",
+    "src/module-help.csv",
+    "src/workflows/README.md",
+    "src/workflows/drop-skill/steps-c/step-01-select.md",
+    "src/workflows/drop-skill/steps-c/step-02-execute.md",
+    "src/workflows/drop-skill/steps-c/step-03-report.md",
+    "src/workflows/drop-skill/workflow.md",
+    "src/workflows/export-skill/steps-c/step-04-update-context.md",
+    "src/workflows/rename-skill/steps-c/step-01-select.md",
+    "src/workflows/rename-skill/steps-c/step-02-execute.md",
+    "src/workflows/rename-skill/steps-c/step-03-report.md",
+    "src/workflows/rename-skill/workflow.md",
+    "test/test-installation-components.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/06/6ea857b7cf/0/metadata.json",
+      "transcript": "/06/6ea857b7cf/0/full.jsonl",
+      "context": "/06/6ea857b7cf/0/context.md",
+      "content_hash": "/06/6ea857b7cf/0/content_hash.txt",
+      "prompt": "/06/6ea857b7cf/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8977,
+    "cache_creation_tokens": 673867,
+    "cache_read_tokens": 42966236,
+    "output_tokens": 90526,
+    "api_call_count": 202
+  }
+}
