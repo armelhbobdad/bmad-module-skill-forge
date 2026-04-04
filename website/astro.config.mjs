@@ -106,6 +106,7 @@ export default defineConfig({
         { label: 'Workflows', slug: 'workflows' },
         { label: 'Agents', slug: 'agents' },
         { label: 'Examples', slug: 'examples' },
+        { label: 'BMAD Synergy', slug: 'bmad-synergy' },
       ],
 
       // Credits in footer

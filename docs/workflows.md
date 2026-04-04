@@ -7,6 +7,8 @@ description: All 14 SKF workflows with commands, steps, and connection diagram
 
 SKF has 14 workflows. You trigger them by typing commands to [Ferris](../agents/), the AI agent that runs everything. Each workflow handles a specific part of the skill lifecycle — from analyzing source code to packaging for distribution, plus management operations for renaming and dropping skills. If any terms are unfamiliar, see the [Concepts](../concepts/) page for definitions.
 
+> Already using BMAD? See [BMAD Synergy](../bmad-synergy/) for when to invoke each SKF workflow during BMM phases and alongside TEA, BMB, and GDS.
+
 ---
 
 ## Core Workflows

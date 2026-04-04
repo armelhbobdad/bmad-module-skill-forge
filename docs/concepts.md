@@ -109,9 +109,9 @@ Both operations automatically rebuild platform context files so your AI agents s
 
 ## BMAD Module
 
-SKF is a plugin (called a "module") for the [BMad Method](https://github.com/bmad-code-org/BMAD-METHOD), a framework for running structured AI workflows. BMad provides the workflow engine — step-by-step execution, shared knowledge bases, and consistent outputs. SKF plugs into that engine and focuses specifically on skill compilation.
+SKF is a plugin (called a "module") for [BMad Method](https://docs.bmad-method.org/), a framework for running structured AI workflows. You don't need to know BMad to use SKF — the standalone installer sets everything up.
 
-You don't need to know BMad to use SKF. The standalone installer sets everything up.
+→ If you already use BMAD, see [BMAD Synergy](../bmad-synergy/) for how SKF workflows pair with BMM phases and optional modules like TEA, BMB, and GDS.
 
 ---
 

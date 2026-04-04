@@ -99,7 +99,7 @@ Alex's team adopts BMAD for 10 microservices (TypeScript, Go, Rust).
 @Ferris CS --batch  # Create — batch generation
 ```
 
-10 individual skills + 1 platform stack skill. BMM architect navigates cross-service flows with verified knowledge.
+10 individual skills + 1 platform stack skill. [BMM](../bmad-synergy/#skf-and-bmm-phase-by-phase-playbook) architect navigates cross-service flows with verified knowledge.
 
 ### Release Prep — Trust Builder
 
@@ -148,7 +148,7 @@ VS finds a Risky integration between Drizzle and SpacetimeDB (incompatible query
 
 ### Scenario A: Greenfield + BMM Integration
 
-BMAD user starts a new project. BMM architect suggests skill generation after retrospective.
+BMAD user starts a new project. [BMM](../bmad-synergy/#skf-and-bmm-phase-by-phase-playbook) architect suggests skill generation after retrospective.
 
 ```
 @Ferris BS    # Brief — scope the skill
