@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "cfc601862bea",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/workflows/export-skill/data/managed-section-format.md",
+    "src/workflows/export-skill/steps-c/step-04-update-context.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/cf/c601862bea/0/metadata.json",
+      "transcript": "/cf/c601862bea/0/full.jsonl",
+      "context": "/cf/c601862bea/0/context.md",
+      "content_hash": "/cf/c601862bea/0/content_hash.txt",
+      "prompt": "/cf/c601862bea/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 54,
+    "cache_creation_tokens": 76219,
+    "cache_read_tokens": 1933776,
+    "output_tokens": 14224,
+    "api_call_count": 37
+  }
+}

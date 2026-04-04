@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "cfc601862bea",
+  "session_id": "8400401b-9f13-4736-b8b6-a9d34b94e8c8",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-04T12:33:33.178614459Z",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/workflows/export-skill/steps-c/step-04-update-context.md",
+    "src/workflows/export-skill/data/managed-section-format.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "899939333b2a",
+  "token_usage": {
+    "input_tokens": 54,
+    "cache_creation_tokens": 76219,
+    "cache_read_tokens": 1933776,
+    "output_tokens": 14224,
+    "api_call_count": 37
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-04T12:33:32.924581636Z",
+    "agent_lines": 67,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 67,
+    "agent_percentage": 100
+  }
+}

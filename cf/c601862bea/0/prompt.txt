@@ -1,0 +1,34 @@
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+---
+
+@src/
+
+---
+
+Take a look at @_bmad-output/todo. We should fix all of them and also fix missing impacts, regression, bug. Go to party mode for different perspectives
+
+---
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+
+ARGUMENTS: We have 4 export-skill workflow bugs discovered during real execution (tanstack-db export in global-maths-club). We need different agent perspectives on how to fix them all coherently, plus identify any missing impacts, regression risks, or related bugs we haven't caught yet.
+
+The 4 issues are:
+
+1. **issue-export-gotchas-loss.md** — step-03-generate-snippet.md derives gotchas by keyword search on SKILL.md, but previously exported gotchas came from temporal/extraction data in forge-data/. On re-export, gotchas are silently dropped with no warning.
+
+2. **issue-multi-ide-export.md** — config.yaml declares an `ides` list (e.g. claude-code, cursor) but the export workflow ignores it, defaulting to claude platform only. Other configured IDEs don't get updated.
+
+3. **issue-skill-root-path.md** — Snippet format generates `skills/<skill>/` but the skills npm ecosystem spec expects platform-specific paths like `.claude/skills/<skill>/`. Current output is non-standard.
+
+4. **issue-export-gate-bypass.md** — step-04 rebuilds managed section by scanning all context-snippet.md files, but create-skill also generates these. Result: un-exported skills appear in the managed section, violating ADR-K (export as sole publishing gate).
+
+Additionally, we need to identify: missing downstream impacts, regression risks from fixes, and any related bugs these 4 issues might mask or create.
+
+The module being edited is at src/ — the SKF (Skill Forge) module. The export-skill workflow lives at src/workflows/export-skill/.
+
+---
+
+move
