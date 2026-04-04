@@ -1,0 +1,109 @@
+# Session Context
+
+## User Prompts
+
+### Prompt 1
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+### Prompt 2
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+### Prompt 3
+
+@src/
+
+### Prompt 4
+
+The skill we generate is not organized by version. If I generate a skill for cognee v0.5.0, when I detect drift in version 0.5.1 or 0.6.0, people using the skill for cognee 0.5.0 got a serious problem.
+I propose an organization like:
+|---- cognee
+|---- 0.5.0 // version aware, user could specifiy what skill to install depending on the one he is using inside his project. He is compatible with skill.sh / https://www.npmjs.com/package/skills ( section Install a Skill -> Source Formats)
+  |------ ...
+
+### Prompt 5
+
+commit
+
+### Prompt 6
+
+do we need to update @docs/ and @README.md ?
+
+### Prompt 7
+
+maybe we should do a litle update in the README.md at the section How Skill Forge Fixes This?
+
+### Prompt 8
+
+yes
+
+### Prompt 9
+
+do we have a possibility to brief a specific version of a lib/docs (some docs are organised by version and the user need to specify the correct doc link version if applicable)? It is a good idea? go to party mode for multiple perspectives. DO NOT HALUCINATE
+
+### Prompt 10
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+### Prompt 11
+
+We do plan the implementation now
+
+### Prompt 12
+
+do we need to update @docs/ and @README.md ?
+
+### Prompt 13
+
+the QS cognee@0.5.0 syntax is mentioned inside the doc?
+
+### Prompt 14
+
+how the skf works with a specif version? I want to understand what is really implemented. Does it rely on github tag for example?
+
+### Prompt 15
+
+yes. We should think deeper on that fix. Activate party mode for any breaking changes, or missing impacts/bugs/regressions and ect... DO NOT HALLUCINATE
+
+### Prompt 16
+
+do we need to update @docs/ and @README.md ?
+
+### Prompt 17
+
+yes
+
+### Prompt 18
+
+Ferris should be able to rename a skill (e.g: from cognee to cognee-skf-community) and drop a skill (e.g: drop cognee 0.1.0 because it is deprecated). What do you think? Activate the party mode for more perspectives
+
+### Prompt 19
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+### Prompt 20
+
+we should take the best decision for a long term, robust and stable support. Let plan the implementation when ready
+
+### Prompt 21
+
+commit
+
+### Prompt 22
+
+actually, users know how to install skf module but they don't know how to update. The update consist to run the installer again, it automatically detect the existing version and if a new version is available, it propose two option, simple update or complte reinstallation of the latest version.
+armel@dzeta:~/Projects/OSS/oh-my-skills$ npx bmad-module-skill-forge install
+
+  ╔══════════════════════════════════════════════════════╗
+  ║ ███████╗██╗  ██╗███████╗                             ║
+  ║ ██...
+
+### Prompt 23
+
+it looks good
+
+### Prompt 24
+
+yes
+
