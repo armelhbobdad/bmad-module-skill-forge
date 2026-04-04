@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "8f02f127fed5",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/drop-skill/steps-c/step-01-select.md",
+    "src/workflows/drop-skill/steps-c/step-02-execute.md",
+    "src/workflows/export-skill/data/managed-section-format.md",
+    "src/workflows/rename-skill/steps-c/step-01-select.md",
+    "src/workflows/rename-skill/steps-c/step-02-execute.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/8f/02f127fed5/0/metadata.json",
+      "transcript": "/8f/02f127fed5/0/full.jsonl",
+      "context": "/8f/02f127fed5/0/context.md",
+      "content_hash": "/8f/02f127fed5/0/content_hash.txt",
+      "prompt": "/8f/02f127fed5/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 83,
+    "cache_creation_tokens": 195029,
+    "cache_read_tokens": 7617251,
+    "output_tokens": 43540,
+    "api_call_count": 59
+  }
+}
