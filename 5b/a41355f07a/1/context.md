@@ -1,0 +1,16 @@
+# Session Context
+
+## User Prompts
+
+### Prompt 1
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+### Prompt 2
+
+@src/
+
+### Prompt 3
+
+A dedicated doc page for BMAD CORE + optional BMM, TEA, etc... see /home/armel/Downloads/BMAD-METHOD-main/docs/ and SKF synergy (all different workflow use cases) see @docs/ . Activate party mode for multiple perspectives
+
