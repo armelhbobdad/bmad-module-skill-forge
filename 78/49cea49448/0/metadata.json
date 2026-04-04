@@ -1,0 +1,48 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "7849cea49448",
+  "session_id": "1b5a3b90-ba2a-4633-990e-807b64eb2526",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-04T14:53:35.496139191Z",
+  "branch": "dev",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "docs/concepts.md",
+    "docs/examples.md",
+    "docs/getting-started.md",
+    "docs/how-it-works.md",
+    "docs/workflows.md",
+    "src/knowledge/provenance-tracking.md",
+    "src/workflows/analyze-source/data/skill-brief-schema.md",
+    "src/workflows/brief-skill/data/skill-brief-schema.md",
+    "src/workflows/brief-skill/steps-c/step-01-gather-intent.md",
+    "src/workflows/brief-skill/steps-c/step-02-analyze-target.md",
+    "src/workflows/brief-skill/steps-c/step-04-confirm-brief.md",
+    "src/workflows/brief-skill/steps-c/step-05-write-brief.md",
+    "src/workflows/create-skill/data/skill-sections.md",
+    "src/workflows/create-skill/data/source-resolution-protocols.md",
+    "src/workflows/create-skill/steps-c/step-03-extract.md",
+    "src/workflows/create-skill/steps-c/step-05-compile.md",
+    "src/workflows/quick-skill/steps-c/step-01-resolve-target.md",
+    "src/workflows/quick-skill/steps-c/step-03-quick-extract.md",
+    "src/workflows/update-skill/data/remote-source-resolution.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "5d48748bb176",
+  "token_usage": {
+    "input_tokens": 7287,
+    "cache_creation_tokens": 246475,
+    "cache_read_tokens": 21633895,
+    "output_tokens": 62115,
+    "api_call_count": 143
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-04T14:53:34.34778798Z",
+    "agent_lines": 157,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 157,
+    "agent_percentage": 100
+  }
+}

@@ -1,0 +1,76 @@
+# Session Context
+
+## User Prompts
+
+### Prompt 1
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+### Prompt 2
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/bmb/workflows/module/workflow-edit-module.md, READ its entire contents and follow its directions exactly!
+
+### Prompt 3
+
+@src/
+
+### Prompt 4
+
+The skill we generate is not organized by version. If I generate a skill for cognee v0.5.0, when I detect drift in version 0.5.1 or 0.6.0, people using the skill for cognee 0.5.0 got a serious problem.
+I propose an organization like:
+|---- cognee
+|---- 0.5.0 // version aware, user could specifiy what skill to install depending on the one he is using inside his project. He is compatible with skill.sh / https://www.npmjs.com/package/skills ( section Install a Skill -> Source Formats)
+  |------ ...
+
+### Prompt 5
+
+commit
+
+### Prompt 6
+
+do we need to update @docs/ and @README.md ?
+
+### Prompt 7
+
+maybe we should do a litle update in the README.md at the section How Skill Forge Fixes This?
+
+### Prompt 8
+
+yes
+
+### Prompt 9
+
+do we have a possibility to brief a specific version of a lib/docs (some docs are organised by version and the user need to specify the correct doc link version if applicable)? It is a good idea? go to party mode for multiple perspectives. DO NOT HALUCINATE
+
+### Prompt 10
+
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/core/workflows/party-mode/workflow.md, READ its entire contents and follow its directions exactly!
+
+### Prompt 11
+
+We do plan the implementation now
+
+### Prompt 12
+
+do we need to update @docs/ and @README.md ?
+
+### Prompt 13
+
+the QS cognee@0.5.0 syntax is mentioned inside the doc?
+
+### Prompt 14
+
+how the skf works with a specif version? I want to understand what is really implemented. Does it rely on github tag for example?
+
+### Prompt 15
+
+yes. We should think deeper on that fix. Activate party mode for any breaking changes, or missing impacts/bugs/regressions and ect... DO NOT HALLUCINATE
+
+### Prompt 16
+
+do we need to update @docs/ and @README.md ?
+
+### Prompt 17
+
+yes
+

@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "7849cea49448",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "docs/concepts.md",
+    "docs/examples.md",
+    "docs/getting-started.md",
+    "docs/how-it-works.md",
+    "docs/workflows.md",
+    "src/knowledge/provenance-tracking.md",
+    "src/workflows/analyze-source/data/skill-brief-schema.md",
+    "src/workflows/brief-skill/data/skill-brief-schema.md",
+    "src/workflows/brief-skill/steps-c/step-01-gather-intent.md",
+    "src/workflows/brief-skill/steps-c/step-02-analyze-target.md",
+    "src/workflows/brief-skill/steps-c/step-04-confirm-brief.md",
+    "src/workflows/brief-skill/steps-c/step-05-write-brief.md",
+    "src/workflows/create-skill/data/skill-sections.md",
+    "src/workflows/create-skill/data/source-resolution-protocols.md",
+    "src/workflows/create-skill/steps-c/step-03-extract.md",
+    "src/workflows/create-skill/steps-c/step-05-compile.md",
+    "src/workflows/quick-skill/steps-c/step-01-resolve-target.md",
+    "src/workflows/quick-skill/steps-c/step-03-quick-extract.md",
+    "src/workflows/update-skill/data/remote-source-resolution.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/78/49cea49448/0/metadata.json",
+      "transcript": "/78/49cea49448/0/full.jsonl",
+      "context": "/78/49cea49448/0/context.md",
+      "content_hash": "/78/49cea49448/0/content_hash.txt",
+      "prompt": "/78/49cea49448/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 7287,
+    "cache_creation_tokens": 246475,
+    "cache_read_tokens": 21633895,
+    "output_tokens": 62115,
+    "api_call_count": 143
+  }
+}
