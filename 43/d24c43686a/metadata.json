@@ -3,7 +3,7 @@
   "checkpoint_id": "43d24c43686a",
   "strategy": "manual-commit",
   "branch": "dev",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "src/workflows/create-skill/steps-c/step-08-report.md",
     "src/workflows/create-stack-skill/steps-c/step-08-validate.md",
@@ -21,13 +21,20 @@
       "context": "/43/d24c43686a/0/context.md",
       "content_hash": "/43/d24c43686a/0/content_hash.txt",
       "prompt": "/43/d24c43686a/0/prompt.txt"
+    },
+    {
+      "metadata": "/43/d24c43686a/1/metadata.json",
+      "transcript": "/43/d24c43686a/1/full.jsonl",
+      "context": "/43/d24c43686a/1/context.md",
+      "content_hash": "/43/d24c43686a/1/content_hash.txt",
+      "prompt": "/43/d24c43686a/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 36,
-    "cache_creation_tokens": 75273,
-    "cache_read_tokens": 1523627,
-    "output_tokens": 15831,
-    "api_call_count": 27
+    "input_tokens": 162,
+    "cache_creation_tokens": 228757,
+    "cache_read_tokens": 11438159,
+    "output_tokens": 44388,
+    "api_call_count": 128
   }
 }
