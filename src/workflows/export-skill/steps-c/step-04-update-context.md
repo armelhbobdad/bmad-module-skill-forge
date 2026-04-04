@@ -87,41 +87,65 @@ For each platform in `target_platforms`, resolve target file path: `{project-roo
 
 ### 4. Rebuild Complete Skill Index
 
-#### 4a. Read Export Manifest
+#### 4a. Read Export Manifest (v2 — version-aware)
 
-Read `{skills_output_folder}/.export-manifest.json`:
+Read `{skills_output_folder}/.export-manifest.json` — see [knowledge/version-paths.md](../../../knowledge/version-paths.md) for the full v2 schema:
 
-**If the file exists:** Parse JSON. The manifest tracks which skills have been explicitly exported:
+**If the file exists:** Parse JSON. Check for `schema_version` field:
 
+**v2 manifest** (`schema_version: "2"`):
 ```json
 {
+  "schema_version": "2",
   "exports": {
     "skill-name": {
-      "platforms": ["claude"],
-      "last_exported": "YYYY-MM-DD"
+      "active_version": "0.6.0",
+      "versions": {
+        "0.5.0": {
+          "platforms": ["claude"],
+          "last_exported": "2026-03-15",
+          "status": "archived"
+        },
+        "0.6.0": {
+          "platforms": ["claude", "copilot"],
+          "last_exported": "2026-04-04",
+          "status": "active"
+        }
+      }
     }
   }
 }
 ```
 
+**v1 manifest** (no `schema_version` field — migrate in-place to v2):
+1. For each entry in `exports`, read its `platforms` and `last_exported`
+2. Resolve the skill's current version from `{resolved_skill_package}/metadata.json`
+3. Wrap in v2 structure: set `active_version` to the resolved version, create a single entry in `versions` with `status: "active"`, the original `platforms`, and `last_exported`
+4. Set `schema_version: "2"` at root
+5. Hold the migrated structure in context (it will be written in section 9b)
+
 **If the file does not exist** (first export or migration): Treat as empty — only the current export target will appear in the rebuilt index.
 
-#### 4b. Build Exported Skill Set
+#### 4b. Build Exported Skill Set (version-aware)
 
 Determine the set of skills to include in the rebuilt index:
 
 1. Start with all skill names listed in the manifest's `exports` object (if manifest exists)
-2. Add the current export target skill name (ensures it is always included even before manifest is written)
-3. This is the **exported skill set**
+2. For each skill, record its `active_version` from the manifest (v2 schema)
+3. Add the current export target skill name (ensures it is always included even before manifest is written) — use the version from `{resolved_skill_package}/metadata.json` as its `active_version`
+4. This is the **exported skill set** — each entry has a skill name and its resolved `active_version`
 
-#### 4c. Scan and Filter Snippets
+#### 4c. Resolve and Filter Snippets (manifest-driven — replaces glob scan)
 
-Scan `{skills_output_folder}/*/context-snippet.md` to find snippet files on disk.
+Instead of globbing `{skills_output_folder}/*/context-snippet.md`, resolve snippets from the exported skill set built in 4b:
 
-**For each found context-snippet.md:**
-1. Extract the skill name from the directory path
-2. **If the skill name is in the exported skill set:** Read snippet content, add to skill index
-3. **If the skill name is NOT in the exported skill set:** Skip — this skill has not been through export-skill and must not appear in the managed section (ADR-K)
+**For each skill in the exported skill set:**
+1. Resolve `{skill_package}` using the skill's `active_version`: `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/`
+2. Read `{skill_package}/context-snippet.md`
+3. **If snippet exists:** Add to skill index
+4. **If snippet does not exist at the versioned path:** Check for `active` symlink at `{skills_output_folder}/{skill-name}/active/{skill-name}/context-snippet.md`. If still not found, skip with warning: "Snippet missing for {skill-name} v{active_version} — skipping from managed section"
+
+**Skills NOT in the exported skill set are never scanned** — they have not been through export-skill and must not appear in the managed section (ADR-K).
 
 **If no snippets pass the filter:** Generate managed section with zero skills — header only, no skill entries.
 
@@ -264,17 +288,29 @@ After user confirms with 'C':
 
 **This section executes ONCE after all platform iterations complete** (outside the per-platform loop defined in section 3). Only platforms whose writes succeeded in section 9 are recorded.
 
-1. Read `{skills_output_folder}/.export-manifest.json` (or start with `{"exports": {}}` if it does not exist)
-2. Add or update the current skill's entry:
+1. Read `{skills_output_folder}/.export-manifest.json` (or start with `{"schema_version": "2", "exports": {}}` if it does not exist)
+2. Ensure `schema_version` is `"2"` (if v1 was migrated in section 4a, the migrated structure is already in context)
+3. Add or update the current skill's entry in v2 format:
    ```json
    "{skill-name}": {
-     "platforms": ["{successfully-written platforms}"],
-     "last_exported": "{current-date}"
+     "active_version": "{version}",
+     "versions": {
+       "{version}": {
+         "platforms": ["{successfully-written platforms}"],
+         "last_exported": "{current-date}",
+         "status": "active"
+       }
+     }
    }
    ```
+   - `{version}` is the version from `{resolved_skill_package}/metadata.json`
    - Set `platforms` to only the platforms that were successfully written and verified in section 9
-   - If the skill already has a manifest entry, merge the successfully-written platforms into the existing `platforms` array (deduplicate) and update `last_exported`
-3. Write the updated manifest to `{skills_output_folder}/.export-manifest.json`
+   - If the skill already has a manifest entry:
+     - Set `active_version` to the current version
+     - If the version already exists in `versions`, update its `platforms` (merge, deduplicate), `last_exported`, and set `status: "active"`
+     - If this is a new version, add it to `versions` with `status: "active"` and set any previously-active version's status to `"archived"`
+     - Preserve all other version entries in `versions` (do not delete archived versions)
+4. Write the updated manifest to `{skills_output_folder}/.export-manifest.json`
 
 **Dry-run mode:** Do NOT update the manifest. Display: "**[DRY RUN] Export manifest would be updated for {skill-name} on platform(s) {platform-list}.**"
 

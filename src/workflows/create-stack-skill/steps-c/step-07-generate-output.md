@@ -47,6 +47,7 @@ Write all deliverable and workspace artifact files to their target directories.
 - From step 05: integration_graph for integration pair references
 - From step 01: forge_tier, project info for metadata
 - This step produces: written_files[] (all output artifacts)
+- Path resolution: See `knowledge/version-paths.md` for canonical path templates. Stack skills use `{project_name}-stack` as the skill name
 
 ## MANDATORY SEQUENCE
 
@@ -54,27 +55,30 @@ Write all deliverable and workspace artifact files to their target directories.
 
 ### 1. Create Output Directories
 
-Create the directory structure:
+Resolve `{version}` from the primary library version or default to `1.0.0`. Create the directory structure:
 
 ```
-{skills_output_folder}/{project_name}-stack/
+{skill_group}                          # {skills_output_folder}/{project_name}-stack/
+{skill_package}                        # {skills_output_folder}/{project_name}-stack/{version}/{project_name}-stack/
 ├── references/
 │   └── integrations/
 ```
 
 ```
-{forge_data_folder}/{project_name}-stack/
+{forge_version}                        # {forge_data_folder}/{project_name}-stack/{version}/
 ```
+
+Where the skill name is `{project_name}-stack` and `{version}` is the semver version (with build metadata stripped per `knowledge/version-paths.md`).
 
 If directories already exist, proceed (overwrite previous output).
 
 ### 2. Write SKILL.md
 
-Write `{skills_output_folder}/{project_name}-stack/SKILL.md` with the approved skill_content from step 06.
+Write `{skill_package}/SKILL.md` with the approved skill_content from step 06.
 
 ### 3. Write Per-Library Reference Files
 
-For each confirmed library, write `{skills_output_folder}/{project_name}-stack/references/{library_name}.md`:
+For each confirmed library, write `{skill_package}/references/{library_name}.md`:
 
 Load structure from `{stackSkillTemplate}` references section:
 - Library name, version from manifest (**in compose-mode**: version from source skill `metadata.json`)
@@ -85,7 +89,7 @@ Load structure from `{stackSkillTemplate}` references section:
 
 ### 4. Write Integration Pair Reference Files
 
-For each detected integration pair, write `{skills_output_folder}/{project_name}-stack/references/integrations/{libraryA}-{libraryB}.md`:
+For each detected integration pair, write `{skill_package}/references/integrations/{libraryA}-{libraryB}.md`:
 
 Load structure from `{stackSkillTemplate}` integrations section:
 - Library pair and integration type
@@ -98,11 +102,11 @@ Load structure from `{stackSkillTemplate}` integrations section:
 
 ### 5. Write context-snippet.md
 
-Write `{skills_output_folder}/{project_name}-stack/context-snippet.md`:
+Write `{skill_package}/context-snippet.md`:
 
 Use the Vercel-aligned indexed format targeting ~80-120 tokens:
 ```
-[{project_name}-stack v{version — in code-mode: primary_library_version or 1.0.0; in compose-mode: highest version across constituent skill metadata.json files, or 1.0.0 if none}]|root: skills/{project_name}-stack/
+[{project_name}-stack v{version — in code-mode: primary_library_version or 1.0.0; in compose-mode: highest version across constituent skill metadata.json files, or 1.0.0 if none}]|root: skills/{project_name}-stack/active/{project_name}-stack/
 |IMPORTANT: {project_name}-stack — read SKILL.md before writing integration code. Do NOT rely on training data.
 |stack: {dep-1}@{v1}, {dep-2}@{v2}, {dep-3}@{v3}
 |integrations: {pattern-1}, {pattern-2}
@@ -111,7 +115,7 @@ Use the Vercel-aligned indexed format targeting ~80-120 tokens:
 
 ### 6. Write metadata.json
 
-Write `{skills_output_folder}/{project_name}-stack/metadata.json`:
+Write `{skill_package}/metadata.json`:
 
 Populate all fields from the metadata.json schema defined in `{stackSkillTemplate}`:
 
@@ -155,7 +159,7 @@ Populate all fields from the metadata.json schema defined in `{stackSkillTemplat
 
 ### 7. Write Forge Data Artifacts
 
-Write workspace artifacts to `{forge_data_folder}/{project_name}-stack/`:
+Write workspace artifacts to `{forge_version}`:
 
 **provenance-map.json:**
 
@@ -208,26 +212,38 @@ Write workspace artifacts to `{forge_data_folder}/{project_name}-stack/`:
 - Warnings and failures encountered
 - Confidence tier distribution
 
-### 8. Display Write Summary
+### 8. Create Active Symlink
+
+Create or update the `active` symlink at `{skill_group}/active` pointing to `{version}`:
+
+```
+{skill_group}/active -> {version}
+```
+
+If the symlink already exists, remove it first and recreate. This ensures `{skill_group}/active/{project_name}-stack/` resolves to the just-written skill package.
+
+### 9. Display Write Summary
 
 "**Output files written.**
 
-**Deliverables** ({skills_output_folder}/{project_name}-stack/):
-- ✓ SKILL.md ({line_count} lines)
-- ✓ context-snippet.md ({token_estimate} tokens)
-- ✓ metadata.json
-- ✓ references/ — {lib_count} library files
-- ✓ references/integrations/ — {pair_count} integration files
+**Deliverables** ({skill_package}):
+- SKILL.md ({line_count} lines)
+- context-snippet.md ({token_estimate} tokens)
+- metadata.json
+- references/ -- {lib_count} library files
+- references/integrations/ -- {pair_count} integration files
 
-**Workspace** ({forge_data_folder}/{project_name}-stack/):
-- ✓ provenance-map.json
-- ✓ evidence-report.md
+**Workspace** ({forge_version}):
+- provenance-map.json
+- evidence-report.md
+
+**Symlink:** {skill_group}/active -> {version}
 
 **Total files written:** {total_count}
 
 **Proceeding to validation...**"
 
-### 9. Auto-Proceed to Next Step
+### 10. Auto-Proceed to Next Step
 
 Load, read the full file and then execute `{nextStepFile}`.
 
@@ -237,9 +253,10 @@ Load, read the full file and then execute `{nextStepFile}`.
 
 ### ✅ SUCCESS:
 
-- All deliverable files written to skills_output_folder
-- All workspace artifacts written to forge_data_folder
-- Directory structure created correctly
+- All deliverable files written to {skill_package}
+- All workspace artifacts written to {forge_version}
+- Directory structure created correctly with version nesting
+- Active symlink created at {skill_group}/active -> {version}
 - Each file matches its template structure
 - Write summary displayed with accurate counts
 

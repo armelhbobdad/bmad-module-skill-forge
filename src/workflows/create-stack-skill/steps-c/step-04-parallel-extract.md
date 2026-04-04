@@ -56,7 +56,7 @@ For each confirmed dependency, extract key exports, usage patterns, and API surf
 
 "**Extraction data already available from individual skills. Skipping extraction phase.**"
 
-For each confirmed skill, load `{skills_output_folder}/{skill_dir}/SKILL.md` (where `skill_dir` is the subdirectory name stored in step-02, which may differ from the `name` field in metadata.json) into context. Build a `per_library_extractions[]` entry for each skill with the following fields:
+For each confirmed skill, load SKILL.md from the version-aware path resolved in step-02. Use `skill_package_path` (stored in step-02) directly — this already points to the resolved `{skill_package}` or `{active_skill}` directory containing the skill's artifacts. If `skill_package_path` is not available, resolve via the `{active_skill}` template: `{skills_output_folder}/{skill_dir}/active/{skill_dir}/SKILL.md` (see [knowledge/version-paths.md](../../../knowledge/version-paths.md)). Build a `per_library_extractions[]` entry for each skill with the following fields:
 - `library`: skill name from metadata.json
 - `exports`: exports list extracted from the SKILL.md exports section
 - `usage_patterns`: usage patterns from the SKILL.md usage section

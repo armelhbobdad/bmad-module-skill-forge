@@ -81,9 +81,14 @@ Wait for user input.
 
 ### 2. Scan Skills Folder
 
-Read the `{skills_output_folder}` directory.
+Read the `{skills_output_folder}` directory. Skills use a version-nested directory structure (see [knowledge/version-paths.md](../../../knowledge/version-paths.md)).
 
-For each subdirectory, check for the presence of `SKILL.md` and `metadata.json`.
+**Version-aware skill discovery:**
+1. Read `{skills_output_folder}/.export-manifest.json` if it exists. For each skill in `exports`, use `active_version` to resolve `{skill_package}` = `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/`
+2. For any subdirectory not covered by the manifest, check for an `active` symlink at `{skills_output_folder}/{dir_name}/active` — resolve to `{skill_group}/active/{dir_name}/`
+3. Fall back to flat path `{skills_output_folder}/{dir_name}/` for unmigrated skills
+
+For each resolved skill package, check for the presence of `SKILL.md` and `metadata.json`.
 
 **For each valid skill directory, extract from metadata.json:**
 - `name` — skill name
@@ -94,7 +99,7 @@ For each subdirectory, check for the presence of `SKILL.md` and `metadata.json`.
 
 **Build a skill inventory** as an internal list of all loaded skills with the fields above.
 
-**If a subdirectory lacks SKILL.md or metadata.json:**
+**If a resolved skill package lacks SKILL.md or metadata.json:**
 - Log: "Skipping `{dir_name}` — missing SKILL.md or metadata.json"
 - Do not include in inventory
 

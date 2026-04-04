@@ -188,7 +188,7 @@ Organize by component (not by function). Per component:
 **context-snippet.md — Component Library format:**
 
 ```markdown
-[{name} v{version}]|root: skills/{name}/
+[{name} v{version}]|root: skills/{name}/active/{name}/
 |IMPORTANT: {name} v{version} — read SKILL.md before writing {name} code. Do NOT rely on training data.
 |install: npx {cli} add <component-id>
 |catalog:{SKILL.md#component-catalog} — {N} components: {category(count), ...}

@@ -54,7 +54,7 @@ description: >
 Indexed format targeting ~80-120 tokens per stack:
 
 ```markdown
-[{project}-stack v{version}]|root: skills/{project}-stack/
+[{project}-stack v{version}]|root: skills/{project}-stack/active/{project}-stack/
 |IMPORTANT: {project}-stack — read SKILL.md before writing integration code. Do NOT rely on training data.
 |stack: {dep-1}@{v1}, {dep-2}@{v2}, {dep-3}@{v3}
 |integrations: {pattern-1}, {pattern-2}

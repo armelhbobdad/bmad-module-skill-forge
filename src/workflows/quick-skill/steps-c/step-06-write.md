@@ -35,7 +35,7 @@ To write the compiled SKILL.md, context-snippet.md, and metadata.json to the ski
 ## EXECUTION PROTOCOLS:
 
 - 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Write three files to {skills_output_folder}/{repo_name}/
+- 💾 Write three files to `{skill_package}` and create the `active` symlink
 - 📖 File I/O required for directory creation and file writing
 - 🚫 This is the final step — no next step to load
 
@@ -45,6 +45,7 @@ To write the compiled SKILL.md, context-snippet.md, and metadata.json to the ski
 - Also available: resolved_url, repo_name, language, skills_output_folder
 - Focus: file writing and completion only
 - This is the FINAL step — workflow ends here
+- Path resolution: See `knowledge/version-paths.md` for canonical path templates. Quick-skill uses `{repo_name}` as the skill name and defaults `{version}` to `1.0.0` if not detected from the extraction inventory
 
 ## MANDATORY SEQUENCE
 
@@ -52,15 +53,16 @@ To write the compiled SKILL.md, context-snippet.md, and metadata.json to the ski
 
 ### 1. Create Output Directory
 
-Create the skill output directory:
+Resolve `{version}` from the extraction inventory's detected version, defaulting to `1.0.0` if not detected. Create the skill output directories:
 
 ```
-{skills_output_folder}/{repo_name}/
+{skill_group}                          # {skills_output_folder}/{repo_name}/
+{skill_package}                        # {skills_output_folder}/{repo_name}/{version}/{repo_name}/
 ```
 
-If directory already exists, confirm with user before overwriting:
+If `{skill_package}` already exists, confirm with user before overwriting:
 
-"**Directory `{skills_output_folder}/{repo_name}/` already exists.** Overwrite existing files? [Y/N]"
+"**Directory `{skill_package}` already exists.** Overwrite existing files? [Y/N]"
 
 - **If user selects Y:** Proceed to section 2.
 - **If user selects N:** Halt with: "Overwrite cancelled. Existing skill preserved. Run [QS] with a different skill name or remove the existing directory manually."
@@ -70,7 +72,7 @@ If directory already exists, confirm with user before overwriting:
 Write the compiled SKILL.md content to:
 
 ```
-{skills_output_folder}/{repo_name}/SKILL.md
+{skill_package}/SKILL.md
 ```
 
 Confirm: "Written: SKILL.md"
@@ -80,7 +82,7 @@ Confirm: "Written: SKILL.md"
 Write the context snippet to:
 
 ```
-{skills_output_folder}/{repo_name}/context-snippet.md
+{skill_package}/context-snippet.md
 ```
 
 Confirm: "Written: context-snippet.md"
@@ -90,10 +92,22 @@ Confirm: "Written: context-snippet.md"
 Write the metadata JSON to:
 
 ```
-{skills_output_folder}/{repo_name}/metadata.json
+{skill_package}/metadata.json
 ```
 
 Confirm: "Written: metadata.json"
+
+### 4b. Create Active Symlink
+
+Create or update the `active` symlink at `{skill_group}/active` pointing to `{version}`:
+
+```
+{skill_group}/active -> {version}
+```
+
+If the symlink already exists, remove it first and recreate.
+
+Confirm: "Symlink: {skill_group}/active -> {version}"
 
 ### 5. Handle Write Failures
 
@@ -112,16 +126,17 @@ Please check:
 
 "**Quick Skill complete.**
 
-**Skill:** {repo_name}
+**Skill:** {repo_name} v{version}
 **Language:** {language}
 **Source:** {resolved_url}
 **Authority:** community
 **Confidence:** {extraction confidence}
 
 **Files written:**
-- `{skills_output_folder}/{repo_name}/SKILL.md`
-- `{skills_output_folder}/{repo_name}/context-snippet.md`
-- `{skills_output_folder}/{repo_name}/metadata.json`
+- `{skill_package}/SKILL.md`
+- `{skill_package}/context-snippet.md`
+- `{skill_package}/metadata.json`
+- `{skill_group}/active` -> `{version}`
 
 **Exports documented:** {count}
 **Validation:** {pass / N issues (advisory)}
@@ -147,8 +162,9 @@ No next step to load. Session ends here.
 
 ### ✅ SUCCESS:
 
-- Output directory created (or overwrite confirmed)
-- All three files written successfully
+- Output directory created (or overwrite confirmed) with version-nested structure
+- All three files written successfully to {skill_package}
+- Active symlink created at {skill_group}/active -> {version}
 - Completion summary displayed with file paths
 - Next step recommendations provided
 - Workflow ends cleanly

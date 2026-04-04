@@ -55,16 +55,19 @@ Validate all written output files against their expected structure and verify co
 
 Check that all expected files exist from written_files[]:
 
-**Deliverables** (`{skills_output_folder}/{project_name}-stack/`):
+**Deliverables** (`{skill_package}`):
 - [ ] SKILL.md
 - [ ] context-snippet.md
 - [ ] metadata.json
 - [ ] references/ directory with per-library files
 - [ ] references/integrations/ directory with pair files (if integrations detected)
 
-**Workspace** (`{forge_data_folder}/{project_name}-stack/`):
+**Workspace** (`{forge_version}`):
 - [ ] provenance-map.json
 - [ ] evidence-report.md
+
+**Symlink:**
+- [ ] `{skill_group}/active` exists and resolves to `{version}`
 
 Record any missing files as **ERROR** findings.
 

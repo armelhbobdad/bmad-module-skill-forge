@@ -70,7 +70,7 @@ Load {snippetFormatData} and read the format template for the skill type.
 
 Before generating new snippet content, check for a prior snippet:
 
-1. Read `{skills_output_folder}/{skill-name}/context-snippet.md` if it exists
+1. Read `{resolved_skill_package}/context-snippet.md` if it exists (resolved in step-01 — see [knowledge/version-paths.md](../../../knowledge/version-paths.md))
 2. If it exists, extract the `|gotchas:` line (if any) and store as `prior_gotchas`
 3. If no prior snippet exists, set `prior_gotchas` to empty/null
 
@@ -141,7 +141,7 @@ Estimate token count of generated snippet (approximate: words * 1.3).
 **If dry-run mode:**
 
 "**[DRY RUN] context-snippet.md would be written to:**
-`{skills_output_folder}/{skill-name}/context-snippet.md`
+`{resolved_skill_package}/context-snippet.md`
 
 **Content:**
 ```
@@ -154,10 +154,10 @@ Hold content in context for step-04.
 
 **If NOT dry-run:**
 
-Write the generated content to `{skills_output_folder}/{skill-name}/context-snippet.md`.
+Write the generated content to `{resolved_skill_package}/context-snippet.md`.
 
 "**context-snippet.md written.**
-**Path:** `{skills_output_folder}/{skill-name}/context-snippet.md`
+**Path:** `{resolved_skill_package}/context-snippet.md`
 **Estimated tokens:** {count}"
 
 ### 6. Proceed to Context Update

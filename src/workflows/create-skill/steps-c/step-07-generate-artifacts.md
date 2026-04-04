@@ -9,7 +9,7 @@ forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
 
 ## STEP GOAL:
 
-To write all compiled content to disk — 4 deliverable files to `{skills_output_folder}/{name}/` and 3 workspace artifacts to `{forge_data_folder}/{name}/`, creating directories as needed.
+To write all compiled content to disk — 4 deliverable files to `{skill_package}` and 3 workspace artifacts to `{forge_version}`, creating directories as needed. Then create or update the `active` symlink.
 
 ## MANDATORY EXECUTION RULES (READ FIRST):
 
@@ -47,6 +47,7 @@ To write all compiled content to disk — 4 deliverable files to `{skills_output
 - Focus: File system operations — create directories, write files
 - Limits: Do NOT modify content during writing
 - Dependencies: All content must be compiled and validated in context
+- Path resolution: See `knowledge/version-paths.md` for canonical path templates (`{skill_package}`, `{skill_group}`, `{forge_version}`, `{forge_group}`)
 
 ## MANDATORY SEQUENCE
 
@@ -54,65 +55,77 @@ To write all compiled content to disk — 4 deliverable files to `{skills_output
 
 ### 1. Create Directory Structure
 
-Create the following directories:
+Resolve `{version}` from the skill brief's `version` field. Create the following directories:
 
 ```
-{skills_output_folder}/{name}/
-{skills_output_folder}/{name}/references/
-{forge_data_folder}/{name}/
+{skill_group}                          # {skills_output_folder}/{name}/
+{skill_package}                        # {skills_output_folder}/{name}/{version}/{name}/
+{skill_package}/references/
+{forge_version}                        # {forge_data_folder}/{name}/{version}/
 ```
 
-If `scripts_inventory` is non-empty, also create: `{skills_output_folder}/{name}/scripts/`
-If `assets_inventory` is non-empty, also create: `{skills_output_folder}/{name}/assets/`
+If `scripts_inventory` is non-empty, also create: `{skill_package}/scripts/`
+If `assets_inventory` is non-empty, also create: `{skill_package}/assets/`
 
-Where `{name}` is the skill name from the brief (kebab-case).
+Where `{name}` is the skill name from the brief (kebab-case) and `{version}` is the semver version from the brief (with build metadata stripped per `knowledge/version-paths.md`).
 
 If directories already exist, do not error — proceed with file writing (overwrites existing files).
 
-### 2. Write Deliverables to {skills_output_folder}/{name}/
+### 2. Write Deliverables to {skill_package}
 
 Write these 4 files from the compiled content:
 
-**File 1:** `{skills_output_folder}/{name}/SKILL.md`
+**File 1:** `{skill_package}/SKILL.md`
 - The complete compiled skill document
 - agentskills.io-compliant format with all sections
 - [MANUAL] markers seeded
 
-**File 2:** `{skills_output_folder}/{name}/context-snippet.md`
+**File 2:** `{skill_package}/context-snippet.md`
 - Compressed 2-line format for CLAUDE.md integration
 
-**File 3:** `{skills_output_folder}/{name}/metadata.json`
+**File 3:** `{skill_package}/metadata.json`
 - Machine-readable birth certificate with stats and provenance
 
-**File 4:** `{skills_output_folder}/{name}/references/*.md`
+**File 4:** `{skill_package}/references/*.md`
 - One file per function group or type
 - Progressive disclosure detail files
 
-**Files 4b (conditional):** `{skills_output_folder}/{name}/scripts/*`
+**Files 4b (conditional):** `{skill_package}/scripts/*`
 - One file per detected script, copied from source with content preserved
 - Only created when `scripts_inventory` is non-empty
 
-**Files 4c (conditional):** `{skills_output_folder}/{name}/assets/*`
+**Files 4c (conditional):** `{skill_package}/assets/*`
 - One file per detected asset, copied from source with content preserved
 - Only created when `assets_inventory` is non-empty
 
-### 3. Write Workspace Artifacts to {forge_data_folder}/{name}/
+### 3. Write Workspace Artifacts to {forge_version}
 
 Write these 3 files from the compiled content:
 
-**File 5:** `{forge_data_folder}/{name}/provenance-map.json`
+**File 5:** `{forge_version}/provenance-map.json`
 - Per-claim source map with AST bindings and confidence tiers
 
-**File 6:** `{forge_data_folder}/{name}/evidence-report.md`
+**File 6:** `{forge_version}/evidence-report.md`
 - Build artifact with extraction summary, validation results, warnings
 
-**File 7:** `{forge_data_folder}/{name}/extraction-rules.yaml`
+**File 7:** `{forge_version}/extraction-rules.yaml`
 - Language and ast-grep schema used for this extraction (for reproducibility)
 
-### 4. Verify Write Completion
+### 4. Create Active Symlink
+
+Create or update the `active` symlink at `{skill_group}/active` pointing to `{version}`:
+
+```
+{skill_group}/active -> {version}
+```
+
+If the symlink already exists, remove it first and recreate. This ensures `{skill_group}/active/{name}/` resolves to the just-written skill package.
+
+### 5. Verify Write Completion
 
 After all files are written, verify:
 - All 4 deliverable artifact types exist (SKILL.md, context-snippet.md, metadata.json, at least one file in references/), all 3 workspace artifacts exist (provenance-map.json, evidence-report.md, extraction-rules.yaml), plus scripts/ and assets/ files when inventories are non-empty
+- The `active` symlink at `{skill_group}/active` resolves to `{version}`
 - Store `ref_count` = count of files written to `references/` for use in step-08 report
 - List each file with its path and size
 
@@ -124,7 +137,7 @@ Display brief confirmation:
 
 "**Artifacts generated.**
 
-**Deliverables ({skills_output_folder}/{name}/):**
+**Deliverables ({skill_package}):**
 - SKILL.md
 - context-snippet.md
 - metadata.json
@@ -132,14 +145,16 @@ Display brief confirmation:
 {if assets: - assets/ ({assets_count} files)}
 - references/ ({reference_count} files)
 
-**Workspace ({forge_data_folder}/{name}/):**
+**Workspace ({forge_version}):**
 - provenance-map.json
 - evidence-report.md
 - extraction-rules.yaml
 
+**Symlink:** {skill_group}/active -> {version}
+
 Proceeding to compilation report..."
 
-### 5. QMD Collection Registration (Deep Tier Only)
+### 6. QMD Collection Registration (Deep Tier Only)
 
 **IF forge tier is Deep AND QMD tool is available:**
 
@@ -148,7 +163,7 @@ Index the generated skill artifacts into a QMD collection so that audit-skill an
 **Collection creation:** Create (or replace) a QMD collection from the skill artifacts:
 ```bash
 qmd collection remove {name}-extraction 2>/dev/null  # no-op if new
-qmd collection add {skills_output_folder}/{name} --name {name}-extraction --mask "**/*"
+qmd collection add {skill_package} --name {name}-extraction --mask "**/*"
 qmd embed  # generates vector embeddings for vector_search/deep_search
 ```
 
@@ -174,7 +189,7 @@ Write the updated forge-tier.yaml.
 
 **IF forge tier is NOT Deep:** Skip this section silently. No messaging.
 
-### 5b. CCC Index Registry Registration (Forge+ and Deep with ccc)
+### 6b. CCC Index Registry Registration (Forge+ and Deep with ccc)
 
 **IF `tools.ccc` is true in forge-tier.yaml (Forge+ or Deep with ccc available):**
 
@@ -204,7 +219,7 @@ Write the updated forge-tier.yaml.
 
 **IF `tools.ccc` is false:** Skip this section silently.
 
-### 6. Menu Handling Logic
+### 7. Menu Handling Logic
 
 **Auto-proceed step — no user interaction.**
 
@@ -220,7 +235,7 @@ After all artifacts are written, verified, and optionally indexed into QMD, imme
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY WHEN all 7 artifact files are written and verified will you proceed to load `{nextStepFile}` for the compilation report.
+ONLY WHEN all 7 artifact files are written, the active symlink is created, and verification is complete will you proceed to load `{nextStepFile}` for the compilation report.
 
 ---
 
@@ -228,10 +243,11 @@ ONLY WHEN all 7 artifact files are written and verified will you proceed to load
 
 ### ✅ SUCCESS:
 
-- Directory structure created ({skills_output_folder}/{name}/, {forge_data_folder}/{name}/)
-- All 4 deliverable files written to {skills_output_folder}/{name}/
-- All 3 workspace artifact files written to {forge_data_folder}/{name}/
-- Write completion verified — all 7 files exist
+- Directory structure created ({skill_group}, {skill_package}, {forge_version})
+- All 4 deliverable files written to {skill_package}
+- All 3 workspace artifact files written to {forge_version}
+- Active symlink created at {skill_group}/active -> {version}
+- Write completion verified — all 7 files exist and symlink resolves
 - Deep tier: QMD collection `{name}-extraction` created/updated and registered in forge-tier.yaml
 - Non-Deep tier: QMD indexing skipped silently
 - Brief confirmation displayed with file list
@@ -246,4 +262,4 @@ ONLY WHEN all 7 artifact files are written and verified will you proceed to load
 - Not verifying all files were written
 - Failing the workflow due to QMD indexing errors (should degrade gracefully)
 
-**Master Rule:** This step writes artifacts and registers QMD collections. All content was compiled and validated in previous steps. Write faithfully, verify completely. QMD indexing failures never block the workflow.
+**Master Rule:** This step writes artifacts, creates the active symlink, and registers QMD collections. All content was compiled and validated in previous steps. Write faithfully, verify completely. QMD indexing failures never block the workflow.

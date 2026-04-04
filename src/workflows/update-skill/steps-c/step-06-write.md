@@ -49,6 +49,7 @@ Write all updated skill artifacts to disk: the merged SKILL.md, updated provenan
 - Focus: file I/O operations — write and verify
 - Limits: write only to skill output and forge data directories
 - Dependencies: steps 02-05 must all be complete
+- Path resolution: See `knowledge/version-paths.md` for canonical path templates (`{skill_package}`, `{skill_group}`, `{forge_version}`, `{forge_group}`)
 
 ## MANDATORY SEQUENCE
 
@@ -56,14 +57,16 @@ Write all updated skill artifacts to disk: the merged SKILL.md, updated provenan
 
 ### 1. Write Updated SKILL.md
 
-Write the merged SKILL.md content to `{skills_output_folder}/{skill_name}/SKILL.md`:
+Write the merged SKILL.md content to `{skill_package}/SKILL.md`:
 - Overwrite the existing file with merged content
 - Preserve file encoding (UTF-8)
 - Verify write by reading back and confirming [MANUAL] section count matches expected
 
+If the version changed (source version differs from the previous metadata version), write to the new `{skill_package}` (creating the version directory if needed). The previous version's directory is preserved on disk.
+
 ### 2. Write Updated metadata.json
 
-Update `{skills_output_folder}/{skill_name}/metadata.json`:
+Update `{skill_package}/metadata.json`:
 - Update `version`: if a source version was detected during re-extraction and differs from the current metadata version, use the source version; otherwise increment patch version
 - Update `generation_date` timestamp to current ISO-8601 date
 - Update `exports` array to reflect current export list
@@ -81,7 +84,7 @@ Update `{skills_output_folder}/{skill_name}/metadata.json`:
 
 ### 3. Write Updated provenance-map.json
 
-Write to `{forge_data_folder}/{skill_name}/provenance-map.json`:
+Write to `{forge_version}/provenance-map.json`:
 
 **For each export in the updated skill:**
 - Update `export_name` if renamed
@@ -117,7 +120,7 @@ Write to `{forge_data_folder}/{skill_name}/provenance-map.json`:
 
 ### 4. Write Updated evidence-report.md
 
-Append update operation section to `{forge_data_folder}/{skill_name}/evidence-report.md` (create the file with a standard header if it does not yet exist):
+Append update operation section to `{forge_version}/evidence-report.md` (create the file with a standard header if it does not yet exist):
 
 ```markdown
 ## Update Operation — {current_date}
@@ -156,7 +159,19 @@ For each affected reference file from the merge:
 - Regenerate `context-snippet.md` with updated export summaries
 - Verify [MANUAL] sections preserved in each reference file
 
-**If skill_type != "stack":** Skip reference file updates. However, if exports changed (added, removed, or renamed), warn: "⚠️ `context-snippet.md` was NOT updated — exports have changed. Run **[EX] Export Skill** to regenerate the context snippet and update CLAUDE.md/AGENTS.md."
+**If skill_type != "stack":** Skip reference file updates. However, if exports changed (added, removed, or renamed), warn: "context-snippet.md was NOT updated -- exports have changed. Run **[EX] Export Skill** to regenerate the context snippet and update CLAUDE.md/AGENTS.md."
+
+### 5b. Update Active Symlink (If Version Changed)
+
+If the version was incremented or changed in section 2 (metadata.json update):
+- Create or update the `active` symlink at `{skill_group}/active` pointing to the new `{version}`
+- If the symlink already exists, remove it first and recreate
+
+```
+{skill_group}/active -> {version}
+```
+
+If the version did not change, the existing symlink already points to the correct version -- no action needed.
 
 ### 6. Verify All Writes
 
@@ -183,11 +198,11 @@ For each file written:
 External tool checks deferred from step-05 now run against the written files:
 
 **If skill-check available:**
-- Run: `npx skill-check check {skills_output_folder}/{skill_name} --fix --format json --no-security-scan`
+- Run: `npx skill-check check {skill_package} --fix --format json --no-security-scan`
 - **Context sync after --fix:** If `fixed[]` is non-empty (i.e., `--fix` modified files on disk), re-read the modified SKILL.md to update the in-context copy. This prevents silent divergence between the in-context SKILL.md and the on-disk version that step-07-report will reference.
-- If `body.max_lines` reported, prefer selective split — extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). Fall back to `npx skill-check split-body {skills_output_folder}/{skill_name} --write` if not feasible. Verify anchors resolve after split.
+- If `body.max_lines` reported, prefer selective split — extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). Fall back to `npx skill-check split-body {skill_package} --write` if not feasible. Verify anchors resolve after split.
 - Run: `npx skill-check diff` if original version was preserved
-- Run: `npx skill-check check {skills_output_folder}/{skill_name} --format json` for security scan
+- Run: `npx skill-check check {skill_package} --format json` for security scan
 
 Record findings in the evidence report (section 4). These are advisory — do not block on warnings.
 
@@ -216,11 +231,12 @@ ONLY WHEN all files have been written and verified will you load {nextStepFile} 
 
 ### ✅ SUCCESS:
 
-- SKILL.md written with all merged content and [MANUAL] sections intact
+- SKILL.md written to {skill_package} with all merged content and [MANUAL] sections intact
 - metadata.json updated with new version, timestamp, export counts
-- provenance-map.json updated with current file:line references and timestamps
-- evidence-report.md appended with update operation record
+- provenance-map.json updated at {forge_version} with current file:line references and timestamps
+- evidence-report.md appended at {forge_version} with update operation record
 - Stack reference files updated if applicable
+- Active symlink updated at {skill_group}/active -> {version} if version changed
 - All writes verified by read-back confirmation
 
 ### ❌ SYSTEM FAILURE:

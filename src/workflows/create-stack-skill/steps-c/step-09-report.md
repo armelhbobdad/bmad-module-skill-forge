@@ -74,16 +74,18 @@ Forge tier: **{tier}**"
 
 "**Output files:**
 
-**Deliverables** (`{skills_output_folder}/{project_name}-stack/`):
+**Deliverables** (`{skill_package}`):
 - SKILL.md — Integration patterns, library summaries, conventions
 - context-snippet.md — Compressed stack index ({token_estimate} tokens)
 - metadata.json — Skill metadata and library registry
 - references/ — {lib_count} per-library reference files
 {If integrations:} - references/integrations/ — {pair_count} integration pair files
 
-**Workspace** (`{forge_data_folder}/{project_name}-stack/`):
+**Workspace** (`{forge_version}`):
 - provenance-map.json — Extraction source tracking
-- evidence-report.md — Evidence and confidence breakdown"
+- evidence-report.md — Evidence and confidence breakdown
+
+**Symlink:** `{skill_group}/active` -> `{version}`"
 
 ### 4. Display Validation Summary
 

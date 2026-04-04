@@ -88,7 +88,7 @@ function runTests() {
     const csv = fs.readFileSync(indexPath, 'utf8');
     records = parse(csv, { columns: true, skip_empty_lines: true });
 
-    assert(records.length === 14, 'skf-knowledge-index.csv has 14 fragment records', `Found ${records.length}`);
+    assert(records.length === 15, 'skf-knowledge-index.csv has 15 fragment records', `Found ${records.length}`);
 
     const requiredFields = ['id', 'name', 'description', 'tags', 'tier', 'fragment_file'];
     const missingFields = requiredFields.filter((field) => !Object.prototype.hasOwnProperty.call(records[0] || {}, field));

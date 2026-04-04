@@ -3,7 +3,7 @@ name: 'step-02-detect-mode'
 description: 'Determine naive (individual) vs contextual (stack) testing mode'
 
 nextStepFile: './step-03-coverage-check.md'
-outputFile: '{forge_data_folder}/{skill_name}/test-report-{skill_name}.md'
+outputFile: '{forge_version}/test-report-{skill_name}.md'
 ---
 
 # Step 2: Detect Mode

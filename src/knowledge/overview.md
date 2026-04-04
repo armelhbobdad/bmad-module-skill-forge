@@ -35,6 +35,7 @@ With knowledge files:
 | [architecture-verification.md](architecture-verification.md) | Pre-code verification pipeline, integration verdicts, iteration loop | VS, RA, SS                        |
 | [doc-fetcher.md](doc-fetcher.md)                           | T3 external documentation fetching, quarantine rules, tool-agnostic | CS, QS                             |
 | [split-body-strategy.md](split-body-strategy.md)           | Selective vs full split-body, detection pattern, agent accuracy   | CS, QS, US, TS, EX                |
+| [version-paths.md](version-paths.md)                       | Version-aware storage layout, path templates, export manifest v2, migration | CS, QS, SS, US, AS, TS, EX, VS, RA |
 | [overview.md](overview.md)                                 | Knowledge map and JiT loading protocol (this file)               | All (entry point)                  |
 
 ## JiT Loading Protocol

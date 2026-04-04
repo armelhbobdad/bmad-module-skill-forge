@@ -59,9 +59,12 @@ To load the target skill's artifacts, validate they meet agentskills.io spec com
 
 Determine the skill to export and any flags:
 
-**Skill Path Discovery:**
+**Skill Path Discovery (version-aware — see [knowledge/version-paths.md](../../../knowledge/version-paths.md)):**
 - If user provided a skill name or path as argument, use that
-- If not provided, search `{skills_output_folder}/*/SKILL.md` for available skills
+- If not provided, discover available skills using the export manifest:
+  1. Read `{skills_output_folder}/.export-manifest.json` — list skill names from `exports`
+  2. For each skill group directory in `{skills_output_folder}/`, check for `{skill_group}/active/{skill-name}/SKILL.md`
+  3. If neither manifest nor `active` symlink yields results, fall back to flat path: `{skills_output_folder}/{skill-name}/SKILL.md`
 - If multiple skills found, present list and ask user to select
 - If no skills found, halt: "No skills found in {skills_output_folder}/. Run create-skill first."
 
@@ -91,7 +94,15 @@ If `--platform` is NOT provided, read the `ides` list from config.yaml and map t
 
 ### 2. Load and Validate Skill Artifacts
 
-Load all files from the skill directory `{skills_output_folder}/{skill-name}/`:
+Resolve the skill's versioned path before loading artifacts:
+
+1. Read `{skills_output_folder}/.export-manifest.json` and look up `{skill-name}` in `exports` to get `active_version`
+2. If found: resolve to `{skill_package}` = `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/`
+3. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill-name}/active` — resolve to `{skill_group}/active/{skill-name}/`
+4. If neither: fall back to flat path `{skills_output_folder}/{skill-name}/`. If SKILL.md exists at the flat path, auto-migrate per `knowledge/version-paths.md` migration rules
+5. Store the resolved path as `{resolved_skill_package}` for all subsequent artifact loading
+
+Load all files from `{resolved_skill_package}`:
 
 **Required Files (hard halt if missing):**
 - `SKILL.md` — The main skill document
@@ -133,7 +144,7 @@ Load `{sidecar_path}/preferences.yaml` (if exists):
 
 ### 4b. Check Test Report (Quality Gate)
 
-Search for a test report at `{forge_data_folder}/{skill_name}/test-report-{skill_name}.md`:
+Search for a test report at `{forge_data_folder}/{skill_name}/{active_version}/test-report-{skill_name}.md` (i.e., `{forge_version}/test-report-{skill_name}.md`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/test-report-{skill_name}.md`:
 
 **If test report found:**
 - Read frontmatter `testResult` and `score`

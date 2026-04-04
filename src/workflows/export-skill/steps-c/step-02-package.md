@@ -52,10 +52,10 @@ To assemble and validate an agentskills.io-compliant package structure from the 
 
 ### 1. Validate Package Structure
 
-Verify the skill directory contains the expected agentskills.io package layout:
+Verify the skill package at `{resolved_skill_package}` (resolved in step-01 via manifest or `active` symlink — see [knowledge/version-paths.md](../../../knowledge/version-paths.md)) contains the expected agentskills.io package layout:
 
 ```
-{skills_output_folder}/{skill-name}/
+{skill_package} = {skills_output_folder}/{skill-name}/{version}/{skill-name}/
 ├── SKILL.md              ← Required: Active skill document
 ├── metadata.json         ← Required: Machine-readable metadata
 ├── context-snippet.md    ← Will be generated/updated in step-03

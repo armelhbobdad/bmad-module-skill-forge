@@ -106,8 +106,11 @@ Check if the user provided:
 
 Set `compose_mode: false` as the default.
 
+Skills use version-nested directories — see [knowledge/version-paths.md](../../../knowledge/version-paths.md) for the full path templates and resolution rules.
+
 - If user provides an architecture document path for composition or explicitly requests compose mode → set `compose_mode: true` and store `architecture_doc_path`
-- If no manifest files exist in project root AND at least one subdirectory in `{skills_output_folder}` contains both `SKILL.md` and `metadata.json` → suggest compose mode to the user and ask for optional architecture document path
+- If no manifest files exist in project root AND at least one skill is discoverable in `{skills_output_folder}` → suggest compose mode to the user and ask for optional architecture document path
+  - **Skill discovery (version-aware):** First, read `{skills_output_folder}/.export-manifest.json` — each entry in `exports` names a skill with an `active_version`, which resolves to `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/` containing `SKILL.md` and `metadata.json`. If the export manifest does not exist or is empty, fall back to scanning for `active` symlinks: check `{skills_output_folder}/*/active/*/SKILL.md` — each match indicates a skill whose package lives at `{skills_output_folder}/{skill-name}/active/{skill-name}/` (the `{active_skill}` template).
   - If user accepts → set `compose_mode: true` and store `architecture_doc_path` (may be `null` if user chose not to provide one)
   - If user declines → `compose_mode` remains `false`, continue with code-mode
 

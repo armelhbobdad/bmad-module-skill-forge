@@ -3,7 +3,7 @@ name: 'step-01-init'
 description: 'Discover skill, load forge tier state, validate inputs, create test report'
 
 nextStepFile: './step-02-detect-mode.md'
-outputFile: '{forge_data_folder}/{skill_name}/test-report-{skill_name}.md'
+outputFile: '{forge_version}/test-report-{skill_name}.md'
 templateFile: '../templates/test-report-template.md'
 sidecarFile: '{sidecar_path}/forge-tier.yaml'
 skillsOutputFolder: '{skills_output_folder}'
@@ -69,16 +69,24 @@ Provide the skill path or name. I'll search in `{skillsOutputFolder}`.
 
 **Path or name:**"
 
-### 2. Validate Skill Exists
+### 2. Validate Skill Exists (version-aware)
 
-Check that the skill directory contains required files:
+Resolve the skill path using version-aware resolution (see [knowledge/version-paths.md](../../../knowledge/version-paths.md)):
+
+1. Read `{skillsOutputFolder}/.export-manifest.json` and look up the skill name in `exports` to get `active_version`
+2. If found: resolve to `{skill_package}` = `{skillsOutputFolder}/{skill_name}/{active_version}/{skill_name}/`
+3. If not in manifest: check for `active` symlink at `{skillsOutputFolder}/{skill_name}/active` — resolve to `{skill_group}/active/{skill_name}/`
+4. If neither: fall back to flat path `{skillsOutputFolder}/{skill_name}/`. If SKILL.md exists at the flat path, auto-migrate per `knowledge/version-paths.md` migration rules
+5. Store the resolved path as `{resolved_skill_package}`
+
+Check that the skill package contains required files:
 
 **Required files:**
-- `{skillsOutputFolder}/{skill_name}/SKILL.md` — the skill documentation
-- `{skillsOutputFolder}/{skill_name}/metadata.json` — skill metadata
+- `{resolved_skill_package}/SKILL.md` — the skill documentation
+- `{resolved_skill_package}/metadata.json` — skill metadata
 
 **If SKILL.md missing:**
-"**Error: SKILL.md not found at `{skillsOutputFolder}/{skill_name}/SKILL.md`**
+"**Error: SKILL.md not found at `{resolved_skill_package}/SKILL.md`**
 
 This skill has not been created yet. Run the **create-skill** workflow first."
 

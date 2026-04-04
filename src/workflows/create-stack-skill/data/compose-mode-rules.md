@@ -4,12 +4,18 @@ Rules for synthesizing a stack skill from pre-generated individual skills and an
 
 ## Skill Loading
 
-1. Scan `{skills_output_folder}` for subdirectories containing both `SKILL.md` and `metadata.json`
-2. **Filter:** Skip any subdirectory named `{project_name}-stack` or any skill where `metadata.json` has `"skill_type": "stack"` — stack skills must not be loaded as source dependencies to avoid self-referencing loops
-3. Skip any subdirectory missing either `SKILL.md` or `metadata.json` — log a warning and skip
-4. Load each `metadata.json` and extract: `name`, `language`, `confidence_tier`, `source_repo`, `exports` (count), `version`
-5. Store the subdirectory name as `skill_dir` (distinct from `name` — the directory may differ from the metadata name)
-6. Store loaded skills as `raw_dependencies` with `source: "existing_skill"`
+Skills use version-nested directories — see [knowledge/version-paths.md](../../../knowledge/version-paths.md) for the full path templates and resolution rules.
+
+**Version-aware skill enumeration:**
+
+1. **Primary: Export manifest** — Read `{skills_output_folder}/.export-manifest.json`. For each entry in `exports`, resolve the active version path: `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/` — this directory must contain both `SKILL.md` and `metadata.json`.
+2. **Fallback: `active` symlinks** — If the manifest does not exist, is empty, or a manifest entry lacks an `active_version`, scan for `{skills_output_folder}/*/active/*/SKILL.md`. Each match resolves to a skill package at `{skills_output_folder}/{skill-name}/active/{skill-name}/` (the `{active_skill}` template).
+3. **Filter:** Skip any skill named `{project_name}-stack` or any skill where `metadata.json` has `"skill_type": "stack"` — stack skills must not be loaded as source dependencies to avoid self-referencing loops
+4. Skip any resolved skill package missing either `SKILL.md` or `metadata.json` — log a warning and skip
+5. Load each `metadata.json` from the resolved version-aware path and extract: `name`, `language`, `confidence_tier`, `source_repo`, `exports` (count), `version`
+6. Store the skill group directory name as `skill_dir` (the top-level name under `{skills_output_folder}`, distinct from `name` — the directory may differ from the metadata name)
+7. Store the resolved package path as `skill_package_path` for use in later steps (extraction, integration detection)
+8. Store loaded skills as `raw_dependencies` with `source: "existing_skill"`
 
 ## Architecture Integration Mapping
 

@@ -58,17 +58,23 @@ Use the explicit dependency list directly. Store the explicit list as `raw_depen
 
 **If `compose_mode` is true AND `explicit_deps` was NOT provided:**
 
-Scan `{skills_output_folder}` for subdirectories containing SKILL.md and metadata.json.
+Discover skills in `{skills_output_folder}` using version-aware resolution — see [knowledge/version-paths.md](../../../knowledge/version-paths.md) for path templates.
 
-**Filter:** Skip any subdirectory named `{project_name}-stack` or any skill where `metadata.json` has `"skill_type": "stack"` — stack skills must not be loaded as source dependencies to avoid self-referencing loops.
+**Version-aware skill enumeration:**
+
+1. **Primary: Export manifest** — Read `{skills_output_folder}/.export-manifest.json`. For each entry in `exports`, resolve the active version path: `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/` — this directory must contain both `SKILL.md` and `metadata.json`.
+2. **Fallback: `active` symlinks** — If the manifest does not exist, is empty, or a manifest entry lacks an `active_version`, scan for `{skills_output_folder}/*/active/*/SKILL.md`. Each match resolves to a skill package at `{skills_output_folder}/{skill-name}/active/{skill-name}/` (the `{active_skill}` template).
+
+**Filter:** Skip any skill named `{project_name}-stack` or any skill where `metadata.json` has `"skill_type": "stack"` — stack skills must not be loaded as source dependencies to avoid self-referencing loops.
 
 **If zero skills remain after filtering:** HALT with: "**Cannot proceed in compose-mode.** No individual skills found in `{skills_output_folder}` (after filtering stack skills). Run [CS] Create Skill or [QS] Quick Skill to generate individual skills first, then re-run [SS]."
 
 For each skill found:
-1. Read metadata.json
+1. Read `metadata.json` from the resolved version-aware path (`{skill_package}` or `{active_skill}`)
 2. Extract: name, language, confidence_tier, source_repo, exports count, version
-3. Store the subdirectory name as `skill_dir` (distinct from `name` — the directory may differ from the metadata name)
-4. Store as `raw_dependencies` with source: "existing_skill"
+3. Store the skill group directory name as `skill_dir` (the top-level name under `{skills_output_folder}`, distinct from `name` — the directory may differ from the metadata name)
+4. Store the resolved package path as `skill_package_path` for use in later steps
+5. Store as `raw_dependencies` with source: "existing_skill"
 
 Display:
 "**Loaded {N} existing skills as dependencies.**

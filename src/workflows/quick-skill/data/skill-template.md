@@ -52,7 +52,7 @@ description: >
 Indexed format targeting ~80-120 tokens per skill:
 
 ```markdown
-[{skill_name} v{version}]|root: skills/{skill_name}/
+[{skill_name} v{version}]|root: skills/{skill_name}/active/{skill_name}/
 |IMPORTANT: {skill_name} v{version} — read SKILL.md before writing {skill_name} code. Do NOT rely on training data.
 |quick-start:{SKILL.md#quick-start}
 |api: {top-5 exports with () for functions}

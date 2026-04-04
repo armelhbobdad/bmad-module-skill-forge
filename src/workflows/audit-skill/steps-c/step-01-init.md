@@ -3,7 +3,7 @@ name: 'step-01-init'
 description: 'Load existing skill, provenance map, and detect forge tier for drift analysis'
 
 nextStepFile: './step-02-re-index.md'
-outputFile: '{forge_data_folder}/{skill_name}/drift-report-{timestamp}.md'
+outputFile: '{forge_version}/drift-report-{timestamp}.md'
 templateFile: '../data/drift-report-template.md'
 ---
 
@@ -63,14 +63,18 @@ Load the existing skill artifacts, provenance map, and forge tier configuration 
 
 Which skill would you like to audit? Please provide the skill name or path."
 
-**If user provides skill name (not full path):**
-- Resolve to `{skills_output_folder}/{skill_name}/`
+**If user provides skill name (not full path) — version-aware path resolution (see [knowledge/version-paths.md](../../../knowledge/version-paths.md)):**
+1. Read `{skills_output_folder}/.export-manifest.json` and look up the skill name in `exports` to get `active_version`
+2. If found: resolve to `{skill_package}` = `{skills_output_folder}/{skill_name}/{active_version}/{skill_name}/`
+3. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill_name}/active` — resolve to `{skill_group}/active/{skill_name}/`
+4. If neither: fall back to flat path `{skills_output_folder}/{skill_name}/`. If SKILL.md exists at the flat path, auto-migrate per `knowledge/version-paths.md` migration rules
+5. Store the resolved path as `{resolved_skill_package}`
 
 **If user provides full path:**
 - Use as provided
 
 **Validate:** Check that `SKILL.md` exists at the resolved path.
-- If missing → "Skill not found at `{resolved_path}`. Check the path and try again."
+- If missing → "Skill not found at `{resolved_skill_package}`. Check the path and try again."
 - If found → Continue
 
 ### 2. Load Forge Tier
@@ -103,13 +107,13 @@ Load the following from the skill directory:
 
 ### 4. Load Provenance Map
 
-Search for provenance map at `{forge_data_folder}/{skill_name}/provenance-map.json`
+Search for provenance map at `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json` (i.e., `{forge_version}/provenance-map.json`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`:
 
 **If found:**
 - Load and extract: export list, file mappings, extraction timestamps, confidence tiers
 - Record provenance map age (days since last extraction)
 
-**If missing:**
+**If missing at both paths:**
 - "No provenance map found for `{skill_name}`. This skill may not have been created by create-skill."
 - "**Degraded mode available:** I can perform text-based comparison without provenance data. Findings will have T1-low confidence."
 - "**[D]egraded mode** — proceed with text-diff only"

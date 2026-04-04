@@ -174,11 +174,13 @@ Citations appear directly in SKILL.md content:
 - Copying provenance from a previous extraction without re-verifying — timestamps must reflect actual verification time
 - Omitting the evidence report — it is required for every compilation, not optional
 - Using provenance from one source file version against a different version — provenance is version-bound
+- Storing provenance at a flat path (`{forge_data_folder}/{skill-name}/provenance-map.json`) instead of the versioned path (`{forge_version}/provenance-map.json`) — each version has its own provenance chain (see [version-paths.md](version-paths.md))
 
 ## Related Fragments
 
 - [confidence-tiers.md](confidence-tiers.md) — defines the citation formats used in provenance
 - [zero-hallucination.md](zero-hallucination.md) — the principle that provenance enforces
 - [manual-section-integrity.md](manual-section-integrity.md) — how \[MANUAL\] sections interact with provenance
+- [version-paths.md](version-paths.md) — version-aware storage layout where provenance artifacts are stored per-version
 
 _Source: consolidated from create-skill steps 03/05/07, audit-skill steps 02/03, and skill-sections.md_

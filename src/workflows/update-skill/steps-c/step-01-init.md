@@ -60,25 +60,32 @@ Load the existing skill and all its provenance data, detect whether this is an i
 "**Which skill would you like to update?**
 
 Provide either:
-- A skill name (resolves to `{skills_output_folder}/{name}/`)
+- A skill name (resolves via version-aware path resolution — see [knowledge/version-paths.md](../../../knowledge/version-paths.md))
 - A full path to the skill folder
 - A skill name with `--from-test-report` to use the test report's gap findings instead of source drift detection
 
 **Skill:** {user provides path or name}"
 
+**Version-Aware Path Resolution:**
+1. Read `{skills_output_folder}/.export-manifest.json` and look up the skill name in `exports` to get `active_version`
+2. If found: resolve to `{skill_package}` = `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/`
+3. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill-name}/active` — resolve to `{skill_group}/active/{skill-name}/`
+4. If neither: fall back to flat path `{skills_output_folder}/{skill-name}/`. If SKILL.md exists at the flat path, auto-migrate per `knowledge/version-paths.md` migration rules
+5. Store the resolved path as `{resolved_skill_package}` for all subsequent artifact loading
+
 Resolve the path to an absolute skill folder location.
 
 **If `--from-test-report` was provided (or user references a test report):**
-Search for the test report at `{forge_data_folder}/{skill_name}/test-report-{skill_name}.md`. If found, set `test_report_path` in context and `update_mode: gap-driven`. If not found, warn and continue with normal source drift mode.
+Search for the test report at `{forge_data_folder}/{skill_name}/{active_version}/test-report-{skill_name}.md` (i.e., `{forge_version}/test-report-{skill_name}.md`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/test-report-{skill_name}.md`. If found, set `test_report_path` in context and `update_mode: gap-driven`. If not found at either path, warn and continue with normal source drift mode.
 
 ### 2. Validate Required Artifacts
 
 **Check SKILL.md exists:**
-- Load `{resolved_skill_path}/SKILL.md`
-- If missing: **ABORT** — "No SKILL.md found at `{resolved_skill_path}`. Run create-skill first."
+- Load `{resolved_skill_package}/SKILL.md`
+- If missing: **ABORT** — "No SKILL.md found at `{resolved_skill_package}`. Run create-skill first."
 
 **Check metadata.json exists:**
-- Load `{resolved_skill_path}/metadata.json`
+- Load `{resolved_skill_package}/metadata.json`
 - Extract: `name`, `skill_type` (single or stack), `version`, `generation_date`, `confidence_tier`, `source_root`
 - If missing: **ABORT** — "No metadata.json found. This skill may have been created manually. Run create-skill to generate provenance data."
 
@@ -102,13 +109,13 @@ Search for the test report at `{forge_data_folder}/{skill_name}/test-report-{ski
 
 ### 4. Load Provenance Map
 
-**Load `{forge_data_folder}/{skill_name}/provenance-map.json`:**
+**Load `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json`** (i.e., `{forge_version}/provenance-map.json`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`:
 - Extract: export list, file mappings, extraction timestamps, confidence tiers
 - Calculate provenance age (days since last extraction)
 
-**If provenance map missing:**
+**If provenance map missing at both paths:**
 
-"**WARNING:** No provenance map found at `{forge_data_folder}/{skill_name}/provenance-map.json`.
+"**WARNING:** No provenance map found at `{forge_version}/provenance-map.json` or flat fallback.
 
 Without a provenance map, update-skill cannot perform targeted change detection. Options:
 

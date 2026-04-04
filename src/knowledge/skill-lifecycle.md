@@ -25,7 +25,7 @@ With lifecycle awareness:
 | Setup | SF (Setup Forge) | Detect environment and set capability tier | `forge-tier.yaml` |
 | Discovery | AN (Analyze Source) | Scan project, identify skillable units | Analysis report, skill briefs |
 | Design | BS (Brief Skill) | Interactive scope definition for one skill | `skill-brief.yaml` |
-| Compilation | CS, QS, SS (Create/Quick/Stack) | Extract source and compile skill | `SKILL.md`, metadata, provenance, `scripts/`, `assets/` (when source contains them) |
+| Compilation | CS, QS, SS (Create/Quick/Stack) | Extract source and compile skill | `SKILL.md`, metadata, provenance, `scripts/`, `assets/` (when source contains them) — written to `{skill_package}` and `{forge_version}` (see [version-paths.md](version-paths.md)) |
 | Architecture Verification | VS, RA (Verify Stack, Refine Architecture) | Pre-code feasibility check and architecture refinement | Feasibility report, refined architecture doc |
 | Maintenance | US, AS (Update/Audit) | Detect drift and refresh skills | Updated `SKILL.md`, drift report |
 | Verification | TS (Test Skill) | Quality gate — completeness scoring | Test report, pass/fail decision |
@@ -124,11 +124,11 @@ SF → forge-tier.yaml
        ↓ (read by all subsequent workflows)
 AN → analysis-report.md + skill-brief.yaml[]
        ↓ (briefs consumed by CS)
-CS → SKILL.md + metadata.json + provenance-map.json + scripts/ + assets/ (when present) + evidence-report.md
-       ↓ (skill consumed by TS)
-TS → test-report.md (pass/fail gate)
-       ↓ (passing skill consumed by EX)
-EX → agentskills.io bundle + context snippets
+CS → {skill_package}/SKILL.md + metadata.json + {forge_version}/provenance-map.json + scripts/ + assets/ (when present) + evidence-report.md
+       ↓ (skill consumed by TS — resolved via active version)
+TS → {forge_version}/test-report.md (pass/fail gate)
+       ↓ (passing skill consumed by EX — resolved via export manifest v2)
+EX → agentskills.io bundle + context snippets (flat platform paths)
 
 VS → feasibility-report-{project_name}.md (verdict + integration verdicts)
        ↓ (report consumed by RA)
@@ -170,5 +170,6 @@ SS (compose) → SKILL.md (stack skill synthesized from individual skills + arch
 - [progressive-capability.md](progressive-capability.md) — how the forge tier affects each pipeline phase
 - [agentskills-spec.md](agentskills-spec.md) — the output format that export-skill packages
 - [provenance-tracking.md](provenance-tracking.md) — how provenance flows through the pipeline
+- [version-paths.md](version-paths.md) — version-aware storage layout, path templates, and migration rules
 
 _Source: synthesized from all 12 workflow.md files (including VS, RA) and module-help.csv_

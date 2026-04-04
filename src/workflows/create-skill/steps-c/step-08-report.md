@@ -77,13 +77,14 @@ Where `{primary_confidence}` is the predominant confidence tier (T1 if Forge/Dee
 | T3 (External) | {t3_count} | Sourced from external documentation URLs |
 
 **Output Files:**
-- `{skills_output_folder}/{name}/SKILL.md` — Active skill with trigger-based usage
-- `{skills_output_folder}/{name}/context-snippet.md` — Passive context snippet (used by export-skill)
-- `{skills_output_folder}/{name}/metadata.json` — Machine-readable birth certificate
-- `{skills_output_folder}/{name}/references/` — Progressive disclosure ({ref_count} files)
-- `{forge_data_folder}/{name}/provenance-map.json` — Source map with AST bindings
-- `{forge_data_folder}/{name}/evidence-report.md` — Build audit trail
-- `{forge_data_folder}/{name}/extraction-rules.yaml` — Reproducible extraction schema"
+- `{skill_package}/SKILL.md` — Active skill with trigger-based usage
+- `{skill_package}/context-snippet.md` — Passive context snippet (used by export-skill)
+- `{skill_package}/metadata.json` — Machine-readable birth certificate
+- `{skill_package}/references/` — Progressive disclosure ({ref_count} files)
+- `{forge_version}/provenance-map.json` — Source map with AST bindings
+- `{forge_version}/evidence-report.md` — Build audit trail
+- `{forge_version}/extraction-rules.yaml` — Reproducible extraction schema
+- `{skill_group}/active` -> `{version}` — Symlink to current version"
 
 ### 3. Display Warnings (If Any)
 

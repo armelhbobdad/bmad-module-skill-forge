@@ -54,6 +54,8 @@ skill-name/
 
 All subdirectories are exactly one level deep. Files are loaded on demand when SKILL.md directs — never automatically.
 
+**Version-aware storage:** Skill Forge stores skills in a version-nested layout: `{skill-name}/{version}/{skill-name}/`. The inner `{skill-name}/` directory is the agentskills.io-compliant package shown above. The outer `{skill-name}/` and `{version}/` directories are organizational wrappers managed by the forge — they are not part of the skill package structure. The "one level deep" subdirectory rule applies to the skill package root (the inner directory), not the forge's storage hierarchy. See [version-paths.md](version-paths.md) for full path resolution rules.
+
 Scripts and assets extracted by Skill Forge inherit provenance from their source repository. Each file receives a `[SRC:{source_path}:L1]` citation (T1-low confidence) and a SHA-256 content hash for drift detection. Scripts must follow the quality principles in the Script Quality section below. Assets are static files loaded on demand — agents use them as directed by SKILL.md instructions.
 
 ## Progressive Disclosure Model
@@ -179,5 +181,6 @@ Skills that include executable scripts in `scripts/` must follow these principle
 - [skill-lifecycle.md](skill-lifecycle.md) — where agentskills.io compliance fits in the pipeline
 - [confidence-tiers.md](confidence-tiers.md) — how citations appear within the formatted output
 - [zero-hallucination.md](zero-hallucination.md) — the integrity principle that shapes skill content
+- [version-paths.md](version-paths.md) — version-aware storage layout and path resolution templates
 
 _Source: synthesized from agentskills.io specification, what-are-skills.mdx, integrate-skills.mdx, and Best Practices for Creating Agent Skills_
