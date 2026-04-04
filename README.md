@@ -31,7 +31,8 @@ This isn't an edge case. It's the default experience.
 
 1. **Analyzes your sources** — extracts real function signatures, types, and patterns from code repositories, documentation websites, and developer discourse
 2. **Compiles verified instruction files** — every instruction links to the exact file and line it came from
-3. **Follows an open standard** — skills comply with the [agentskills.io](https://agentskills.io) spec and work across Claude, Cursor, Copilot, and other AI agents
+3. **Version-aware** — skills are stored per-version, so updating to v2.0 doesn't break your v1.x skill. Compatible with [skill.sh](https://skill.sh) and [npx skills](https://www.npmjs.com/package/skills)
+4. **Follows an open standard** — skills comply with the [agentskills.io](https://agentskills.io) spec and work across Claude, Cursor, Copilot, and other AI agents
 
 ## Before vs After
 

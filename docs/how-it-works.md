@@ -290,21 +290,29 @@ The report also records `analysisConfidence` (full, provenance-map, metadata-onl
 
 ### Per-Skill Output
 
-Every generated skill produces a self-contained directory:
+Every generated skill produces a self-contained, version-aware directory:
 
 ```
 skills/{name}/
-├── SKILL.md              # Active skill (loaded on trigger)
-├── context-snippet.md    # Passive context (compressed, always-on)
-├── metadata.json         # Machine-readable provenance
-├── references/           # Progressive disclosure
-│   ├── {function-a}.md
-│   └── {function-b}.md
-├── scripts/              # Executable automation (when detected in source)
-│   └── {script-name}.sh
-└── assets/               # Templates, schemas, configs (when detected in source)
-    └── {asset-name}.json
+├── active -> {version}           # Symlink to current version
+├── {version}/
+│   └── {name}/                   # agentskills.io-compliant package
+│       ├── SKILL.md              # Active skill (loaded on trigger)
+│       ├── context-snippet.md    # Passive context (compressed, always-on)
+│       ├── metadata.json         # Machine-readable provenance
+│       ├── references/           # Progressive disclosure
+│       │   ├── {function-a}.md
+│       │   └── {function-b}.md
+│       ├── scripts/              # Executable automation (when detected in source)
+│       │   └── {script-name}.sh
+│       └── assets/               # Templates, schemas, configs (when detected in source)
+│           └── {asset-name}.json
+└── {older-version}/
+    └── {name}/                   # Previous version preserved
+        └── ...
 ```
+
+Multiple versions coexist under the same skill name. The `active` symlink points to the current version. Updating a skill for a new library release creates a new version directory — users pinned to older versions keep their skill intact. The inner `{name}/` directory is a standalone [agentskills.io](https://agentskills.io) package, directly installable via `npx skills add`.
 
 The `scripts/` and `assets/` directories are optional — only created when the source repository contains executable scripts or static assets matching detection heuristics. Each file traces to its source via `[SRC:file:L1]` provenance citations with SHA-256 content hashes for drift detection. User-authored files go in `scripts/[MANUAL]/` or `assets/[MANUAL]/` subdirectories and are preserved during updates.
 
@@ -373,15 +381,18 @@ Stack skills map how your dependencies interact — shared types, co-import patt
 
 ```
 skills/{project}-stack/
-├── SKILL.md              # Integration patterns + project conventions
-├── context-snippet.md    # Compressed stack index
-├── metadata.json         # Component versions, integration graph
-└── references/
-    ├── nextjs.md         # Project-specific subset
-    ├── better-auth.md    # Project-specific subset
-    └── integrations/
-        ├── auth-db.md    # Cross-library pattern
-        └── pwa-auth.md   # Cross-library pattern
+├── active -> {version}
+└── {version}/
+    └── {project}-stack/
+        ├── SKILL.md              # Integration patterns + project conventions
+        ├── context-snippet.md    # Compressed stack index
+        ├── metadata.json         # Component versions, integration graph
+        └── references/
+            ├── nextjs.md         # Project-specific subset
+            ├── better-auth.md    # Project-specific subset
+            └── integrations/
+                ├── auth-db.md    # Cross-library pattern
+                └── pwa-auth.md   # Cross-library pattern
 ```
 
 The primary source is your project repo. Component references trace to library repos. `skill_type: "stack"` in metadata.
@@ -462,10 +473,11 @@ Build artifacts are committable — another developer can reproduce the same ski
 
 ```
 forge-data/{skill-name}/
-├── skill-brief.yaml        # Compilation config
-├── provenance-map.json     # Source map with AST bindings
-├── evidence-report.md      # Build audit trail
-└── extraction-rules.yaml   # Language-specific ast-grep schema
+├── skill-brief.yaml        # Compilation config (version-independent)
+└── {version}/
+    ├── provenance-map.json     # Source map with AST bindings
+    ├── evidence-report.md      # Build audit trail
+    └── extraction-rules.yaml   # Language-specific ast-grep schema
 ```
 
 The `provenance-map.json` includes a `file_entries` array for script/asset file-level provenance (SHA-256 hashes, source paths) alongside the export-level `entries` array.
