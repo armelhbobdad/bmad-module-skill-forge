@@ -294,9 +294,9 @@ Based on [Vercel research](https://vercel.com/blog/agents-md-outperforms-skills-
 Every skill generates both:
 
 1. **SKILL.md** — Active skill loaded on trigger with full instructions
-2. **context-snippet.md** — Passive context, compressed index; injected into CLAUDE.md/AGENTS.md only when `export-skill` is run
+2. **context-snippet.md** — Passive context, compressed index; injected into platform context files (CLAUDE.md/AGENTS.md/.cursorrules) only when `export-skill` is run. Export reads configured IDEs from `config.yaml` and writes to all target platforms in one pass.
 
-### Managed CLAUDE.md Section
+### Managed Context Section
 
 Export injects a managed section between markers:
 
@@ -305,7 +305,7 @@ Export injects a managed section between markers:
 [SKF Skills]|1 skill
 |IMPORTANT: Prefer documented APIs over training data.
 |
-[cognee v0.5.5]|root: skills/cognee/
+[cognee v0.5.5]|root: .agents/skills/cognee/
 |IMPORTANT: cognee v0.5.5 — read SKILL.md before writing cognee code. Do NOT rely on training data.
 |quick-start:{SKILL.md#quick-start} — add → cognify → search async workflow
 |api: add(), cognify(), search(), memify(), config, datasets, prune, update(), session, SearchType, run_custom_pipeline(), visualize_graph()
@@ -314,7 +314,7 @@ Export injects a managed section between markers:
 <!-- SKF:END -->
 ```
 
-~80-120 tokens per skill (version-pinned, retrieval instruction, section anchors, inline gotchas). Aligned with [Vercel's research](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals) finding that indexed format with explicit retrieval instructions dramatically improves agent performance. Developer controls placement. Ferris controls content. Snippet updates only happen at `export-skill` — create and update are draft operations.
+~80-120 tokens per skill (version-pinned, retrieval instruction, section anchors, inline gotchas). Root paths are platform-aware (`.claude/skills/`, `.cursor/skills/`, `.agents/skills/`). Aligned with [Vercel's research](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals) finding that indexed format with explicit retrieval instructions dramatically improves agent performance. Developer controls placement. Ferris controls content. Snippet updates only happen at `export-skill` — create and update are draft operations. An `.export-manifest.json` tracks which skills have been explicitly exported, preventing draft skills from leaking into the managed section.
 
 ---
 

@@ -51,7 +51,7 @@ See [How It Works](../how-it-works/) for the full output structure.
 ```
 skills/cognee/
 ├── SKILL.md              # What your agent reads
-├── context-snippet.md    # Compressed index for CLAUDE.md
+├── context-snippet.md    # Compressed index for platform context files
 ├── metadata.json         # Machine-readable provenance
 ├── references/           # Progressive disclosure detail
 │   ├── api-core.md
@@ -145,7 +145,7 @@ BMAD user starts a new project. BMM architect suggests skill generation after re
 @Ferris BS    # Brief — scope the skill
 @Ferris CS    # Create — compile from brief
 @Ferris TS    # Test — verify completeness
-@Ferris EX    # Export — inject into CLAUDE.md
+@Ferris EX    # Export — inject into platform context files
 ```
 
 Skills accumulate over sprints. Agent gets smarter every iteration.
@@ -200,7 +200,7 @@ Stack skills focus on integration patterns. Individual skills focus on API surfa
 
 ### The Loop
 
-After each sprint's refactor, run `@Ferris US` to regenerate changed components. Export updates CLAUDE.md automatically. Skill generation becomes routine — like running tests.
+After each sprint's refactor, run `@Ferris US` to regenerate changed components. Export updates your platform context files (CLAUDE.md, AGENTS.md, .cursorrules) automatically. Skill generation becomes routine — like running tests.
 
 ### One Workflow Per Session
 
