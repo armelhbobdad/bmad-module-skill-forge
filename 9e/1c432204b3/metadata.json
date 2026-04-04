@@ -3,7 +3,7 @@
   "checkpoint_id": "9e1c432204b3",
   "strategy": "manual-commit",
   "branch": "dev",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "src/workflows/brief-skill/steps-c/step-01-gather-intent.md"
   ],
@@ -14,13 +14,20 @@
       "context": "/9e/1c432204b3/0/context.md",
       "content_hash": "/9e/1c432204b3/0/content_hash.txt",
       "prompt": "/9e/1c432204b3/0/prompt.txt"
+    },
+    {
+      "metadata": "/9e/1c432204b3/1/metadata.json",
+      "transcript": "/9e/1c432204b3/1/full.jsonl",
+      "context": "/9e/1c432204b3/1/context.md",
+      "content_hash": "/9e/1c432204b3/1/content_hash.txt",
+      "prompt": "/9e/1c432204b3/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 20,
-    "cache_creation_tokens": 19810,
-    "cache_read_tokens": 292043,
-    "output_tokens": 1655,
-    "api_call_count": 12
+    "input_tokens": 258,
+    "cache_creation_tokens": 154159,
+    "cache_read_tokens": 8120112,
+    "output_tokens": 26194,
+    "api_call_count": 105
   }
 }
