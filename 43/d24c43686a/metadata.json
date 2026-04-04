@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "43d24c43686a",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/create-skill/steps-c/step-08-report.md",
+    "src/workflows/create-stack-skill/steps-c/step-08-validate.md",
+    "src/workflows/export-skill/data/snippet-format.md",
+    "src/workflows/export-skill/steps-c/step-03-generate-snippet.md",
+    "src/workflows/export-skill/steps-c/step-04-update-context.md",
+    "src/workflows/export-skill/steps-c/step-05-token-report.md",
+    "src/workflows/export-skill/steps-c/step-06-summary.md",
+    "src/workflows/quick-skill/steps-c/step-05-validate.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/43/d24c43686a/0/metadata.json",
+      "transcript": "/43/d24c43686a/0/full.jsonl",
+      "context": "/43/d24c43686a/0/context.md",
+      "content_hash": "/43/d24c43686a/0/content_hash.txt",
+      "prompt": "/43/d24c43686a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 36,
+    "cache_creation_tokens": 75273,
+    "cache_read_tokens": 1523627,
+    "output_tokens": 15831,
+    "api_call_count": 27
+  }
+}
