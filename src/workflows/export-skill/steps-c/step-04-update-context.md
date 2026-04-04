@@ -83,13 +83,43 @@ Resolve target file path at project root: `{project-root}/{target-file}`
 
 ### 4. Rebuild Complete Skill Index
 
-Scan `{skills_output_folder}/*/context-snippet.md` to find ALL exported skills (not just the current one).
+#### 4a. Read Export Manifest
 
-**If no context-snippet.md files are found:** Generate managed section with zero skills — header only, no skill entries.
+Read `{skills_output_folder}/.export-manifest.json`:
 
-For each found context-snippet.md:
-1. Read snippet content
-2. Add to skill index
+**If the file exists:** Parse JSON. The manifest tracks which skills have been explicitly exported:
+
+```json
+{
+  "exports": {
+    "skill-name": {
+      "platforms": ["claude"],
+      "last_exported": "YYYY-MM-DD"
+    }
+  }
+}
+```
+
+**If the file does not exist** (first export or migration): Treat as empty — only the current export target will appear in the rebuilt index.
+
+#### 4b. Build Exported Skill Set
+
+Determine the set of skills to include in the rebuilt index:
+
+1. Start with all skill names listed in the manifest's `exports` object (if manifest exists)
+2. Add the current export target skill name (ensures it is always included even before manifest is written)
+3. This is the **exported skill set**
+
+#### 4c. Scan and Filter Snippets
+
+Scan `{skills_output_folder}/*/context-snippet.md` to find snippet files on disk.
+
+**For each found context-snippet.md:**
+1. Extract the skill name from the directory path
+2. **If the skill name is in the exported skill set:** Read snippet content, add to skill index
+3. **If the skill name is NOT in the exported skill set:** Skip — this skill has not been through export-skill and must not appear in the managed section (ADR-K)
+
+**If no snippets pass the filter:** Generate managed section with zero skills — header only, no skill entries.
 
 **Sort skills alphabetically by name.**
 
@@ -194,6 +224,25 @@ After user confirms with 'C':
 **If verification fails:**
 "**WARNING: Write verification failed.** {describe issue}. File may need manual review."
 
+### 9b. Update Export Manifest (Non-Dry-Run Only)
+
+After successful write and verification in section 9:
+
+1. Read `{skills_output_folder}/.export-manifest.json` (or start with `{"exports": {}}` if it does not exist)
+2. Add or update the current skill's entry:
+   ```json
+   "{skill-name}": {
+     "platforms": ["{platform}"],
+     "last_exported": "{current-date}"
+   }
+   ```
+   - If the skill already has a manifest entry, merge the platform into the existing `platforms` array (deduplicate) and update `last_exported`
+3. Write the updated manifest to `{skills_output_folder}/.export-manifest.json`
+
+**Dry-run mode:** Do NOT update the manifest. Display: "**[DRY RUN] Export manifest would be updated for {skill-name} on platform {platform}.**"
+
+**Error handling:** If manifest write fails, warn but do not fail the workflow — the managed section was already written successfully.
+
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN the user confirms changes by selecting 'C' (or auto-proceed in dry-run) and the write is verified will you load and read fully `{nextStepFile}` to execute the token report.
@@ -206,7 +255,8 @@ ONLY WHEN the user confirms changes by selecting 'C' (or auto-proceed in dry-run
 
 - Managed section format loaded from {managedSectionData}
 - Target file correctly determined from platform flag
-- Complete skill index rebuilt from all exported skills
+- Complete skill index rebuilt from exported skills only (filtered via .export-manifest.json per ADR-K)
+- Export manifest updated after successful write (non-dry-run only)
 - Correct case detected (create/append/regenerate)
 - Clear diff preview shown to user
 - User confirmation received before writing
@@ -218,6 +268,8 @@ ONLY WHEN the user confirms changes by selecting 'C' (or auto-proceed in dry-run
 
 - Modifying content outside `<!-- SKF:BEGIN/END -->` markers
 - Not rebuilding the COMPLETE skill index (only adding current skill)
+- Including un-exported skills in managed section (bypasses ADR-K publishing gate)
+- Updating export manifest during dry-run
 - Writing without user confirmation
 - Not verifying write after completion
 - Not detecting the correct case (create/append/regenerate)

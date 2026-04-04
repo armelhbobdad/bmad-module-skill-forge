@@ -62,13 +62,16 @@ Target file contains `<!-- SKF:BEGIN` but no matching `<!-- SKF:END -->` marker.
 
 ## Regeneration: Full Index Rebuild
 
-When regenerating (Case 3), rebuild the COMPLETE skill index:
+When regenerating (Case 3) or creating/appending (Cases 1-2), rebuild the skill index from the **exported skill set** only:
 
-1. Scan `{skills_output_folder}/*/context-snippet.md` for all exported skills
-2. Count total skills and stack skills
-3. Assemble all snippets into managed section
-4. Sort alphabetically by skill name
-5. Update the header line with correct counts
+1. Read `{skills_output_folder}/.export-manifest.json` to determine which skills have been explicitly exported (if no manifest exists, only the current export target qualifies)
+2. Scan `{skills_output_folder}/*/context-snippet.md` — include only skills present in the exported set plus the current export target
+3. Count total skills and stack skills (from filtered set only)
+4. Assemble filtered snippets into managed section
+5. Sort alphabetically by skill name
+6. Update the header line with correct counts
+
+**Rationale:** create-skill and update-skill also write `context-snippet.md` as a build artifact, but only export-skill is the publishing gate (ADR-K). The `.export-manifest.json` file tracks which skills have passed through export-skill, preventing draft skills from leaking into the agent's passive context.
 
 ## Safety Rules
 
