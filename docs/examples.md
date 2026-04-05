@@ -193,6 +193,35 @@ No source code available — only documentation.
 
 The brief's `doc_urls` field drives the doc_fetcher step. The agent uses whatever web fetching tool is available in its environment (Firecrawl, WebFetch, curl, etc.) to retrieve documentation as markdown and extract API information with T3 citations.
 
+### Scenario E: Rename a Skill
+
+You generated a quick skill for `cognee` and now want a more specific name to distinguish it from the official one.
+
+```
+@Ferris RS
+# Ferris asks: Which skill? → cognee
+# Ferris asks: New name? → cognee-skf-community
+# Ferris copies to new name across all versions, verifies every reference,
+# updates the export manifest, rebuilds CLAUDE.md/AGENTS.md,
+# then deletes the old name.
+```
+
+Transactional safety: if verification fails, the old skill stays intact.
+
+### Scenario F: Drop a Deprecated Version
+
+You have `cognee` with versions 0.1.0, 0.5.0, and 0.6.0 (active). Version 0.1.0 is obsolete.
+
+```
+@Ferris DS
+# Ferris asks: Which skill? → cognee
+# Ferris asks: Which version? → 0.1.0
+# Ferris asks: Deprecate (keep files) or Purge (delete)? → Purge
+# Ferris updates the manifest, rebuilds context files, deletes the 0.1.0 directory.
+```
+
+Version 0.6.0 remains active. Version 0.5.0 is untouched. The managed sections in CLAUDE.md/AGENTS.md no longer reference 0.1.0.
+
 ---
 
 ## Tips & Tricks

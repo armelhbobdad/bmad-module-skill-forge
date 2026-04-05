@@ -93,6 +93,20 @@ When the source updates, you can re-run `@Ferris US` (update-skill) to regenerat
 
 ---
 
+## Skill Management
+
+Two workflows let you rename and retire skills without manually editing files:
+
+**Rename (`@Ferris RS`)** — Change a skill's name across all its versions. Transactional: copies to the new name, verifies every reference, then deletes the old name only after verification succeeds. If anything fails mid-rename, the old skill stays intact. Use it to graduate quick-skills to formal names, or to add a suffix like `-community`.
+
+**Drop (`@Ferris DS`)** — Retire a specific version (e.g., drop `cognee 0.1.0` because it's deprecated) or an entire skill. Two modes:
+- **Soft drop (default)** marks the version as deprecated in the manifest and keeps files on disk. It stops appearing in CLAUDE.md/AGENTS.md/.cursorrules immediately but is reversible by editing the manifest.
+- **Hard drop (purge)** also deletes the files from disk. Irreversible.
+
+Both operations automatically rebuild platform context files so your AI agents see the updated state on the next session.
+
+---
+
 ## BMAD Module
 
 SKF is a plugin (called a "module") for the [BMad Method](https://github.com/bmad-code-org/BMAD-METHOD), a framework for running structured AI workflows. BMad provides the workflow engine — step-by-step execution, shared knowledge bases, and consistent outputs. SKF plugs into that engine and focuses specifically on skill compilation.

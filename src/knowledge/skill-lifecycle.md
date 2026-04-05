@@ -2,7 +2,7 @@
 
 ## Principle
 
-The 12 SKF workflows form an end-to-end pipeline from source discovery through verified export, with a pre-code architecture verification path. Each workflow produces artifacts consumed by downstream workflows. Understanding the lifecycle enables Ferris to recommend the right workflow for a user's situation and to maintain artifact continuity across the pipeline.
+The 14 SKF workflows form an end-to-end pipeline from source discovery through verified export, with a pre-code architecture verification path and post-distribution management operations. Each workflow produces artifacts consumed by downstream workflows. Understanding the lifecycle enables Ferris to recommend the right workflow for a user's situation and to maintain artifact continuity across the pipeline.
 
 ## Rationale
 
@@ -30,6 +30,7 @@ With lifecycle awareness:
 | Maintenance | US, AS (Update/Audit) | Detect drift and refresh skills | Updated `SKILL.md`, drift report |
 | Verification | TS (Test Skill) | Quality gate — completeness scoring | Test report, pass/fail decision |
 | Distribution | EX (Export Skill) | Package and inject into agent context | agentskills.io bundle, snippets |
+| Management | RS, DS (Rename/Drop) | Rename or retire skills and versions | Renamed skill group, deprecated/purged versions |
 
 ## Typical Flows
 
@@ -91,6 +92,16 @@ AS → US → TS → EX
 2. **US** re-extracts changed exports and merges, preserving \[MANUAL\] sections
 3. **TS** re-verifies the updated skill
 4. **EX** re-exports the updated package
+
+### Management
+
+```
+RS or DS → EX
+```
+
+1. **RS** renames a skill across all versions (transactional copy-verify-delete), OR
+2. **DS** drops a specific version (soft — deprecate, or hard — purge) or the entire skill
+3. **EX** rebuilds platform context files (CLAUDE.md/AGENTS.md/.cursorrules) to reflect the management operation — deprecated versions are excluded, renamed skills appear under their new name
 
 ## Pattern Examples
 

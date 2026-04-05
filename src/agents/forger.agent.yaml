@@ -97,6 +97,14 @@ agent:
       workflow: "{project-root}/_bmad/skf/workflows/skillforge/export-skill/workflow.md"
       description: "[EX] Export Skill — package for distribution"
 
+    - trigger: RS or fuzzy match on rename-skill
+      workflow: "{project-root}/_bmad/skf/workflows/skillforge/rename-skill/workflow.md"
+      description: "[RS] Rename Skill — rename a skill across all its versions (transactional)"
+
+    - trigger: DS or fuzzy match on drop-skill
+      workflow: "{project-root}/_bmad/skf/workflows/skillforge/drop-skill/workflow.md"
+      description: "[DS] Drop Skill — deprecate (soft) or purge (hard) skill versions"
+
     - trigger: KI or fuzzy match on knowledge-index
       action: "Load and display {project-root}/_bmad/skf/knowledge/skf-knowledge-index.csv — cross-cutting knowledge fragments available for JiT loading"
       description: "[KI] Knowledge Index — list available knowledge fragments"

@@ -101,8 +101,8 @@ async function runTests() {
       assert(skfAgent.agent.critical_actions !== undefined, 'SKF agent has critical_actions');
       assert(skfAgent.agent.menu !== undefined, 'SKF agent has menu');
       assert(
-        Array.isArray(skfAgent.agent.menu) && skfAgent.agent.menu.length === 14,
-        'SKF agent menu has 14 entries (12 workflows + 1 knowledge index + 1 status action)',
+        Array.isArray(skfAgent.agent.menu) && skfAgent.agent.menu.length === 16,
+        'SKF agent menu has 16 entries (14 workflows + 1 knowledge index + 1 status action)',
         `Found ${Array.isArray(skfAgent.agent.menu) ? skfAgent.agent.menu.length : 'non-array'}`,
       );
 
@@ -160,6 +160,8 @@ async function runTests() {
     'audit-skill',
     'test-skill',
     'export-skill',
+    'rename-skill',
+    'drop-skill',
   ];
 
   for (const workflowName of workflowNames) {
@@ -328,6 +330,14 @@ async function runTests() {
         'step-06-summary.md',
       ],
       data: ['managed-section-format.md', 'snippet-format.md'],
+    },
+    'rename-skill': {
+      steps: ['step-01-select.md', 'step-02-execute.md', 'step-03-report.md'],
+      data: [],
+    },
+    'drop-skill': {
+      steps: ['step-01-select.md', 'step-02-execute.md', 'step-03-report.md'],
+      data: [],
     },
   };
 

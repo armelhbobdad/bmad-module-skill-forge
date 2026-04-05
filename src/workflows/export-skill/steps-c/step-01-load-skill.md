@@ -76,17 +76,26 @@ Determine the skill to export and any flags:
 
 If `--platform` is explicitly provided, use that single platform as the sole target. If other IDEs are configured in config.yaml, emit a note: "**Note:** Exporting to {platform} only. config.yaml also lists: {other-ides}. Run without `--platform` to export to all configured IDEs."
 
-If `--platform` is NOT provided, read the `ides` list from config.yaml and map to platforms:
+If `--platform` is NOT provided, read the `ides` list from config.yaml and map each IDE to a target platform. Every IDE the installer offers has an explicit mapping — no silent skips.
 
-| config.yaml IDE value | Platform |
-|----------------------|----------|
-| `claude-code` | `claude` |
-| `cursor` | `cursor` |
-| `github-copilot` | `copilot` |
-| Other values | Skip with note: "Unrecognized IDE '{value}' in config.yaml — skipping." |
+| config.yaml IDE value | Platform | Rationale |
+|----------------------|----------|-----------|
+| `claude-code` | `claude` | native — reads `CLAUDE.md` and `.claude/skills/` |
+| `cursor` | `cursor` | native — reads `.cursorrules` and `.cursor/skills/` |
+| `github-copilot` | `copilot` | native — reads `AGENTS.md` and `.agents/skills/` |
+| `codex` | `copilot` | OpenAI Codex reads `AGENTS.md` (same convention as copilot) |
+| `cline` | `copilot` | uses `AGENTS.md` as a fallback context file |
+| `roo` | `copilot` | uses `AGENTS.md` as a fallback context file |
+| `windsurf` | `copilot` | uses `AGENTS.md` as a fallback context file |
+| `other` | `copilot` | generic AGENTS.md fallback |
+| Any other value | `copilot` | warn: "Unknown IDE '{value}' in config.yaml — defaulting to copilot (AGENTS.md)" |
 
-- If mapping produces one or more platforms, store as `target_platforms` list
-- If mapping produces zero platforms (empty ides list or all unrecognized), fall back to `["copilot"]` with note: "No recognized IDEs in config.yaml — defaulting to copilot (.agents/skills/)."
+When the same platform is produced by multiple IDE entries (e.g. both `codex` and `cline` map to `copilot`), deduplicate so each platform appears in `target_platforms` only once. Report the deduplication: "Multiple IDEs target the same platform — exporting to {platform} once."
+
+**Missing-key handling:** If the `ides` key is absent from config.yaml (older installation or manually edited file), treat it as an empty list.
+
+- If mapping produces one or more platforms (after dedup), store as `target_platforms` list
+- If mapping produces zero platforms (empty ides list and no recognized entries), fall back to `["copilot"]` with note: "No IDEs configured in config.yaml — defaulting to copilot (AGENTS.md / .agents/skills/)."
 
 "**Skill:** {skill-name}
 **Platform(s):** {platform-list} ({target-file-list})

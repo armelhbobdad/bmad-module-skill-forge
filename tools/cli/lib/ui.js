@@ -15,6 +15,8 @@ const figlet = require('figlet');
 const path = require('node:path');
 const fs = require('fs-extra');
 const yaml = require('js-yaml');
+const { readManifest } = require('./manifest');
+const { compareVersions } = require('./version-check');
 
 const SKF_FOLDER = '_bmad/skf';
 
@@ -94,12 +96,32 @@ class UI {
     let action = 'fresh';
 
     if (detection.type === 'existing') {
-      log.warn(`Found existing installation at ${chalk.white(SKF_FOLDER + '/')}`);
+      const existingManifest = await readManifest(projectDir);
+      const installedVersion = existingManifest?.version || null;
+      const incomingVersion = require('../../../package.json').version;
+
+      let versionLabel;
+      let updateOptionLabel;
+      if (!installedVersion) {
+        versionLabel = `version unknown → v${incomingVersion}`;
+        updateOptionLabel = `Update — Install v${incomingVersion}, keep config.yaml`;
+      } else if (installedVersion === incomingVersion) {
+        versionLabel = `v${installedVersion} — already at this version`;
+        updateOptionLabel = `Update — Reinstall v${incomingVersion}, keep config.yaml`;
+      } else if (compareVersions(installedVersion, incomingVersion)) {
+        versionLabel = `v${installedVersion} → v${incomingVersion} available`;
+        updateOptionLabel = `Update — Upgrade from v${installedVersion} to v${incomingVersion}, keep config.yaml`;
+      } else {
+        versionLabel = `v${installedVersion} → v${incomingVersion}, DOWNGRADE`;
+        updateOptionLabel = `Update — Downgrade to v${incomingVersion}, keep config.yaml`;
+      }
+
+      log.warn(`Found existing installation at ${chalk.white(SKF_FOLDER + '/')} (${versionLabel})`);
 
       const choice = await select({
         message: 'What would you like to do?',
         options: [
-          { label: 'Update — Replace SKF files, keep config.yaml', value: 'update' },
+          { label: updateOptionLabel, value: 'update' },
           { label: 'Fresh install — Remove everything and start over', value: 'fresh' },
           { label: 'Cancel', value: 'cancel' },
         ],

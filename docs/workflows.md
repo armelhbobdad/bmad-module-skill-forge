@@ -1,11 +1,11 @@
 ---
 title: Workflows
-description: All 12 SKF workflows with commands, steps, and connection diagram
+description: All 14 SKF workflows with commands, steps, and connection diagram
 ---
 
 # Workflows Reference
 
-SKF has 12 workflows. You trigger them by typing commands to [Ferris](../agents/), the AI agent that runs everything. Each workflow handles a specific part of the skill lifecycle — from analyzing source code to packaging for distribution. If any terms are unfamiliar, see the [Concepts](../concepts/) page for definitions.
+SKF has 14 workflows. You trigger them by typing commands to [Ferris](../agents/), the AI agent that runs everything. Each workflow handles a specific part of the skill lifecycle — from analyzing source code to packaging for distribution, plus management operations for renaming and dropping skills. If any terms are unfamiliar, see the [Concepts](../concepts/) page for definitions.
 
 ---
 
@@ -188,6 +188,40 @@ SKF has 12 workflows. You trigger them by typing commands to [Ferris](../agents/
 **Key Steps:** Load skill → Validate package → Generate snippet → Update context file (CLAUDE.md/AGENTS.md/.cursorrules) → Token report → Summary
 
 **Agent:** Ferris (Delivery mode)
+
+---
+
+## Management Workflows
+
+### Rename Skill (RS)
+
+**Command:** `@Ferris RS`
+
+**Purpose:** Rename a skill across all its versions. Because the agentskills.io spec requires `name` to match parent directory name, this is a coordinated move across outer/inner directories, SKILL.md frontmatter, metadata.json, context snippets, provenance maps, the export manifest, and platform context files.
+
+**When to Use:** You need to change a skill's name — for example, graduating a `QS`-generated skill (named from the repo) to a formal name, or adding a suffix like `-community` to distinguish from an official skill.
+
+**Key Steps:** Select skill + new name → Transactional copy → Update all references → Rebuild context files → Delete old name (point of no return)
+
+**Safety:** Transactional — if any step fails before the final delete, the old skill remains intact. Warns if `source_authority: "official"` (rename is local-only; published registry skill won't change).
+
+**Agent:** Ferris (Management mode)
+
+---
+
+### Drop Skill (DS)
+
+**Command:** `@Ferris DS`
+
+**Purpose:** Drop a specific skill version or an entire skill. Soft drop (default) marks the version as deprecated in the manifest and keeps files on disk. Hard drop (`--purge`) also deletes the files.
+
+**When to Use:** Retire a deprecated version (e.g., drop `cognee 0.1.0` because it's obsolete), free disk space, or remove a skill you no longer need.
+
+**Key Steps:** Select skill → Select version(s) + mode → Update manifest → Rebuild context files → Delete files (if purge)
+
+**Safety:** Active version guard — cannot drop the currently active version when other non-deprecated versions exist (switch active first, or drop all). Soft drop is reversible by editing the manifest.
+
+**Agent:** Ferris (Management mode)
 
 ---
 

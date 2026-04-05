@@ -149,17 +149,31 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 - Provenance: {PASS/WARN/FAIL}
 ```
 
-### 5. Write Stack Skill Reference Files (Conditional)
+### 5. Write Stack Skill Reference Files (Conditional) and Regenerate context-snippet.md
 
 **ONLY if skill_type == "stack":**
 
 For each affected reference file from the merge:
 - Write updated `references/{library}.md` files
 - Write updated `references/integrations/{pair}.md` files
-- Regenerate `context-snippet.md` with updated export summaries
 - Verify [MANUAL] sections preserved in each reference file
 
-**If skill_type != "stack":** Skip reference file updates. However, if exports changed (added, removed, or renamed), warn: "context-snippet.md was NOT updated -- exports have changed. Run **[EX] Export Skill** to regenerate the context snippet and update CLAUDE.md/AGENTS.md."
+**For all skills (both single and stack) — regenerate `context-snippet.md`:**
+
+Per `knowledge/version-paths.md` "Writing Workflows (CS, QS, SS, US)", update-skill is a writing workflow that MUST write all deliverables to `{skill_package}`. `context-snippet.md` is one of those deliverables and goes stale whenever exports, version, or gotchas change.
+
+Regenerate the snippet using the format from the matching template file:
+
+- For single skills: `create-skill/data/skill-sections.md` (pipe-delimited indexed format)
+- For stack skills: `create-stack-skill/data/stack-skill-template.md`
+
+Use the **flat legacy form** for the `root:` path in the draft snippet: `root: skills/{skill-name}/`. The platform-specific prefix (`.claude/skills/`, `.cursor/skills/`, `.agents/skills/`) is applied later by `export-skill` step-03 when the skill is exported. Do not choose a platform prefix in update-skill — that is an export-time decision that depends on config.yaml.
+
+Pull values for the regenerated snippet from the updated metadata.json (version, top exports), the merged SKILL.md (section anchors, inline summaries), and the evidence report (new gotchas). If gotchas cannot be derived from the updated evidence but the prior snippet has a `|gotchas:` line, carry forward the prior line with the `[CARRIED]` marker — see `export-skill/steps-c/step-03-generate-snippet.md` for the carry-forward protocol (one-cycle limit).
+
+Write the regenerated snippet to `{skill_package}/context-snippet.md`, preserving file permissions.
+
+**If skill_type == "stack"**, also verify that the reference file updates from the first half of this section have been applied before writing the snippet so the stack snippet reflects the newest integration list.
 
 ### 5b. Update Active Symlink (If Version Changed)
 

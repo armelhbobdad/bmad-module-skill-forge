@@ -157,11 +157,44 @@ The export manifest gains version awareness:
 **Fields:**
 - `schema_version`: `"2"` — enables v1-to-v2 migration detection
 - `active_version`: The version whose `{skill_package}` supplies the context snippet for the managed section. Must match exactly one version with `status: "active"`
-- `versions.{v}.status`: `"active"` (currently exported), `"archived"` (previously exported, retained on disk), `"draft"` (created but never exported)
+- `versions.{v}.status`: `"active"` (currently exported), `"archived"` (previously exported, retained on disk), `"deprecated"` (dropped via drop-skill workflow, excluded from all exports), `"draft"` (created but never exported)
 - `versions.{v}.platforms`: Array of platforms this version was last exported to
 - `versions.{v}.last_exported`: ISO date of the last export
 
 **Only one version per skill can have `status: "active"` at any time.**
+
+## Skill Management Operations
+
+Two workflows operate on the version-aware structure for skill lifecycle management:
+
+### Rename (RS - Rename Skill)
+
+Renames a skill across all versions. Because the agentskills.io spec requires `name` to match parent directory name, a rename is a coordinated move across:
+1. Outer `{skill_group}` directory: `{skills_output_folder}/{old-name}/` → `{skills_output_folder}/{new-name}/`
+2. Inner `{skill-name}/` directories inside each version: `{version}/{old-name}/` → `{version}/{new-name}/`
+3. `SKILL.md` frontmatter `name:` field (in every version)
+4. `metadata.json` `name` field (in every version)
+5. `context-snippet.md` root paths and display name (in every version)
+6. `provenance-map.json` `skill_name` field (in every version under `{forge_group}`)
+7. `{forge_group}` directory: `{forge_data_folder}/{old-name}/` → `{forge_data_folder}/{new-name}/`
+8. Export manifest: remove old key, add new key with same version data
+9. Platform context files (CLAUDE.md, AGENTS.md, .cursorrules): rebuild managed sections
+
+Rename is transactional — copy-verify-delete pattern. If any step fails, old skill remains intact. See `workflows/rename-skill/`.
+
+### Drop (DS - Drop Skill)
+
+Drops a specific version or the entire skill with two modes:
+
+**Soft drop (default):** Sets version status to `"deprecated"` in the export manifest. Files remain on disk. Export-skill excludes deprecated versions from all platform context files. Reversible by manually editing manifest back to `"active"`/`"archived"`.
+
+**Hard drop (`--purge`):** Same as soft drop, plus deletes the version directory (`{skill_package}`) and forge data directory (`{forge_version}`). Irreversible.
+
+**Active version guard:** Cannot drop the active version when other versions exist. The user must either switch active to another version first, or drop all versions at once.
+
+**Skill-level drop:** Removes the entire `{skill_group}` from the manifest. If purge, also deletes `{skill_group}` and `{forge_group}` directories.
+
+See `workflows/drop-skill/`.
 
 ## Version Sanitization
 

@@ -3,7 +3,7 @@ name: 'step-03-structural-diff'
 description: 'Compare original provenance map extractions against current scan to detect structural drift'
 
 nextStepFile: './step-04-semantic-diff.md'
-outputFile: '{forge_data_folder}/{skill_name}/drift-report-{timestamp}.md'
+outputFile: '{forge_version}/drift-report-{timestamp}.md'
 ---
 
 # Step 3: Structural Diff

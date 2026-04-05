@@ -85,6 +85,38 @@ For each platform in `target_platforms`, resolve target file path: `{project-roo
 
 **Processing order:** Process platforms in the order listed in `target_platforms`.
 
+#### 3b. Detect Orphaned Platform Files (Stale Managed Sections)
+
+A platform file becomes orphaned when its IDE is removed from `config.yaml` after a prior export. The file still contains an SKF managed section pointing to stale skill versions, but no future export will rewrite it.
+
+Build `orphaned_platform_files` — the set of platform context files that exist on disk with an `<!-- SKF:BEGIN -->` marker but whose platform is NOT in the current `target_platforms` list:
+
+1. For each platform in the full set `{claude, cursor, copilot}`:
+   - If the platform is in `target_platforms`, skip (it will be rewritten in the main loop)
+   - Otherwise, check whether its target file exists (`CLAUDE.md`, `.cursorrules`, or `AGENTS.md`)
+   - If the file exists, read it and check for the `<!-- SKF:BEGIN -->` marker
+   - If the marker is present, add the file path to `orphaned_platform_files` along with the platform name
+
+2. If `orphaned_platform_files` is non-empty, emit a warning:
+
+   "**Orphaned platform files detected.** The following files contain SKF managed sections but their platforms are no longer in `config.yaml` `ides`:
+   {list: platform → file path}
+
+   The managed sections in these files are stale. Options:
+   - **(a) clear** — remove the SKF managed section from each orphaned file (surgical marker replacement, leaves user content intact)
+   - **(b) keep** — leave them untouched (they will remain stale until you re-add the IDE or delete the file)
+   - **(c) rewrite** — also rewrite the orphaned files with the current skill index (use this if the IDE was removed by mistake)"
+
+3. Wait for user choice. In non-interactive mode (dry-run or unattended), default to **(b) keep** and print the warning only.
+
+4. If the user chose **(a) clear**: for each orphaned file, replace everything between `<!-- SKF:BEGIN` and `<!-- SKF:END -->` (inclusive) with an empty string, preserving surrounding content byte-exactly. Record the cleared files in `orphans_cleared`.
+
+5. If the user chose **(c) rewrite**: add each orphaned platform to a separate `rewrite_platforms` list (kept distinct from `target_platforms` so the user's intent to only export to configured IDEs is preserved in the manifest's `platforms` field). Sections 4–9a will loop over `target_platforms + rewrite_platforms` for this run only. Record the rewritten files in `orphans_rewritten`.
+
+6. If the user chose **(b) keep**: record nothing and proceed.
+
+This cleanup only runs during interactive export. Drop-skill and rename-skill operate on the manifest's declared platforms and are not responsible for orphan detection.
+
 ### 4. Rebuild Complete Skill Index
 
 #### 4a. Read Export Manifest (v2 — version-aware)
@@ -101,6 +133,11 @@ Read `{skills_output_folder}/.export-manifest.json` — see [knowledge/version-p
     "skill-name": {
       "active_version": "0.6.0",
       "versions": {
+        "0.1.0": {
+          "platforms": ["claude"],
+          "last_exported": "2026-01-15",
+          "status": "deprecated"
+        },
         "0.5.0": {
           "platforms": ["claude"],
           "last_exported": "2026-03-15",
@@ -117,6 +154,12 @@ Read `{skills_output_folder}/.export-manifest.json` — see [knowledge/version-p
 }
 ```
 
+**Status values:**
+- `"active"` — currently exported; snippet appears in managed sections
+- `"archived"` — previously exported, not active; files retained for rollback
+- `"deprecated"` — dropped via drop-skill workflow; excluded from all exports (files may or may not exist on disk)
+- `"draft"` — created but never exported
+
 **v1 manifest** (no `schema_version` field — migrate in-place to v2):
 1. For each entry in `exports`, read its `platforms` and `last_exported`
 2. Resolve the skill's current version from `{resolved_skill_package}/metadata.json`
@@ -132,8 +175,10 @@ Determine the set of skills to include in the rebuilt index:
 
 1. Start with all skill names listed in the manifest's `exports` object (if manifest exists)
 2. For each skill, record its `active_version` from the manifest (v2 schema)
-3. Add the current export target skill name (ensures it is always included even before manifest is written) — use the version from `{resolved_skill_package}/metadata.json` as its `active_version`
-4. This is the **exported skill set** — each entry has a skill name and its resolved `active_version`
+3. **Integrity guard — `active_version` must resolve to a versions entry:** Check that `versions[active_version]` exists as a key. If `active_version` is set but there is no matching entry under `versions`, the manifest is inconsistent (possible corruption or a botched v1→v2 migration). Skip this skill and log a loud warning: "**Manifest integrity warning:** `{skill-name}.active_version = v{active_version}` has no matching entry under `versions`. Skipping. Re-run `[EX] Export Skill` on `{skill-name}` to repair the manifest entry."
+4. **Exclude deprecated skills:** If the `active_version` entry in `versions.{active_version}` has `status: "deprecated"`, skip this skill entirely — it has been dropped via drop-skill workflow and must not appear in the managed section. Log: "Skipping {skill-name} — active version v{active_version} is deprecated"
+5. Add the current export target skill name (ensures it is always included even before manifest is written) — use the version from `{resolved_skill_package}/metadata.json` as its `active_version`
+6. This is the **exported skill set** — each entry has a skill name and its resolved `active_version`
 
 #### 4c. Resolve and Filter Snippets (manifest-driven — replaces glob scan)
 

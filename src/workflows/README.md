@@ -1,6 +1,6 @@
 # SKF Workflows
 
-Twelve workflows covering the full skill lifecycle — from source discovery through verified export, with pre-code architecture verification.
+Fourteen workflows covering the full skill lifecycle — from source discovery through verified export, with pre-code architecture verification and post-distribution management.
 
 All workflows are triggered via Ferris (`@Ferris <code>`) and execute as step-by-step sequences with just-in-time step loading.
 
@@ -20,6 +20,8 @@ All workflows are triggered via Ferris (`@Ferris <code>`) and execute as step-by
 | AS | [audit-skill](audit-skill/workflow.md) | 6 | Audit | Drift detection between skill and current source code |
 | TS | [test-skill](test-skill/workflow.md) | 7 | Audit | Cognitive completeness verification — quality gate before export |
 | EX | [export-skill](export-skill/workflow.md) | 6 | Delivery | Package for distribution, inject into CLAUDE.md/AGENTS.md |
+| RS | [rename-skill](rename-skill/workflow.md) | 3 | Management | Rename a skill across all versions (transactional copy-verify-delete) |
+| DS | [drop-skill](drop-skill/workflow.md) | 3 | Management | Drop specific versions or whole skill (soft deprecate or hard purge) |
 
 ## Typical Flows
 
@@ -51,6 +53,12 @@ SF → CS×N (per library) → VS → RA → SS (compose) → TS → EX
 
 ```
 AS → US → TS → EX
+```
+
+**Management:**
+
+```
+RS or DS → EX
 ```
 
 ## Knowledge vs. Data

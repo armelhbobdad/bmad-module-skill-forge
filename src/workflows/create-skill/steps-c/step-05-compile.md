@@ -79,7 +79,7 @@ Assemble each section in order using the assembly rules data file (`{assemblyRul
 Vercel-aligned indexed format for CLAUDE.md managed section (~80-120 tokens):
 
 ```markdown
-[{skill-name} v{version}]|root: skills/{skill-name}/active/{skill-name}/
+[{skill-name} v{version}]|root: skills/{skill-name}/
 |IMPORTANT: {skill-name} v{version} — read SKILL.md before writing {skill-name} code. Do NOT rely on training data.
 |quick-start:{SKILL.md#quick-start}
 |api: {top exports with () for functions, comma-separated}
