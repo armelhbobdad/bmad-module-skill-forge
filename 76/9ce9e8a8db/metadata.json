@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "769ce9e8a8db",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 3,
+  "files_touched": [
+    ".github/ISSUE_TEMPLATE/workflow-health-check.md",
+    "src/module.yaml",
+    "src/workflows/analyze-source/steps-c/step-06-generate-briefs.md",
+    "src/workflows/audit-skill/steps-c/step-06-report.md",
+    "src/workflows/brief-skill/steps-c/step-05-write-brief.md",
+    "src/workflows/create-skill/steps-c/step-08-report.md",
+    "src/workflows/create-stack-skill/steps-c/step-09-report.md",
+    "src/workflows/drop-skill/steps-c/step-03-report.md",
+    "src/workflows/export-skill/steps-c/step-06-summary.md",
+    "src/workflows/quick-skill/steps-c/step-06-write.md",
+    "src/workflows/refine-architecture/steps-c/step-06-report.md",
+    "src/workflows/rename-skill/steps-c/step-03-report.md",
+    "src/workflows/setup-forge/steps-c/step-04-report.md",
+    "src/workflows/shared/health-check.md",
+    "src/workflows/test-skill/steps-c/step-06-report.md",
+    "src/workflows/update-skill/steps-c/step-07-report.md",
+    "src/workflows/verify-stack/steps-c/step-06-report.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/76/9ce9e8a8db/0/metadata.json",
+      "transcript": "/76/9ce9e8a8db/0/full.jsonl",
+      "context": "/76/9ce9e8a8db/0/context.md",
+      "content_hash": "/76/9ce9e8a8db/0/content_hash.txt",
+      "prompt": "/76/9ce9e8a8db/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 787,
+    "cache_creation_tokens": 196353,
+    "cache_read_tokens": 5917492,
+    "output_tokens": 29823,
+    "api_call_count": 86
+  }
+}

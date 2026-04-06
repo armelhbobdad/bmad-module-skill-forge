@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "769ce9e8a8db",
+  "session_id": "265da5a2-beb9-4c3f-981b-f03b23f4c519",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-06T19:01:24.746479934Z",
+  "branch": "dev",
+  "checkpoints_count": 3,
+  "files_touched": [
+    ".github/ISSUE_TEMPLATE/workflow-health-check.md",
+    "src/module.yaml",
+    "src/workflows/analyze-source/steps-c/step-06-generate-briefs.md",
+    "src/workflows/audit-skill/steps-c/step-06-report.md",
+    "src/workflows/brief-skill/steps-c/step-05-write-brief.md",
+    "src/workflows/create-skill/steps-c/step-08-report.md",
+    "src/workflows/create-stack-skill/steps-c/step-09-report.md",
+    "src/workflows/drop-skill/steps-c/step-03-report.md",
+    "src/workflows/export-skill/steps-c/step-06-summary.md",
+    "src/workflows/quick-skill/steps-c/step-06-write.md",
+    "src/workflows/refine-architecture/steps-c/step-06-report.md",
+    "src/workflows/rename-skill/steps-c/step-03-report.md",
+    "src/workflows/setup-forge/steps-c/step-04-report.md",
+    "src/workflows/shared/health-check.md",
+    "src/workflows/test-skill/steps-c/step-06-report.md",
+    "src/workflows/update-skill/steps-c/step-07-report.md",
+    "src/workflows/verify-stack/steps-c/step-06-report.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "9a36f04b660f",
+  "token_usage": {
+    "input_tokens": 787,
+    "cache_creation_tokens": 196353,
+    "cache_read_tokens": 5917492,
+    "output_tokens": 29823,
+    "api_call_count": 86
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-06T19:01:24.256600715Z",
+    "agent_lines": 338,
+    "human_added": 0,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 339,
+    "agent_percentage": 99.70501474926253
+  }
+}
