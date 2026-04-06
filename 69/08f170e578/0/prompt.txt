@@ -1,0 +1,9 @@
+the @docs/index.md#documentation does not mention bmad-synergy page
+
+---
+
+do the same in @README.md
+
+---
+
+commit
