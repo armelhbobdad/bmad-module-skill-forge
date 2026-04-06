@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "3ca35839526b",
+  "session_id": "d30e9458-c95a-46bd-ac6d-badf1d09f6a2",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-06T11:48:23.858399814Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "tools/cli/lib/compiler.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "c920dcf5d943",
+  "checkpoint_transcript_start": 78,
+  "transcript_lines_at_start": 78,
+  "token_usage": {
+    "input_tokens": 21,
+    "cache_creation_tokens": 14167,
+    "cache_read_tokens": 818722,
+    "output_tokens": 2435,
+    "api_call_count": 17
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-06T11:48:23.681703453Z",
+    "agent_lines": 1,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1,
+    "agent_percentage": 100
+  }
+}
