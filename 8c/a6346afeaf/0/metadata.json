@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "8ca6346afeaf",
+  "session_id": "a85e02f7-af73-49ce-95ca-31caf2906746",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-06T19:11:15.81866948Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/workflows/audit-skill/steps-c/step-06-report.md",
+    "src/workflows/create-stack-skill/steps-c/step-09-report.md",
+    "src/workflows/quick-skill/steps-c/step-06-write.md",
+    "src/workflows/refine-architecture/steps-c/step-06-report.md",
+    "src/workflows/setup-forge/steps-c/step-04-report.md",
+    "src/workflows/update-skill/steps-c/step-07-report.md",
+    "src/workflows/verify-stack/steps-c/step-06-report.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "2ad0669d4361",
+  "token_usage": {
+    "input_tokens": 3615,
+    "cache_creation_tokens": 65580,
+    "cache_read_tokens": 1073989,
+    "output_tokens": 8654,
+    "api_call_count": 20
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-06T19:11:15.550731076Z",
+    "agent_lines": 16,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 16,
+    "agent_percentage": 100
+  }
+}
