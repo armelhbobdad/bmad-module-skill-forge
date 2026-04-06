@@ -1,6 +1,7 @@
 ---
 name: 'step-09-report'
 description: 'Display final stack skill summary with confidence distribution and next workflow recommendations'
+nextStepFile: '../../shared/health-check.md'
 ---
 
 # Step 9: Stack Skill Report
@@ -118,6 +119,10 @@ Forge tier: **{tier}**"
 - **[VS] verify-stack** — Validate the stack's integration feasibility against your architecture document{IF compose_mode:} (re-run to confirm feasibility after any architecture changes from **[RA] refine-architecture**){END IF}
 
 **Workflow complete.**"
+
+### 7. Workflow Health Check
+
+Load and execute `{nextStepFile}` for workflow self-improvement check.
 
 ---
 

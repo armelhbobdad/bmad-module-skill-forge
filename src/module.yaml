@@ -20,6 +20,10 @@ sidecar_path:
   default: "_bmad/_memory/forger-sidecar"
   result: "{project-root}/{value}"
 
+health_check_repo:
+  prompt: false
+  default: "armelhbobdad/bmad-module-skill-forge"
+
 # Variables from Core Config inserted:
 ## user_name
 ## communication_language

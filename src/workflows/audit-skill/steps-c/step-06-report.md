@@ -3,6 +3,7 @@ name: 'step-06-report'
 description: 'Finalize drift report with audit summary, remediation suggestions, and provenance metadata'
 
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
+nextStepFile: '../../shared/health-check.md'
 ---
 
 # Step 6: Generate Report
@@ -188,6 +189,10 @@ Update {outputFile} frontmatter:
 ---
 
 **Audit workflow complete.**"
+
+### Workflow Health Check
+
+Load and execute `{nextStepFile}` for workflow self-improvement check.
 
 ---
 

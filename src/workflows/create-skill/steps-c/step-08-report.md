@@ -1,6 +1,7 @@
 ---
 name: 'step-08-report'
 description: 'Display compilation summary with confidence tiers, suggest next steps'
+nextStepFile: '../../shared/health-check.md'
 ---
 
 # Step 8: Report
@@ -137,17 +138,19 @@ Set `batch_active: false` in `{sidecar_path}/batch-state.yaml` to prevent stale 
 
 End workflow. No further steps.
 
-### 6. Workflow Complete
+### 6. Workflow Health Check
 
-This is the final step. No `{nextStepFile}` to load.
+**If not batch mode (or all batch briefs complete):**
 
-Display: "Forge session complete. Return to Ferris menu for further actions."
+Load and execute `{nextStepFile}` for workflow self-improvement check.
+
+**If batch mode with remaining briefs:** Skip health check — loop back to step-01 for the next brief. Health check runs after the final brief in the batch.
 
 ## CRITICAL STEP COMPLETION NOTE
 
-This is the FINAL STEP of the create-skill workflow. After displaying the compilation report and next steps, the workflow is complete. No further steps are loaded.
+This step chains to the shared health check (unless batch mode loops back to step-01). After the health check completes, the create-skill workflow is fully done.
 
-For batch mode: loop back to step-01 for remaining briefs via sidecar checkpoint.
+For batch mode: loop back to step-01 for remaining briefs via sidecar checkpoint. Health check runs only after the last brief.
 
 ---
 

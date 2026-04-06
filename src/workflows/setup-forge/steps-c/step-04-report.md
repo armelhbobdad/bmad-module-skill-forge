@@ -3,6 +3,7 @@ name: 'step-04-report'
 description: 'Display forge status report with positive capability framing'
 
 tierRulesData: '../data/tier-rules.md'
+nextStepFile: '../../shared/health-check.md'
 ---
 
 # Step 4: Forge Status Report
@@ -126,11 +127,9 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 **If `--update-spec` was NOT passed:**
 - Skip silently
 
-### 4. Workflow Complete
+### 4. Workflow Health Check
 
-This is the final step. The setup-forge workflow is now complete.
-
-No next step to load. The workflow ends here.
+Load and execute `{nextStepFile}` for workflow self-improvement check.
 
 ---
 

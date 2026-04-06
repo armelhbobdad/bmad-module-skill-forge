@@ -3,6 +3,7 @@ name: 'step-06-report'
 description: 'Present the final feasibility report to the user with verdict, findings, and next steps'
 
 outputFile: '{forge_data_folder}/feasibility-report-{project_name}.md'
+nextStepFile: '../../shared/health-check.md'
 ---
 
 # Step 6: Present Report
@@ -160,15 +161,17 @@ Re-run **[VS] Verify Stack** anytime after making changes to your skills or arch
 
 **Verification workflow complete.**"
 
+  Then load and execute `{nextStepFile}` for workflow self-improvement check.
+
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting the menu
 - R may be selected multiple times — always walk through the full report
-- X ends the workflow
+- X triggers the health check, which is the true workflow exit
 
 ## CRITICAL STEP COMPLETION NOTE
 
-This is the final step of the verify-stack workflow. When the user selects X, the workflow is complete. The feasibility report at `{outputFile}` contains the full analysis: Coverage Matrix, Integration Verdicts, Requirements Coverage, and Synthesis & Recommendations.
+When the user selects X, this step chains to the shared health check. After the health check completes, the verify-stack workflow is fully done. The feasibility report at `{outputFile}` contains the full analysis: Coverage Matrix, Integration Verdicts, Requirements Coverage, and Synthesis & Recommendations.
 
 ---
 

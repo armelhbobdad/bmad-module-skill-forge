@@ -3,6 +3,7 @@ name: 'step-06-report'
 description: 'Present refinement summary to user with counts, next steps, and review options'
 
 outputFile: '{output_folder}/refined-architecture-{project_name}.md'
+nextStepFile: '../../shared/health-check.md'
 ---
 
 # Step 6: Present Report
@@ -110,15 +111,17 @@ Re-run **[RA] Refine Architecture** anytime after updating your skills or archit
 
 **Architecture refinement complete.**"
 
+  Then load and execute `{nextStepFile}` for workflow self-improvement check.
+
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting the menu
 - R may be selected multiple times — always walk through all refinements
-- X ends the workflow
+- X triggers the health check, which is the true workflow exit
 
 ## CRITICAL STEP COMPLETION NOTE
 
-This is the final step of the refine-architecture workflow. When the user selects X, the workflow is complete. The refined architecture at `{outputFile}` contains the full original content plus all gap-fills, issue annotations, and improvement suggestions backed by skill API evidence.
+When the user selects X, this step chains to the shared health check. After the health check completes, the refine-architecture workflow is fully done. The refined architecture at `{outputFile}` contains the full original content plus all gap-fills, issue annotations, and improvement suggestions backed by skill API evidence.
 
 ---
 

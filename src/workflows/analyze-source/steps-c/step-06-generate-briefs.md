@@ -4,6 +4,7 @@ description: 'Generate skill-brief.yaml per confirmed unit, write analysis summa
 
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 schemaFile: '../data/skill-brief-schema.md'
+nextStepFile: '../../shared/health-check.md'
 ---
 
 # Step 6: Generate Briefs
@@ -211,6 +212,10 @@ nextWorkflow: '{primary recommendation}'
 {List candidates with recommendation to run create-stack-skill after individual skills are created}
 
 **This analysis is complete.** To refine any brief, run the recommended next workflow. To re-analyze with different scope, run analyze-source again."
+
+### 9. Workflow Health Check
+
+Load and execute `{nextStepFile}` for workflow self-improvement check.
 
 ---
 

@@ -1,6 +1,7 @@
 ---
 name: 'step-03-report'
 description: 'Report rename operation results'
+nextStepFile: '../../shared/health-check.md'
 ---
 
 # Step 3: Report Rename Results
@@ -98,13 +99,13 @@ Informational: the old name still appears in SKILL.md body text (prose only, non
   - If this skill was published to agentskills.io under `{old_name}`, the registry version is unchanged — this rename is a LOCAL operation only
 ```
 
-### 2. Close the Workflow
+### 2. Workflow Health Check
 
-After rendering the report, the workflow is complete. Do not load any further step file — there is no `nextStepFile`.
+Load and execute `{nextStepFile}` for workflow self-improvement check.
 
 ## CRITICAL STEP COMPLETION NOTE
 
-This is the final step. Once the report has been rendered, the rename-skill workflow is finished. Do not re-run any earlier step automatically — if the user wants another rename, they should re-invoke the workflow from the top.
+This step chains to the shared health check. After the health check completes, the rename-skill workflow is fully done. Do not re-run any earlier step automatically — if the user wants another rename, they should re-invoke the workflow from the top.
 
 ---
 

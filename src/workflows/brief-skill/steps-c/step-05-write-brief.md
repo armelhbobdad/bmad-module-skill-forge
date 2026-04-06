@@ -3,6 +3,7 @@ name: 'step-05-write-brief'
 description: 'Generate and write skill-brief.yaml to the forge data folder'
 
 briefSchemaFile: '../data/skill-brief-schema.md'
+nextStepFile: '../../shared/health-check.md'
 ---
 
 # Step 5: Write Brief
@@ -216,13 +217,13 @@ After compilation, you can:
 
 **Brief-skill workflow complete.**"
 
-### 7. End Workflow
+### 7. Workflow Health Check
 
-This is the final step. No next step file to load. The workflow is complete.
+Load and execute `{nextStepFile}` for workflow self-improvement check.
 
 ## CRITICAL STEP COMPLETION NOTE
 
-This is the FINAL step of the brief-skill workflow. After writing the file and displaying the success summary, the workflow ends.
+This step chains to the shared health check. After the health check completes, the brief-skill workflow is fully done.
 
 ---
 

@@ -1,6 +1,7 @@
 ---
 name: 'step-07-report'
 description: 'Display comprehensive change summary with diff visualization and workflow chaining recommendations'
+nextStepFile: '../../shared/health-check.md'
 ---
 
 # Step 7: Report
@@ -175,7 +176,9 @@ Based on the update results:"
 
 **Update-skill workflow complete for `{skill_name}`.**"
 
-→ **No next step.** Workflow ends here.
+### 7. Workflow Health Check
+
+Load and execute `{nextStepFile}` for workflow self-improvement check.
 
 ---
 

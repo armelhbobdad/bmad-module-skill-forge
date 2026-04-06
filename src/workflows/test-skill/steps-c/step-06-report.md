@@ -1,4 +1,5 @@
 ---
+nextStepFile: '../../shared/health-check.md'
 name: 'step-06-report'
 description: 'Generate gap report with remediation suggestions and finalize test report'
 
@@ -166,18 +167,18 @@ Display: "**Test complete.** [C] Finish"
 
 #### Menu Handling Logic:
 
-- IF C: Workflow is complete. No further steps to load.
+- IF C: Load and execute `{nextStepFile}` for workflow self-improvement check.
 - IF Any other: help user respond, then redisplay menu
 
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
-- This is the final step — C ends the workflow
+- C triggers the health check, which is the true workflow exit
 - User may ask questions about the report before finishing
 
 ## CRITICAL STEP COMPLETION NOTE
 
-This is the final step of the test-skill workflow. When the user selects C, the workflow is complete. The test report document at `{outputFile}` contains the full analysis: Test Summary, Coverage Analysis, Coherence Analysis, Completeness Score, and Gap Report.
+When the user selects C, this step chains to the shared health check. After the health check completes, the test-skill workflow is fully done. The test report document at `{outputFile}` contains the full analysis: Test Summary, Coverage Analysis, Coherence Analysis, Completeness Score, and Gap Report.
 
 ---
 

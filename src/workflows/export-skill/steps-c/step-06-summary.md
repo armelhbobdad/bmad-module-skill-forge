@@ -1,6 +1,7 @@
 ---
 name: 'step-06-summary'
 description: 'Display export summary with distribution instructions'
+nextStepFile: '../../shared/health-check.md'
 ---
 
 # Step 6: Summary
@@ -158,9 +159,13 @@ No files were written. To run the export for real:
 
 **Skill forged and delivered.** ⚒️"
 
+### 7. Workflow Health Check
+
+Load and execute `{nextStepFile}` for workflow self-improvement check.
+
 ## CRITICAL STEP COMPLETION NOTE
 
-This is the final step. The workflow is complete. No further steps to load.
+This step chains to the shared health check. After the health check completes, the export-skill workflow is fully done.
 
 ---
 

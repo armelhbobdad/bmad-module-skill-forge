@@ -1,6 +1,7 @@
 ---
 name: 'step-06-write'
 description: 'Write output files to skills folder and display completion summary'
+nextStepFile: '../../shared/health-check.md'
 ---
 
 # Step 6: Write Output
@@ -150,11 +151,9 @@ Please check:
 
 **Note:** This is a best-effort community skill. For deeper analysis with AST-verified exports and provenance tracking, use the full **create-skill** workflow with a skill brief."
 
-### 7. End Workflow
+### 7. Workflow Health Check
 
-This is the final step. The workflow is complete.
-
-No next step to load. Session ends here.
+Load and execute `{nextStepFile}` for workflow self-improvement check.
 
 ---
 

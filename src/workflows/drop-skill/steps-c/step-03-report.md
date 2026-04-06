@@ -1,6 +1,7 @@
 ---
 name: 'step-03-report'
 description: 'Report drop operation results'
+nextStepFile: '../../shared/health-check.md'
 ---
 
 # Step 3: Report Drop Results
@@ -100,13 +101,13 @@ restore the managed section entry.
 These require manual review — see the error-handling guidance in step-02.
 ```
 
-### 3. Close the Workflow
+### 3. Workflow Health Check
 
-After rendering the report, the workflow is complete. Do not load any further step file — there is no `nextStepFile`.
+Load and execute `{nextStepFile}` for workflow self-improvement check.
 
 ## CRITICAL STEP COMPLETION NOTE
 
-This is the final step. Once the report has been rendered, the drop-skill workflow is finished. Do not re-run any earlier step automatically — if the user wants another drop, they should re-invoke the workflow from the top.
+This step chains to the shared health check. After the health check completes, the drop-skill workflow is fully done. Do not re-run any earlier step automatically — if the user wants another drop, they should re-invoke the workflow from the top.
 
 ---
 
