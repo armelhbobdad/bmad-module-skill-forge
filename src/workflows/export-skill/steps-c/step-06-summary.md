@@ -130,7 +130,9 @@ npx skills add {resolved_skill_package}
 
 Replace `{resolved_skill_package}` with the absolute path to the package folder shown above (from step-02), e.g. `{skills_output_folder}/{skill-name}/{version}/{skill-name}/`.
 
-For other source formats (registry name, git URL, tarball, etc.), see the **Installation → Source Formats** section at <https://www.npmjs.com/package/skills>."
+For other source formats (registry name, git URL, tarball, etc.), see the **Installation → Source Formats** section at <https://www.npmjs.com/package/skills>.
+
+If the installed skill's commands are not available in the same IDE session, reload plugins (e.g. for Claude Code users, run `/reload-plugins`) or restart your AI editor. Next time you will see the command `/{skill-name}` (e.g. `/{skill-name}`)."
 
 ### 4. Dry Run Reminder (If Applicable)
 
@@ -170,6 +172,7 @@ This is the final step. The workflow is complete. No further steps to load.
 - Token counts included from step-05
 - Distribution instructions appropriate for source_authority
 - Local install command (`npx skills add {resolved_skill_package}`) displayed with npmjs.com/package/skills link for alternate source formats
+- Plugin reload hint shown (reload plugins or restart AI editor to see `/{skill-name}`)
 - Dry-run correctly indicated (if applicable)
 - Recommended next workflows listed
 - Clear workflow completion signal
