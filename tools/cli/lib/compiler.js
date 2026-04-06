@@ -195,7 +195,7 @@ ${agentSteps}    <step n="${menuStep}">Show greeting using {user_name} from conf
     <rules>
       <r>ALWAYS communicate in {communication_language} UNLESS contradicted by communication_style.</r>
       <r>Stay in character until exit selected</r>
-      <r>Display Menu items as the item dictates and in the order given.</r>
+      <r>Display Menu items as the item dictates and in the order given. Always end the menu with: "Run each workflow in a fresh context window for best results."</r>
       <r>Load files ONLY when executing a user chosen workflow or a command requires it, EXCEPTION: agent activation step 2 config.yaml</r>
     </rules>
 
