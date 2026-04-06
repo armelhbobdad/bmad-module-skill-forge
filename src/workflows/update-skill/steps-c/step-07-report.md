@@ -37,7 +37,7 @@ Present a comprehensive change summary showing what was updated, [MANUAL] sectio
 
 - 🎯 Follow MANDATORY SEQUENCE exactly
 - 💾 No file writes — display only
-- 📖 This is the final step — workflow completes here
+- 📖 Chains to shared health check via `{nextStepFile}` — no further steps after that
 
 ## CONTEXT BOUNDARIES:
 
@@ -65,7 +65,7 @@ Source code matches provenance map exactly. The skill `{skill_name}` is current 
 
 **Recommendation:** No action required. Run audit-skill periodically to monitor for drift."
 
-→ **Workflow complete.** End here.
+→ Load and execute `{nextStepFile}` for workflow self-improvement check.
 
 ### 2. Present Change Summary
 

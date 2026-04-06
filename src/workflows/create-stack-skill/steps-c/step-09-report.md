@@ -26,7 +26,7 @@ Display the final summary of the forged stack skill with confidence distribution
 
 ### Step-Specific Rules:
 
-- 🎯 This is the FINAL step — no nextStepFile
+- 🎯 Chains to shared health check via `{nextStepFile}` — no further steps after that
 - 🚫 FORBIDDEN to write or modify any files — report is console output only
 - 💬 Lead with the positive summary, then details, then warnings if any
 - 🎯 Recommend next workflows based on what was produced

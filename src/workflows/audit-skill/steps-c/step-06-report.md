@@ -32,7 +32,7 @@ Finalize the drift report by completing the Audit Summary with calculated metric
 - 🎯 Focus on completing the report — summary, remediation, provenance
 - 🚫 FORBIDDEN to discover new drift items or reclassify severity
 - 💬 Remediation suggestions must be practical: what to change, where, and why
-- 📋 This is the FINAL step — no nextStepFile
+- 📋 Chains to shared health check via `{nextStepFile}` — no further steps after that
 
 ## EXECUTION PROTOCOLS:
 

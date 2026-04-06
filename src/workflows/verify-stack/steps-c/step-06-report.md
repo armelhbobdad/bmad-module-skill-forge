@@ -31,7 +31,7 @@ Present the complete feasibility report to the user. Display the overall verdict
 - 🎯 Focus ONLY on presenting the completed report — no new analysis
 - 🚫 FORBIDDEN to discover new findings, re-analyze skills, or change verdicts
 - 🚫 FORBIDDEN to modify the report content — only read and present
-- 📋 This is the FINAL step — no nextStepFile
+- 📋 Chains to shared health check via `{nextStepFile}` — no further steps after that
 
 ## EXECUTION PROTOCOLS:
 

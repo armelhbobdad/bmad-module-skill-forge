@@ -10,7 +10,7 @@ nextStepFile: '../../shared/health-check.md'
 
 ## STEP GOAL:
 
-Present the complete refinement summary to the user. Display counts of gaps filled, issues flagged, and improvements suggested. Provide the output file path and recommend next steps. Offer the user options to review changes in detail or exit. This is the FINAL step — no nextStepFile.
+Present the complete refinement summary to the user. Display counts of gaps filled, issues flagged, and improvements suggested. Provide the output file path and recommend next steps. Offer the user options to review changes in detail or exit. Chains to the shared health check on exit.
 
 ## MANDATORY EXECUTION RULES (READ FIRST):
 
@@ -31,7 +31,7 @@ Present the complete refinement summary to the user. Display counts of gaps fill
 - 🎯 Focus ONLY on presenting the completed refinement — no new analysis
 - 🚫 FORBIDDEN to discover new gaps, issues, or improvements
 - 🚫 FORBIDDEN to modify the refined document — only read and present
-- 📋 This is the FINAL step — no nextStepFile
+- 📋 Chains to shared health check via `{nextStepFile}` — no further steps after that
 
 ## EXECUTION PROTOCOLS:
 
