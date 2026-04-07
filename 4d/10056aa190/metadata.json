@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "4d10056aa190",
+  "strategy": "manual-commit",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude-plugin/marketplace.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/4d/10056aa190/0/metadata.json",
+      "transcript": "/4d/10056aa190/0/full.jsonl",
+      "context": "/4d/10056aa190/0/context.md",
+      "content_hash": "/4d/10056aa190/0/content_hash.txt",
+      "prompt": "/4d/10056aa190/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 22181,
+    "cache_creation_tokens": 367775,
+    "cache_read_tokens": 65696402,
+    "output_tokens": 111588,
+    "api_call_count": 289
+  }
+}
