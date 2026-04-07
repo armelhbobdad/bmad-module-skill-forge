@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "ade7e640ae29",
+  "session_id": "0e4a059e-ea99-4e4f-aaa5-ed23bb79cb7b",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-07T19:24:37.809894707Z",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".github/ISSUE_TEMPLATE/workflow-health-check.md",
+    "docs/agents.md",
+    "docs/how-it-works.md",
+    "src/README.md",
+    "src/knowledge/skill-lifecycle.md",
+    "src/module-help.csv",
+    "src/shared/health-check.md",
+    "test/test-installation-components.js",
+    "test/test-workflow-state.js",
+    "tools/cli/commands/status.js",
+    "tools/cli/commands/update.js",
+    "tools/cli/lib/compiler.js",
+    "tools/cli/lib/ide-commands.js",
+    "tools/cli/lib/manifest.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "e17217aeed6a",
+  "token_usage": {
+    "input_tokens": 14330,
+    "cache_creation_tokens": 200703,
+    "cache_read_tokens": 18885693,
+    "output_tokens": 60498,
+    "api_call_count": 129
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-07T19:24:37.023259604Z",
+    "agent_lines": 102,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 102,
+    "agent_percentage": 100
+  }
+}
