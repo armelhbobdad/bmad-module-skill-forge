@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "76430eef70b4",
+  "session_id": "78c07ac0-3065-4285-970e-d0dcfb8e31f7",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-07T21:08:06.884075666Z",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "CHANGELOG.md",
+    "docs/how-it-works.md",
+    "package.json",
+    "src/knowledge/overview.md",
+    "test/README.md",
+    "tools/cli/commands/status.js",
+    "tools/cli/commands/uninstall.js",
+    "tools/cli/lib/installer.js",
+    "tools/cli/lib/platform-codes.yaml"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "ebe92c51e4f6",
+  "token_usage": {
+    "input_tokens": 63,
+    "cache_creation_tokens": 74264,
+    "cache_read_tokens": 3465941,
+    "output_tokens": 15330,
+    "api_call_count": 52
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-07T21:08:06.514945688Z",
+    "agent_lines": 27,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 27,
+    "agent_percentage": 100
+  }
+}
