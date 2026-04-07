@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "48ad61681119",
+  "strategy": "manual-commit",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/module-help.csv",
+    "src/skf-forger/SKILL.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/48/ad61681119/0/metadata.json",
+      "transcript": "/48/ad61681119/0/full.jsonl",
+      "context": "/48/ad61681119/0/context.md",
+      "content_hash": "/48/ad61681119/0/content_hash.txt",
+      "prompt": "/48/ad61681119/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 14352,
+    "cache_creation_tokens": 216530,
+    "cache_read_tokens": 22379650,
+    "output_tokens": 65403,
+    "api_call_count": 145
+  }
+}
