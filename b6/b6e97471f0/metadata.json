@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "b6b6e97471f0",
+  "strategy": "manual-commit",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/getting-started.md",
+    "src/knowledge/skill-lifecycle.md",
+    "src/module-help.csv",
+    "src/skf-analyze-source/SKILL.md",
+    "src/skf-audit-skill/SKILL.md",
+    "src/skf-brief-skill/SKILL.md",
+    "src/skf-create-skill/SKILL.md",
+    "src/skf-create-stack-skill/SKILL.md",
+    "src/skf-drop-skill/SKILL.md",
+    "src/skf-export-skill/SKILL.md",
+    "src/skf-quick-skill/SKILL.md",
+    "src/skf-refine-architecture/SKILL.md",
+    "src/skf-rename-skill/SKILL.md",
+    "src/skf-setup-forge/SKILL.md",
+    "src/skf-test-skill/SKILL.md",
+    "src/skf-update-skill/SKILL.md",
+    "src/skf-verify-stack/SKILL.md",
+    "src/workflows/README.md",
+    "test/test-cli-integration.js",
+    "test/test-installation-components.js",
+    "test/test-workflow-state.js",
+    "tools/cli/commands/update.js",
+    "tools/cli/lib/ide-commands.js",
+    "tools/cli/lib/manifest.js",
+    "tools/validate-skills.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b6/b6e97471f0/0/metadata.json",
+      "transcript": "/b6/b6e97471f0/0/full.jsonl",
+      "context": "/b6/b6e97471f0/0/context.md",
+      "content_hash": "/b6/b6e97471f0/0/content_hash.txt",
+      "prompt": "/b6/b6e97471f0/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 22181,
+    "cache_creation_tokens": 367775,
+    "cache_read_tokens": 65696402,
+    "output_tokens": 111588,
+    "api_call_count": 289
+  }
+}
