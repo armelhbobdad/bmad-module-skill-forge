@@ -183,4 +183,4 @@ SS (compose) → SKILL.md (stack skill synthesized from individual skills + arch
 - [provenance-tracking.md](provenance-tracking.md) — how provenance flows through the pipeline
 - [version-paths.md](version-paths.md) — version-aware storage layout, path templates, and migration rules
 
-_Source: synthesized from all 12 workflow.md files (including VS, RA) and module-help.csv_
+_Source: synthesized from all 14 workflow.md files (including VS, RA, RS, DS) and module-help.csv_

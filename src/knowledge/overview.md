@@ -6,7 +6,7 @@ Agent-level knowledge files capture cross-cutting principles and patterns that F
 
 ## Rationale
 
-The SKF module has 12 workflows containing numerous operational `data/` files embedded in step directories. These data files define schemas, templates, scoring formulas, and extraction rules tightly coupled to individual steps. But several principles — zero hallucination, confidence tiers, provenance — cut across multiple workflows and need a single authoritative source rather than fragmented repetition.
+The SKF module has 14 workflows containing numerous operational `data/` files embedded in step directories. These data files define schemas, templates, scoring formulas, and extraction rules tightly coupled to individual steps. But several principles — zero hallucination, confidence tiers, provenance — cut across multiple workflows and need a single authoritative source rather than fragmented repetition.
 
 Without a knowledge folder:
 - Cross-cutting principles get duplicated across workflow steps

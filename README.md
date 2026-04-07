@@ -98,6 +98,7 @@ See the [workflows docs](https://armelhbobdad.github.io/bmad-module-skill-forge/
 - **[Workflows](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/)** — All 14 workflows with commands and connection diagrams
 - **[Agents](https://armelhbobdad.github.io/bmad-module-skill-forge/agents/)** — Ferris: the AI agent that runs all SKF workflows
 - **[Examples](https://armelhbobdad.github.io/bmad-module-skill-forge/examples/)** — Real-world scenarios, tips, and troubleshooting
+- **[BMAD Synergy](https://armelhbobdad.github.io/bmad-module-skill-forge/bmad-synergy/)** — How SKF workflows pair with BMAD CORE phases and optional modules
 
 ## Acknowledgements
 

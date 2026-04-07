@@ -1,6 +1,6 @@
 /**
  * SKF Uninstall Command
- * Clean removal of SKF files, IDE commands, sidecar, and output folders.
+ * Clean removal of SKF files, IDE skill directories, sidecar, and output folders.
  * Uses the manifest to know exactly what to remove.
  */
 
@@ -9,6 +9,7 @@ const path = require('node:path');
 const fs = require('fs-extra');
 const { confirm, isCancel, spinner, log, outro } = require('@clack/prompts');
 const { readManifest, MANIFEST_DIR, MANIFEST_FILE } = require('../lib/manifest');
+const { removeAllSkfSkills } = require('../lib/ide-skills');
 
 /**
  * Count files that still exist on disk from manifest lists.
@@ -17,7 +18,7 @@ async function countExistingFiles(projectDir, manifest) {
   const allFiles = [
     ...(manifest.files.skf || []),
     ...(manifest.files.sidecar || []),
-    ...(manifest.files.ide_commands || []),
+    ...(manifest.files.ide_skills || []),
     ...(manifest.files.learning || []),
     ...(manifest.files.output || []),
   ];
@@ -38,7 +39,7 @@ async function displayRemovalPlan(projectDir, manifest) {
   const categories = [
     { key: 'skf', label: 'SKF module files', dir: manifest.skf_folder },
     { key: 'sidecar', label: 'Agent sidecar state', dir: '_bmad/_memory/forger-sidecar' },
-    { key: 'ide_commands', label: 'IDE command files' },
+    { key: 'ide_skills', label: 'IDE skill directories' },
     { key: 'learning', label: 'Learning material', dir: '_skf-learn' },
     { key: 'output', label: 'Output folder scaffolding' },
   ];
@@ -146,22 +147,13 @@ module.exports = {
 
       const s = spinner();
 
-      // Remove IDE commands first (scattered across project)
-      const ideFiles = manifest.files.ide_commands || [];
-      if (ideFiles.length > 0) {
-        s.start('Removing IDE commands...');
-        const ideRemoved = await removeFiles(projectDir, ideFiles);
-        // Clean empty IDE directories
-        const cleanedDirs = new Set();
-        for (const f of ideFiles) {
-          const dir = path.dirname(f);
-          if (!cleanedDirs.has(dir)) {
-            cleanedDirs.add(dir);
-            await removeEmptyDir(path.join(projectDir, dir));
-            await removeEmptyDir(path.join(projectDir, path.dirname(dir)));
-          }
-        }
-        s.stop(`Removed ${ideRemoved} IDE command files`);
+      // Remove IDE skill directories from all known platforms (skills + legacy command files)
+      s.start('Removing IDE skill directories...');
+      const removedIdeDirs = await removeAllSkfSkills(projectDir);
+      if (removedIdeDirs.length > 0) {
+        s.stop(`Cleaned skills from ${removedIdeDirs.length} IDE target(s)`);
+      } else {
+        s.stop('No IDE skill directories found');
       }
 
       // Remove learning material directory

@@ -1,17 +1,18 @@
-module,phase,name,code,sequence,workflow-file,command,required,agent,options,description,output-location,outputs,
-skf,anytime,Setup Forge,SF,,_bmad/skf/workflows/skillforge/setup-forge/workflow.md,skf_setup_forge,false,ferris,Create Mode,"Initialize forge environment — detect tools and set capability tier (Quick/Forge/Forge+/Deep)",,forge-tier.yaml,
-skf,anytime,Analyze Source,AN,,_bmad/skf/workflows/skillforge/analyze-source/workflow.md,skf_analyze_source,false,ferris,Create Mode,"Discover what to skill in a large repo — produces recommended skill briefs",forge_data_folder,skill-brief.yaml,
-skf,anytime,Brief Skill,BS,,_bmad/skf/workflows/skillforge/brief-skill/workflow.md,skf_brief_skill,false,ferris,Create Mode,"Design a skill scope through guided discovery",forge_data_folder,skill-brief.yaml,
-skf,anytime,Create Skill,CS,,_bmad/skf/workflows/skillforge/create-skill/workflow.md,skf_create_skill,false,ferris,Create Mode,"Compile a skill from a brief — supports --batch for multiple briefs",skills_output_folder,SKILL.md,
-skf,anytime,Quick Skill,QS,,_bmad/skf/workflows/skillforge/quick-skill/workflow.md,skf_quick_skill,false,ferris,Create Mode,"Fast skill from a package name or GitHub URL — no brief needed",skills_output_folder,SKILL.md,
-skf,anytime,Stack Skill,SS,,_bmad/skf/workflows/skillforge/create-stack-skill/workflow.md,skf_create_stack_skill,false,ferris,Create Mode,"Consolidated project stack skill with integration patterns — code-mode (analyzes manifests) or compose-mode (synthesizes from existing skills + architecture doc)",skills_output_folder,SKILL.md,
-skf,anytime,Update Skill,US,,_bmad/skf/workflows/skillforge/update-skill/workflow.md,skf_update_skill,false,ferris,Surgeon Mode,"Smart regeneration preserving [MANUAL] sections after source changes",skills_output_folder,SKILL.md,
-skf,anytime,Audit Skill,AS,,_bmad/skf/workflows/skillforge/audit-skill/workflow.md,skf_audit_skill,false,ferris,Audit Mode,"Drift detection between skill and current source code",,"drift report",
-skf,anytime,Test Skill,TS,,_bmad/skf/workflows/skillforge/test-skill/workflow.md,skf_test_skill,false,ferris,Audit Mode,"Cognitive completeness verification — quality gate before export",,"completeness score",
-skf,anytime,Export Skill,EX,,_bmad/skf/workflows/skillforge/export-skill/workflow.md,skf_export_skill,false,ferris,Delivery Mode,"Package for distribution and inject context into CLAUDE.md/AGENTS.md/.cursorrules",skills_output_folder,"agentskills.io package",
-skf,anytime,Rename Skill,RS,,_bmad/skf/workflows/skillforge/rename-skill/workflow.md,skf_rename_skill,false,ferris,Management Mode,"Rename a skill across all its versions — transactional copy-verify-delete with platform context rebuild",skills_output_folder,"renamed skill group",
-skf,anytime,Drop Skill,DS,,_bmad/skf/workflows/skillforge/drop-skill/workflow.md,skf_drop_skill,false,ferris,Management Mode,"Drop a specific skill version or an entire skill — soft (deprecate) or hard (purge) with platform context rebuild",skills_output_folder,"updated manifest",
-skf,anytime,Verify Stack,VS,,_bmad/skf/workflows/skillforge/verify-stack/workflow.md,skf_verify_stack,false,ferris,Audit Mode,"Pre-code stack feasibility verification against architecture and PRD documents",forge_data_folder,"feasibility-report-{project_name}.md",
-skf,anytime,Refine Architecture,RA,,_bmad/skf/workflows/skillforge/refine-architecture/workflow.md,skf_refine_architecture,false,ferris,Architect Mode,"Improve architecture doc using verified skill data and VS feasibility findings",output_folder,"refined-architecture-{project_name}.md",
-skf,anytime,Workflow Status,WS,,,skf_workflow_status,false,ferris,Reference,"Show current lifecycle position, active skill briefs, and forge tier status",,lifecycle status,
-skf,anytime,Knowledge Index,KI,,_bmad/skf/knowledge/skf-knowledge-index.csv,skf_knowledge_index,false,ferris,Reference,"Cross-cutting principles and patterns — JiT loaded by workflows via index lookup",,"knowledge fragments",
+module,skill,display-name,menu-code,description,action,args,phase,after,before,required,output-location,outputs
+skf,skf-forger,Ferris — Skill Forge Agent,FF,"Skill compilation specialist — the forge master. Invoke to access all SKF workflows via guided menu.",,anytime,,,false,,
+skf,skf-setup-forge,Setup Forge,SF,"Initialize forge environment — detect tools and set capability tier (Quick/Forge/Forge+/Deep)",,anytime,,,false,,forge-tier.yaml
+skf,skf-analyze-source,Analyze Source,AN,"Discover what to skill in a large repo — produces recommended skill briefs",,anytime,,,false,forge_data_folder,skill-brief.yaml
+skf,skf-brief-skill,Brief Skill,BS,"Design a skill scope through guided discovery",,anytime,,,false,forge_data_folder,skill-brief.yaml
+skf,skf-create-skill,Create Skill,CS,"Compile a skill from a brief — supports --batch for multiple briefs",,anytime,,,false,skills_output_folder,SKILL.md
+skf,skf-quick-skill,Quick Skill,QS,"Fast skill from a package name or GitHub URL — no brief needed",,anytime,,,false,skills_output_folder,SKILL.md
+skf,skf-create-stack-skill,Stack Skill,SS,"Consolidated project stack skill with integration patterns — code-mode or compose-mode",,anytime,,,false,skills_output_folder,SKILL.md
+skf,skf-update-skill,Update Skill,US,"Smart regeneration preserving [MANUAL] sections after source changes",,anytime,,,false,skills_output_folder,SKILL.md
+skf,skf-audit-skill,Audit Skill,AS,"Drift detection between skill and current source code",,anytime,,,false,,drift report
+skf,skf-test-skill,Test Skill,TS,"Cognitive completeness verification — quality gate before export",,anytime,,,false,,completeness score
+skf,skf-export-skill,Export Skill,EX,"Package for distribution and inject context into CLAUDE.md/AGENTS.md/.cursorrules",,anytime,,,false,skills_output_folder,agentskills.io package
+skf,skf-rename-skill,Rename Skill,RS,"Rename a skill across all its versions — transactional copy-verify-delete with platform context rebuild",,anytime,,,false,skills_output_folder,renamed skill group
+skf,skf-drop-skill,Drop Skill,DS,"Drop a specific skill version or an entire skill — soft (deprecate) or hard (purge) with platform context rebuild",,anytime,,,false,skills_output_folder,updated manifest
+skf,skf-verify-stack,Verify Stack,VS,"Pre-code stack feasibility verification against architecture and PRD documents",,anytime,,,false,forge_data_folder,feasibility-report-{project_name}.md
+skf,skf-refine-architecture,Refine Architecture,RA,"Improve architecture doc using verified skill data and VS feasibility findings",,anytime,,,false,output_folder,refined-architecture-{project_name}.md
+skf,,Workflow Status,WS,"Show current lifecycle position, active skill briefs, and forge tier status",,anytime,,,false,,lifecycle status
+skf,,Knowledge Index,KI,"Cross-cutting principles and patterns — JiT loaded by workflows via index lookup",,anytime,,,false,,knowledge fragments

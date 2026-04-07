@@ -119,7 +119,7 @@ SKF is a plugin (called a "module") for [BMad Method](https://docs.bmad-method.o
 
 Ferris is the AI agent persona that runs all SKF workflows. When you type `@Ferris CS`, you're telling Ferris to run the create-skill workflow.
 
-Ferris switches between four modes depending on which workflow is active: Architect (exploring and building), Surgeon (precise updates), Audit (quality checks), and Delivery (packaging for distribution).
+Ferris switches between five modes depending on which workflow is active: Architect (exploring and building), Surgeon (precise updates), Audit (quality checks), Delivery (packaging for distribution), and Management (renaming and dropping skill versions).
 
 ---
 

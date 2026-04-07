@@ -36,7 +36,7 @@ async function collectFiles(dir, projectDir) {
  *
  * @param {string} projectDir - Project root
  * @param {object} config - Install config (skfFolder, ides, etc.)
- * @param {object} options - Additional info (version, ideFiles)
+ * @param {object} options - Additional info (version, ideDirectories)
  */
 async function writeManifest(projectDir, config, options = {}) {
   const skfFolder = config.skfFolder || '_bmad/skf';
@@ -47,8 +47,14 @@ async function writeManifest(projectDir, config, options = {}) {
   const skfFiles = await collectFiles(skfDir, projectDir);
   const sidecarFiles = await collectFiles(sidecarDir, projectDir);
 
-  // Collect IDE command files
-  const ideFiles = options.ideFiles || [];
+  // Collect IDE skill directory files (installed to each IDE's skills/ dir)
+  const ideDirectories = options.ideDirectories || [];
+  const ideSkillFiles = [];
+  for (const ideDir of ideDirectories) {
+    const fullDir = path.join(projectDir, ideDir);
+    const files = await collectFiles(fullDir, projectDir);
+    ideSkillFiles.push(...files);
+  }
 
   // Collect learning material files
   const learnDir = path.join(projectDir, '_skf-learn');
@@ -72,11 +78,11 @@ async function writeManifest(projectDir, config, options = {}) {
     ides: config.ides || [],
     skills_output_folder: config.skills_output_folder || 'skills',
     forge_data_folder: config.forge_data_folder || 'forge-data',
-    directories: [skfFolder, '_bmad/_memory/forger-sidecar', ...(learnFiles.length > 0 ? ['_skf-learn'] : [])],
+    directories: [skfFolder, '_bmad/_memory/forger-sidecar', ...ideDirectories, ...(learnFiles.length > 0 ? ['_skf-learn'] : [])],
     files: {
       skf: skfFiles,
       sidecar: sidecarFiles,
-      ide_commands: ideFiles,
+      ide_skills: ideSkillFiles,
       learning: learnFiles,
       output: outputFiles,
     },

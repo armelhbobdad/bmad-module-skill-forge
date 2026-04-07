@@ -38,9 +38,9 @@ Each workflow directory contains these files, and each has a specific job:
 
 | File                      | What it does                                                                                                        | When it loads                                     |
 |---------------------------|---------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|
-| `forger.agent.yaml`       | Expert persona — identity, principles, critical actions, menu of triggers                                           | First — always in context                         |
-| `skf-knowledge-index.csv` | Knowledge fragment index — id, name, tags, tier, file path                                                          | Read by steps to decide which fragments to load   |
-| `knowledge/*.md`          | 13 reusable fragments + overview.md index — cross-cutting principles and patterns (e.g., `zero-hallucination.md`, `confidence-tiers.md`, `ccc-bridge.md`) | Selectively read into context when a step directs |
+| `skf-forger/SKILL.md`     | Expert persona — identity, principles, critical actions, menu of triggers                                           | First — always in context                         |
+| `knowledge/skf-knowledge-index.csv` | Knowledge fragment index — id, name, tags, tier, file path                                                          | Read by steps to decide which fragments to load   |
+| `knowledge/*.md`          | 14 reusable fragments + overview.md index — cross-cutting principles and patterns (e.g., `zero-hallucination.md`, `confidence-tiers.md`, `ccc-bridge.md`) | Selectively read into context when a step directs |
 
 ```mermaid
 flowchart LR
@@ -54,8 +54,8 @@ flowchart LR
 
 ### How It Works at Runtime
 
-1. **Trigger** — User types `@Ferris CS` (or fuzzy match like `create-skill`). The agent menu in `forger.agent.yaml` maps the trigger to the workflow path.
-2. **Agent loads** — `forger.agent.yaml` injects the persona (identity, principles, critical actions) into the context window. Sidecar files (`forge-tier.yaml`, `preferences.yaml`) are loaded for persistent state.
+1. **Trigger** — User types `@Ferris CS` (or fuzzy match like `create-skill`). The agent menu in `skf-forger/SKILL.md` maps the trigger to the workflow path.
+2. **Agent loads** — `skf-forger/SKILL.md` injects the persona (identity, principles, critical actions) into the context window. Sidecar files (`forge-tier.yaml`, `preferences.yaml`) are loaded for persistent state.
 3. **Workflow loads** — `workflow.md` presents the mode choice and routes to the first step file.
 4. **Step-by-step execution** — Only the current step file is in context (just-in-time loading). Each step explicitly names the next one. The LLM reads, executes, saves output, then loads the next step. No future steps are ever preloaded.
 5. **Knowledge injection** — Steps consult `skf-knowledge-index.csv` and selectively load fragments from `knowledge/` by tags and relevance. Cross-cutting principles (zero hallucination, confidence tiers, provenance) are loaded only when a step directs — not preloaded.
@@ -65,7 +65,7 @@ flowchart LR
 
 ### Ferris Operating Modes
 
-Ferris operates in four workflow-driven modes (mode is determined by which workflow is running, not conversation state):
+Ferris operates in five workflow-driven modes (mode is determined by which workflow is running, not conversation state):
 
 | Mode          | Workflows          | Behavior                                                    |
 |---------------|--------------------|-------------------------------------------------------------|
@@ -73,6 +73,7 @@ Ferris operates in four workflow-driven modes (mode is determined by which workf
 | **Surgeon**   | US                 | Precise, semantic diffing — preserves [MANUAL] sections during regeneration |
 | **Audit**     | AS, TS, VS         | Judgmental, scoring — evaluates quality and detects drift   |
 | **Delivery**  | EX                 | Validates package, generates snippets, injects into context files |
+| **Management** | RS, DS            | Transactional rename/drop — copy-verify-delete with platform context rebuild |
 
 ---
 
@@ -527,28 +528,29 @@ Workflows load only the fragments required for the current task to stay focused 
 src/
 ├── module.yaml
 ├── module-help.csv
-├── agents/
-│   └── forger.agent.yaml
+├── skf-forger/               # Agent skill (SKILL.md + manifest)
+├── skf-setup-forge/          # Workflow skills (one directory each)
+├── skf-analyze-source/
+├── skf-brief-skill/
+├── skf-create-skill/
+├── skf-quick-skill/
+├── skf-create-stack-skill/
+├── skf-verify-stack/
+├── skf-refine-architecture/
+├── skf-update-skill/
+├── skf-audit-skill/
+├── skf-test-skill/
+├── skf-export-skill/
+├── skf-rename-skill/
+├── skf-drop-skill/
 ├── forger/
 │   ├── forge-tier.yaml
 │   ├── preferences.yaml
 │   └── README.md
 ├── knowledge/
 │   ├── skf-knowledge-index.csv
-│   └── *.md (13 knowledge fragments + overview.md index)
-└── workflows/
-    ├── setup-forge/
-    ├── analyze-source/
-    ├── brief-skill/
-    ├── create-skill/
-    ├── quick-skill/
-    ├── create-stack-skill/
-    ├── verify-stack/
-    ├── refine-architecture/
-    ├── update-skill/
-    ├── audit-skill/
-    ├── test-skill/
-    └── export-skill/
+│   └── *.md (14 knowledge fragments + overview.md index)
+└── shared/                   # Cross-workflow resources
 ```
 
 ---

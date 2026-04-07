@@ -83,35 +83,35 @@ async function runTests() {
   console.log('');
 
   // ============================================================
-  // Test 2: SKF Agent YAML Structure
+  // Test 2: SKF Agent Skill Structure
   // ============================================================
   console.log(`${colors.yellow}Test Suite 2: SKF Agent Structure${colors.reset}\n`);
 
   try {
-    const skfAgentPath = path.join(projectRoot, 'src/agents/forger.agent.yaml');
+    const agentSkillDir = path.join(projectRoot, 'src/skf-forger');
+    const agentSkillMd = path.join(agentSkillDir, 'SKILL.md');
+    const agentManifest = path.join(agentSkillDir, 'bmad-skill-manifest.yaml');
 
-    if (await pathExists(skfAgentPath)) {
-      const skfAgent = yaml.load(await fs.readFile(skfAgentPath, 'utf8'));
+    assert(await pathExists(agentSkillMd), 'skf-forger/SKILL.md exists');
+    assert(await pathExists(agentManifest), 'skf-forger/bmad-skill-manifest.yaml exists');
 
-      assert(skfAgent.agent !== undefined, 'forger.agent.yaml has agent root key');
-      assert(skfAgent.agent.metadata !== undefined, 'SKF agent has metadata section');
-      assert(skfAgent.agent.metadata.module === 'skf', 'SKF agent metadata has module: skf');
-      assert(skfAgent.agent.metadata.id.includes('_bmad/skf/'), 'SKF agent id references _bmad/skf/ path');
-      assert(skfAgent.agent.persona !== undefined, 'SKF agent has persona section');
-      assert(skfAgent.agent.critical_actions !== undefined, 'SKF agent has critical_actions');
-      assert(skfAgent.agent.menu !== undefined, 'SKF agent has menu');
-      assert(
-        Array.isArray(skfAgent.agent.menu) && skfAgent.agent.menu.length === 16,
-        'SKF agent menu has 16 entries (14 workflows + 1 knowledge index + 1 status action)',
-        `Found ${Array.isArray(skfAgent.agent.menu) ? skfAgent.agent.menu.length : 'non-array'}`,
-      );
+    if (await pathExists(agentManifest)) {
+      const manifest = yaml.load(await fs.readFile(agentManifest, 'utf8'));
 
-      // Verify no foreign module references
-      const yamlContent = await fs.readFile(skfAgentPath, 'utf8');
-      assert(!yamlContent.includes('module: tea'), 'SKF agent has no module: tea references');
-      assert(!yamlContent.includes('module: bmm'), 'SKF agent has no module: bmm references');
-    } else {
-      assert(false, 'SKF agent YAML exists', 'src/agents/forger.agent.yaml not found');
+      assert(manifest.type === 'agent', 'Agent manifest has type: agent');
+      assert(manifest.name === 'skf-forger', 'Agent manifest has name: skf-forger');
+      assert(manifest.module === 'skf', 'Agent manifest has module: skf');
+      assert(typeof manifest.displayName === 'string', 'Agent manifest has displayName');
+      assert(typeof manifest.title === 'string', 'Agent manifest has title');
+      assert(typeof manifest.icon === 'string', 'Agent manifest has icon');
+    }
+
+    if (await pathExists(agentSkillMd)) {
+      const content = await fs.readFile(agentSkillMd, 'utf8');
+      assert(content.includes('## Capabilities'), 'Agent SKILL.md has Capabilities section');
+      assert(content.includes('## On Activation'), 'Agent SKILL.md has On Activation section');
+      assert(content.includes('skf-setup-forge'), 'Agent capabilities reference skf-setup-forge');
+      assert(content.includes('skf-create-skill'), 'Agent capabilities reference skf-create-skill');
     }
   } catch (error) {
     assert(false, 'SKF agent structure validates', error.message);
@@ -165,13 +165,22 @@ async function runTests() {
   ];
 
   for (const workflowName of workflowNames) {
-    const workflowPath = path.join(projectRoot, `src/workflows/${workflowName}/workflow.md`);
+    const workflowPath = path.join(projectRoot, `src/skf-${workflowName}/workflow.md`);
+    const skillMdPath = path.join(projectRoot, `src/skf-${workflowName}/SKILL.md`);
 
     if (await pathExists(workflowPath)) {
       const content = await fs.readFile(workflowPath, 'utf8');
       assert(content.length > 0, `${workflowName}/workflow.md exists`);
     } else {
-      assert(false, `${workflowName}/workflow.md exists`, `src/workflows/${workflowName}/workflow.md not found`);
+      assert(false, `${workflowName}/workflow.md exists`, `src/skf-${workflowName}/workflow.md not found`);
+    }
+
+    if (await pathExists(skillMdPath)) {
+      const content = await fs.readFile(skillMdPath, 'utf8');
+      const hasName = content.includes(`name: skf-${workflowName}`);
+      assert(hasName, `${workflowName}/SKILL.md has correct name field`);
+    } else {
+      assert(false, `${workflowName}/SKILL.md exists`, `src/skf-${workflowName}/SKILL.md not found`);
     }
   }
 
@@ -343,12 +352,12 @@ async function runTests() {
 
   for (const [workflow, files] of Object.entries(stepFileChains)) {
     for (const step of files.steps) {
-      const stepPath = path.join(projectRoot, `src/workflows/${workflow}/steps-c/${step}`);
+      const stepPath = path.join(projectRoot, `src/skf-${workflow}/steps-c/${step}`);
       const exists = await pathExists(stepPath);
       assert(exists, `${workflow}/steps-c/${step} exists`, `Missing step file: ${stepPath}`);
     }
     for (const dataFile of files.data) {
-      const dataPath = path.join(projectRoot, `src/workflows/${workflow}/data/${dataFile}`);
+      const dataPath = path.join(projectRoot, `src/skf-${workflow}/data/${dataFile}`);
       const exists = await pathExists(dataPath);
       assert(exists, `${workflow}/data/${dataFile} exists`, `Missing data file: ${dataPath}`);
     }
