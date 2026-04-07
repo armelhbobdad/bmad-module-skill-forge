@@ -3,7 +3,7 @@
   "checkpoint_id": "4d10056aa190",
   "strategy": "manual-commit",
   "branch": "convert-to-skills",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     ".claude-plugin/marketplace.json"
   ],
@@ -14,13 +14,20 @@
       "context": "/4d/10056aa190/0/context.md",
       "content_hash": "/4d/10056aa190/0/content_hash.txt",
       "prompt": "/4d/10056aa190/0/prompt.txt"
+    },
+    {
+      "metadata": "/4d/10056aa190/1/metadata.json",
+      "transcript": "/4d/10056aa190/1/full.jsonl",
+      "context": "/4d/10056aa190/1/context.md",
+      "content_hash": "/4d/10056aa190/1/content_hash.txt",
+      "prompt": "/4d/10056aa190/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 22181,
-    "cache_creation_tokens": 367775,
-    "cache_read_tokens": 65696402,
-    "output_tokens": 111588,
-    "api_call_count": 289
+    "input_tokens": 22190,
+    "cache_creation_tokens": 370159,
+    "cache_read_tokens": 66157805,
+    "output_tokens": 111952,
+    "api_call_count": 294
   }
 }
