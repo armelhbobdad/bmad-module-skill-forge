@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "def9c64c4088",
+  "session_id": "0e4a059e-ea99-4e4f-aaa5-ed23bb79cb7b",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-07T20:51:49.18135143Z",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/quality.yaml",
+    "docs/agents.md",
+    "package.json",
+    "src/skf-forger/SKILL.md",
+    "src/skf-forger/bmad-skill-manifest.yaml",
+    "tools/cli/commands/status.js",
+    "tools/cli/lib/ide-skills.js",
+    "tools/cli/lib/ui.js",
+    "tools/validate-file-refs.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "a66e7bdd8916",
+  "token_usage": {
+    "input_tokens": 22181,
+    "cache_creation_tokens": 367775,
+    "cache_read_tokens": 65696402,
+    "output_tokens": 111588,
+    "api_call_count": 289
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-07T20:51:47.473684692Z",
+    "agent_lines": 45,
+    "human_added": 11,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 56,
+    "agent_percentage": 80.35714285714286
+  }
+}

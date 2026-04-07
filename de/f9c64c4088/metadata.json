@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "def9c64c4088",
+  "strategy": "manual-commit",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/quality.yaml",
+    "docs/agents.md",
+    "package.json",
+    "src/skf-forger/SKILL.md",
+    "src/skf-forger/bmad-skill-manifest.yaml",
+    "tools/cli/commands/status.js",
+    "tools/cli/lib/ide-skills.js",
+    "tools/cli/lib/ui.js",
+    "tools/validate-file-refs.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/de/f9c64c4088/0/metadata.json",
+      "transcript": "/de/f9c64c4088/0/full.jsonl",
+      "context": "/de/f9c64c4088/0/context.md",
+      "content_hash": "/de/f9c64c4088/0/content_hash.txt",
+      "prompt": "/de/f9c64c4088/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 22181,
+    "cache_creation_tokens": 367775,
+    "cache_read_tokens": 65696402,
+    "output_tokens": 111588,
+    "api_call_count": 289
+  }
+}
