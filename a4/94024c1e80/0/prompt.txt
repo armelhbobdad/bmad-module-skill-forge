@@ -1,0 +1,120 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-help
+
+# BMad Help
+
+## Purpose
+
+Help the user understand where they are in their BMad workflow and what to do next. Answer BMad questions when asked.
+
+## Desired Outcomes
+
+When this skill completes, the user should:
+
+1. **Know where they are** — which module and phase they're in, what's already been completed
+2. **Know what to do next** — the next recommended and/or required step, with clear reasoning
+3. **Know how to invoke it** — skill name, menu code, action context, and any args that shortcut the conversation
+4. **Get offered a quick start** — when a single skill is the clear next step, offer to run it for the user right now rather than just listing it
+5. **Feel oriented, not overwhelmed** — surface only what's relevant to their current position; don't dump the entire catalog
+
+## Data Sources
+
+- **Catalog**: `{project-root}/_bmad/_config/bmad-help.csv` — assembled manifest of all installed module skills
+- **Config**: `config.yaml` and `user-config.yaml` files in `{project-root}/_bmad/` and its subfolders — resolve `output-location` variables, provide `communication_language` and `project_knowledge`
+- **Artifacts**: Files matching `outputs` patterns at resolved `output-location` paths reveal which steps are possibly completed; their content may also provide grounding context for recommendations
+- **Project knowledge**: If `project_knowledge` resolves to an existing path, read it for grounding context. Never fabricate project-specific details.
+
+## CSV Interpretation
+
+The catalog uses this format:
+
+```
+module,skill,display-name,menu-code,description,action,args,phase,after,before,required,output-location,outputs
+```
+
+**Phases** determine the high-level flow:
+- `anytime` — available regardless of workflow state
+- Numbered phases (`1-analysis`, `2-planning`, etc.) flow in order; naming varies by module
+
+**Dependencies** determine ordering within and across phases:
+- `after` — skills that should ideally complete before this one
+- `before` — skills that should run after this one
+- Format: `skill-name` for single-action skills, `skill-name:action` for multi-action skills
+
+**Required gates**:
+- `required=true` items must complete before the user can meaningfully proceed to later phases
+- A phase with no required items is entirely optional — recommend it but be clear about what's actually required next
+
+**Completion detection**:
+- Search resolved output paths for `outputs` patterns
+- Fuzzy-match found files to catalog rows
+- User may also state completion explicitly, or it may be evident from the current conversation
+
+**Descriptions carry routing context** — some contain cycle info and alternate paths (e.g., "back to DS if fixes needed"). Read them as navigation hints, not just display text.
+
+## Response Format
+
+For each recommended item, present:
+- `[menu-code]` **Display name** — e.g., "[CP] Create PRD"
+- Skill name in backticks — e.g., `bmad-create-prd`
+- For multi-action skills: action invocation context — e.g., "tech-writer lets create a mermaid diagram!"
+- Description if present in CSV; otherwise your existing knowledge of the skill suffices
+- Args if available
+
+**Ordering**: Show optional items first, then the next required item. Make it clear which is which.
+
+## Constraints
+
+- Present all output in `{communication_language}`
+- Recommend running each skill in a **fresh context window**
+- Match the user's tone — conversational when they're casual, structured when they want specifics
+- If the active module is ambiguous, ask rather than guess
+
+
+ARGUMENTS: the current version of SFK is based on a legacy module template. Here is the new official bmad module template /home/armel/Projects/OSS/bmad-module-template . Even the BMAD METHOD is skill driven now /home/armel/Projects/OSS/BMAD-METHOD . I want to migrate our module to that new standard for a compliance reason.
+
+---
+
+C
+
+---
+
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-module-builder
+
+# BMad Module Builder
+
+## Overview
+
+This skill helps you bring BMad modules to life — from the first spark of an idea to a fully scaffolded, installable module. It offers three paths:
+
+- **Ideate Module (IM)** — A creative brainstorming session that helps you imagine what your module could be, decide on the right architecture (agent vs. workflow vs. both), and produce a detailed plan document. The plan then guides you through building each piece with the Agent Builder and Workflow Builder.
+- **Create Module (CM)** — Takes an existing folder of built skills (or a single skill) and scaffolds the module infrastructure that makes it installable. For multi-skill modules, generates a dedicated `-setup` skill. For single skills, embeds self-registration directly into the skill. Supports `--headless` / `-H`.
+- **Validate Module (VM)** — Checks that a module's structure is complete and correct — every skill has its capabilities registered, entries are accurate and well-crafted, and structural integrity is sound. Handles both multi-skill and standalone modules. Supports `--headless` / `-H`.
+
+**Args:** Accepts `--headless` / `-H` for CM and VM paths, an initial description for IM, or a path to a skills folder or single SKILL.md file for CM/VM.
+
+## On Activation
+
+Load available config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml` (root level and `bmb` section). If config is missing, let the user know `bmad-builder-setup` can configure the module at any time. Use sensible defaults for anything not configured.
+
+Detect user's intent:
+
+- **Ideate / Plan** keywords or no path argument → Load `./references/ideate-module.md`
+- **Create / Scaffold** keywords, a folder path, or a path to a single SKILL.md file → Load `./references/create-module.md`
+- **Validate / Check** keywords → Load `./references/validate-module.md`
+- **Unclear** → Present options:
+  - **Ideate Module (IM)** — "I have an idea for a module and want to brainstorm and plan it"
+  - **Create Module (CM)** — "I've already built my skills and want to package them as a module"
+  - **Validate Module (VM)** — "I want to check that my module's setup skill is complete and correct"
+
+If `--headless` or `-H` is passed, route to CM with headless mode.
+
+
+ARGUMENTS: Migrate the existing bmad-module-skill-forge module from the legacy BMad module template to the new official standard. The new standard is defined by the template at /home/armel/Projects/OSS/bmad-module-template and exemplified by /home/armel/Projects/OSS/BMAD-METHOD. Key migration tasks: (1) Create .claude-plugin/marketplace.json registering all 15 SKF workflows + Ferris agent as skills, (2) Add SKILL.md entry points to each workflow, (3) Convert Ferris agent from forger.agent.yaml to new skill-based agent format with bmad-skill-manifest.yaml, (4) Retire legacy _bmad/_config/ manifests. The module.yaml and module-help.csv are already compliant.
+
+---
+
+What are the best moves for a very long term and robust vision?
+
+---
+
+commit

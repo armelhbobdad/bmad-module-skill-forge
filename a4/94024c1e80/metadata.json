@@ -1,0 +1,62 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "a494024c1e80",
+  "strategy": "manual-commit",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".claude-plugin/marketplace.json",
+    "src/agents/forger.agent.yaml",
+    "src/module-help.csv",
+    "src/skf-analyze-source/SKILL.md",
+    "src/skf-analyze-source/workflow.md",
+    "src/skf-audit-skill/SKILL.md",
+    "src/skf-audit-skill/workflow.md",
+    "src/skf-brief-skill/SKILL.md",
+    "src/skf-brief-skill/workflow.md",
+    "src/skf-create-skill/SKILL.md",
+    "src/skf-create-skill/workflow.md",
+    "src/skf-create-stack-skill/SKILL.md",
+    "src/skf-create-stack-skill/workflow.md",
+    "src/skf-drop-skill/SKILL.md",
+    "src/skf-drop-skill/workflow.md",
+    "src/skf-export-skill/SKILL.md",
+    "src/skf-export-skill/workflow.md",
+    "src/skf-forger/SKILL.md",
+    "src/skf-forger/bmad-skill-manifest.yaml",
+    "src/skf-quick-skill/SKILL.md",
+    "src/skf-quick-skill/workflow.md",
+    "src/skf-refine-architecture/SKILL.md",
+    "src/skf-refine-architecture/workflow.md",
+    "src/skf-rename-skill/SKILL.md",
+    "src/skf-rename-skill/workflow.md",
+    "src/skf-setup-forge/SKILL.md",
+    "src/skf-setup-forge/workflow.md",
+    "src/skf-test-skill/SKILL.md",
+    "src/skf-test-skill/workflow.md",
+    "src/skf-update-skill/SKILL.md",
+    "src/skf-update-skill/workflow.md",
+    "src/skf-verify-stack/SKILL.md",
+    "src/skf-verify-stack/workflow.md",
+    "test/test-cli-integration.js",
+    "test/test-installation-components.js",
+    "tools/cli/lib/ide-commands.js",
+    "tools/cli/lib/installer.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a4/94024c1e80/0/metadata.json",
+      "transcript": "/a4/94024c1e80/0/full.jsonl",
+      "context": "/a4/94024c1e80/0/context.md",
+      "content_hash": "/a4/94024c1e80/0/content_hash.txt",
+      "prompt": "/a4/94024c1e80/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10453,
+    "cache_creation_tokens": 155588,
+    "cache_read_tokens": 8236981,
+    "output_tokens": 44805,
+    "api_call_count": 74
+  }
+}
