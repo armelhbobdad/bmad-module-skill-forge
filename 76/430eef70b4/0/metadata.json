@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "76430eef70b4",
+  "session_id": "0e4a059e-ea99-4e4f-aaa5-ed23bb79cb7b",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-07T21:08:02.556630792Z",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "tools/cli/lib/installer.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "a66e7bdd8916",
+  "token_usage": {
+    "input_tokens": 22181,
+    "cache_creation_tokens": 367775,
+    "cache_read_tokens": 65696402,
+    "output_tokens": 111588,
+    "api_call_count": 289
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-07T21:08:00.578708001Z",
+    "agent_lines": 2,
+    "human_added": 25,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 27,
+    "agent_percentage": 7.4074074074074066
+  }
+}
