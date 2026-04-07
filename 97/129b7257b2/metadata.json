@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "97129b7257b2",
+  "strategy": "manual-commit",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "test/test-cli-integration.js",
+    "tools/cli/commands/status.js",
+    "tools/cli/lib/ide-commands.js",
+    "tools/cli/lib/ide-skills.js",
+    "tools/cli/lib/installer.js",
+    "tools/cli/lib/manifest.js",
+    "tools/cli/lib/ui.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/97/129b7257b2/0/metadata.json",
+      "transcript": "/97/129b7257b2/0/full.jsonl",
+      "context": "/97/129b7257b2/0/context.md",
+      "content_hash": "/97/129b7257b2/0/content_hash.txt",
+      "prompt": "/97/129b7257b2/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 22156,
+    "cache_creation_tokens": 343160,
+    "cache_read_tokens": 58009332,
+    "output_tokens": 106580,
+    "api_call_count": 268
+  }
+}

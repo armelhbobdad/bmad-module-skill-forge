@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "97129b7257b2",
+  "session_id": "0e4a059e-ea99-4e4f-aaa5-ed23bb79cb7b",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-07T20:16:12.307935569Z",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "test/test-cli-integration.js",
+    "tools/cli/commands/status.js",
+    "tools/cli/lib/ide-commands.js",
+    "tools/cli/lib/ide-skills.js",
+    "tools/cli/lib/installer.js",
+    "tools/cli/lib/manifest.js",
+    "tools/cli/lib/ui.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "3af277f9df56",
+  "token_usage": {
+    "input_tokens": 22156,
+    "cache_creation_tokens": 343160,
+    "cache_read_tokens": 58009332,
+    "output_tokens": 106580,
+    "api_call_count": 268
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-07T20:16:10.787567826Z",
+    "agent_lines": 285,
+    "human_added": 178,
+    "human_modified": 23,
+    "human_removed": 0,
+    "total_committed": 486,
+    "agent_percentage": 58.64197530864198
+  }
+}
