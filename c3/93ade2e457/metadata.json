@@ -1,0 +1,62 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "c393ade2e457",
+  "strategy": "manual-commit",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/README.md",
+    "src/knowledge/agentskills-spec.md",
+    "src/knowledge/overview.md",
+    "src/knowledge/provenance-tracking.md",
+    "src/knowledge/skf-knowledge-index.csv",
+    "src/knowledge/split-body-strategy.md",
+    "src/skf-analyze-source/assets/skill-brief-schema.md",
+    "src/skf-analyze-source/references/unit-detection-heuristics.md",
+    "src/skf-audit-skill/assets/drift-report-template.md",
+    "src/skf-audit-skill/references/severity-rules.md",
+    "src/skf-brief-skill/assets/scope-templates.md",
+    "src/skf-brief-skill/assets/skill-brief-schema.md",
+    "src/skf-create-skill/assets/compile-assembly-rules.md",
+    "src/skf-create-skill/assets/skill-sections.md",
+    "src/skf-create-skill/references/extraction-patterns-tracing.md",
+    "src/skf-create-skill/references/extraction-patterns.md",
+    "src/skf-create-skill/references/source-resolution-protocols.md",
+    "src/skf-create-skill/references/tier-degradation-rules.md",
+    "src/skf-create-stack-skill/assets/stack-skill-template.md",
+    "src/skf-create-stack-skill/references/compose-mode-rules.md",
+    "src/skf-create-stack-skill/references/integration-patterns.md",
+    "src/skf-create-stack-skill/references/manifest-patterns.md",
+    "src/skf-export-skill/assets/managed-section-format.md",
+    "src/skf-export-skill/assets/snippet-format.md",
+    "src/skf-quick-skill/assets/skill-template.md",
+    "src/skf-quick-skill/references/registry-resolution.md",
+    "src/skf-refine-architecture/references/refinement-rules.md",
+    "src/skf-setup-forge/references/tier-rules.md",
+    "src/skf-test-skill/assets/output-section-formats.md",
+    "src/skf-test-skill/references/scoring-rules.md",
+    "src/skf-test-skill/references/source-access-protocol.md",
+    "src/skf-update-skill/references/manual-section-rules.md",
+    "src/skf-update-skill/references/merge-conflict-rules.md",
+    "src/skf-update-skill/references/remote-source-resolution.md",
+    "src/skf-verify-stack/assets/feasibility-report-template.md",
+    "src/skf-verify-stack/references/coverage-patterns.md",
+    "src/skf-verify-stack/references/integration-verification-rules.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c3/93ade2e457/0/metadata.json",
+      "transcript": "/c3/93ade2e457/0/full.jsonl",
+      "context": "/c3/93ade2e457/0/context.md",
+      "content_hash": "/c3/93ade2e457/0/content_hash.txt",
+      "prompt": "/c3/93ade2e457/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 4503,
+    "cache_creation_tokens": 127029,
+    "cache_read_tokens": 6646010,
+    "output_tokens": 36320,
+    "api_call_count": 79
+  }
+}
