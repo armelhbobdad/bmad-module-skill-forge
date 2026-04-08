@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d6c0b5b4a98f",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/how-it-works.md",
+    "eslint.config.mjs",
+    "package.json",
+    "src/skf-test-skill/scripts/compute-score.js",
+    "src/skf-test-skill/steps-c/step-05-score.md",
+    "test/test-compute-score.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d6/c0b5b4a98f/0/metadata.json",
+      "transcript": "/d6/c0b5b4a98f/0/full.jsonl",
+      "context": "/d6/c0b5b4a98f/0/context.md",
+      "content_hash": "/d6/c0b5b4a98f/0/content_hash.txt",
+      "prompt": "/d6/c0b5b4a98f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 3558,
+    "cache_creation_tokens": 118288,
+    "cache_read_tokens": 6273649,
+    "output_tokens": 32893,
+    "api_call_count": 66
+  }
+}

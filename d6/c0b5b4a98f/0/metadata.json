@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d6c0b5b4a98f",
+  "session_id": "0eef4199-d8c0-446f-9f5e-d16d12860083",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-08T08:57:38.809377323Z",
+  "branch": "dev",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/how-it-works.md",
+    "eslint.config.mjs",
+    "package.json",
+    "src/skf-test-skill/scripts/compute-score.js",
+    "src/skf-test-skill/steps-c/step-05-score.md",
+    "test/test-compute-score.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "d69cf99333bd",
+  "token_usage": {
+    "input_tokens": 3558,
+    "cache_creation_tokens": 118288,
+    "cache_read_tokens": 6273649,
+    "output_tokens": 32893,
+    "api_call_count": 66
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-08T08:57:38.222377895Z",
+    "agent_lines": 756,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 756,
+    "agent_percentage": 100
+  }
+}
