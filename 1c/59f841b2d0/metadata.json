@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "1c59f841b2d0",
+  "strategy": "manual-commit",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/bmad-synergy.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/1c/59f841b2d0/0/metadata.json",
+      "transcript": "/1c/59f841b2d0/0/full.jsonl",
+      "context": "/1c/59f841b2d0/0/context.md",
+      "content_hash": "/1c/59f841b2d0/0/content_hash.txt",
+      "prompt": "/1c/59f841b2d0/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 17,
+    "cache_creation_tokens": 35900,
+    "cache_read_tokens": 462557,
+    "output_tokens": 5709,
+    "api_call_count": 13
+  }
+}
