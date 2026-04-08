@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "fc83e866a8f1",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".github/workflows/quality.yaml",
+    "README.md",
+    "package.json",
+    "src/shared/scripts/skf-manifest-ops.py",
+    "src/shared/scripts/skf-preflight.py",
+    "src/shared/scripts/skf-rebuild-managed-sections.py",
+    "src/shared/scripts/skf-severity-classify.py",
+    "src/shared/scripts/skf-skill-inventory.py",
+    "src/shared/scripts/skf-structural-diff.py",
+    "src/shared/scripts/skf-validate-output.py",
+    "src/skf-test-skill/scripts/compute-score.py",
+    "test/test-compute-score-contract.py",
+    "test/test-skf-manifest-ops.py",
+    "test/test-skf-preflight.py",
+    "test/test-skf-rebuild-managed-sections.py",
+    "test/test-skf-severity-classify.py",
+    "test/test-skf-skill-inventory.py",
+    "test/test-skf-structural-diff.py",
+    "test/test-skf-validate-output.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fc/83e866a8f1/0/metadata.json",
+      "transcript": "/fc/83e866a8f1/0/full.jsonl",
+      "context": "/fc/83e866a8f1/0/context.md",
+      "content_hash": "/fc/83e866a8f1/0/content_hash.txt",
+      "prompt": "/fc/83e866a8f1/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 78,
+    "cache_creation_tokens": 67004,
+    "cache_read_tokens": 8192212,
+    "output_tokens": 18719,
+    "api_call_count": 60
+  }
+}

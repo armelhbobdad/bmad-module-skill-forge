@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "fc83e866a8f1",
+  "session_id": "a6dc3697-2ffe-4d8b-8406-4e49e277cb3f",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-08T20:47:31.107539345Z",
+  "branch": "dev",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".github/workflows/quality.yaml",
+    "README.md",
+    "package.json",
+    "src/shared/scripts/skf-manifest-ops.py",
+    "src/shared/scripts/skf-preflight.py",
+    "src/shared/scripts/skf-rebuild-managed-sections.py",
+    "src/shared/scripts/skf-severity-classify.py",
+    "src/shared/scripts/skf-skill-inventory.py",
+    "src/shared/scripts/skf-structural-diff.py",
+    "src/shared/scripts/skf-validate-output.py",
+    "src/skf-test-skill/scripts/compute-score.py",
+    "test/test-compute-score-contract.py",
+    "test/test-skf-manifest-ops.py",
+    "test/test-skf-preflight.py",
+    "test/test-skf-rebuild-managed-sections.py",
+    "test/test-skf-severity-classify.py",
+    "test/test-skf-skill-inventory.py",
+    "test/test-skf-structural-diff.py",
+    "test/test-skf-validate-output.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "ca0dd0287a60",
+  "checkpoint_transcript_start": 386,
+  "transcript_lines_at_start": 386,
+  "token_usage": {
+    "input_tokens": 78,
+    "cache_creation_tokens": 67004,
+    "cache_read_tokens": 8192212,
+    "output_tokens": 18719,
+    "api_call_count": 60
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-08T20:47:30.204407869Z",
+    "agent_lines": 757,
+    "human_added": 0,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 758,
+    "agent_percentage": 99.86807387862797
+  }
+}
