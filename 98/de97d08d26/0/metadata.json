@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "98de97d08d26",
+  "session_id": "a6dc3697-2ffe-4d8b-8406-4e49e277cb3f",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-08T22:52:04.377080042Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/how-it-works.md",
+    "src/forger/preferences.yaml",
+    "src/knowledge/skill-lifecycle.md",
+    "src/skf-setup/steps-c/step-02-write-config.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "ca0dd0287a60",
+  "token_usage": {
+    "input_tokens": 201,
+    "cache_creation_tokens": 168490,
+    "cache_read_tokens": 12723516,
+    "output_tokens": 44264,
+    "api_call_count": 128
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-08T22:52:03.276869974Z",
+    "agent_lines": 10,
+    "human_added": 3,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 13,
+    "agent_percentage": 76.92307692307693
+  }
+}
