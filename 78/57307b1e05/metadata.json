@@ -3,7 +3,7 @@
   "checkpoint_id": "7857307b1e05",
   "strategy": "manual-commit",
   "branch": "dev",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "src/shared/scripts/skf-manifest-ops.py",
     "src/shared/scripts/skf-preflight.py",
@@ -25,13 +25,20 @@
       "context": "/78/57307b1e05/0/context.md",
       "content_hash": "/78/57307b1e05/0/content_hash.txt",
       "prompt": "/78/57307b1e05/0/prompt.txt"
+    },
+    {
+      "metadata": "/78/57307b1e05/1/metadata.json",
+      "transcript": "/78/57307b1e05/1/full.jsonl",
+      "context": "/78/57307b1e05/1/context.md",
+      "content_hash": "/78/57307b1e05/1/content_hash.txt",
+      "prompt": "/78/57307b1e05/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 5202,
-    "cache_creation_tokens": 88304,
-    "cache_read_tokens": 2733972,
-    "output_tokens": 21638,
-    "api_call_count": 42
+    "input_tokens": 5403,
+    "cache_creation_tokens": 256794,
+    "cache_read_tokens": 15457488,
+    "output_tokens": 65902,
+    "api_call_count": 170
   }
 }
