@@ -3,6 +3,7 @@ nextStepFile: './step-06-report.md'
 outputFile: '{forge_data_folder}/{skill_name}/test-report-{skill_name}.md'
 scoringRulesFile: '../references/scoring-rules.md'
 sourceAccessProtocol: '../references/source-access-protocol.md'
+scoringScript: '../scripts/compute-score.js'
 ---
 
 # Step 5: Score
@@ -84,7 +85,63 @@ Read `{outputFile}` and extract the category scores calculated in previous steps
 
 **Read testMode from {outputFile} frontmatter.**
 
-Apply the weight distribution from `{scoringRulesFile}` for the detected mode (naive or contextual). The scoring rules define category weights, external validation redistribution when unavailable, and Quick tier adjustments. Calculate the weighted score for each category and sum for the total.
+#### 3a. Construct Scoring Input JSON
+
+Build a JSON object from the data gathered in steps 1-2:
+
+```json
+{
+  "mode": "{testMode: contextual or naive}",
+  "tier": "{forge_tier: Quick, Forge, Forge+, or Deep}",
+  "docsOnly": "{true if docs_only_mode detected in step 03, else false}",
+  "state2": "{true if analysis_confidence is provenance-map, else false}",
+  "scores": {
+    "exportCoverage": "{export_coverage_percentage}",
+    "signatureAccuracy": "{signature_accuracy_percentage or null if N/A}",
+    "typeCoverage": "{type_coverage_percentage or null if N/A}",
+    "coherence": "{combined_coherence_percentage or null if naive mode}",
+    "externalValidation": "{external_validation_score or null if N/A}"
+  },
+  "threshold": "{custom_threshold or omit for default 80}"
+}
+```
+
+**Important:** Score values must be numbers (not strings). Use `null` (not `"N/A"`) for categories that were not scored.
+
+#### 3b. Run the Scoring Script
+
+```bash
+node {scoringScript} '<JSON>'
+```
+
+Where `{scoringScript}` is the path resolved from the frontmatter variable (relative to this step file).
+
+Parse the JSON output. The script returns:
+- `weights` — final redistributed weights per category
+- `weightedScores` — weighted contribution per category
+- `totalScore` — the overall completeness score
+- `threshold` — the threshold used
+- `result` — `"PASS"` or `"FAIL"`
+- `activeCategories` — list of categories that were scored
+- `skippedCategories` — list of categories that were skipped
+- `skipReasons` — why each category was skipped
+- `weightSum` — sum of final weights (should be ~100)
+
+Use these values for Section 4 (pass/fail) and Section 6 (output formatting).
+
+#### 3c. Fallback (if script execution fails)
+
+If the script is unavailable or returns an error, fall back to manual calculation:
+
+1. Select the weight table from `{scoringRulesFile}` for the detected mode (naive or contextual)
+2. Determine skip conditions: Quick tier/docsOnly/state2 skip Signature Accuracy + Type Coverage; naive mode coherence is already 0; null external validation means skip it
+3. For each skipped category, set its weight to 0
+4. Compute sum of active category weights
+5. For each active category: `new_weight = old_weight / sum_active * 100`
+6. `weighted_score = new_weight / 100 * category_score`
+7. `total = sum of all weighted_scores`
+
+Report: "**Note:** Scoring script unavailable — calculated manually per scoring-rules.md."
 
 ### 4. Determine Pass/Fail
 

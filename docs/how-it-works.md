@@ -221,6 +221,10 @@ If no integration patterns exist, coherence equals reference validity alone.
 
 **External validation** averages the two tools when both are available. When only one tool is available, that tool's score is used. When neither is available, the 10% weight is redistributed proportionally to the other active categories.
 
+### Deterministic Scoring
+
+The weight redistribution and score aggregation are computed by a deterministic Node.js script ([`compute-score.js`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-test-skill/scripts/compute-score.js)). The LLM extracts category scores from the test report, constructs a JSON input, invokes the script, and uses its output for the final score. This ensures reproducible results — the same inputs always produce the same score. If the script is unavailable, the LLM falls back to manual calculation using the same formulas.
+
 ### Naive vs Contextual Mode
 
 Test Skill runs in one of two modes, detected automatically:
