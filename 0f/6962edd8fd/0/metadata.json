@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0f6962edd8fd",
+  "session_id": "01d6e00d-8d09-4eae-9e1e-18aa6264afab",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-08T07:55:32.810142245Z",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "package.json",
+    "src/skf-export-skill/steps-c/step-04-update-context.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "7e68fd0c0af5",
+  "token_usage": {
+    "input_tokens": 81,
+    "cache_creation_tokens": 153879,
+    "cache_read_tokens": 7796973,
+    "output_tokens": 16398,
+    "api_call_count": 72
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-08T07:55:32.296535131Z",
+    "agent_lines": 4,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 4,
+    "agent_percentage": 100
+  }
+}
