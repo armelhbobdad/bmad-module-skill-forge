@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "194b19b2f47e",
+  "strategy": "manual-commit",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/how-it-works.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/19/4b19b2f47e/0/metadata.json",
+      "transcript": "/19/4b19b2f47e/0/full.jsonl",
+      "context": "/19/4b19b2f47e/0/context.md",
+      "content_hash": "/19/4b19b2f47e/0/content_hash.txt",
+      "prompt": "/19/4b19b2f47e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 4870,
+    "cache_creation_tokens": 268802,
+    "cache_read_tokens": 19002161,
+    "output_tokens": 60224,
+    "api_call_count": 148
+  }
+}
