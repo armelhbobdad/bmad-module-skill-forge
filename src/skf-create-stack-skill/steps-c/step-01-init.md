@@ -39,7 +39,7 @@ Load forge tier configuration, validate prerequisites, and prepare the stack ski
 ## CONTEXT BOUNDARIES:
 
 - This is the first step — no prior workflow state exists
-- Requires setup-forge to have been completed (forge-tier.yaml)
+- Requires setup to have been completed (forge-tier.yaml)
 - User may provide optional explicit dependency list or scope overrides
 - No dependencies on brief-skill or create-skill outputs
 
@@ -53,9 +53,9 @@ Load `{forgeTierFile}` from the Ferris sidecar.
 
 **If forge-tier.yaml does not exist:**
 
-"**Cannot proceed.** The setup-forge workflow has not been run for this project.
+"**Cannot proceed.** The setup workflow has not been run for this project.
 
-**Required:** Run `setup-forge` first to detect available tools and determine your forge tier.
+**Required:** Run `setup` first to detect available tools and determine your forge tier.
 
 **Halting workflow.**"
 

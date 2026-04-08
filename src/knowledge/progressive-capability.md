@@ -31,7 +31,7 @@ With progressive capability:
 
 ### Example 1: Tool Detection and Tier Assignment
 
-**Context:** The setup-forge workflow detects available tools and assigns a tier.
+**Context:** The setup workflow detects available tools and assigns a tier.
 
 **Implementation:** Each tool is verified by executing its version command — presence in PATH is insufficient. The tier is the highest level where all required tools pass verification:
 
@@ -125,7 +125,7 @@ When source is remote (GitHub URL) and tier is Forge, Forge+, or Deep:
 ## Anti-Patterns
 
 - Describing Quick tier as "basic" or "limited" — it is fast and legitimate
-- Requiring ast-grep for workflows that work fine without it (setup-forge, brief-skill)
+- Requiring ast-grep for workflows that work fine without it (setup, brief-skill)
 - Mixing tier capabilities in a single extraction (e.g., T1 citations when only source reading was used)
 - Failing a workflow because the tier is "too low" — adapt behavior instead
 - Silent degradation when source is remote at Forge/Deep tier — always warn with actionable guidance
@@ -136,4 +136,4 @@ When source is remote (GitHub URL) and tier is Forge, Forge+, or Deep:
 - [skill-lifecycle.md](skill-lifecycle.md) — how tier affects workflow selection and artifact flow
 - [zero-hallucination.md](zero-hallucination.md) — Quick tier has lower confidence but the same integrity standard
 
-_Source: distilled from forge-tier.yaml, tier-rules.md, and setup-forge workflow_
+_Source: distilled from forge-tier.yaml, tier-rules.md, and setup workflow_

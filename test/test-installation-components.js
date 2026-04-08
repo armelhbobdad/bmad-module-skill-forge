@@ -69,7 +69,7 @@ async function runTests() {
   console.log(`${colors.yellow}Test Suite 1: Module Configuration${colors.reset}\n`);
 
   try {
-    const moduleYamlPath = path.join(projectRoot, 'src/module.yaml');
+    const moduleYamlPath = path.join(projectRoot, 'src/skf-setup/assets/module.yaml');
     const moduleYaml = yaml.load(await fs.readFile(moduleYamlPath, 'utf8'));
 
     assert(moduleYaml.code === 'skf', 'module.yaml has correct code: skf');
@@ -110,7 +110,7 @@ async function runTests() {
       const content = await fs.readFile(agentSkillMd, 'utf8');
       assert(content.includes('## Capabilities'), 'Agent SKILL.md has Capabilities section');
       assert(content.includes('## On Activation'), 'Agent SKILL.md has On Activation section');
-      assert(content.includes('skf-setup-forge'), 'Agent capabilities reference skf-setup-forge');
+      assert(content.includes('skf-setup'), 'Agent capabilities reference skf-setup');
       assert(content.includes('skf-create-skill'), 'Agent capabilities reference skf-create-skill');
     }
   } catch (error) {
@@ -148,7 +148,7 @@ async function runTests() {
   console.log(`${colors.yellow}Test Suite 4: Workflow Structure${colors.reset}\n`);
 
   const workflowNames = [
-    'setup-forge',
+    'setup',
     'analyze-source',
     'brief-skill',
     'create-skill',
@@ -192,7 +192,7 @@ async function runTests() {
   console.log(`${colors.yellow}Test Suite 5: Step-File and Resource File Validation${colors.reset}\n`);
 
   const stepFileChains = {
-    'setup-forge': {
+    setup: {
       steps: [
         'step-01-detect-and-tier.md',
         'step-01b-ccc-index.md',

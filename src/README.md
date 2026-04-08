@@ -8,12 +8,14 @@ For user-facing documentation (what SKF does, how to install it, how to use it),
 
 ```
 src/
-├── module.yaml               # Module config: code, name, install prompts
-├── module-help.csv           # Help registry — one row per agent command
 ├── skf-forger/               # Agent skill — Ferris persona
 │   ├── SKILL.md              # Agent identity, principles, menu of triggers
 │   └── bmad-skill-manifest.yaml
-├── skf-{name}/               # 14 workflow skills (one directory each)
+├── skf-setup/                # Setup skill (module metadata + forge initialization)
+│   ├── SKILL.md
+│   ├── assets/               # module.yaml, module-help.csv
+│   └── ...
+├── skf-{name}/               # 13 workflow skills (one directory each)
 │   ├── SKILL.md              # Skill entry point
 │   ├── workflow.md           # Human-readable workflow description
 │   ├── steps-c/              # Sequential step files
@@ -26,7 +28,7 @@ src/
 └── shared/                   # Cross-workflow resources
 ```
 
-**Workflow skills:** setup-forge, analyze-source, brief-skill, create-skill, quick-skill, create-stack-skill, verify-stack, refine-architecture, update-skill, audit-skill, test-skill, export-skill, rename-skill, drop-skill.
+**Workflow skills:** setup, analyze-source, brief-skill, create-skill, quick-skill, create-stack-skill, verify-stack, refine-architecture, update-skill, audit-skill, test-skill, export-skill, rename-skill, drop-skill.
 
 ## Components
 

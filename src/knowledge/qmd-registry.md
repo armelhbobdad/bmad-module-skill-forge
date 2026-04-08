@@ -6,7 +6,7 @@ QMD collections in the Skill Forge follow a **progressive registry architecture*
 
 ## Rationale
 
-Early SKF versions used a blind auto-index strategy: setup-forge would scan all project directories and index them into QMD collections. This created three problems:
+Early SKF versions used a blind auto-index strategy: setup would scan all project directories and index them into QMD collections. This created three problems:
 
 - On fresh workspaces, auto-indexing found nothing — wasted work
 - Raw source code indexing produced low signal-to-noise search results
@@ -22,7 +22,7 @@ The progressive registry solves all three by indexing **curated workflow artifac
 | --- | --- | --- |
 | **Producer** | brief-skill, create-skill | Creates QMD collections from workflow artifacts and registers them in forge-tier.yaml |
 | **Consumer** | audit-skill, update-skill, create-stack-skill | Reads the registry, discovers collections by skill name and type, queries via qmd_bridge (see [tool-resolution.md](tool-resolution.md) for concrete resolution) |
-| **Janitor** | setup-forge | Cross-references live QMD collections against the registry, cleans orphans and stale entries |
+| **Janitor** | setup | Cross-references live QMD collections against the registry, cleans orphans and stale entries |
 
 ### Registry Schema
 
@@ -45,7 +45,7 @@ qmd_collections:
 
 **Optional field: `status`**
 
-The `status` field is only present when QMD embed verification fails during collection creation. When `status: "pending"` is set, the collection exists in QMD but vector embeddings may be incomplete — only BM25 keyword `search` is reliable. `vector_search` and `deep_search` may return no results until re-embedded. Collections without a `status` field are fully operational. The setup-forge janitor should flag `"pending"` collections for re-embedding.
+The `status` field is only present when QMD embed verification fails during collection creation. When `status: "pending"` is set, the collection exists in QMD but vector embeddings may be incomplete — only BM25 keyword `search` is reliable. `vector_search` and `deep_search` may return no results until re-embedded. Collections without a `status` field are fully operational. The setup janitor should flag `"pending"` collections for re-embedding.
 
 ### Collection Types
 
@@ -70,7 +70,7 @@ create-skill compiles skill → indexes {name}-extraction → registers in forge
 audit-skill reads registry → queries {name}-extraction for drift baseline
 update-skill reads registry → queries {name}-extraction for T2 enrichment
     ↓
-setup-forge reads registry + QMD state → cleans orphans, removes stale entries
+setup reads registry + QMD state → cleans orphans, removes stale entries
 ```
 
 ## Collection Gate
@@ -111,8 +111,8 @@ The `ccc_index_registry` array in forge-tier.yaml is a **parallel but separate**
 |--------|----------------|-------------------|
 | **What is indexed** | Curated workflow artifacts (SKILL.md, briefs, temporal data) | Source code (the actual codebase) |
 | **Index engine** | QMD (BM25 + optional vector search) | cocoindex-code (AST + vector embeddings) |
-| **Lifecycle** | Per-skill: created by create-skill, consumed by audit/update-skill | Per-project: created by setup-forge, verified by create-skill |
-| **Janitor** | setup-forge step-03 (orphan/stale QMD collection cleanup) | setup-forge step-03 section 5b (stale path cleanup) |
+| **Lifecycle** | Per-skill: created by create-skill, consumed by audit/update-skill | Per-project: created by setup, verified by create-skill |
+| **Janitor** | setup step-03 (orphan/stale QMD collection cleanup) | setup step-03 section 5b (stale path cleanup) |
 | **Availability** | Deep tier only | Forge+ and Deep tiers |
 
 These registries are orthogonal — they never reference each other, and their janitor sections operate independently.
@@ -139,7 +139,7 @@ Then append/replace the registry entry in forge-tier.yaml. Failures never block 
 
 **Implementation:** Read `qmd_collections` from forge-tier.yaml. Find entry where `skill_name` matches AND `type` is `"extraction"`. If found, query via qmd_bridge. If not found, log and continue without T2 enrichment — not an error.
 
-### Example 3: Janitor Hygiene (setup-forge)
+### Example 3: Janitor Hygiene (setup)
 
 **Context:** Setup-forge verifies QMD health on every run.
 
@@ -151,4 +151,4 @@ Then append/replace the registry entry in forge-tier.yaml. Failures never block 
 - [skill-lifecycle.md](skill-lifecycle.md) — end-to-end pipeline showing where producers and consumers sit
 - [provenance-tracking.md](provenance-tracking.md) — provenance map that provides file:line context without QMD
 
-_Source: progressive QMD registry architecture implemented across setup-forge, brief-skill, create-skill, audit-skill, and update-skill workflows_
+_Source: progressive QMD registry architecture implemented across setup, brief-skill, create-skill, audit-skill, and update-skill workflows_

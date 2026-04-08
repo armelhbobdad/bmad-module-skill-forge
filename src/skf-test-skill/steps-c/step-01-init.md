@@ -48,7 +48,7 @@ Discover and validate the target skill, load forge tier state to determine analy
 - Available: User-provided skill path, SKF module config
 - Focus: Input validation and tier detection only
 - Limits: Do not analyze skill content — just confirm it exists and is loadable
-- Dependencies: setup-forge must have run (forge-tier.yaml must exist)
+- Dependencies: setup must have run (forge-tier.yaml must exist)
 
 ## MANDATORY SEQUENCE
 
@@ -121,7 +121,7 @@ Read `{sidecarFile}` to determine available analysis depth.
 - Read tool availability flags (ast_grep, gh_cli, qmd)
 
 **If forge-tier.yaml missing:**
-"**Cannot proceed.** forge-tier.yaml not found at `{sidecarFile}`. Please run the **setup-forge** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
+"**Cannot proceed.** forge-tier.yaml not found at `{sidecarFile}`. Please run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
 
 HALT — do not proceed.
 

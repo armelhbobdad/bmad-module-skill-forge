@@ -48,7 +48,7 @@ To initialize the analyze-source workflow by loading configuration, detecting co
 - Available: SKF module config (loaded by workflow.md), forge_data_folder, skills_output_folder, forge_tier
 - Focus: Setup and validation only — no analysis
 - Limits: Do not read source files beyond checking prerequisites
-- Dependencies: setup-forge must have been run (forge-tier.yaml must exist)
+- Dependencies: setup must have been run (forge-tier.yaml must exist)
 
 ## MANDATORY SEQUENCE
 
@@ -70,7 +70,7 @@ Look for {outputFile}.
 
 **Check forge-tier.yaml:**
 - Look for `{sidecar_path}/forge-tier.yaml`
-- **IF missing:** HARD HALT — "**Cannot proceed.** forge-tier.yaml not found at `{sidecar_path}/forge-tier.yaml`. Please run the setup-forge workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
+- **IF missing:** HARD HALT — "**Cannot proceed.** forge-tier.yaml not found at `{sidecar_path}/forge-tier.yaml`. Please run the setup workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
 - **IF found:** Read and note the forge tier value
 
 **Apply tier override:** Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, Forge+, or Deep), use it instead of the detected tier.

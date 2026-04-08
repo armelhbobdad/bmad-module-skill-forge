@@ -92,7 +92,7 @@ SKF has two install-time variables (defined in `src/module.yaml`), one Core Conf
 | `output_folder`        | Where refined architecture documents are saved (used by RA workflow). *Inherited from BMad Core Config.* | Defined by BMad Core Config |
 | `tier_override`        | Force a specific tier for comparison or testing (in `_bmad/_memory/forger-sidecar/preferences.yaml`) | `~` (auto-detect)           |
 
-Runtime configuration (tool detection, tier, and collection state) is managed by the `setup-forge` workflow and persisted in `forge-tier.yaml`.
+Runtime configuration (tool detection, tier, and collection state) is managed by the `setup` workflow and persisted in `forge-tier.yaml`.
 
 ---
 

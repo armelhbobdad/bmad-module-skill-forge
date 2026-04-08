@@ -182,7 +182,7 @@ If an entry with `name: "{name}-extraction"` already exists, replace it. Otherwi
 Write the updated forge-tier.yaml.
 
 **Error handling:**
-- If QMD collection creation fails: log the error, note that indexing can be retried via [SF] setup-forge. Do NOT fail the workflow.
+- If QMD collection creation fails: log the error, note that indexing can be retried via [SF] setup. Do NOT fail the workflow.
 - If forge-tier.yaml update fails: log the error, continue. The collection exists in QMD even if the registry entry failed.
 
 **IF forge tier is NOT Deep:** Skip this section silently. No messaging.
@@ -195,7 +195,7 @@ Ensure the source path used for extraction is indexed by ccc and registered in t
 
 **Index verification:**
 
-Dispatch to ccc CLI (`ccc index {source_root}`) or ccc MCP tool — `ccc_bridge.ensure_index` is a conceptual interface, not a callable function. This is a no-op if the source was already indexed during setup-forge or step-02b.
+Dispatch to ccc CLI (`ccc index {source_root}`) or ccc MCP tool — `ccc_bridge.ensure_index` is a conceptual interface, not a callable function. This is a no-op if the source was already indexed during setup or step-02b.
 
 **Registry update:**
 

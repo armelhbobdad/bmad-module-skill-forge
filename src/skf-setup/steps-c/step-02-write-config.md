@@ -53,7 +53,7 @@ Write to `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml`:
 
 ```yaml
 # Ferris Sidecar: Forge Tier State
-# Written by setup-forge workflow
+# Written by setup workflow
 
 # Tool availability (detected during [SF] Setup Forge)
 tools:
@@ -69,7 +69,7 @@ tools:
 tier: {calculated_tier}
 tier_detected_at: {current ISO timestamp}
 
-# CCC semantic index state (managed by setup-forge step-01b and extraction workflows)
+# CCC semantic index state (managed by setup step-01b and extraction workflows)
 ccc_index:
   indexed_path: {ccc_indexed_path from step-01b, or ~}
   last_indexed: {ccc_last_indexed from step-01b, or ~}
@@ -101,7 +101,7 @@ Check if `{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml` exists:
 
 ```yaml
 # Ferris Sidecar: User Preferences
-# Created by setup-forge workflow on first run
+# Created by setup workflow on first run
 # Edit this file to customize Ferris behavior
 
 # Override detected tier (set to Quick, Forge, Forge+, or Deep to force a tier)

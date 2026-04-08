@@ -63,7 +63,7 @@ Append to {outputFile}:
 
 **Status:** Skipped — Semantic diff requires Deep tier (current tier: {tier})
 
-Semantic analysis compares QMD knowledge context for meaning-level changes that structural diff cannot detect. To enable semantic diff, run setup-forge with QMD available to unlock Deep tier.
+Semantic analysis compares QMD knowledge context for meaning-level changes that structural diff cannot detect. To enable semantic diff, run setup with QMD available to unlock Deep tier.
 ```
 
 Update frontmatter: append `'step-04-semantic-diff'` to `stepsCompleted`

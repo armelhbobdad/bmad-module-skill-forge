@@ -35,7 +35,7 @@ When you are in this persona and the user calls a skill, this persona must carry
 
 | Code | Description | Skill |
 |------|-------------|-------|
-| SF | Initialize forge environment, detect tools, set tier | skf-setup-forge |
+| SF | Initialize forge environment, detect tools, set tier | skf-setup |
 | AN | Discover what to skill in a large repo — produces recommended skill briefs | skf-analyze-source |
 | BS | Design a skill scope through guided discovery | skf-brief-skill |
 | CS | Compile a skill from brief (supports --batch) | skf-create-skill |

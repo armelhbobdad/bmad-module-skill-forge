@@ -265,7 +265,7 @@ If your source repo includes executable scripts (`scripts/`, `bin/`) or static a
 ### Common Issues
 
 **Forge reports ast-grep is unavailable**
-If setup-forge reports that ast-grep was not detected, install it to unlock Forge mode: <https://ast-grep.github.io>
+If setup reports that ast-grep was not detected, install it to unlock Forge mode: <https://ast-grep.github.io>
 
 **"No brief found"**
 Run `@Ferris BS` first to create a skill brief, or use `@Ferris QS` for brief-less generation.

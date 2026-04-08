@@ -64,7 +64,7 @@ Attempt to load `{forgeTierFile}`:
 **Apply tier override:** Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, Forge+, or Deep), use it instead of the detected tier.
 
 **If not found:**
-- "**Cannot proceed.** forge-tier.yaml not found at `{forgeTierFile}`. Please run the **setup-forge** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
+- "**Cannot proceed.** forge-tier.yaml not found at `{forgeTierFile}`. Please run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
 - HALT — do not proceed.
 
 ### 2. Welcome and Explain

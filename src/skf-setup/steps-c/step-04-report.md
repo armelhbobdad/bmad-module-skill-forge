@@ -130,7 +130,7 @@ Load and execute `{nextStepFile}` for workflow self-improvement check.
 
 ## CRITICAL STEP COMPLETION NOTE
 
-This step chains to the shared health check. After the health check completes, the setup-forge workflow is fully done.
+This step chains to the shared health check. After the health check completes, the setup workflow is fully done.
 
 ---
 

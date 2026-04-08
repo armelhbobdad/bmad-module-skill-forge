@@ -527,10 +527,8 @@ Workflows load only the fragments required for the current task to stay focused 
 
 ```
 src/
-├── module.yaml
-├── module-help.csv
 ├── skf-forger/               # Agent skill (SKILL.md + manifest)
-├── skf-setup-forge/          # Workflow skills (one directory each)
+├── skf-setup/                # Setup skill (SKILL.md + assets/module.yaml + assets/module-help.csv)
 ├── skf-analyze-source/
 ├── skf-brief-skill/
 ├── skf-create-skill/

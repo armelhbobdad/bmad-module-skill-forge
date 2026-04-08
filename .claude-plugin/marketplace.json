@@ -19,7 +19,7 @@
       },
       "skills": [
         "./src/skf-forger",
-        "./src/skf-setup-forge",
+        "./src/skf-setup",
         "./src/skf-analyze-source",
         "./src/skf-brief-skill",
         "./src/skf-create-skill",

@@ -46,7 +46,7 @@ Load the existing skill and all its provenance data, detect whether this is an i
 - Available: SKF module config (skills_output_folder, forge_data_folder), user-provided skill path
 - Focus: artifact loading and baseline establishment
 - Limits: read-only — do not modify any files
-- Dependencies: setup-forge must have been run (forge-tier.yaml), create-skill or create-stack-skill must have been run (SKILL.md + provenance-map.json)
+- Dependencies: setup must have been run (forge-tier.yaml), create-skill or create-stack-skill must have been run (SKILL.md + provenance-map.json)
 
 ## MANDATORY SEQUENCE
 
@@ -94,7 +94,7 @@ Search for the test report at `{forge_data_folder}/{skill_name}/{active_version}
 
 **Load `{sidecar_path}/forge-tier.yaml`:**
 - Extract: `tier` (Quick, Forge, Forge+, or Deep), available tools
-- If missing: **ABORT** — "No forge-tier.yaml found. Run setup-forge first to detect available tools."
+- If missing: **ABORT** — "No forge-tier.yaml found. Run setup first to detect available tools."
 
 **Apply tier override:** Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, Forge+, or Deep), use it instead of the detected tier.
 

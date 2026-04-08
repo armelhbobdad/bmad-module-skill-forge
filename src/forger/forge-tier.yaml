@@ -1,5 +1,5 @@
 # Ferris Sidecar: Forge Tier State
-# Written by setup-forge workflow on first run
+# Written by setup workflow on first run
 
 # Tool availability (detected during [SF] Setup Forge)
 tools:
@@ -15,7 +15,7 @@ tools:
 tier: ~
 tier_detected_at: ~
 
-# CCC semantic index state (managed by setup-forge and extraction workflows)
+# CCC semantic index state (managed by setup and extraction workflows)
 ccc_index:
   indexed_path: ~
   last_indexed: ~

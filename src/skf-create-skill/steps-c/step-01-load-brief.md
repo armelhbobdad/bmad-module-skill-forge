@@ -44,7 +44,7 @@ To load and validate the skill-brief.yaml compilation config, resolve the source
 - Available: User's skill name or brief path from Ferris menu invocation
 - Focus: Loading inputs and determining capabilities
 - Limits: Do NOT begin any extraction or compilation work
-- Dependencies: forge-tier.yaml must exist (from setup-forge workflow)
+- Dependencies: forge-tier.yaml must exist (from setup workflow)
 
 ## MANDATORY SEQUENCE
 
