@@ -7,8 +7,6 @@
 #   installer:
 #     target_dir: Directory where skill directories are installed
 #     legacy_targets: (optional) Old target dirs to clean up on reinstall
-#     ancestor_conflict_check: (optional) Refuse install when ancestor dir has BMAD files
-
 platforms:
   antigravity:
     name: "Google Antigravity"
@@ -39,6 +37,7 @@ platforms:
     name: "Cline"
     preferred: false
     installer:
+      detection_marker: .clinerules
       legacy_targets:
         - .clinerules/workflows
       target_dir: .cline/skills

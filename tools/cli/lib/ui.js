@@ -134,7 +134,7 @@ class UI {
       }
       action = choice;
     } else {
-      log.info(`Agents and workflows will be installed in ${chalk.white(skfFolder + '/')}`);
+      log.info(`Skills will be installed in ${chalk.white(skfFolder + '/')}`);
     }
 
     if (action === 'update') {

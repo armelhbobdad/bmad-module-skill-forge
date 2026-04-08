@@ -354,7 +354,7 @@ async function testUninstallCleansUp() {
 }
 
 async function testIdeCommandGeneration() {
-  console.log(`${colors.yellow}Test Suite 4: IDE Command Generation${colors.reset}\n`);
+  console.log(`${colors.yellow}Test Suite 4: IDE Skill Installation${colors.reset}\n`);
 
   const projectDir = await makeTempDir('ide-cmds');
 

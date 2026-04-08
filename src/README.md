@@ -18,7 +18,8 @@ src/
 │   ├── workflow.md           # Human-readable workflow description
 │   ├── steps-c/              # Sequential step files
 │   ├── references/           # Rules, patterns, protocols (decision-making)
-│   └── assets/               # Templates, schemas, output formats
+│   ├── assets/               # Schemas, output formats
+│   └── templates/            # Output skeletons (used by some skills)
 ├── knowledge/                # Cross-cutting knowledge fragments (JiT loaded)
 │   └── skf-knowledge-index.csv
 ├── forger/                   # Sidecar seed files (preferences, forge tier)

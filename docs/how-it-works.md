@@ -31,7 +31,8 @@ Each workflow directory contains these files, and each has a specific job:
 |---------------------------|---------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|
 | `workflow.md`             | Human-readable entry point — goals, role definition, initialization sequence, routes to first step                   | Entry point per workflow                          |
 | `steps-c/*.md`            | **Create** steps — primary execution, 5–11 sequential files per workflow                                            | One at a time (just-in-time)                      |
-| `data/*.md`               | Workflow-specific reference data — schemas, heuristics, rules, patterns                                             | Read by steps on demand                           |
+| `references/*.md`         | Workflow-specific reference data — rules, patterns, protocols                                                       | Read by steps on demand                           |
+| `assets/*.md`             | Workflow-specific output formats — schemas, templates, heuristics                                                   | Read by steps on demand                           |
 | `templates/*.md`          | Output skeletons with placeholder vars — steps fill these in to produce the final artifact                          | Read by steps when generating output              |
 
 **Module-level shared files** (not per-workflow — loaded by the agent or referenced across workflows):
@@ -48,7 +49,7 @@ flowchart LR
   A --> W[Workflow Entry: workflow.md]
   W --> S[Step Files: steps-c/]
   S --> K[Knowledge Fragments<br/>skf-knowledge-index.csv → knowledge/*.md]
-  S --> D[Data & Templates<br/>data/*.md, templates/*.md]
+  S --> D[References & Assets<br/>references/*.md, assets/*.md, templates/*.md]
   S --> O[Outputs: skills/, forge-data/, sidecar<br/>when a step writes output]
 ```
 
@@ -59,7 +60,7 @@ flowchart LR
 3. **Workflow loads** — `workflow.md` presents the mode choice and routes to the first step file.
 4. **Step-by-step execution** — Only the current step file is in context (just-in-time loading). Each step explicitly names the next one. The LLM reads, executes, saves output, then loads the next step. No future steps are ever preloaded.
 5. **Knowledge injection** — Steps consult `skf-knowledge-index.csv` and selectively load fragments from `knowledge/` by tags and relevance. Cross-cutting principles (zero hallucination, confidence tiers, provenance) are loaded only when a step directs — not preloaded.
-6. **Data injection** — Steps read `data/*.md` files as needed (schemas, heuristics, extraction patterns). This is deliberate context engineering: only the data relevant to the current step enters the context window.
+6. **Reference and asset injection** — Steps read `references/*.md` and `assets/*.md` files as needed (rules, patterns, schemas, heuristics). This is deliberate context engineering: only the data relevant to the current step enters the context window.
 7. **Templates** — When a step produces output (e.g., a skill brief or test report), it reads the template file and fills in placeholders with computed results. The template provides consistent structure; the step provides the content.
 8. **Progress tracking** — Each step appends to an output file with state tracking. Resume mode reads this state and routes to the next incomplete step.
 

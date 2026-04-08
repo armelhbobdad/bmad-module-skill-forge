@@ -4,7 +4,7 @@ const { UI } = require('../lib/ui');
 
 module.exports = {
   command: 'install',
-  description: 'Install SKF agents and workflows into your project',
+  description: 'Install SKF skills into your project',
   options: [],
   action: async () => {
     try {

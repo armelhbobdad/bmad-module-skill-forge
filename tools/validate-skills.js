@@ -245,8 +245,8 @@ function validateSkill(skillDir) {
   const findings = [];
   const dirName = path.basename(skillDir);
   const skillMdPath = path.join(skillDir, 'SKILL.md');
-  const workflowMdPath = path.join(skillDir, 'workflow.md');
-  const stepsDir = fs.existsSync(path.join(skillDir, 'steps')) ? path.join(skillDir, 'steps') : path.join(skillDir, 'steps-c');
+  const stepsCDir = path.join(skillDir, 'steps-c');
+  const stepsDir = fs.existsSync(stepsCDir) ? stepsCDir : path.join(skillDir, 'steps');
 
   // Collect all files in the skill for PATH-02 and SEQ-02
   const allFiles = collectSkillFiles(skillDir);

@@ -115,7 +115,7 @@ function displayStatus(status, version) {
   console.log(`    Project:      ${chalk.hex('#FBBF24')(config.project_name || '(unknown)')}`);
   console.log(`    SKF folder:   ${chalk.dim(SKF_FOLDER + '/')}`);
   console.log(`    Agent:        ${status.agentInstalled ? chalk.green('installed') : chalk.yellow('not installed')}`);
-  console.log(`    Workflows:    ${chalk.white(status.workflowCount)}`);
+  console.log(`    Skills:       ${chalk.white(status.workflowCount)}`);
   if (manifest) {
     console.log(
       `    Installed:    ${chalk.dim(manifest.installed_at ? new Date(manifest.installed_at).toLocaleDateString() : '(unknown)')}`,

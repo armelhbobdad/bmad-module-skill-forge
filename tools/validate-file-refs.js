@@ -324,22 +324,28 @@ function extractCsvRefs(filePath, content) {
     return refs;
   }
 
-  // Only process if workflow-file column exists
+  // Columns known to contain file path references
+  const FILE_PATH_COLUMNS = ['workflow-file', 'fragment_file'];
+
   const firstRecord = records[0];
-  if (!firstRecord || !('workflow-file' in firstRecord)) {
-    return refs;
-  }
+  if (!firstRecord) return refs;
+
+  // Find which file-path columns exist in this CSV
+  const activeColumns = FILE_PATH_COLUMNS.filter((col) => col in firstRecord);
+  if (activeColumns.length === 0) return refs;
 
   for (const [i, record] of records.entries()) {
-    const raw = record['workflow-file'];
-    if (!raw || raw.trim() === '') continue;
-    if (!isResolvable(raw)) continue;
-    // skill: prefixed references are resolved by the IDE/CLI, not as file paths
-    if (raw.startsWith('skill:')) continue;
+    for (const col of activeColumns) {
+      const raw = record[col];
+      if (!raw || raw.trim() === '') continue;
+      if (!isResolvable(raw)) continue;
+      // skill: prefixed references are resolved by the IDE/CLI, not as file paths
+      if (raw.startsWith('skill:')) continue;
 
-    // Line = header (1) + data row index (0-based) + 1
-    const line = i + 2;
-    refs.push({ file: filePath, raw, type: 'project-root', line });
+      // Line = header (1) + data row index (0-based) + 1
+      const line = i + 2;
+      refs.push({ file: filePath, raw, type: 'project-root', line });
+    }
   }
 
   return refs;

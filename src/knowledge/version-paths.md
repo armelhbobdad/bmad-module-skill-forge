@@ -180,7 +180,7 @@ Renames a skill across all versions. Because the agentskills.io spec requires `n
 8. Export manifest: remove old key, add new key with same version data
 9. Platform context files (CLAUDE.md, AGENTS.md, .cursorrules): rebuild managed sections
 
-Rename is transactional — copy-verify-delete pattern. If any step fails, old skill remains intact. See `workflows/rename-skill/`.
+Rename is transactional — copy-verify-delete pattern. If any step fails, old skill remains intact. See `skf-rename-skill/`.
 
 ### Drop (DS - Drop Skill)
 
@@ -194,7 +194,7 @@ Drops a specific version or the entire skill with two modes:
 
 **Skill-level drop:** Removes the entire `{skill_group}` from the manifest. If purge, also deletes `{skill_group}` and `{forge_group}` directories.
 
-See `workflows/drop-skill/`.
+See `skf-drop-skill/`.
 
 ## Version Sanitization
 
