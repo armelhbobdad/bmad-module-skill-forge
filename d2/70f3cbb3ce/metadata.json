@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d270f3cbb3ce",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/agents.md",
+    "docs/examples.md",
+    "docs/getting-started.md",
+    "docs/workflows.md",
+    "package.json",
+    "src/README.md",
+    "src/knowledge/overview.md",
+    "src/shared/references/pipeline-contracts.md",
+    "src/skf-create-stack-skill/SKILL.md",
+    "src/skf-drop-skill/SKILL.md",
+    "src/skf-drop-skill/steps-c/step-01-select.md",
+    "src/skf-rename-skill/SKILL.md",
+    "src/skf-rename-skill/steps-c/step-01-select.md",
+    "src/skf-test-skill/SKILL.md",
+    "src/skf-update-skill/SKILL.md",
+    "src/skf-verify-stack/steps-c/step-06-report.md",
+    "test/test-installation-components.js",
+    "tools/cli/commands/status.js",
+    "tools/validate-skills.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d2/70f3cbb3ce/0/metadata.json",
+      "transcript": "/d2/70f3cbb3ce/0/full.jsonl",
+      "context": "/d2/70f3cbb3ce/0/context.md",
+      "content_hash": "/d2/70f3cbb3ce/0/content_hash.txt",
+      "prompt": "/d2/70f3cbb3ce/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 201,
+    "cache_creation_tokens": 168490,
+    "cache_read_tokens": 12723516,
+    "output_tokens": 44264,
+    "api_call_count": 128
+  }
+}
