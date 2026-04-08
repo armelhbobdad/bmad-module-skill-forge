@@ -13,7 +13,7 @@ If you're new to SKF itself, read [Getting Started](../getting-started/) first. 
 
 ## Launcher Skills vs Content Skills
 
-A BMAD project that also uses SKF ends up with two different kinds of `SKILL.md` files living in the same platform skills directory (`.claude/skills/` for Claude Code, `.cursor/skills/` for Cursor, `.agents/skills/` for Copilot/Codex and similar). They look similar. They are not the same thing. This is the single most durable point of confusion, so get it straight up front.
+A BMAD project that also uses SKF ends up with two different kinds of `SKILL.md` files living in the same IDE skills directory (e.g., `.claude/skills/` for Claude Code, `.cursor/skills/` for Cursor, `.github/skills/` for GitHub Copilot — each of the 23 supported IDEs has its own directory). They look similar. They are not the same thing. This is the single most durable point of confusion, so get it straight up front.
 
 | | BMAD launcher skill | SKF content skill |
 |---|---|---|
@@ -23,7 +23,7 @@ A BMAD project that also uses SKF ends up with two different kinds of `SKILL.md`
 | **Provenance** | Points to a BMAD workflow file inside `_bmad/` | Points to upstream repo commits, files, and line ranges |
 | **Example** | `bmad-create-prd/SKILL.md` loads a PRD workflow | `hono-4.6.0/SKILL.md` contains verified Hono API signatures |
 
-> BMAD skills *launch workflows*. SKF skills *are the workflows' output, frozen with citations*. Both coexist in the same platform skills directory on purpose.
+> BMAD skills *launch workflows*. SKF skills *are the workflows' output, frozen with citations*. Both coexist in the same IDE skills directory on purpose.
 
 When a BMAD agent runs a workflow, that workflow can consult SKF content skills for verified API knowledge. The two kinds of skills compose — they don't compete.
 

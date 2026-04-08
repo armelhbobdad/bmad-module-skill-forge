@@ -70,7 +70,7 @@ All other IDEs use AGENTS.md as the context file, each with its own skill direct
 
 ### Consumers
 
-This mapping is the single source of truth. Workflows that need it: `export-skill/step-01` (resolves `target_context_files` for the export), `drop-skill/step-02` and `rename-skill/step-02` (rebuild context files after a management operation).
+This mapping is the single source of truth. Workflows that need it: `export-skill/step-01` (resolves `target_context_files` from config.yaml IDE list), `export-skill/step-04` (applies four-case logic and rewrites root paths when writing managed sections), `drop-skill/step-02` and `rename-skill/step-02` (rebuild context files after a management operation).
 
 ## Four-Case Logic
 

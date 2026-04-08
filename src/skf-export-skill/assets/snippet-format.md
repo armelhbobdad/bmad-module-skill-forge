@@ -54,4 +54,4 @@ The root path in context-snippet.md on disk uses the **`skill_root` of the first
 - If fewer exports than the limit, list all available
 - If no exports data available, omit the api line
 - Section anchors must be verified against actual SKILL.md headings during generation. For split-body skills (where `references/` exists and `## Full` headings are stubs), if a heading is missing from SKILL.md, rewrite the anchor to point to the reference file path (preferred). Omit the anchor line only if the heading cannot be found in either SKILL.md or `references/*.md`
-- Skill path is relative to project root and uses the platform-specific root prefix (see Platform Root Path Mapping above)
+- Skill path is relative to project root and uses the IDE's `skill_root` prefix (see **Skill Root Path** above, and the IDE → Context File Mapping table in `managed-section-format.md`)

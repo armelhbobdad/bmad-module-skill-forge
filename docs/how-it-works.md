@@ -429,7 +429,7 @@ Export injects a managed section between markers:
 <!-- SKF:END -->
 ```
 
-~80-120 tokens per skill (version-pinned, retrieval instruction, section anchors, inline gotchas). Root paths are platform-aware (`.claude/skills/`, `.cursor/skills/`, `.agents/skills/`). Aligned with [Vercel's research](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals) finding that indexed format with explicit retrieval instructions dramatically improves agent performance. Developer controls placement. Ferris controls content. Snippet updates only happen at `export-skill` — create and update are draft operations. An `.export-manifest.json` tracks which skills have been explicitly exported, preventing draft skills from leaking into the managed section.
+~80-120 tokens per skill (version-pinned, retrieval instruction, section anchors, inline gotchas). Root paths are per-IDE — each of the 23 supported IDEs has its own skill directory (e.g., `.claude/skills/`, `.cursor/skills/`, `.github/skills/`, `.windsurf/skills/`). See [`skf-export-skill/assets/managed-section-format.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-export-skill/assets/managed-section-format.md) for the complete IDE → Context File Mapping. Aligned with [Vercel's research](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals) finding that indexed format with explicit retrieval instructions dramatically improves agent performance. Developer controls placement. Ferris controls content. Snippet updates only happen at `export-skill` — create and update are draft operations. An `.export-manifest.json` tracks which skills have been explicitly exported, preventing draft skills from leaking into the managed section.
 
 ---
 

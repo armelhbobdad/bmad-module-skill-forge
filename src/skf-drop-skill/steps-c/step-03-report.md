@@ -28,12 +28,12 @@ Present a clear, final summary of what the drop workflow changed — manifest st
 
 - 🎯 Focus only on reporting the results stored in context by step-02
 - 🚫 FORBIDDEN to re-execute any part of the drop
-- 🚫 FORBIDDEN to hide verification errors or failed platform rebuilds
+- 🚫 FORBIDDEN to hide verification errors or failed context file rebuilds
 - 💬 Present the final state clearly, including remaining versions for the affected skill
 
 ## EXECUTION PROTOCOLS:
 
-- 🎯 Render the report using the context values set in step-02 (`target_skill`, `target_versions`, `drop_mode`, `is_skill_level`, `files_deleted`, `disk_freed`, `manifest_updated`, `platform_files_updated`, `platform_files_failed`, `verification_errors`)
+- 🎯 Render the report using the context values set in step-02 (`target_skill`, `target_versions`, `drop_mode`, `is_skill_level`, `files_deleted`, `disk_freed`, `manifest_updated`, `context_files_updated`, `context_files_failed`, `verification_errors`)
 - 📖 For the "remaining versions" section, re-read `{skills_output_folder}/.export-manifest.json` (already updated by step-02) to show the current state
 - 💬 Include the reversibility note only when `drop_mode == "deprecate"`
 
@@ -77,9 +77,9 @@ Version(s):    {comma-separated target_versions or "ALL"}
 
 Changes:
 - Manifest updated:      {yes | no}
-- Platform files rebuilt: {list from platform_files_updated, or "(none)"}
-{if platform_files_failed is non-empty:}
-- Platform files FAILED: {list from platform_files_failed}
+- Context files rebuilt: {list from context_files_updated, or "(none)"}
+{if context_files_failed is non-empty:}
+- Context files FAILED: {list from context_files_failed}
 {if drop_mode == "purge":}
 - Files deleted:         {list from files_deleted, or "(none — nothing on disk)"}
 - Disk space freed:      {disk_freed}
@@ -115,7 +115,7 @@ This step chains to the shared health check. After the health check completes, t
 
 - Report rendered with operation type, skill, version(s), and mode
 - Manifest update outcome clearly stated (yes/no)
-- Platform files rebuilt listed (and failures surfaced when present)
+- Context files rebuilt listed (and failures surfaced when present)
 - Purge mode: files deleted and disk freed reported
 - Soft drop: reversibility note included with concrete instructions
 - Remaining versions for the affected skill accurately listed from the updated manifest (or "(skill fully removed)" for skill-level drops)

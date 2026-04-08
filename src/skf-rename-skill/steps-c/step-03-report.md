@@ -28,12 +28,12 @@ Present a clear, final summary of what the rename workflow changed — old and n
 
 - 🎯 Focus only on reporting the results stored in context by step-02
 - 🚫 FORBIDDEN to re-execute any part of the rename
-- 🚫 FORBIDDEN to hide verification warnings, platform rebuild failures, or deletion errors
+- 🚫 FORBIDDEN to hide verification warnings, context file rebuild failures, or deletion errors
 - 💬 Present the "next steps" guidance so the user knows which downstream workflows to run
 
 ## EXECUTION PROTOCOLS:
 
-- 🎯 Render the report using the context values set in step-02 (`old_name`, `new_name`, `affected_versions`, `affected_versions_count`, `files_updated_per_version`, `manifest_rekeyed`, `platform_files_updated`, `platform_files_failed`, `section2_warnings`, `section3_warnings`, `verification_warnings`, `deletion_errors`)
+- 🎯 Render the report using the context values set in step-02 (`old_name`, `new_name`, `affected_versions`, `affected_versions_count`, `files_updated_per_version`, `manifest_rekeyed`, `context_files_updated`, `context_files_failed`, `section2_warnings`, `section3_warnings`, `verification_warnings`, `deletion_errors`)
 - 💬 Include the "next steps" block unconditionally — it captures the common follow-ups for any rename
 
 ## CONTEXT BOUNDARIES:
@@ -66,9 +66,9 @@ References updated:
   - provenance-map.json        (×{affected_versions_count})
 
 Manifest updated: {if manifest_rekeyed: "exports.{new_name} (re-keyed from exports.{old_name})" else: "(no manifest entry existed for {old_name})"}
-Platform files rebuilt: {list from platform_files_updated, or "(none)"}
-{if platform_files_failed is non-empty:}
-Platform files FAILED: {list from platform_files_failed}
+Context files rebuilt: {list from context_files_updated, or "(none)"}
+{if context_files_failed is non-empty:}
+Context files FAILED: {list from context_files_failed}
   → Re-run `[EX] Export Skill` to retry the managed section rebuild for these files.
 
 {if section2_warnings is non-empty:}
@@ -114,7 +114,7 @@ This step chains to the shared health check. After the health check completes, t
 - Report rendered with old name, new name, and affected version list
 - Per-file update counts stated explicitly (SKILL.md, metadata.json, context-snippet.md, provenance-map.json)
 - Manifest re-key outcome clearly stated
-- Platform files rebuilt listed (and failures surfaced when present)
+- Context files rebuilt listed (and failures surfaced when present)
 - All warning categories surfaced (inner rename, missing files, informational body-text mentions)
 - Post-commit deletion errors surfaced with manual cleanup guidance
 - Next-steps block included unconditionally

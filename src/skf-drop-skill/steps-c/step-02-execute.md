@@ -164,7 +164,7 @@ For each entry in `target_context_files`:
 
 10. **On per-file failure:** record the error against that context file and continue to the next entry. Do not halt — other context files should still be rebuilt.
 
-**After the loop,** record `platform_files_updated` as the list of files that were successfully rewritten, and `platform_files_failed` as the list of any that failed.
+**After the loop,** record `context_files_updated` as the list of files that were successfully rewritten, and `context_files_failed` as the list of any that failed.
 
 Report: "**Rebuilt managed sections in:** {list of updated files}. {if any failed: 'Failed: {list}'}"
 
@@ -209,7 +209,7 @@ Run these verification checks:
    - Version-level drop: `exports.{target_skill}.versions.{version}.status == "deprecated"`
    - Skill-level drop: `exports.{target_skill}` is absent
 
-2. **Platform files check:** For each file in `platform_files_updated`, spot-check that the dropped skill/version is no longer referenced between the markers.
+2. **Context files check:** For each file in `context_files_updated`, spot-check that the dropped skill/version is no longer referenced between the markers.
 
 3. **Purge check (purge mode only):** For each path in `files_deleted`, confirm it no longer exists on disk.
 
@@ -222,8 +222,8 @@ Store the following for step-03:
 - `files_deleted` — list of directory paths actually deleted (purge mode) or `[]` (soft drop)
 - `disk_freed` — human-readable size (purge mode) or `"N/A (soft drop)"`
 - `manifest_updated` — boolean (true if section 2 succeeded)
-- `platform_files_updated` — list of successfully rebuilt files
-- `platform_files_failed` — list of files that failed to rebuild (empty if none)
+- `context_files_updated` — list of successfully rebuilt files
+- `context_files_failed` — list of files that failed to rebuild (empty if none)
 - `verification_errors` — list of verification failures (empty if none)
 
 ### 7. Load Next Step
@@ -237,8 +237,8 @@ If any stage fails, record which stage failed and provide recovery guidance in t
 | Failed Stage | Recovery Guidance |
 |--------------|-------------------|
 | Manifest update | "Manifest is in pre-drop state. Re-run the workflow once the underlying I/O issue is resolved. No files were deleted." |
-| Platform rebuild | "Manifest is already updated. Re-run `[EX] Export Skill` against any still-valid skill to regenerate the affected managed sections, or rerun the drop workflow." |
-| File deletion (purge) | "Manifest and platform files are consistent. Remaining directories listed in the report can be deleted manually: `rm -rf {path}`." |
+| Context file rebuild | "Manifest is already updated. Re-run `[EX] Export Skill` against any still-valid skill to regenerate the affected managed sections, or rerun the drop workflow." |
+| File deletion (purge) | "Manifest and context files are consistent. Remaining directories listed in the report can be deleted manually: `rm -rf {path}`." |
 | Verification | "Execution completed but post-write checks found drift. See the report for specific paths requiring manual review." |
 
 ## CRITICAL STEP COMPLETION NOTE
@@ -253,11 +253,11 @@ ONLY WHEN all execution stages have been attempted (manifest update, context reb
 
 - Version-paths knowledge and managed-section format re-read at the start of the step
 - Export manifest updated correctly (deprecated status for version-level, skill removal for skill-level)
-- Platform context files rebuilt for all configured IDEs using the same logic as export-skill step-04 (sections 4b–5), with surgical replacement preserving all content outside markers
+- Context files rebuilt for all configured IDEs using the same logic as export-skill step-04 (sections 4b–5), with surgical replacement preserving all content outside markers
 - Deprecated versions no longer appear in any managed section
 - Purge mode: all directories in `affected_directories` deleted with size accounting; `active` symlink updated or removed as appropriate
 - Soft drop: no files deleted; `files_deleted` is empty and `disk_freed` is `"N/A (soft drop)"`
-- Verification checks executed on manifest, platform files, and (if purge) deleted paths
+- Verification checks executed on manifest, context files, and (if purge) deleted paths
 - All results stored in context for step-03
 - Errors at any stage are recorded with recovery guidance rather than silently swallowed
 

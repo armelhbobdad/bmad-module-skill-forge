@@ -269,8 +269,8 @@ For each entry in `target_context_files`:
 
 **After the loop:**
 
-- Record `platform_files_updated` as the list of files that were successfully rewritten
-- Record `platform_files_failed` as the list of any that failed
+- Record `context_files_updated` as the list of files that were successfully rewritten
+- Record `context_files_failed` as the list of any that failed
 
 Report: "**Rebuilt managed sections in:** {list of updated files}. {if any failed: 'Failed: {list} — re-run `[EX] Export Skill` to retry.'}"
 
@@ -313,8 +313,8 @@ Store the following for step-03:
 - `affected_versions_count` — integer count
 - `files_updated_per_version` — structured summary (SKILL.md, metadata.json, context-snippet.md, provenance-map.json — each with ×count)
 - `manifest_rekeyed` — boolean (true if section 6 succeeded)
-- `platform_files_updated` — list of successfully rebuilt files
-- `platform_files_failed` — list of files that failed to rebuild (empty if none)
+- `context_files_updated` — list of successfully rebuilt files
+- `context_files_failed` — list of files that failed to rebuild (empty if none)
 - `section2_warnings` — list of orphaned version warnings (empty if none)
 - `section3_warnings` — list of missing file warnings (empty if none)
 - `verification_warnings` — list of informational SKILL.md body mentions of `{old_name}` retained (empty if none)

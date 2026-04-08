@@ -172,8 +172,8 @@ Continue to step 5 regardless — this is advisory, not blocking.
 **Export Configuration:**
 | Setting | Value |
 |---------|-------|
-| **Platform(s)** | {platform-list} → {target-file-list} |
-| **Explicit --platform** | {yes (user-specified) / no (from config.yaml)} |
+| **Context File(s)** | {context-file-list} (skill root: {skill-root-list}) |
+| **Explicit --context-file** | {yes (user-specified) / no (from config.yaml)} |
 | **Dry Run** | {yes/no} |
 | **Passive Context** | {enabled/disabled} |
 
@@ -209,8 +209,8 @@ ONLY WHEN the user confirms the correct skill is loaded by selecting 'C' will yo
 - Skill path resolved (from argument or discovery)
 - All required files loaded and validated
 - metadata.json parsed with required fields
-- Export flags parsed (platform, dry-run)
-- config.yaml ides list consumed for multi-platform resolution when --platform not provided
+- Export flags parsed (context-file, dry-run)
+- config.yaml ides list consumed for multi-IDE resolution when --context-file not provided
 - Forge config checked for passive_context
 - Clear summary presented to user
 - User confirms correct skill
@@ -221,7 +221,7 @@ ONLY WHEN the user confirms the correct skill is loaded by selecting 'C' will yo
 - Not validating metadata.json fields
 - Not checking preferences.yaml for passive_context opt-out
 - Proceeding without user confirmation
-- Ignoring config.yaml ides list when no --platform flag is provided
+- Ignoring config.yaml ides list when no --context-file flag is provided
 - Modifying any skill files (read-only step)
 
 **Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

@@ -54,7 +54,7 @@ To present a complete export summary showing all files written, token counts, an
 
 **Skill:** {skill-name}
 **Type:** {skill_type} | **Authority:** {source_authority} | **Tier:** {confidence_tier}
-**Platform(s):** {platform-list} → {target-file-list}
+**Context File(s):** {context-file-list} (skill root: {skill-root-list})
 
 ---
 
