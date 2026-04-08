@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "194b19b2f47e",
+  "session_id": "b5c3f97e-f407-448f-bc87-436c1b55bf8e",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-08T06:03:52.106342314Z",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/bmad-synergy.md",
+    "docs/how-it-works.md",
+    "src/skf-drop-skill/steps-c/step-02-execute.md",
+    "src/skf-drop-skill/steps-c/step-03-report.md",
+    "src/skf-export-skill/assets/managed-section-format.md",
+    "src/skf-export-skill/assets/snippet-format.md",
+    "src/skf-export-skill/steps-c/step-01-load-skill.md",
+    "src/skf-export-skill/steps-c/step-06-summary.md",
+    "src/skf-rename-skill/steps-c/step-02-execute.md",
+    "src/skf-rename-skill/steps-c/step-03-report.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "f6a8714c231f",
+  "token_usage": {
+    "input_tokens": 7342,
+    "cache_creation_tokens": 84392,
+    "cache_read_tokens": 2556549,
+    "output_tokens": 15481,
+    "api_call_count": 38
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-08T06:03:51.662610031Z",
+    "agent_lines": 35,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 35,
+    "agent_percentage": 100
+  }
+}

@@ -3,9 +3,18 @@
   "checkpoint_id": "194b19b2f47e",
   "strategy": "manual-commit",
   "branch": "convert-to-skills",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
-    "docs/how-it-works.md"
+    "docs/bmad-synergy.md",
+    "docs/how-it-works.md",
+    "src/skf-drop-skill/steps-c/step-02-execute.md",
+    "src/skf-drop-skill/steps-c/step-03-report.md",
+    "src/skf-export-skill/assets/managed-section-format.md",
+    "src/skf-export-skill/assets/snippet-format.md",
+    "src/skf-export-skill/steps-c/step-01-load-skill.md",
+    "src/skf-export-skill/steps-c/step-06-summary.md",
+    "src/skf-rename-skill/steps-c/step-02-execute.md",
+    "src/skf-rename-skill/steps-c/step-03-report.md"
   ],
   "sessions": [
     {
@@ -14,13 +23,20 @@
       "context": "/19/4b19b2f47e/0/context.md",
       "content_hash": "/19/4b19b2f47e/0/content_hash.txt",
       "prompt": "/19/4b19b2f47e/0/prompt.txt"
+    },
+    {
+      "metadata": "/19/4b19b2f47e/1/metadata.json",
+      "transcript": "/19/4b19b2f47e/1/full.jsonl",
+      "context": "/19/4b19b2f47e/1/context.md",
+      "content_hash": "/19/4b19b2f47e/1/content_hash.txt",
+      "prompt": "/19/4b19b2f47e/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 4870,
-    "cache_creation_tokens": 268802,
-    "cache_read_tokens": 19002161,
-    "output_tokens": 60224,
-    "api_call_count": 148
+    "input_tokens": 12212,
+    "cache_creation_tokens": 353194,
+    "cache_read_tokens": 21558710,
+    "output_tokens": 75705,
+    "api_call_count": 186
   }
 }
