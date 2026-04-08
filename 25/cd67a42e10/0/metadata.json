@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "25cd67a42e10",
+  "session_id": "859cd6ab-d32f-4045-83ef-0c57ed9fc273",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-08T05:50:07.889864994Z",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/knowledge/version-paths.md",
+    "src/skf-create-stack-skill/steps-c/step-08-validate.md",
+    "src/skf-drop-skill/steps-c/step-02-execute.md",
+    "src/skf-export-skill/assets/managed-section-format.md",
+    "src/skf-export-skill/assets/snippet-format.md",
+    "src/skf-export-skill/steps-c/step-01-load-skill.md",
+    "src/skf-export-skill/steps-c/step-03-generate-snippet.md",
+    "src/skf-export-skill/steps-c/step-04-update-context.md",
+    "src/skf-quick-skill/steps-c/step-05-validate.md",
+    "src/skf-rename-skill/steps-c/step-02-execute.md",
+    "src/skf-update-skill/steps-c/step-06-write.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "c3b4a42b5cb9",
+  "checkpoint_transcript_start": 323,
+  "transcript_lines_at_start": 323,
+  "token_usage": {
+    "input_tokens": 92,
+    "cache_creation_tokens": 109081,
+    "cache_read_tokens": 14538703,
+    "output_tokens": 37406,
+    "api_call_count": 83
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-08T05:50:06.920941322Z",
+    "agent_lines": 151,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 151,
+    "agent_percentage": 100
+  }
+}
