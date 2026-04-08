@@ -1,0 +1,53 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e55919d0bfd9",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/agents.md",
+    "docs/examples.md",
+    "docs/getting-started.md",
+    "docs/how-it-works.md",
+    "docs/workflows.md",
+    "package.json",
+    "src/README.md",
+    "src/forger/preferences.yaml",
+    "src/knowledge/overview.md",
+    "src/knowledge/skill-lifecycle.md",
+    "src/shared/references/pipeline-contracts.md",
+    "src/shared/scripts/skf-structural-diff.py",
+    "src/skf-create-stack-skill/SKILL.md",
+    "src/skf-drop-skill/SKILL.md",
+    "src/skf-drop-skill/steps-c/step-01-select.md",
+    "src/skf-forger/SKILL.md",
+    "src/skf-rename-skill/SKILL.md",
+    "src/skf-rename-skill/steps-c/step-01-select.md",
+    "src/skf-setup/steps-c/step-02-write-config.md",
+    "src/skf-test-skill/SKILL.md",
+    "src/skf-test-skill/steps-c/step-05-score.md",
+    "src/skf-update-skill/SKILL.md",
+    "src/skf-verify-stack/steps-c/step-06-report.md",
+    "test/test-compute-score-contract.py",
+    "test/test-installation-components.js",
+    "test/test-skf-severity-classify.py",
+    "tools/cli/commands/status.js",
+    "tools/validate-skills.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e5/5919d0bfd9/0/metadata.json",
+      "transcript": "/e5/5919d0bfd9/0/full.jsonl",
+      "context": "/e5/5919d0bfd9/0/context.md",
+      "content_hash": "/e5/5919d0bfd9/0/content_hash.txt",
+      "prompt": "/e5/5919d0bfd9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 121,
+    "cache_creation_tokens": 99635,
+    "cache_read_tokens": 4186183,
+    "output_tokens": 25420,
+    "api_call_count": 66
+  }
+}

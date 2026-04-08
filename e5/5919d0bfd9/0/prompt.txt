@@ -1,0 +1,756 @@
+# Feature Development
+
+You are helping a developer implement a new feature. Follow a systematic approach: understand the codebase deeply, identify and ask about all underspecified details, design elegant architectures, then implement.
+
+## Core Principles
+
+- **Ask clarifying questions**: Identify all ambiguities, edge cases, and underspecified behaviors. Ask specific, concrete questions rather than making assumptions. Wait for user answers before proceeding with implementation. Ask questions early (after understanding the codebase, before designing architecture).
+- **Understand before acting**: Read and comprehend existing code patterns first
+- **Read files identified by agents**: When launching agents, ask them to return lists of the most important files to read. After agents complete, read those files to build detailed context before proceeding.
+- **Simple and elegant**: Prioritize readable, maintainable, architecturally sound code
+- **Use TodoWrite**: Track all progress throughout
+
+---
+
+## Phase 1: Discovery
+
+**Goal**: Understand what needs to be built
+
+Initial request: review the last 5 recent commit changes for any breaking changes, or missing impacts/bugs/regressions and ect... DO NOT HALLUCINATE
+
+**Actions**:
+1. Create todo list with all phases
+2. If feature unclear, ask user for:
+   - What problem are they solving?
+   - What should the feature do?
+   - Any constraints or requirements?
+3. Summarize understanding and confirm with user
+
+---
+
+## Phase 2: Codebase Exploration
+
+**Goal**: Understand relevant existing code and patterns at both high and low levels
+
+**Actions**:
+1. Launch 2-3 code-explorer agents in parallel. Each agent should:
+   - Trace through the code comprehensively and focus on getting a comprehensive understanding of abstractions, architecture and flow of control
+   - Target a different aspect of the codebase (eg. similar features, high level understanding, architectural understanding, user experience, etc)
+   - Include a list of 5-10 key files to read
+
+   **Example agent prompts**:
+   - "Find features similar to [feature] and trace through their implementation comprehensively"
+   - "Map the architecture and abstractions for [feature area], tracing through the code comprehensively"
+   - "Analyze the current implementation of [existing feature/area], tracing through the code comprehensively"
+   - "Identify UI patterns, testing approaches, or extension points relevant to [feature]"
+
+2. Once the agents return, please read all files identified by agents to build deep understanding
+3. Present comprehensive summary of findings and patterns discovered
+
+---
+
+## Phase 3: Clarifying Questions
+
+**Goal**: Fill in gaps and resolve all ambiguities before designing
+
+**CRITICAL**: This is one of the most important phases. DO NOT SKIP.
+
+**Actions**:
+1. Review the codebase findings and original feature request
+2. Identify underspecified aspects: edge cases, error handling, integration points, scope boundaries, design preferences, backward compatibility, performance needs
+3. **Present all questions to the user in a clear, organized list**
+4. **Wait for answers before proceeding to architecture design**
+
+If the user says "whatever you think is best", provide your recommendation and get explicit confirmation.
+
+---
+
+## Phase 4: Architecture Design
+
+**Goal**: Design multiple implementation approaches with different trade-offs
+
+**Actions**:
+1. Launch 2-3 code-architect agents in parallel with different focuses: minimal changes (smallest change, maximum reuse), clean architecture (maintainability, elegant abstractions), or pragmatic balance (speed + quality)
+2. Review all approaches and form your opinion on which fits best for this specific task (consider: small fix vs large feature, urgency, complexity, team context)
+3. Present to user: brief summary of each approach, trade-offs comparison, **your recommendation with reasoning**, concrete implementation differences
+4. **Ask user which approach they prefer**
+
+---
+
+## Phase 5: Implementation
+
+**Goal**: Build the feature
+
+**DO NOT START WITHOUT USER APPROVAL**
+
+**Actions**:
+1. Wait for explicit user approval
+2. Read all relevant files identified in previous phases
+3. Implement following chosen architecture
+4. Follow codebase conventions strictly
+5. Write clean, well-documented code
+6. Update todos as you progress
+
+---
+
+## Phase 6: Quality Review
+
+**Goal**: Ensure code is simple, DRY, elegant, easy to read, and functionally correct
+
+**Actions**:
+1. Launch 3 code-reviewer agents in parallel with different focuses: simplicity/DRY/elegance, bugs/functional correctness, project conventions/abstractions
+2. Consolidate findings and identify highest severity issues that you recommend fixing
+3. **Present findings to user and ask what they want to do** (fix now, fix later, or proceed as-is)
+4. Address issues based on user decision
+
+---
+
+## Phase 7: Summary
+
+**Goal**: Document what was accomplished
+
+**Actions**:
+1. Mark all todos complete
+2. Summarize:
+   - What was built
+   - Key decisions made
+   - Files modified
+   - Suggested next steps
+
+---
+
+---
+
+<task-notification>
+<task-id>ae19eb172c6eb35ee</task-id>
+<tool-use-id>toolu_01HLxJRo6q7JH3p7Zu7UKRdo</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/ae19eb172c6eb35ee.output</output-file>
+<status>completed</status>
+<summary>Agent "Review Python scripts commit 2f66dc5" completed</summary>
+<result>Now I have a complete picture. Let me compile the findings.
+
+Reviewing commit `2f66dc5` — "feat: add 7 shared Python scripts and migrate compute-score.js to Python"
+
+---
+
+## Critical Issues
+
+### 1. step-05-score.md invokes Python script with `node` instead of `python3`
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-05-score.md`, line 82
+**Confidence: 100**
+
+The frontmatter on line 6 correctly points `scoringScript` at `scripts/compute-score.py`, but the invocation shell command on line 82 still reads:
+
+```
+node {scoringScript} '&lt;JSON&gt;'
+```
+
+This is a direct functional break. An agent following this step will attempt to run `node scripts/compute-score.py '&lt;JSON&gt;'`, which will fail immediately because Node.js cannot execute a Python file. The correct invocation should be `python3 {scoringScript} '&lt;JSON&gt;'`.
+
+This was the single most important change required by the migration and it was missed.
+
+---
+
+### 2. docs/how-it-works.md still references the deleted compute-score.js
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/how-it-works.md`, line 226
+**Confidence: 100**
+
+The line reads:
+
+&gt; The weight redistribution and score aggregation are computed by a deterministic Node.js script ([`compute-score.js`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-test-skill/scripts/compute-score.js)).
+
+The file `compute-score.js` was deleted in this commit. The public-facing documentation now links to a file that no longer exists. The description "deterministic Node.js script" is also wrong — it is now a Python script. This needs to be updated to reference `compute-score.py` and describe it as a Python script.
+
+---
+
+### 3. test-compute-score-contract.py comment references the deleted JS file
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/test/test-compute-score-contract.py`, line 6
+**Confidence: 85**
+
+The docstring reads:
+
+&gt; Fixtures were generated by running each input through compute-score.js and capturing the output.
+
+This is now stale and misleading. With `compute-score.js` deleted, anyone reading this comment who wants to regenerate fixtures has no guidance on how to do so. At minimum this should say the fixtures were originally captured from the JS implementation and are now the source of truth for Python parity. This is a documentation accuracy issue that impacts maintainability.
+
+---
+
+## Important Issues
+
+### 4. The 7 new Python test files are not wired into any npm test script or the `quality` target
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/package.json`
+**Confidence: 95**
+
+The `package.json` `scripts` block was updated to add `test:score` which runs the compute-score contract test. However, the 7 new test files — `test/test-skf-preflight.py`, `test/test-skf-skill-inventory.py`, `test/test-skf-validate-output.py`, `test/test-skf-manifest-ops.py`, `test/test-skf-rebuild-managed-sections.py`, `test/test-skf-severity-classify.py`, and `test/test-skf-structural-diff.py` — are not referenced anywhere in `package.json`. They are not run by `npm test`, `npm run quality`, or any other npm script.
+
+These tests are effectively dead unless manually invoked. Any regression in the 7 shared scripts will go undetected by CI. A `test:shared` script collecting all 7 should be added and included in `test` and `quality`.
+
+---
+
+### 5. Dead code block in skf-structural-diff.py — move detection loop is empty
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/shared/scripts/skf-structural-diff.py`, lines 63–74
+**Confidence: 92**
+
+The loop that is supposed to detect "moved" exports (renamed within the set) has a comment but no actual logic:
+
+```python
+for name in removed_names.copy():
+    base_exp = baseline[name]
+    # Check if a similarly-named export exists in current but in a different file
+    for cname in added_names:
+        if cname == name:
+            continue
+        # Simple similarity: same prefix or suffix
+        # For now, only exact-match detection via name
+    # Check if the same name appears in current (shouldn't, since it's in removed)
+    # This handles renames within the set operations
+```
+
+The outer loop body does nothing — it assigns `base_exp` and then iterates an inner loop that only skips when `cname == name` (which is impossible since the outer is over `removed_names` and the inner over `added_names`). Nothing is appended to `findings` or to `moved_names` here. The actual move detection happens later at lines 108–120 via file comparison on common names, which is a different scenario (same name, different file), not the renamed-export case. The dead code inflates the apparent complexity and creates maintenance confusion. It should either be implemented or removed.
+
+---
+
+### 6. skf-severity-classify.py HIGH rule for added exports has a threshold logic inconsistency
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/shared/scripts/skf-severity-classify.py`, lines 56–63
+**Confidence: 88**
+
+The HIGH rule check for added exports is:
+
+```python
+for rule in HIGH_RULES:
+    if f_type == rule["type"]:
+        if f_category in rule["categories"]:
+            if "threshold" in rule:
+                if f_type == "added" and f_category == "export" and added_export_count &gt; rule["threshold"]:
+                    return "HIGH"
+            else:
+                return "HIGH"
+```
+
+The conditions `f_type == rule["type"]` and `f_category in rule["categories"]` are already checked at the outer `if` levels, so the inner re-check `if f_type == "added" and f_category == "export"` is always true when this branch is reached (the `HIGH_RULES` entry for `"threshold"` is specifically `{"type": "added", "categories": {"export"}, "threshold": 3}`). This is dead redundant code, not a bug in itself, but more critically: the `deprecated` rule in `HIGH_RULES` at line 33 (`{"type": "deprecated", "categories": {"export"}}`) will match `f_type == "deprecated"`, but the test suite in `test-skf-severity-classify.py` has no test case exercising the `deprecated` rule — so this path is untested. This is a test coverage gap.
+
+---
+
+## Summary
+
+| # | Issue | Severity | Confidence |
+|---|-------|----------|------------|
+| 1 | `node {scoringScript}` in step-05-score.md — LLM will fail to run the Python scoring script | Critical | 100 |
+| 2 | docs/how-it-works.md links to the deleted `compute-score.js` | Critical | 100 |
+| 3 | test-compute-score-contract.py docstring still says "compute-score.js" | Important | 85 |
+| 4 | 7 new Python test files are not wired into npm test/quality scripts | Important | 95 |
+| 5 | Dead no-op rename-detection loop in skf-structural-diff.py | Important | 92 |
+| 6 | `deprecated` severity rule in skf-severity-classify.py has no test coverage | Important | 88 |
+
+The compute-score.py migration itself is correct — the script logic, rounding behavior, and contract fixtures are thorough and well-structured. The core bug is the leftover `node` invocation in step-05-score.md and the stale documentation link. Issues 4 and 5 are the next highest priority.</result>
+<usage><total_tokens>70464</total_tokens><tool_uses>48</tool_uses><duration_ms>163086</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a19bc7044de09c77c</task-id>
+<tool-use-id>toolu_019QuB3e61qu94gz2qQ2YbCv</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a19bc7044de09c77c.output</output-file>
+<status>completed</status>
+<summary>Agent "Review pipeline commit 1cf5d4e" completed</summary>
+<result>Confirmed: overview.md line 29 still says "End-to-end pipeline, artifact flow, workflow selection" but the CSV has been updated. This is a minor doc inconsistency.
+
+Now let me compile my full analysis.
+
+---
+
+## Review: Commit 1cf5d4e — "feat: add pipeline invocation support with chaining, circuit breakers, and aliases"
+
+Reviewing changes to:
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/shared/references/pipeline-contracts.md` (new file)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-forger/SKILL.md` (Pipeline Mode section added)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/skf-knowledge-index.csv` (skill-lifecycle row updated)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/skill-lifecycle.md` (Pipeline Invocation section added)
+
+---
+
+## Critical Issues
+
+### 1. `onboard` alias is broken for headless execution — AN→BS data flow is semantically invalid
+
+**Confidence: 95**
+
+The `onboard` alias expands to `AN BS CS TS EX` (pipeline-contracts.md line 24). Pipelines auto-activate headless mode (SKILL.md line 89, pipeline-contracts.md line 31). When `onboard` runs:
+
+- AN completes and produces `skill-brief.yaml` files
+- The pipeline then invokes BS with those brief paths as described in the Data Flow table (pipeline-contracts.md line 42)
+
+But BS (`skf-brief-skill`) has an Input Gate at `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-brief-skill/steps-c/step-01-gather-intent.md` line 173:
+
+&gt; "If required args missing, HALT: `headless mode requires target_repo and skill_name arguments.`"
+
+BS requires `target_repo` and `skill_name` as required inputs (SKILL.md line 40). The AN→BS data flow supplies "skill-brief.yaml paths from analysis recommendations," which are not `target_repo`/`skill_name` — they are file paths of already-completed briefs that AN produced. BS does not consume existing brief files; it creates new ones through interactive scoping. Running `onboard` in headless mode will hard-halt at BS step-01 every time.
+
+The root problem is that AN already writes complete `skill-brief.yaml` files (see `step-06-generate-briefs.md`). The correct pipeline for brownfield onboarding is `AN CS TS EX` (AN's briefs feed directly into CS), not `AN BS CS TS EX`. The `onboard` alias introduces a redundant and incompatible BS step that re-does what AN already completed.
+
+**Fix:** Either:
+1. Change `onboard` to expand to `AN CS TS EX` and add an `AN → CS` data flow entry in the Data Flow table, or
+2. Keep `AN BS CS TS EX` but make BS operate in a "refine existing brief" mode when invoked with a brief path, documenting this behavior explicitly
+
+### 2. Anti-pattern "CS without BS" fires on valid `AN CS` pipeline sequence
+
+**Confidence: 90**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/shared/references/pipeline-contracts.md` line 92:
+```
+| CS without BS | Compiling without brief | Need a brief — use QS for quick path |
+```
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-forger/SKILL.md` line 88 validates this anti-pattern before execution.
+
+But `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/skill-lifecycle.md` documents `AN → CS (--batch)` as an explicitly valid and recommended flow (lines 40 and 119), and CS accepts `brief_path` as a required input that AN's output can satisfy. A user who runs `AN CS TS EX` will receive a spurious anti-pattern warning about "CS without BS" even though AN generated the briefs that CS will consume.
+
+**Fix:** Add an exemption to the anti-pattern: "CS without BS (unless AN precedes CS in the pipeline)" and add the `AN → CS` data flow entry.
+
+### 3. Headless contract broken by SKILL.md's "even in headless" carve-out for multi-brief AN
+
+**Confidence: 88**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-forger/SKILL.md` line 103:
+&gt; "`AN` in a pipeline with `BS CS`: if AN produces multiple recommended briefs, ask the user which to forge **even in headless — this requires a choice**."
+
+This directly contradicts the headless contract defined in `/home/armel/Projects/OSS/bmad-module-skill-forge/src/shared/references/headless-gate-convention.md` (lines 9-19 and 46-50):
+- "In headless mode, gates auto-resolve with their default action"
+- Choice Gate headless behavior: "auto-select the default, log the choice"
+- "Error halts (hard halts on missing files, invalid state)" are the only things headless does NOT skip
+
+The pipeline-contracts.md line 31 also states: "Headless implied — pipelines activate `{headless_mode}` automatically." Breaking headless for multi-brief AN means any `onboard` or `AN ... CS` pipeline invocation with multiple units discovered will stall instead of running unattended.
+
+**Fix:** Define a deterministic default for multi-brief AN in headless mode — e.g., "auto-select the first recommended brief" or "process all briefs in sequence." Remove the "even in headless" exception.
+
+---
+
+## Important Issues
+
+### 4. Data Flow table missing `AN → CS` direct path
+
+**Confidence: 87**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/shared/references/pipeline-contracts.md` Data Flow table (lines 40–50) has no entry for `AN → CS`. Yet skill-lifecycle.md line 40 shows `SF → AN → CS (--batch) → TS → EX` as the First-Time Setup flow, and line 119 shows `AN → CS (batch)` as the recommended flow when "User wants to skill their entire project."
+
+AN's step-06 writes complete `skill-brief.yaml` files. CS accepts `brief_path` as required input (SKILL.md line 48). The forger has no documented mechanism for how to pass AN's written briefs to CS directly — the data flow is fully described for `AN → BS → CS` but not for `AN → CS`.
+
+**Fix:** Add a row to the Data Flow table:
+```
+| AN | CS | brief_path(s) from generated briefs | Forger passes each brief_path written by AN to CS; in --batch mode, CS processes all |
+```
+
+### 5. Bracket syntax is ambiguous — no formal grammar for target argument vs circuit breaker
+
+**Confidence: 83**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/shared/references/pipeline-contracts.md` lines 14-15 show two different uses of the `CODE[value]` bracket syntax with no formal differentiation:
+- `CS[lodash]` — target argument (passes "lodash" as the target to CS)
+- `TS[min:80]` — circuit breaker threshold override
+
+The spec states "Extract any bracket arguments" (SKILL.md line 87) and "Override syntax: `TS[min:80]`" (pipeline-contracts.md line 64) but does not define:
+- Which codes accept which bracket types
+- How the parser distinguishes `min:N` from a plain target string
+- What happens with `CS[min:80]` or `TS[lodash]` — are they errors, silently ignored, or misinterpreted?
+
+Without a grammar rule, edge cases are undefined. A user writing `AN[min:1] CS TS EX` to lower the AN circuit breaker threshold might find it's interpreted as a target argument instead.
+
+**Fix:** Add a parsing rule section to pipeline-contracts.md that states: brackets containing `min:N` (where N is a number) are always circuit breaker overrides; all other bracket values are target arguments. Define which codes accept circuit breaker overrides vs target arguments.
+
+---
+
+## Minor Issues
+
+### 6. `overview.md` Knowledge Map description for `skill-lifecycle.md` not updated
+
+**Confidence: 80**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/overview.md` line 29 still describes `skill-lifecycle.md` as "End-to-end pipeline, artifact flow, workflow selection." The CSV at `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/skf-knowledge-index.csv` line 8 was updated to "End-to-end pipeline — workflow connections, artifact flow, decision rules for workflow selection, pipeline invocation syntax and aliases" and tags were extended with `chaining,headless`. The overview.md Knowledge Map was not updated to match.
+
+**Fix:** Update `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/overview.md` line 29, Purpose column, to match the CSV description.
+
+---
+
+## No Issues Found
+
+- All four pipeline aliases (`forge`, `forge-quick`, `onboard`, `maintain`) appear in all three locations (pipeline-contracts.md, SKILL.md alias expansion, skill-lifecycle.md) with consistent expansions — except for the `onboard` semantic problem documented above.
+- The circuit breaker defaults (AN min:1, CS must-complete, TS min:60, AS not-CRITICAL, VS not-BLOCKED) are internally consistent and have no overlap conflicts.
+- The pipeline state YAML example is structurally sound.
+- The `skill-lifecycle.md` correctly cross-references `shared/references/pipeline-contracts.md` at line 183.
+- The `maintain` alias (`AS US TS EX`) is consistent across all three documents and aligns correctly with the AS→US data flow entry.
+- `forge-quick` (`QS TS EX`) is consistent and the QS→TS data flow via `repo_name` is supported by QS step-06 (which uses `{repo_name}` as the skill name).
+- No other skills (besides skf-forger) need to reference pipeline-contracts.md since they are individual workflow implementations, not orchestrators.</result>
+<usage><total_tokens>44302</total_tokens><tool_uses>48</tool_uses><duration_ms>289237</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>add214020c9d401b6</task-id>
+<tool-use-id>toolu_01PLG2vR7RPmo82TSJztxytR</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/add214020c9d401b6.output</output-file>
+<status>completed</status>
+<summary>Agent "Review headless mode commit 1618066" completed</summary>
+<result>Good — step-02 of drop-skill has no gate (auto-proceeds as the execution step), consistent with what the stages table says "No (confirm)" but actually there's no gate per the pattern. Wait, the stages table says step-02 is "No (confirm)" — but it auto-proceeds. This matches the pattern I saw in update-skill's step-06.
+
+Actually wait — let me re-read the drop-skill stages table from SKILL.md again:
+
+```
+| 1 | Select Target | steps-c/step-01-select.md | No (confirm) |
+| 2 | Execute Drop | steps-c/step-02-execute.md | No (confirm) |
+| 3 | Report | steps-c/step-03-report.md | Yes |
+```
+
+Step-02 says "No (confirm)" but has no gate or headless annotation. The stages table seems to use "No (confirm)" to mean "requires confirmation" — which suggests the drop-skill SKILL.md implies step-02 also has an interactive gate. But step-02-execute.md auto-proceeds. This is the same inconsistency.
+
+Let me now check the create-stack-skill stages table more carefully — specifically whether the step-07 `No (review)` label is a genuine error:
+
+From the create-stack-skill SKILL.md stages:
+- Step 6 | Compile Stack | `No (review)` — but step-06-compile-stack.md has a GATE ✓ with `[default: C]`  
+- Step 7 | Generate Output | `No (review)` — but step-07-generate-output.md auto-proceeds
+
+The Invocation Contract for create-stack-skill says: `**Gates** | step-03: Confirm Gate [C] | step-06: Review Gate [C]`
+
+The Invocation Contract is correct (gates in steps 3 and 6), but the Stages table incorrectly marks step-07 as "No (review)" instead of "Yes" (auto-proceed), suggesting the review gate moved from step-07 to step-06 at some point but the stages table wasn't fully updated.
+
+I now have a comprehensive picture. Here is my full review:
+
+---
+
+Reviewing commit `1618066` — "feat: add headless mode support with gate convention and invocation contracts" — against the headless-gate-convention.md document, all 15 SKILL.md files, and all annotated step files.
+
+## Critical Issues
+
+### Issue 1: `skf-drop-skill` and `skf-rename-skill` — Y/N Confirmation Gates Have No Headless Annotation
+
+Confidence: 95
+
+Both workflows claim in their SKILL.md that "All gates auto-resolve with default action when `{headless_mode}` is true," but the destructive Y/N confirmation gates in their respective `step-01-select.md` files have no `GATE` annotation and no headless behavior defined.
+
+**`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-drop-skill/steps-c/step-01-select.md`, section 10, line ~210 (the confirmation gate "Proceed? [Y/N]"):**
+The only `GATE` annotation in the file (line 78) covers only the "which skill" Input Gate. The final `Proceed? [Y/N]` confirmation (section 10) — which decides whether files are deleted — has no headless annotation whatsoever. The headless-gate-convention.md defines `HALT if missing required input` for Input Gates, but does not address what headless mode should do with a destructive confirmation gate. With no annotation, an LLM will wait for Y/N indefinitely in headless mode, hanging the pipeline.
+
+**`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-rename-skill/steps-c/step-01-select.md`, section 8, line ~189 (the confirmation gate "Proceed? [Y/N]"):**
+Same problem — the two Input Gates (old_name and new_name) at lines 75 and 86 have headless annotations, but the final `Proceed? [Y/N]` confirmation (section 8) does not. An LLM running headless will halt at this gate even though both SKILL.md files claim headless auto-resolves all gates.
+
+Also, the Invocation Contracts for both skills only list the Input Gates, omitting the confirmation gates entirely:
+- `skf-drop-skill` SKILL.md, line 41: `**Gates** | step-01: Input Gate [use args]` — the Y/N confirmation in step-01 is not listed
+- `skf-rename-skill` SKILL.md, line 43: `**Gates** | step-01: Input Gate [use args] x2` — same omission
+
+This is a behavioral bug: calling `DS` or `RS` in a headless pipeline will hang at the Y/N confirmation.
+
+### Issue 2: `skf-verify-stack/step-06-report.md` — Gate Default Action References Non-Existent Option
+
+Confidence: 90
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-verify-stack/steps-c/step-06-report.md`, line 136:
+
+```
+**GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past report menu"
+```
+
+But the menu displayed at line 120 is:
+```
+"**[R] Review full report** | **[X] Exit verification**"
+```
+
+There is no `[C]` option. The headless gate says to auto-proceed with `[C] Continue`, but the step's own logic only handles `[R]` and `[X]`. The correct default action for headless should be `[X]` (exit, which chains to the health check), not `[C]` (which does not exist). In headless mode, neither `[R]` nor `[X]` would be auto-triggered — the step would effectively be stuck on a non-existent action.
+
+The same `[C]` annotation pattern was used from test-skill's step-06, but that file actually has `[C] Finish` as its menu option, so the copy is misapplied here.
+
+## Important Issues
+
+### Issue 3: `skf-update-skill` SKILL.md Stages Table — step-06 Incorrectly Labeled "No (confirm)"
+
+Confidence: 85
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-update-skill/SKILL.md`, line 37:
+```
+| 6 | Write | steps-c/step-06-write.md | No (confirm) |
+```
+
+But `step-06-write.md` section 8 explicitly states: "This is an auto-proceed step with no user choices." There is no gate annotation in the file. The Invocation Contract (line 45) correctly omits step-06 from the gates list, so the contract is right, but the stages table label "No (confirm)" contradicts the actual step behavior and the convention document's definition. An implementer reading the stages table would expect a confirmation gate in step-06 that does not exist.
+
+### Issue 4: `skf-create-stack-skill` SKILL.md Stages Table — step-07 Incorrectly Labeled "No (review)"
+
+Confidence: 85
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-stack-skill/SKILL.md`, line 38:
+```
+| 7 | Generate Output | steps-c/step-07-generate-output.md | No (review) |
+```
+
+`step-07-generate-output.md` section 10 explicitly says "Auto-Proceed to Next Step." The review gate is in step-06 (compile-stack.md), not step-07. The Invocation Contract correctly lists `step-06: Review Gate [C]`, but the stages table incorrectly implies step-07 is also a review-blocked step. This creates a contradictory spec within the same SKILL.md: the Invocation Contract is authoritative, but the stages table misleads.
+
+### Issue 5: `skf-drop-skill` SKILL.md Stages Table — step-02 Incorrectly Labeled "No (confirm)"
+
+Confidence: 82
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-drop-skill/SKILL.md`, line 33:
+```
+| 2 | Execute Drop | steps-c/step-02-execute.md | No (confirm) |
+```
+
+`step-02-execute.md` has no gate or headless annotation — it auto-proceeds (executing the drop decisions made in step-01). The label "No (confirm)" is incorrect; step-02 is an execution step that proceeds automatically once step-01 has obtained confirmation.
+
+### Issue 6: `skf-setup` Headless Statement is Vacuous But Misleading
+
+Confidence: 80
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-setup/SKILL.md`, lines 25 and 44:
+
+The Workflow Rules include:
+&gt; "If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision"
+
+And the Invocation Contract includes:
+&gt; `**Headless** | All gates auto-resolve with default action when {headless_mode} is true`
+
+But the workflow has no gates at all (the Invocation Contract's Gates field says `(none)`). The headless rule and Headless row are vacuous. This is not a functional bug, but the presence of the headless language at line 25 implies there could be gates, which may confuse implementers about the workflow's fully-autonomous nature. The SKILL.md's own description at line 10 says "This is a fully autonomous workflow — no user interaction is required during execution," which directly contradicts having a headless rule that implies gates could exist.
+
+## Consistency Assessment
+
+The following are confirmed consistent and correct:
+
+- `headless-gate-convention.md` — the document itself is internally consistent. Gate types (Confirm, Review, Input, Choice) are clearly defined with distinct default actions. The "What Headless Does NOT Skip" section correctly excludes error halts and quality thresholds.
+- All 15 SKILL.md files have `{headless_mode}` resolution in their On Activation sections using identical wording. No variations.
+- All 15 SKILL.md files have the Headless field in their Invocation Contracts.
+- The GATE annotations in step files that have them follow the convention format consistently: `**GATE [default: X]** — If {headless_mode}: auto-proceed with [X] Action, log: "headless: ..."`.
+- `skf-update-skill/step-04-merge.md` correctly annotates that headless halts on conflicts (line 162) — this is a good application of the convention's rule about non-skippable situations.
+- `skf-analyze-source` correctly has three Confirm Gates annotated across steps 02, 03, and 05, matching its Invocation Contract.
+- No skills have partially-annotated steps where some interactive steps have GATE annotations and others are missing them — except for the confirmed issues above.
+- No existing non-headless workflow paths are broken. All GATE annotations are additive conditions inside existing EXECUTION RULES sections, not replacing existing menu handling logic.</result>
+<usage><total_tokens>112523</total_tokens><tool_uses>80</tool_uses><duration_ms>300062</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>adce77131ed2bd35b</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/adce77131ed2bd35b.output</output-file>
+<status>completed</status>
+<summary>Agent "Review docs commit ca824e3" completed</summary>
+<result>The `getting-started.md` Configuration table only mentions `tier_override` as a preference setting (no mention of `headless_mode` or `compact_greeting`). This is not new in this commit and the feature was just added, so this is the missing update I mentioned. Let me confirm what the commit changed vs what it left out.
+
+The commit only touched README.md, docs/agents.md, and docs/workflows.md. The `docs/getting-started.md` and `docs/examples.md` were not updated:
+
+1. `getting-started.md` Configuration table doesn't mention `headless_mode: true` as a valid preference setting
+2. `getting-started.md` Full quality path example still shows "clear session" pattern without mentioning pipeline alternative
+3. `examples.md` multiple scenario examples still show `# — clear session —` without mentioning pipeline alternatives
+
+Now let me summarize all confirmed findings with confidence scores.
+
+---
+
+Reviewing commit ca824e3 (`docs: add pipeline mode and headless mode to README, workflows, and agents docs`).
+
+The three changed files are: `/home/armel/Projects/OSS/bmad-module-skill-forge/README.md`, `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/agents.md`, `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/workflows.md`.
+
+---
+
+## Critical Issues
+
+None found. No broken links, no features described that are entirely absent from the implementation. The core descriptions of pipeline mode and headless mode are accurate with respect to `src/skf-forger/SKILL.md`, `src/shared/references/pipeline-contracts.md`, and `src/shared/references/headless-gate-convention.md`.
+
+---
+
+## Important Issues
+
+### 1. Pipeline Syntax Discrepancy — space-separated target arg not in spec (Confidence: 82)
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/workflows.md`, line 291
+
+**Issue:** The Syntax section shows:
+
+```
+@Ferris QS lodash TS EX          — with target argument
+```
+
+This implies a space-separated target argument is a valid pipeline syntax. However, `src/shared/references/pipeline-contracts.md` (the authoritative pipeline spec) and `src/knowledge/skill-lifecycle.md` only document the bracket syntax for target arguments:
+
+```
+BS CS[lodash] TS EX      — with target argument in brackets
+CS TS[min:80] EX         — with circuit breaker threshold
+```
+
+The `src/skf-forger/SKILL.md` parsing step only mentions extracting "bracket arguments (`CS[lodash]`, `TS[min:80]`)". There is no documented parsing rule for space-separated arguments between workflow codes. The docs show a syntax that is not documented in the implementation spec. Whether the LLM forger handles `QS lodash TS EX` correctly by inference is not guaranteed and is not specified.
+
+**Fix:** Either update the workflow syntax example to use the bracket form (`@Ferris QS[lodash] TS EX`), or add a parsing rule for space-separated target arguments to `pipeline-contracts.md` and `skf-forger/SKILL.md`.
+
+---
+
+### 2. `headless_mode: true` preference not in the generated `preferences.yaml` template (Confidence: 80)
+
+**Files:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/workflows.md` line 333, `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/agents.md` line 98
+
+**Issue:** Both docs instruct users to set `headless_mode: true` in `_bmad/_memory/forger-sidecar/preferences.yaml`. However, the `preferences.yaml` template written by the Setup Forge workflow (`src/skf-setup/steps-c/step-02-write-config.md`, lines 73–90) and the source template (`src/forger/preferences.yaml`) do not include this key — not even as a comment. The template only contains `tier_override` and `passive_context`. Additionally, the `src/shared/scripts/skf-preflight.py` script (which loads preferences.yaml) does not extract `headless_mode` from preferences — it only extracts `compact_greeting` and `tier_override`. Headless mode resolution from preferences happens entirely through LLM instruction in the individual workflow SKILL.md files, not via the preflight script.
+
+Users following the docs and adding `headless_mode: true` to `preferences.yaml` will have it work (because the SKILL.md instructions say to check that key), but there is no discoverable indication in the generated file that this option exists.
+
+**Fix:** Add `headless_mode: false  # Set to true to skip confirmation gates in all workflows` as a commented field to the `preferences.yaml` template in both `src/forger/preferences.yaml` and `src/skf-setup/steps-c/step-02-write-config.md`.
+
+---
+
+### 3. `docs/getting-started.md` not updated to mention pipeline mode (Confidence: 80)
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/getting-started.md`, lines 123–134
+
+**Issue:** The "Full quality path" example still shows the manual one-workflow-per-session pattern with four separate sessions:
+
+```
+@Ferris BS    # Brief
+# — clear session —
+@Ferris CS    # Create
+# — clear session —
+...
+```
+
+The README Quick Start (which was updated in this commit) now says "Pipeline mode: `@Ferris forge lodash` — chains Brief → Create → Test → Export in one command." This creates an inconsistency: a user who reads Getting Started sees only the session-clearing pattern, not the simpler pipeline alternative that the README now prominently features in the Quick Start section. The `getting-started.md` Configuration table also does not mention `headless_mode` as a supported preference key, even though the new docs (workflows.md and agents.md) instruct users to set it there.
+
+**Fix:** Add a note below the "Full quality path" example pointing to pipeline mode: "Or use pipeline mode: `@Ferris forge` — runs the same sequence automatically." Update the Configuration table to include `headless_mode` as a documented preference key.
+
+---
+
+### 4. `docs/examples.md` scenarios not updated for pipeline equivalents (Confidence: 80)
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/examples.md`, lines 94–116
+
+**Issue:** The "Brownfield Platform — 8 Minutes" and "Release Prep — Trust Builder" scenario examples show the multi-session `# — clear session —` pattern without noting that pipeline aliases cover these exact scenarios. Specifically:
+- The "Release Prep" scenario (`AS → US → TS → EX`) is exactly `@Ferris maintain` — a named alias introduced in commit 1cf5d4e.
+- The "Brownfield Platform" scenario (`AN → CS → ...`) matches `@Ferris onboard`.
+
+These examples were not updated in this commit, creating a mismatch: the new workflows.md describes these pipeline aliases, but the examples page which is the primary discovery surface for how SKF is used in practice makes no mention of them.
+
+**Fix:** Add a pipeline alternative note to each affected scenario, e.g., "Or in one command: `@Ferris maintain lodash`" beneath the "Release Prep" scenario.</result>
+<usage><total_tokens>69615</total_tokens><tool_uses>70</tool_uses><duration_ms>315834</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a6a0850832c19254d</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a6a0850832c19254d.output</output-file>
+<status>completed</status>
+<summary>Agent "Review quality audit commit d8b9d7f" completed</summary>
+<result>I have everything I need. Let me compile the review.
+
+Reviewing commit `d8b9d7f` against the current codebase.
+
+---
+
+## Critical Issues
+
+### 1. `status` command will permanently report 0 workflow skills (Confidence: 100)
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/tools/cli/commands/status.js`, lines 54-64
+
+The `getStatus()` function counts installed workflow skills by checking for the existence of `workflow.md` inside each `skf-*` directory:
+
+```js
+const wfPath = path.join(skfDir, entry, 'workflow.md');
+if (await fs.pathExists(wfPath)) {
+  workflowCount++;
+}
+```
+
+This commit deleted all `workflow.md` files from every skill directory. As a result, `workflowCount` will always be 0 for any installed SKF instance, past or future. The `displayStatus()` function uses this count directly at line 118:
+
+```js
+console.log(`    Skills:       ${chalk.white(status.workflowCount)}`);
+```
+
+Any user who runs `npx bmad-module-skill-forge status` (or equivalent) will see `Skills: 0` even with a complete install of all 14 workflow skills. The fix is to change the detection heuristic to check for `SKILL.md` instead, which exists in every workflow skill directory and is now the canonical entry point.
+
+---
+
+## Important Issues
+
+### 2. `skf-test-skill` SKILL.md Stages table has inverted gate labels for steps 1 and 6 (Confidence: 90)
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/SKILL.md`, lines 33 and 38
+
+The Stages table says:
+- Step 1 (`step-01-init.md`): `No (confirm)` — meaning user confirmation required
+- Step 6 (`step-06-report.md`): `Yes` — meaning auto-proceeds
+
+The actual step files say the opposite:
+- `steps-c/step-01-init.md` section 8 is titled "Auto-Proceed" and explicitly says "This is an auto-proceed initialization step with no user choices"
+- `steps-c/step-06-report.md` section 7 says "**ALWAYS halt and wait for user input after presenting menu**"
+
+The Invocation Contract in the same SKILL.md correctly identifies that `step-01` is an Input Gate and `step-06` has a Confirm Gate — so the Stages table is the error. This was introduced when the workflow was consolidated from `workflow.md` into `SKILL.md`. The Stages table labels for rows 1 and 6 need to be swapped to match the actual step behavior.
+
+### 3. `src/README.md` documents deleted files as part of the module structure (Confidence: 85)
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/README.md`, lines 19 and 37
+
+Two places still document `workflow.md` as part of the expected directory layout:
+
+- Line 19 in the tree: `│   ├── workflow.md           # Human-readable workflow description`
+- Line 37: "each containing a SKILL.md, workflow.md, steps, references, and assets"
+
+These lines describe a file that no longer exists. Any contributor reading the README to understand the module layout will have an incorrect picture of the structure. This wasn't updated when the `workflow.md` files were deleted.
+
+---
+
+## Minor Issues (Documentation / Low Severity)
+
+### 4. `validate-skills.js` header comment and STEP-07 message reference deleted file (Confidence: 80)
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/tools/validate-skills.js`, lines 15-16 and 529
+
+The JSDoc comment on lines 15-16 says:
+```
+* - WF-01: workflow.md frontmatter has no name
+* - WF-02: workflow.md frontmatter has no description
+```
+
+The actual WF-01/WF-02 logic (lines 393-428) no longer specifically targets `workflow.md` — it correctly checks all non-SKILL.md files. The comment is stale.
+
+Line 529 also contains: `Only ${stepCount} step file found — consider inlining into workflow.md.` — the suggestion to inline into `workflow.md` is now meaningless since that file doesn't exist.
+
+### 5. Test suite is missing `step-03d-component-extraction.md` from create-skill step chain (Confidence: 80)
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/test/test-installation-components.js`, lines 222-243
+
+The `create-skill` step chain in `stepFileChains` doesn't include `step-03d-component-extraction.md`:
+
+```js
+'create-skill': {
+  steps: [
+    'step-01-load-brief.md',
+    'step-02-ecosystem-check.md',
+    'step-02b-ccc-discover.md',
+    'step-03-extract.md',
+    'step-03b-fetch-temporal.md',
+    'step-03c-fetch-docs.md',
+    // step-03d-component-extraction.md is missing here
+    'step-04-enrich.md',
+    ...
+  ],
+```
+
+The file exists on disk at `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-03d-component-extraction.md` and is referenced in the SKILL.md Stages table and in `step-03-extract.md`'s frontmatter (`componentExtractionStepFile`). The test will not catch if this file is accidentally deleted in a future change.
+
+---
+
+## What Was Verified as Correct
+
+All 14 skill SKILL.md files contain `## Overview` and have their `name` frontmatter field set correctly. All step-file chain references in the SKILL.md Stages tables (except the test-skill inversion noted above) match the actual files on disk. Knowledge fragment files referenced in `skf-knowledge-index.csv` all exist. The installer does not reference `workflow.md` at any point. The CLI integration test was correctly updated to check for `SKILL.md` instead of `workflow.md`. No step file references a non-existent neighboring step file as `nextStepFile`.</result>
+<usage><total_tokens>91696</total_tokens><tool_uses>102</tool_uses><duration_ms>408496</duration_ms></usage>
+</task-notification>
+
+---
+
+yes fix them all
+
+---
+
+commit
