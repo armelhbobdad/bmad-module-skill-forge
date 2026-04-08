@@ -13,7 +13,7 @@ If you're new to SKF itself, read [Getting Started](../getting-started/) first. 
 
 ## Launcher Skills vs Content Skills
 
-A BMAD project that also uses SKF ends up with two different kinds of `SKILL.md` files living in the same IDE skills directory (e.g., `.claude/skills/` for Claude Code, `.cursor/skills/` for Cursor, `.github/skills/` for GitHub Copilot — each of the 23 supported IDEs has its own directory). They look similar. They are not the same thing. This is the single most durable point of confusion, so get it straight up front.
+A BMAD project that also uses SKF ends up with two different kinds of `SKILL.md` files living in the same IDE skills directory. SKF supports 23 IDEs — Claude Code (`.claude/skills/`), Cursor (`.cursor/skills/`), GitHub Copilot (`.github/skills/`), Windsurf (`.windsurf/skills/`), Cline (`.cline/skills/`), Roo Code (`.roo/skills/`), Gemini CLI (`.gemini/skills/`), and 16 others — each with its own skill directory. See the [complete IDE → Context File mapping](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-export-skill/assets/managed-section-format.md) for the full list. They look similar. They are not the same thing. This is the single most durable point of confusion, so get it straight up front.
 
 | | BMAD launcher skill | SKF content skill |
 |---|---|---|
@@ -168,11 +168,11 @@ No direct synergy. CIS covers ideation, brainstorming, innovation strategy, and 
 
 ## Delivery and Lifecycle in a BMAD Project
 
-`@Ferris EX` is the **only workflow that introduces new skill context** into `CLAUDE.md`, `AGENTS.md`, and `.cursorrules`. Create-skill and update-skill produce draft artifacts that never touch those files directly — nothing reaches an agent's passive context until it has been through the EX gate. See [How It Works](../how-it-works/) for the architectural rationale.
+`@Ferris EX` is the **only workflow that introduces new skill context** into the three context files that serve all 23 IDEs: `CLAUDE.md` (Claude Code), `.cursorrules` (Cursor), and `AGENTS.md` (the remaining 21 IDEs — GitHub Copilot, Windsurf, Cline, Roo Code, Gemini CLI, and others). Each IDE also has its own skill root directory where skill files are installed (e.g., `.windsurf/skills/`, `.roo/skills/`, `.gemini/skills/`). Create-skill and update-skill produce draft artifacts that never touch those files directly — nothing reaches an agent's passive context until it has been through the EX gate. See [How It Works](../how-it-works/) for the architectural rationale.
 
 This matters specifically in a BMAD project: you may have multiple BMAD modules, each with its own launcher skills, plus SKF content skills, all trying to contribute context. The write-guard means only verified, tested SKF skills ever reach an agent's passive context — nothing half-baked sneaks in. `@Ferris EX` injects managed sections that coexist cleanly with whatever BMAD's installer wrote in the same files.
 
-For long-running BMAD projects, `@Ferris RS` (rename) and `@Ferris DS` (drop) keep the skill inventory clean as libraries get swapped, versions get deprecated, or naming conventions evolve across sprints. Both *rebuild* the existing managed sections in `CLAUDE.md`, `AGENTS.md`, and `.cursorrules` so references stay consistent after a rename or drop — they never inject previously-unpublished content, so the EX gate still governs what initially enters those files.
+For long-running BMAD projects, `@Ferris RS` (rename) and `@Ferris DS` (drop) keep the skill inventory clean as libraries get swapped, versions get deprecated, or naming conventions evolve across sprints. Both *rebuild* the existing managed sections in those context files so references stay consistent after a rename or drop — they never inject previously-unpublished content, so the EX gate still governs what initially enters those files.
 
 ---
 
