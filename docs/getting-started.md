@@ -25,7 +25,7 @@ There are three ways to install SKF, depending on your setup.
 npx bmad-module-skill-forge install
 ```
 
-Installs SKF on its own. You'll be prompted for project name, output folders, and which IDEs to configure. The installer generates IDE-specific command files (e.g. `.claude/commands/`, `.cursor/commands/`) so workflows appear in your IDE's command palette.
+Installs SKF on its own. You'll be prompted for project name, output folders, and which IDEs to configure. The installer copies skill directories to each IDE's skills folder (e.g. `.claude/skills/`, `.cursor/skills/`) so skills are available natively.
 
 ### As a custom module during BMad Method installation
 
@@ -92,7 +92,7 @@ SKF has two install-time variables (defined in `src/module.yaml`), one Core Conf
 | `output_folder`        | Where refined architecture documents are saved (used by RA workflow). *Inherited from BMad Core Config.* | Defined by BMad Core Config |
 | `tier_override`        | Force a specific tier for comparison or testing (in `_bmad/_memory/forger-sidecar/preferences.yaml`) | `~` (auto-detect)           |
 
-Runtime configuration (tool detection, tier, and collection state) is managed by the `setup-forge` workflow and persisted in `forge-tier.yaml`.
+Runtime configuration (tool detection, tier, and collection state) is managed by the `setup` workflow and persisted in `forge-tier.yaml`.
 
 ---
 

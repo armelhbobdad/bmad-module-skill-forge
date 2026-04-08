@@ -1,6 +1,6 @@
 /**
  * SKF Quick Update Command
- * Replaces SKF files and recompiles agents without re-prompting.
+ * Replaces SKF files and reinstalls agent skill without re-prompting.
  * Preserves config.yaml and sidecar state.
  */
 
@@ -15,7 +15,7 @@ const SKF_FOLDER = '_bmad/skf';
 
 module.exports = {
   command: 'update',
-  description: 'Update SKF files and recompile agents (preserves config and sidecar)',
+  description: 'Update SKF files and reinstall agent skill (preserves config and sidecar)',
   options: [],
   action: async () => {
     try {

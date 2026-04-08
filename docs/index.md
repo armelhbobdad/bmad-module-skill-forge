@@ -44,6 +44,7 @@ See the [Getting Started](./getting-started/) guide for full installation and us
 - **[Workflows](./workflows/)** — All 14 workflows with commands and connection diagrams
 - **[Agents](./agents/)** — Ferris: the AI agent that runs all SKF workflows
 - **[Examples](./examples/)** — Real-world scenarios, tips, and troubleshooting
+- **[BMAD Synergy](./bmad-synergy/)** — How SKF workflows pair with BMAD CORE phases and optional modules
 
 ## Support
 

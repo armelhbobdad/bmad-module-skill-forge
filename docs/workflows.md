@@ -272,7 +272,8 @@ flowchart TD
 |----------|-----------|-------------|
 | Core | SF, BS, CS, US | Setup, brief, create, and update skills |
 | Feature | QS, SS, AN | Quick skill, stack skill, and analyze source |
-| Quality | AS, TS | Audit skill completeness and test skill accuracy |
+| Quality | AS, TS | Detect skill drift (AS) and verify skill completeness (TS) |
 | Architecture Verification | VS, RA | Pre-code architecture feasibility and refinement |
+| Management | RS, DS | Rename and drop skill versions with transactional safety |
 | Utility | EX | Package and export for consumption |
 | In-Agent | WS, KI | WS: show lifecycle position, active briefs, and forge tier; KI: list knowledge fragments (both in-agent, no file-based workflow) |

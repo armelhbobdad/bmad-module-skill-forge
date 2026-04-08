@@ -40,7 +40,7 @@ description: >
 - `description`: 1-1024 characters, trigger-optimized for agent matching
   - **MUST use third-person voice.** The description is injected into the system prompt; inconsistent point-of-view causes discovery problems. Write "Processes Excel files and generates reports" — never "I can help you process Excel files" or "You can use this to process Excel files."
 
-**Body:** Free-form markdown — no structural restrictions, but Skill Forge follows a consistent section order (see skill-sections.md in create-skill/data/).
+**Body:** Free-form markdown — no structural restrictions, but Skill Forge follows a consistent section order (see skill-sections.md in create-skill/assets/).
 
 ### Optional: Supporting Directories
 

@@ -54,7 +54,36 @@ function validateAgentFile(filePath, agentYaml) {
   return schema.safeParse(agentYaml);
 }
 
-module.exports = { validateAgentFile };
+/**
+ * Validate a bmad-skill-manifest.yaml payload.
+ *
+ * @param {string} filePath Path to the manifest file.
+ * @param {unknown} manifestYaml Parsed YAML content.
+ * @returns {import('zod').SafeParseReturnType<unknown, unknown>} SafeParse result.
+ */
+function validateManifestFile(filePath, manifestYaml) {
+  return manifestSchema.safeParse(manifestYaml);
+}
+
+const manifestSchema = z
+  .object({
+    type: z.enum(['agent', 'workflow', 'tool'], {
+      errorMap: () => ({ message: 'type must be one of: agent, workflow, tool' }),
+    }),
+    name: createNonEmptyString('name'),
+    displayName: createNonEmptyString('displayName').optional(),
+    title: createNonEmptyString('title').optional(),
+    icon: z.string().optional(),
+    capabilities: z.string().optional(),
+    role: createNonEmptyString('role').optional(),
+    identity: createNonEmptyString('identity').optional(),
+    communicationStyle: createNonEmptyString('communicationStyle').optional(),
+    principles: createNonEmptyString('principles').optional(),
+    module: createNonEmptyString('module'),
+  })
+  .strict();
+
+module.exports = { validateAgentFile, validateManifestFile };
 
 // Internal helpers ---------------------------------------------------------
 

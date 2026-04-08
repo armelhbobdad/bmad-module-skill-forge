@@ -83,35 +83,35 @@ async function runTests() {
   console.log('');
 
   // ============================================================
-  // Test 2: SKF Agent YAML Structure
+  // Test 2: SKF Agent Skill Structure
   // ============================================================
   console.log(`${colors.yellow}Test Suite 2: SKF Agent Structure${colors.reset}\n`);
 
   try {
-    const skfAgentPath = path.join(projectRoot, 'src/agents/forger.agent.yaml');
+    const agentSkillDir = path.join(projectRoot, 'src/skf-forger');
+    const agentSkillMd = path.join(agentSkillDir, 'SKILL.md');
+    const agentManifest = path.join(agentSkillDir, 'bmad-skill-manifest.yaml');
 
-    if (await pathExists(skfAgentPath)) {
-      const skfAgent = yaml.load(await fs.readFile(skfAgentPath, 'utf8'));
+    assert(await pathExists(agentSkillMd), 'skf-forger/SKILL.md exists');
+    assert(await pathExists(agentManifest), 'skf-forger/bmad-skill-manifest.yaml exists');
 
-      assert(skfAgent.agent !== undefined, 'forger.agent.yaml has agent root key');
-      assert(skfAgent.agent.metadata !== undefined, 'SKF agent has metadata section');
-      assert(skfAgent.agent.metadata.module === 'skf', 'SKF agent metadata has module: skf');
-      assert(skfAgent.agent.metadata.id.includes('_bmad/skf/'), 'SKF agent id references _bmad/skf/ path');
-      assert(skfAgent.agent.persona !== undefined, 'SKF agent has persona section');
-      assert(skfAgent.agent.critical_actions !== undefined, 'SKF agent has critical_actions');
-      assert(skfAgent.agent.menu !== undefined, 'SKF agent has menu');
-      assert(
-        Array.isArray(skfAgent.agent.menu) && skfAgent.agent.menu.length === 16,
-        'SKF agent menu has 16 entries (14 workflows + 1 knowledge index + 1 status action)',
-        `Found ${Array.isArray(skfAgent.agent.menu) ? skfAgent.agent.menu.length : 'non-array'}`,
-      );
+    if (await pathExists(agentManifest)) {
+      const manifest = yaml.load(await fs.readFile(agentManifest, 'utf8'));
 
-      // Verify no foreign module references
-      const yamlContent = await fs.readFile(skfAgentPath, 'utf8');
-      assert(!yamlContent.includes('module: tea'), 'SKF agent has no module: tea references');
-      assert(!yamlContent.includes('module: bmm'), 'SKF agent has no module: bmm references');
-    } else {
-      assert(false, 'SKF agent YAML exists', 'src/agents/forger.agent.yaml not found');
+      assert(manifest.type === 'agent', 'Agent manifest has type: agent');
+      assert(manifest.name === 'skf-forger', 'Agent manifest has name: skf-forger');
+      assert(manifest.module === 'skf', 'Agent manifest has module: skf');
+      assert(typeof manifest.displayName === 'string', 'Agent manifest has displayName');
+      assert(typeof manifest.title === 'string', 'Agent manifest has title');
+      assert(typeof manifest.icon === 'string', 'Agent manifest has icon');
+    }
+
+    if (await pathExists(agentSkillMd)) {
+      const content = await fs.readFile(agentSkillMd, 'utf8');
+      assert(content.includes('## Capabilities'), 'Agent SKILL.md has Capabilities section');
+      assert(content.includes('## On Activation'), 'Agent SKILL.md has On Activation section');
+      assert(content.includes('skf-setup'), 'Agent capabilities reference skf-setup');
+      assert(content.includes('skf-create-skill'), 'Agent capabilities reference skf-create-skill');
     }
   } catch (error) {
     assert(false, 'SKF agent structure validates', error.message);
@@ -148,7 +148,7 @@ async function runTests() {
   console.log(`${colors.yellow}Test Suite 4: Workflow Structure${colors.reset}\n`);
 
   const workflowNames = [
-    'setup-forge',
+    'setup',
     'analyze-source',
     'brief-skill',
     'create-skill',
@@ -165,25 +165,34 @@ async function runTests() {
   ];
 
   for (const workflowName of workflowNames) {
-    const workflowPath = path.join(projectRoot, `src/workflows/${workflowName}/workflow.md`);
+    const workflowPath = path.join(projectRoot, `src/skf-${workflowName}/workflow.md`);
+    const skillMdPath = path.join(projectRoot, `src/skf-${workflowName}/SKILL.md`);
 
     if (await pathExists(workflowPath)) {
       const content = await fs.readFile(workflowPath, 'utf8');
       assert(content.length > 0, `${workflowName}/workflow.md exists`);
     } else {
-      assert(false, `${workflowName}/workflow.md exists`, `src/workflows/${workflowName}/workflow.md not found`);
+      assert(false, `${workflowName}/workflow.md exists`, `src/skf-${workflowName}/workflow.md not found`);
+    }
+
+    if (await pathExists(skillMdPath)) {
+      const content = await fs.readFile(skillMdPath, 'utf8');
+      const hasName = content.includes(`name: skf-${workflowName}`);
+      assert(hasName, `${workflowName}/SKILL.md has correct name field`);
+    } else {
+      assert(false, `${workflowName}/SKILL.md exists`, `src/skf-${workflowName}/SKILL.md not found`);
     }
   }
 
   console.log('');
 
   // ============================================================
-  // Test 5: Step-File Chain and Data File Validation
+  // Test 5: Step-File Chain and Resource File Validation
   // ============================================================
-  console.log(`${colors.yellow}Test Suite 5: Step-File and Data File Validation${colors.reset}\n`);
+  console.log(`${colors.yellow}Test Suite 5: Step-File and Resource File Validation${colors.reset}\n`);
 
   const stepFileChains = {
-    'setup-forge': {
+    setup: {
       steps: [
         'step-01-detect-and-tier.md',
         'step-01b-ccc-index.md',
@@ -191,7 +200,7 @@ async function runTests() {
         'step-03-auto-index.md',
         'step-04-report.md',
       ],
-      data: ['tier-rules.md'],
+      references: ['tier-rules.md'],
     },
     'analyze-source': {
       steps: [
@@ -203,7 +212,8 @@ async function runTests() {
         'step-05-recommend.md',
         'step-06-generate-briefs.md',
       ],
-      data: ['skill-brief-schema.md', 'unit-detection-heuristics.md'],
+      assets: ['skill-brief-schema.md'],
+      references: ['unit-detection-heuristics.md'],
     },
     'brief-skill': {
       steps: [
@@ -213,7 +223,7 @@ async function runTests() {
         'step-04-confirm-brief.md',
         'step-05-write-brief.md',
       ],
-      data: ['scope-templates.md', 'skill-brief-schema.md'],
+      assets: ['scope-templates.md', 'skill-brief-schema.md'],
     },
     'create-skill': {
       steps: [
@@ -229,11 +239,10 @@ async function runTests() {
         'step-07-generate-artifacts.md',
         'step-08-report.md',
       ],
-      data: [
-        'compile-assembly-rules.md',
+      assets: ['compile-assembly-rules.md', 'skill-sections.md'],
+      references: [
         'extraction-patterns.md',
         'extraction-patterns-tracing.md',
-        'skill-sections.md',
         'source-resolution-protocols.md',
         'tier-degradation-rules.md',
       ],
@@ -247,7 +256,8 @@ async function runTests() {
         'step-05-validate.md',
         'step-06-write.md',
       ],
-      data: ['registry-resolution.md', 'skill-template.md'],
+      assets: ['skill-template.md'],
+      references: ['registry-resolution.md'],
     },
     'create-stack-skill': {
       steps: [
@@ -261,7 +271,8 @@ async function runTests() {
         'step-08-validate.md',
         'step-09-report.md',
       ],
-      data: ['integration-patterns.md', 'manifest-patterns.md', 'stack-skill-template.md', 'compose-mode-rules.md'],
+      assets: ['stack-skill-template.md'],
+      references: ['integration-patterns.md', 'manifest-patterns.md', 'compose-mode-rules.md'],
     },
     'update-skill': {
       steps: [
@@ -273,7 +284,7 @@ async function runTests() {
         'step-06-write.md',
         'step-07-report.md',
       ],
-      data: ['manual-section-rules.md', 'merge-conflict-rules.md', 'remote-source-resolution.md'],
+      references: ['manual-section-rules.md', 'merge-conflict-rules.md', 'remote-source-resolution.md'],
     },
     'audit-skill': {
       steps: [
@@ -284,7 +295,8 @@ async function runTests() {
         'step-05-severity-classify.md',
         'step-06-report.md',
       ],
-      data: ['drift-report-template.md', 'severity-rules.md'],
+      assets: ['drift-report-template.md'],
+      references: ['severity-rules.md'],
     },
     'test-skill': {
       steps: [
@@ -296,7 +308,8 @@ async function runTests() {
         'step-05-score.md',
         'step-06-report.md',
       ],
-      data: ['output-section-formats.md', 'scoring-rules.md', 'source-access-protocol.md'],
+      assets: ['output-section-formats.md'],
+      references: ['scoring-rules.md', 'source-access-protocol.md'],
     },
     'verify-stack': {
       steps: [
@@ -307,7 +320,8 @@ async function runTests() {
         'step-05-synthesize.md',
         'step-06-report.md',
       ],
-      data: ['coverage-patterns.md', 'feasibility-report-template.md', 'integration-verification-rules.md'],
+      assets: ['feasibility-report-template.md'],
+      references: ['coverage-patterns.md', 'integration-verification-rules.md'],
     },
     'refine-architecture': {
       steps: [
@@ -318,7 +332,7 @@ async function runTests() {
         'step-05-compile.md',
         'step-06-report.md',
       ],
-      data: ['refinement-rules.md'],
+      references: ['refinement-rules.md'],
     },
     'export-skill': {
       steps: [
@@ -329,28 +343,31 @@ async function runTests() {
         'step-05-token-report.md',
         'step-06-summary.md',
       ],
-      data: ['managed-section-format.md', 'snippet-format.md'],
+      assets: ['managed-section-format.md', 'snippet-format.md'],
     },
     'rename-skill': {
       steps: ['step-01-select.md', 'step-02-execute.md', 'step-03-report.md'],
-      data: [],
     },
     'drop-skill': {
       steps: ['step-01-select.md', 'step-02-execute.md', 'step-03-report.md'],
-      data: [],
     },
   };
 
   for (const [workflow, files] of Object.entries(stepFileChains)) {
     for (const step of files.steps) {
-      const stepPath = path.join(projectRoot, `src/workflows/${workflow}/steps-c/${step}`);
+      const stepPath = path.join(projectRoot, `src/skf-${workflow}/steps-c/${step}`);
       const exists = await pathExists(stepPath);
       assert(exists, `${workflow}/steps-c/${step} exists`, `Missing step file: ${stepPath}`);
     }
-    for (const dataFile of files.data) {
-      const dataPath = path.join(projectRoot, `src/workflows/${workflow}/data/${dataFile}`);
-      const exists = await pathExists(dataPath);
-      assert(exists, `${workflow}/data/${dataFile} exists`, `Missing data file: ${dataPath}`);
+    for (const refFile of files.references || []) {
+      const refPath = path.join(projectRoot, `src/skf-${workflow}/references/${refFile}`);
+      const exists = await pathExists(refPath);
+      assert(exists, `${workflow}/references/${refFile} exists`, `Missing reference file: ${refPath}`);
+    }
+    for (const assetFile of files.assets || []) {
+      const assetPath = path.join(projectRoot, `src/skf-${workflow}/assets/${assetFile}`);
+      const exists = await pathExists(assetPath);
+      assert(exists, `${workflow}/assets/${assetFile} exists`, `Missing asset file: ${assetPath}`);
     }
   }
 

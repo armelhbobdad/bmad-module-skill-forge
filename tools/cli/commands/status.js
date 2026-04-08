@@ -8,20 +8,18 @@ const path = require('node:path');
 const fs = require('fs-extra');
 const yaml = require('js-yaml');
 const { readManifest } = require('../lib/manifest');
+const { getAvailablePlatforms } = require('../lib/ide-skills');
 
 const SKF_FOLDER = '_bmad/skf';
 const SIDECAR_FOLDER = '_bmad/_memory/forger-sidecar';
 
-const IDE_NAMES = {
-  'claude-code': 'Claude Code',
-  cline: 'Cline',
-  codex: 'Codex',
-  cursor: 'Cursor',
-  'github-copilot': 'GitHub Copilot',
-  roo: 'Roo Code',
-  windsurf: 'Windsurf',
-  other: 'Other',
-};
+function getIdeNames() {
+  const names = { other: 'Other' };
+  for (const p of getAvailablePlatforms()) {
+    names[p.value] = p.label;
+  }
+  return names;
+}
 
 async function readYaml(filePath) {
   try {
@@ -50,17 +48,16 @@ async function getStatus(projectDir) {
   // Read preferences
   const preferences = await readYaml(path.join(sidecarDir, 'preferences.yaml'));
 
-  // Check agent file
-  const agentFile = path.join(skfDir, 'agents', 'forger.md');
-  const agentCompiled = await fs.pathExists(agentFile);
+  // Check agent skill in module dir (always present when installed)
+  const agentInstalled = await fs.pathExists(path.join(skfDir, 'skf-forger', 'SKILL.md'));
 
-  // Count workflows
-  const workflowsDir = path.join(skfDir, 'workflows', 'skillforge');
+  // Count workflow skills (skf-* directories with workflow.md)
   let workflowCount = 0;
-  if (await fs.pathExists(workflowsDir)) {
-    const entries = await fs.readdir(workflowsDir);
+  if (await fs.pathExists(skfDir)) {
+    const entries = await fs.readdir(skfDir);
     for (const entry of entries) {
-      const wfPath = path.join(workflowsDir, entry, 'workflow.md');
+      if (!entry.startsWith('skf-')) continue;
+      const wfPath = path.join(skfDir, entry, 'workflow.md');
       if (await fs.pathExists(wfPath)) {
         workflowCount++;
       }
@@ -85,7 +82,7 @@ async function getStatus(projectDir) {
     config,
     forgeTier,
     preferences,
-    agentCompiled,
+    agentInstalled,
     workflowCount,
     skillsFolder,
     skillsFolderExists,
@@ -117,8 +114,8 @@ function displayStatus(status, version) {
   console.log(chalk.white.bold('  Installation'));
   console.log(`    Project:      ${chalk.hex('#FBBF24')(config.project_name || '(unknown)')}`);
   console.log(`    SKF folder:   ${chalk.dim(SKF_FOLDER + '/')}`);
-  console.log(`    Agent:        ${status.agentCompiled ? chalk.green('compiled') : chalk.yellow('not compiled')}`);
-  console.log(`    Workflows:    ${chalk.white(status.workflowCount)}`);
+  console.log(`    Agent:        ${status.agentInstalled ? chalk.green('installed') : chalk.yellow('not installed')}`);
+  console.log(`    Skills:       ${chalk.white(status.workflowCount)}`);
   if (manifest) {
     console.log(
       `    Installed:    ${chalk.dim(manifest.installed_at ? new Date(manifest.installed_at).toLocaleDateString() : '(unknown)')}`,
@@ -131,10 +128,11 @@ function displayStatus(status, version) {
 
   // IDEs
   const ides = config.ides || [];
+  const ideNames = getIdeNames();
   console.log(chalk.white.bold('  IDEs'));
   if (ides.length > 0) {
     for (const ide of ides) {
-      console.log(`    ${chalk.green('●')} ${IDE_NAMES[ide] || ide}`);
+      console.log(`    ${chalk.green('●')} ${ideNames[ide] || ide}`);
     }
   } else {
     console.log(chalk.dim('    None configured'));

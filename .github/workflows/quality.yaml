@@ -6,8 +6,11 @@ name: Quality & Validation
 # - markdownlint (markdown quality)
 # - Schema validation (YAML structure)
 # - Agent schema tests (fixture-based validation)
-# - Installation component tests (compilation)
-# - Bundle validation (web bundle integrity)
+# - Installation component tests (CLI + compilation)
+# - Workflow state consistency tests
+# - Knowledge base tests
+# - Skill structure validation
+# - File reference validation
 
 "on":
   pull_request:
@@ -93,5 +96,17 @@ jobs:
       - name: Test installation components
         run: npm run test:install
 
+      - name: Test CLI integration
+        run: npm run test:cli
+
+      - name: Test workflow state consistency
+        run: npm run test:workflow
+
       - name: Test knowledge base
         run: npm run test:knowledge
+
+      - name: Validate skills structure
+        run: npm run validate:skills
+
+      - name: Validate file references
+        run: npm run validate:refs

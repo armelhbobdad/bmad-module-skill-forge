@@ -31,16 +31,17 @@ Each workflow directory contains these files, and each has a specific job:
 |---------------------------|---------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|
 | `workflow.md`             | Human-readable entry point — goals, role definition, initialization sequence, routes to first step                   | Entry point per workflow                          |
 | `steps-c/*.md`            | **Create** steps — primary execution, 5–11 sequential files per workflow                                            | One at a time (just-in-time)                      |
-| `data/*.md`               | Workflow-specific reference data — schemas, heuristics, rules, patterns                                             | Read by steps on demand                           |
+| `references/*.md`         | Workflow-specific reference data — rules, patterns, protocols                                                       | Read by steps on demand                           |
+| `assets/*.md`             | Workflow-specific output formats — schemas, templates, heuristics                                                   | Read by steps on demand                           |
 | `templates/*.md`          | Output skeletons with placeholder vars — steps fill these in to produce the final artifact                          | Read by steps when generating output              |
 
 **Module-level shared files** (not per-workflow — loaded by the agent or referenced across workflows):
 
 | File                      | What it does                                                                                                        | When it loads                                     |
 |---------------------------|---------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|
-| `forger.agent.yaml`       | Expert persona — identity, principles, critical actions, menu of triggers                                           | First — always in context                         |
-| `skf-knowledge-index.csv` | Knowledge fragment index — id, name, tags, tier, file path                                                          | Read by steps to decide which fragments to load   |
-| `knowledge/*.md`          | 13 reusable fragments + overview.md index — cross-cutting principles and patterns (e.g., `zero-hallucination.md`, `confidence-tiers.md`, `ccc-bridge.md`) | Selectively read into context when a step directs |
+| `skf-forger/SKILL.md`     | Expert persona — identity, principles, critical actions, menu of triggers                                           | First — always in context                         |
+| `knowledge/skf-knowledge-index.csv` | Knowledge fragment index — id, name, tags, tier, file path                                                          | Read by steps to decide which fragments to load   |
+| `knowledge/*.md`          | 14 reusable fragments + overview.md index — cross-cutting principles and patterns (e.g., `zero-hallucination.md`, `confidence-tiers.md`, `ccc-bridge.md`) | Selectively read into context when a step directs |
 
 ```mermaid
 flowchart LR
@@ -48,24 +49,24 @@ flowchart LR
   A --> W[Workflow Entry: workflow.md]
   W --> S[Step Files: steps-c/]
   S --> K[Knowledge Fragments<br/>skf-knowledge-index.csv → knowledge/*.md]
-  S --> D[Data & Templates<br/>data/*.md, templates/*.md]
+  S --> D[References & Assets<br/>references/*.md, assets/*.md, templates/*.md]
   S --> O[Outputs: skills/, forge-data/, sidecar<br/>when a step writes output]
 ```
 
 ### How It Works at Runtime
 
-1. **Trigger** — User types `@Ferris CS` (or fuzzy match like `create-skill`). The agent menu in `forger.agent.yaml` maps the trigger to the workflow path.
-2. **Agent loads** — `forger.agent.yaml` injects the persona (identity, principles, critical actions) into the context window. Sidecar files (`forge-tier.yaml`, `preferences.yaml`) are loaded for persistent state.
+1. **Trigger** — User types `@Ferris CS` (or fuzzy match like `create-skill`). The agent menu in `skf-forger/SKILL.md` maps the trigger to the workflow path.
+2. **Agent loads** — `skf-forger/SKILL.md` injects the persona (identity, principles, critical actions) into the context window. Sidecar files (`forge-tier.yaml`, `preferences.yaml`) are loaded for persistent state.
 3. **Workflow loads** — `workflow.md` presents the mode choice and routes to the first step file.
 4. **Step-by-step execution** — Only the current step file is in context (just-in-time loading). Each step explicitly names the next one. The LLM reads, executes, saves output, then loads the next step. No future steps are ever preloaded.
 5. **Knowledge injection** — Steps consult `skf-knowledge-index.csv` and selectively load fragments from `knowledge/` by tags and relevance. Cross-cutting principles (zero hallucination, confidence tiers, provenance) are loaded only when a step directs — not preloaded.
-6. **Data injection** — Steps read `data/*.md` files as needed (schemas, heuristics, extraction patterns). This is deliberate context engineering: only the data relevant to the current step enters the context window.
+6. **Reference and asset injection** — Steps read `references/*.md` and `assets/*.md` files as needed (rules, patterns, schemas, heuristics). This is deliberate context engineering: only the data relevant to the current step enters the context window.
 7. **Templates** — When a step produces output (e.g., a skill brief or test report), it reads the template file and fills in placeholders with computed results. The template provides consistent structure; the step provides the content.
 8. **Progress tracking** — Each step appends to an output file with state tracking. Resume mode reads this state and routes to the next incomplete step.
 
 ### Ferris Operating Modes
 
-Ferris operates in four workflow-driven modes (mode is determined by which workflow is running, not conversation state):
+Ferris operates in five workflow-driven modes (mode is determined by which workflow is running, not conversation state):
 
 | Mode          | Workflows          | Behavior                                                    |
 |---------------|--------------------|-------------------------------------------------------------|
@@ -73,6 +74,7 @@ Ferris operates in four workflow-driven modes (mode is determined by which workf
 | **Surgeon**   | US                 | Precise, semantic diffing — preserves [MANUAL] sections during regeneration |
 | **Audit**     | AS, TS, VS         | Judgmental, scoring — evaluates quality and detects drift   |
 | **Delivery**  | EX                 | Validates package, generates snippets, injects into context files |
+| **Management** | RS, DS            | Transactional rename/drop — copy-verify-delete with platform context rebuild |
 
 ---
 
@@ -427,7 +429,7 @@ Export injects a managed section between markers:
 <!-- SKF:END -->
 ```
 
-~80-120 tokens per skill (version-pinned, retrieval instruction, section anchors, inline gotchas). Root paths are platform-aware (`.claude/skills/`, `.cursor/skills/`, `.agents/skills/`). Aligned with [Vercel's research](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals) finding that indexed format with explicit retrieval instructions dramatically improves agent performance. Developer controls placement. Ferris controls content. Snippet updates only happen at `export-skill` — create and update are draft operations. An `.export-manifest.json` tracks which skills have been explicitly exported, preventing draft skills from leaking into the managed section.
+~80-120 tokens per skill (version-pinned, retrieval instruction, section anchors, inline gotchas). Root paths are per-IDE — each of the 23 supported IDEs has its own skill directory (e.g., `.claude/skills/`, `.cursor/skills/`, `.github/skills/`, `.windsurf/skills/`). See [`skf-export-skill/assets/managed-section-format.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-export-skill/assets/managed-section-format.md) for the complete IDE → Context File Mapping. Aligned with [Vercel's research](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals) finding that indexed format with explicit retrieval instructions dramatically improves agent performance. Developer controls placement. Ferris controls content. Snippet updates only happen at `export-skill` — create and update are draft operations. An `.export-manifest.json` tracks which skills have been explicitly exported, preventing draft skills from leaking into the managed section.
 
 ---
 
@@ -525,30 +527,31 @@ Workflows load only the fragments required for the current task to stay focused 
 
 ```
 src/
-├── module.yaml
-├── module-help.csv
-├── agents/
-│   └── forger.agent.yaml
+├── skf-forger/               # Agent skill (SKILL.md + manifest)
+├── skf-setup/                # Setup skill (forge initialization)
+├── skf-analyze-source/
+├── skf-brief-skill/
+├── skf-create-skill/
+├── skf-quick-skill/
+├── skf-create-stack-skill/
+├── skf-verify-stack/
+├── skf-refine-architecture/
+├── skf-update-skill/
+├── skf-audit-skill/
+├── skf-test-skill/
+├── skf-export-skill/
+├── skf-rename-skill/
+├── skf-drop-skill/
 ├── forger/
 │   ├── forge-tier.yaml
 │   ├── preferences.yaml
 │   └── README.md
 ├── knowledge/
 │   ├── skf-knowledge-index.csv
-│   └── *.md (13 knowledge fragments + overview.md index)
-└── workflows/
-    ├── setup-forge/
-    ├── analyze-source/
-    ├── brief-skill/
-    ├── create-skill/
-    ├── quick-skill/
-    ├── create-stack-skill/
-    ├── verify-stack/
-    ├── refine-architecture/
-    ├── update-skill/
-    ├── audit-skill/
-    ├── test-skill/
-    └── export-skill/
+│   └── *.md (14 knowledge fragments + overview.md index)
+├── shared/                   # Cross-workflow resources
+├── module.yaml               # Module metadata (code, name, config vars)
+└── module-help.csv           # Skill menu for bmad-help integration
 ```
 
 ---

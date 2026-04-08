@@ -92,6 +92,7 @@ try {
         name: 'Test',
         title: 'Test',
         icon: '🧪',
+        hasSidecar: false,
         // No module field - correct for core agent
       },
       persona: {

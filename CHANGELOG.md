@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.0] - Unreleased
+## [0.10.0] - Unreleased
 
 ### Initial Release
 
@@ -10,13 +10,13 @@ Skill Forge (SKF) — an agent skill compiler that transforms code repositories,
 
 ### Highlights
 
-- **1 agent** — Ferris (Skill Architect & Integrity Guardian) with 4 workflow-driven modes
-- **12 workflows** — full lifecycle from source analysis to ecosystem-ready export, with pre-code architecture verification
+- **1 agent** — Ferris (Skill Architect & Integrity Guardian) with 5 workflow-driven modes
+- **14 workflows** — full lifecycle from source analysis to ecosystem-ready export, with pre-code architecture verification
 - **Progressive capability model** — Quick (gh), Forge (+ast-grep), Forge+ (+ccc), Deep (+QMD)
 - **Zero hallucination tolerance** — every instruction traces to source code with provenance citations
 - **Dual-output strategy** — active skills (SKILL.md) + passive context (context-snippet.md) in ADR-L v2 format
-- **CLI installer** — `npx bmad-module-skill-forge install` with IDE command generation for 7 IDEs
-- **13 knowledge fragments** — curated cross-cutting principles loaded just-in-time by workflows
+- **CLI installer** — `npx bmad-module-skill-forge install` with skill directory installation for 23 IDEs
+- **14 knowledge fragments** — curated cross-cutting principles loaded just-in-time by workflows
 
 ### Workflows
 
@@ -34,6 +34,8 @@ Skill Forge (SKF) — an agent skill compiler that transforms code repositories,
 | VS | Verify Stack | Pre-code stack feasibility verification against architecture |
 | RA | Refine Architecture | Improve architecture doc using verified skill data |
 | EX | Export Skill | Package for distribution, inject into CLAUDE.md |
+| RS | Rename Skill | Rename a skill and update all references |
+| DS | Drop Skill | Remove a skill and clean up references |
 
 ### Confidence Tiers
 
@@ -44,7 +46,7 @@ Skill Forge (SKF) — an agent skill compiler that transforms code repositories,
 
 ### IDE Support
 
-Claude Code, Cursor, Cline, Codex, GitHub Copilot, Roo Code, Windsurf
+23 IDEs supported: Claude Code, Cursor, Windsurf, Cline, Roo Code, GitHub Copilot, Codex, Gemini CLI, Junie, Kiro, Trae, Google Antigravity, Auggie, CodeBuddy, Crush, iFlow, KiloCoder, Ona, OpenCode, Pi, Qoder, QwenCoder, Rovo Dev
 
 ### Links
 

@@ -49,16 +49,16 @@ async function runTests() {
   console.log(`========================================${colors.reset}\n`);
 
   const projectRoot = path.join(__dirname, '..');
-  const workflowsDir = path.join(projectRoot, 'src/workflows');
+  const srcDir = path.join(projectRoot, 'src');
 
   // ============================================================
   // Test Suite 1: VS Feasibility Report Frontmatter Fields
   // ============================================================
   console.log(`${colors.yellow}Test Suite 1: VS Frontmatter Field Consistency${colors.reset}\n`);
 
-  const vsTemplate = await readFile(path.join(workflowsDir, 'verify-stack/data/feasibility-report-template.md'));
-  const vsStep06 = await readFile(path.join(workflowsDir, 'verify-stack/steps-c/step-06-report.md'));
-  const vsStep05 = await readFile(path.join(workflowsDir, 'verify-stack/steps-c/step-05-synthesize.md'));
+  const vsTemplate = await readFile(path.join(srcDir, 'skf-verify-stack/assets/feasibility-report-template.md'));
+  const vsStep06 = await readFile(path.join(srcDir, 'skf-verify-stack/steps-c/step-06-report.md'));
+  const vsStep05 = await readFile(path.join(srcDir, 'skf-verify-stack/steps-c/step-05-synthesize.md'));
 
   // Extract frontmatter field names from template
   const templateFrontmatter = vsTemplate.split('---')[1];
@@ -130,8 +130,8 @@ async function runTests() {
   // ============================================================
   console.log(`${colors.yellow}Test Suite 2: RA State File Consistency${colors.reset}\n`);
 
-  const raStep01 = await readFile(path.join(workflowsDir, 'refine-architecture/steps-c/step-01-init.md'));
-  const raStep05 = await readFile(path.join(workflowsDir, 'refine-architecture/steps-c/step-05-compile.md'));
+  const raStep01 = await readFile(path.join(srcDir, 'skf-refine-architecture/steps-c/step-01-init.md'));
+  const raStep05 = await readFile(path.join(srcDir, 'skf-refine-architecture/steps-c/step-05-compile.md'));
 
   // Step-01 creates the state file with a specific header format
   assert(
@@ -167,8 +167,8 @@ async function runTests() {
   // ============================================================
   console.log(`${colors.yellow}Test Suite 3: Compose-Mode Confidence Tier Consistency${colors.reset}\n`);
 
-  const composeModeRules = await readFile(path.join(workflowsDir, 'create-stack-skill/data/compose-mode-rules.md'));
-  const cssStep05 = await readFile(path.join(workflowsDir, 'create-stack-skill/steps-c/step-05-detect-integrations.md'));
+  const composeModeRules = await readFile(path.join(srcDir, 'skf-create-stack-skill/references/compose-mode-rules.md'));
+  const cssStep05 = await readFile(path.join(srcDir, 'skf-create-stack-skill/steps-c/step-05-detect-integrations.md'));
 
   // Compose-mode-rules must cover all pairwise cases
   assert(
@@ -214,7 +214,7 @@ async function runTests() {
   // ============================================================
   console.log(`${colors.yellow}Test Suite 4: VS Step Sequencing Guards${colors.reset}\n`);
 
-  const vsStep03 = await readFile(path.join(workflowsDir, 'verify-stack/steps-c/step-03-integrations.md'));
+  const vsStep03 = await readFile(path.join(srcDir, 'skf-verify-stack/steps-c/step-03-integrations.md'));
 
   // Step-03 auto-proceed must be gated (not unconditional after halt guard)
   assert(

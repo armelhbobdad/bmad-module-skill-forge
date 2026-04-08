@@ -17,6 +17,7 @@ const fs = require('fs-extra');
 const yaml = require('js-yaml');
 const { readManifest } = require('./manifest');
 const { compareVersions } = require('./version-check');
+const { getAvailablePlatforms, getDetectionMarkers } = require('./ide-skills');
 
 const SKF_FOLDER = '_bmad/skf';
 
@@ -133,7 +134,7 @@ class UI {
       }
       action = choice;
     } else {
-      log.info(`Agents and workflows will be installed in ${chalk.white(skfFolder + '/')}`);
+      log.info(`Skills will be installed in ${chalk.white(skfFolder + '/')}`);
     }
 
     if (action === 'update') {
@@ -153,14 +154,13 @@ class UI {
       log.info('Previous configuration detected — defaults pre-populated.');
     }
 
+    // Build IDE options from platform-codes.yaml
+    const platforms = getAvailablePlatforms();
     const ideOptions = [
-      { label: 'Claude Code', value: 'claude-code' },
-      { label: 'Cline', value: 'cline' },
-      { label: 'Codex', value: 'codex' },
-      { label: 'Cursor', value: 'cursor' },
-      { label: 'GitHub Copilot', value: 'github-copilot' },
-      { label: 'Roo Code', value: 'roo' },
-      { label: 'Windsurf', value: 'windsurf' },
+      ...platforms.map((p) => ({
+        label: p.preferred ? `${p.label} (Recommended)` : p.label,
+        value: p.value,
+      })),
       { label: 'Other', value: 'other' },
     ];
 
@@ -249,16 +249,7 @@ class UI {
   }
 
   async detectIdes(projectDir) {
-    const markers = {
-      'claude-code': ['.claude'],
-      cursor: ['.cursor'],
-      cline: ['.clinerules'],
-      codex: ['.codex'],
-      'github-copilot': ['.github/copilot-instructions.md', '.github/prompts'],
-      roo: ['.roo', '.roomodes'],
-      windsurf: ['.windsurf'],
-    };
-
+    const markers = getDetectionMarkers();
     const detected = [];
     for (const [ide, paths] of Object.entries(markers)) {
       for (const p of paths) {
@@ -285,16 +276,11 @@ class UI {
   }
 
   displaySuccess(skfFolder, ides = [], action = 'fresh') {
-    const ideNames = {
-      'claude-code': 'Claude Code',
-      cline: 'Cline',
-      codex: 'Codex',
-      cursor: 'Cursor',
-      'github-copilot': 'GitHub Copilot',
-      roo: 'Roo Code',
-      windsurf: 'Windsurf',
-      other: 'your IDE',
-    };
+    // Build IDE name map from platform-codes.yaml
+    const ideNames = { other: 'your IDE' };
+    for (const p of getAvailablePlatforms()) {
+      ideNames[p.value] = p.label;
+    }
 
     let ideDisplay;
     if (!ides || ides.length === 0) {
@@ -308,7 +294,7 @@ class UI {
     let noteTitle;
     let noteBody;
 
-    const activateCmd = brand.gold('/bmad-agent-skf-forger');
+    const activateCmd = brand.gold('@Ferris SF');
 
     if (action === 'update') {
       noteTitle = brand.amber.bold('Update complete!');

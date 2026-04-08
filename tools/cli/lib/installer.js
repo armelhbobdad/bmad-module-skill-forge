@@ -1,14 +1,13 @@
 /**
  * SKF Installer - Core orchestrator
- * Copies SKF source files, compiles agents, creates folder structure.
+ * Copies SKF source files, installs skills to IDEs, creates folder structure.
  */
 
 const path = require('node:path');
 const fs = require('fs-extra');
 const { spinner } = require('@clack/prompts');
 const yaml = require('js-yaml');
-const { compileAgentFile } = require('./compiler');
-const { generateIdeCommands } = require('./ide-commands');
+const { installSkillsToIdes } = require('./ide-skills');
 const { writeManifest } = require('./manifest');
 
 class Installer {
@@ -39,6 +38,7 @@ class Installer {
           if (!config.ides && savedData.ides) config.ides = savedData.ides;
           if (!config.skills_output_folder && savedData.skills_output_folder) config.skills_output_folder = savedData.skills_output_folder;
           if (!config.forge_data_folder && savedData.forge_data_folder) config.forge_data_folder = savedData.forge_data_folder;
+          if (config.install_learning == null && savedData.install_learning != null) config.install_learning = savedData.install_learning;
         } catch {
           /* ignore parse errors, defaults will apply */
         }
@@ -89,17 +89,7 @@ class Installer {
       throw error;
     }
 
-    // Step 4: Compile agents
-    s.start('Compiling agents...');
-    try {
-      const agents = await this.compileAgents(skfDir, skfFolder);
-      s.stop(`Compiled ${agents.length} agent${agents.length === 1 ? '' : 's'}`);
-    } catch (error) {
-      s.stop('Failed to compile agents');
-      throw error;
-    }
-
-    // Step 5: Create output folders
+    // Step 4: Create output folders
     s.start('Creating project folders...');
     try {
       await this.createOutputFolders(projectDir, config);
@@ -109,7 +99,7 @@ class Installer {
       throw error;
     }
 
-    // Step 6: Copy learning material (optional)
+    // Step 5: Copy learning material (optional)
     if (config.install_learning !== false) {
       s.start('Copying learning & reference material...');
       try {
@@ -121,32 +111,32 @@ class Installer {
       }
     }
 
-    // Step 7: Generate IDE command files
-    let ideFiles = [];
+    // Step 6: Install skills to selected IDEs
+    let ideDirectories = [];
     const selectedIdes = config.ides || [];
     if (selectedIdes.length > 0 && !selectedIdes.every((ide) => ide === 'other')) {
-      s.start('Generating IDE commands...');
+      s.start('Installing skills to IDEs...');
       try {
-        const ideResult = await generateIdeCommands(projectDir, skfFolder, selectedIdes);
-        ideFiles = ideResult.files || [];
-        if (ideResult.generated > 0) {
-          s.stop(`IDE commands generated for ${ideResult.ides.join(', ')}`);
+        const ideResult = await installSkillsToIdes(projectDir, skfDir, selectedIdes);
+        ideDirectories = ideResult.directories || [];
+        if (ideResult.installed > 0) {
+          s.stop(`Skills installed for ${ideResult.ides.join(', ')}`);
         } else {
-          s.stop('No IDE commands to generate');
+          s.stop('No IDE skill installation needed');
         }
       } catch (error) {
-        s.stop('Failed to generate IDE commands');
+        s.stop('Failed to install skills to IDEs');
         throw error;
       }
     }
 
-    // Step 8: Write installation manifest
+    // Step 7: Write installation manifest
     s.start('Writing manifest...');
     try {
       const packageJson = require('../../../package.json');
       await writeManifest(projectDir, config, {
         version: packageJson.version,
-        ideFiles,
+        ideDirectories,
       });
       s.stop('Installation manifest saved');
     } catch (error) {
@@ -159,23 +149,24 @@ class Installer {
 
   /**
    * Copy src/ content into the target SKF directory.
-   * Workflows are placed under a skillforge/ subdirectory to match agent path references.
+   * Skill directories (skf-*) are copied flat alongside module-level resources.
    */
   async copySrcFiles(skfDir) {
-    // Copy agents and knowledge directly
-    for (const dir of ['agents', 'knowledge']) {
+    // Copy skill directories (skf-*) — each is a self-contained skill
+    const srcEntries = await fs.readdir(this.srcDir, { withFileTypes: true });
+    for (const entry of srcEntries) {
+      if (entry.isDirectory() && entry.name.startsWith('skf-')) {
+        await fs.copy(path.join(this.srcDir, entry.name), path.join(skfDir, entry.name));
+      }
+    }
+
+    // Copy module-level resources
+    for (const dir of ['knowledge', 'shared']) {
       const src = path.join(this.srcDir, dir);
       const dest = path.join(skfDir, dir);
       if (await fs.pathExists(src)) {
         await fs.copy(src, dest);
       }
-    }
-
-    // Workflows go under workflows/skillforge/ to match agent YAML paths
-    const workflowsSrc = path.join(this.srcDir, 'workflows');
-    const workflowsDest = path.join(skfDir, 'workflows', 'skillforge');
-    if (await fs.pathExists(workflowsSrc)) {
-      await fs.copy(workflowsSrc, workflowsDest);
     }
 
     // Copy module.yaml and module-help.csv
@@ -241,25 +232,11 @@ class Installer {
       sidecar_path: '_bmad/_memory/forger-sidecar',
       skf_folder: config.skfFolder,
       ides: config.ides || [],
+      install_learning: config.install_learning !== false,
     };
 
     const yamlStr = yaml.dump(configData, { lineWidth: -1 });
     await fs.writeFile(path.join(skfDir, 'config.yaml'), `# SKF Configuration - Generated by installer\n${yamlStr}`, 'utf8');
-  }
-
-  async compileAgents(skfDir, skfFolder) {
-    const agentsDir = path.join(skfDir, 'agents');
-    const files = await fs.readdir(agentsDir);
-    const agentFiles = files.filter((f) => f.endsWith('.agent.yaml'));
-    const results = [];
-
-    for (const file of agentFiles) {
-      const yamlPath = path.join(agentsDir, file);
-      const result = compileAgentFile(yamlPath, { skfFolder });
-      results.push(result);
-    }
-
-    return results;
   }
 
   async createOutputFolders(projectDir, config) {

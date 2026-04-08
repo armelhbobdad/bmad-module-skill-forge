@@ -5,7 +5,7 @@
  * - Fresh install creates all expected files
  * - Update preserves config.yaml and replaces SKF files
  * - Uninstall removes all tracked files
- * - IDE command generation for each target
+ * - IDE skill installation for each target
  * - Manifest accuracy
  *
  * Usage: node test/test-cli-integration.js
@@ -101,9 +101,12 @@ async function testFreshInstall() {
     // Verify SKF directory structure
     const skfDir = path.join(projectDir, '_bmad/skf');
     assert(await fs.pathExists(skfDir), 'SKF directory created');
-    assert(await fs.pathExists(path.join(skfDir, 'agents')), 'agents/ directory created');
     assert(await fs.pathExists(path.join(skfDir, 'knowledge')), 'knowledge/ directory created');
-    assert(await fs.pathExists(path.join(skfDir, 'workflows')), 'workflows/ directory created');
+    assert(await fs.pathExists(path.join(skfDir, 'shared')), 'shared/ directory created');
+
+    // Verify at least one skf-* skill directory was created
+    const skfEntries = (await fs.readdir(skfDir)).filter((e) => e.startsWith('skf-'));
+    assert(skfEntries.length > 0, `skill directories created (found ${skfEntries.length})`);
 
     // Verify config.yaml
     const configPath = path.join(skfDir, 'config.yaml');
@@ -113,9 +116,11 @@ async function testFreshInstall() {
     assert(configContent.skills_output_folder === 'skills', 'config.yaml has correct skills_output_folder');
     assert(Array.isArray(configContent.ides) && configContent.ides.includes('claude-code'), 'config.yaml has IDEs');
 
-    // Verify compiled agents
-    const agentFiles = (await fs.readdir(path.join(skfDir, 'agents'))).filter((f) => f.endsWith('.md'));
-    assert(agentFiles.length > 0, `compiled agent .md files exist (found ${agentFiles.length})`);
+    // Verify skills installed to IDE directory (.claude/skills/)
+    const claudeSkillsDir = path.join(projectDir, '.claude', 'skills');
+    assert(await fs.pathExists(path.join(claudeSkillsDir, 'skf-forger', 'SKILL.md')), 'agent skill installed to .claude/skills/');
+    assert(await fs.pathExists(path.join(claudeSkillsDir, 'skf-create-skill', 'SKILL.md')), 'workflow skill installed to .claude/skills/');
+    assert(await fs.pathExists(path.join(claudeSkillsDir, 'knowledge')), 'knowledge/ installed to .claude/skills/');
 
     // Verify sidecar
     const sidecarDir = path.join(projectDir, '_bmad/_memory/forger-sidecar');
@@ -139,17 +144,17 @@ async function testFreshInstall() {
     assert(Array.isArray(manifest.files.skf) && manifest.files.skf.length > 0, 'manifest tracks SKF files');
     assert(Array.isArray(manifest.files.sidecar) && manifest.files.sidecar.length > 0, 'manifest tracks sidecar files');
 
-    // Verify IDE commands
-    const claudeCommandsDir = path.join(projectDir, '.claude/commands');
-    assert(await fs.pathExists(claudeCommandsDir), '.claude/commands/ created');
-    const commandFiles = await fs.readdir(claudeCommandsDir);
-    const agentCmds = commandFiles.filter((f) => f.startsWith('bmad-agent-skf-'));
-    const workflowCmds = commandFiles.filter((f) => f.startsWith('bmad-skf-'));
-    assert(agentCmds.length > 0, `agent command files generated (found ${agentCmds.length})`);
-    assert(workflowCmds.length > 0, `workflow command files generated (found ${workflowCmds.length})`);
+    // Verify IDE skills
+    const claudeSkillsDirManifest = path.join(projectDir, '.claude/skills');
+    assert(await fs.pathExists(claudeSkillsDirManifest), '.claude/skills/ created');
+    const skillEntries = await fs.readdir(claudeSkillsDirManifest);
+    const agentSkills = skillEntries.filter((f) => f.startsWith('skf-') && f.includes('forger'));
+    const workflowSkills = skillEntries.filter((f) => f.startsWith('skf-') && !f.includes('forger'));
+    assert(agentSkills.length > 0, `agent skill directories installed (found ${agentSkills.length})`);
+    assert(workflowSkills.length > 0, `workflow skill directories installed (found ${workflowSkills.length})`);
 
     // Verify manifest tracks IDE files
-    assert(Array.isArray(manifest.files.ide_commands) && manifest.files.ide_commands.length > 0, 'manifest tracks IDE command files');
+    assert(Array.isArray(manifest.files.ide_skills) && manifest.files.ide_skills.length > 0, 'manifest tracks IDE skill files');
   } catch (error) {
     assert(false, 'fresh install completes without error', error.message);
   } finally {
@@ -212,8 +217,9 @@ async function testUpdatePreservesConfig() {
     assert(updatedConfig.includes('original-name'), 'config.yaml preserved after update');
 
     // SKF files should still exist
-    assert(await fs.pathExists(path.join(skfDir, 'agents')), 'agents/ exists after update');
-    assert(await fs.pathExists(path.join(skfDir, 'workflows')), 'workflows/ exists after update');
+    const skfDirsAfterUpdate = (await fs.readdir(skfDir)).filter((e) => e.startsWith('skf-'));
+    assert(skfDirsAfterUpdate.length > 0, 'skill directories exist after update');
+    assert(await fs.pathExists(path.join(skfDir, 'knowledge')), 'knowledge/ exists after update');
 
     // Sidecar user state should persist (sidecar files are not overwritten)
     assert(await fs.pathExists(sidecarMarker), 'sidecar user state preserved after update');
@@ -260,8 +266,8 @@ async function testUninstallCleansUp() {
     // Verify files exist before uninstall
     assert(await fs.pathExists(path.join(projectDir, '_bmad/skf')), 'SKF dir exists before uninstall');
     assert(await fs.pathExists(path.join(projectDir, '_skf-learn')), '_skf-learn exists before uninstall');
-    assert(await fs.pathExists(path.join(projectDir, '.claude/commands')), '.claude/commands exists before uninstall');
-    assert(await fs.pathExists(path.join(projectDir, '.cursor/commands')), '.cursor/commands exists before uninstall');
+    assert(await fs.pathExists(path.join(projectDir, '.claude/skills')), '.claude/skills exists before uninstall');
+    assert(await fs.pathExists(path.join(projectDir, '.cursor/skills')), '.cursor/skills exists before uninstall');
 
     // Read manifest
     const manifest = await readManifest(projectDir);
@@ -270,29 +276,15 @@ async function testUninstallCleansUp() {
     // Simulate uninstall: remove all tracked files (mirrors uninstall.js logic without interactive prompt)
     restore = suppressConsole();
 
-    // Remove IDE commands
-    for (const file of manifest.files.ide_commands || []) {
-      const fullPath = path.join(projectDir, file);
-      if (await fs.pathExists(fullPath)) await fs.remove(fullPath);
-    }
-    // Clean empty IDE dirs
-    const cleanedDirs = new Set();
-    for (const f of manifest.files.ide_commands || []) {
-      const dir = path.dirname(f);
-      if (!cleanedDirs.has(dir)) {
-        cleanedDirs.add(dir);
-        const dirPath = path.join(projectDir, dir);
-        if (await fs.pathExists(dirPath)) {
-          const entries = await fs.readdir(dirPath);
-          if (entries.length === 0) {
-            await fs.remove(dirPath);
-            const parentDir = path.join(projectDir, path.dirname(dir));
-            if (await fs.pathExists(parentDir)) {
-              const parentEntries = await fs.readdir(parentDir);
-              if (parentEntries.length === 0) await fs.remove(parentDir);
-            }
-          }
-        }
+    // Remove IDE skill directories (directory-level cleanup, not file-by-file)
+    for (const dir of manifest.directories || []) {
+      const dirPath = path.join(projectDir, dir);
+      if (await fs.pathExists(dirPath)) await fs.remove(dirPath);
+      // Clean empty parent (e.g., .claude/ after removing .claude/skills)
+      const parentDir = path.dirname(dirPath);
+      if (await fs.pathExists(parentDir)) {
+        const entries = await fs.readdir(parentDir);
+        if (entries.length === 0) await fs.remove(parentDir);
       }
     }
 
@@ -347,8 +339,8 @@ async function testUninstallCleansUp() {
     // Verify everything is cleaned up
     assert(!(await fs.pathExists(path.join(projectDir, '_bmad/skf'))), 'SKF dir removed');
     assert(!(await fs.pathExists(path.join(projectDir, '_skf-learn'))), '_skf-learn removed');
-    assert(!(await fs.pathExists(path.join(projectDir, '.claude/commands'))), '.claude/commands removed');
-    assert(!(await fs.pathExists(path.join(projectDir, '.cursor/commands'))), '.cursor/commands removed');
+    assert(!(await fs.pathExists(path.join(projectDir, '.claude/skills'))), '.claude/skills removed');
+    assert(!(await fs.pathExists(path.join(projectDir, '.cursor/skills'))), '.cursor/skills removed');
     assert(!(await fs.pathExists(path.join(projectDir, 'skills'))), 'skills/ output folder removed');
     assert(!(await fs.pathExists(path.join(projectDir, 'forge-data'))), 'forge-data/ output folder removed');
     assert(!(await fs.pathExists(path.join(projectDir, '_bmad'))), '_bmad/ cleaned up (empty)');
@@ -362,7 +354,7 @@ async function testUninstallCleansUp() {
 }
 
 async function testIdeCommandGeneration() {
-  console.log(`${colors.yellow}Test Suite 4: IDE Command Generation${colors.reset}\n`);
+  console.log(`${colors.yellow}Test Suite 4: IDE Skill Installation${colors.reset}\n`);
 
   const projectDir = await makeTempDir('ide-cmds');
 
@@ -370,24 +362,16 @@ async function testIdeCommandGeneration() {
     const { Installer } = require('../tools/cli/lib/installer');
     const installer = new Installer();
 
-    const ideTargets = {
-      'claude-code': '.claude/commands',
-      cursor: '.cursor/commands',
-      cline: '.clinerules/workflows',
-      codex: '.codex/prompts',
-      'github-copilot': '.github/prompts',
-      roo: '.roo/commands',
-      windsurf: '.windsurf/workflows',
-    };
+    // Test with a subset of IDEs (claude-code and cursor represent the pattern)
+    const testIdes = ['claude-code', 'cursor'];
 
-    // Install with all IDEs
     const config = {
       projectDir,
       skfFolder: '_bmad/skf',
       project_name: 'ide-test',
       skills_output_folder: 'skills',
       forge_data_folder: 'forge-data',
-      ides: Object.keys(ideTargets),
+      ides: testIdes,
       install_learning: false,
       _action: 'fresh',
     };
@@ -396,36 +380,42 @@ async function testIdeCommandGeneration() {
     await installer.install(config);
     restore();
 
-    // Verify each IDE got command files
-    for (const [ide, targetDir] of Object.entries(ideTargets)) {
+    // Verify each IDE got skill directories (not command files)
+    const ideSkillDirs = {
+      'claude-code': '.claude/skills',
+      cursor: '.cursor/skills',
+    };
+
+    for (const [ide, targetDir] of Object.entries(ideSkillDirs)) {
       const fullDir = path.join(projectDir, targetDir);
       const exists = await fs.pathExists(fullDir);
       assert(exists, `${ide}: ${targetDir}/ created`);
 
       if (exists) {
-        const files = await fs.readdir(fullDir);
-        const agentFiles = files.filter((f) => f.startsWith('bmad-agent-skf-'));
-        const workflowFiles = files.filter((f) => f.startsWith('bmad-skf-'));
-        assert(agentFiles.length > 0, `${ide}: has agent command files`);
-        assert(workflowFiles.length > 0, `${ide}: has workflow command files`);
+        const entries = await fs.readdir(fullDir);
+        const skillDirs = entries.filter((e) => e.startsWith('skf-'));
+        assert(skillDirs.length > 0, `${ide}: has skill directories`);
+        assert(skillDirs.includes('skf-forger'), `${ide}: has skf-forger agent skill`);
+        assert(skillDirs.includes('skf-create-skill'), `${ide}: has skf-create-skill workflow skill`);
+
+        // Verify supporting resources copied alongside skills
+        assert(entries.includes('knowledge'), `${ide}: has knowledge/ directory`);
+        assert(entries.includes('shared'), `${ide}: has shared/ directory`);
       }
     }
 
-    // Verify command file content structure
-    const sampleDir = path.join(projectDir, '.claude/commands');
-    const sampleFiles = await fs.readdir(sampleDir);
-    const agentFile = sampleFiles.find((f) => f.startsWith('bmad-agent-skf-'));
-    if (agentFile) {
-      const content = await fs.readFile(path.join(sampleDir, agentFile), 'utf8');
-      assert(content.includes('agent-activation'), 'agent command contains activation block');
-      assert(content.includes('_bmad/skf/agents/'), 'agent command references correct agent path');
-    }
+    // Verify SKILL.md exists in agent skill directory
+    const agentSkillMd = path.join(projectDir, '.claude/skills/skf-forger/SKILL.md');
+    assert(await fs.pathExists(agentSkillMd), 'agent SKILL.md exists in .claude/skills/');
 
-    const workflowFile = sampleFiles.find((f) => f.startsWith('bmad-skf-'));
-    if (workflowFile) {
-      const content = await fs.readFile(path.join(sampleDir, workflowFile), 'utf8');
-      assert(content.includes('_bmad/skf/workflows/'), 'workflow command references correct workflow path');
-    }
+    // Verify a workflow skill has SKILL.md + workflow.md
+    const workflowSkillDir = path.join(projectDir, '.claude/skills/skf-create-skill');
+    assert(await fs.pathExists(path.join(workflowSkillDir, 'SKILL.md')), 'workflow has SKILL.md');
+    assert(await fs.pathExists(path.join(workflowSkillDir, 'workflow.md')), 'workflow has workflow.md');
+
+    // Verify relative paths resolve correctly: knowledge/ is sibling of skills
+    const knowledgeDir = path.join(projectDir, '.claude/skills/knowledge');
+    assert(await fs.pathExists(knowledgeDir), 'knowledge/ copied alongside skills for path resolution');
   } catch (error) {
     assert(false, 'IDE command generation completes without error', error.message);
   } finally {
@@ -469,7 +459,7 @@ async function testManifestAccuracy() {
     const allFiles = [
       ...manifest.files.skf,
       ...manifest.files.sidecar,
-      ...manifest.files.ide_commands,
+      ...manifest.files.ide_skills,
       ...manifest.files.learning,
       ...manifest.files.output,
     ];
@@ -532,7 +522,7 @@ async function testFreshInstallWithoutLearning() {
     const { readManifest } = require('../tools/cli/lib/manifest');
     const manifest = await readManifest(projectDir);
     assert(manifest.files.learning.length === 0, 'manifest has no learning files');
-    assert(manifest.files.ide_commands.length === 0, 'manifest has no IDE command files (no IDEs selected)');
+    assert(manifest.files.ide_skills.length === 0, 'manifest has no IDE skill files (no IDEs selected)');
   } catch (error) {
     assert(false, 'install without learning completes without error', error.message);
   } finally {

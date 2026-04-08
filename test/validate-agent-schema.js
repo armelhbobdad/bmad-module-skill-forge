@@ -1,8 +1,8 @@
 /**
- * Agent Schema Validator CLI
+ * Agent & Manifest Schema Validator CLI
  *
- * Scans all *.agent.yaml files in src/{core,modules/*}/agents/
- * and validates them against the Zod schema.
+ * Scans all *.agent.yaml and bmad-skill-manifest.yaml files under src/
+ * and validates them against their respective Zod schemas.
  *
  * Usage: node tools/validate-agent-schema.js [project_root]
  * Exit codes: 0 = success, 1 = validation failures
@@ -15,35 +15,36 @@ const { glob } = require('glob');
 const yaml = require('yaml');
 const fs = require('node:fs');
 const path = require('node:path');
-const { validateAgentFile } = require('./schema/agent.js');
+const { validateAgentFile, validateManifestFile } = require('./schema/agent.js');
 
 /**
  * Main validation routine
  * @param {string} [customProjectRoot] - Optional project root to scan (for testing)
  */
 async function main(customProjectRoot) {
-  console.log('🔍 Scanning for agent files...\n');
+  console.log('🔍 Scanning for agent and manifest files...\n');
 
   // Determine project root: use custom path if provided, otherwise default to repo root
   const project_root = customProjectRoot || path.join(__dirname, '..');
 
-  // Find all agent files
-  const agentFiles = await glob('src/**/*.agent.yaml', {
-    cwd: project_root,
-    absolute: true,
-  });
+  // Find all agent files and manifest files
+  const [agentFiles, manifestFiles] = await Promise.all([
+    glob('src/**/*.agent.yaml', { cwd: project_root, absolute: true }),
+    glob('src/**/bmad-skill-manifest.yaml', { cwd: project_root, absolute: true }),
+  ]);
 
-  if (agentFiles.length === 0) {
-    console.log('ℹ️  No agent files found. Skipping agent schema validation.');
-    console.log('   (Modules may optionally include agents in src/agents/)\n');
+  const totalFiles = agentFiles.length + manifestFiles.length;
+
+  if (totalFiles === 0) {
+    console.log('ℹ️  No agent or manifest files found. Skipping schema validation.\n');
     process.exit(0);
   }
 
-  console.log(`Found ${agentFiles.length} agent file(s)\n`);
+  console.log(`Found ${agentFiles.length} agent file(s), ${manifestFiles.length} manifest file(s)\n`);
 
   const errors = [];
 
-  // Validate each file
+  // Validate agent files
   for (const filePath of agentFiles) {
     const relativePath = path.relative(process.cwd(), filePath);
 
@@ -55,6 +56,38 @@ async function main(customProjectRoot) {
       const srcRelativePath = relativePath.startsWith('src/') ? relativePath : path.relative(project_root, filePath).replaceAll('\\', '/');
 
       const result = validateAgentFile(srcRelativePath, agentData);
+
+      if (result.success) {
+        console.log(`✅ ${relativePath}`);
+      } else {
+        errors.push({
+          file: relativePath,
+          issues: result.error.issues,
+        });
+      }
+    } catch (error) {
+      errors.push({
+        file: relativePath,
+        issues: [
+          {
+            code: 'parse_error',
+            message: `Failed to parse YAML: ${error.message}`,
+            path: [],
+          },
+        ],
+      });
+    }
+  }
+
+  // Validate manifest files
+  for (const filePath of manifestFiles) {
+    const relativePath = path.relative(process.cwd(), filePath);
+
+    try {
+      const fileContent = fs.readFileSync(filePath, 'utf8');
+      const manifestData = yaml.parse(fileContent);
+
+      const result = validateManifestFile(relativePath, manifestData);
 
       if (result.success) {
         console.log(`✅ ${relativePath}`);
@@ -98,7 +131,7 @@ async function main(customProjectRoot) {
     process.exit(1);
   }
 
-  console.log(`\n✨ All ${agentFiles.length} agent file(s) passed validation!\n`);
+  console.log(`\n✨ All ${totalFiles} file(s) passed validation!\n`);
   process.exit(0);
 }
 

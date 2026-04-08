@@ -1,0 +1,39 @@
+{
+  "name": "bmad-module-skill-forge",
+  "owner": {
+    "name": "Armel"
+  },
+  "description": "Turn code and docs into instructions AI agents can actually follow. Evidence-based skill compilation with progressive capability tiers.",
+  "license": "MIT",
+  "homepage": "https://github.com/armelhbobdad/bmad-module-skill-forge",
+  "repository": "https://github.com/armelhbobdad/bmad-module-skill-forge",
+  "keywords": ["bmad", "bmad-method", "bmad-module", "agent-skills", "agentskills", "agents", "skills", "skill-forge", "compilation", "forge", "ast-grep", "qmd", "cocoindex", "cocoindex-code", "provenance", "code-analysis"],
+  "plugins": [
+    {
+      "name": "skill-forge",
+      "source": "./",
+      "description": "Evidence-based agent skills compiler with progressive capability tiers (Quick/Forge/Forge+/Deep).",
+      "version": "0.10.0",
+      "author": {
+        "name": "Armel"
+      },
+      "skills": [
+        "./src/skf-forger",
+        "./src/skf-setup",
+        "./src/skf-analyze-source",
+        "./src/skf-brief-skill",
+        "./src/skf-create-skill",
+        "./src/skf-quick-skill",
+        "./src/skf-create-stack-skill",
+        "./src/skf-update-skill",
+        "./src/skf-audit-skill",
+        "./src/skf-test-skill",
+        "./src/skf-export-skill",
+        "./src/skf-rename-skill",
+        "./src/skf-drop-skill",
+        "./src/skf-verify-stack",
+        "./src/skf-refine-architecture"
+      ]
+    }
+  ]
+}

@@ -50,6 +50,6 @@ Split-body affects only SKILL.md content movement to `references/`. The `scripts
 
 - [agentskills-spec.md](agentskills-spec.md) — 500-line guideline for SKILL.md body size and the `references/` directory structure
 - [skill-lifecycle.md](skill-lifecycle.md) — where split-body decisions fit in the compilation pipeline
-- `test-skill/data/scoring-rules.md` — tessl/split-body interaction and the pre-split baseline recommendation during test reporting
+- `test-skill/references/scoring-rules.md` — tessl/split-body interaction and the pre-split baseline recommendation during test reporting
 
 _Source: derived from agentskills.io split-body guidance and Vercel agent accuracy research (inline vs on-demand retrieval)_

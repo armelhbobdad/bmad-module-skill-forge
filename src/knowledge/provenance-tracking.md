@@ -125,7 +125,7 @@ With provenance tracking:
 
 **Key Points:**
 - Provenance enables precise diffing — compare specific claims, not entire files
-- Severity classification uses the rules from audit-skill/data/severity-rules.md
+- Severity classification uses the rules from audit-skill/references/severity-rules.md
 - The drift report feeds into the update-skill workflow as re-extraction targets
 
 ### Example 4: Provenance Preservation During Updates

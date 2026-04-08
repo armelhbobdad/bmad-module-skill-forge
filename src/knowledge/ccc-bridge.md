@@ -24,7 +24,7 @@ ccc is **required** at the Forge+ tier (it defines Forge+) and **optionally avai
 ## Availability
 
 ccc_bridge operations are available when:
-- `tools.ccc: true` in forge-tier.yaml (verified by `ccc --help` + `ccc doctor` in setup-forge)
+- `tools.ccc: true` in forge-tier.yaml (verified by `ccc --help` + `ccc doctor` in setup)
 - `ccc_index.status` is `"fresh"` or `"stale"` in forge-tier.yaml (an index exists for the project)
 
 When either condition is false, calling steps skip ccc discovery silently and proceed with direct ast-grep or source reading. This is standard Forge tier behavior — not a degradation.
@@ -43,7 +43,7 @@ Returns: list of `{file, score, snippet}` entries ranked by semantic relevance t
 
 **Resolves to:** Check `ccc_index.status` in forge-tier.yaml. If `"none"` or the indexed_path does not match, run `cd {path} && ccc init` then `ccc index` and update forge-tier.yaml. Note: `ccc init` takes no positional arguments — it initializes the index for the current working directory.
 
-**Usage context:** Called by setup-forge step-01b to ensure the project root is indexed. Called lazily by extraction steps when `ccc_index.status` is `"none"` but ccc is available.
+**Usage context:** Called by setup step-01b to ensure the project root is indexed. Called lazily by extraction steps when `ccc_index.status` is `"none"` but ccc is available.
 
 ### `ccc_bridge.status()`
 
@@ -51,7 +51,7 @@ Returns: list of `{file, score, snippet}` entries ranked by semantic relevance t
 1. `ccc --help` — confirms binary exists (exit 0)
 2. `ccc doctor` — confirms daemon is running, extracts version string, validates embedding model
 
-**Usage context:** Called exclusively by setup-forge step-01 during tool detection. Downstream workflows read the result from forge-tier.yaml — they do not re-verify.
+**Usage context:** Called exclusively by setup step-01 during tool detection. Downstream workflows read the result from forge-tier.yaml — they do not re-verify.
 
 ## Confidence
 
@@ -67,7 +67,7 @@ The ccc search is invisible in the output artifact. A Forge+ skill's citations a
 
 ### When Indexing Happens
 
-1. **setup-forge step-01b:** Indexes the project root when setup-forge runs. This is the primary indexing point.
+1. **setup step-01b:** Indexes the project root when setup runs. This is the primary indexing point.
 2. **Workflow discovery steps:** If `ccc_index.status` is `"stale"` or `"none"`, discovery steps trigger a re-index and warn the user. They do not block.
 3. **ccc daemon:** Incremental indexing means re-indexing unchanged files is a near-no-op.
 
@@ -75,13 +75,13 @@ The ccc search is invisible in the output artifact. A Forge+ skill's citations a
 
 - Staleness threshold: 24 hours (configurable via `ccc_index.staleness_threshold_hours` in forge-tier.yaml)
 - A stale index still produces useful results — the workflow proceeds with the stale index and notes the staleness
-- setup-forge is the designated refresh authority
+- setup is the designated refresh authority
 
 ### Exclusion Patterns
 
 CCC stores its configuration at `{project-root}/.cocoindex_code/settings.yml`. This file contains `exclude_patterns` and `include_patterns` arrays in glob format. `ccc init` creates the file with sensible defaults (excludes `node_modules`, `__pycache__`, hidden dirs, etc.).
 
-**SKF infrastructure exclusions:** setup-forge step-01b appends SKF-specific exclusion patterns after `ccc init` creates the default config. These patterns prevent indexing of framework and output directories that have zero value for source extraction:
+**SKF infrastructure exclusions:** setup step-01b appends SKF-specific exclusion patterns after `ccc init` creates the default config. These patterns prevent indexing of framework and output directories that have zero value for source extraction:
 
 | Pattern | Purpose |
 |---------|---------|
@@ -113,7 +113,7 @@ ccc_index and qmd_collections are **orthogonal**:
 - `ccc_index` in forge-tier.yaml tracks the persistent source code index (one per project)
 - `qmd_collections[]` in forge-tier.yaml tracks per-skill workflow artifact collections
 - ccc indexes source code for semantic search; QMD indexes curated artifacts for temporal/knowledge search
-- The janitor role for QMD (setup-forge step-03) operates independently of ccc_index
+- The janitor role for QMD (setup step-03) operates independently of ccc_index
 
 ## Query Volume Bounds
 

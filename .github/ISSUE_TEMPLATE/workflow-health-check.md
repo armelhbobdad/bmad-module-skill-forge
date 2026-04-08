@@ -1,25 +1,25 @@
 ---
-name: Workflow Health Check Finding
-about: Auto-generated finding from SKF workflow execution
+name: Skill Health Check Finding
+about: Auto-generated finding from SKF skill execution
 title: '[health-check] '
-labels: 'health-check, workflow-improvement'
+labels: 'health-check, skill-improvement'
 assignees: ''
 ---
 
-## Workflow
-<!-- Which workflow encountered the issue (e.g. create-skill, test-skill) -->
+## Skill
+<!-- Which skill encountered the issue (e.g. skf-create-skill, skf-test-skill) -->
 
 
 ## Step File
 <!-- Exact path to the step file where the issue occurred -->
-`src/workflows/`
+`src/skf-{skill-name}/steps-c/`
 
 ## Severity
 <!-- bug | friction | gap -->
 
 
 ## Finding
-<!-- What went wrong or was unclear in the workflow instructions -->
+<!-- What went wrong or was unclear in the skill instructions -->
 
 
 ## Evidence
@@ -27,7 +27,7 @@ assignees: ''
 
 
 ## Suggested Improvement
-<!-- Concrete, actionable change to improve the workflow step -->
+<!-- Concrete, actionable change to improve the skill step -->
 
 
 ## Environment

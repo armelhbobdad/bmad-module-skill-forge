@@ -1,5 +1,5 @@
 id,name,description,tags,tier,fragment_file
-overview,Knowledge Overview,"Entry point — knowledge map, JiT loading protocol, relationship to workflow data/ files","knowledge,navigation,jit-loading",core,knowledge/overview.md
+overview,Knowledge Overview,"Entry point — knowledge map, JiT loading protocol, relationship to workflow references/ and assets/ files","knowledge,navigation,jit-loading",core,knowledge/overview.md
 zero-hallucination,Zero Hallucination Principle,"Foundational principle — uncitable content is excluded not guessed, every claim traces to source","integrity,provenance,extraction",core,knowledge/zero-hallucination.md
 confidence-tiers,Confidence Tiers,"Trust model — T1/T1-low/T2/T3 labels, citation formats, tier interaction rules","confidence,citations,evidence,tiers",core,knowledge/confidence-tiers.md
 progressive-capability,Progressive Capability,"Quick/Forge/Forge+/Deep philosophy — every tier is legitimate, positive framing, graceful degradation","tiers,quick,forge,forge+,deep,capability",core,knowledge/progressive-capability.md

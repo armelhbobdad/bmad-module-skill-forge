@@ -11,7 +11,7 @@ Ferris is the AI agent that runs all SKF workflows. You always interact with Fer
 
 ## Ferris — Skill Architect & Integrity Guardian
 
-**ID:** `_bmad/skf/agents/forger.md`
+**ID:** `skf-forger`
 **Icon:** ⚒️
 
 **Role:**
@@ -38,6 +38,7 @@ Ferris handles all SKF workflows. You always interact with Ferris — he switche
 | **Surgeon** | Precise, semantic diffing, preserves [MANUAL] | US |
 | **Audit** | Judgmental, drift reports, completeness scoring | AS, TS, VS |
 | **Delivery** | Packaging, platform-aware, ecosystem-ready | EX |
+| **Management** | Transactional rename/drop with platform context rebuild | RS, DS |
 
 **Communication Style:**
 - During work: structured reports with AST citations, no metaphor
@@ -71,6 +72,10 @@ MAINTAIN:
 
 DELIVER:
   [EX] Export Skill — Package for distribution
+
+MANAGE:
+  [RS] Rename Skill — Rename across all versions (transactional)
+  [DS] Drop Skill — Deprecate or purge a skill version
 
 [WS] Workflow Status — Show current lifecycle position
 [KI] Knowledge Index — List available knowledge fragments
