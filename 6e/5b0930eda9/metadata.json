@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "6e5b0930eda9",
+  "strategy": "manual-commit",
+  "branch": "convert-to-skills",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/ISSUE_TEMPLATE/workflow-health-check.md",
+    "CHANGELOG.md",
+    "docs/how-it-works.md",
+    "src/README.md",
+    "src/knowledge/overview.md",
+    "src/knowledge/version-paths.md",
+    "src/skf-update-skill/steps-c/step-06-write.md",
+    "test/README.md",
+    "test/schema/agent.js",
+    "test/test-cli-integration.js",
+    "test/validate-agent-schema.js",
+    "tools/cli/commands/install.js",
+    "tools/cli/commands/status.js",
+    "tools/cli/lib/platform-codes.yaml",
+    "tools/cli/lib/ui.js",
+    "tools/validate-file-refs.js",
+    "tools/validate-skills.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/6e/5b0930eda9/0/metadata.json",
+      "transcript": "/6e/5b0930eda9/0/full.jsonl",
+      "context": "/6e/5b0930eda9/0/context.md",
+      "content_hash": "/6e/5b0930eda9/0/content_hash.txt",
+      "prompt": "/6e/5b0930eda9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 4776,
+    "cache_creation_tokens": 158396,
+    "cache_read_tokens": 4042237,
+    "output_tokens": 22711,
+    "api_call_count": 63
+  }
+}
