@@ -3,10 +3,12 @@
   "checkpoint_id": "98de97d08d26",
   "strategy": "manual-commit",
   "branch": "dev",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
+    ".github/workflows/quality.yaml",
     "docs/how-it-works.md",
     "src/forger/preferences.yaml",
+    "src/knowledge/architecture-verification.md",
     "src/knowledge/skill-lifecycle.md",
     "src/skf-setup/steps-c/step-02-write-config.md"
   ],
@@ -17,13 +19,20 @@
       "context": "/98/de97d08d26/0/context.md",
       "content_hash": "/98/de97d08d26/0/content_hash.txt",
       "prompt": "/98/de97d08d26/0/prompt.txt"
+    },
+    {
+      "metadata": "/98/de97d08d26/1/metadata.json",
+      "transcript": "/98/de97d08d26/1/full.jsonl",
+      "context": "/98/de97d08d26/1/context.md",
+      "content_hash": "/98/de97d08d26/1/content_hash.txt",
+      "prompt": "/98/de97d08d26/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 201,
-    "cache_creation_tokens": 168490,
-    "cache_read_tokens": 12723516,
-    "output_tokens": 44264,
-    "api_call_count": 128
+    "input_tokens": 226,
+    "cache_creation_tokens": 207396,
+    "cache_read_tokens": 13317734,
+    "output_tokens": 51201,
+    "api_call_count": 144
   }
 }
