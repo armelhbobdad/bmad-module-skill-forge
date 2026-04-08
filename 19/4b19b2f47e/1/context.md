@@ -20,3 +20,11 @@ fix them all
 
 commit
 
+### Prompt 4
+
+in @docs/how-it-works.md , "See `skf-export-skill/assets/managed-section-format.md`..." should reference the file from the main origin branch so people will easily navigate through
+
+### Prompt 5
+
+amend
+

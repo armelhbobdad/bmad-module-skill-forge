@@ -5,16 +5,7 @@
   "branch": "convert-to-skills",
   "checkpoints_count": 2,
   "files_touched": [
-    "docs/bmad-synergy.md",
-    "docs/how-it-works.md",
-    "src/skf-drop-skill/steps-c/step-02-execute.md",
-    "src/skf-drop-skill/steps-c/step-03-report.md",
-    "src/skf-export-skill/assets/managed-section-format.md",
-    "src/skf-export-skill/assets/snippet-format.md",
-    "src/skf-export-skill/steps-c/step-01-load-skill.md",
-    "src/skf-export-skill/steps-c/step-06-summary.md",
-    "src/skf-rename-skill/steps-c/step-02-execute.md",
-    "src/skf-rename-skill/steps-c/step-03-report.md"
+    "docs/how-it-works.md"
   ],
   "sessions": [
     {
@@ -33,10 +24,10 @@
     }
   ],
   "token_usage": {
-    "input_tokens": 12212,
-    "cache_creation_tokens": 353194,
-    "cache_read_tokens": 21558710,
-    "output_tokens": 75705,
-    "api_call_count": 186
+    "input_tokens": 4881,
+    "cache_creation_tokens": 270881,
+    "cache_read_tokens": 19674896,
+    "output_tokens": 60928,
+    "api_call_count": 155
   }
 }
