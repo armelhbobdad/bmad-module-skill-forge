@@ -8,6 +8,8 @@ localFallbackFolder: '{output_folder}/improvement-queue'
 
 # Health Check: Workflow Self-Improvement
 
+> **Path convention:** This file is referenced as `shared/health-check.md` from workflow step frontmatter. All `shared/` paths resolve relative to the SKF module root (`_bmad/skf/` when installed, `src/` during development), not relative to the calling step file.
+
 ## STEP GOAL:
 
 Reflect on the workflow that just completed. If real friction, bugs, or gaps were encountered in the SKF workflow instructions, capture them as structured findings for the user to review and optionally submit as GitHub issues.

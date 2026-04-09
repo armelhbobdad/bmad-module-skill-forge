@@ -86,7 +86,7 @@ If `{settings_yml_existed}` is false: the exclusions will be applied after `ccc 
 
 ### 3. Create or Refresh CCC Index
 
-**If `{ccc_daemon}` is `"stopped"` or undefined (healthy daemon where no explicit state was recorded):**
+**If `{ccc_daemon}` is `"stopped"` or `"healthy"`:**
 
 The `ccc index` command auto-starts the daemon when needed. Proceed with indexing below.
 

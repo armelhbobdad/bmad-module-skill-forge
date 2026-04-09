@@ -86,7 +86,7 @@ ccc availability gates the Forge+ tier and enhances Deep tier when present.
 
 **If no override, apply tier rules from {tierRulesData} in order — the first matching rule wins. Do not continue checking once a match is found:**
 - `{ast_grep}` AND `{gh_cli}` AND `{qmd}` all true → **Deep**
-- `{ast_grep}` AND `{ccc}` both true (regardless of gh/qmd) → **Forge+**
+- `{ast_grep}` AND `{ccc}` both true, but NOT (`{gh_cli}` AND `{qmd}`) → **Forge+**
 - `{ast_grep}` true (regardless of ccc/gh/qmd) → **Forge**
 - Otherwise → **Quick**
 

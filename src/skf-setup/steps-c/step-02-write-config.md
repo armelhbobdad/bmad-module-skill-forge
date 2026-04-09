@@ -119,5 +119,5 @@ Check if `{forge_data_folder}` directory exists:
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY WHEN forge-tier.yaml has been written successfully and preferences.yaml exists (created or pre-existing) will you load and read fully `{nextStepFile}` to execute the auto-index step.
+ONLY WHEN forge-tier.yaml has been written successfully and preferences.yaml exists (created or pre-existing) will you load and read fully `{nextStepFile}` to execute the QMD hygiene step.
 

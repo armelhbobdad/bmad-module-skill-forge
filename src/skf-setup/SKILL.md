@@ -31,7 +31,7 @@ These rules apply to every step in this workflow:
 | 1 | Detect Tools & Set Tier | steps-c/step-01-detect-and-tier.md | Yes |
 | 1b | CCC Index | steps-c/step-01b-ccc-index.md | Yes |
 | 2 | Write Config | steps-c/step-02-write-config.md | Yes |
-| 3 | Auto Index | steps-c/step-03-auto-index.md | Yes |
+| 3 | QMD Hygiene | steps-c/step-03-auto-index.md | Yes |
 | 4 | Report | steps-c/step-04-report.md | Yes |
 
 ## Invocation Contract
@@ -39,14 +39,14 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | (none — fully autonomous) |
-| **Gates** | (none) |
+| **Gates** | One optional: orphaned QMD collection removal (step 3, Deep tier only; default: Keep) |
 | **Outputs** | forge-tier.yaml, preferences.yaml, forge-data directories |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 
 ## On Activation
 
 1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
-   - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`
+   - `project_name` (from installer-generated config.yaml, not module.yaml), `output_folder`, `user_name`, `communication_language`, `document_output_language`
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.

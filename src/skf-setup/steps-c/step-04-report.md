@@ -82,15 +82,13 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 - Do NOT list unavailable tools
 - Do NOT show a "missing" column or section
 
-### 3. Handle --update-spec Flag (Optional)
+### 3. Handle --update-spec Flag (Reserved — Not Yet Implemented)
 
-**If the user included `--update-spec` in their workflow invocation (e.g., `@Ferris SF --update-spec`):**
-- Attempt to fetch the latest agentskills.io specification schema
-- Use `gh` or `curl` to retrieve the spec
-- Store in `{forge_data_folder}/agentskills-spec.json` (or appropriate format)
-- If fetch succeeds: display "agentskills.io spec updated."
-- If fetch fails: display "Could not fetch agentskills.io spec. Existing spec (if any) unchanged."
-- Do NOT fail the workflow over this — it is purely optional
+**This flag is reserved for a future feature.** No spec URL endpoint exists yet.
+
+**If the user included `--update-spec` in their workflow invocation:**
+- Display: "The `--update-spec` flag is not yet implemented. This will be available in a future release when the agentskills.io spec endpoint is published."
+- Do NOT fail the workflow — continue to step 4
 
 **If `--update-spec` was NOT passed:**
 - Skip silently
