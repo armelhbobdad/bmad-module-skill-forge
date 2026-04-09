@@ -4,6 +4,7 @@ outputFile: '{forge_version}/test-report-{skill_name}.md'
 templateFile: 'templates/test-report-template.md'
 sidecarFile: '{sidecar_path}/forge-tier.yaml'
 skillsOutputFolder: '{skills_output_folder}'
+frontmatterScript: 'shared/scripts/skf-validate-frontmatter.py'
 ---
 
 # Step 1: Initialize Test
@@ -61,23 +62,25 @@ HALT — do not proceed.
 
 ### 3. Validate Frontmatter Compliance
 
-Before proceeding to content analysis, verify that SKILL.md has valid agentskills.io frontmatter. This catches compliance issues early, regardless of which workflow generated the skill.
+Run the deterministic frontmatter validator:
 
-**Check the following:**
-- [ ] SKILL.md begins with `---` and has a closing `---` (frontmatter present)
-- [ ] `name` field exists, non-empty, lowercase alphanumeric + hyphens, 1-64 chars
-- [ ] `name` matches the skill directory name
-- [ ] `description` field exists, non-empty, 1-1024 chars
-- [ ] No unknown frontmatter fields (only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted)
+```bash
+python3 {frontmatterScript} {resolved_skill_package}/SKILL.md --skill-dir-name {skill_name}
+```
 
-**If frontmatter is missing or invalid:**
+Where `{frontmatterScript}` resolves from the SKF module root (e.g., `_bmad/skf/shared/scripts/skf-validate-frontmatter.py` installed, or `src/shared/scripts/skf-validate-frontmatter.py` in development).
+
+Parse the JSON output. If `status` is `"fail"` or `"warn"`, display:
+
 "**Warning: SKILL.md frontmatter is non-compliant with agentskills.io specification.**
 
-{list specific issues}
+{list issues from the JSON output}
 
 This skill will fail `npx skills add` and `npx skill-check check`. Consider fixing frontmatter before proceeding (run `npx skill-check check <skill-dir> --fix` to auto-fix deterministic issues)."
 
 Log each issue as a pre-check finding. Continue with testing — frontmatter issues will be reported in the gap report alongside coverage/coherence findings.
+
+**If the script is unavailable**, perform the checks manually: frontmatter delimiters present, `name` is lowercase alphanumeric + hyphens (1-64 chars) matching the directory name, `description` is non-empty (1-1024 chars), no unknown fields (only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` permitted).
 
 ### 4. Load Forge Tier State
 
