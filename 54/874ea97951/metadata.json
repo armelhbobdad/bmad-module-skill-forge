@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "54874ea97951",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-test-skill/references/scoring-rules.md",
+    "src/skf-test-skill/references/source-access-protocol.md",
+    "src/skf-test-skill/steps-c/step-01-init.md",
+    "src/skf-test-skill/steps-c/step-03-coverage-check.md",
+    "src/skf-test-skill/steps-c/step-04-coherence-check.md",
+    "src/skf-test-skill/steps-c/step-06-report.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/54/874ea97951/0/metadata.json",
+      "transcript": "/54/874ea97951/0/full.jsonl",
+      "context": "/54/874ea97951/0/context.md",
+      "content_hash": "/54/874ea97951/0/content_hash.txt",
+      "prompt": "/54/874ea97951/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 176,
+    "cache_creation_tokens": 189719,
+    "cache_read_tokens": 9878260,
+    "output_tokens": 39681,
+    "api_call_count": 86
+  }
+}
