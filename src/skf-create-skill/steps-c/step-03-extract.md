@@ -46,29 +46,39 @@ Load `{sourceResolutionData}` completely. Follow the **Remote Source Resolution*
 If ALL of these conditions are true:
 - `tools.ccc` is true in forge-tier.yaml
 - `{ccc_discovery}` is empty (step-02b deferred because source was remote)
-- `ephemeral_clone_active` is true (clone succeeded in source resolution above)
+- `remote_clone_path` is set (source resolution succeeded for a remote URL)
 - Tier is Forge+ or Deep
 
-Then run CCC indexing and discovery on the ephemeral clone:
+Then run CCC indexing and discovery on the resolved clone (workspace or ephemeral):
 
-1. **Initialize index:** Run `cd {temp_path} && ccc init` — `ccc init` takes no positional arguments and initializes the index for the current working directory. If init fails, set `{ccc_discovery: []}` and continue — this is not an error.
+1. **Check existing index:** If `{remote_clone_path}/.cocoindex_code/` already exists (workspace repo with a persisted CCC index), skip steps 2-3 and proceed directly to step 4 using `ccc search --refresh` instead of plain `ccc search`. The `--refresh` flag tells CCC to re-index if files have changed since the last index, then search. This is the fast path for workspace repos that have been indexed before.
 
-2. **Apply brief exclusions:** If `brief.exclude_patterns` is present and non-empty, apply them to `{temp_path}/.cocoindex_code/settings.yml` before indexing:
-   1. Read `{temp_path}/.cocoindex_code/settings.yml` (created by `ccc init`)
-   2. For each pattern in `brief.exclude_patterns`: if the pattern is NOT already present in the `exclude_patterns` array, append it
-   3. Write the updated `settings.yml` back
-   This prevents CCC from indexing excluded files, keeping search results focused on in-scope source code. If `brief.exclude_patterns` is absent or empty, skip this step.
+2. **Initialize index (first time only):** Run `cd {remote_clone_path} && ccc init`. If init fails, set `{ccc_discovery: []}` and continue — this is not an error.
 
-3. **Index the clone:** Run `cd {temp_path} && ccc index` with an extended timeout or in background mode. Indexing can take several minutes on large codebases (1000+ files). Use `ccc status` to verify completion — check that `Chunks` and `Files` counts are non-zero. If indexing fails, set `{ccc_discovery: []}` and continue — this is not an error.
+   **Apply standard exclusions:** After `ccc init`, apply generic build/dependency exclusions to `{remote_clone_path}/.cocoindex_code/settings.yml`. These are standard artifact patterns, NOT SKF-specific paths (the workspace checkout is a source repo, not an SKF project):
+
+   ```
+   node_modules/, dist/, build/, .git/, vendor/, __pycache__/, .cache/, .next/, .nuxt/, target/, out/, .venv/, .tox/
+   ```
+
+   Read `settings.yml`, append any patterns not already present to the `exclude_patterns` array, write back.
+
+   **Note:** Brief-specific `include_patterns` and `exclude_patterns` are NOT written to `settings.yml`. The CCC index is general-purpose — it indexes everything (minus standard artifacts). Brief-specific filtering happens at search result time, not index time. This allows a single workspace CCC index to serve multiple briefs with different scope filters.
+
+3. **Index the clone:** Run `cd {remote_clone_path} && ccc index` with an extended timeout or in background mode. Indexing can take several minutes on large codebases (1000+ files). Use `ccc status` to verify completion — check that `Chunks` and `Files` counts are non-zero. If indexing fails, set `{ccc_discovery: []}` and continue — this is not an error.
 
 4. **Construct semantic query:** Build from brief data: `"{brief.name} {brief.scope}"`. Truncate to 80 characters — keep the full skill name and trim `brief.scope` from the end. If `brief.scope` is very short (< 10 chars), append terms from `brief.description` to fill the remaining space.
 
-5. **Execute search:** Run `ccc_bridge.search(query, temp_path, top_k=20)`:
-   - **Tool resolution:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `cd {temp_path} && ccc search --limit 20 "{query}"` (CLI). Note: `ccc search` operates on the index in the current working directory. See `knowledge/tool-resolution.md`.
+5. **Execute search:** Run `ccc_bridge.search(query, remote_clone_path, top_k=20)`:
+   - **If existing index was found (step 1):** Use `cd {remote_clone_path} && ccc search --refresh --limit 20 "{query}"` — this re-indexes if files changed, then searches.
+   - **Otherwise:** Use `cd {remote_clone_path} && ccc search --limit 20 "{query}"` after indexing in step 3.
+   - **Tool resolution:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or CLI. Note: `ccc search` operates on the index in the current working directory. See `knowledge/tool-resolution.md`.
 
-6. **Store results:** If search succeeds, store as `{ccc_discovery: [{file, score, snippet}]}`. Display: "**CCC semantic discovery (post-clone): {N} relevant regions identified across {M} unique files.**"
+6. **Store results:** If search succeeds, store as `{ccc_discovery: [{file, score, snippet}]}`. Display: "**CCC semantic discovery: {N} relevant regions identified across {M} unique files.**"
 
-7. **On failure:** Set `{ccc_discovery: []}`. Display: "CCC post-clone discovery unavailable — proceeding with standard extraction." Do NOT halt.
+   If `remote_clone_type == "workspace"` and an existing index was reused, append: "(reused workspace index)"
+
+7. **On failure:** Set `{ccc_discovery: []}`. Display: "CCC discovery unavailable — proceeding with standard extraction." Do NOT halt.
 
 **CCC Discovery Integration (Forge+ and Deep with ccc only):**
 
