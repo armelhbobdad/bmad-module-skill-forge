@@ -49,7 +49,7 @@ def validate_frontmatter(content, skill_name=None):
     name = fm.get("name", "")
     if not name:
         issues.append({"severity": "high", "field": "name", "message": "name field missing or empty"})
-    elif not re.match(r"^[a-z0-9][a-z0-9-]{0,63}$", name):
+    elif not re.match(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", name) or len(name) > 64:
         issues.append({"severity": "high", "field": "name", "message": f"name must be lowercase alphanumeric + hyphens, 1-64 chars, got: {name}"})
 
     if skill_name and name and name != skill_name:

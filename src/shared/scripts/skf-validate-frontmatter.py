@@ -68,9 +68,14 @@ def parse_frontmatter(content: str) -> tuple[dict | None, list[dict]]:
         })
         return None, issues
 
-    # Split on --- to extract frontmatter block
-    parts = content.split("---", 2)
-    if len(parts) < 3:
+    # Find closing --- on its own line (not a substring inside YAML values)
+    closing_idx = -1
+    search_start = content.index("\n") + 1  # skip past opening ---\n
+    for i, line in enumerate(content[search_start:].split("\n")):
+        if line.rstrip("\r") == "---":
+            closing_idx = search_start + sum(len(l) + 1 for l in content[search_start:].split("\n")[:i])
+            break
+    if closing_idx == -1:
         issues.append({
             "severity": "high",
             "field": "frontmatter",
@@ -78,7 +83,8 @@ def parse_frontmatter(content: str) -> tuple[dict | None, list[dict]]:
         })
         return None, issues
 
-    fm_text = parts[1]
+    # Extract text between opening and closing delimiters
+    fm_text = content[search_start:closing_idx]
 
     # Parse with PyYAML for proper YAML handling (nested metadata, multi-line values)
     try:

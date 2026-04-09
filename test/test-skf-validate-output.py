@@ -130,6 +130,17 @@ class TestSkfValidateOutput:
             )
             assert has_gb_issue
 
+    def test_trailing_hyphen_rejected(self):
+        """Names ending with a hyphen should be rejected."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = Path(tmp) / "bad-name-"
+            pkg.mkdir()
+            (pkg / "SKILL.md").write_text("---\nname: bad-name-\ndescription: test\n---\n\n## Overview\n\nTest\n\n## Key Exports\n\nNone\n\n## Usage\n\nNone\n")
+            (pkg / "metadata.json").write_text(json.dumps(VALID_METADATA))
+            r = validate_skill_package(str(pkg))
+            fm_issues = r["validation"]["skill_md"]["frontmatter"]
+            assert any("must be lowercase" in i["message"] or "alphanumeric" in i["message"] for i in fm_issues), f"Expected name rejection, got: {fm_issues}"
+
     def test_frontmatter_with_dashes_in_value(self):
         """Frontmatter parser should not be confused by --- in YAML values."""
         content = "---\nname: test-skill\ndescription: A---great library\n---\n\n## Overview\n\nTest\n\n## Key Exports\n\nNone\n\n## Usage\n\nNone\n"

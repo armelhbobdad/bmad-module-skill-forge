@@ -37,7 +37,7 @@ MARKER_PATTERN = re.compile(
 def read_context_file(file_path):
     """Read a context file. Returns (content, None) or (None, error)."""
     try:
-        return Path(file_path).read_text(), None
+        return Path(file_path).read_text(encoding="utf-8"), None
     except FileNotFoundError:
         return None, f"File not found: {file_path}"
 
@@ -112,7 +112,7 @@ def cmd_replace(file_path, new_content):
     new_section = f"<!-- SKF:BEGIN updated:{today} -->\n{new_content}\n{END_MARKER}"
     updated = content[: match.start()] + new_section + content[match.end() :]
 
-    Path(file_path).write_text(updated)
+    Path(file_path).write_text(updated, encoding="utf-8")
     return {"status": "ok", "action": "replaced", "bytes_written": len(updated)}
 
 
@@ -131,7 +131,7 @@ def cmd_clear(file_path):
     after = content[match.end() :].lstrip("\n")
     updated = before + ("\n\n" if before and after else "") + after
 
-    Path(file_path).write_text(updated)
+    Path(file_path).write_text(updated, encoding="utf-8")
     return {"status": "ok", "action": "cleared", "bytes_written": len(updated)}
 
 
@@ -153,7 +153,7 @@ def cmd_insert(file_path, new_content):
     section = f"\n<!-- SKF:BEGIN updated:{today} -->\n{new_content}\n{END_MARKER}\n"
     updated = content.rstrip("\n") + "\n" + section if content.strip() else section.lstrip("\n")
 
-    Path(file_path).write_text(updated)
+    Path(file_path).write_text(updated, encoding="utf-8")
     return {"status": "ok", "action": "inserted", "bytes_written": len(updated)}
 
 

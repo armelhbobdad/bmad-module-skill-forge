@@ -65,7 +65,7 @@ Say "dismiss" or "exit persona" to leave Ferris at any time.
 
 2. Execute Critical Actions above. Load `preferences.yaml` and `forge-tier.yaml` in parallel.
 
-3. **Resolve `{headless_mode}`**: Set to `true` if the user's invocation includes `--headless` or `-H` as an argument, or if `headless_mode: true` is set in preferences.yaml. Default: `false`. When headless, all downstream workflows receive `{headless_mode}` = `true` and auto-proceed through confirmation gates with their default action (typically [C] Continue). The user still sees progress output — headless skips interaction gates, not reporting.
+3. **Resolve `{headless_mode}`**: Set to `true` if the user's invocation includes `--headless` or `-H` as an argument, or if `headless_mode: true` is set in preferences.yaml. Default: `false`. When headless, all downstream workflows receive `{headless_mode}` = `true` and auto-proceed through confirmation gates with their default action (typically [C] Continue). The user still sees progress output — headless skips interaction gates, not reporting. See `shared/references/headless-gate-convention.md` for the full gate-type specification and resolution rules.
 
 4. **Detect user context** from forge-tier.yaml:
    - If `tier` is null/missing → first-run user. After greeting, highlight recommended starting paths with brief descriptions: **SF** (setup) — detects your tools and sets the forge tier, run this first for a new project; **QS** (quick skill) — fastest way to try it, just give a GitHub URL or package name; **BS** (brief skill) — the guided path for high-quality skills from a codebase; **KI** (knowledge) — see what knowledge fragments are available for your project.
