@@ -1,9 +1,9 @@
 ---
-nextStepFile: '../../shared/health-check.md'
+nextStepFile: 'shared/health-check.md'
 
-outputFile: '{forge_data_folder}/{skill_name}/test-report-{skill_name}.md'
-scoringRulesFile: '../references/scoring-rules.md'
-outputFormatsFile: '../assets/output-section-formats.md'
+outputFile: '{forge_version}/test-report-{skill_name}.md'
+scoringRulesFile: 'references/scoring-rules.md'
+outputFormatsFile: 'assets/output-section-formats.md'
 ---
 
 # Step 6: Gap Report
@@ -12,42 +12,12 @@ outputFormatsFile: '../assets/output-section-formats.md'
 
 Generate a detailed gap report listing every issue found during coverage and coherence analysis, assign severity to each gap, provide specific actionable remediation suggestions, and finalize the test report document. This is the final step — no next step file.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER fabricate gaps — every item must trace to findings from steps 03, 04, and 04b
-- 📖 CRITICAL: Read the complete step file before taking any action
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill auditor in Ferris's Audit mode — zero hallucination
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Remediation suggestions must be specific and actionable — not vague advice
-- ✅ Each gap tells the user exactly what to fix, where, and how
-
-### Step-Specific Rules:
-
-- 🎯 Focus on gap enumeration, severity classification, and remediation
-- 🚫 FORBIDDEN to recalculate scores — use the score from step 05
-- 💬 Remediation suggestions reference specific files, exports, and line numbers
-- 📋 Gaps are ordered by severity (Critical → High → Medium → Low → Info)
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Read all findings from {outputFile} coverage and coherence sections
-- 💾 Append Gap Report section to {outputFile}
-- 📖 Update {outputFile} frontmatter: mark stepsCompleted with all steps, finalize document
-- 🚫 This is the final step — no next step to load
-
-## CONTEXT BOUNDARIES:
-
-- Available: Complete {outputFile} with Test Summary, Coverage Analysis, Coherence Analysis, Completeness Score
-- Focus: Gap enumeration and remediation only
-- Limits: Do NOT re-analyze source code — work from existing findings
-- Dependencies: steps 03, 04, and 05 must have completed their sections
+- Focus on gap enumeration, severity classification, and remediation — do not recalculate scores
+- Remediation suggestions reference specific files, exports, and line numbers
+- Gaps are ordered by severity (Critical > High > Medium > Low > Info)
+- Chains to shared health check via `{nextStepFile}` after completion
 
 ## MANDATORY SEQUENCE
 
@@ -121,6 +91,10 @@ After gap enumeration, append a **Discovery Quality** subsection to the gap repo
 
 Record discovery testing status as Info-level in the gap table. This is advisory — it does not affect the score.
 
+### 4c. Result Contract
+
+Write `{forge_version}/test-skill-result.json` per `shared/references/output-contract-schema.md`. Include the test report path in `outputs`; include `score`, `threshold`, `result` (PASS/FAIL), and `testMode` (naive/contextual) in `summary`.
+
 ### 5. Finalize Output Document
 
 Update `{outputFile}` frontmatter:
@@ -171,6 +145,7 @@ Display: "**Test complete.** [C] Finish"
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
+- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past report menu"
 - C triggers the health check, which is the true workflow exit
 - User may ask questions about the report before finishing
 
@@ -178,29 +153,3 @@ Display: "**Test complete.** [C] Finish"
 
 When the user selects C, this step chains to the shared health check. After the health check completes, the test-skill workflow is fully done. The test report document at `{outputFile}` contains the full analysis: Test Summary, Coverage Analysis, Coherence Analysis, Completeness Score, and Gap Report.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every gap traces to a finding from steps 03, 04, or 04b (zero fabrication)
-- Gaps classified by severity using scoring rules
-- Gaps ordered by severity (Critical first)
-- Every gap has a specific, actionable remediation suggestion
-- Discovery quality section appended with description optimization and testing recommendations
-- Remediation summary with counts and effort estimates
-- Output document finalized with all stepsCompleted
-- Correct next workflow recommended (export-skill or update-skill)
-- Report presented clearly to user
-
-### ❌ SYSTEM FAILURE:
-
-- Fabricating gaps not found in analysis steps
-- Vague remediation suggestions ("fix the issue", "add documentation")
-- Not classifying severity
-- Recalculating or modifying the score from step 05
-- Not finalizing the output document frontmatter
-- Missing the next workflow recommendation
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE. Every gap is specific, every remediation is actionable.

@@ -1,6 +1,6 @@
 ---
 returnToStep: './step-03-extract.md'
-extractionPatternsData: '../references/extraction-patterns.md'
+extractionPatternsData: 'references/extraction-patterns.md'
 ---
 
 # Step 3d: Component Library Extraction
@@ -9,36 +9,11 @@ extractionPatternsData: '../references/extraction-patterns.md'
 
 When `scope.type: "component-library"`, perform specialized extraction that treats the component registry as the primary API surface and props interfaces as API contracts. This step replaces the standard AST extraction flow (step-03 sections 4-4c) and returns control to step-03 section 5 (Build Extraction Inventory).
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🎯 ALWAYS follow the exact instructions in the step file
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill compilation engine performing component-library-specialized extraction
-- ✅ Zero hallucination tolerance — every extracted item must trace to source code
-- ✅ Component registry is the source of truth for the API surface
-- ✅ Props interfaces are the API contracts, not function signatures
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on extracting component catalog, props interfaces, and shared types
-- 🚫 FORBIDDEN to compile SKILL.md content — that is step-05
-- 🚫 FORBIDDEN to write any output files — extraction stays in context
-- 🚫 FORBIDDEN to include content that cannot be cited to a source location
-- ⚒️ Every extracted item MUST have a provenance citation: `[AST:{file}:L{line}]` or `[SRC:{file}:L{line}]`
-
-## CONTEXT BOUNDARIES:
-
-- Available: brief_data (including `scope.registry_path`, `scope.ui_variants`, `scope.demo_patterns` if present), tier, source_root (may be `temp_path` from ephemeral clone for remote repos — use the working source path resolved in step-03 section 2a), filtered file list from step-03 section 2, CCC discovery results (if available from step-03 section 2a)
-- Focus: Component-specific extraction and inventory building
-- Limits: Do NOT compile, assemble, or write output
-- Dependencies: Source code accessible (resolved in step-03 section 2a — ephemeral clone for remote repos), scope filters already applied
+- Focus only on extracting component catalog, props interfaces, and shared types
+- Do not compile SKILL.md content (Step 05) or write output files
+- Every extracted item must have a provenance citation: `[AST:{file}:L{line}]` or `[SRC:{file}:L{line}]`
 
 ## MANDATORY SEQUENCE
 

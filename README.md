@@ -10,7 +10,10 @@
 [![npm](https://img.shields.io/npm/v/bmad-module-skill-forge)](https://www.npmjs.com/package/bmad-module-skill-forge)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![BMad Module](https://img.shields.io/badge/BMad-module-blue)](https://github.com/bmad-code-org/BMAD-METHOD)
+[![Python Version](https://img.shields.io/badge/python-%3E%3D3.10-blue?logo=python&logoColor=white)](https://www.python.org)
+[![uv](https://img.shields.io/badge/uv-package%20manager-blueviolet?logo=uv)](https://docs.astral.sh/uv/)
 [![Docs](https://img.shields.io/badge/docs-online-green)](https://armelhbobdad.github.io/bmad-module-skill-forge/)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Community-7289da?logo=discord&logoColor=white)](https://discord.gg/gk8jAdXWmj)
 [![GitHub stars](https://img.shields.io/github/stars/armelhbobdad/bmad-module-skill-forge?style=social)](https://github.com/armelhbobdad/bmad-module-skill-forge/stargazers)
 
 *Skill Forge analyzes your code repositories, documentation, and developer discourse to build verified instruction files for AI agents. Every instruction links back to where it came from — nothing is made up.*
@@ -77,10 +80,11 @@ You'll be prompted for project name, output folders, and IDE configuration. See 
 1. **Set up your environment:** `@Ferris SF` — detects your tools and sets your capability tier
 2. **Generate your first skill:** `@Ferris QS <package-name>` — creates a verified skill in under a minute
 3. **Full quality path:** `@Ferris BS` → clear session → `@Ferris CS` — brief first, then compile for maximum accuracy
+4. **Pipeline mode:** `@Ferris forge lodash` — chains Brief → Create → Test → Export in one command
 
-> **Tip:** Start a fresh conversation before each workflow. SKF workflows load significant context — clearing between them prevents interference.
+> **Tip:** Start a fresh conversation before each workflow (or use pipeline mode to chain them automatically). SKF workflows load significant context — clearing between them prevents interference.
 
-See the [workflows docs](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/) for all 14 available workflows.
+See the [workflows docs](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/) for all 14 available workflows, pipeline aliases, and headless mode.
 
 ## Who Is This For?
 

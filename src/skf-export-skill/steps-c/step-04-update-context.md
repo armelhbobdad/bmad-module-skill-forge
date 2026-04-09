@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-05-token-report.md'
-managedSectionData: '../assets/managed-section-format.md'
+managedSectionData: 'assets/managed-section-format.md'
 ---
 
 # Step 4: Update Context
@@ -9,44 +9,12 @@ managedSectionData: '../assets/managed-section-format.md'
 
 To update the managed `<!-- SKF:BEGIN/END -->` section in the platform-appropriate context file (CLAUDE.md/AGENTS.md/.cursorrules) using the four-case logic defined by ADR-J (Create, Append, Regenerate, Malformed Markers halt), rebuilding the complete skill index from all exported skills.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER modify content outside `<!-- SKF:BEGIN/END -->` markers
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a delivery and packaging specialist in Ferris Delivery mode
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Surgical precision required — existing file content MUST be preserved
-- ✅ User confirms changes before any writes to shared context files
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on the managed section update in the target context file
-- 🚫 FORBIDDEN to modify ANY content outside `<!-- SKF:BEGIN -->` and `<!-- SKF:END -->` markers
-- 🚫 FORBIDDEN to write without user confirmation — this modifies shared project files
-- 💬 Show a clear diff preview before writing
-- 📋 If `passive_context: false` was detected in step-01, SKIP this step entirely and auto-proceed
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Load {managedSectionData} for format template and four-case logic
-- 📖 Rebuild the COMPLETE skill index — not just the current skill
-- 🚫 ZERO data loss — verify preserved content before and after write
-
-## CONTEXT BOUNDARIES:
-
-- Available: Skill metadata from step-01, context-snippet.md from step-03, platform flag
-- Focus: Three-case detection and managed section update
-- Limits: Only modify content between markers — preserve everything else
-- Dependencies: Step-03 must have generated the snippet (or step skipped if passive_context off)
+- Focus only on the managed section update in the target context file
+- Do not modify any content outside `<!-- SKF:BEGIN -->` and `<!-- SKF:END -->` markers
+- Do not write without user confirmation — this modifies shared project files
+- If `passive_context: false` was detected in step-01, skip this step entirely
 
 ## MANDATORY SEQUENCE
 
@@ -70,7 +38,7 @@ Load {managedSectionData} and read the complete format template and four-case lo
 
 Using the `target_context_files` list resolved in step-01, determine all target files. Each entry has `{context_file, skill_root}` — the context file to write and the IDE's skill directory for root path resolution.
 
-For each entry in `target_context_files`, resolve target file path: `{project-root}/{context_file}`
+For each entry in `target_context_files`, resolve target file path: `{context_file}`
 
 **If multiple context files:** Sections 4-9a execute as a loop — one full pass per target context file. Each iteration uses the same skill index but rewrites root paths per context file's `skill_root` (section 4d) and writes to the target context file. Section 9b executes once after all iterations complete.
 
@@ -84,7 +52,7 @@ Build `orphaned_context_files` — the set of context files that exist on disk w
 
 1. For each known context file in `{CLAUDE.md, .cursorrules, AGENTS.md}`:
    - If the context file is in `target_context_files`, skip (it will be rewritten in the main loop)
-   - Otherwise, check whether the file exists at `{project-root}/{context_file}`
+   - Otherwise, check whether the file exists at `{context_file}`
    - If the file exists, read it and check for the `<!-- SKF:BEGIN -->` marker
    - If the marker is present, add the file path to `orphaned_context_files` along with the context file name
 
@@ -112,7 +80,7 @@ This cleanup only runs during interactive export. Drop-skill and rename-skill op
 
 #### 4a. Read Export Manifest (v2 — version-aware)
 
-Read `{skills_output_folder}/.export-manifest.json` — see [knowledge/version-paths.md](../../knowledge/version-paths.md) for the full v2 schema:
+Read `{skills_output_folder}/.export-manifest.json` — see `knowledge/version-paths.md` for the full v2 schema:
 
 **If the file exists:** Parse JSON. Check for `schema_version` field:
 
@@ -228,7 +196,7 @@ Assemble the complete managed section:
 
 ### 6. Detect Case and Prepare Changes
 
-**Check target file at `{project-root}/{target-file}`:**
+**Check target file at `{target-file}`:**
 
 **Case 1: Create (file does not exist)**
 - Action: Create new file with managed section only
@@ -252,7 +220,7 @@ Assemble the complete managed section:
 
 "**Context update prepared.{if multi-platform: ' (platform {i}/{total}: {platform})'}**
 
-**Target:** `{project-root}/{target-file}`
+**Target:** `{target-file}`
 **Case:** {1: Create / 2: Append / 3: Regenerate}
 **Skills in index:** {n} skills, {m} stack
 
@@ -296,6 +264,7 @@ Display: "**Select:** [C] Continue — write changes to all targets"
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
+- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-approve context file update"
 - ONLY proceed to next step when user selects 'C'
 - In dry-run mode, auto-proceed without writing
 
@@ -348,35 +317,3 @@ After user confirms with 'C':
 
 ONLY WHEN the user confirms changes by selecting 'C' (or auto-proceed in dry-run) and the write is verified will you load and read fully `{nextStepFile}` to execute the token report.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Managed section format loaded from {managedSectionData}
-- Target file(s) correctly determined from platform flag or config.yaml ides list
-- Multi-context-file loop executed for all target_context_files
-- Root paths rewritten per context file's skill_root in managed section
-- Complete skill index rebuilt from exported skills only (filtered via .export-manifest.json per ADR-K)
-- Export manifest updated after successful write (non-dry-run only)
-- Correct case detected (create/append/regenerate)
-- Clear diff preview shown to user
-- User confirmation received before writing
-- Write verified — markers present, external content preserved
-- Passive context opt-out correctly handled (skip when disabled)
-- Dry-run correctly handled (preview only, no writes)
-
-### ❌ SYSTEM FAILURE:
-
-- Modifying content outside `<!-- SKF:BEGIN/END -->` markers
-- Not rebuilding the COMPLETE skill index (only adding current skill)
-- Including un-exported skills in managed section (bypasses ADR-K publishing gate)
-- Updating export manifest during dry-run
-- Writing without user confirmation
-- Not verifying write after completion
-- Not detecting the correct case (create/append/regenerate)
-- Losing existing file content during write
-- Not skipping when passive_context is disabled
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE. ZERO data loss in target files is NON-NEGOTIABLE.

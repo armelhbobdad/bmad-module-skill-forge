@@ -8,42 +8,11 @@ nextStepFile: './step-02b-ccc-discover.md'
 
 To search the agentskills.io ecosystem for an existing official skill matching the brief, advise the user if one is found, and allow them to decide whether to proceed with compilation or install the existing skill.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🎯 ALWAYS follow the exact instructions in the step file
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill compilation engine performing ecosystem discovery
-- ✅ This step is advisory — ecosystem check results never block compilation
-- ✅ Tool unavailability is never an error — it's a graceful skip condition
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on ecosystem search and presenting findings
-- 🚫 FORBIDDEN to begin any extraction or compilation work
-- 🚫 FORBIDDEN to halt the workflow if the ecosystem check fails or times out
-- 💬 If a match is found, present it factually — let the user decide
-- ⏱️ Enforce 5-second timeout on ecosystem queries
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow MANDATORY SEQUENCE exactly
-- 💾 All loaded data remains in context for subsequent steps
-- 📖 Ecosystem check is advisory — never blocking
-- 🚫 Do not modify any files — this step only queries and reports
-
-## CONTEXT BOUNDARIES:
-
-- Available: brief_data (name, version, source_repo, language, scope) and tier from step-01
-- Focus: Searching for existing skills in the ecosystem
-- Limits: Do NOT begin extraction, compilation, or file writing
-- Dependencies: skill-brief.yaml must be loaded and validated from step-01
+- Focus only on ecosystem search and presenting findings — do not begin extraction
+- Do not halt the workflow if the ecosystem check fails or times out (5-second timeout)
+- If a match is found, present it factually — let the user decide
 
 ## MANDATORY SEQUENCE
 
@@ -101,6 +70,7 @@ Display: "**Ecosystem match found — Select an Option:** [P] Proceed with compi
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
+- **GATE [default: P]** — If `{headless_mode}` and match found: auto-proceed with [P] Proceed, log: "headless: ecosystem match found, auto-proceeding"
 - This menu ONLY appears when an ecosystem match is found
 - If no match, timeout, or tool unavailable — auto-proceed with no menu
 
@@ -118,27 +88,3 @@ ONLY WHEN the ecosystem check is complete (match evaluated, user decision made i
 
 If no match is found, this step auto-proceeds with no user interaction.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Ecosystem check attempted via registry API (or gracefully skipped if API unavailable)
-- 5-second timeout enforced on ecosystem queries
-- Match presented factually with clear options if found
-- No-match case auto-proceeds silently
-- User decision respected (Proceed/Install/Abort)
-- Auto-proceeded to step-02b (when no match or user chose Proceed)
-
-### ❌ SYSTEM FAILURE:
-
-- Halting the workflow because ecosystem check failed or timed out
-- Treating API unavailability as an error
-- Confusing `npx skill-check check` (local validation) with ecosystem lookup
-- Displaying "no match found" messages (absence should be silent)
-- Beginning extraction or compilation work in this step
-- Proceeding without user decision when a match IS found
-- Not enforcing the 5-second timeout
-
-**Master Rule:** This step is advisory. API unavailability and timeouts are silent skips, not errors. Only a confirmed match requires user interaction.

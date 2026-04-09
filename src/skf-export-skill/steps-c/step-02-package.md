@@ -8,40 +8,10 @@ nextStepFile: './step-03-generate-snippet.md'
 
 To assemble and validate an agentskills.io-compliant package structure from the loaded skill artifacts, ensuring all required components are present and properly formatted for distribution.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a delivery and packaging specialist in Ferris Delivery mode
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Precise validation — ensure package meets ecosystem standards
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on package structure assembly and validation
-- 🚫 FORBIDDEN to modify SKILL.md content — package what exists
-- 💬 This is a deterministic packaging step — auto-proceed when complete
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Hold validated package structure in context for subsequent steps
-- 📖 Validate all required agentskills.io fields
-- 🚫 Warn on non-critical issues but do not halt
-
-## CONTEXT BOUNDARIES:
-
-- Available: Skill metadata, SKILL.md, metadata.json from step-01
-- Focus: Package structure validation and assembly
-- Limits: Do not modify source files — validate and assemble only
-- Dependencies: Step-01 must have loaded and validated the skill
+- Focus only on package structure assembly and validation — do not modify SKILL.md content
+- Auto-proceed when complete
 
 ## MANDATORY SEQUENCE
 
@@ -49,7 +19,7 @@ To assemble and validate an agentskills.io-compliant package structure from the 
 
 ### 1. Validate Package Structure
 
-Verify the skill package at `{resolved_skill_package}` (resolved in step-01 via manifest or `active` symlink — see [knowledge/version-paths.md](../../knowledge/version-paths.md)) contains the expected agentskills.io package layout:
+Verify the skill package at `{resolved_skill_package}` (resolved in step-01 via manifest or `active` symlink — see `knowledge/version-paths.md`) contains the expected agentskills.io package layout:
 
 ```
 {skill_package} = {skills_output_folder}/{skill-name}/{version}/{skill-name}/
@@ -131,24 +101,3 @@ Display: "**Proceeding to snippet generation...**"
 
 ONLY WHEN package validation is complete will you load and read fully `{nextStepFile}` to execute snippet generation.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All required package components validated
-- All required metadata.json fields checked
-- Warnings noted for missing recommended fields
-- Package status clearly reported
-- Auto-proceed to step-03
-
-### ❌ SYSTEM FAILURE:
-
-- Not checking all required files
-- Not validating metadata.json fields
-- Halting on non-critical warnings (should warn and continue)
-- Modifying any source files
-- Not auto-proceeding after validation
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

@@ -9,43 +9,11 @@ outputFile: '{forge_version}/drift-report-{timestamp}.md'
 
 Compare the original provenance map extractions from create-skill against the current re-index snapshot from Step 02 to detect structural drift. Identify added, removed, and changed exports with file:line citations and confidence tier labels.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill auditor performing structural comparison
-- ✅ Every drift finding must have a file:line citation from either the provenance map or current scan
-- ✅ Zero hallucination — only report drift that is structurally verifiable
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on structural comparison — added/removed/changed exports
-- 🚫 FORBIDDEN to classify severity — that happens in Step 05
-- 🚫 FORBIDDEN to suggest remediation — that happens in Step 06
-- 💬 Use subprocess Pattern 4 (parallel): In Claude Code, use multiple parallel Agent tool calls or `run_in_background: true`. In Cursor, use parallel requests (IDE-dependent). In CLI, use `xargs -P` or background processes. See [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md)
-- ⚙️ If subprocess unavailable, compare categories sequentially in main thread
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Compare provenance map exports against current extraction snapshot
-- 💾 Append ## Structural Drift section to {outputFile}
-- 📖 Update {outputFile} frontmatter stepsCompleted when complete
-- 🚫 Only structural findings — no semantic or severity analysis
-
-## CONTEXT BOUNDARIES:
-
-- Available: Provenance map (from Step 01), current extraction snapshot (from Step 02), forge tier
-- Focus: Structural export-level comparison only
-- Limits: Do not classify severity, do not analyze semantics, do not suggest fixes
-- Dependencies: Steps 01 and 02 must be complete
+- Focus only on structural comparison — added/removed/changed exports
+- Do not classify severity (Step 05) or suggest remediation (Step 06)
+- Use subprocess Pattern 4 (parallel) when available; if unavailable, compare sequentially
 
 ## MANDATORY SEQUENCE
 
@@ -119,6 +87,23 @@ For each entry in `file_entries`:
 
 Append results to the Structural Drift section as "### Script/Asset Drift ({count})".
 
+### Stack-Specific Structural Diff
+
+If `{is_stack_skill}` is true:
+
+**For v2 provenance (per-export entries with `source_library`):**
+- Group entries by `source_library`
+- For each library, perform the standard structural diff (same as single-skill) against current source
+- Report per-library diff results
+
+**For code-mode stacks:** Re-extract from each source repo and compare per-library entries.
+
+**For compose-mode stacks:** Compare current constituent skill exports against the entries recorded at compose time. Use the `source_library` field to match entries to constituents.
+
+**For v1 legacy provenance:** Report library-level summary only (export counts, extraction methods). Note that per-export drift detection requires re-composition with v2 provenance.
+
+**Integration drift:** For each integration in `integrations[]`, verify that co-import files still contain the detected patterns (code-mode) or that constituent skills still document the integration (compose-mode).
+
 ### 5. Compile Structural Drift Section
 
 Append to {outputFile}:
@@ -179,27 +164,3 @@ Display: "**Structural diff complete. {total} drift items found. Proceeding to s
 
 ONLY WHEN the ## Structural Drift section has been appended to {outputFile} with all findings documented will you then load and read fully `{nextStepFile}` to execute and begin semantic diff analysis.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All three categories compared: added, removed, changed
-- Every finding has file:line citation
-- Confidence tier labels on all findings
-- Moved exports distinguished from removed+added
-- Structured table format in drift report
-- Summary counts accurate
-- Frontmatter stepsCompleted updated
-
-### ❌ SYSTEM FAILURE:
-
-- Missing any comparison category (added/removed/changed)
-- Findings without file:line citations
-- Missing confidence tier labels
-- Classifying severity in this step (severity is Step 05)
-- Not detecting moved exports (false removed + false added)
-- Hardcoded paths instead of frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

@@ -8,43 +8,11 @@ nextStepFile: './step-03-quick-extract.md'
 
 To query the agentskills.io ecosystem for an existing official skill matching the resolved target, preventing unnecessary duplication. This is an advisory gate — it never blocks the workflow on failure.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a rapid skill compiler checking for existing skills
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ This check is advisory — never block the workflow on failure
-- ✅ Speed is priority — 5-second timeout, fail silently
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on checking if an official skill already exists
-- 🚫 FORBIDDEN to begin extraction or compilation
-- 💬 Approach: Check quickly, report result, proceed or offer choice
-- 📋 Tool unavailability and timeouts are NOT errors — silent skip
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Set state: ecosystem_status (match/no-match/skip)
-- 📖 Apply 5-second timeout on ecosystem queries
-- 🚫 Never halt workflow due to ecosystem check failure
-
-## CONTEXT BOUNDARIES:
-
-- Previous step provided: resolved_url, repo_name, language
-- This step only queries — does not modify files or begin extraction
-- Focus: ecosystem deduplication check only
-- Dependencies: resolved repository from step-01
+- This check is advisory — never block the workflow on failure
+- 5-second timeout on ecosystem queries; tool unavailability is a silent skip, not an error
+- Do not begin extraction or compilation
 
 ## MANDATORY SEQUENCE
 
@@ -99,6 +67,7 @@ An official skill already exists. You can:
 
 - ONLY display this menu when ecosystem_status is match
 - ALWAYS halt and wait for user input when match is found
+- **GATE [default: P]** — If `{headless_mode}` and match found: auto-proceed with [P] Proceed (compile custom skill anyway), log: "headless: ecosystem match found, auto-proceeding with custom compilation"
 - For no-match and skip cases, auto-proceed without menu
 
 ### 4. Auto-Proceed (No Match or Skip)
@@ -116,23 +85,3 @@ An official skill already exists. You can:
 
 ONLY WHEN ecosystem check completes (match with user choice, no-match, or skip) will you load and read fully `{nextStepFile}` to execute source extraction.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Ecosystem queried with 5-second timeout
-- Tool unavailability handled silently (not an error)
-- No-match case auto-proceeds without interrupting user
-- Match case presents P/I/A menu and waits for user choice
-- ecosystem_status set correctly
-
-### ❌ SYSTEM FAILURE:
-
-- Blocking workflow on ecosystem check failure
-- Treating timeout or tool unavailability as errors
-- Showing menu when no match was found
-- Beginning extraction or compilation in this step
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

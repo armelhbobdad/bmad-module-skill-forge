@@ -9,43 +9,10 @@ outputFile: '{forge_version}/test-report-{skill_name}.md'
 
 Examine the skill metadata to determine whether this is an individual skill (naive mode — API surface coverage only) or a stack skill (contextual mode — full coherence validation including cross-references and integration patterns).
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER override mode detection with assumptions — use actual metadata
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill auditor in Ferris's Audit mode
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Mode detection is deterministic — based on metadata, not judgment
-- ✅ Report the detected mode clearly and explain what it means for analysis depth
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on mode detection — do NOT begin coverage or coherence analysis
-- 🚫 FORBIDDEN to start analyzing exports or references in this step
-- 💬 Explain what each mode means for the upcoming analysis
-- 📋 Set testMode in output frontmatter before proceeding
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Read skill metadata to determine type
-- 💾 Update {outputFile} frontmatter with testMode and append Test Summary section
-- 📖 Update stepsCompleted in {outputFile}
-- 🚫 FORBIDDEN to proceed without setting testMode
-
-## CONTEXT BOUNDARIES:
-
-- Available: Skill metadata loaded in step 01, forge tier state, output document
-- Focus: Mode detection only — classify skill type, set test mode
-- Limits: Do not analyze content — just determine the correct testing mode
-- Dependencies: step-01 must have validated skill exists and loaded metadata
+- Focus only on mode detection — do not begin coverage or coherence analysis
+- Set testMode in output frontmatter before proceeding
 
 ## MANDATORY SEQUENCE
 
@@ -136,25 +103,3 @@ Display: "**Proceeding to coverage check...**"
 
 ONLY WHEN testMode is set in the output frontmatter and the Test Summary section is appended to the output document, will you then load and read fully `{nextStepFile}` to execute coverage check.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Skill type correctly identified from metadata
-- Test mode set (naive or contextual) in output frontmatter
-- Test Summary section appended to output document
-- Mode rationale documented
-- Analysis plan stated based on mode + tier combination
-- Auto-proceeded to step 03
-
-### ❌ SYSTEM FAILURE:
-
-- Guessing mode without reading metadata
-- Not setting testMode in output frontmatter
-- Not appending Test Summary section
-- Starting analysis in this step
-- Hardcoding paths instead of using frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

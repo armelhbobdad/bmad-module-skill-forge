@@ -1,9 +1,9 @@
 ---
 nextStepFile: './step-04-merge.md'
-extractionPatternsData: '../../skf-create-skill/references/extraction-patterns.md'
-extractionPatternsTracingData: '../../skf-create-skill/references/extraction-patterns-tracing.md'
-remoteSourceResolutionData: '../references/remote-source-resolution.md'
-tierDegradationRulesData: '../../skf-create-skill/references/tier-degradation-rules.md'
+extractionPatternsData: 'skf-create-skill/references/extraction-patterns.md'
+extractionPatternsTracingData: 'skf-create-skill/references/extraction-patterns-tracing.md'
+remoteSourceResolutionData: 'references/remote-source-resolution.md'
+tierDegradationRulesData: 'skf-create-skill/references/tier-degradation-rules.md'
 ---
 
 # Step 3: Re-Extract Changed Exports
@@ -12,45 +12,11 @@ tierDegradationRulesData: '../../skf-create-skill/references/tier-degradation-ru
 
 Perform tier-aware extraction on only the changed files identified in step 02, producing fresh export data with confidence tier labels (T1/T1-low/T2) that will be merged into the existing skill in step 04.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a precision code analyst operating in Surgeon mode
-- ✅ Zero-hallucination principle: every extracted instruction must include AST file:line citation
-- ✅ Confidence tier labels are MANDATORY on all extracted content
-- ✅ You bring AST-backed structural analysis; the source code provides ground truth
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on extracting changed exports — do not merge or modify existing skill
-- 🚫 FORBIDDEN to extract unchanged files — only files in the change manifest
-- 🚫 FORBIDDEN to modify SKILL.md — extraction produces intermediate data for step 04
-- 💬 DO NOT BE LAZY — For EACH changed file, launch a subprocess for deep AST analysis (Pattern 2)
-- ⚙️ If subprocess unavailable, perform extraction sequentially in main thread
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow MANDATORY SEQUENCE exactly
-- 💾 Produce structured extraction results per changed file
-- 📖 Label every extraction with confidence tier
-- 🚫 FORBIDDEN to hallucinate exports — only extract what exists in source
-
-## CONTEXT BOUNDARIES:
-
-- Available: change manifest from step 02, forge tier from step 01, source files
-- Focus: extraction only — no merge, no write
-- Limits: only changed files from manifest
-- Dependencies: step 02 must have produced change manifest
+- Focus only on extracting changed exports — do not merge or modify existing skill
+- Only extract files in the change manifest — do not touch unchanged files
+- For each changed file, launch a subprocess for deep AST analysis (Pattern 2); if unavailable, extract sequentially
 
 ## MANDATORY SEQUENCE
 
@@ -114,7 +80,7 @@ Perform tier-aware extraction on only the changed files identified in step 02, p
 - QMD provides: usage patterns, historical context, related documentation
 - Confidence: T1 for structural, T2 for semantic enrichment
 
-**Tool resolution:** `ast_bridge` → ast-grep MCP tools (`find_code`, `find_code_by_rule`) or `ast-grep` CLI. `qmd_bridge` → QMD MCP tools (`mcp__plugin_qmd-plugin_qmd__search`, `vector_search`) or `qmd` CLI. See [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md).
+**Tool resolution:** `ast_bridge` → ast-grep MCP tools (`find_code`, `find_code_by_rule`) or `ast-grep` CLI. `qmd_bridge` → QMD MCP tools (`mcp__plugin_qmd-plugin_qmd__search`, `vector_search`) or `qmd` CLI. See `knowledge/tool-resolution.md`.
 
 ### 2. Extract Changed Files
 
@@ -228,26 +194,3 @@ Display: "**Proceeding to merge...**"
 
 ONLY WHEN all changed files have been extracted and results compiled will you load {nextStepFile} to begin the merge operation.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every changed file from manifest extracted with tier-appropriate method
-- All exports labeled with confidence tier (T1/T1-low/T2)
-- AST file:line citations on every extracted export
-- QMD enrichment performed for Deep tier (skipped with notice for Quick/Forge/Forge+)
-- Extraction results compiled with per-file detail
-- Summary displayed before auto-proceeding
-- No unchanged files extracted
-
-### ❌ SYSTEM FAILURE:
-
-- Extracting unchanged files (wasting resources)
-- Missing confidence tier labels on any export
-- Hallucinating exports not present in source code
-- Skipping QMD enrichment at Deep tier
-- Modifying SKILL.md or any existing artifacts during extraction
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

@@ -1,6 +1,6 @@
 ---
 outputFile: '{output_folder}/refined-architecture-{project_name}.md'
-nextStepFile: '../../shared/health-check.md'
+nextStepFile: 'shared/health-check.md'
 ---
 
 # Step 6: Present Report
@@ -9,40 +9,11 @@ nextStepFile: '../../shared/health-check.md'
 
 Present the complete refinement summary to the user. Display counts of gaps filled, issues flagged, and improvements suggested. Provide the output file path and recommend next steps. Offer the user options to review changes in detail or exit. Chains to the shared health check on exit.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are an architecture refinement analyst delivering the final summary
-- ✅ Present findings clearly and concisely — the user needs to decide which refinements to keep
-- ✅ Next step recommendations must be specific and actionable
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on presenting the completed refinement — no new analysis
-- 🚫 FORBIDDEN to discover new gaps, issues, or improvements
-- 🚫 FORBIDDEN to modify the refined document — only read and present
-- 📋 Chains to shared health check via `{nextStepFile}` — no further steps after that
-
-## EXECUTION PROTOCOLS:
-
-- Load and present the refinement summary from the compiled document
-- No new content written — document was finalized in Step 05
-- Present summary, next steps, and review options clearly
-- Read-only presentation — do not alter document data
-
-## CONTEXT BOUNDARIES:
-
-- Available: Complete {outputFile} with all refinements from Steps 02-05
-- Focus: Clear, actionable presentation of refinement results
-- Limits: Do not add new analysis or change any refinements
-- Dependencies: All previous steps must be complete (Steps 01-05)
+- Focus only on presenting the completed refinement — no new analysis
+- Do not discover new gaps, issues, or improvements, and do not modify the refined document
+- Chains to shared health check via `{nextStepFile}` after completion
 
 ## MANDATORY SEQUENCE
 
@@ -108,6 +79,10 @@ Re-run **[RA] Refine Architecture** anytime after updating your skills or archit
 
 **Architecture refinement complete.**"
 
+  ### Result Contract
+
+  Write `{output_folder}/refine-architecture-result.json` per `shared/references/output-contract-schema.md`. Include the refined architecture doc path in `outputs`; include `gap_count`, `issue_count`, and `improvement_count` in `summary`.
+
   Then load and execute `{nextStepFile}` for workflow self-improvement check.
 
 #### EXECUTION RULES:
@@ -120,28 +95,3 @@ Re-run **[RA] Refine Architecture** anytime after updating your skills or archit
 
 When the user selects X, this step chains to the shared health check. After the health check completes, the refine-architecture workflow is fully done. The refined architecture at `{outputFile}` contains the full original content plus all gap-fills, issue annotations, and improvement suggestions backed by skill API evidence.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Refined document loaded and verified for Refinement Summary section
-- Summary displayed with accurate counts for gaps, issues, and improvements
-- Output file path displayed prominently
-- Next steps presented with specific workflow recommendations
-- Critical issues highlighted if present
-- Menu presented with R and X options
-- Detailed review walkthrough available on R selection with full evidence citations
-- Workflow exits cleanly on X with saved file path
-
-### ❌ SYSTEM FAILURE:
-
-- Discovering new findings or changing refinements in this step
-- Modifying the refined document content
-- Not presenting the menu
-- Not displaying the document save path on exit
-- Inaccurate counts in the summary
-- Hardcoded paths instead of frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

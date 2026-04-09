@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-05-validate.md'
-skillTemplateData: '../assets/skill-template.md'
+skillTemplateData: 'assets/skill-template.md'
 ---
 
 # Step 4: Compile
@@ -9,43 +9,11 @@ skillTemplateData: '../assets/skill-template.md'
 
 To assemble the best-effort SKILL.md document, context-snippet.md in Vercel-aligned indexed format, and metadata.json with `source_authority: community` from the extraction inventory. Present compiled output for review before validation.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a rapid skill compiler assembling output documents
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Best-effort quality — populate what's available, mark gaps honestly
-- ✅ Follow template structure exactly from {skillTemplateData}
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on assembling the three output documents
-- 🚫 FORBIDDEN to write files to disk — that's step-06
-- 💬 Approach: Load template, populate from inventory, present for review
-- 📋 Mark any sections with insufficient data as best-effort
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Set state: skill_content, context_snippet, metadata_json
-- 📖 Load {skillTemplateData} for section structure and format specs
-- 🚫 Do not write files — only assemble content in memory
-
-## CONTEXT BOUNDARIES:
-
-- Previous step provided: extraction_inventory (exports, description, manifest_data, confidence)
-- Also available: resolved_url, repo_name, language, scope_hint
-- Focus: compilation and assembly only
-- This step presents output for review — user gets a checkpoint before validation
+- Focus only on assembling the three output documents — do not write files to disk (that's step-06)
+- Follow template structure exactly from {skillTemplateData}
+- Mark any sections with insufficient data as best-effort
 
 ## MANDATORY SEQUENCE
 
@@ -200,6 +168,7 @@ Display: **Select:** [C] Continue to Validation
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting compiled output
+- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-approve compiled output"
 - ONLY proceed to validation when user selects 'C'
 - User can request changes to the compiled output before proceeding
 
@@ -207,23 +176,3 @@ Display: **Select:** [C] Continue to Validation
 
 ONLY WHEN the user reviews the compiled output and selects 'C' will you load and read fully `{nextStepFile}` to execute validation.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- SKILL.md assembled with all available sections populated
-- context-snippet.md generated in correct Vercel-aligned indexed format
-- metadata.json generated with source_authority: community
-- Compiled output presented for user review
-- User confirms readiness before proceeding to validation
-
-### ❌ SYSTEM FAILURE:
-
-- Writing files to disk (that's step-06)
-- Skipping the review checkpoint
-- Not following template structure from {skillTemplateData}
-- Hallucinating exports or data not in extraction_inventory
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

@@ -167,6 +167,21 @@ SS (compose) → SKILL.md (stack skill synthesized from individual skills + arch
 - SS detects integration patterns (e.g., "express + passport always used together for auth routes")
 - Individual skills track per-library provenance; stack skills track inter-library relationships
 
+## Pipeline Invocation
+
+Users can chain workflows by providing multiple codes to Ferris:
+
+```
+BS CS TS EX           — space-separated
+forge                 — alias for BS CS TS EX
+forge-quick           — alias for QS TS EX
+onboard               — alias for AN CS TS EX
+maintain              — alias for AS US TS EX
+CS[lodash] TS[min:80] EX  — with arguments and circuit breakers
+```
+
+Pipelines automatically activate headless mode. The forger passes data between workflows using the artifact flow described above. Circuit breakers halt the pipeline when output quality falls below a threshold (e.g., TS score < 60 blocks EX). See `shared/references/pipeline-contracts.md` for the full specification.
+
 ## Integration Points
 
 - **Setup Forge** must run before any other workflow — it establishes the tier
@@ -183,4 +198,4 @@ SS (compose) → SKILL.md (stack skill synthesized from individual skills + arch
 - [provenance-tracking.md](provenance-tracking.md) — how provenance flows through the pipeline
 - [version-paths.md](version-paths.md) — version-aware storage layout, path templates, and migration rules
 
-_Source: synthesized from all 14 workflow.md files (including VS, RA, RS, DS) and module-help.csv_
+_Source: synthesized from all 14 SKILL.md files (including VS, RA, RS, DS) and module-help.csv_

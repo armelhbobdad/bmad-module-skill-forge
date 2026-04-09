@@ -8,40 +8,10 @@ nextStepFile: './step-04-parallel-extract.md'
 
 Count import frequency for each dependency across the codebase, rank by usage, and present for user confirmation of which libraries to include in the stack skill.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a dependency analyst operating in Ferris Architect mode
-- ✅ Prescriptive precision — import counts must reflect actual code
-- ✅ User has final authority on scope — present data, let them decide
-
-### Step-Specific Rules:
-
-- 🎯 Focus on counting imports, ranking, and getting user confirmation
-- 🚫 FORBIDDEN to extract library documentation — that is step 04
-- 💬 Present data clearly so user can make informed scope decisions
-- 🎯 Use subprocess (Pattern 1 — grep/search): In Claude Code, use the Grep tool or Bash with `rg`. In Cursor, use built-in search. In CLI, use `grep`/`rg` directly. See [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md)
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Count imports per library across the codebase
-- 💾 Store confirmed_dependencies as workflow state
-- 📖 Wait for user confirmation before proceeding
-- 🚫 FORBIDDEN to proceed without explicit user scope confirmation
-
-## CONTEXT BOUNDARIES:
-
-- From step 02: raw_dependencies[] with ecosystem info
-- This step produces: confirmed_dependencies[] (user-approved scope)
-- User interaction: Gate 1 — scope confirmation required
-- Apply scope_overrides from step 01 if provided
+- Focus on counting imports, ranking, and getting user confirmation — do not extract documentation (Step 04)
+- Use subprocess Pattern 1 (grep/search) when available
 
 ## MANDATORY SEQUENCE
 
@@ -77,7 +47,7 @@ For each dependency in `raw_dependencies`:
 
 **Launch a subprocess** that runs grep across all source files in the project to count import statements for each library. Return only the counts, not file contents.
 
-**Subprocess resolution:** Use the Grep tool (Claude Code), built-in search (Cursor), or `grep`/`rg` (CLI). See [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md).
+**Subprocess resolution:** Use the Grep tool (Claude Code), built-in search (Cursor), or `grep`/`rg` (CLI). See `knowledge/tool-resolution.md`.
 
 Use ecosystem-appropriate import patterns:
 - JavaScript/TypeScript: `import .* from ['"]library`, `require\(['"]library`
@@ -155,6 +125,7 @@ Display: **Select:** [C] Continue to Extraction
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting scope
+- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue (accept all ranked libraries), log: "headless: auto-confirm library scope"
 - ONLY proceed to next step when user confirms scope and selects 'C'
 
 #### Menu Handling Logic:
@@ -162,23 +133,3 @@ Display: **Select:** [C] Continue to Extraction
 - IF C: Store current `confirmed_dependencies` (including any modifications made since initial presentation), then load, read entire file, then execute {nextStepFile}
 - IF Any other: Process as scope modification (add/remove skills from `confirmed_dependencies`), update the in-memory `confirmed_dependencies` list accordingly, redisplay the updated skills table, then [Redisplay Menu Options](#5-present-menu-options)
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Import counts reflect actual codebase usage (not guesses)
-- Dependencies ranked by import frequency
-- Trivial dependencies filtered below threshold
-- User explicitly confirmed scope
-- confirmed_dependencies stored for step 04
-
-### ❌ SYSTEM FAILURE:
-
-- Fabricating import counts without grepping
-- Proceeding without user scope confirmation
-- Including test/config files in import counts
-- Starting library extraction (step 04's job)
-
-**Master Rule:** Present data, let user decide. No extraction until scope is confirmed.

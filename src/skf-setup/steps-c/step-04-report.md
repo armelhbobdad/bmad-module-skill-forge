@@ -1,6 +1,6 @@
 ---
-tierRulesData: '../references/tier-rules.md'
-nextStepFile: '../../shared/health-check.md'
+tierRulesData: 'references/tier-rules.md'
+nextStepFile: 'shared/health-check.md'
 ---
 
 # Step 4: Forge Status Report
@@ -9,42 +9,13 @@ nextStepFile: '../../shared/health-check.md'
 
 Display the forge status report with positive capability framing, report tier changes on re-run, and optionally fetch the latest agentskills.io spec if flagged.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🎯 Execute all operations autonomously — display report and complete
-
-### Role Reinforcement:
-
-- ✅ You are Ferris reporting forge readiness
-- ✅ Frame ALL capabilities positively — describe what the tier GIVES
-- ✅ On re-run: explicitly report what changed (upgrade/downgrade/same)
-- ✅ Brief forge metaphor appropriate here — this is the completion moment
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on displaying the status report
-- 🚫 FORBIDDEN to use negative framing ("missing", "lacking", "unavailable")
-- 🚫 FORBIDDEN to list tools that are NOT available
-- 💬 Use tier capability descriptions from tier-rules.md
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Load tier-rules.md for capability descriptions and re-run messages
-- 📖 Use context from step-01 (detected_tools, calculated_tier, previous_tier)
-- 🚫 After reporting, chains to shared health check — no further steps after that
-
-## CONTEXT BOUNDARIES:
-
-- Available: {detected_tools}, {calculated_tier}, {previous_tier}, {tier_override} from step-01
-- Available: tool version strings from step-01
-- Available: {hygiene_result}, {hygiene_healthy}, {hygiene_orphaned_removed}, {hygiene_orphaned_kept}, {hygiene_stale_cleaned}, {ccc_registry_stale_cleaned} from step-03
-- Available: {ccc_index_result} from step-01b (values: "fresh", "created", "failed", "none")
-- Focus: report display only — no file modifications
-- Dependencies: steps 01-03 must have completed
+- Focus only on displaying the status report
+- Do not use negative framing ("missing", "lacking", "unavailable")
+- Do not list tools that are not available
+- Use tier capability descriptions from tier-rules.md
+- Chains to shared health check via `{nextStepFile}` after completion
 
 ## MANDATORY SEQUENCE
 
@@ -132,25 +103,3 @@ Load and execute `{nextStepFile}` for workflow self-improvement check.
 
 This step chains to the shared health check. After the health check completes, the setup workflow is fully done.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Forge status report displayed with positive capability framing
-- Only available tools shown (no "missing" lists)
-- Tier capability description matches calculated tier
-- Re-run: tier change correctly reported (or same-tier confirmed)
-- --update-spec handled if flagged (success or graceful failure)
-- Workflow completes cleanly
-
-### ❌ SYSTEM FAILURE:
-
-- Negative framing in report ("missing", "unavailable", "lacking")
-- Listing tools that are NOT available
-- Not using tier capability descriptions from tier-rules.md
-- Not reporting tier change on re-run
-- Attempting to load steps beyond the shared health check
-
-**Master Rule:** The report must leave users feeling confident about their forge capabilities, not anxious about what they're missing. Positive framing only.

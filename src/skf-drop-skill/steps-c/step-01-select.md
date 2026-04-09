@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-02-execute.md'
-versionPathsKnowledge: '../../knowledge/version-paths.md'
+versionPathsKnowledge: 'knowledge/version-paths.md'
 ---
 
 # Step 1: Select Drop Target
@@ -9,45 +9,12 @@ versionPathsKnowledge: '../../knowledge/version-paths.md'
 
 Identify exactly what the user wants to drop — which skill, which version(s), and whether the drop is a soft deprecation (manifest-only) or a hard purge (files deleted). Enforce the active version guard, gather the list of affected directories, and obtain explicit user confirmation before any write or delete operation is scheduled.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER schedule a destructive operation without explicit user confirmation
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Ferris in Management mode — a destructive operation specialist
-- ✅ Safety first, confirmation required
-- ✅ You protect the active version and enforce the active version guard
-- ✅ You treat every drop as potentially irreversible — soft drops are recoverable, hard drops are not
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on selection, validation, and confirmation
-- 🚫 FORBIDDEN to proceed without explicit user confirmation at the final gate
-- 🚫 FORBIDDEN to modify the manifest or delete any files in this step — execution happens in step-02
-- 🚫 FORBIDDEN to drop an active version when other non-deprecated versions exist
-- 💬 Present selections clearly so the user can verify scope, mode, and blast radius before committing
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Load version-paths knowledge and the export manifest (if present) alongside an on-disk skill scan
-- 💾 Gather all selection decisions into context for step-02
-- 📖 Show version lists, statuses, and directory paths clearly so the user understands what will be affected
-- 🚫 Halt only if neither the manifest nor an on-disk scan yields any skill — a missing manifest is not fatal for purge mode because draft skills (created but never exported) can still be legitimately hard-dropped from disk
-
-## CONTEXT BOUNDARIES:
-
-- Available: Export manifest v2, SKF module config variables, on-disk skill directory listing
-- Focus: Selection, validation, and user confirmation
-- Limits: Do not write to the manifest, do not delete any files — execution is deferred to step-02
-- Dependencies: At least one skill must exist in either the export manifest or on disk under `{skills_output_folder}/`; otherwise the workflow halts. Draft skills (on disk but not in the manifest) are eligible for purge mode only
+- Focus only on selection, validation, and confirmation — do not modify the manifest or delete files
+- Do not proceed without explicit user confirmation at the final gate
+- Do not drop an active version when other non-deprecated versions exist
+- Present selections clearly so the user can verify scope, mode, and blast radius
 
 ## MANDATORY SEQUENCE
 
@@ -108,7 +75,7 @@ Available skills:
 "**Which skill would you like to drop?**
 Enter the skill name or its number from the list above."
 
-Wait for user input. Accept either the numeric index or the skill name (exact match).
+Wait for user input. Accept either the numeric index or the skill name (exact match). **GATE [default: use args]** — If `{headless_mode}` and skill name was provided as argument: select that skill and auto-proceed. If not provided, HALT: "headless mode requires skill name argument."
 
 **If the user's input does not match any listed skill:** Re-display the list and ask again.
 
@@ -242,6 +209,8 @@ Display the full operation summary:
 Proceed? [Y/N]
 ```
 
+**GATE [default: Y]** — If `{headless_mode}`: auto-proceed with [Y], log: "headless: auto-confirmed drop of {target_skill}"
+
 Wait for explicit user response.
 
 - **If `Y`** → proceed to section 11
@@ -267,30 +236,3 @@ Load, read the full file, and then execute `{nextStepFile}`.
 
 ONLY WHEN the user has confirmed with `Y` at the confirmation gate AND all selection decisions have been stored in context, will you then load and read fully `{nextStepFile}` to execute the drop.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Version-paths knowledge loaded and applied via templates (no hardcoded paths)
-- Export manifest read if present; on-disk scan augments the list; halt only if both are empty
-- Complete skill and version list displayed with statuses, active marker, and on-disk-only entries flagged "(not in manifest — purge only)"
-- Skill, version(s), and mode selected by explicit user input; mode forced to purge for not-in-manifest skills
-- Active version guard enforced for manifest-tracked skills — refused to drop an active version with surviving non-deprecated peers
-- Affected directories computed from templates
-- Explicit user confirmation (`Y`) received at the confirmation gate
-- All selection decisions stored in context for step-02 (including `target_in_manifest`)
-
-### ❌ SYSTEM FAILURE:
-
-- Proceeding without reading version-paths knowledge
-- Halting when the manifest is missing but on-disk skills exist — the fallback scan MUST be attempted before any "nothing to drop" halt
-- Offering soft-deprecate for a skill that has no manifest entry
-- Hardcoding directory paths instead of using `{skill_package}`, `{skill_group}`, `{forge_version}`, `{forge_group}` templates
-- Allowing a drop of the active version when other non-deprecated versions exist
-- Modifying the manifest or deleting files in this step (execution belongs to step-02)
-- Skipping the confirmation gate or proceeding on any response other than `Y`
-- Not storing decisions in context for step-02
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE. No destructive action proceeds without explicit user confirmation.

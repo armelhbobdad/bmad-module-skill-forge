@@ -1,7 +1,7 @@
 ---
 nextStepFile: './step-05-write-brief.md'
 reviseStepFile: './step-03-scope-definition.md'
-briefSchemaFile: '../assets/skill-brief-schema.md'
+briefSchemaFile: 'assets/skill-brief-schema.md'
 advancedElicitationSkill: '/bmad-advanced-elicitation'
 partyModeSkill: '/bmad-party-mode'
 ---
@@ -12,44 +12,10 @@ partyModeSkill: '/bmad-party-mode'
 
 To present the complete skill brief in human-readable format, highlighting all fields that will be written to skill-brief.yaml, and obtain explicit user approval before writing.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-
-### Role Reinforcement:
-
-- ✅ You are a quality reviewer in Ferris Architect mode
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Present information precisely and clearly — this is a confirmation gate
-- ✅ Highlight anything with low confidence or defaults that the user should verify
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on presenting and confirming — do not write files yet (that's step 05)
-- 🚫 FORBIDDEN to proceed without explicit user approval
-- 💬 Approach: Prescriptive — exact presentation format showing all YAML fields
-- 📋 This is a P2 confirmation gate — the user MUST approve before continuing
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Load the schema to ensure all required fields are presented
-- 📖 This is a mandatory checkpoint — no auto-proceed
-- 🚫 FORBIDDEN to write skill-brief.yaml in this step
-
-## CONTEXT BOUNDARIES:
-
-- Available context: All gathered data from steps 01-03 (target, intent, name, tier, language, scope)
-- Focus: Presenting the complete brief for final review
-- Limits: Do not write files — only present for approval
-- Dependencies: Confirmed scope boundaries from step 03
+- Focus only on presenting and confirming — do not write files yet (Step 05)
+- Do not proceed without explicit user approval (P2 confirmation gate)
 
 ## MANDATORY SEQUENCE
 
@@ -179,6 +145,7 @@ Display: **Select an Option:** [R] Revise Scope [A] Advanced Elicitation [P] Par
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
+- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Confirm, log: "headless: auto-confirm brief"
 - ONLY proceed to write step when user selects 'C'
 - After other menu items execution, return to this menu
 - User can chat, request field changes, or ask questions — always respond and then redisplay menu
@@ -187,25 +154,3 @@ Display: **Select an Option:** [R] Revise Scope [A] Advanced Elicitation [P] Par
 
 ONLY WHEN C is selected and the user has explicitly approved the brief will you load and read fully `./step-05-write-brief.md` to write the skill-brief.yaml file.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Schema loaded for field reference
-- Complete brief assembled from all gathered data
-- Brief presented in human-readable format
-- Low-confidence or defaulted fields highlighted
-- User explicitly approved the brief
-- Menu presented with revise option
-
-### ❌ SYSTEM FAILURE:
-
-- Writing skill-brief.yaml in this step (too early)
-- Proceeding without explicit user approval
-- Not presenting all required fields
-- Not highlighting defaulted or low-confidence values
-- Not offering the [R] Revise option
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

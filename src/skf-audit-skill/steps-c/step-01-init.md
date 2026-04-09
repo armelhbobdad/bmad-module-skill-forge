@@ -1,7 +1,7 @@
 ---
 nextStepFile: './step-02-re-index.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
-templateFile: '../assets/drift-report-template.md'
+templateFile: 'assets/drift-report-template.md'
 ---
 
 # Step 1: Initialize Audit
@@ -10,45 +10,12 @@ templateFile: '../assets/drift-report-template.md'
 
 Load the existing skill artifacts, provenance map, and forge tier configuration to establish the baseline for drift detection. Create the drift report document and present a baseline summary for user confirmation before proceeding with analysis.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill auditor operating in Ferris Audit mode
-- ✅ Every finding must trace to actual code with file:line citations
-- ✅ You enforce the zero-hallucination principle: structural truth over semantic guessing
-- ✅ You bring AST analysis expertise, the source code provides ground truth
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on loading skill artifacts and establishing the baseline
-- 🚫 FORBIDDEN to perform any diff or analysis — that happens in later steps
-- 🚫 FORBIDDEN to proceed if skill path is invalid or SKILL.md not found
-- 💬 Present baseline summary clearly so user can confirm before analysis begins
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Discover and load all required input artifacts
-- 💾 Create drift report from {templateFile} with populated frontmatter
-- 📖 Track loaded artifacts in report frontmatter
-- 🚫 Do not proceed to analysis without user confirmation at the gate
-
-## CONTEXT BOUNDARIES:
-
-- Available: User-provided skill path, SKF module config variables
-- Focus: Loading and validating all inputs needed for drift analysis
-- Limits: Do not analyze or compare — only load and baseline
-- Dependencies: setup must be completed (forge-tier.yaml exists), skill must have been created by create-skill (provenance-map.json exists for source-based skills)
-- Docs-only limitation: If `metadata.json` indicates `source_type: "docs-only"` or `confidence_tier: "Quick"` with all T3 citations, inform user: "**This is a docs-only skill.** Drift detection compares against upstream documentation, not source code. Re-run `@Ferris US` to re-fetch documentation URLs and detect content changes." Audit-skill's structural diff is not applicable to docs-only skills — recommend update-skill instead.
+- Focus only on loading skill artifacts and establishing the baseline — do not perform any diff or analysis
+- Do not proceed if skill path is invalid or SKILL.md not found
+- Present baseline summary clearly so user can confirm before analysis begins
+- Docs-only limitation: If `metadata.json` indicates `source_type: "docs-only"` or `confidence_tier: "Quick"` with all T3 citations, inform user: "**This is a docs-only skill.** Drift detection compares against upstream documentation, not source code. Re-run `@Ferris US` to re-fetch documentation URLs and detect content changes." Recommend update-skill instead.
 
 ## MANDATORY SEQUENCE
 
@@ -60,7 +27,7 @@ Load the existing skill artifacts, provenance map, and forge tier configuration 
 
 Which skill would you like to audit? Please provide the skill name or path."
 
-**If user provides skill name (not full path) — version-aware path resolution (see [knowledge/version-paths.md](../../knowledge/version-paths.md)):**
+**If user provides skill name (not full path) — version-aware path resolution (see `knowledge/version-paths.md`):**
 1. Read `{skills_output_folder}/.export-manifest.json` and look up the skill name in `exports` to get `active_version`
 2. If found: resolve to `{skill_package}` = `{skills_output_folder}/{skill_name}/{active_version}/{skill_name}/`
 3. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill_name}/active` — resolve to `{skill_group}/active/{skill_name}/`
@@ -84,7 +51,7 @@ Load `{sidecar_path}/forge-tier.yaml` to detect available tools.
 
 **If found:**
 - Extract tier level: Quick / Forge / Forge+ / Deep
-- Extract available tools: gh_bridge, ast_bridge, qmd_bridge — see [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md) for concrete tool resolution per IDE
+- Extract available tools: gh_bridge, ast_bridge, qmd_bridge — see `knowledge/tool-resolution.md` for concrete tool resolution per IDE
 
 **Apply tier override:** Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, Forge+, or Deep), use it instead of the detected tier.
 
@@ -116,6 +83,21 @@ Search for provenance map at `{forge_data_folder}/{skill_name}/{active_version}/
 - "**[D]egraded mode** — proceed with text-diff only"
 - "**[X]** — abort audit"
 - Wait for user selection. If D, set `degraded_mode: true`. If X, halt workflow.
+
+### Stack Skill Detection
+
+After loading provenance-map.json, detect skill type:
+- If `provenance_version` is `"2.0"` and `skill_type` is `"stack"`: set `{is_stack_skill}` = true
+- If provenance-map has top-level `libraries` key (v1 stack format): set `{is_stack_skill}` = true, `{legacy_stack_provenance}` = true
+- Otherwise: `{is_stack_skill}` = false
+
+If `{is_stack_skill}` is true and `constituents` array is present (compose-mode stack):
+- For each constituent, compute the current metadata hash: read `{constituent.skill_path}/active/{constituent.skill_name}/metadata.json` and compute SHA-256
+- Compare against `constituent.metadata_hash`
+- Flag any mismatches as **constituent drift** with severity HIGH
+- Record constituent freshness results for the report
+
+If `{legacy_stack_provenance}` is true: log a note that this stack uses v1 provenance format with reduced audit depth (library-level only, no per-export verification).
 
 ### 5. Resolve Source Path
 
@@ -170,33 +152,10 @@ Display: "**Select:** [C] Continue to Analysis"
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
+- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past baseline confirmation"
 - ONLY proceed to next step when user selects 'C'
 
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN C is selected and the drift report has been created with baseline data populated, will you then load and read fully `{nextStepFile}` to execute and begin source re-indexing.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Skill artifacts loaded (SKILL.md, metadata.json)
-- Forge tier detected from sidecar (and override applied if set in preferences.yaml)
-- Provenance map loaded (or degraded mode confirmed)
-- Source path resolved and validated
-- Drift report created from template with populated frontmatter
-- Baseline summary presented to user
-- User confirmed via [C] Continue
-
-### ❌ SYSTEM FAILURE:
-
-- Proceeding without valid skill path
-- Not loading provenance map or offering degraded mode
-- Not detecting forge tier
-- Performing analysis in this step (analysis is Steps 02-05)
-- Proceeding without user confirmation at the gate
-- Hardcoded paths instead of frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

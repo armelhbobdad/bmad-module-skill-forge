@@ -1,7 +1,7 @@
 ---
 nextStepFile: './step-03-identify-units.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-heuristicsFile: '../references/unit-detection-heuristics.md'
+heuristicsFile: 'references/unit-detection-heuristics.md'
 ---
 
 # Step 2: Scan Project
@@ -10,46 +10,12 @@ heuristicsFile: '../references/unit-detection-heuristics.md'
 
 To map the complete project structure by scanning directory trees, detecting service boundaries, identifying package manifests, and cataloging entry points — building the foundation that subsequent steps use for unit identification.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-
-### Role Reinforcement:
-
-- ✅ You are a source code analyst and decomposition architect (Ferris Architect mode)
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Prescriptive precision — zero-hallucination, only report what is found
-- ✅ File:line citation tracing for all claims
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on structural scanning — do NOT classify units or map exports yet
-- 🚫 FORBIDDEN to read source file contents beyond manifest files and entry points
-- 💬 Use subprocess optimization (Pattern 1) for scanning across many files
-- 📋 Tier-aware scanning depth: Quick (file structure only), Forge (+ manifest parsing), Deep (+ config analysis)
-
-**AST Degradation Fallback:** If the AST tool (ast-grep) is unavailable at Forge or Deep tier, degrade to Quick-tier behavior for this step and emit a warning: "AST tool unavailable — falling back to file-structure scanning for this step."
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Append "## Project Scan" section to {outputFile}
-- 📖 Update stepsCompleted in {outputFile} frontmatter
-- 🚫 FORBIDDEN to proceed without presenting scan results to user
-
-## CONTEXT BOUNDARIES:
-
-- Available: project_path, forge_tier, scope_hints, existing_skills from report frontmatter
-- Focus: Project structure mapping only — directory tree, manifests, entry points, service configs
-- Limits: Do not analyze exports, imports, or integration points (that's steps 03-04)
-- Dependencies: step-01-init must have created the report with valid project_path
+- Focus only on structural scanning — do not classify units or map exports yet
+- Do not read source file contents beyond manifest files and entry points
+- Use subprocess Pattern 1 for scanning across many files
+- Tier-aware scanning depth: Quick (file structure), Forge (+ manifest parsing), Deep (+ config analysis)
 
 ## MANDATORY SEQUENCE
 
@@ -180,34 +146,10 @@ Display: "**Select:** [C] Continue to Unit Identification"
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
+- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past scan results"
 - ONLY proceed to next step when user selects 'C'
 
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN the Project Scan section has been appended to {outputFile} with complete boundary, manifest, and entry point catalogs, and frontmatter stepsCompleted has been updated, will you load and read fully {nextStepFile} to begin unit identification.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Complete directory structure mapped
-- All package manifests found and cataloged
-- Entry points identified
-- Service boundaries detected with confidence levels
-- Scope hints applied correctly
-- Results presented to user for confirmation
-- Report updated with Project Scan section
-- stepsCompleted updated in frontmatter
-
-### ❌ SYSTEM FAILURE:
-
-- Incomplete directory scan (missing subdirectories)
-- Not detecting workspace configuration files
-- Reading source file contents (only manifests/configs allowed)
-- Not presenting results for user confirmation
-- Classifying units in this step (that's step 03)
-- Hardcoded paths instead of using frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

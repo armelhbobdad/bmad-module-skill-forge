@@ -123,9 +123,11 @@ SKF has 14 workflows. You trigger them by typing commands to [Ferris](../agents/
 
 **Purpose:** Drift detection between skill and current source.
 
-**When to Use:** To check if a skill has fallen out of date with its source code.
+**When to Use:** To check if a skill has fallen out of date with its source code. Works for both individual skills and stack skills.
 
 **Key Steps:** Load skill → Re-index source → Structural diff (incl. script/asset drift) → Semantic diff (Deep) → Classify severity → Report
+
+**Stack skill support:** Code-mode stacks are audited per-library against their sources. Compose-mode stacks check constituent freshness via metadata hash comparison — if a constituent skill was updated after the stack was composed, audit flags it as constituent drift. Stack skills that need updating are redirected to `@Ferris SS` for re-composition (surgical update is not supported for stacks).
 
 **Agent:** Ferris (Audit mode)
 
@@ -262,7 +264,7 @@ flowchart TD
     TS --> EX[Export Skill]
 ```
 
-> **One workflow per session.** Each arrow in the diagrams above represents a new conversation session. Clear your context between workflows for best results — this prevents leftover step files and extraction data from interfering with the next workflow. See [Session Context](../concepts/#session-context).
+> **One workflow per session** (unless using pipeline mode). Each arrow in the diagrams above represents a new conversation session. Clear your context between workflows for best results — or use pipeline mode to chain them automatically. See [Pipeline Mode](#pipeline-mode) below.
 
 ---
 
@@ -277,3 +279,59 @@ flowchart TD
 | Management | RS, DS | Rename and drop skill versions with transactional safety |
 | Utility | EX | Package and export for consumption |
 | In-Agent | WS, KI | WS: show lifecycle position, active briefs, and forge tier; KI: list knowledge fragments (both in-agent, no file-based workflow) |
+
+---
+
+## Pipeline Mode
+
+Instead of running one workflow per session, you can chain multiple workflows in a single command. Ferris executes them left to right, passing data between each workflow automatically.
+
+### Syntax
+
+```
+@Ferris BS CS TS EX              — space-separated codes
+@Ferris QS[lodash] TS EX         — with target argument
+@Ferris CS TS[min:80] EX         — with circuit breaker threshold
+@Ferris forge lodash             — named alias
+```
+
+### Pipeline Aliases
+
+| Alias | Expands To | Description |
+|-------|-----------|-------------|
+| `forge` | `BS CS TS EX` | Full skill creation pipeline |
+| `forge-quick` | `QS TS EX` | Quick skill pipeline |
+| `onboard` | `AN CS TS EX` | Full brownfield onboarding |
+| `maintain` | `AS US TS EX` | Maintenance cycle |
+
+### How It Works
+
+- Pipelines **automatically activate headless mode** — all confirmation gates auto-proceed with their default action
+- **Data flows automatically** — the skill name or brief path from one workflow becomes the input for the next
+- **Circuit breakers** halt the pipeline if quality drops below a threshold (e.g., test score < 60 blocks export)
+- **Anti-pattern warnings** — Ferris warns if you chain workflows in a problematic order (e.g., exporting before testing)
+- **Progress reporting** — Ferris reports completion of each workflow before starting the next
+
+### Examples
+
+```
+@Ferris forge-quick @tanstack/query    — quick skill + test + export for TanStack Query
+@Ferris maintain lodash                — audit + update + test + export for lodash
+@Ferris AN onboard                     — analyze the project, then forge each recommended unit
+```
+
+---
+
+## Headless Mode
+
+Add `--headless` or `-H` to any workflow command to skip all confirmation gates. Ferris auto-proceeds with default actions (typically "Continue") and logs each auto-decision. Progress output is still shown — headless skips interaction, not reporting.
+
+```
+@Ferris QS lodash --headless     — quick skill with no interaction gates
+@Ferris TS --headless             — test a skill without the review pause
+@Ferris EX -H                    — export with auto-approved context update
+```
+
+You can also set `headless_mode: true` in your forge preferences (`_bmad/_memory/forger-sidecar/preferences.yaml`) to make headless the default for all workflows.
+
+> **Note:** Some gates cannot be skipped even in headless mode — for example, merge conflicts in Update Skill always require human judgment.

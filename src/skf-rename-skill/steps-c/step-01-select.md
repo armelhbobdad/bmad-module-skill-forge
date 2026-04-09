@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-02-execute.md'
-versionPathsKnowledge: '../../knowledge/version-paths.md'
+versionPathsKnowledge: 'knowledge/version-paths.md'
 ---
 
 # Step 1: Select Rename Target
@@ -9,46 +9,12 @@ versionPathsKnowledge: '../../knowledge/version-paths.md'
 
 Identify the skill the user wants to rename, validate the new name against the agentskills.io spec (kebab-case, length, uniqueness), warn about source authority implications, enumerate every version that will be touched, and obtain explicit user confirmation before any filesystem operation is scheduled. Every selection decision is stored in context so step-02 can execute the rename transactionally.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER schedule a rename without explicit user confirmation
-- 🛑 NEVER accept a new name that collides with an existing skill
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Ferris in Management mode — a precision surgeon for transactional renames
-- ✅ You validate the new name against agentskills.io spec constraints before anything moves
-- ✅ You enumerate the full blast radius (every affected version and directory) before asking for confirmation
-- ✅ Safety via copy-before-delete — the old skill is untouched until step-02 finishes verification
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on selection, validation, and confirmation
-- 🚫 FORBIDDEN to proceed without explicit user confirmation at the final gate
-- 🚫 FORBIDDEN to modify the manifest, copy, or delete any files in this step — execution happens in step-02
-- 🚫 FORBIDDEN to accept a new name that fails validation (kebab-case, length, uniqueness)
-- 💬 Present the list of affected versions clearly so the user understands the scope before committing
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Load version-paths knowledge and the export manifest (if present) alongside an on-disk skill scan
-- 💾 Gather all selection decisions into context for step-02
-- 📖 Show the full list of affected versions and the resolved paths clearly
-- 🚫 Halt only if neither the manifest nor an on-disk scan yields any skill — rename must still work for draft skills that were never exported, so a missing or empty manifest is not fatal
-
-## CONTEXT BOUNDARIES:
-
-- Available: Export manifest v2, SKF module config variables, on-disk skill directory listing, version-paths knowledge (Rename section)
-- Focus: Selection, validation, and user confirmation
-- Limits: Do not write to the manifest, do not copy or delete any files — execution is deferred to step-02
-- Dependencies: At least one skill must exist in the export manifest (or on disk); otherwise the workflow halts
+- Focus only on selection, validation, and confirmation — do not modify manifest, copy, or delete files
+- Do not proceed without explicit user confirmation at the final gate
+- Do not accept a new name that fails validation (kebab-case, length, uniqueness)
+- Present the list of affected versions clearly so the user understands the scope
 
 ## MANDATORY SEQUENCE
 
@@ -106,7 +72,7 @@ Available skills:
 "**Which skill would you like to rename?**
 Enter the skill name or its number from the list above."
 
-Wait for user input. Accept either the numeric index or the skill name (exact match).
+Wait for user input. Accept either the numeric index or the skill name (exact match). **GATE [default: use args]** — If `{headless_mode}` and old skill name was provided as argument: select that skill and auto-proceed. If not provided, HALT: "headless mode requires old_name argument."
 
 **If the user's input does not match any listed skill:** Re-display the list and ask again.
 
@@ -117,7 +83,9 @@ Store the selection as `old_name`.
 "**What is the new name for this skill?**
 The new name must be kebab-case: lowercase alphanumeric with hyphens, 1-64 characters, matching the regex `^[a-z][a-z0-9-]*[a-z0-9]$` (single-character names may be a single lowercase letter or digit)."
 
-Wait for user input. Trim whitespace. Apply the following validations in order:
+Wait for user input. Trim whitespace. **GATE [default: use args]** — If `{headless_mode}` and new_name was provided as argument: use it and auto-proceed through validation. If not provided, HALT: "headless mode requires new_name argument."
+
+Apply the following validations in order:
 
 1. **Kebab-case format:** Must match `^[a-z][a-z0-9-]*[a-z0-9]$` (or `^[a-z0-9]$` for the single-character case). If it fails:
    "**Invalid name format.** The new name must be lowercase alphanumeric with hyphens, starting with a letter and ending with a letter or digit. Try again."
@@ -220,6 +188,8 @@ directories are removed and the old skill remains intact.
 Proceed? [Y/N]
 ```
 
+**GATE [default: Y]** — If `{headless_mode}`: auto-proceed with [Y], log: "headless: auto-confirmed rename {old_name} → {new_name}"
+
 Wait for explicit user response.
 
 - **If `Y`** → proceed to section 9
@@ -248,32 +218,3 @@ Load, read the full file, and then execute `{nextStepFile}`.
 
 ONLY WHEN the user has confirmed with `Y` at the confirmation gate AND all selection decisions have been stored in context, will you then load and read fully `{nextStepFile}` to execute the rename.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Version-paths knowledge loaded and the Rename section internalized before any decision
-- Export manifest read and validated (halt if empty/missing)
-- Complete skill list displayed with version counts and active version
-- Old name selected by explicit user input
-- New name validated against kebab-case regex, length, identity, and collision checks
-- `source_authority: "official"` warning shown and acknowledged when applicable
-- `affected_versions` enumerated from both the manifest and the on-disk directory listing
-- All four outer paths resolved from templates (no hardcoding)
-- Explicit user confirmation (`Y`) received at the confirmation gate
-- All selection decisions stored in context for step-02
-
-### ❌ SYSTEM FAILURE:
-
-- Proceeding without reading version-paths knowledge
-- Halting when the manifest is missing but on-disk skills exist — the fallback on-disk scan MUST be attempted before any "nothing to rename" halt
-- Accepting a new name that fails any of the four validation checks
-- Missing the source_authority warning when `"official"` is present
-- Hardcoding directory paths instead of using `{skill_package}`, `{skill_group}`, `{forge_version}`, `{forge_group}` templates
-- Modifying the manifest, copying, or deleting files in this step (execution belongs to step-02)
-- Skipping the confirmation gate or proceeding on any response other than `Y`
-- Not storing decisions in context for step-02
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE. No filesystem operation proceeds without explicit user confirmation, and no invalid new name is ever accepted.

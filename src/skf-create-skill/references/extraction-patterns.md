@@ -34,7 +34,7 @@ Structural extraction via ast-grep — verified exports with line-level citation
 > - `ccc_bridge.*` → `/ccc` skill (Claude Code), ccc MCP server (Cursor), or `ccc` CLI
 > - `gh_bridge.*` → `gh api` commands or direct file I/O for local sources
 >
-> See [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md) for the complete resolution table. Also see the AST Extraction Protocol section below and the TOOL/SUBPROCESS FALLBACK rule for dispatch details.
+> See `knowledge/tool-resolution.md` for the complete resolution table. Also see the AST Extraction Protocol section below and the TOOL/SUBPROCESS FALLBACK rule for dispatch details.
 
 ### Strategy
 

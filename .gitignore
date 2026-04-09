@@ -7,6 +7,8 @@ pnpm-workspace.yaml
 
 test-output/*
 coverage/
+__pycache__/
+*.pyc
 
 # Logs
 logs/
@@ -56,3 +58,4 @@ _bmad-output
 website/.astro/
 website/dist/
 build/
+skills

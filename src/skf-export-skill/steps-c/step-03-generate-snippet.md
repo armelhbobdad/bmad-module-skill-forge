@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-04-update-context.md'
-snippetFormatData: '../assets/snippet-format.md'
+snippetFormatData: 'assets/snippet-format.md'
 ---
 
 # Step 3: Generate Snippet
@@ -9,41 +9,10 @@ snippetFormatData: '../assets/snippet-format.md'
 
 To generate or update context-snippet.md for the skill in the Vercel-aligned indexed format, targeting ~80-120 tokens per skill with T1-now content only.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a delivery and packaging specialist in Ferris Delivery mode
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Compress precisely — every token in a snippet must earn its place
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on generating the context-snippet.md content
-- 🚫 FORBIDDEN to include T2 annotations or temporal context — T1-now only
-- 💬 This is a deterministic generation step — auto-proceed when complete
-- 📋 If `passive_context: false` was detected in step-01, SKIP this step entirely and auto-proceed to step-04
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Write context-snippet.md to skill directory (or hold in context if dry-run)
-- 📖 Load {snippetFormatData} for format template
-- 🚫 Strict adherence to Vercel-aligned format — no deviations
-
-## CONTEXT BOUNDARIES:
-
-- Available: Skill metadata (name, exports, skill_type, components, integrations) from step-01
-- Focus: Snippet generation in exact Vercel-aligned format
-- Limits: T1-now content only, ~80-120 tokens target
-- Dependencies: Step-01 metadata, step-02 package validation
+- Focus only on generating the context-snippet.md content — T1-now only, no T2 annotations
+- If `passive_context: false` was detected in step-01, skip this step entirely
 
 ## MANDATORY SEQUENCE
 
@@ -67,7 +36,7 @@ Load {snippetFormatData} and read the format template for the skill type.
 
 Before generating new snippet content, check for a prior snippet:
 
-1. Read `{resolved_skill_package}/context-snippet.md` if it exists (resolved in step-01 — see [knowledge/version-paths.md](../../knowledge/version-paths.md))
+1. Read `{resolved_skill_package}/context-snippet.md` if it exists (resolved in step-01 — see `knowledge/version-paths.md`)
 2. If it exists, extract the `|gotchas:` line (if any). Trim leading whitespace and the `|gotchas:` prefix, then capture the remaining content as `prior_gotchas_content`.
 3. **Detect the carry-forward marker:** If `prior_gotchas_content` starts with the token `[CARRIED]` (whitespace-insensitive), set `prior_gotchas_already_carried = true` and strip the marker before storing the remainder. Otherwise set `prior_gotchas_already_carried = false`.
 4. **Distinguish empty from absent:** If the `|gotchas:` line exists but has no non-whitespace content after the prefix, treat it as **absent** — set `prior_gotchas = null`. Only a non-empty value counts as a prior gotchas line worth carrying forward.
@@ -171,28 +140,3 @@ Display: "**Proceeding to context update...**"
 
 ONLY WHEN snippet generation is complete (or skipped due to passive_context opt-out) will you load and read fully `{nextStepFile}` to execute context update.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Snippet format loaded from {snippetFormatData}
-- Content generated matching exact Vercel-aligned format
-- Section anchors verified against SKILL.md headings (split-body anchors rewritten or omitted)
-- Token count estimated and within target
-- File written (or previewed in dry-run)
-- Passive context opt-out correctly handled (skip when disabled)
-- Prior gotchas checked and carried forward when new derivation yields nothing (with warning)
-- Auto-proceed to step-04
-
-### ❌ SYSTEM FAILURE:
-
-- Silently dropping prior gotchas without checking for carry-forward
-- Deviating from Vercel-aligned indexed format
-- Including T2 annotations or temporal context
-- Not checking passive_context setting
-- Not estimating token count
-- Halting for user input (auto-proceed step)
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

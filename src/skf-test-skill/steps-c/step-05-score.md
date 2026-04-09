@@ -1,9 +1,9 @@
 ---
 nextStepFile: './step-06-report.md'
-outputFile: '{forge_data_folder}/{skill_name}/test-report-{skill_name}.md'
-scoringRulesFile: '../references/scoring-rules.md'
-sourceAccessProtocol: '../references/source-access-protocol.md'
-scoringScript: '../scripts/compute-score.js'
+outputFile: '{forge_version}/test-report-{skill_name}.md'
+scoringRulesFile: 'references/scoring-rules.md'
+sourceAccessProtocol: 'references/source-access-protocol.md'
+scoringScript: 'scripts/compute-score.py'
 ---
 
 # Step 5: Score
@@ -12,43 +12,11 @@ scoringScript: '../scripts/compute-score.js'
 
 Calculate the overall completeness score by aggregating coverage, coherence, and external validation category scores with the appropriate weight distribution (naive or contextual), apply the pass/fail threshold, and determine the test result.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER invent scores — all values must derive from step 03 and step 04 findings
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill auditor in Ferris's Audit mode — zero hallucination
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Scoring is mechanical — apply the formula, report the math
-- ✅ Do not editorialize on the score — facts and numbers only
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on score calculation — do NOT generate remediation suggestions (that's step 06)
-- 🚫 FORBIDDEN to adjust scores subjectively — the formula determines the result
-- 💬 Show the math: category scores, weights, weighted contributions, total
-- 📋 Score must be reproducible — same inputs always produce same output
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Load scoring rules and read findings from {outputFile}
-- 💾 Append Completeness Score section to {outputFile}
-- 📖 Update {outputFile} frontmatter with testResult, score, and stepsCompleted
-- 🚫 FORBIDDEN to proceed without setting testResult to pass or fail
-
-## CONTEXT BOUNDARIES:
-
-- Available: Coverage Analysis (step 03), Coherence Analysis (step 04), and External Validation (step 04b) in {outputFile}
-- Focus: Score calculation and pass/fail determination only
-- Limits: Do NOT generate gap remediation — that's step 06
-- Dependencies: steps 03, 04, and 04b must have appended their analysis sections
+- Focus only on score calculation — do not generate remediation suggestions (Step 06)
+- Score must be deterministic — same inputs always produce same output
+- Show the math: category scores, weights, weighted contributions, total
 
 ## MANDATORY SEQUENCE
 
@@ -111,10 +79,10 @@ Build a JSON object from the data gathered in steps 1-2:
 #### 3b. Run the Scoring Script
 
 ```bash
-node {scoringScript} '<JSON>'
+python3 {scoringScript} '<JSON>'
 ```
 
-Where `{scoringScript}` is the path resolved from the frontmatter variable (relative to this step file).
+Where `{scoringScript}` is the path resolved from the frontmatter variable (relative to the skill root, i.e., the skf-test-skill/ directory).
 
 Parse the JSON output. The script returns:
 - `weights` — final redistributed weights per category
@@ -249,28 +217,3 @@ Display: "**Proceeding to gap report...**"
 
 ONLY WHEN the score is calculated, pass/fail is determined, the Completeness Score section is appended to {outputFile}, and frontmatter is updated with testResult and score, will you then load and read fully `{nextStepFile}` to execute gap report generation.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All category scores read from previous steps (not invented)
-- Correct weight distribution applied (naive vs contextual)
-- Tier adjustment applied if Quick tier
-- Score calculated with visible math (show the formula)
-- Pass/fail determined against threshold
-- Completeness Score section appended to output
-- Frontmatter updated with testResult, score, threshold, nextWorkflow
-- Auto-proceeded to step 06
-
-### ❌ SYSTEM FAILURE:
-
-- Inventing category scores not calculated in steps 03/04
-- Using wrong weight distribution for the detected mode
-- Not showing the math (score must be reproducible)
-- Subjectively adjusting the score
-- Not setting testResult in frontmatter
-- Generating remediation suggestions (that's step 06)
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE. Scoring is mechanical — apply the formula, report the math.

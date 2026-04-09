@@ -8,6 +8,12 @@ tier_override: ~
 # Passive context injection (set to false to skip snippet generation and CLAUDE.md updates during export)
 passive_context: true
 
+# Headless mode (set to true to skip confirmation gates in all workflows)
+headless_mode: false
+
+# Compact greeting (set to true to skip the full capabilities table on session start)
+compact_greeting: false
+
 # Reserved for future use — these fields are not yet consumed by any workflow step
 # output_language: ~
 # skill_format_version: ~

@@ -1,5 +1,5 @@
 ---
-nextStepFile: '../../shared/health-check.md'
+nextStepFile: 'shared/health-check.md'
 ---
 
 # Step 7: Report
@@ -8,41 +8,11 @@ nextStepFile: '../../shared/health-check.md'
 
 Present a comprehensive change summary showing what was updated, [MANUAL] sections preserved, confidence tier breakdown, and recommend next workflow actions in the SKF chain.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a precision code analyst operating in Surgeon mode
-- ✅ Report factually — no embellishment, no speculation
-- ✅ Every reported metric must trace to actual operations performed
-- ✅ Recommendations based on validation results and workflow chaining contracts
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on reporting — all operations are complete
-- 🚫 FORBIDDEN to modify any files — report is read-only display
-- 💬 Present clear, actionable summary with next step recommendations
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow MANDATORY SEQUENCE exactly
-- 💾 No file writes — display only
-- 📖 Chains to shared health check via `{nextStepFile}` — no further steps after that
-
-## CONTEXT BOUNDARIES:
-
-- Available: all results from steps 01-06 (baseline, change manifest, extraction results, merge results, validation results, write verification)
-- Focus: summary and recommendations
-- Limits: display only — no modifications
-- Dependencies: all previous steps must be complete (or no-change shortcut from step 02)
+- Focus only on reporting — all operations are complete; do not modify any files
+- Present clear, actionable summary with next step recommendations
+- Chains to shared health check via `{nextStepFile}` after completion
 
 ## MANDATORY SEQUENCE
 
@@ -147,7 +117,7 @@ Source code matches provenance map exactly. The skill `{skill_name}` is current 
 | `{forge_version}/evidence-report.md` | Appended |
 | {stack reference files if applicable} | Updated |
 
-Where `{resolved_skill_package}` = `{skills_output_folder}/{skill_name}/{version}/{skill_name}/` and `{forge_version}` = `{forge_data_folder}/{skill_name}/{version}/` — see [knowledge/version-paths.md](../../knowledge/version-paths.md)."
+Where `{resolved_skill_package}` = `{skills_output_folder}/{skill_name}/{version}/{skill_name}/` and `{forge_version}` = `{forge_data_folder}/{skill_name}/{version}/` — see `knowledge/version-paths.md`."
 
 ### 5. Workflow Chaining Recommendations
 
@@ -168,6 +138,10 @@ Based on the update results:"
 "- **audit-skill** — Re-run to verify CRITICAL/HIGH drift resolved
 - **export-skill** — Package once audit confirms clean state"
 
+### 5b. Result Contract
+
+Write `{forge_version}/update-skill-result.json` per `shared/references/output-contract-schema.md`. Include all modified file paths in `outputs`; include `exports_affected`, `files_modified`, and `validation_status` (passed/warnings/failures) in `summary`.
+
 ### 6. Workflow Complete
 
 "---
@@ -178,27 +152,3 @@ Based on the update results:"
 
 Load and execute `{nextStepFile}` for workflow self-improvement check.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Comprehensive summary displayed with all metrics from the update operation
-- Change categories broken down clearly
-- Confidence tier breakdown reported
-- [MANUAL] preservation status confirmed
-- Validation findings presented if any
-- Files written listed with paths
-- Workflow chaining recommendations provided
-- No-change shortcut handled correctly
-
-### ❌ SYSTEM FAILURE:
-
-- Reporting metrics not backed by actual operations
-- Not reporting [MANUAL] preservation status
-- Not providing workflow chaining recommendations
-- Modifying any files during reporting
-- Not handling the no-change shortcut from step 02
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

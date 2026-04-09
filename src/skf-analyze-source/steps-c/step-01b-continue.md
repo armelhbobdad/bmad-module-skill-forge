@@ -14,42 +14,11 @@ nextStepOptions:
 
 To resume the analyze-source workflow from where it was left off in a previous session by reading the analysis report's progress state and routing to the correct next step.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-
-### Role Reinforcement:
-
-- ✅ You are a source code analyst and decomposition architect (Ferris Architect mode)
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Prescriptive precision — resume exactly where we left off
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on reading state and routing — do NOT perform any analysis
-- 🚫 FORBIDDEN to re-run completed steps
-- 💬 Present progress summary to user before resuming
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Update lastContinued in output frontmatter
-- 📖 Route to the correct next step based on stepsCompleted
-- 🚫 FORBIDDEN to skip the progress summary
-
-## CONTEXT BOUNDARIES:
-
-- Available: Existing analysis report with stepsCompleted array
-- Focus: State detection and routing only
-- Limits: Do not modify any existing report content
-- Dependencies: Output file must exist with valid stepsCompleted
+- Focus only on reading state and routing — do not perform any analysis
+- Do not re-run completed steps
+- Present progress summary to user before resuming
 
 ## MANDATORY SEQUENCE
 
@@ -118,24 +87,3 @@ lastContinued: '{current_date}'
 
 ONLY WHEN the progress state has been read, summarized to the user, and lastContinued updated will you load the appropriate next step file to resume the workflow.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Analysis report loaded and progress state read
-- Progress summary presented to user
-- Correct next step identified from stepsCompleted
-- lastContinued updated in frontmatter
-- Routed to correct step file
-
-### ❌ SYSTEM FAILURE:
-
-- Not reading stepsCompleted from report
-- Skipping progress summary
-- Routing to wrong step
-- Re-running already completed steps
-- Not updating lastContinued
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

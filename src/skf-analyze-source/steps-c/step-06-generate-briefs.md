@@ -1,7 +1,7 @@
 ---
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-schemaFile: '../assets/skill-brief-schema.md'
-nextStepFile: '../../shared/health-check.md'
+schemaFile: 'assets/skill-brief-schema.md'
+nextStepFile: 'shared/health-check.md'
 ---
 
 # Step 6: Generate Briefs
@@ -10,44 +10,12 @@ nextStepFile: '../../shared/health-check.md'
 
 To generate a valid skill-brief.yaml file for each confirmed unit using the schema, write the files to the forge data folder, append generation results to the analysis report, and recommend the appropriate next workflow for each unit — completing the analyze-source workflow.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-
-### Role Reinforcement:
-
-- ✅ You are a source code analyst and decomposition architect (Ferris Architect mode)
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Prescriptive precision — zero-hallucination, every brief field backed by evidence from prior steps
-- ✅ This is the GENERATION step — produce files that are immediately consumable by downstream workflows
-
-### Step-Specific Rules:
-
-- 🎯 Generate ONLY for units in confirmed_units — no extras, no omissions
-- 🚫 FORBIDDEN to modify recommendations or re-ask for confirmations (that was step 05)
-- 💬 Every generated field must trace back to data collected in steps 02-05
-- 📋 Validate each brief against the schema before writing
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Write skill-brief.yaml files to `{forge_data_folder}/{unit-name}/`
-- 💾 Append "## Generation Results" section to {outputFile}
-- 📖 Update stepsCompleted and mark workflow COMPLETE in {outputFile} frontmatter
-- 🚫 FORBIDDEN to skip validation of generated briefs
-
-## CONTEXT BOUNDARIES:
-
-- Available: Full report — all sections from steps 02-05, confirmed_units list, stack_skill_candidates
-- Focus: YAML generation, file writing, downstream workflow recommendation
-- Limits: Do not re-analyze source code — use only data already captured in the report
-- Dependencies: step-05-recommend must have populated confirmed_units with at least one entry
+- Generate only for units in confirmed_units — no extras, no omissions
+- Do not modify recommendations or re-ask for confirmations
+- Every generated field must trace back to data collected in steps 02-05
+- Chains to shared health check via `{nextStepFile}` after completion
 
 ## MANDATORY SEQUENCE
 
@@ -210,33 +178,11 @@ nextWorkflow: '{primary recommendation}'
 
 **This analysis is complete.** To refine any brief, run the recommended next workflow. To re-analyze with different scope, run analyze-source again."
 
-### 9. Workflow Health Check
+### 9. Result Contract
+
+Write `{forge_data_folder}/analyze-source-result.json` per `shared/references/output-contract-schema.md`. Include all generated `skill-brief.yaml` paths in `outputs` and brief counts in `summary`.
+
+### 10. Workflow Health Check
 
 Load and execute `{nextStepFile}` for workflow self-improvement check.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every confirmed unit has a skill-brief.yaml generated and validated
-- All required schema fields present and all 8 validation rules passed in each brief
-- Files written to correct paths in forge_data_folder
-- User confirmed before files were written
-- Next workflow recommended per unit
-- Generation Results section appended to report
-- stepsCompleted fully populated and workflow marked complete
-- Completion summary presented with clear next steps
-
-### ❌ SYSTEM FAILURE:
-
-- Generating briefs for units NOT in confirmed_units
-- Writing files without user confirmation
-- Missing required schema fields in generated YAML
-- Not validating briefs against schema before writing
-- Re-analyzing source code instead of using report data
-- Not recommending next workflow per unit
-- Not marking workflow as complete in frontmatter
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

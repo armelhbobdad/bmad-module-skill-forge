@@ -2,7 +2,7 @@
 nextStepFile: './step-02-scan-project.md'
 continueFile: './step-01b-continue.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-templateFile: '../templates/analysis-report-template.md'
+templateFile: 'templates/analysis-report-template.md'
 ---
 
 # Step 1: Initialize Analysis
@@ -11,44 +11,11 @@ templateFile: '../templates/analysis-report-template.md'
 
 To initialize the analyze-source workflow by loading configuration, detecting continuation state, accepting the target project path, checking for existing skills, and creating the analysis report document.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-
-### Role Reinforcement:
-
-- ✅ You are a source code analyst and decomposition architect (Ferris Architect mode)
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Prescriptive precision — zero-hallucination, only report what is found
-- ✅ File:line citation tracing for all claims
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on initialization — do NOT begin scanning or analysis
-- 🚫 FORBIDDEN to analyze source code in this step
-- 💬 Collect project path and scope hints from user
-- 📋 Verify prerequisites before proceeding
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Create output document from template when initialization complete
-- 📖 Update output frontmatter with initialization data
-- 🚫 FORBIDDEN to proceed without valid project path and forge-tier.yaml
-
-## CONTEXT BOUNDARIES:
-
-- Available: SKF module config (loaded by workflow.md), forge_data_folder, skills_output_folder, forge_tier
-- Focus: Setup and validation only — no analysis
-- Limits: Do not read source files beyond checking prerequisites
-- Dependencies: setup must have been run (forge-tier.yaml must exist)
+- Focus only on initialization — do not begin scanning or analysis
+- Collect project path and scope hints from user
+- Verify prerequisites before proceeding
 
 ## MANDATORY SEQUENCE
 
@@ -172,27 +139,3 @@ Display: "**Proceeding to project scan...**"
 
 ONLY WHEN the output report has been created with populated frontmatter (project_paths, forge_tier, existing_skills) will you load and read fully {nextStepFile} to execute and begin the project scan.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Continuation detection performed correctly
-- forge-tier.yaml verified present and tier noted
-- Valid project path collected from user
-- Optional scope hints collected
-- Existing skills scanned and documented
-- Analysis report created from template with populated frontmatter
-- Auto-proceeded to step 02
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping forge-tier.yaml check
-- Accepting an invalid project path
-- Not checking for existing skills
-- Not creating the output report before proceeding
-- Beginning source analysis in this step
-- Hardcoded paths instead of using frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

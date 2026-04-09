@@ -51,14 +51,14 @@ async function getStatus(projectDir) {
   // Check agent skill in module dir (always present when installed)
   const agentInstalled = await fs.pathExists(path.join(skfDir, 'skf-forger', 'SKILL.md'));
 
-  // Count workflow skills (skf-* directories with workflow.md)
+  // Count workflow skills (skf-* directories with SKILL.md, excluding the forger agent)
   let workflowCount = 0;
   if (await fs.pathExists(skfDir)) {
     const entries = await fs.readdir(skfDir);
     for (const entry of entries) {
-      if (!entry.startsWith('skf-')) continue;
-      const wfPath = path.join(skfDir, entry, 'workflow.md');
-      if (await fs.pathExists(wfPath)) {
+      if (!entry.startsWith('skf-') || entry === 'skf-forger') continue;
+      const skillPath = path.join(skfDir, entry, 'SKILL.md');
+      if (await fs.pathExists(skillPath)) {
         workflowCount++;
       }
     }

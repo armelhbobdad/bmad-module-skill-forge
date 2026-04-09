@@ -10,43 +10,13 @@ If the detected tier is Deep, verify the health of existing QMD collections by c
 
 For Quick and Forge tiers (without ccc), skip silently and proceed. For Forge+ tier, skip QMD hygiene but the step routes correctly to the next step.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 🎯 Execute all operations autonomously — minimal user interaction (only prompt before deletion)
-
-### Role Reinforcement:
-
-- ✅ You are a system executor performing QMD collection maintenance
-- ✅ Graceful degradation is paramount — never fail the workflow over hygiene checks
-- ✅ No negative messaging — do not mention what non-Deep tiers are missing
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on verifying and cleaning QMD collections (Deep tier) or graceful skip (other tiers)
-- 🚫 FORBIDDEN to display "missing" or "skipped" messages for non-Deep tiers
-- 🚫 FORBIDDEN to fail the workflow if QMD hygiene encounters errors
-- 🚫 FORBIDDEN to create new QMD collections — that responsibility belongs to create-skill
-- 🚫 FORBIDDEN to silently delete collections — always prompt user before removal
-- 💬 If hygiene fails: log the issue, note that it can be retried, continue
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 QMD hygiene only verifies and cleans — it does NOT index new content
-- 📖 Use {calculated_tier} from step-01 context
-- 🚫 FORBIDDEN to attempt QMD hygiene for Quick, Forge, or Forge+ tiers (Forge+ has no qmd)
-
-## CONTEXT BOUNDARIES:
-
-- Available: {calculated_tier} from step-01, forge-tier.yaml written in step-02
-- Available: {project_name} from workflow config
-- Focus: QMD collection verification and cleanup only
-- Limits: only run if Deep tier
-- Dependencies: step-02 must have completed (forge-tier.yaml exists with qmd_collections registry)
+- Focus only on verifying and cleaning QMD collections (Deep tier) or graceful skip (other tiers)
+- Do not display negative framing for non-Deep tiers
+- Do not fail the workflow if QMD hygiene encounters errors
+- Do not create new QMD collections — that belongs to create-skill
+- Do not silently delete collections — always prompt user before removal
 
 ## MANDATORY SEQUENCE
 
@@ -179,29 +149,3 @@ Store in context for step-04 reporting:
 
 ONLY WHEN the hygiene check has been performed (or skipped for non-Deep tiers) will you load and read fully `{nextStepFile}` to execute the report step.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Deep tier: forge-tier.yaml registry cross-referenced with live QMD collections
-- Healthy collections identified and verified
-- Orphaned collections flagged and user prompted before removal
-- Stale registry entries cleaned from forge-tier.yaml
-- Hygiene results stored for step-04 reporting
-- Quick/Forge/Forge+ tier: skipped silently with no negative messaging
-- Workflow continues regardless of hygiene outcome
-- Auto-proceeded to step-04
-
-### ❌ SYSTEM FAILURE:
-
-- Creating new QMD collections (that's create-skill's responsibility)
-- Silently deleting collections without user prompt
-- Attempting QMD hygiene for Quick, Forge, or Forge+ tiers
-- Displaying "skipped" or "missing" messages for non-Deep tiers
-- Halting the workflow due to QMD hygiene failure
-- Indexing project directories (old auto-index behavior — removed)
-- Not proceeding to step-04 after this step
-
-**Master Rule:** This step ONLY verifies and cleans. It never indexes new content. QMD collection creation is the responsibility of create-skill. Non-Deep tiers skip silently. Always prompt before removing orphaned collections.

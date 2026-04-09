@@ -9,44 +9,12 @@ outputFile: '{forge_version}/drift-report-{timestamp}.md'
 
 Compare QMD knowledge context between the original skill creation and current state to detect meaning-level changes that structural diff cannot catch. This step executes ONLY at Deep tier — at Quick, Forge, and Forge+ tiers, it appends a skip notice and auto-proceeds.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill auditor performing semantic analysis
-- ✅ Semantic findings have T2 confidence — evidence-backed but not structurally absolute
-- ✅ Distinguish clearly between structural facts (T1) and semantic observations (T2)
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on semantic/meaning-level changes via QMD context
-- 🚫 FORBIDDEN to classify severity — that happens in Step 05
-- 🚫 FORBIDDEN to repeat structural findings from Step 03
-- 💬 Use subprocess Pattern 3 (data operations — main thread Read + process in Claude Code, script in CLI) when available for QMD queries. See [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md)
-- ⚙️ If subprocess unavailable, query QMD in main thread
-- 🔀 CONDITIONAL: Skip entire analysis at Quick/Forge/Forge+ tier — append skip notice only
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Check forge tier FIRST — skip if not Deep
-- 💾 Append ## Semantic Drift section (or skip notice) to {outputFile}
-- 📖 Update {outputFile} frontmatter stepsCompleted when complete
-- 🚫 Only semantic findings — no structural or severity analysis
-
-## CONTEXT BOUNDARIES:
-
-- Available: Forge tier, structural drift findings (from Step 03), QMD access (Deep tier only)
-- Focus: Meaning-level changes that complement structural diff
-- Limits: Do not re-analyze structural changes, do not classify severity
-- Dependencies: Steps 01-03 must be complete; QMD collection must exist for Deep tier
+- CONDITIONAL: Skip entire analysis at Quick/Forge/Forge+ tier — append skip notice only
+- Focus only on semantic/meaning-level changes via QMD context — do not repeat structural findings from Step 03
+- Do not classify severity (Step 05)
+- Use subprocess Pattern 3 when available for QMD queries; if unavailable, query in main thread
 
 ## MANDATORY SEQUENCE
 
@@ -170,27 +138,3 @@ Display: "**Semantic diff complete. {total} semantic drift items found. Proceedi
 
 ONLY WHEN the ## Semantic Drift section (or skip notice) has been appended to {outputFile} will you then load and read fully `{nextStepFile}` to execute and begin severity classification.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Forge tier checked FIRST — skip gracefully at Quick/Forge/Forge+
-- Deep tier: QMD knowledge context queried and compared
-- All semantic findings have T2 confidence labels
-- Findings clearly distinguished from structural drift (T1)
-- Skip notice includes explanation of what semantic diff provides
-- Structured table format in drift report
-- Frontmatter stepsCompleted updated
-
-### ❌ SYSTEM FAILURE:
-
-- Not checking tier before attempting QMD analysis
-- Repeating structural findings from Step 03
-- Missing confidence tier labels on findings
-- Classifying severity in this step (severity is Step 05)
-- Failing to skip gracefully at non-Deep tiers
-- Hardcoded paths instead of frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

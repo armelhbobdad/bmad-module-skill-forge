@@ -8,44 +8,12 @@ nextStepFile: './step-07-generate-artifacts.md'
 
 To validate the compiled SKILL.md content against the agentskills.io specification using skill-check, auto-fix any validation failures, and confirm spec compliance before artifact generation.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🎯 ALWAYS follow the exact instructions in the step file
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill compilation engine performing quality assurance
-- ✅ Validation ensures spec compliance — it does not modify content semantics
-- ✅ Tool unavailability means skip validation, not halt workflow
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on validating compiled content against spec
-- 🚫 FORBIDDEN to add new content — only fix spec compliance issues
-- 💾 Validation and auto-fix modify files in the staging directory (`_bmad-output/{name}/`)
-- 💬 If auto-fix fails, report issues clearly but proceed (warn, don't halt)
-- ⚙️ If skill-check unavailable: skip validation, add warning to evidence report
-- ⚠️ Ignore non-zero exit codes from `skill-check` if the JSON output shows 0 errors — parse JSON output, not exit codes
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow MANDATORY SEQUENCE exactly
-- 💾 Validation results are added to evidence-report content in context
-- 📖 Auto-fix pattern: validate → fix → re-validate (once)
-- 🚫 Maximum one auto-fix attempt per validation failure
-- ⏸️ **Conditional interaction:** If tessl returns suggestions (section 6b), halt for user input. Otherwise auto-proceed. This is a conditional gate step, not a pure auto-proceed step.
-
-## CONTEXT BOUNDARIES:
-
-- Available: All compiled content from step-05 (SKILL.md, metadata.json, etc.)
-- Focus: Spec compliance validation and auto-fix
-- Limits: Do NOT add new content or modify extraction data
-- Dependencies: Compiled content must exist from step-05
+- Focus only on validating compiled content against spec — only fix spec compliance issues
+- Validation and auto-fix modify files in the staging directory
+- If skill-check unavailable: skip validation, add warning to evidence report
+- Ignore non-zero exit codes from skill-check if JSON output shows 0 errors
 
 ## MANDATORY SEQUENCE
 
@@ -226,27 +194,3 @@ After validation completes (including any user decisions from section 6b), immed
 
 ONLY WHEN validation is complete (or skipped) and evidence-report content is updated will you proceed to load `{nextStepFile}` for artifact generation.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- `npx skill-check check --fix --format json` executed (or skipped with warning if unavailable)
-- Quality score captured and recorded; auto-fix applied for deterministic issues
-- Split-body applied if `body.max_lines` failed; security scan executed (or skipped with warning)
-- `npx -y tessl skill review` executed (or skipped); content quality warning raised if score < 70%
-- tessl suggestions presented to user when available; user decision recorded
-- TESSL-applied content marked with `<!-- [TESSL:auto-fix] -->` and cited as `[TESSL:suggestion]`
-- Metadata cross-check performed; evidence report updated with structured results
-- Proceeded to step-07 (auto or after user gate)
-
-### ❌ SYSTEM FAILURE:
-
-- Halting on validation failure or skill-check unavailability (should warn and proceed)
-- Adding new content during validation without user approval via the tessl gate
-- Applying semantic tessl suggestions without warning the user about unverified content
-- Not recording quality score; skipping security scan without recording the skip
-- Attempting more than one auto-fix cycle per failure
-
-**Master Rule:** Validation informs, it does not block. Record results, fix what's deterministic, scan for security issues, warn about the rest, and proceed.

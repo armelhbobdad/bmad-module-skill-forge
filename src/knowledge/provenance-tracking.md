@@ -36,7 +36,9 @@ With provenance tracking:
 **Implementation:**
 ```json
 {
+  "provenance_version": "2.0",
   "skill_name": "express-skill",
+  "skill_type": "single",
   "source_repo": "https://github.com/expressjs/express",
   "source_commit": "abc1234",
   "source_ref": "v0.5.0",
@@ -45,24 +47,28 @@ With provenance tracking:
     {
       "export_name": "createServer",
       "export_type": "function",
+      "source_library": "express",
       "params": ["options: ServerOptions"],
       "return_type": "Server",
       "source_file": "src/server.ts",
       "source_line": 23,
       "confidence": "T1",
       "extraction_method": "ast-grep",
-      "ast_node_type": "export_statement > function_declaration"
+      "ast_node_type": "export_statement > function_declaration",
+      "signature_source": "T1"
     },
     {
       "export_name": "parseConfig",
       "export_type": "function",
+      "source_library": "express",
       "params": ["input"],
       "return_type": null,
       "source_file": "src/config.ts",
       "source_line": 45,
       "confidence": "T1-low",
       "extraction_method": "source-read",
-      "ast_node_type": null
+      "ast_node_type": null,
+      "signature_source": "T1-low"
     }
   ]
 }

@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-03-rank-and-confirm.md'
-manifestPatterns: '../references/manifest-patterns.md'
+manifestPatterns: 'references/manifest-patterns.md'
 ---
 
 # Step 2: Detect Manifests
@@ -9,39 +9,11 @@ manifestPatterns: '../references/manifest-patterns.md'
 
 Scan the project root for dependency manifest files, parse each to extract dependency names and versions, and produce a raw dependency list for ranking.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a dependency analyst operating in Ferris Architect mode
-- ✅ Prescriptive precision — report exactly what was found, nothing assumed
-- ✅ Zero hallucination — only list dependencies actually present in manifest files
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on finding and parsing manifest files
-- 🚫 FORBIDDEN to count imports or rank dependencies — that is step 03
-- 🚫 FORBIDDEN to extract library documentation — that is step 04
-- 💬 If explicit dependency list was provided in step 01, use it and skip detection
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Load manifest-patterns.md for detection rules
-- 💾 Store manifests found and raw dependency list as workflow state
-- 📖 Auto-proceed to step 03 after successful detection
-- 🚫 HALT if no manifests found and no explicit list provided — **unless `compose_mode` is true** (compose mode skips manifest detection)
-
-## CONTEXT BOUNDARIES:
-
-- From step 01: forge tier, available tools, optional explicit_deps, project_root
-- This step produces: manifests[], raw_dependencies[]
-- Does NOT rank, filter, or analyze — just detect and parse
+- Focus only on finding and parsing manifest files
+- Do not count imports or rank dependencies (Step 03) or extract documentation (Step 04)
+- If explicit dependency list was provided in step 01, use it and skip detection
 
 ## MANDATORY SEQUENCE
 
@@ -55,7 +27,7 @@ Use the explicit dependency list directly. Store the explicit list as `raw_depen
 
 **If `compose_mode` is true AND `explicit_deps` was NOT provided:**
 
-Discover skills in `{skills_output_folder}` using version-aware resolution — see [knowledge/version-paths.md](../../knowledge/version-paths.md) for path templates.
+Discover skills in `{skills_output_folder}` using version-aware resolution — see `knowledge/version-paths.md` for path templates.
 
 **Version-aware skill enumeration:**
 
@@ -158,25 +130,3 @@ Deduplicate dependencies found across multiple manifests.
 
 Load, read the full file and then execute `{nextStepFile}`.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All manifest files in project root detected
-- Each manifest parsed with dependency names extracted
-- Runtime vs dev-only categorization applied
-- Deduplication across multiple manifests completed
-- Detection summary displayed with accurate counts
-- Auto-proceeded to step 03
-
-### ❌ SYSTEM FAILURE:
-
-- Missing manifest files that exist in the project
-- Inventing dependencies not in manifest files
-- Starting to rank or analyze dependencies (step 03's job)
-- Not halting when no manifests found
-- Displaying A/P menu (this is auto-proceed)
-
-**Master Rule:** Detect and parse only. No ranking, no filtering, no analysis.

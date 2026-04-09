@@ -15,8 +15,7 @@ src/
 │   ├── SKILL.md
 │   └── ...
 ├── skf-{name}/               # 13 workflow skills (one directory each)
-│   ├── SKILL.md              # Skill entry point
-│   ├── workflow.md           # Human-readable workflow description
+│   ├── SKILL.md              # Skill entry point (overview, stages, invocation contract)
 │   ├── steps-c/              # Sequential step files
 │   ├── references/           # Rules, patterns, protocols (decision-making)
 │   ├── assets/               # Schemas, output formats
@@ -34,7 +33,7 @@ src/
 ## Components
 
 - **Agent:** [Ferris](skf-forger/SKILL.md) — single-persona module operating in five modes (Architect / Surgeon / Audit / Delivery / Management)
-- **Workflow skills:** 14 `skf-{name}/` directories, each containing a SKILL.md, workflow.md, steps, references, and assets
+- **Workflow skills:** 14 `skf-{name}/` directories, each containing a SKILL.md, steps, references, and assets
 - **Knowledge fragments:** cross-cutting principles Ferris consults via `knowledge/skf-knowledge-index.csv`
 
 ## Editing this module

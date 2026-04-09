@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-07-generate-output.md'
-stackSkillTemplate: '../assets/stack-skill-template.md'
+stackSkillTemplate: 'assets/stack-skill-template.md'
 ---
 
 # Step 6: Compile Stack Skill
@@ -9,40 +9,11 @@ stackSkillTemplate: '../assets/stack-skill-template.md'
 
 Assemble the main SKILL.md by combining per-library extractions with the integration layer, and present for user review before writing output files.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are an integration architect operating in Ferris Architect mode
-- ✅ The integration layer is the VALUE — not just concatenated library docs
-- ✅ Zero hallucination — only include content backed by extraction evidence
-
-### Step-Specific Rules:
-
-- 🎯 Compile SKILL.md following the stack-skill-template structure
-- 🚫 FORBIDDEN to write output files — that is step 07
-- 💬 Present compiled content for user review (Gate 2)
-- 🎯 Integration patterns go FIRST — they are the primary value
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Load stack-skill-template.md for section structure
-- 💾 Store compiled skill_content as workflow state
-- 📖 Wait for user review and approval before proceeding
-- 🚫 FORBIDDEN to proceed without user confirming the compilation
-
-## CONTEXT BOUNDARIES:
-
-- From step 04: per_library_extractions[] with exports, patterns, confidence
-- From step 05: integration_graph with pairs, types, hub libraries, cross-cutting patterns
-- This step produces: skill_content (compiled SKILL.md ready for writing)
-- User interaction: Gate 2 — compile checkpoint required
+- Compile SKILL.md following the stack-skill-template structure — integration patterns go first (primary value)
+- Do not write output files (Step 07)
+- Present compiled content for user review
 
 ## MANDATORY SEQUENCE
 
@@ -151,6 +122,7 @@ Display: **Select:** [C] Continue to Output Generation
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting compilation
+- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-approve stack compilation"
 - ONLY proceed to next step when user approves and selects 'C'
 
 #### Menu Handling Logic:
@@ -158,25 +130,3 @@ Display: **Select:** [C] Continue to Output Generation
 - IF C: Store skill_content, then load, read entire file, then execute {nextStepFile}
 - IF Any other: Process as feedback, adjust compilation, redisplay preview, then [Redisplay Menu Options](#8-present-menu-options)
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- SKILL.md follows stack-skill-template structure
-- Integration layer presented FIRST (primary value)
-- All content includes confidence tier labels
-- Per-library sections ordered by connectivity
-- User reviewed and approved compilation
-- skill_content stored for step 07
-
-### ❌ SYSTEM FAILURE:
-
-- Integration layer missing or buried below library listings
-- Content without confidence tier labels
-- Proceeding without user review (Gate 2)
-- Writing files in this step (step 07's job)
-- Fabricating integration patterns not from step 05
-
-**Master Rule:** Integration layer is the value. Present it first, get user approval before writing.

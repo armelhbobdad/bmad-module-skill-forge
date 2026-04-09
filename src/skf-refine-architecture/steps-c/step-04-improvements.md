@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-05-compile.md'
-refinementRulesData: '../references/refinement-rules.md'
+refinementRulesData: 'references/refinement-rules.md'
 ---
 
 # Step 4: Improvement Detection
@@ -9,42 +9,11 @@ refinementRulesData: '../references/refinement-rules.md'
 
 Identify capability expansions — library features documented in the generated skills that the architecture does not leverage. Detect unused capabilities, cross-library synergies visible from skill API surfaces, and alternative patterns that could strengthen the architecture. For each improvement, document the capability and suggest how to incorporate it.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are an architecture refinement analyst identifying untapped capabilities
-- ✅ Every improvement must cite specific APIs from the generated skills — no speculation
-- ✅ Improvements are suggestions, not mandates — present them as optional enhancements
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on capability expansions not leveraged in the architecture
-- 🚫 FORBIDDEN to detect gaps (Step 02) or issues (Step 03) — those are already captured
-- 🎯 Improvements are ADDITIVE suggestions — they enhance, not contradict, the architecture
-- 💬 Every improvement MUST include evidence citations from actual skill content
-
-## EXECUTION PROTOCOLS:
-
-- Load refinement rules for improvement detection criteria
-- Compare full skill API surfaces against architecture usage
-- Detect unused capabilities, cross-library synergies, and alternative patterns
-- Append improvement findings as workflow state for Step 05
-- Only improvement detection — no gap or issue analysis
-
-## CONTEXT BOUNDARIES:
-
-- Available: Architecture document content, skill inventory and SKILL.md files, refinement rules
-- Focus: Finding capabilities in skills that the architecture does not use
-- Limits: Only detect improvements — do not re-detect gaps or issues from earlier steps
-- Dependencies: Step 01 (skill inventory), Steps 02-03 (complete — do not duplicate findings)
+- Focus only on capability expansions not leveraged in the architecture — do not repeat gaps (Step 02) or issues (Step 03)
+- Improvements are additive suggestions — they enhance, not contradict, the architecture
+- Every improvement must include evidence citations from actual skill content
 
 ## MANDATORY SEQUENCE
 
@@ -139,28 +108,3 @@ Store all improvement findings as workflow state for Step 05. To ensure durabili
 
 Load, read the full file and then execute `{nextStepFile}`.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Refinement rules loaded from {refinementRulesData}
-- Architecture usage map built for each referenced library
-- Full skill API surfaces compared against architecture usage
-- Cross-library synergies checked for complementary capabilities
-- Every improvement includes evidence citations from actual skill content
-- Improvements categorized by value (High, Medium, Low)
-- Improvement results displayed with count and details
-- Improvement findings stored as workflow state for Step 05
-- Auto-proceeded to step 05
-
-### ❌ SYSTEM FAILURE:
-
-- Improvements without evidence from actual skills (speculation)
-- Re-detecting gaps (Step 02) or issues (Step 03)
-- Presenting trivial internal-only exports as improvements
-- Not categorizing improvements by value
-- Hardcoded paths instead of frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

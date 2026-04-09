@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-02-ecosystem-check.md'
-registryResolutionData: '../references/registry-resolution.md'
+registryResolutionData: 'references/registry-resolution.md'
 ---
 
 # Step 1: Resolve Target
@@ -9,44 +9,10 @@ registryResolutionData: '../references/registry-resolution.md'
 
 To accept a GitHub URL or package name from the user, resolve it to a GitHub repository, detect the primary language, and prepare state for source extraction.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a rapid skill compiler resolving a target package to its source
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Speed is the priority — resolve quickly, fail fast if unresolvable
-- ✅ You bring package ecosystem knowledge, user brings their target
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on resolving the target to a GitHub repository
-- 🚫 FORBIDDEN to begin source extraction or compilation
-- 💬 Approach: Accept input, resolve, confirm, proceed
-- 📋 If resolution fails, hard halt with actionable guidance
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Set state: resolved_url, repo_name, language, scope_hint
-- 📖 Load {registryResolutionData} for resolution patterns
-- 🚫 Do not proceed without a confirmed resolved repository
-
-## CONTEXT BOUNDARIES:
-
-- This is the first step — no prior context exists
-- User provides a GitHub URL or package name (npm/PyPI/crates.io)
-- Optional: language hint, scope hint
-- Web browsing required for registry API lookups
-- Focus: resolution only, not extraction
+- Focus only on resolving the target to a GitHub repository — do not begin extraction or compilation
+- If resolution fails, hard halt with actionable guidance
 
 ## MANDATORY SEQUENCE
 
@@ -60,11 +26,13 @@ Provide a **GitHub URL** or **package name** and I'll resolve it to source and c
 
 **Target:** (GitHub URL or package name)
 
+Examples: `lodash`, `@tanstack/query`, `https://github.com/tursodatabase/limbo`, `cognee@0.5.0`
+
 **Optional:**
 - **Language hint:** (if the repo is multi-language)
 - **Scope hint:** (specific directories to focus on)"
 
-Wait for user input.
+Wait for user input. **GATE [default: use args]** — If `{headless_mode}` and a target (URL or package name) was provided as argument: use it as the target input and auto-proceed, log: "headless: using provided target". If no target provided in headless mode, HALT with: "headless mode requires a target argument."
 
 ### 1b. Parse Version Targeting
 
@@ -150,23 +118,3 @@ Set `language` to detected language.
 
 ONLY WHEN the target has been successfully resolved to a GitHub repository with confirmed URL, name, and detected language will you load and read fully `{nextStepFile}` to execute the ecosystem check.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- User input accepted (URL or package name)
-- Target resolved to a valid GitHub repository URL
-- Language detected or provided
-- State set: resolved_url, repo_name, language, scope_hint
-- Auto-proceeding to ecosystem check
-
-### ❌ SYSTEM FAILURE:
-
-- Proceeding without a resolved repository
-- Skipping registry resolution fallback chain
-- Not providing actionable guidance on resolution failure
-- Beginning extraction or compilation in this step
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

@@ -1,5 +1,5 @@
 ---
-nextStepFile: '../../shared/health-check.md'
+nextStepFile: 'shared/health-check.md'
 ---
 
 # Step 8: Report
@@ -8,41 +8,11 @@ nextStepFile: '../../shared/health-check.md'
 
 To display the final compilation summary — skill name, version, source, export count, confidence distribution, tier used, file list, and any warnings — and suggest next steps for the user.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🎯 ALWAYS follow the exact instructions in the step file
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill compilation engine delivering the final report
-- ✅ This is the completion step — celebrate the forged skill
-- ✅ Positive capability framing — describe what was achieved
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on reporting compilation results
-- 🚫 FORBIDDEN to modify any files — reporting only
-- 🚫 FORBIDDEN to re-run extraction or compilation
-- 💬 Deliver structured report with confidence breakdown
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow MANDATORY SEQUENCE exactly
-- 💾 No file operations — display only
-- 📖 This is the final step — no next step to load
-- 🚫 Do not modify any output files
-
-## CONTEXT BOUNDARIES:
-
-- Available: All data from previous steps — brief, extraction, enrichment, compilation, validation, artifacts
-- Focus: Summarizing and reporting
-- Limits: Do NOT modify files or re-run any previous step
-- Dependencies: All artifacts must have been generated in step-07
+- Focus only on reporting compilation results — do not modify any files
+- Deliver structured report with confidence breakdown
+- Chains to shared health check via `{nextStepFile}` after completion
 
 ## MANDATORY SEQUENCE
 
@@ -96,6 +66,11 @@ If there were warnings from extraction, validation, or enrichment, display them:
 
 If no warnings, omit this section entirely.
 
+**Next steps:** After reviewing the report, recommend the next workflow:
+- **TS** (test skill) — verify completeness before export
+- **EX** (export) — publish to your IDE's context system
+- If issues were flagged, suggest **reviewing the SKILL.md** and re-running compilation
+
 ### 4. Suggest Next Steps
 
 "**Recommended next steps:**
@@ -136,6 +111,12 @@ Set `batch_active: false` in `{sidecar_path}/batch-state.yaml` to prevent stale 
 
 End workflow. No further steps.
 
+### Result Contract
+
+**If not batch mode (or all batch briefs complete):**
+
+Write `{skill_package}/create-skill-result.json` per `shared/references/output-contract-schema.md`. Include `SKILL.md`, `context-snippet.md`, and `metadata.json` paths in `outputs` and confidence distribution in `summary`.
+
 ### 6. Workflow Health Check
 
 **If not batch mode (or all batch briefs complete):**
@@ -150,28 +131,3 @@ This step chains to the shared health check (unless batch mode loops back to ste
 
 For batch mode: loop back to step-01 for remaining briefs via sidecar checkpoint. Health check runs only after the last brief.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Forge completion banner displayed with skill name, version, export count
-- Full compilation summary with confidence distribution
-- All output file paths listed
-- Warnings displayed (if any)
-- Next steps suggested (test-skill, export-skill, update-skill)
-- Context snippet provided for immediate use
-- Batch progress updated (if applicable)
-- Workflow ended gracefully
-
-### ❌ SYSTEM FAILURE:
-
-- Not displaying the forge completion banner
-- Missing confidence distribution in summary
-- Modifying any files during the report step
-- Not listing all output file paths
-- Not suggesting next steps
-- Not ending the workflow (attempting to load nonexistent next step)
-
-**Master Rule:** This step reports and celebrates. It does not modify, re-extract, or re-compile. The skill is forged.

@@ -29,7 +29,7 @@ Each workflow directory contains these files, and each has a specific job:
 
 | File                      | What it does                                                                                                        | When it loads                                     |
 |---------------------------|---------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|
-| `workflow.md`             | Human-readable entry point — goals, role definition, initialization sequence, routes to first step                   | Entry point per workflow                          |
+| `SKILL.md`                | Human-readable entry point — goals, role definition, initialization sequence, invocation contract, routes to first step | Entry point per workflow                          |
 | `steps-c/*.md`            | **Create** steps — primary execution, 5–11 sequential files per workflow                                            | One at a time (just-in-time)                      |
 | `references/*.md`         | Workflow-specific reference data — rules, patterns, protocols                                                       | Read by steps on demand                           |
 | `assets/*.md`             | Workflow-specific output formats — schemas, templates, heuristics                                                   | Read by steps on demand                           |
@@ -46,7 +46,7 @@ Each workflow directory contains these files, and each has a specific job:
 ```mermaid
 flowchart LR
   U[User] --> A[Agent Persona]
-  A --> W[Workflow Entry: workflow.md]
+  A --> W[Workflow Entry: SKILL.md]
   W --> S[Step Files: steps-c/]
   S --> K[Knowledge Fragments<br/>skf-knowledge-index.csv → knowledge/*.md]
   S --> D[References & Assets<br/>references/*.md, assets/*.md, templates/*.md]
@@ -57,7 +57,7 @@ flowchart LR
 
 1. **Trigger** — User types `@Ferris CS` (or fuzzy match like `create-skill`). The agent menu in `skf-forger/SKILL.md` maps the trigger to the workflow path.
 2. **Agent loads** — `skf-forger/SKILL.md` injects the persona (identity, principles, critical actions) into the context window. Sidecar files (`forge-tier.yaml`, `preferences.yaml`) are loaded for persistent state.
-3. **Workflow loads** — `workflow.md` presents the mode choice and routes to the first step file.
+3. **Workflow loads** — `SKILL.md` presents the mode choice and routes to the first step file.
 4. **Step-by-step execution** — Only the current step file is in context (just-in-time loading). Each step explicitly names the next one. The LLM reads, executes, saves output, then loads the next step. No future steps are ever preloaded.
 5. **Knowledge injection** — Steps consult `skf-knowledge-index.csv` and selectively load fragments from `knowledge/` by tags and relevance. Cross-cutting principles (zero hallucination, confidence tiers, provenance) are loaded only when a step directs — not preloaded.
 6. **Reference and asset injection** — Steps read `references/*.md` and `assets/*.md` files as needed (rules, patterns, schemas, heuristics). This is deliberate context engineering: only the data relevant to the current step enters the context window.
@@ -223,7 +223,7 @@ If no integration patterns exist, coherence equals reference validity alone.
 
 ### Deterministic Scoring
 
-The weight redistribution and score aggregation are computed by a deterministic Node.js script ([`compute-score.js`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-test-skill/scripts/compute-score.js)). The LLM extracts category scores from the test report, constructs a JSON input, invokes the script, and uses its output for the final score. This ensures reproducible results — the same inputs always produce the same score. If the script is unavailable, the LLM falls back to manual calculation using the same formulas.
+The weight redistribution and score aggregation are computed by a deterministic Python script ([`compute-score.py`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-test-skill/scripts/compute-score.py)). The LLM extracts category scores from the test report, constructs a JSON input, invokes the script, and uses its output for the final score. This ensures reproducible results — the same inputs always produce the same score. If the script is unavailable, the LLM falls back to manual calculation using the same formulas.
 
 ### Naive vs Contextual Mode
 
@@ -366,6 +366,12 @@ Machine-readable provenance for every skill:
   "confidence_tier": "Deep",
   "spec_version": "1.3",
   "generation_date": "2026-03-20T16:55:00+04:00",
+  "confidence_distribution": {
+    "t1": 837,
+    "t1_low": 0,
+    "t2": 14,
+    "t3": 10
+  },
   "stats": {
     "exports_documented": 22,
     "exports_public_api": 22,
@@ -373,9 +379,8 @@ Machine-readable provenance for every skill:
     "exports_total": 837,
     "public_api_coverage": 1.0,
     "total_coverage": 0.026,
-    "confidence_t1": 837,
-    "confidence_t2": 14,
-    "confidence_t3": 10
+    "scripts_count": 0,
+    "assets_count": 0
   }
 }
 ```
@@ -487,7 +492,11 @@ forge-data/{skill-name}/
     └── extraction-rules.yaml   # Language-specific ast-grep schema
 ```
 
-The `provenance-map.json` includes a `file_entries` array for script/asset file-level provenance (SHA-256 hashes, source paths) alongside the export-level `entries` array.
+The `provenance-map.json` includes per-export `entries` with a `source_library` field identifying which library each export belongs to. For stack skills, it also includes an `integrations` array (cross-library patterns) and a `constituents` array (compose-mode only — tracks the compose-time snapshot of each source skill for staleness detection via metadata hash comparison). The `file_entries` array handles script/asset file-level provenance (SHA-256 hashes, source paths).
+
+### Pipeline Result Contracts
+
+Pipeline-facing workflows write a machine-readable result JSON file (`{skill-name}-result.json`) alongside their human-readable output. This enables reliable CI integration and pipeline chaining — downstream workflows or scripts can verify what the prior step produced without parsing markdown. The schema follows a consistent format: `skill`, `status` (success/failed/partial), `timestamp`, `outputs` (array of produced artifacts with type and path), and a skill-specific `summary` object.
 
 `skills/` and `forge-data/` are committed. Agent memory (`_bmad/_memory/forger-sidecar/`) is gitignored.
 

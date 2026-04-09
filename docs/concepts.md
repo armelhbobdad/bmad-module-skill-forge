@@ -65,9 +65,9 @@ You don't need all tools to start. SKF detects what you have and sets your tier 
 
 Drift happens when the source code changes but the skill instructions haven't been updated to match. A skill might still reference a function that was renamed, removed, or had its signature changed.
 
-SKF detects drift by comparing the skill's recorded provenance against the current code. The `audit-skill` workflow (`@Ferris AS`) scans for these mismatches.
+SKF detects drift by comparing the skill's recorded provenance against the current code. The `audit-skill` workflow (`@Ferris AS`) scans for these mismatches — for both individual skills and stack skills. Stack skills track per-library provenance and, in compose-mode, constituent freshness via metadata hash comparison.
 
-**Example:** Your skill says `createUser(name: string)` but the function was renamed to `registerUser(name: string, email: string)` in the last release. That's drift.
+**Example:** Your skill says `createUser(name: string)` but the function was renamed to `registerUser(name: string, email: string)` in the last release. That's drift. For stack skills, constituent drift occurs when an individual skill is updated but the stack hasn't been re-composed to reflect the changes.
 
 ---
 

@@ -9,45 +9,10 @@ noChangeReportFile: './step-07-report.md'
 
 Compare current source code state against the provenance map to produce a complete change manifest identifying every changed, added, deleted, moved, and renamed file and export since last extraction.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a precision code analyst operating in Surgeon mode
-- ✅ Zero-hallucination principle: every change must be verified against actual source state
-- ✅ Clinical, terse communication — report changes factually with file:line references
-- ✅ You bring provenance-driven analysis; the source code provides ground truth
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on detecting and classifying changes — do not extract or merge
-- 🚫 FORBIDDEN to modify any files — read-only change detection
-- 🚫 FORBIDDEN to re-extract content — that is step 03
-- 💬 Use subprocess Pattern 4 (parallel): In Claude Code, use multiple parallel Agent tool calls or `run_in_background: true`. In Cursor, use parallel requests (IDE-dependent). In CLI, use `xargs -P` or background processes. See [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md)
-- ⚙️ If subprocess unavailable, perform comparison sequentially in main thread
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow MANDATORY SEQUENCE exactly
-- 💾 Build change manifest with categorized findings
-- 📖 Track change counts by category for summary
-- 🚫 FORBIDDEN to proceed if source path is inaccessible
-
-## CONTEXT BOUNDARIES:
-
-- Available: loaded baseline from step 01 (SKILL.md, metadata.json, provenance-map.json, forge-tier, source_root)
-- Focus: change detection only — no extraction, no merge
-- Limits: read-only operations on source code
-- Dependencies: step 01 must have loaded all artifacts successfully
+- Focus only on detecting and classifying changes — do not extract or merge
+- Use subprocess Pattern 4 (parallel) when available; if unavailable, compare sequentially
 
 ## MANDATORY SEQUENCE
 
@@ -194,25 +159,3 @@ Display: "**Proceeding to re-extraction...**"
 
 ONLY WHEN the change manifest is fully built will you load {nextStepFile} to begin re-extraction. If no changes detected, skip to {noChangeReportFile}.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every file in provenance map compared against current source state
-- Changes categorized correctly (modified, added, deleted, moved, renamed)
-- Export-level changes detected for modified files
-- Change manifest built with per-file detail
-- No-change shortcut correctly routes to report step
-- Summary displayed before auto-proceeding
-
-### ❌ SYSTEM FAILURE:
-
-- Not comparing all files in provenance map
-- Missing category of changes (e.g., not detecting deletions)
-- Modifying any files during detection
-- Not detecting rename patterns (treating as delete+add)
-- Proceeding with empty change manifest when changes exist
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

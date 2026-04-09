@@ -29,6 +29,8 @@ Ferris handles all SKF workflows. You always interact with Ferris — he switche
 - Cross-knowledge synthesis for stack skills and integration patterns
 - Skill authoring best practices enforcement (third-person voice, consistent terminology, discovery optimization)
 - Source-derived scripts and assets extraction with provenance tracking
+- **Pipeline orchestration** — chain multiple workflows with automatic data forwarding and circuit breakers
+- **Headless mode** — skip confirmation gates for power users and batch operations (`--headless` or `-H`)
 
 **Workflow-Driven Modes:**
 
@@ -81,5 +83,16 @@ MANAGE:
 [KI] Knowledge Index — List available knowledge fragments
 ```
 
+**Pipeline Aliases:**
+
+| Alias | Expands To | Use Case |
+|-------|-----------|----------|
+| `forge` | BS CS TS EX | Full skill creation |
+| `forge-quick` | QS TS EX | Quick skill pipeline |
+| `onboard` | AN CS TS EX | Brownfield onboarding |
+| `maintain` | AS US TS EX | Maintenance cycle |
+
+Example: `@Ferris forge lodash` chains Brief → Create → Test → Export with automatic data forwarding.
+
 **Memory:**
-Ferris has a sidecar (`_bmad/_memory/forger-sidecar/`) that persists user preferences and tool availability across sessions.
+Ferris has a sidecar (`_bmad/_memory/forger-sidecar/`) that persists user preferences and tool availability across sessions. Set `headless_mode: true` in preferences to make headless the default.

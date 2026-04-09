@@ -1,7 +1,7 @@
 ---
 nextStepFile: './step-06-compile-stack.md'
-integrationPatterns: '../references/integration-patterns.md'
-composeModeRules: '../references/compose-mode-rules.md'
+integrationPatterns: 'references/integration-patterns.md'
+composeModeRules: 'references/compose-mode-rules.md'
 ---
 
 # Step 5: Detect Integrations
@@ -10,40 +10,11 @@ composeModeRules: '../references/compose-mode-rules.md'
 
 Analyze co-import patterns between confirmed libraries to identify integration points — where and how libraries connect in this specific codebase.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are an integration architect operating in Ferris Architect mode
-- ✅ Zero hallucination — only document integrations evidenced in actual code
-- ✅ Every integration pattern must cite co-import files with file:line references
-
-### Step-Specific Rules:
-
-- 🎯 Focus on detecting cross-library patterns using Pattern 1 (grep/search): In Claude Code, use the Grep tool or Bash with `rg`. In Cursor, use built-in search. In CLI, use `grep`/`rg` directly. See [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md)
-- 🚫 FORBIDDEN to compile SKILL.md — that is step 06
-- 💬 Integration detection is the core differentiator of stack skills vs individual skills
-- ⚙️ If subprocess unavailable, perform grep operations in main thread
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Load integration-patterns.md for detection rules
-- 💾 Store integration_graph as workflow state
-- 📖 Auto-proceed to step 06 after detection complete
-- 🚫 Graceful handling if no integrations detected
-
-## CONTEXT BOUNDARIES:
-
-- From step 03: confirmed_dependencies[] — in code-mode, includes file lists per library; in compose-mode, file lists are not present (use per_library_extractions[] from step 04 for skill content)
-- From step 04: per_library_extractions[] with exports and patterns
-- This step produces: integration_graph {pairs[], types[], files[]}
-- This is the VALUE-ADD step — what makes stack skills different from individual skills
+- Focus on detecting cross-library patterns using subprocess Pattern 1 (grep/search)
+- Do not compile SKILL.md (Step 06)
+- Integration detection is the core differentiator of stack skills vs individual skills
 
 ## MANDATORY SEQUENCE
 
@@ -78,7 +49,7 @@ All integration evidence inherits confidence tiers from the source skills. Load 
 **VS verdict parsing (if feasibility report exists):** Read the `overall_verdict` from the report's YAML frontmatter. Parse the `## Integration Verdicts` markdown table for per-pair verdicts. For each architecture-detected pair, include `VS overall: {verdict}` and `VS pair: {verdict}` in the integration evidence per the format in `{composeModeRules}`. VS verdicts do not apply to inferred integrations since the VS report operates on architecture-described interactions only. Additionally, flag any pairs where VS reported `Risky` or `Blocked` by appending a `[VS: Risky]` or `[VS: Blocked]` warning annotation to the integration entry.
 
 If no architecture document available:
-- Infer potential integrations from skills sharing the same `language` field or sharing domain keywords in their SKILL.md descriptions (use the `usage_patterns` and `exports` fields from `per_library_extractions[]` built in step-04, or reload SKILL.md from the version-aware path: use `skill_package_path` from step-02, or resolve via `{skills_output_folder}/{skill_dir}/active/{skill_dir}/SKILL.md` — see [knowledge/version-paths.md](../../knowledge/version-paths.md))
+- Infer potential integrations from skills sharing the same `language` field or sharing domain keywords in their SKILL.md descriptions (use the `usage_patterns` and `exports` fields from `per_library_extractions[]` built in step-04, or reload SKILL.md from the version-aware path: use `skill_package_path` from step-02, or resolve via `{skills_output_folder}/{skill_dir}/active/{skill_dir}/SKILL.md` — see `knowledge/version-paths.md`)
 - Mark inferred integrations: `[inferred from shared domain]` — use this suffix instead of `[composed]` for inferred integrations
 - Inferred integrations qualify automatically — no file-count threshold applies
 
@@ -90,7 +61,7 @@ For each library pair (A, B):
 
 **Launch a subprocess** that greps across all source files to find files importing BOTH library A and library B. Return only file paths and import line numbers.
 
-**Subprocess resolution:** Use the Grep tool (Claude Code), built-in search (Cursor), or `grep`/`rg` (CLI). See [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md).
+**Subprocess resolution:** Use the Grep tool (Claude Code), built-in search (Cursor), or `grep`/`rg` (CLI). See `knowledge/tool-resolution.md`.
 
 **Subprocess returns:** `{pair: [A, B], co_import_files: [{path, line_A, line_B}], count: N}`
 
@@ -104,7 +75,7 @@ If `tools.ccc` is true AND `ccc_index.status` is `"fresh"` or `"stale"` in forge
 
 For each library pair that has exactly 1 co-import file (below the 2-file threshold), run `ccc_bridge.search("{libA} {libB}", source_root, top_k=10)` to find files where the two libraries interact semantically — even without explicit import co-location. If CCC returns additional files where both libraries appear, add them to the pair's co-import candidate list and re-evaluate against the 2-file threshold.
 
-**Tool resolution for ccc_bridge.search:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `ccc search "{libA} {libB}" --path {source_root} --top 10` (CLI). See [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md).
+**Tool resolution for ccc_bridge.search:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `ccc search "{libA} {libB}" --path {source_root} --top 10` (CLI). See `knowledge/tool-resolution.md`.
 
 For pairs that already qualify (2+ files), CCC is not needed for detection — but the CCC results may surface additional integration files for richer classification in section 3.
 
@@ -170,24 +141,3 @@ The libraries in this project appear to operate independently. The stack skill w
 
 Load, read the full file and then execute `{nextStepFile}`.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All library pairs analyzed for co-imports
-- Integration types classified using pattern rules
-- Hub libraries and cross-cutting patterns identified
-- Integration graph built with confidence labels
-- Graceful handling of zero integrations (not a failure)
-- Auto-proceeded to step 06
-
-### ❌ SYSTEM FAILURE:
-
-- Fabricating integrations not evidenced in code
-- Not applying the 2+ file threshold for pairs
-- Starting to compile SKILL.md (step 06's job)
-- Treating zero integrations as a workflow failure (it's valid)
-
-**Master Rule:** Only document integrations that exist in actual code. Zero integrations is a valid result.

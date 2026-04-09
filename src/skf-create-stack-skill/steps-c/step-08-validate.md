@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-09-report.md'
-stackSkillTemplate: '../assets/stack-skill-template.md'
+stackSkillTemplate: 'assets/stack-skill-template.md'
 ---
 
 # Step 8: Validate Output
@@ -9,40 +9,10 @@ stackSkillTemplate: '../assets/stack-skill-template.md'
 
 Validate all written output files against their expected structure and verify confidence tier label completeness.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a quality gate operator in Ferris Architect mode
-- ✅ Validation is advisory — findings are warnings, not blockers
-- ✅ Report findings accurately — do not downplay or exaggerate
-
-### Step-Specific Rules:
-
-- 🎯 Validate structure and completeness, not content quality
-- 🚫 FORBIDDEN to modify any output files — validation is read-only
-- 💬 Report findings with specific file paths and issue descriptions
-- 🎯 Advisory mode: always proceed to report regardless of findings
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Check each deliverable file against its expected structure
-- 💾 Store validation_result as workflow state
-- 📖 Auto-proceed to report after validation complete
-- 🚫 FORBIDDEN to halt on validation warnings (advisory only)
-
-## CONTEXT BOUNDARIES:
-
-- From step 07: written_files[] (all output artifacts with paths)
-- From step 01: forge_tier, project_name, skills_output_folder, forge_data_folder
-- This step produces: validation_result {status, findings[], warnings[]}
-- This is a quality gate — findings inform the report but do not block it
+- Validate structure and completeness, not content quality — validation is read-only
+- Advisory mode: always proceed to report regardless of findings
 
 ## MANDATORY SEQUENCE
 
@@ -169,23 +139,3 @@ Record security findings as advisory **WARNING** findings — they do not block 
 
 Load, read the full file and then execute `{nextStepFile}`.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All expected files checked; `npx skill-check check --fix` executed if available (or manual fallback)
-- Quality score captured; auto-fix and split-body applied as needed; security scan executed (or skipped with note)
-- SKILL.md validated against template; metadata.json fields verified; reference files checked
-- Confidence tier coverage verified; validation results displayed with specific findings
-- Advisory mode: always proceeded to report
-
-### ❌ SYSTEM FAILURE:
-
-- Modifying output files during validation (except via skill-check --fix)
-- Halting on validation warnings; not checking all expected files
-- Reporting vague findings without file paths; skipping confidence tier check
-- Not recording quality score when skill-check is available
-
-**Master Rule:** Validate everything, fix what's deterministic via skill-check, scan for security issues. Advisory findings — always proceed to report.

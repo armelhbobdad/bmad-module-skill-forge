@@ -9,41 +9,11 @@ outputFile: '{forge_data_folder}/feasibility-report-{project_name}.md'
 
 If a PRD or vision document was provided in Step 01, verify that the combined capabilities of the generated skills address each stated requirement. If no PRD was provided, skip this pass and auto-proceed. Produce a requirements coverage table with Fulfilled, Partially Fulfilled, or Not Addressed verdicts.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a stack verification analyst assessing requirements coverage
-- ✅ Every verdict must reason from actual skill capabilities, not assumptions
-- ✅ "Not Addressed" is a valid and important finding — do not force-fit skills to requirements
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on requirements-to-skills coverage assessment
-- 🚫 FORBIDDEN to re-analyze integrations — that was Step 03
-- 🚫 FORBIDDEN to synthesize or produce overall verdicts — that is Step 05
-- 💬 If no PRD was provided, skip immediately with a clear message
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Extract requirements from PRD/vision document and assess skill coverage
-- 💾 Append Requirements Coverage section to {outputFile}
-- 📖 Auto-proceed to next step after completion or skip
-- 🚫 Only requirements coverage — no synthesis, no overall verdict
-
-## CONTEXT BOUNDARIES:
-
-- Available: PRD/vision document (if provided), skill SKILL.md files, metadata.json files
-- Focus: Mapping requirements to skill capabilities
-- Limits: Do not evaluate skill quality — only whether capabilities match requirements
-- Dependencies: Step 01 (PRD availability flag, skill inventory)
+- Focus only on requirements-to-skills coverage assessment
+- Do not re-analyze integrations (Step 03) or synthesize verdicts (Step 05)
+- If no PRD was provided, skip immediately with a clear message
 
 ## MANDATORY SEQUENCE
 
@@ -139,27 +109,3 @@ Write the **Requirements Coverage** section to `{outputFile}`:
 
 Load, read the full file and then execute `{nextStepFile}`.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- PRD availability checked first — skipped cleanly if not provided
-- All requirements extracted from PRD with source section citations
-- Each requirement assessed against actual skill capabilities (exports, descriptions)
-- Verdicts include contributing skill names and specific capabilities
-- Not Addressed items have actionable recommendations
-- Requirements Coverage section appended to {outputFile}
-- Auto-proceeded to step 05
-
-### ❌ SYSTEM FAILURE:
-
-- Fabricating requirements not stated in the PRD document
-- Force-fitting skills to requirements they do not address
-- Verdicts without evidence from actual skill content
-- Not executing the skip path when no PRD was provided
-- Producing synthesis or overall verdicts (that is Step 05)
-- Hardcoded paths instead of frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

@@ -1,5 +1,5 @@
 ---
-nextStepFile: '../../shared/health-check.md'
+nextStepFile: 'shared/health-check.md'
 ---
 
 # Step 6: Summary
@@ -8,39 +8,10 @@ nextStepFile: '../../shared/health-check.md'
 
 To present a complete export summary showing all files written, token counts, and provide distribution instructions based on the skill's source authority. This is the final step — workflow ends here.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a delivery and packaging specialist in Ferris Delivery mode
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Clear and complete — the user should know exactly what happened and what to do next
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on summarizing what was done and providing next steps
-- 🚫 FORBIDDEN to write any additional files — summary is console-only
-- 💬 This is the final step — end with clear completion signal
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 📖 Compile results from all previous steps
-- 🚫 No file writes — console output only
-- ✅ End workflow gracefully
-
-## CONTEXT BOUNDARIES:
-
-- Available: All data from steps 01-05 (metadata, package status, snippet, context update, token counts)
-- Focus: Summary compilation and distribution instructions
-- Limits: No new operations — reporting only
-- Dependencies: All previous steps
+- Focus only on summarizing what was done and providing next steps — no additional file writes
+- Chains to shared health check via `{nextStepFile}` after completion
 
 ## MANDATORY SEQUENCE
 
@@ -151,11 +122,20 @@ No files were written. To run the export for real:
 - **update-skill** — After refactoring source code, regenerate the skill
 - **test-skill** — Verify skill completeness and accuracy"
 
+**Verification:** After export, inform the user how to verify the skill is active:
+- Check that context files exist at the expected IDE paths
+- Suggest testing by invoking the skill's trigger phrase in a new conversation
+- If token budget was exceeded, note which skills were trimmed
+
 ### 6. Workflow Complete
 
 "---
 
 **Skill forged and delivered.** ⚒️"
+
+### Result Contract
+
+Write `{skills_output_folder}/export-skill-result.json` per `shared/references/output-contract-schema.md`. Include all context files and target managed-section files in `outputs`; include total always-on and on-trigger token counts in `summary`.
 
 ### 7. Workflow Health Check
 
@@ -165,28 +145,3 @@ Load and execute `{nextStepFile}` for workflow self-improvement check.
 
 This step chains to the shared health check. After the health check completes, the export-skill workflow is fully done.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Complete summary with all files and their status
-- Token counts included from step-05
-- Distribution instructions appropriate for source_authority
-- Local install command (`npx skills add {resolved_skill_package}`) displayed with npmjs.com/package/skills link for alternate source formats
-- Plugin reload hint shown (reload plugins or restart AI editor to see `/{skill-name}`)
-- Dry-run correctly indicated (if applicable)
-- Recommended next workflows listed
-- Clear workflow completion signal
-
-### ❌ SYSTEM FAILURE:
-
-- Missing files from summary
-- Wrong distribution instructions for source_authority
-- Omitting the local install command / npmjs source-formats link
-- Not indicating dry-run status
-- Writing additional files (console-only step)
-- Not ending the workflow cleanly
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

@@ -408,10 +408,11 @@ async function testIdeCommandGeneration() {
     const agentSkillMd = path.join(projectDir, '.claude/skills/skf-forger/SKILL.md');
     assert(await fs.pathExists(agentSkillMd), 'agent SKILL.md exists in .claude/skills/');
 
-    // Verify a workflow skill has SKILL.md + workflow.md
+    // Verify a workflow skill has SKILL.md with Overview section (workflow.md consolidated into SKILL.md)
     const workflowSkillDir = path.join(projectDir, '.claude/skills/skf-create-skill');
     assert(await fs.pathExists(path.join(workflowSkillDir, 'SKILL.md')), 'workflow has SKILL.md');
-    assert(await fs.pathExists(path.join(workflowSkillDir, 'workflow.md')), 'workflow has workflow.md');
+    const workflowContent = await fs.readFile(path.join(workflowSkillDir, 'SKILL.md'), 'utf8');
+    assert(workflowContent.includes('## Overview'), 'workflow SKILL.md has Overview section');
 
     // Verify relative paths resolve correctly: knowledge/ is sibling of skills
     const knowledgeDir = path.join(projectDir, '.claude/skills/knowledge');

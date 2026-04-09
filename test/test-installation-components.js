@@ -165,20 +165,14 @@ async function runTests() {
   ];
 
   for (const workflowName of workflowNames) {
-    const workflowPath = path.join(projectRoot, `src/skf-${workflowName}/workflow.md`);
     const skillMdPath = path.join(projectRoot, `src/skf-${workflowName}/SKILL.md`);
-
-    if (await pathExists(workflowPath)) {
-      const content = await fs.readFile(workflowPath, 'utf8');
-      assert(content.length > 0, `${workflowName}/workflow.md exists`);
-    } else {
-      assert(false, `${workflowName}/workflow.md exists`, `src/skf-${workflowName}/workflow.md not found`);
-    }
 
     if (await pathExists(skillMdPath)) {
       const content = await fs.readFile(skillMdPath, 'utf8');
       const hasName = content.includes(`name: skf-${workflowName}`);
       assert(hasName, `${workflowName}/SKILL.md has correct name field`);
+      const hasOverview = content.includes('## Overview');
+      assert(hasOverview, `${workflowName}/SKILL.md has Overview section`);
     } else {
       assert(false, `${workflowName}/SKILL.md exists`, `src/skf-${workflowName}/SKILL.md not found`);
     }
@@ -233,6 +227,7 @@ async function runTests() {
         'step-03-extract.md',
         'step-03b-fetch-temporal.md',
         'step-03c-fetch-docs.md',
+        'step-03d-component-extraction.md',
         'step-04-enrich.md',
         'step-05-compile.md',
         'step-06-validate.md',

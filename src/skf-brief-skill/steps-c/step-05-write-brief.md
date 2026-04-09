@@ -1,6 +1,6 @@
 ---
-briefSchemaFile: '../assets/skill-brief-schema.md'
-nextStepFile: '../../shared/health-check.md'
+briefSchemaFile: 'assets/skill-brief-schema.md'
+nextStepFile: 'shared/health-check.md'
 ---
 
 # Step 5: Write Brief
@@ -9,43 +9,12 @@ nextStepFile: '../../shared/health-check.md'
 
 To generate the complete skill-brief.yaml from the approved brief data and write it to the forge data folder, completing the brief-skill workflow.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-
-### Role Reinforcement:
-
-- ✅ You are a skill brief generator in Ferris Architect mode
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Generate output precisely matching the schema — no creative embellishment
-- ✅ This is the final step — deliver clean, validated output
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on writing the file — all decisions have been made
-- 🚫 FORBIDDEN to change any field values without user request — the brief was already approved
-- 💬 Approach: Prescriptive — generate exact YAML matching the schema template
-- 📋 Create the output directory if it doesn't exist
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Write skill-brief.yaml to {forge_data_folder}/{skill-name}/
-- 📖 This is the final step — mark workflow complete
-- 🚫 FORBIDDEN to modify approved field values
-
-## CONTEXT BOUNDARIES:
-
-- Available context: Complete approved brief data from steps 01-04
-- Focus: File generation and writing
-- Limits: No field changes — write exactly what was approved
-- Dependencies: Explicit user approval from step 04
+- Focus only on writing the file — all decisions have been made
+- Do not change any field values without user request — the brief was already approved
+- Create the output directory if it doesn't exist
+- Chains to shared health check via `{nextStepFile}` after completion
 
 ## MANDATORY SEQUENCE
 
@@ -222,29 +191,3 @@ Load and execute `{nextStepFile}` for workflow self-improvement check.
 
 This step chains to the shared health check. After the health check completes, the brief-skill workflow is fully done.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Schema loaded for template reference
-- Output directory created (or fallback used with notification)
-- skill-brief.yaml generated with all required fields matching approved values
-- File written successfully to correct location
-- Deep tier: QMD collection `{skill-name}-brief` created/updated and registered in forge-tier.yaml
-- Non-Deep tier: QMD indexing skipped silently
-- Success summary displayed with next steps recommendation
-- Workflow marked as complete
-
-### ❌ SYSTEM FAILURE:
-
-- Modifying approved field values without user request
-- Writing to wrong location
-- Missing required fields in generated YAML
-- Not creating output directory before writing
-- Not displaying next steps recommendation
-- Not handling write failure gracefully
-- Failing the workflow due to QMD indexing errors (should degrade gracefully)
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE. QMD indexing failures never block the workflow.

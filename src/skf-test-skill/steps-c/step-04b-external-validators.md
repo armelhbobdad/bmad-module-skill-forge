@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-05-score.md'
-outputFile: '{forge_data_folder}/{skill_name}/test-report-{skill_name}.md'
+outputFile: '{forge_version}/test-report-{skill_name}.md'
 ---
 
 # Step 4b: External Validators
@@ -9,41 +9,11 @@ outputFile: '{forge_data_folder}/{skill_name}/test-report-{skill_name}.md'
 
 Run external validation tools (`skill-check` and `tessl`) against the skill directory, capture their scores and findings, and append results to the test report. These tools catch complementary issues that internal coverage and coherence checks miss: `skill-check` validates spec compliance while `tessl` evaluates content quality and actionability.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🎯 ALWAYS follow the exact instructions in the step file
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill auditor running external quality gates
-- ✅ Both tools are optional — unavailability is a skip, never a halt
-- ✅ Report scores factually — do not editorialize on the results
-
-### Step-Specific Rules:
-
-- 🎯 Run each tool independently — one tool's failure does not affect the other
-- 🚫 FORBIDDEN to halt the workflow if either tool is unavailable or fails
-- 🚫 FORBIDDEN to modify skill content — this step only measures and reports
-- ⚠️ Ignore non-zero exit codes if the tool produces parseable output
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow MANDATORY SEQUENCE exactly
-- 💾 Append External Validation section to {outputFile}
-- 📖 Update stepsCompleted in {outputFile}
-- 📖 Store scores in context for step-05 scoring
-
-## CONTEXT BOUNDARIES:
-
-- Available: skill directory path, testMode, forge tier from previous steps
-- Focus: External tool execution and score capture only
-- Limits: Do NOT modify skill content or recalculate internal scores
-- Dependencies: steps 03 and 04 must have completed
+- Run each tool independently — one tool's failure does not affect the other
+- Do not halt the workflow if either tool is unavailable or fails
+- Read-only — do not modify skill content
 
 ## MANDATORY SEQUENCE
 
@@ -210,26 +180,3 @@ Append to `{outputFile}`:
 
 ONLY WHEN external validation results are appended to {outputFile} and scores are stored in context will you proceed to load `{nextStepFile}` for scoring.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- skill-check executed and quality score captured (or skipped with N/A if unavailable)
-- tessl executed and description/content/average scores captured (or skipped with N/A)
-- Content quality warning raised if tessl content < 70%
-- Combined external score calculated
-- External Validation section appended to output
-- Scores stored in context for step-05
-- Auto-proceeded to step-05
-
-### ❌ SYSTEM FAILURE:
-
-- Halting the workflow because a tool is unavailable or fails
-- Not recording N/A when a tool is skipped (step-05 needs to know)
-- Modifying skill content based on validation results
-- Not parsing tessl content score (the key insight this tool provides)
-- Fabricating scores not from actual tool output
-
-**Master Rule:** External validators inform — they do not block. Run what's available, capture the scores, report factually, and proceed.

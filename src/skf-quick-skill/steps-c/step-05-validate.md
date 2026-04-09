@@ -8,43 +8,11 @@ nextStepFile: './step-06-write.md'
 
 To validate the compiled SKILL.md, context-snippet.md, and metadata.json against the agentskills.io specification at community tier. Report any gaps or issues. This is advisory validation — issues are reported but do not block output.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a rapid skill compiler performing quality checks
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Community-tier validation — lighter than official requirements
-- ✅ Report issues honestly but don't block output
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on validating the compiled output
-- 🚫 FORBIDDEN to modify the compiled content — report issues only
-- 💬 Approach: Check each requirement, report findings, proceed
-- 📋 Validation failures are advisory — user can proceed regardless
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Set state: validation_result (pass/fail, issues_list)
-- 📖 Check against community-tier requirements
-- 🚫 Do not block output on validation issues
-
-## CONTEXT BOUNDARIES:
-
-- Previous step provided: skill_content (SKILL.md), context_snippet, metadata_json
-- Focus: validation only, not modification
-- Community tier has lighter requirements than official
-- Dependencies: compiled output from step-04
+- Validation is advisory — report issues but never block output
+- Do not modify compiled content — report only
+- Community-tier validation (lighter than official requirements)
 
 ## MANDATORY SEQUENCE
 
@@ -183,28 +151,3 @@ Set `validation_result` with pass/fail status, quality score, and issues list.
 
 ONLY WHEN validation checks are complete and results reported will you load and read fully `{nextStepFile}` to execute file writing.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- `npx skill-check check --fix --format json` executed if available (or manual fallback)
-- Quality score (0-100) captured when skill-check available
-- Auto-fix applied via `--fix` for deterministic issues
-- Security scan executed (or skipped with note)
-- All three outputs validated against requirements
-- Issues reported clearly with specific details
-- Community-tier validation applied (not official-tier strictness)
-- validation_result set with pass/fail, quality score, and issues list
-- Auto-proceeding to write step
-
-### ❌ SYSTEM FAILURE:
-
-- Modifying compiled content instead of just reporting
-- Blocking output on validation issues (advisory only)
-- Skipping validation checks
-- Not reporting found issues
-- Not recording quality score when skill-check is available
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

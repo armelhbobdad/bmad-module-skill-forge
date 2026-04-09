@@ -8,45 +8,11 @@ nextStepFile: './step-03-scope-definition.md'
 
 To analyze the target repository by resolving its location, reading its structure, detecting the primary language, and listing top-level modules and exports — providing the user with a factual foundation for scoping decisions.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-
-### Role Reinforcement:
-
-- ✅ You are a source code analyst in Ferris Architect mode
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Report ONLY what is found — zero hallucination tolerance
-- ✅ You bring structural analysis expertise, user brings their domain understanding
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on analysis — do not define scope yet (that's step 03)
-- 🚫 FORBIDDEN to make scoping decisions or recommendations in this step
-- 🚫 FORBIDDEN to hallucinate or guess about repository contents
-- 💬 Approach: Prescriptive — exact analysis instructions, factual reporting
-- 📋 Report everything found; let the user interpret for scoping
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Analysis results are accumulated conversationally for use in step 03
-- 📖 This step is autonomous — minimal user interaction required
-- 🚫 FORBIDDEN to proceed if target is inaccessible — halt with actionable error
-
-## CONTEXT BOUNDARIES:
-
-- Available context: Target repo (URL or path), user intent, skill name, forge tier — all from step 01
-- Focus: Structural analysis of the repository
-- Limits: Do not read file contents deeply — only structure, exports, and metadata
-- Dependencies: Confirmed target repository from step 01
+- Focus only on analysis — do not define scope yet (Step 03)
+- Do not make scoping decisions or recommendations
+- Do not hallucinate or guess about repository contents
 
 ## MANDATORY SEQUENCE
 
@@ -145,7 +111,7 @@ If `tools.ccc` is true in forge-tier.yaml, supplement the module listing with a 
 - **Cursor:** Use `ccc` MCP server `search` tool with query `"{repo_name} public API exports modules"` and path `{source_path}`
 - **CLI fallback:** `ccc search "{repo_name} public API exports modules" --path {source_path} --limit 10`
 
-See [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md) for full bridge-to-tool mapping.
+See `knowledge/tool-resolution.md` for full bridge-to-tool mapping.
 
 If results are returned, display:
 
@@ -236,26 +202,3 @@ Pause briefly for user input. If the user provides corrections or asks questions
 
 ONLY WHEN the analysis is complete and the summary has been presented to the user will you load and read fully `./step-03-scope-definition.md` to begin scope definition.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Target repository resolved and accessible
-- Repository structure listed clearly
-- Primary language detected with confidence level
-- Top-level modules and exports identified
-- Source version detected (or default noted)
-- Analysis summary presented factually
-- Auto-proceeded to scope definition (with pause for corrections)
-
-### ❌ SYSTEM FAILURE:
-
-- Hallucinating or guessing about repository contents
-- Making scoping recommendations (too early — that's step 03)
-- Proceeding when target is inaccessible (must halt with error)
-- Not detecting or reporting the primary language
-- Skipping the analysis summary
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

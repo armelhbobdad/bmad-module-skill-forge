@@ -1,5 +1,5 @@
 ---
-nextStepFile: '../../shared/health-check.md'
+nextStepFile: 'shared/health-check.md'
 ---
 
 # Step 9: Stack Skill Report
@@ -8,42 +8,12 @@ nextStepFile: '../../shared/health-check.md'
 
 Display the final summary of the forged stack skill with confidence distribution, output file listing, and next workflow recommendations.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Ferris delivering the final forge report
-- ✅ Positive capability framing — lead with what was accomplished
-- ✅ Warnings are secondary — present them only if they exist
-
-### Step-Specific Rules:
-
-- 🎯 Chains to shared health check via `{nextStepFile}` — no further steps after that
-- 🚫 FORBIDDEN to write or modify any files — report is console output only
-- 💬 Lead with the positive summary, then details, then warnings if any
-- 🎯 Recommend next workflows based on what was produced
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Compile summary from all previous step results
-- 📖 Display report to user — workflow is complete after this
-- 🚫 No file writes, no state updates — this is terminal output
-
-## CONTEXT BOUNDARIES:
-
-- From step 01: project_name, forge_tier
-- From step 03: confirmed_dependencies[] count
-- From step 04: per_library_extractions[] with confidence tiers
-- From step 05: integration_graph with pair count
-- From step 07: written_files[] with paths
-- From step 08: validation_result with findings
-- This step produces: console report (no stored artifacts)
+- Do not write or modify any files — report is console output only
+- Lead with the positive summary, then details, then warnings
+- Recommend next workflows based on what was produced
+- Chains to shared health check via `{nextStepFile}` after completion
 
 ## MANDATORY SEQUENCE
 
@@ -118,31 +88,11 @@ Forge tier: **{tier}**"
 
 **Workflow complete.**"
 
+### 6b. Result Contract
+
+Write `{forge_version}/create-stack-skill-result.json` per `shared/references/output-contract-schema.md`. Include `SKILL.md`, `context-snippet.md`, and `metadata.json` paths in `outputs`; include `lib_count`, `integration_count`, and confidence distribution in `summary`.
+
 ### 7. Workflow Health Check
 
 Load and execute `{nextStepFile}` for workflow self-improvement check.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Banner displayed with accurate library and integration counts
-- Confidence distribution table with correct tier counts
-- All output files listed with descriptions
-- Validation summary reflects actual step 08 findings
-- Warnings displayed only when they exist
-- Next workflow recommendations included
-- Positive capability framing throughout
-
-### ❌ SYSTEM FAILURE:
-
-- Inaccurate counts in banner or distribution table
-- Missing output files from the listing
-- Displaying warnings section when no warnings exist
-- Writing or modifying files in this step
-- Not recommending next workflows
-- Negative framing or apologetic tone
-
-**Master Rule:** Celebrate what was built. Report accurately. Recommend next steps. Workflow complete.

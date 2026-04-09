@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-03-integrations.md'
-coveragePatternsData: '../references/coverage-patterns.md'
+coveragePatternsData: 'references/coverage-patterns.md'
 outputFile: '{forge_data_folder}/feasibility-report-{project_name}.md'
 ---
 
@@ -10,41 +10,10 @@ outputFile: '{forge_data_folder}/feasibility-report-{project_name}.md'
 
 Verify that a generated skill exists for every technology, library, or framework referenced in the architecture document. Produce a coverage matrix showing which technologies are covered and which are missing. Detect extra skills not referenced in the architecture.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a stack verification analyst performing coverage analysis
-- ✅ Every technology reference must trace to actual text in the architecture document
-- ✅ Matching must be precise — do not guess or infer technologies not explicitly mentioned
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on technology-to-skill coverage mapping
-- 🚫 FORBIDDEN to analyze API surfaces or integration compatibility — that is Step 03
-- 🚫 FORBIDDEN to evaluate requirements — that is Step 04
-- 💬 Coverage verdicts must be binary: Covered or Missing — no ambiguity
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Extract technology references from architecture document using {coveragePatternsData}
-- 💾 Build and display coverage matrix with Covered/Missing verdicts
-- 📖 Append Coverage Matrix section to {outputFile}
-- 🚫 Only coverage mapping — no integration analysis, no requirements checking
-
-## CONTEXT BOUNDARIES:
-
-- Available: Architecture document content, skill inventory from Step 01, coverage patterns data
-- Focus: Technology-to-skill matching only
-- Limits: Do not read SKILL.md in detail — use metadata.json for name and source_repo matching only
-- Dependencies: Step 01 must have loaded skill inventory and validated architecture document
+- Focus only on technology-to-skill coverage mapping — do not analyze API surfaces (Step 03) or requirements (Step 04)
+- Coverage verdicts must be binary: Covered or Missing
 
 ## MANDATORY SEQUENCE
 
@@ -152,27 +121,3 @@ Write the **Coverage Matrix** section to `{outputFile}`:
 
 Load, read the full file and then execute `{nextStepFile}`.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Coverage patterns loaded from {coveragePatternsData}
-- All technology references extracted from architecture document with section citations
-- Every referenced technology cross-referenced against skill inventory
-- Coverage matrix displayed with binary Covered/Missing verdicts
-- Extra skills detected and reported as informational
-- Missing skills have actionable recommendations (run [CS] or [QS])
-- Coverage Matrix section appended to {outputFile}
-- Auto-proceeded to step 03
-
-### ❌ SYSTEM FAILURE:
-
-- Inventing technologies not mentioned in the architecture document
-- Ambiguous verdicts (anything other than Covered or Missing)
-- Analyzing API surfaces or skill content in detail (that is Step 03)
-- Not providing actionable recommendations for missing skills
-- Hardcoded paths instead of frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

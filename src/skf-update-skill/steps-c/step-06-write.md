@@ -8,45 +8,11 @@ nextStepFile: './step-07-report.md'
 
 Write all updated skill artifacts to disk: the merged SKILL.md, updated provenance-map.json with new timestamps and mappings, updated evidence-report.md with the update operation trail, and for stack skills, all affected reference files.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a precision code analyst operating in Surgeon mode
-- ✅ File writes must be atomic — complete all writes or none
-- ✅ Every write must be verified after completion
-- ✅ Provenance metadata must accurately reflect the update operation
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on writing files — all merge and validation is complete
-- 🚫 FORBIDDEN to modify merged content during write — write exactly what was produced
-- 🚫 FORBIDDEN to skip provenance map update — this is critical for future audits
-- 💬 Verify each file after writing to confirm integrity
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow MANDATORY SEQUENCE exactly
-- 💾 Write all files in the correct locations
-- 📖 Update provenance map with current timestamps
-- 🚫 FORBIDDEN to proceed if any write fails
-
-## CONTEXT BOUNDARIES:
-
-- Available: merged content from step 04, validation results from step 05, extraction results from step 03, change manifest from step 02
-- Focus: file I/O operations — write and verify
-- Limits: write only to skill output and forge data directories
-- Dependencies: steps 02-05 must all be complete
-- Path resolution: See `knowledge/version-paths.md` for canonical path templates (`{skill_package}`, `{skill_group}`, `{forge_version}`, `{forge_group}`)
+- Focus only on writing files — all merge and validation is complete
+- Write exactly what was produced — do not modify merged content
+- Do not skip provenance map update — critical for future audits
 
 ## MANDATORY SEQUENCE
 
@@ -236,27 +202,3 @@ Display: "**Proceeding to report...**"
 
 ONLY WHEN all files have been written and verified will you load {nextStepFile} to display the change report.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- SKILL.md written to {skill_package} with all merged content and [MANUAL] sections intact
-- metadata.json updated with new version, timestamp, export counts
-- provenance-map.json updated at {forge_version} with current file:line references and timestamps
-- evidence-report.md appended at {forge_version} with update operation record
-- Stack reference files updated if applicable
-- Active symlink updated at {skill_group}/active -> {version} if version changed
-- All writes verified by read-back confirmation
-
-### ❌ SYSTEM FAILURE:
-
-- Any [MANUAL] section content different after write (integrity violation)
-- Skipping provenance map update
-- Not verifying writes after completion
-- Writing partial content (incomplete merge result)
-- Not updating metadata version
-- Leaving stale provenance entries for deleted exports
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

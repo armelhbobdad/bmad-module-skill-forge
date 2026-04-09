@@ -1,7 +1,7 @@
 ---
 nextStepFile: './step-04b-external-validators.md'
-outputFile: '{forge_data_folder}/{skill_name}/test-report-{skill_name}.md'
-outputFormatsFile: '../assets/output-section-formats.md'
+outputFile: '{forge_version}/test-report-{skill_name}.md'
+outputFormatsFile: 'assets/output-section-formats.md'
 ---
 
 # Step 4: Coherence Check
@@ -10,44 +10,11 @@ outputFormatsFile: '../assets/output-section-formats.md'
 
 Validate internal consistency of the skill documentation. In contextual mode (stack skills): verify that all cross-references in SKILL.md point to real files, types match their declarations, and integration patterns are complete. In naive mode (individual skills): perform basic structural validation only.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER fabricate references or claim files exist without verifying — zero hallucination
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill auditor in Ferris's Audit mode — zero hallucination
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Every broken reference must cite exactly what was referenced and where it was expected
-- ✅ Report structural facts — do not interpret or editorialize
-
-### Step-Specific Rules:
-
-- 🎯 Use subprocess optimization: grep for references across files, then per-reference deep validation
-- 💬 Subprocess returns structured findings only, not full file contents
-- 🚫 DO NOT BE LAZY — For EACH reference in contextual mode, launch a subprocess to validate the target
-- ⚙️ If subprocess unavailable, perform validation in main thread sequentially
-- 📋 Analysis depth is conditional on testMode (naive vs contextual)
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Check testMode from output frontmatter to determine analysis depth
-- 💾 Append Coherence Analysis section to {outputFile}
-- 📖 Update stepsCompleted in {outputFile}
-- 🚫 FORBIDDEN to skip coherence check entirely — even naive mode runs basic structural validation
-
-## CONTEXT BOUNDARIES:
-
-- Available: SKILL.md, source files, testMode, forge tier, coverage results from step 03, evidence-report.md from skill's forge-data directory (Deep tier only)
-- Focus: Internal consistency and reference validation only — coverage was step 03
-- Limits: Do NOT recalculate coverage scores — use results from step 03
-- Dependencies: step-03 must have completed coverage analysis
+- Use subprocess optimization: grep for references, then per-reference deep validation
+- For each reference in contextual mode, launch a subprocess to validate the target — do not shortcut
+- Analysis depth is conditional on testMode (naive vs contextual)
 
 ## MANDATORY SEQUENCE
 
@@ -243,26 +210,3 @@ Display: "**Proceeding to external validation...**"
 
 ONLY WHEN coherence analysis is complete (naive structural or contextual full validation), the Coherence Analysis section has been appended to {outputFile}, and coherence scores (if contextual) have been calculated, will you then load and read fully `{nextStepFile}` to execute external validation.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Correct mode path executed (naive structural OR contextual full)
-- All references validated in contextual mode (DO NOT BE LAZY)
-- Every broken reference cites exact location and expected target
-- Coherence Analysis section appended to output document
-- Coherence scores calculated (contextual) or weight redistribution noted (naive)
-- Zero fabricated findings — all traceable to artifacts
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping coherence check entirely (even naive mode runs structural checks)
-- Fabricating reference validation results
-- Not checking every reference in contextual mode (DO NOT BE LAZY)
-- Running contextual checks on a naive-mode skill (unnecessary depth)
-- Running only naive checks on a contextual-mode skill (insufficient depth)
-- Hardcoding paths instead of using frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE. Zero hallucination — every finding traces to artifacts.

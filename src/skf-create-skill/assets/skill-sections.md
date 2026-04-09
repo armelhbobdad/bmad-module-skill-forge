@@ -262,15 +262,18 @@ Each reference file includes:
 
 ```json
 {
+  "provenance_version": "2.0",
   "skill_name": "{name}",
-  "source_repo": "{url}",
-  "source_commit": "{hash}",
+  "skill_type": "single|stack",
+  "source_repo": "{url or [urls] for multi-source}",
+  "source_commit": "{hash or {repo: hash} for multi-source}",
   "source_ref": "v0.5.0",
   "generated_at": "{ISO-8601}",
   "entries": [
     {
       "export_name": "getToken",
       "export_type": "function",
+      "source_library": "{library-name — defaults to skill name for single skills}",
       "params": ["userId: string", "options?: TokenOptions"],
       "return_type": "Token",
       "source_file": "src/auth/index.ts",
@@ -279,6 +282,24 @@ Each reference file includes:
       "extraction_method": "ast-grep",
       "ast_node_type": "export_function_declaration",
       "signature_source": "T1"
+    }
+  ],
+  "integrations": [
+    {
+      "libraries": ["lib-a", "lib-b"],
+      "pattern_type": "provider-consumer",
+      "detection_method": "co-import grep|architecture_co_mention|inferred_from_shared_domain",
+      "co_import_files": [{"file": "src/app.ts", "line": 5}],
+      "confidence": "T1|T2|T3"
+    }
+  ],
+  "constituents": [
+    {
+      "skill_name": "{constituent-skill-name}",
+      "skill_path": "skills/{skill-dir}/",
+      "version": "{version at compose time}",
+      "composed_at": "{ISO-8601}",
+      "metadata_hash": "sha256:{hash of constituent metadata.json at compose time}"
     }
   ],
   "file_entries": [
@@ -294,7 +315,12 @@ Each reference file includes:
 }
 ```
 
-`scripts` and `assets` arrays in metadata.json are optional — omit entirely (not empty arrays) when no scripts/assets exist. `file_entries` in provenance-map.json is optional — omit when no scripts/assets exist.
+- `provenance_version`: Schema version. `"2.0"` enables unified single/stack support. Audit reads both v1 (no version field) and v2.
+- `source_library`: Identifies which library an export belongs to. For single skills, defaults to the skill/package name. For stack skills, identifies the constituent library.
+- `integrations`: Stack-only. Describes cross-library integration patterns with their own schema — NOT shoehorned into entries.
+- `constituents`: Stack-only (compose-mode). Tracks the compose-time snapshot of each source skill for staleness detection. `metadata_hash` enables audit to detect constituent drift without re-reading all constituent files.
+- `file_entries` remains optional — omit when no scripts/assets exist.
+- Single skills omit `integrations` and `constituents` arrays entirely (not empty arrays).
 
 ---
 

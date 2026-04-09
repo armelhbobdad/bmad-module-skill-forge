@@ -1,7 +1,7 @@
 ---
 nextStepFile: './step-03-report.md'
-versionPathsKnowledge: '../../knowledge/version-paths.md'
-managedSectionLogic: '../../skf-export-skill/assets/managed-section-format.md'
+versionPathsKnowledge: 'knowledge/version-paths.md'
+managedSectionLogic: 'skf-export-skill/assets/managed-section-format.md'
 ---
 
 # Step 2: Execute Rename (Transactional)
@@ -10,46 +10,13 @@ managedSectionLogic: '../../skf-export-skill/assets/managed-section-format.md'
 
 Execute the rename decisions recorded in step-01 as a transaction. Copy the old `{skill_group}` and `{forge_group}` to the new name, rename inner directories, rewrite every in-file reference, verify no trace of the old name remains inside the new location, update the export manifest, rebuild platform context files, and only then delete the old directories. Any failure before the final delete rolls back by removing the new directories — the old skill remains intact.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 **NEVER** delete `{old_skill_group}` or `{old_forge_group}` until sections 1-7 have all succeeded
-- 🛑 **NEVER** modify content outside `<!-- SKF:BEGIN/END -->` markers in platform context files
-- 🛑 **NEVER** skip verification — the rename is not committed until section 5 passes
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Ferris in Management mode — a transactional rename surgeon
-- ✅ Copy-before-delete: the new name is fully materialized and verified before the old name is touched
-- ✅ Every step before section 8 is reversible — on any failure, delete `{new_skill_group}` and `{new_forge_group}` and halt
-- ✅ Surgical precision on platform context files: preserve all content outside `<!-- SKF:BEGIN/END -->` markers
-
-### Step-Specific Rules:
-
-- 🎯 Execute sections strictly in order — each section depends on the previous one
-- 🚫 FORBIDDEN to re-prompt the user — decisions were made in step-01
-- 🚫 FORBIDDEN to delete anything from `{old_skill_group}` or `{old_forge_group}` before section 8
-- 🚫 FORBIDDEN to proceed past a verification failure in section 5
-- 💬 Report each section's outcome as it completes so the user sees progress
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Re-read version-paths knowledge at the start to avoid drift between step files
-- 💾 Hold a copy of the manifest in memory before modifying it so section 6 can roll back on failure
-- 📖 Rebuild managed sections from the **updated** manifest (after section 6), not from memory
-- 🚫 If any section before section 8 fails, execute the rollback procedure defined for that section and halt
-
-## CONTEXT BOUNDARIES:
-
-- Available: Decisions from step-01 (`old_name`, `new_name`, `affected_versions`, `old_skill_group`, `new_skill_group`, `old_forge_group`, `new_forge_group`), SKF module config, version-paths knowledge, managed-section format
-- Focus: Copy → rename inner dirs → rewrite files → verify → update manifest → rebuild context → delete old
-- Limits: Only touch paths inside `{skills_output_folder}` and `{forge_data_folder}`; only modify content between `<!-- SKF:BEGIN/END -->` markers in platform context files
-- Dependencies: Step-01 must have completed and stored all decisions in context
+- Execute sections strictly in order — each section depends on the previous one
+- Do not re-prompt the user — decisions were made in step-01
+- Do not delete anything from old directories before section 8
+- Do not proceed past a verification failure in section 5
+- Report each section's outcome as it completes
 
 ## MANDATORY SEQUENCE
 
@@ -216,7 +183,7 @@ Store the result as `target_context_files` for this section.
 
 For each entry in `target_context_files`:
 
-1. **Resolve target file** at `{project-root}/{context_file}`.
+1. **Resolve target file** at `{context_file}`.
 
 2. **Read the current file.**
    - If the file does not exist, skip this context file (nothing to rebuild — the file will be re-created next time export-skill runs)
@@ -341,34 +308,3 @@ Load, read the full file, and then execute `{nextStepFile}`.
 
 ONLY WHEN all execution sections have been attempted (copy, inner rename, file updates, symlink fix, verification, manifest re-key, context rebuild, old delete) and results have been stored in context, will you then load and read fully `{nextStepFile}` to generate the final report.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Version-paths knowledge and managed-section format re-read at the start of the step
-- `{new_skill_group}` and `{new_forge_group}` copied from the old paths with symlinks preserved
-- Inner version directories renamed from `{old_name}/` to `{new_name}/` across every affected version
-- SKILL.md frontmatter, metadata.json, context-snippet.md (display name + root paths), and provenance-map.json updated across every version
-- `active` symlink in the new location points to the correct version
-- Verification grep confirms no structural references to `{old_name}` remain inside the new directories
-- Export manifest re-keyed from `exports.{old_name}` to `exports.{new_name}` preserving `active_version` and `versions` map
-- Platform context files rebuilt from the updated manifest using export-skill step-04 logic with surgical marker replacement
-- Old `{skill_group}` and `{forge_group}` deleted only after all previous sections succeeded
-- All failures before section 8 trigger a full rollback; failures in section 8 are recorded for manual cleanup
-- All results stored in context for step-03
-
-### ❌ SYSTEM FAILURE:
-
-- Deleting any part of `{old_skill_group}` or `{old_forge_group}` before section 8
-- Proceeding past a verification failure in section 5 instead of rolling back
-- Failing to restore the manifest from backup after a write failure in section 6
-- Rewriting content outside `<!-- SKF:BEGIN/END -->` markers in platform context files
-- Rebuilding managed sections from the pre-update manifest instead of the re-keyed one
-- Leaving structural references to `{old_name}` inside `{new_skill_group}` or `{new_forge_group}`
-- Hardcoding paths instead of using `{skill_package}`, `{skill_group}`, `{forge_version}`, `{forge_group}` templates
-- Halting the entire workflow on a recoverable per-platform error in section 7
-- Not storing results in context for step-03
-
-**Master Rule:** The rename is transactional. Copy-before-delete is inviolable. Every section before section 8 must have a concrete rollback procedure, and rollback must be executed on failure without exception. The old skill is canonical until the new name is fully verified.

@@ -1,7 +1,7 @@
 ---
 nextStepFile: './step-04-map-and-detect.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-heuristicsFile: '../references/unit-detection-heuristics.md'
+heuristicsFile: 'references/unit-detection-heuristics.md'
 ---
 
 # Step 3: Identify Units
@@ -10,44 +10,11 @@ heuristicsFile: '../references/unit-detection-heuristics.md'
 
 To classify each detected boundary from the project scan into discrete skillable units by applying detection heuristics, assigning boundary types and scope types, and filtering out disqualified candidates.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-
-### Role Reinforcement:
-
-- ✅ You are a source code analyst and decomposition architect (Ferris Architect mode)
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Prescriptive precision — zero-hallucination, only report what is found
-- ✅ File:line citation tracing — cite detection signals with specific file paths
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on unit classification — do NOT map exports or integration points yet
-- 🚫 FORBIDDEN to generate skill-brief.yaml in this step
-- 💬 Apply heuristics systematically to each detected boundary
-- 📋 Every classification must cite the detection signals that justify it
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Append "## Identified Units" section to {outputFile}
-- 📖 Update stepsCompleted in {outputFile} frontmatter
-- 🚫 FORBIDDEN to proceed without presenting classifications to user
-
-## CONTEXT BOUNDARIES:
-
-- Available: Project Scan section from report (boundaries, manifests, entry points, configs)
-- Focus: Classification of boundaries into skillable units with scope types
-- Limits: Do not analyze file contents beyond what's needed for classification
-- Dependencies: step-02-scan-project must have populated the Project Scan section
+- Focus only on unit classification — do not map exports or integration points yet
+- Do not generate skill-brief.yaml in this step
+- Every classification must cite the detection signals that justify it
 
 ## MANDATORY SEQUENCE
 
@@ -163,34 +130,10 @@ Display: "**Select:** [C] Continue to Export Mapping and Integration Detection"
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
+- **GATE [default: C]** — If `{headless_mode}`: accept all classifications and auto-proceed, log: "headless: auto-accept unit classifications"
 - ONLY proceed to next step when user selects 'C'
 
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN the Identified Units section has been appended to {outputFile} with complete classification tables, disqualification records, and language detection results, and frontmatter stepsCompleted has been updated, will you load and read fully {nextStepFile} to begin export mapping and integration detection.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every detected boundary evaluated against heuristics
-- Detection signals cited with specific file paths
-- Scope types assigned to each qualifying unit
-- Disqualification rules applied and documented
-- Existing skills cross-referenced
-- Primary language detected per unit
-- Classifications presented to user for confirmation
-- Report updated with Identified Units section
-
-### ❌ SYSTEM FAILURE:
-
-- Classifying without citing detection signals
-- Missing disqualification checks
-- Not cross-referencing existing_skills
-- Mapping exports or integrations in this step (that's step 04)
-- Generating skill-brief.yaml in this step (that's step 06)
-- Not presenting classifications for user confirmation
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

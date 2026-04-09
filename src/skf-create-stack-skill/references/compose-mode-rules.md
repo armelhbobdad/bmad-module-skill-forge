@@ -4,7 +4,7 @@ Rules for synthesizing a stack skill from pre-generated individual skills and an
 
 ## Skill Loading
 
-Skills use version-nested directories — see [knowledge/version-paths.md](../../knowledge/version-paths.md) for the full path templates and resolution rules.
+Skills use version-nested directories — see `knowledge/version-paths.md` for the full path templates and resolution rules.
 
 **Version-aware skill enumeration:**
 

@@ -9,43 +9,11 @@ outputFile: '{forge_version}/drift-report-{timestamp}.md'
 
 Re-scan the source code using the current forge tier tools to build a fresh extraction snapshot. This snapshot will be compared against the original provenance map in Step 03 to detect structural drift.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill auditor operating in Ferris Audit mode
-- ✅ Every extraction must be precise — file paths, line numbers, signatures
-- ✅ You enforce zero-hallucination: only extract what actually exists in source
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on extracting current source state — do NOT compare yet
-- 🚫 FORBIDDEN to perform any diff or comparison — that happens in Step 03
-- 🚫 FORBIDDEN to skip files or take shortcuts in extraction
-- 💬 Use subprocess Pattern 2 (per-file deep analysis) when available for AST extraction
-- ⚙️ If subprocess unavailable, perform extraction in main thread file by file
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Extract all public exports from source using tier-appropriate tools
-- 💾 Store current extraction as internal state for Step 03
-- 📖 Update {outputFile} frontmatter stepsCompleted when complete
-- 🚫 Do not append analysis sections to drift report — only update frontmatter
-
-## CONTEXT BOUNDARIES:
-
-- Available: Source path, forge tier, tool availability (from Step 01)
-- Focus: Building a complete current-state extraction snapshot
-- Limits: Extract only — no comparison, no judgment, no severity
-- Dependencies: Step 01 must have loaded skill baseline and validated source path
+- Focus only on extracting current source state — do not compare yet (that's Step 03)
+- Do not skip files or take shortcuts in extraction
+- Use subprocess Pattern 2 (per-file deep analysis) when available for AST extraction; if unavailable, extract in main thread file by file
 
 ## MANDATORY SEQUENCE
 
@@ -75,7 +43,7 @@ Based on forge tier detected in Step 01:
 - Query qmd_bridge for temporal context: when exports were added, modification history, usage frequency
 - Confidence labels: T1 for structural, T2 for temporal context
 
-**Tool resolution:** `gh_bridge` → `gh api` commands or direct file I/O if local. `ast_bridge` → ast-grep MCP tools (`find_code`, `find_code_by_rule`) or `ast-grep` CLI. `qmd_bridge` → QMD MCP tools (`search`, `vector_search`) or `qmd` CLI. See [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md).
+**Tool resolution:** `gh_bridge` → `gh api` commands or direct file I/O if local. `ast_bridge` → ast-grep MCP tools (`find_code`, `find_code_by_rule`) or `ast-grep` CLI. `qmd_bridge` → QMD MCP tools (`search`, `vector_search`) or `qmd` CLI. See `knowledge/tool-resolution.md`.
 
 ### 2. Scan Source Files
 
@@ -196,27 +164,3 @@ Display: "**Proceeding to structural diff...**"
 
 ONLY WHEN the extraction snapshot is complete with all source files processed will you then load and read fully `{nextStepFile}` to execute and begin structural comparison.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All source files scanned (none skipped)
-- All public exports extracted with file:line references
-- Confidence tier labels applied to every extraction
-- Tier-appropriate tools used (AST for Forge+, text for Quick)
-- Deep tier temporal context added if applicable
-- Extraction snapshot complete and validated
-- Frontmatter stepsCompleted updated
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping source files or being lazy with extraction
-- Not recording file:line references for each export
-- Performing comparison in this step (comparison is Step 03)
-- Missing confidence tier labels
-- Hardcoded paths instead of frontmatter variables
-- Not using subprocess Pattern 2 when available
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

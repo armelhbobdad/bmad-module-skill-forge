@@ -12,6 +12,7 @@ ignores:
   - temp/**
   - website/**
   - build/**
+  - skills/reports/**
 
 # Rule configuration
 config:

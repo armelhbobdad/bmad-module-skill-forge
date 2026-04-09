@@ -1,5 +1,5 @@
 ---
-nextStepFile: '../../shared/health-check.md'
+nextStepFile: 'shared/health-check.md'
 ---
 
 # Step 6: Write Output
@@ -8,43 +8,11 @@ nextStepFile: '../../shared/health-check.md'
 
 To write the compiled SKILL.md, context-snippet.md, and metadata.json to the skills output folder and display a completion summary with next step recommendations.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a rapid skill compiler delivering the final output
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Precision file writing — correct paths, correct content
-- ✅ This is the final step — deliver cleanly and recommend next actions
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on writing files and displaying summary
-- 🚫 FORBIDDEN to modify content — write exactly what was compiled
-- 💬 Approach: Create directory, write files, confirm, summarize
-- 📋 If write fails, hard halt with error details
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Write three files to `{skill_package}` and create the `active` symlink
-- 📖 File I/O required for directory creation and file writing
-- 🚫 After writing files, chains to shared health check — no further steps after that
-
-## CONTEXT BOUNDARIES:
-
-- Previous steps provided: skill_content, context_snippet, metadata_json, validation_result
-- Also available: resolved_url, repo_name, language, skills_output_folder
-- Focus: file writing and completion only
-- Chains to shared health check after completion — no further steps after that
-- Path resolution: See `knowledge/version-paths.md` for canonical path templates. Quick-skill uses `{repo_name}` as the skill name and defaults `{version}` to `1.0.0` if not detected from the extraction inventory
+- Write exactly what was compiled — do not modify content
+- If any write fails, hard halt with error details
+- Path resolution: Quick-skill uses `{repo_name}` as the skill name and defaults `{version}` to `1.0.0` if not detected from the extraction inventory
 
 ## MANDATORY SEQUENCE
 
@@ -149,28 +117,11 @@ Please check:
 
 **Note:** This is a best-effort community skill. For deeper analysis with AST-verified exports and provenance tracking, use the full **create-skill** workflow with a skill brief."
 
+### Result Contract
+
+Write `{skill_package}/quick-skill-result.json` per `shared/references/output-contract-schema.md`. Include `SKILL.md`, `context-snippet.md`, and `metadata.json` paths in `outputs` and export count in `summary`.
+
 ### 7. Workflow Health Check
 
 Load and execute `{nextStepFile}` for workflow self-improvement check.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Output directory created (or overwrite confirmed) with version-nested structure
-- All three files written successfully to {skill_package}
-- Active symlink created at {skill_group}/active -> {version}
-- Completion summary displayed with file paths
-- Next step recommendations provided
-- Workflow ends cleanly
-
-### ❌ SYSTEM FAILURE:
-
-- Modifying content during write (write exactly what was compiled)
-- Not handling write failures with hard halt
-- Not displaying completion summary
-- Attempting to load steps beyond the shared health check
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

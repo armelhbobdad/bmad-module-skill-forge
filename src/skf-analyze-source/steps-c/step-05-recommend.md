@@ -1,7 +1,7 @@
 ---
 nextStepFile: './step-06-generate-briefs.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-schemaFile: '../assets/skill-brief-schema.md'
+schemaFile: 'assets/skill-brief-schema.md'
 advancedElicitationSkill: '/bmad-advanced-elicitation'
 partyModeSkill: '/bmad-party-mode'
 ---
@@ -12,44 +12,11 @@ partyModeSkill: '/bmad-party-mode'
 
 To present each qualifying unit as a recommendation with evidence-based rationale, allow the user to confirm, reject, or modify each recommendation, and build the confirmed units list that drives brief generation.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-
-### Role Reinforcement:
-
-- ✅ You are a source code analyst and decomposition architect (Ferris Architect mode)
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Prescriptive precision — zero-hallucination, every recommendation backed by evidence
-- ✅ This is the COLLABORATIVE GATE — user must explicitly confirm each unit
-
-### Step-Specific Rules:
-
-- 🎯 This is the primary user decision point — do NOT rush through it
-- 🚫 FORBIDDEN to proceed without explicit confirmation for each unit
-- 💬 Present evidence for each recommendation, invite questions and pushback
-- 📋 User can ask "why?" for any recommendation — explain with specific file citations
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Append "## Recommendations" section to {outputFile}
-- 📖 Update stepsCompleted and confirmed_units in {outputFile} frontmatter
-- 🚫 FORBIDDEN to generate briefs in this step (that's step 06)
-
-## CONTEXT BOUNDARIES:
-
-- Available: Full report — Project Scan, Identified Units, Export Map, Integration Points
-- Focus: Presenting evidence-based recommendations and capturing user decisions
-- Limits: Do not generate skill-brief.yaml files — only confirm which units to brief
-- Dependencies: steps 02-04 must have populated scan, units, exports, and integrations
+- This is the primary user decision point — do not rush through it
+- Do not proceed without explicit confirmation for each unit
+- Present evidence for each recommendation, invite questions and pushback
 
 ## MANDATORY SEQUENCE
 
@@ -199,6 +166,7 @@ Display: "**Select an Option:** [A] Advanced Elicitation [P] Party Mode [D] Disc
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
+- **GATE [default: C]** — If `{headless_mode}`: accept all recommendations and auto-proceed, log: "headless: auto-accept all recommendations"
 - ONLY proceed to next step when user selects 'C'
 - After other menu items execution, return to this menu
 - User can chat or ask questions — always respond and then redisplay menu
@@ -207,28 +175,3 @@ Display: "**Select an Option:** [A] Advanced Elicitation [P] Party Mode [D] Disc
 
 ONLY WHEN all units have explicit user decisions (Y/N/M), the confirmed_units list is finalized in frontmatter, and the user has given final confirmation, will you load and read fully {nextStepFile} to begin brief generation.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Every qualifying unit presented with evidence-based recommendation
-- User explicitly decided on each unit (Y/N/M)
-- Modifications captured and confirmed
-- Stack skill candidates addressed
-- Already-skilled units directed to update-skill
-- Final confirmation obtained before proceeding
-- Report updated with complete Recommendations section
-- confirmed_units populated in frontmatter
-
-### ❌ SYSTEM FAILURE:
-
-- Auto-confirming units without user decision
-- Not presenting evidence/rationale for recommendations
-- Skipping the final confirmation
-- Generating skill-brief.yaml files in this step (that's step 06)
-- Not documenting rejection reasons
-- Proceeding with empty confirmed_units list without user acknowledgment
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

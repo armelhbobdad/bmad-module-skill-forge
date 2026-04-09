@@ -9,35 +9,11 @@ outputFile: '{output_folder}/refined-architecture-{project_name}.md'
 
 Produce the refined architecture document by starting with the original as a base, adding gap-fill subsections, issue callout blocks, and improvement suggestions. Append a Refinement Summary. Present for user review before finalizing.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are an architecture refinement analyst compiling the final refined document
-- ✅ Additive, not destructive — preserve every word of the original, only add refinements
-- ✅ The document must be in `{document_output_language}`
-
-### Step-Specific Rules:
-
-- 🚫 FORBIDDEN to discover new gaps, issues, or improvements — use only what Steps 02-04 produced
-- 🚫 FORBIDDEN to delete, reword, or rearrange original architecture content
-- 💬 Present compiled document for user review (Gate checkpoint)
-
-## EXECUTION PROTOCOLS:
-
-- Compile refined architecture from original + findings from Steps 02-04
-- Write output to {outputFile}, wait for user approval before proceeding
-
-## CONTEXT BOUNDARIES:
-
-- From Steps 01-04: Architecture document, skill inventory, gap/issue/improvement findings
-- This step produces: The refined architecture document at {outputFile}
+- Do not discover new gaps, issues, or improvements — use only what Steps 02-04 produced
+- Do not delete, reword, or rearrange original architecture content
+- Present compiled document for user review (gate checkpoint)
 
 ## MANDATORY SEQUENCE
 
@@ -163,6 +139,7 @@ Display: **Select:** [C] Continue to Final Report
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting compilation
+- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-approve compiled architecture"
 - ONLY proceed to next step when user approves and selects 'C'
 
 #### Menu Handling Logic:
@@ -170,28 +147,3 @@ Display: **Select:** [C] Continue to Final Report
 - IF C: Load, read entire file, then execute {nextStepFile}
 - IF Any other: Process as feedback, adjust specific refinements in the document, rewrite {outputFile}, redisplay preview, then [Redisplay Menu Options](#8-present-menu-options)
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Original architecture document preserved in full without modifications
-- Gap-fill subsections inserted at logical locations with evidence citations
-- Issue callout blocks inserted adjacent to contradicted claims with severity
-- Improvement suggestions inserted with value ratings and evidence
-- Refinement Summary section appended with accurate counts
-- Refined document written to {outputFile}
-- User reviewed and approved compilation
-- Proceeded to step 06 only after user selected C
-
-### ❌ SYSTEM FAILURE:
-
-- Deleting, rewording, or rearranging original architecture content
-- Discovering new findings not from Steps 02-04
-- Inserting refinements without evidence citations
-- Proceeding without user review (Gate checkpoint)
-- Not writing the document to {outputFile} before presenting for review
-- Hardcoded paths instead of frontmatter variables
-
-**Master Rule:** Additive only. Preserve the original. Get user approval before proceeding.

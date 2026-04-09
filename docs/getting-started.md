@@ -91,6 +91,7 @@ SKF has two install-time variables (defined in `src/module.yaml`), one Core Conf
 | `forge_data_folder`    | Where workspace artifacts are stored (VS reports, evidence)                                          | `{project-root}/forge-data` |
 | `output_folder`        | Where refined architecture documents are saved (used by RA workflow). *Inherited from BMad Core Config.* | Defined by BMad Core Config |
 | `tier_override`        | Force a specific tier for comparison or testing (in `_bmad/_memory/forger-sidecar/preferences.yaml`) | `~` (auto-detect)           |
+| `headless_mode`        | Skip confirmation gates in all workflows (in `_bmad/_memory/forger-sidecar/preferences.yaml`)        | `false`                     |
 
 Runtime configuration (tool detection, tier, and collection state) is managed by the `setup` workflow and persisted in `forge-tier.yaml`.
 
@@ -120,7 +121,12 @@ Ferris reads the repository, extracts the public API, and generates a skill in u
 @Ferris QS cognee@0.5.0
 ```
 
-**Full quality path (one workflow per session):**
+**Full quality path (pipeline mode):**
+```
+@Ferris forge lodash
+```
+
+Or one workflow per session:
 ```
 @Ferris BS    # Brief — scope and design the skill
 # — clear session —
@@ -131,7 +137,7 @@ Ferris reads the repository, extracts the public API, and generates a skill in u
 @Ferris EX    # Export — package for distribution
 ```
 
-> Start a fresh conversation before each workflow. SKF workflows load significant context — clearing between them prevents interference. See [Session Context](../concepts/#session-context).
+> Pipeline mode chains all workflows automatically with headless mode. For manual control, start a fresh conversation before each workflow — SKF workflows load significant context. See [Session Context](../concepts/#session-context).
 
 ### 3. Stack Skill (for full projects)
 

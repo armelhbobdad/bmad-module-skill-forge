@@ -1,5 +1,5 @@
 ---
-nextStepFile: '../../shared/health-check.md'
+nextStepFile: 'shared/health-check.md'
 ---
 
 # Step 3: Report Drop Results
@@ -8,41 +8,11 @@ nextStepFile: '../../shared/health-check.md'
 
 Present a clear, final summary of what the drop workflow changed — manifest state, platform context files, deleted directories, disk freed, and remaining versions — so the user can verify the outcome and know whether any manual follow-up is required.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER modify any files in this step — report only
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 📋 YOU ARE A FACILITATOR, summarizing what step-02 already executed
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Ferris in Management mode — summarizing a destructive operation with precision
-- ✅ Be explicit about what changed and what did not — no glossing over partial failures
-- ✅ Surface recovery guidance when any stage in step-02 reported an error
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on reporting the results stored in context by step-02
-- 🚫 FORBIDDEN to re-execute any part of the drop
-- 🚫 FORBIDDEN to hide verification errors or failed context file rebuilds
-- 💬 Present the final state clearly, including remaining versions for the affected skill
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Render the report using the context values set in step-02 (`target_skill`, `target_versions`, `drop_mode`, `is_skill_level`, `files_deleted`, `disk_freed`, `manifest_updated`, `context_files_updated`, `context_files_failed`, `verification_errors`)
-- 📖 For the "remaining versions" section, re-read `{skills_output_folder}/.export-manifest.json` (already updated by step-02) to show the current state
-- 💬 Include the reversibility note only when `drop_mode == "deprecate"`
-
-## CONTEXT BOUNDARIES:
-
-- Available: All decision and result values stored in context by step-01 and step-02, plus the updated export manifest on disk
-- Focus: Rendering the final report
-- Limits: No file writes, no deletions, no further execution
-- Dependencies: Step-02 must have completed (or attempted all stages) and stored its results
+- Focus only on reporting results stored in context by step-02 — do not re-execute any part of the drop
+- Do not hide verification errors or failed context file rebuilds
+- Chains to shared health check via `{nextStepFile}` after completion
 
 ## MANDATORY SEQUENCE
 
@@ -99,6 +69,10 @@ restore the managed section entry.
 These require manual review — see the error-handling guidance in step-02.
 ```
 
+### Result Contract
+
+Write `{skills_output_folder}/drop-skill-result.json` per `shared/references/output-contract-schema.md`. Include all purged file paths in `outputs`; include `target_skill`, `drop_mode`, and `versions_affected` in `summary`.
+
 ### 3. Workflow Health Check
 
 Load and execute `{nextStepFile}` for workflow self-improvement check.
@@ -107,28 +81,3 @@ Load and execute `{nextStepFile}` for workflow self-improvement check.
 
 This step chains to the shared health check. After the health check completes, the drop-skill workflow is fully done. Do not re-run any earlier step automatically — if the user wants another drop, they should re-invoke the workflow from the top.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Report rendered with operation type, skill, version(s), and mode
-- Manifest update outcome clearly stated (yes/no)
-- Context files rebuilt listed (and failures surfaced when present)
-- Purge mode: files deleted and disk freed reported
-- Soft drop: reversibility note included with concrete instructions
-- Remaining versions for the affected skill accurately listed from the updated manifest (or "(skill fully removed)" for skill-level drops)
-- Verification warnings surfaced, not hidden
-- No further file writes or executions performed
-
-### ❌ SYSTEM FAILURE:
-
-- Hiding failed platform rebuilds or verification errors
-- Reporting "complete" when step-02 partially failed without flagging it
-- Reading stale manifest data instead of the post-drop state
-- Re-executing any part of the drop workflow
-- Omitting the reversibility note in soft drop mode
-- Displaying remaining versions from memory rather than from the updated manifest
-
-**Master Rule:** The report must be an honest, complete summary of what step-02 actually did. Every partial failure must be visible so the user knows exactly what manual follow-up, if any, is required.

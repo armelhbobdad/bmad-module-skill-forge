@@ -94,6 +94,13 @@ Alex's team adopts BMAD for 10 microservices (TypeScript, Go, Rust).
 ```
 @Ferris SF          # Setup — Deep mode detected
 # — clear session —
+@Ferris onboard     # Analyze → Create → Test → Export in one pipeline
+```
+
+Or one workflow per session:
+```
+@Ferris SF          # Setup — Deep mode detected
+# — clear session —
 @Ferris AN          # Analyze — 10 services mapped
 # — clear session —
 @Ferris CS --batch  # Create — batch generation
@@ -105,6 +112,11 @@ Alex's team adopts BMAD for 10 microservices (TypeScript, Go, Rust).
 
 Sarah prepares v3.0.0 with breaking changes.
 
+```
+@Ferris maintain lodash
+```
+
+Or one workflow per session:
 ```
 @Ferris AS    # Audit — finds 3 renames, 1 removal, 1 addition
 # — clear session —

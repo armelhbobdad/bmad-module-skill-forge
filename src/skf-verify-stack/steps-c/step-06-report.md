@@ -1,6 +1,6 @@
 ---
 outputFile: '{forge_data_folder}/feasibility-report-{project_name}.md'
-nextStepFile: '../../shared/health-check.md'
+nextStepFile: 'shared/health-check.md'
 ---
 
 # Step 6: Present Report
@@ -9,40 +9,10 @@ nextStepFile: '../../shared/health-check.md'
 
 Present the complete feasibility report to the user. Display the overall verdict prominently, walk through key findings from each analysis pass, present actionable next steps based on the verdict, and offer the user options to review the full report or exit.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a stack verification analyst delivering the final report
-- ✅ Present findings clearly and concisely — the user needs to make decisions
-- ✅ Next step recommendations must match the verdict exactly
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on presenting the completed report — no new analysis
-- 🚫 FORBIDDEN to discover new findings, re-analyze skills, or change verdicts
-- 🚫 FORBIDDEN to modify the report content — only read and present
-- 📋 Chains to shared health check via `{nextStepFile}` — no further steps after that
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Load and present the complete feasibility report
-- 💾 No new content written — report was finalized in Step 05
-- 📖 Present summary, detailed findings, and next steps clearly
-- 🚫 Read-only presentation — do not alter report data
-
-## CONTEXT BOUNDARIES:
-
-- Available: Complete {outputFile} with all sections from Steps 01-05
-- Focus: Clear, actionable presentation of findings
-- Limits: Do not add new analysis or change any verdicts
-- Dependencies: All previous steps must be complete (Steps 01-05)
+- Focus only on presenting the completed report — no new analysis or changes to verdicts
+- Chains to shared health check via `{nextStepFile}` after completion
 
 ## MANDATORY SEQUENCE
 
@@ -145,6 +115,10 @@ Based on the overall verdict, present the appropriate recommendation:
 
 **After resolving blockers:** Re-run **[VS] Verify Stack**. Repeat until verdict improves to FEASIBLE or CONDITIONALLY FEASIBLE."
 
+### 4b. Result Contract
+
+Write `{forge_data_folder}/verify-stack-result.json` per `shared/references/output-contract-schema.md`. Include the feasibility report path in `outputs`; include `overall_verdict` (FEASIBLE/CONDITIONALLY FEASIBLE/NOT FEASIBLE), `coverage_percentage`, and `recommendation_count` in `summary`.
+
 ### 5. Present Menu
 
 Display: "**[R] Review full report** | **[X] Exit verification**"
@@ -163,6 +137,7 @@ Re-run **[VS] Verify Stack** anytime after making changes to your skills or arch
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting the menu
+- **GATE [default: X]** — If `{headless_mode}`: auto-proceed with [X] Exit verification, log: "headless: auto-exit past report menu"
 - R may be selected multiple times — always walk through the full report
 - X triggers the health check, which is the true workflow exit
 
@@ -170,28 +145,3 @@ Re-run **[VS] Verify Stack** anytime after making changes to your skills or arch
 
 When the user selects X, this step chains to the shared health check. After the health check completes, the verify-stack workflow is fully done. The feasibility report at `{outputFile}` contains the full analysis: Coverage Matrix, Integration Verdicts, Requirements Coverage, and Synthesis & Recommendations.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Complete report loaded and verified for section completeness
-- Overall verdict displayed prominently with key metrics
-- Delta from previous run shown if applicable
-- Detailed findings presented with focus on risky/blocked/missing items
-- Next steps match the verdict exactly (FEASIBLE/CONDITIONALLY FEASIBLE/NOT FEASIBLE)
-- Menu presented with R and X options
-- Report walkthrough available on R selection
-- Workflow exits cleanly on X with saved file path
-
-### ❌ SYSTEM FAILURE:
-
-- Discovering new findings or changing verdicts in this step
-- Modifying the report content
-- Next step recommendations that do not match the verdict
-- Not presenting the menu
-- Not displaying the report save path on exit
-- Hardcoded paths instead of frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

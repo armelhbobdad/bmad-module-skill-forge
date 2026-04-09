@@ -1,6 +1,6 @@
 ---
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
-nextStepFile: '../../shared/health-check.md'
+nextStepFile: 'shared/health-check.md'
 ---
 
 # Step 6: Generate Report
@@ -9,41 +9,12 @@ nextStepFile: '../../shared/health-check.md'
 
 Finalize the drift report by completing the Audit Summary with calculated metrics, generating actionable remediation suggestions for each drift finding, and adding provenance metadata. Present the final report to the user with a next-workflow recommendation.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill auditor delivering the final audit report
-- ✅ Remediation suggestions must be specific and actionable
-- ✅ Every suggestion must reference the specific drift finding it addresses
-
-### Step-Specific Rules:
-
-- 🎯 Focus on completing the report — summary, remediation, provenance
-- 🚫 FORBIDDEN to discover new drift items or reclassify severity
-- 💬 Remediation suggestions must be practical: what to change, where, and why
-- 📋 Chains to shared health check via `{nextStepFile}` — no further steps after that
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Complete all remaining sections in {outputFile}
-- 💾 Update {outputFile} frontmatter to mark workflow complete
-- 📖 Present final summary to user
-- 🚫 Do not re-analyze — only synthesize and present
-
-## CONTEXT BOUNDARIES:
-
-- Available: Complete drift report with structural diff, semantic diff, severity classification
-- Focus: Synthesis, remediation guidance, and presentation
-- Limits: Do not add new findings or reclassify — only complete the report
-- Dependencies: Steps 01-05 must be complete
+- Focus on completing the report — summary, remediation, provenance
+- Do not discover new drift items or reclassify severity
+- Remediation suggestions must be practical: what to change, where, and why
+- Chains to shared health check via `{nextStepFile}` after completion
 
 ## MANDATORY SEQUENCE
 
@@ -187,33 +158,11 @@ Update {outputFile} frontmatter:
 
 **Audit workflow complete.**"
 
+### Result Contract
+
+Write `{forge_version}/audit-skill-result.json` per `shared/references/output-contract-schema.md`. Include the drift report path in `outputs`; include `drift_count` and `severity` (CLEAN/MINOR/SIGNIFICANT/CRITICAL) in `summary`.
+
 ### Workflow Health Check
 
 Load and execute `{nextStepFile}` for workflow self-improvement check.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Audit Summary completed with accurate metrics
-- Remediation suggestion for every CRITICAL and HIGH finding
-- Each remediation is specific: what to change, where, and why
-- Provenance section documents complete audit trail
-- Overall drift score correctly reflects findings
-- Frontmatter updated with completion status and nextWorkflow
-- Final summary presented clearly to user
-- Report saved to correct output path
-
-### ❌ SYSTEM FAILURE:
-
-- Missing remediation for any CRITICAL or HIGH finding
-- Vague remediation suggestions (e.g., "update the skill" without specifics)
-- Discovering new findings in this step
-- Reclassifying severity
-- Not presenting final summary to user
-- Missing provenance section
-- Hardcoded paths instead of frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

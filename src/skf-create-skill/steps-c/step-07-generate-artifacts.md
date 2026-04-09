@@ -9,43 +9,11 @@ forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
 
 To write all compiled content to disk — 4 deliverable files to `{skill_package}` and 3 workspace artifacts to `{forge_version}`, creating directories as needed. Then create or update the `active` symlink.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🎯 ALWAYS follow the exact instructions in the step file
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill compilation engine performing artifact generation
-- ✅ All content was assembled in step-05 and validated in step-06
-- ✅ This step ONLY writes — it does not modify, compile, or validate content
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on writing files from the compiled content in context
-- 🚫 FORBIDDEN to modify content during writing — write exactly what was compiled
-- 🚫 FORBIDDEN to skip any artifact — all base artifact types must be written (4 deliverables + 3 workspace files + N reference files)
-- 💬 Report each file written with its path
-- 📁 Create directories before writing files
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow MANDATORY SEQUENCE exactly
-- 💾 Write files using the compiled content from context
-- 📖 Create directory structure first, then write files
-- 🚫 Halt with error if a file write fails — do not continue with partial output
-
-## CONTEXT BOUNDARIES:
-
-- Available: All compiled content from step-05, validation results from step-06, source_root from step-01 (needed for section 5b CCC registration)
-- Focus: File system operations — create directories, write files
-- Limits: Do NOT modify content during writing
-- Dependencies: All content must be compiled and validated in context
-- Path resolution: See `knowledge/version-paths.md` for canonical path templates (`{skill_package}`, `{skill_group}`, `{forge_version}`, `{forge_group}`)
+- Focus only on writing files from compiled content — do not modify content during writing
+- All base artifact types must be written (4 deliverables + 3 workspace files + N reference files)
+- Create directories before writing files
 
 ## MANDATORY SEQUENCE
 
@@ -235,29 +203,3 @@ After all artifacts are written, verified, and optionally indexed into QMD, imme
 
 ONLY WHEN all 7 artifact files are written, the active symlink is created, and verification is complete will you proceed to load `{nextStepFile}` for the compilation report.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Directory structure created ({skill_group}, {skill_package}, {forge_version})
-- All 4 deliverable files written to {skill_package}
-- All 3 workspace artifact files written to {forge_version}
-- Active symlink created at {skill_group}/active -> {version}
-- Write completion verified — all 7 files exist and symlink resolves
-- Deep tier: QMD collection `{name}-extraction` created/updated and registered in forge-tier.yaml
-- Non-Deep tier: QMD indexing skipped silently
-- Brief confirmation displayed with file list
-- Auto-proceeded to step-08
-
-### ❌ SYSTEM FAILURE:
-
-- Modifying content during the write step
-- Skipping any of the 7 required files
-- Proceeding with partial output if a write fails
-- Not creating directories before writing
-- Not verifying all files were written
-- Failing the workflow due to QMD indexing errors (should degrade gracefully)
-
-**Master Rule:** This step writes artifacts, creates the active symlink, and registers QMD collections. All content was compiled and validated in previous steps. Write faithfully, verify completely. QMD indexing failures never block the workflow.

@@ -99,4 +99,4 @@ VS and RA are pre-code workflows. SS compose-mode synthesizes the implementation
 - [skill-lifecycle.md](skill-lifecycle.md) — end-to-end pipeline and workflow connections
 - [progressive-capability.md](progressive-capability.md) — tier philosophy for skill generation
 
-_Source: synthesized from verify-stack/workflow.md, refine-architecture/workflow.md, and create-stack-skill compose-mode-rules.md_
+_Source: synthesized from skf-verify-stack/SKILL.md, skf-refine-architecture/SKILL.md, and skf-create-stack-skill/references/compose-mode-rules.md_

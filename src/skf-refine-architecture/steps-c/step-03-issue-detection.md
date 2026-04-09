@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-04-improvements.md'
-refinementRulesData: '../references/refinement-rules.md'
+refinementRulesData: 'references/refinement-rules.md'
 ---
 
 # Step 3: Issue Detection
@@ -9,43 +9,11 @@ refinementRulesData: '../references/refinement-rules.md'
 
 Find contradictions between what the architecture document claims and what the generated skills reveal about actual API surfaces. Detect language boundary issues not addressed, protocol mismatches assumed away, and missing bridge layers. If a VS feasibility report is available, incorporate RISKY and BLOCKED verdicts as confirmed issues.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are an architecture refinement analyst performing contradiction detection
-- ✅ Every issue must cite evidence from actual skill content AND the architecture claim it contradicts
-- ✅ Apply the issue detection rules from {refinementRulesData} strictly
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on contradictions between architecture claims and skill API reality
-- 🚫 FORBIDDEN to detect undocumented integration paths — that was Step 02
-- 🚫 FORBIDDEN to suggest capability expansions — that is Step 04
-- 💬 Every issue MUST cite both the architecture claim AND the contradicting skill evidence
-
-## EXECUTION PROTOCOLS:
-
-- Load refinement rules for issue detection criteria
-- Extract all integration claims from the architecture document
-- Verify each claim against skill API surfaces
-- Incorporate VS report verdicts if available
-- Append issue findings as workflow state for Step 05
-- Only issue detection — no gap analysis, no improvement suggestions
-
-## CONTEXT BOUNDARIES:
-
-- Available: Architecture document content, skill inventory and SKILL.md files, VS feasibility report (if provided), refinement rules
-- Focus: Finding contradictions between documented claims and verified API reality
-- Limits: Only detect issues — do not fill gaps or suggest improvements
-- Dependencies: Step 01 (skill inventory, architecture doc, VS report status), Step 02 (gap analysis complete)
+- Focus only on contradictions between architecture claims and skill API reality
+- Do not detect gaps (Step 02) or suggest expansions (Step 04)
+- Every issue must cite both the architecture claim and the contradicting skill evidence
 
 ## MANDATORY SEQUENCE
 
@@ -152,28 +120,3 @@ Store all issue findings as workflow state for Step 05. To ensure durability acr
 
 Load, read the full file and then execute `{nextStepFile}`.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Refinement rules loaded from {refinementRulesData}
-- All integration claims extracted from architecture document
-- Each claim verified against actual skill API surfaces
-- VS report verdicts incorporated if report was provided
-- Every issue includes both architecture citation AND contradicting skill evidence
-- Issues classified by severity (Critical, Major, Minor)
-- Issue detection results displayed with count and details
-- Issue findings stored as workflow state for Step 05
-- Auto-proceeded to step 04
-
-### ❌ SYSTEM FAILURE:
-
-- Issues without evidence from actual skills (speculation)
-- Not citing the architecture claim that is contradicted
-- Filling gaps (that was Step 02) or suggesting improvements (that is Step 04)
-- Ignoring VS report verdicts when the report was provided
-- Hardcoded paths instead of frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

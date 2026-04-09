@@ -10,41 +10,10 @@ preferencesFile: '{sidecar_path}/preferences.yaml'
 
 To load and validate the skill-brief.yaml compilation config, resolve the source code location, and load the forge tier from sidecar to determine available capabilities for the compilation pipeline.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🎯 ALWAYS follow the exact instructions in the step file
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill compilation engine performing initialization
-- ✅ This is an autonomous init step — no user interaction needed
-- ✅ Load data, validate structure, resolve paths, determine capabilities
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on loading brief, resolving source, and determining tier
-- 🚫 FORBIDDEN to begin extraction or compilation — that's steps 03-05
-- 🚫 FORBIDDEN to write any output files — this step only loads and validates
-- 💬 Report initialization status clearly
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow MANDATORY SEQUENCE exactly
-- 💾 All loaded data remains in context for subsequent steps
-- 📖 Validate brief structure before proceeding
-- 🚫 Halt with actionable error if prerequisites are missing
-
-## CONTEXT BOUNDARIES:
-
-- Available: User's skill name or brief path from Ferris menu invocation
-- Focus: Loading inputs and determining capabilities
-- Limits: Do NOT begin any extraction or compilation work
-- Dependencies: forge-tier.yaml must exist (from setup workflow)
+- Focus only on loading brief, resolving source, and determining tier — do not begin extraction or compilation
+- Do not write any output files — this step only loads and validates
 
 ## MANDATORY SEQUENCE
 
@@ -112,7 +81,7 @@ Halt with specific error: "Brief validation failed: missing required field `{fie
 **If `source_type: "docs-only"`:** Skip source resolution. Set `source_root: null` in context. Proceed directly to section 5 (Report Initialization) — docs-only skills have no source to resolve.
 
 **If source_repo is a GitHub URL or owner/repo format:**
-- Verify repository exists via `gh_bridge.list_tree(owner, repo, branch)` — **Tool resolution:** `gh api repos/{owner}/{repo}/git/trees/{branch}?recursive=1` or direct file listing if local; see [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md)
+- Verify repository exists via `gh_bridge.list_tree(owner, repo, branch)` — **Tool resolution:** `gh api repos/{owner}/{repo}/git/trees/{branch}?recursive=1` or direct file listing if local; see `knowledge/tool-resolution.md`
 - If branch not specified, detect default branch
 - Store resolved: owner, repo, branch, file tree — note: `source_root` for remote repos is set to the ephemeral clone path during extraction (step-03)
 
@@ -160,24 +129,3 @@ After initialization is complete and all data is loaded, immediately load, read 
 
 ONLY WHEN forge-tier.yaml is loaded, skill-brief.yaml is validated, and source code location is resolved will you proceed to load `{nextStepFile}` for ecosystem check.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Forge tier loaded from sidecar with tool availability
-- Skill brief loaded and all required fields validated
-- Source code location resolved and accessible (or `source_root: null` confirmed for docs-only skills)
-- Initialization summary displayed with tier and capabilities
-- Auto-proceeded to step-02
-
-### ❌ SYSTEM FAILURE:
-
-- Proceeding without forge-tier.yaml (missing prerequisite)
-- Proceeding with invalid or incomplete brief
-- Not resolving source code location before proceeding
-- Beginning extraction or compilation work in this step
-- Not displaying initialization summary
-
-**Master Rule:** This step ONLY loads and validates. It does NOT extract, compile, or write files.

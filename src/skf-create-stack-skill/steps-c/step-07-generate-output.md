@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-08-validate.md'
-stackSkillTemplate: '../assets/stack-skill-template.md'
+stackSkillTemplate: 'assets/stack-skill-template.md'
 ---
 
 # Step 7: Generate Output Files
@@ -9,42 +9,11 @@ stackSkillTemplate: '../assets/stack-skill-template.md'
 
 Write all deliverable and workspace artifact files to their target directories.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill packager operating in Ferris Architect mode
-- ✅ Precise file writing — every file matches its template structure
-- ✅ Hard halt on any write failure — partial output is worse than no output
-
-### Step-Specific Rules:
-
-- 🎯 Write ALL output files in correct directory structure
-- 🚫 FORBIDDEN to modify compiled content — step 06 produced the approved version
-- 💬 Report each file written with path and size
-- 🎯 Create directory structure before writing files
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Create output directories, write all files
-- 💾 Store written_files list as workflow state
-- 📖 Auto-proceed to validation after all files written
-- 🚫 HARD HALT on any individual file write failure
-
-## CONTEXT BOUNDARIES:
-
-- From step 06: skill_content (approved compiled SKILL.md)
-- From step 04: per_library_extractions[] for reference files
-- From step 05: integration_graph for integration pair references
-- From step 01: forge_tier, project info for metadata
-- This step produces: written_files[] (all output artifacts)
-- Path resolution: See `knowledge/version-paths.md` for canonical path templates. Stack skills use `{project_name}-stack` as the skill name
+- Write all output files in correct directory structure — do not modify compiled content from Step 06
+- Create directory structure before writing files
+- Report each file written with path and size
 
 ## MANDATORY SEQUENCE
 
@@ -163,45 +132,84 @@ Write workspace artifacts to `{forge_version}`:
 **In code-mode:**
 ```json
 {
-  "libraries": {
-    "lib_name": {
-      "manifest_source": "package.json",
-      "extraction_method": "ast_bridge|source_reading|qmd_bridge",
+  "provenance_version": "2.0",
+  "skill_name": "{project_name}-stack",
+  "skill_type": "stack",
+  "source_repo": ["{repo_url_1}", "{repo_url_2}"],
+  "source_commit": {"{repo_1}": "{hash_1}", "{repo_2}": "{hash_2}"},
+  "generated_at": "{ISO-8601}",
+  "entries": [
+    {
+      "export_name": "{name}",
+      "export_type": "{type}",
+      "source_library": "{library-name}",
+      "params": [],
+      "return_type": "{type}",
+      "source_file": "{file}",
+      "source_line": 0,
       "confidence": "T1|T1-low|T2",
-      "files_analyzed": N,
-      "exports_found": N
+      "extraction_method": "ast_bridge|source_reading|qmd_bridge",
+      "signature_source": "T1|T2|T3"
     }
-  },
-  "integrations": {
-    "libA+libB": {
+  ],
+  "integrations": [
+    {
+      "libraries": ["{libA}", "{libB}"],
+      "pattern_type": "{type}",
       "detection_method": "co-import grep",
-      "co_import_files": N,
-      "type": "pattern_type"
+      "co_import_files": [{"file": "{path}", "line": 0}],
+      "confidence": "T1|T2"
     }
-  }
+  ]
 }
 ```
 
 **In compose-mode:**
 ```json
 {
-  "libraries": {
-    "lib_name": {
-      "source_skill_path": "skills/{skill_dir}/",
-      "compose_source": "architecture_co_mention|inferred_from_shared_domain",
+  "provenance_version": "2.0",
+  "skill_name": "{project_name}-stack",
+  "skill_type": "stack",
+  "source_repo": null,
+  "source_commit": null,
+  "source_ref": null,
+  "generated_at": "{ISO-8601}",
+  "entries": [
+    {
+      "export_name": "{name}",
+      "export_type": "{type}",
+      "source_library": "{library-name}",
+      "params": [],
+      "return_type": "{type}",
+      "source_file": "{from constituent skill}",
+      "source_line": 0,
       "confidence": "T1|T1-low|T2",
-      "source_skill_tier": "{original skill confidence tier}",
-      "exports_found": N
+      "extraction_method": "compose-from-skill",
+      "signature_source": "T1|T2|T3"
     }
-  },
-  "integrations": {
-    "libA+libB": {
+  ],
+  "integrations": [
+    {
+      "libraries": ["{libA}", "{libB}"],
+      "pattern_type": "{type}",
       "detection_method": "architecture_co_mention|inferred_from_shared_domain",
-      "type": "pattern_type"
+      "co_import_files": [],
+      "confidence": "T2|T3"
     }
-  }
+  ],
+  "constituents": [
+    {
+      "skill_name": "{constituent-skill-name}",
+      "skill_path": "skills/{skill-dir}/",
+      "version": "{version from constituent metadata.json}",
+      "composed_at": "{ISO-8601}",
+      "metadata_hash": "sha256:{hash of constituent metadata.json}"
+    }
+  ]
 }
 ```
+
+> **Note:** Per-export entries use the same schema as single skills (see `skill-sections.md`), with `source_library` identifying the originating library. In compose-mode, `constituents[]` enables audit to detect constituent drift via metadata hash comparison.
 
 **evidence-report.md:**
 - Extraction summary per library
@@ -244,24 +252,3 @@ If the symlink already exists, remove it first and recreate. This ensures `{skil
 
 Load, read the full file and then execute `{nextStepFile}`.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All deliverable files written to {skill_package}
-- All workspace artifacts written to {forge_version}
-- Directory structure created correctly with version nesting
-- Active symlink created at {skill_group}/active -> {version}
-- Each file matches its template structure
-- Write summary displayed with accurate counts
-
-### ❌ SYSTEM FAILURE:
-
-- Any file write failure not caught (hard halt required)
-- Modifying approved skill_content during writing
-- Missing files from the expected output set
-- Wrong directory paths for output
-
-**Master Rule:** Write everything, modify nothing. Hard halt on any write failure.

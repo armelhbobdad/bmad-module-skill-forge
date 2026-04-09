@@ -1,8 +1,8 @@
 ---
 nextStepFile: './step-04-coherence-check.md'
-outputFile: '{forge_data_folder}/{skill_name}/test-report-{skill_name}.md'
-scoringRulesFile: '../references/scoring-rules.md'
-sourceAccessProtocol: '../references/source-access-protocol.md'
+outputFile: '{forge_version}/test-report-{skill_name}.md'
+scoringRulesFile: 'references/scoring-rules.md'
+sourceAccessProtocol: 'references/source-access-protocol.md'
 ---
 
 # Step 3: Coverage Check
@@ -11,44 +11,11 @@ sourceAccessProtocol: '../references/source-access-protocol.md'
 
 Compare the exports, functions, classes, types, and interfaces documented in SKILL.md against the actual source code API surface. Identify missing documentation, undocumented exports, and signature mismatches. Analysis depth scales with forge tier.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER fabricate findings — every coverage result must trace to actual source code or SKILL.md content
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill auditor in Ferris's Audit mode — zero hallucination
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Every finding must include file:line citations from source code
-- ✅ Report what IS documented vs what SHOULD BE documented — facts only
-
-### Step-Specific Rules:
-
-- 🎯 Use subprocess optimization for per-file AST analysis when available
-- 💬 Subprocess returns structured findings only, not full file contents
-- 🚫 DO NOT BE LAZY — For EACH source file, launch a subprocess for deep analysis
-- ⚙️ If subprocess unavailable, perform analysis in main thread sequentially
-- 📋 Coverage depth must match the detected forge tier
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Load SKILL.md exports section and source files
-- 💾 Append Coverage Analysis section to {outputFile}
-- 📖 Update stepsCompleted in {outputFile}
-- 🚫 FORBIDDEN to proceed without completing all source file analysis
-
-## CONTEXT BOUNDARIES:
-
-- Available: SKILL.md, source files, forge tier, test mode from step 02
-- Focus: Export coverage comparison only — coherence is step 04
-- Limits: Do NOT validate cross-references or integration patterns (that's coherence)
-- Dependencies: step-02 must have set testMode and reported forge tier
+- Use subprocess optimization for per-file AST analysis when available; if unavailable, analyze sequentially
+- For each source file, launch a subprocess for deep analysis — do not shortcut
+- Coverage depth must match the detected forge tier
 
 ## MANDATORY SEQUENCE
 
@@ -72,23 +39,45 @@ Load `{sourceAccessProtocol}` and follow both sections:
 
 ### 1. Extract Documented Exports from SKILL.md
 
-Read SKILL.md and extract all documented items:
+<!-- Subagent delegation: read SKILL.md + references/*.md, return compact JSON inventory -->
 
-- **Functions:** name, parameters, return type, description
-- **Classes:** name, methods, properties
-- **Types/Interfaces:** name, fields
-- **Constants/Enums:** name, values
-- **Hooks/Patterns:** name, usage signature
+Delegate reading of the skill under test to a subagent. The subagent receives the path to SKILL.md (and the `references/` directory path if it exists) and MUST:
+1. Read SKILL.md
+2. If a `references/` directory exists alongside SKILL.md and SKILL.md's `## Full` headings are absent or stubs, also read all `references/*.md` files
+3. ONLY return this compact JSON inventory — no prose, no extra commentary:
 
-Build the **documented inventory** — a list of everything the SKILL.md claims the source provides.
+```json
+{
+  "exports": [
+    {"name": "functionName", "kind": "function", "params": "...", "return_type": "...", "description": "..."},
+    {"name": "ClassName", "kind": "class", "methods": ["..."], "properties": ["..."]},
+    {"name": "TypeName", "kind": "type", "fields": ["..."]},
+    {"name": "CONST_NAME", "kind": "constant", "values": ["..."]},
+    {"name": "useHook", "kind": "hook", "usage_signature": "..."}
+  ],
+  "capabilities": ["brief capability descriptions from the skill overview"],
+  "references": ["references/api-reference.md", "references/type-definitions.md"],
+  "cross_check_mismatches": [
+    {
+      "export": "functionName",
+      "skill_md_line": 42,
+      "reference_file": "references/api-reference.md",
+      "reference_line": 18,
+      "issue": "description of the signature mismatch"
+    }
+  ]
+}
+```
 
-**Split-body traversal:** If a `references/` directory exists alongside SKILL.md and SKILL.md's `## Full` headings are absent or stubs (not a stack skill's structural references), extend the documented inventory scan to include all `references/*.md` files. After split-body, Tier 2 content (Full API Reference, Full Type Definitions) lives in reference files — the inventory must reflect the full skill content regardless of where it resides.
+**Parent uses this JSON summary as the documented inventory.** Do not load SKILL.md or references file contents into parent context.
+
+**Split-body traversal** is handled inside the subagent: if `references/` exists and `## Full` headings are absent or stubs in SKILL.md, the subagent extends its scan to all `references/*.md` files and includes them in the `exports` array. After split-body, Tier 2 content (Full API Reference, Full Type Definitions) lives in reference files — the inventory must reflect the full skill content regardless of where it resides.
 
 ### 1b. Cross-Check Split-Body Consistency
 
-**Only execute if a `references/` directory exists alongside SKILL.md** (detected during split-body traversal in Section 1). Skip silently otherwise.
+**Only execute if the subagent's `references` array is non-empty** (detected during split-body traversal in Section 1). Skip silently otherwise.
 
-For each function, class, type, or interface that appears in BOTH the SKILL.md body AND any `references/*.md` file, compare the documented signatures:
+The subagent has already read both SKILL.md body and `references/*.md` files. For each function, class, type, or interface that appears in BOTH the SKILL.md body AND any `references/*.md` file, instruct the subagent (or perform in the same subagent call from Section 1) to compare the documented signatures and include mismatches in its JSON output as a `cross_check_mismatches` array:
 
 - **Parameters:** name, type, order, optionality
 - **Return types:** exact type match
@@ -96,7 +85,7 @@ For each function, class, type, or interface that appears in BOTH the SKILL.md b
 
 **SKILL.md body is authoritative.** When a mismatch is found, the reference file is the one that needs updating.
 
-Build a split-body consistency findings list:
+Parent reads `cross_check_mismatches` from the subagent JSON summary. Build the split-body consistency findings list:
 
 ```json
 {
@@ -252,26 +241,3 @@ Display: "**Proceeding to coherence check...**"
 
 ONLY WHEN all source files have been analyzed, the Coverage Analysis section has been appended to {outputFile}, and category scores have been calculated, will you then load and read fully `{nextStepFile}` to execute coherence check.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All source files analyzed at appropriate tier depth; split-body references/ traversed when present
-- Every finding has file:line citation (Forge/Deep) or file-level reference (Quick)
-- Per-export status table complete
-- Category scores calculated per scoring rules
-- Coverage Analysis section appended to output document
-- Zero fabricated findings — all traceable to source
-
-### ❌ SYSTEM FAILURE:
-
-- Fabricating export names or signatures not in source code
-- Skipping source files (DO NOT BE LAZY)
-- Not scaling analysis depth to forge tier
-- Not calculating category scores
-- Reporting coverage without per-export evidence
-- Hardcoding paths instead of using frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE. Zero hallucination — every finding traces to code.

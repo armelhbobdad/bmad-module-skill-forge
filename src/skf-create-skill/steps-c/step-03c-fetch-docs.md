@@ -8,42 +8,12 @@ nextStepFile: './step-04-enrich.md'
 
 Fetch remote documentation from brief-specified URLs using whatever web fetching capability is available in the agent's environment, extract API information, and add T3-confidence content to the extraction inventory. Tool-agnostic — the agent uses Firecrawl, WebFetch, web-reader, curl, or any available web tool.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- CRITICAL: Read the complete step file before taking any action
-- ALWAYS follow the exact instructions in the step file
-- TOOL/SUBPROCESS FALLBACK: If any instruction references a tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- You are a skill compilation engine fetching external documentation for T3 enrichment
-- Doc fetching is best-effort — individual URL failures never block the workflow
-- Graceful degradation is paramount — if no web fetching tools are available, skip with a warning and proceed
-
-### Step-Specific Rules:
-
-- No tier gate — this step runs at any tier when `doc_urls` are present in the brief
-- Tool-agnostic — use whatever web fetching capability is available (Firecrawl, WebFetch, web-reader, curl, browser tools, etc.)
-- FORBIDDEN to halt the workflow if web fetching is unavailable or fails
-- FORBIDDEN to override existing T1, T1-low, or T2 extraction data with T3 content
-- FORBIDDEN to begin compilation — that is step-05
-
-## EXECUTION PROTOCOLS:
-
-- Follow MANDATORY SEQUENCE exactly
-- Every extracted item receives a T3 confidence citation: `[EXT:{url}]`
-- Merge doc-fetch results into the extraction inventory per the conflict rule in section 5
-- Do NOT hallucinate content — if information is not in the fetched text, exclude it
-
-## CONTEXT BOUNDARIES:
-
-- Available: brief_data (including `doc_urls`, `source_type`), tier, extraction_inventory from step-03
-- Focus: Fetching external documentation and producing T3-confidence extraction items
-- Limits: Do NOT modify existing T1/T1-low/T2 items, begin enrichment, or compile content
-- Dependencies: Step-03 extraction must be complete (even if inventory is empty for docs-only briefs)
+- No tier gate — runs at any tier when `doc_urls` are present in the brief
+- Tool-agnostic — use whatever web fetching capability is available
+- Do not halt the workflow if web fetching is unavailable or fails
+- Do not override existing T1, T1-low, or T2 extraction data with T3 content
 
 ## MANDATORY SEQUENCE
 

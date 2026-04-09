@@ -8,44 +8,11 @@ nextStepFile: './step-04-compile.md'
 
 To read the resolved GitHub repository source and extract the public API surface using surface-level source reading (no AST). Produces an extraction inventory of exports, descriptions, and manifest data for compilation.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a rapid skill compiler extracting public API surface
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ Best-effort extraction — completeness is not required
-- ✅ Surface-level reading only — no AST, no deep analysis
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on reading source and extracting exports
-- 🚫 FORBIDDEN to begin compilation or write output files
-- 💬 Approach: Read key files, extract what's visible, move on
-- 📋 No AST required — use grep/pattern-based extraction
-- 📋 If no exports found, extract what's available from README
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Set state: extraction_inventory (exports list, description, manifest data)
-- 📖 Web browsing required to read GitHub source files
-- 🚫 Do not spend excessive time on extraction — best-effort
-
-## CONTEXT BOUNDARIES:
-
-- Previous steps provided: resolved_url, repo_name, language, scope_hint
-- Web browsing available for reading GitHub source files
-- Focus: extraction only, not compilation
-- This is best-effort — incomplete extraction is acceptable
+- Best-effort extraction — completeness is not required; surface-level reading only, no AST
+- Do not begin compilation or write output files
+- If no exports found, use README content as fallback
 
 ## MANDATORY SEQUENCE
 
@@ -153,24 +120,3 @@ extraction_inventory:
 
 ONLY WHEN extraction is complete and extraction_inventory is assembled (even if minimal/low-confidence) will you load and read fully `{nextStepFile}` to execute compilation.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- README read and description extracted
-- Manifest file read and metadata extracted
-- Top-level exports scanned (best-effort)
-- extraction_inventory assembled with available data
-- Confidence level set appropriately
-- Auto-proceeding to compilation
-
-### ❌ SYSTEM FAILURE:
-
-- Spending excessive time trying to achieve complete extraction
-- Using AST tools (this is surface-level reading only)
-- Beginning compilation or writing output files
-- Halting on missing exports instead of using README fallback
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

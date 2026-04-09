@@ -8,43 +8,12 @@ nextStepFile: './step-03c-fetch-docs.md'
 
 To fetch temporal context (issues, PRs, changelogs, release notes) from the source repository and index it into a QMD collection for Deep tier enrichment. This ensures step-04 has historical data to search when annotating extracted functions with T2 provenance.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🎯 ALWAYS follow the exact instructions in the step file
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill compilation engine fetching temporal data for QMD enrichment
-- ✅ Temporal context is best-effort — failures never block the workflow
-- ✅ Graceful degradation is paramount — non-GitHub repos or missing tools are silent skips, not errors
-
-### Step-Specific Rules:
-
-- 🎯 Deep tier only — Quick, Forge, and Forge+ tiers skip this step entirely and silently
-- 🎯 GitHub repositories only — other source types degrade gracefully
-- 🚫 FORBIDDEN to halt the workflow if fetching or indexing fails
-- 🚫 FORBIDDEN to modify extraction data from step-03 — this step only creates QMD collections
-- 💾 Write fetched content to a staging directory, index into QMD, then clean up
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow MANDATORY SEQUENCE exactly
-- 💾 Write fetched markdown files to a staging directory: `_bmad-output/{skill-name}-temporal/`
-- 📖 Index the staging directory into QMD and register in `forge-tier.yaml`
-- 🚫 Never leave staging files on disk after indexing — always clean up
-
-## CONTEXT BOUNDARIES:
-
-- Available: brief_data, tier, source_location from step-01; extraction_inventory from step-03
-- **Used from extraction_inventory:** `top_exports[]` — the list of top-level public API function names (typically 10-20). Used for targeted GitHub searches (section 3b). If `extraction_mode: "docs-only"` or `top_exports` is absent/empty, skip targeted searches silently.
-- Focus: Creating a QMD temporal collection for the source repository
-- Limits: Do NOT modify extraction data, begin enrichment, or compile content
-- Dependencies: Extraction must be complete from step-03
+- Deep tier only — Quick, Forge, and Forge+ tiers skip this step entirely and silently
+- GitHub repositories only — other source types degrade gracefully
+- Do not halt the workflow if fetching or indexing fails
+- Do not modify extraction data from step-03 — this step only creates QMD collections
 
 ## MANDATORY SEQUENCE
 
@@ -223,29 +192,3 @@ After temporal context is fetched and indexed (or skipped for any reason), immed
 
 ONLY WHEN temporal context is indexed into QMD (or the step is skipped due to eligibility, cache, or failure) will you proceed to load `{nextStepFile}` for documentation fetch.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Non-eligible scenarios (Quick/Forge/Forge+ tier, non-GitHub source, no `gh` CLI) skipped silently
-- Cached collections (< 7 days old) detected and re-fetch skipped
-- Temporal data fetched via `gh` CLI into staging directory (generic + targeted)
-- Targeted searches performed for up to 10 top_exports function names
-- At least one temporal file written (issues, PRs, releases, changelog, or targeted-issues)
-- Collection `{skill-name}-temporal` indexed into QMD
-- Registry entry added/updated in forge-tier.yaml with type `"temporal"`
-- Staging directory cleaned up after indexing
-- Auto-proceeded to step-03c
-
-### ❌ SYSTEM FAILURE:
-
-- Halting the workflow due to a `gh` CLI, QMD, or network failure
-- Leaving staging files on disk after indexing (must clean up)
-- Overwriting or modifying extraction data from step-03
-- Displaying skip messages for Quick/Forge/Forge+ tiers (should be silent)
-- Attempting to fetch temporal data from non-GitHub sources
-- Not registering the collection in forge-tier.yaml after successful indexing
-
-**Master Rule:** Temporal context is best-effort enrichment data. Fetch what you can, index it, clean up, and move on. Failures degrade gracefully — they never block the skill compilation pipeline.

@@ -1,7 +1,7 @@
 ---
 nextStepFile: './step-03-report.md'
-versionPathsKnowledge: '../../knowledge/version-paths.md'
-managedSectionLogic: '../../skf-export-skill/assets/managed-section-format.md'
+versionPathsKnowledge: 'knowledge/version-paths.md'
+managedSectionLogic: 'skf-export-skill/assets/managed-section-format.md'
 ---
 
 # Step 2: Execute Drop
@@ -10,45 +10,12 @@ managedSectionLogic: '../../skf-export-skill/assets/managed-section-format.md'
 
 Execute the drop decisions recorded in step-01: update the export manifest, rebuild platform context files so dropped versions disappear from managed sections, and (in purge mode) delete the affected directories from disk. Record everything that was changed for the final report in step-03.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER modify content outside `<!-- SKF:BEGIN/END -->` markers in platform context files
-- 🛑 NEVER delete files outside the `affected_directories` list from step-01
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Ferris in Management mode — a destructive operation specialist
-- ✅ Execute only the decisions confirmed in step-01 — no scope expansion, no "while I'm at it" extras
-- ✅ Surgical precision: preserve all content outside `<!-- SKF:BEGIN/END -->` markers
-- ✅ Manifest and filesystem must end in a consistent state
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on manifest update, context rebuild, and (in purge mode) file deletion
-- 🚫 FORBIDDEN to re-prompt the user — decisions were made in step-01
-- 🚫 FORBIDDEN to delete files in deprecate mode
-- 🚫 FORBIDDEN to widen the deletion scope beyond `affected_directories`
-- 💬 Report each stage's outcome as it completes so the user sees progress
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Re-read version-paths knowledge to avoid drift between step files
-- 💾 Persist the manifest update before touching platform context files
-- 📖 Rebuild managed sections from the updated manifest, not from memory
-- 🚫 If any stage fails, halt and report which stage failed with recovery guidance
-
-## CONTEXT BOUNDARIES:
-
-- Available: Decisions from step-01 (`target_skill`, `target_versions`, `drop_mode`, `is_skill_level`, `affected_directories`), SKF module config, version-paths knowledge, managed-section format
-- Focus: Manifest mutation, context rebuild, filesystem deletion (purge only)
-- Limits: Only modify content between `<!-- SKF:BEGIN/END -->` markers; only delete directories enumerated in `affected_directories`
-- Dependencies: Step-01 must have completed and stored all decisions in context
+- Focus only on manifest update, context rebuild, and (in purge mode) file deletion
+- Do not re-prompt the user — decisions were made in step-01
+- Do not delete files in deprecate mode; do not widen deletion scope beyond `affected_directories`
+- Report each stage's outcome as it completes
 
 ## MANDATORY SEQUENCE
 
@@ -108,7 +75,7 @@ Store the result as `target_context_files` for this section.
 
 For each entry in `target_context_files`:
 
-1. **Resolve target file** at `{project-root}/{context_file}`.
+1. **Resolve target file** at `{context_file}`.
 
 2. **Read the current file.**
    - If the file does not exist, skip this context file (nothing to rebuild — the file will be re-created next time export-skill runs)
@@ -245,32 +212,3 @@ If any stage fails, record which stage failed and provide recovery guidance in t
 
 ONLY WHEN all execution stages have been attempted (manifest update, context rebuild, file deletion in purge mode, verification) and results have been stored in context, will you then load and read fully `{nextStepFile}` to generate the final report.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Version-paths knowledge and managed-section format re-read at the start of the step
-- Export manifest updated correctly (deprecated status for version-level, skill removal for skill-level)
-- Context files rebuilt for all configured IDEs using the same logic as export-skill step-04 (sections 4b–5), with surgical replacement preserving all content outside markers
-- Deprecated versions no longer appear in any managed section
-- Purge mode: all directories in `affected_directories` deleted with size accounting; `active` symlink updated or removed as appropriate
-- Soft drop: no files deleted; `files_deleted` is empty and `disk_freed` is `"N/A (soft drop)"`
-- Verification checks executed on manifest, context files, and (if purge) deleted paths
-- All results stored in context for step-03
-- Errors at any stage are recorded with recovery guidance rather than silently swallowed
-
-### ❌ SYSTEM FAILURE:
-
-- Deleting files in soft drop mode
-- Deleting directories outside the `affected_directories` list
-- Modifying content outside `<!-- SKF:BEGIN/END -->` markers
-- Rebuilding managed sections from memory instead of the updated manifest
-- Including deprecated versions in the rebuilt skill index
-- Not updating the `active` symlink after a version-level purge when the dropped version was the target
-- Not verifying the final state
-- Hardcoding paths instead of using `{skill_package}`, `{skill_group}`, `{forge_version}`, `{forge_group}` templates
-- Halting the entire workflow on a recoverable per-platform error instead of continuing and reporting
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE. The manifest and the filesystem must end in a consistent state, and every destructive action must trace back to a decision made in step-01.

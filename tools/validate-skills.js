@@ -12,8 +12,8 @@
  * - SKILL-05: name matches directory basename
  * - SKILL-06: description quality (length, "Use when"/"Use if")
  * - SKILL-07: SKILL.md has body content after frontmatter
- * - WF-01: workflow.md frontmatter has no name
- * - WF-02: workflow.md frontmatter has no description
+ * - WF-01: non-SKILL.md file frontmatter has no name
+ * - WF-02: non-SKILL.md file frontmatter has no description
  * - PATH-02: no installed_path variable
  * - STEP-01: step filename format
  * - STEP-06: step frontmatter has no name/description
@@ -526,7 +526,7 @@ function validateSkill(skillDir) {
     if (stepCount > 0 && (stepCount < 2 || stepCount > 10)) {
       const detail =
         stepCount < 2
-          ? `Only ${stepCount} step file found — consider inlining into workflow.md.`
+          ? `Only ${stepCount} step file found — consider inlining into SKILL.md.`
           : `${stepCount} step files found — more than 10 risks LLM context degradation.`;
       findings.push({
         rule: 'STEP-07',

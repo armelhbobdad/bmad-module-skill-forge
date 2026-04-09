@@ -9,45 +9,11 @@ forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 
 To initialize the brief-skill workflow by discovering the forge tier configuration, then gathering the user's target repository, intent, and any upfront scope hints for skill creation.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-
-### Role Reinforcement:
-
-- ✅ You are a skill scoping architect in Ferris Architect mode (exploratory, collaborative)
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ We engage in collaborative dialogue, not command-response
-- ✅ You bring source code analysis and skill design expertise, user brings their domain knowledge and use case
-- ✅ Maintain a warm, guiding tone — this is a discovery conversation
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on gathering intent — do not analyze the repo yet (that's step 02)
-- 🚫 FORBIDDEN to examine source code or list exports in this step
-- 💬 Approach: Open-ended discovery facilitation — "What interests you about this library?"
-- 📋 Collect: target repo, user intent, scope hints, skill name
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Accumulate gathered information conversationally for use in subsequent steps
-- 📖 This is the init step — sets up everything that follows
-- 🚫 FORBIDDEN to proceed without a confirmed target repository
-
-## CONTEXT BOUNDARIES:
-
-- Available context: Module config (forge_data_folder, user_name), forge-tier.yaml (if available)
-- Focus: Understanding WHAT the user wants to skill and WHY
-- Limits: Do not analyze source code, detect language, or list exports — that's step 02
-- Dependencies: None — this is the first step
+- Focus only on gathering intent — do not analyze the repo yet (Step 02)
+- Do not examine source code or list exports in this step
+- Open-ended discovery facilitation — collect target repo, user intent, scope hints, skill name
 
 ## MANDATORY SEQUENCE
 
@@ -204,34 +170,10 @@ Display: "**Select:** [C] Continue to Target Analysis"
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
+- **GATE [default: use args]** — If `{headless_mode}`: consume pre-supplied arguments (target_repo, skill_name, scope_hint, language_hint) and auto-proceed. If required args missing, HALT: "headless mode requires target_repo and skill_name arguments."
 - ONLY proceed to next step when user selects 'C'
 
 ## CRITICAL STEP COMPLETION NOTE
 
 ONLY WHEN C is selected and target repository is confirmed will you load and read fully `./step-02-analyze-target.md` to execute target analysis.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Forge tier discovered (HALT if missing), override applied if set in preferences.yaml
-- Target repository confirmed (GitHub URL or local path)
-- User intent captured with enough context for scoping
-- Skill name derived and confirmed
-- Scope hints noted (if provided)
-- Source type and source authority captured
-- Target version captured (if provided)
-- User ready to proceed to analysis
-
-### ❌ SYSTEM FAILURE:
-
-- Analyzing source code in this step (too early)
-- Proceeding without a confirmed target repository
-- Not halting when forge tier is missing
-- Not attempting to discover forge tier
-- Generating a skill name without user confirmation
-- Skipping the intent gathering conversation
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

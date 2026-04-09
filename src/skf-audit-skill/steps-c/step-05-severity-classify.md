@@ -1,7 +1,7 @@
 ---
 nextStepFile: './step-06-report.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
-severityRulesFile: '../references/severity-rules.md'
+severityRulesFile: 'references/severity-rules.md'
 ---
 
 # Step 5: Severity Classification
@@ -10,43 +10,11 @@ severityRulesFile: '../references/severity-rules.md'
 
 Grade every drift finding from Steps 03 and 04 by severity level (CRITICAL/HIGH/MEDIUM/LOW) using the classification rules. Calculate the overall drift score and produce a categorized findings table with confidence tier labels.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill auditor performing severity assessment
-- ✅ Classification must be deterministic — same finding always gets same severity
-- ✅ Apply rules strictly — do not invent new severity categories or soften classifications
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on classifying severity of existing findings
-- 🚫 FORBIDDEN to discover new drift items — only classify what Steps 03-04 found
-- 🚫 FORBIDDEN to suggest remediation — that happens in Step 06
-- 💬 Use subprocess Pattern 3 (data operations — main thread Read + process in Claude Code, script in CLI) to load severity rules and classify. See [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md)
-- ⚙️ If subprocess unavailable, load rules and classify in main thread
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Load {severityRulesFile} and apply to every finding
-- 💾 Append ## Severity Classification section to {outputFile}
-- 📖 Update {outputFile} frontmatter stepsCompleted when complete
-- 🚫 Only classification — no new findings, no remediation
-
-## CONTEXT BOUNDARIES:
-
-- Available: Structural drift findings (Step 03), semantic drift findings (Step 04 if Deep), severity rules
-- Focus: Applying deterministic severity classification to every finding
-- Limits: Do not discover new drift, do not suggest fixes
-- Dependencies: Steps 03 (and optionally 04) must be complete
+- Only classify severity of existing findings — do not discover new drift items or suggest remediation
+- Classification must be deterministic — apply {severityRulesFile} rules strictly
+- Use subprocess Pattern 3 when available; if unavailable, load rules and classify in main thread
 
 ## MANDATORY SEQUENCE
 
@@ -182,26 +150,3 @@ Display: "**Severity classification complete. Overall drift score: {score}. Proc
 
 ONLY WHEN the ## Severity Classification section has been appended to {outputFile} with all findings classified will you then load and read fully `{nextStepFile}` to execute and begin final report generation.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Severity rules loaded from {severityRulesFile}
-- Every finding from Steps 03-04 classified (none missed)
-- Classification is deterministic — follows rules strictly
-- Overall drift score calculated correctly
-- Structured tables with severity, source type, and confidence
-- Frontmatter drift_score and stepsCompleted updated
-
-### ❌ SYSTEM FAILURE:
-
-- Inventing new severity categories beyond CRITICAL/HIGH/MEDIUM/LOW
-- Missing any finding from classification (incomplete coverage)
-- Softening classifications that should be CRITICAL
-- Discovering new drift items (classification only, not discovery)
-- Suggesting remediation (that is Step 06)
-- Hardcoded paths instead of frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

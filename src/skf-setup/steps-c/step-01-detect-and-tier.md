@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-01b-ccc-index.md'
-tierRulesData: '../references/tier-rules.md'
+tierRulesData: 'references/tier-rules.md'
 ---
 
 # Step 1: Detect Tools and Determine Tier
@@ -9,41 +9,11 @@ tierRulesData: '../references/tier-rules.md'
 
 Verify availability of the four forge tools (ast-grep, gh, qmd, ccc), read any existing configuration for re-run comparison, check for tier override, and calculate the capability tier.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 🎯 Execute all operations autonomously — no user interaction
-
-### Role Reinforcement:
-
-- ✅ You are a system executor performing environment resolution
-- ✅ Tool detection must be empirical — run actual commands, never assume
-- ✅ Record exact results (version strings, error messages)
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on tool detection and tier calculation
-- 🚫 FORBIDDEN to write any files — that is step-02's job
-- 🚫 FORBIDDEN to skip any tool check — all 4 must be verified
-- 💬 Tool command failures are NOT errors — they indicate unavailability
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Store all results in memory for step-02
-- 📖 Load tier-rules.md for calculation reference
-- 🚫 FORBIDDEN to proceed without checking all 4 tools
-
-## CONTEXT BOUNDARIES:
-
-- This is the first step — no prior context exists
-- Available: forge-tier.yaml and preferences.yaml may exist from prior runs
-- Focus: tool verification and tier calculation only
-- Produces: `{detected_tools}`, `{calculated_tier}`, `{previous_tier}`, `{tier_override}` for downstream steps
-- Dependencies: none — this step bootstraps everything
+- Focus only on tool detection and tier calculation — do not write any files (Step 02)
+- Do not skip any tool check — all 4 must be verified
+- Tool command failures are not errors — they indicate unavailability
 
 ## MANDATORY SEQUENCE
 
@@ -139,26 +109,3 @@ ccc availability gates the Forge+ tier and enhances Deep tier when present.
 
 ONLY WHEN all 4 core tools have been verified, optional security scan checked, and the tier calculated will you load and read fully `{nextStepFile}` to execute the CCC index check step.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All 4 tools checked via verification commands (not existence checks)
-- Existing forge-tier.yaml read for re-run comparison (if present)
-- Existing preferences.yaml read for tier_override (if present)
-- Tier correctly calculated from tool results or override applied
-- All results stored in context for step-01b and step-02
-- Auto-proceeded to step-01b
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping any tool verification (ast-grep, gh, qmd, ccc — all 4 must be checked)
-- Using `which` or `command -v` instead of verification commands
-- Assuming tool availability without running the command
-- Writing files in this step (that is step-02)
-- Not checking for existing configuration on re-runs
-- Not checking ccc availability (both binary and daemon health)
-
-**Master Rule:** Every tool MUST be verified empirically. No assumptions, no shortcuts.

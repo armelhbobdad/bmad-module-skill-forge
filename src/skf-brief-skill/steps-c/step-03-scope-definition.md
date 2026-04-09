@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-04-confirm-brief.md'
-scopeTemplatesFile: '../assets/scope-templates.md'
+scopeTemplatesFile: 'assets/scope-templates.md'
 advancedElicitationSkill: '/bmad-advanced-elicitation'
 partyModeSkill: '/bmad-party-mode'
 ---
@@ -11,45 +11,11 @@ partyModeSkill: '/bmad-party-mode'
 
 To collaboratively define the skill's inclusion and exclusion boundaries using the analysis findings from step 02, scope templates, and the user's intent from step 01.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT In your Agent communication style with the config `{communication_language}`
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-
-### Role Reinforcement:
-
-- ✅ You are a skill boundary architect in Ferris Architect mode (collaborative, exploratory)
-- ✅ If you already have been given a name, communication_style and identity, continue to use those while playing this new role
-- ✅ We engage in collaborative dialogue, not command-response
-- ✅ You bring API surface design expertise, user brings their domain knowledge of what's valuable
-- ✅ Maintain warm, guiding tone — help the user make informed scoping decisions
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on defining scope boundaries — do not write the brief yet (that's step 05)
-- 🚫 FORBIDDEN to make scope decisions unilaterally — user drives all scope choices
-- 💬 Approach: Intent-based discovery — "Which parts are most relevant to your use case?"
-- 📋 Produce: scope type, include patterns, exclude patterns
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Accumulate scope decisions conversationally for use in subsequent steps
-- 📖 Reference analysis findings from step 02 throughout
-- 🚫 FORBIDDEN to proceed without user confirmation of scope boundaries
-
-## CONTEXT BOUNDARIES:
-
-- Available context: Target repo, user intent, skill name, forge tier (step 01), repo structure, detected language, modules, exports (step 02)
-- Focus: Defining WHAT is in scope and what is NOT
-- Limits: Do not generate the brief — only define boundaries
-- Dependencies: Analysis findings from step 02
+- Focus only on defining scope boundaries — do not write the brief yet (Step 05)
+- Do not make scope decisions unilaterally — user drives all scope choices
+- Produce: scope type, include patterns, exclude patterns
 
 ## MANDATORY SEQUENCE
 
@@ -100,6 +66,8 @@ Add, remove, or confirm these URLs."
 Wait for confirmation. Record any changes to `doc_urls`.
 
 **If no supplemental doc_urls were collected:** Skip this subsection.
+
+**Scope guidance for first-time users:** A well-scoped skill covers one cohesive capability with 3-8 primary functions. If the scope includes unrelated concerns (e.g., authentication AND data visualization), suggest splitting into separate briefs. If the scope is too narrow (single utility function), suggest expanding to the surrounding capability surface.
 
 ### 2c. Offer Scope Templates
 
@@ -172,6 +140,7 @@ Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Conti
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
+- **GATE [default: C]** — If `{headless_mode}`: accept auto-detected scope (full-repo or manifest-based) and auto-proceed, log: "headless: using auto-detected scope"
 - ONLY proceed to next step when user selects 'C'
 - After other menu items execution, return to this menu
 - User can chat or ask questions — always respond and then redisplay menu
@@ -180,25 +149,3 @@ Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Conti
 
 ONLY WHEN C is selected and scope boundaries are confirmed will you load and read fully `./step-04-confirm-brief.md` to present the complete brief for confirmation.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Scope type selected by user (Full Library, Specific Modules, Public API, or Component Library)
-- Include patterns defined and confirmed
-- Exclude patterns defined and confirmed
-- Language confirmed (or overridden if detection was low confidence)
-- User confirmed the scope summary
-- Menu presented and user input handled correctly
-
-### ❌ SYSTEM FAILURE:
-
-- Making scope decisions without user input
-- Not presenting the scope templates for user selection
-- Skipping the scope summary confirmation
-- Not handling language override when detection confidence was low
-- Writing the brief in this step (too early — that's step 05)
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

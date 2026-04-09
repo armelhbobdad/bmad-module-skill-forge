@@ -1,5 +1,5 @@
 ---
-nextStepFile: '../../shared/health-check.md'
+nextStepFile: 'shared/health-check.md'
 ---
 
 # Step 3: Report Rename Results
@@ -8,40 +8,12 @@ nextStepFile: '../../shared/health-check.md'
 
 Present a clear, final summary of what the rename workflow changed — old and new names, versions renamed, file-level update counts, manifest re-key, platform context rebuild, and any residual warnings or deletion errors — so the user can verify the outcome and know whether any manual follow-up is required.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER modify any files in this step — report only
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 📋 YOU ARE A FACILITATOR, summarizing what step-02 already executed
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are Ferris in Management mode — summarizing a transactional rename with precision
-- ✅ Be explicit about what changed and what did not — no glossing over partial failures
-- ✅ Surface every warning and deletion error so the user knows exactly where manual cleanup is required
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on reporting the results stored in context by step-02
-- 🚫 FORBIDDEN to re-execute any part of the rename
-- 🚫 FORBIDDEN to hide verification warnings, context file rebuild failures, or deletion errors
-- 💬 Present the "next steps" guidance so the user knows which downstream workflows to run
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Render the report using the context values set in step-02 (`old_name`, `new_name`, `affected_versions`, `affected_versions_count`, `files_updated_per_version`, `manifest_rekeyed`, `context_files_updated`, `context_files_failed`, `section2_warnings`, `section3_warnings`, `verification_warnings`, `deletion_errors`)
-- 💬 Include the "next steps" block unconditionally — it captures the common follow-ups for any rename
-
-## CONTEXT BOUNDARIES:
-
-- Available: All decision and result values stored in context by step-01 and step-02
-- Focus: Rendering the final report
-- Limits: No file writes, no deletions, no further execution
-- Dependencies: Step-02 must have completed (or attempted all sections through section 8) and stored its results
+- Focus only on reporting results stored in context by step-02 — do not re-execute any part of the rename
+- Do not hide verification warnings, context file rebuild failures, or deletion errors
+- Present next-steps guidance so the user knows which downstream workflows to run
+- Chains to shared health check via `{nextStepFile}` after completion
 
 ## MANDATORY SEQUENCE
 
@@ -97,6 +69,10 @@ Informational: the old name still appears in SKILL.md body text (prose only, non
   - If this skill was published to agentskills.io under `{old_name}`, the registry version is unchanged — this rename is a LOCAL operation only
 ```
 
+### Result Contract
+
+Write `{skills_output_folder}/{new_name}/rename-skill-result.json` per `shared/references/output-contract-schema.md`. Include all updated file paths (SKILL.md, metadata.json, context-snippet.md, provenance-map.json) in `outputs`; include `old_name`, `new_name`, and `versions_renamed` in `summary`.
+
 ### 2. Workflow Health Check
 
 Load and execute `{nextStepFile}` for workflow self-improvement check.
@@ -105,27 +81,3 @@ Load and execute `{nextStepFile}` for workflow self-improvement check.
 
 This step chains to the shared health check. After the health check completes, the rename-skill workflow is fully done. Do not re-run any earlier step automatically — if the user wants another rename, they should re-invoke the workflow from the top.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Report rendered with old name, new name, and affected version list
-- Per-file update counts stated explicitly (SKILL.md, metadata.json, context-snippet.md, provenance-map.json)
-- Manifest re-key outcome clearly stated
-- Context files rebuilt listed (and failures surfaced when present)
-- All warning categories surfaced (inner rename, missing files, informational body-text mentions)
-- Post-commit deletion errors surfaced with manual cleanup guidance
-- Next-steps block included unconditionally
-- No further file writes or executions performed
-
-### ❌ SYSTEM FAILURE:
-
-- Hiding failed platform rebuilds, verification warnings, or deletion errors
-- Reporting "complete" when step-02 partially failed without flagging it
-- Re-executing any part of the rename workflow
-- Omitting the next-steps guidance
-- Reading stale context values instead of the post-rename state stored by step-02
-
-**Master Rule:** The report must be an honest, complete summary of what step-02 actually did. Every partial failure must be visible so the user knows exactly what manual follow-up, if any, is required.

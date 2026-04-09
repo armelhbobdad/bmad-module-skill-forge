@@ -10,40 +10,12 @@ If ccc is available (`{ccc: true}` from step-01), configure CCC exclusion patter
 
 For Quick and Forge tiers, or when ccc is unavailable, skip silently and proceed.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step, ensure entire file is read
-- 🎯 Execute all operations autonomously — no user interaction
-
-### Role Reinforcement:
-
-- ✅ You are a system executor verifying the ccc index state
-- ✅ ccc indexing failure is never a workflow error — degrade gracefully
-- ✅ No negative messaging for tiers that skip this step
-
-### Step-Specific Rules:
-
-- 🎯 Focus only on ccc index verification and creation
-- 🚫 FORBIDDEN to display skip messages for Quick/Forge tiers
-- 🚫 FORBIDDEN to fail the workflow if ccc indexing fails
-- 🚫 FORBIDDEN to re-index if ccc index already exists and is fresh (< staleness threshold) UNLESS new exclusion patterns were applied to settings.yml
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow the MANDATORY SEQUENCE exactly
-- 💾 Store ccc index state in context for step-02
-- 🚫 FORBIDDEN to write forge-tier.yaml — that is step-02's job
-
-## CONTEXT BOUNDARIES:
-
-- Available: {ccc} boolean and {ccc_daemon} status from step-01
-- Available: {calculated_tier} from step-01
-- Available: existing forge-tier.yaml may contain prior `ccc_index` state
-- Focus: ccc index state verification and creation only
-- Dependencies: step-01 must have completed with tool detection results
+- Focus only on ccc index verification and creation
+- Do not display skip messages for Quick/Forge tiers
+- Do not fail the workflow if ccc indexing fails
+- Do not re-index if ccc index already exists and is fresh, unless new exclusion patterns were applied
 
 ## MANDATORY SEQUENCE
 
@@ -81,17 +53,15 @@ SKF infrastructure and output directories must be excluded from the CCC index �
 
 **Build the SKF exclusion list:**
 
-1. Read `{project-root}/_bmad/_config/skf-manifest.yaml` to resolve configurable paths:
-   - `skills_output_folder` (default: `skills` if manifest is missing or field is absent)
-   - `forge_data_folder` (default: `forge-data` if manifest is missing or field is absent)
+1. Use `{skills_output_folder}` and `{forge_data_folder}` from the workflow activation context (resolved in On Activation from `{project-root}/_bmad/skf/config.yaml`).
 
 2. Assemble the exclusion patterns using `**/` prefix format (matching `.cocoindex_code/settings.yml` convention — e.g., `**/node_modules`):
    - `**/_bmad` — SKF framework module (workflows, agents, knowledge files)
    - `**/_bmad-output` — Build output artifacts
    - `**/.claude` — Claude Code configuration
    - `**/_skf-learn` — SKF learning materials
-   - `**/{skills_output_folder}` — Generated skill files (resolved from manifest)
-   - `**/{forge_data_folder}` — Compilation workspace (resolved from manifest)
+   - `**/{skills_output_folder}` — Generated skill files (from activation context)
+   - `**/{forge_data_folder}` — Compilation workspace (from activation context)
 
 3. Store `{ccc_exclude_patterns}` in context for step-02 to write into forge-tier.yaml.
 
@@ -174,26 +144,3 @@ ccc index
 
 ONLY WHEN ccc index verification is complete (or step is skipped for ccc unavailable) will you load and read fully `{nextStepFile}` to execute the configuration write step.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- ccc unavailable: skipped silently with no output, context variables set to null/none
-- ccc available with fresh index: verified freshness, exclusions configured, skipped re-index, context variables set
-- ccc available with stale/missing index: exclusions configured, index created, context variables set with fresh timestamp
-- ccc indexing fails: logged gracefully, workflow continues, context variables set to failed/null
-- Auto-proceeded to step-02
-
-### ❌ SYSTEM FAILURE:
-
-- Displaying skip messages when ccc is unavailable
-- Halting the workflow on ccc index failure
-- Re-indexing when index is already fresh and path matches (unless exclusion patterns changed)
-- Writing forge-tier.yaml (that is step-02's responsibility)
-- Not storing ccc index context variables for step-02
-- Indexing without configuring SKF exclusion patterns in `.cocoindex_code/settings.yml`
-- Overwriting user customizations in `.cocoindex_code/settings.yml` instead of appending
-
-**Master Rule:** CCC indexing is always best-effort. Failures degrade gracefully. The workflow never halts over ccc issues.

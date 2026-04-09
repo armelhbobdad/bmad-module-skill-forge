@@ -1,7 +1,7 @@
 ---
 nextStepFile: './step-05-validate.md'
-manualSectionRulesFile: '../references/manual-section-rules.md'
-mergeConflictRulesFile: '../references/merge-conflict-rules.md'
+manualSectionRulesFile: 'references/manual-section-rules.md'
+mergeConflictRulesFile: 'references/merge-conflict-rules.md'
 ---
 
 # Step 4: Merge
@@ -10,45 +10,12 @@ mergeConflictRulesFile: '../references/merge-conflict-rules.md'
 
 Merge freshly extracted export data into the existing SKILL.md content while preserving all [MANUAL] sections. Detect and resolve conflicts where regenerated content overlaps developer-authored content. For stack skills, merge across all output files.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a precision code analyst operating in Surgeon mode
-- ✅ [MANUAL] section preservation is the HIGHEST PRIORITY — zero content loss
-- ✅ Every merge decision must be traceable and reversible
-- ✅ When in doubt about [MANUAL] conflicts, HALT and ask the user
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on merging extractions into existing skill content
-- 🚫 FORBIDDEN to delete or modify [MANUAL] section content
-- 🚫 FORBIDDEN to write files — merge produces an edit plan for step 06 to execute
-- 💬 If [MANUAL] conflicts detected: HALT and present to user for resolution
-- 💬 If clean merge: auto-proceed without user interaction
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow MANDATORY SEQUENCE exactly
-- 💾 Load merge rules from data files for conflict resolution
-- 📖 Track every merge operation for evidence report
-- 🚫 FORBIDDEN to auto-resolve [MANUAL] conflicts — user must decide
-
-## CONTEXT BOUNDARIES:
-
-- Available: extraction results from step 03, existing SKILL.md content, [MANUAL] inventory from step 01, change manifest from step 02
-- Focus: content merge and [MANUAL] preservation
-- Limits: merge planning only — no file writes (step 06 executes the edit plan)
-- Dependencies: step 03 must have produced extraction results
+- Focus only on merging extractions into existing skill content
+- Never delete or modify [MANUAL] section content
+- Do not write files — merge produces an edit plan for Step 06
+- If [MANUAL] conflicts detected: halt and present to user. If clean merge: auto-proceed
 
 ## MANDATORY SEQUENCE
 
@@ -192,6 +159,7 @@ Display: "**Merge complete with conflict resolution. Select:** [C] Continue to V
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after conflict resolution
+- **GATE [default: C if clean merge]** — If `{headless_mode}` and merge is clean (no [MANUAL] conflicts): auto-proceed with [C] Continue, log: "headless: clean merge, auto-continue". If conflicts exist, HALT even in headless mode — conflicts require human judgment.
 - ONLY proceed when user selects 'C'
 
 **If clean merge (no conflicts):**
@@ -210,26 +178,3 @@ Display: "**Clean merge — proceeding to validation...**"
 
 ONLY WHEN all merge operations are complete and any [MANUAL] conflicts have been resolved by the user will you load {nextStepFile} to begin validation.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All [MANUAL] sections preserved with zero content loss
-- Merge applied in correct priority order (delete → move → rename → modify → add)
-- Every conflict presented to user for resolution (no auto-resolution of [MANUAL] conflicts)
-- Stack skill files merged if applicable
-- Merge results compiled with full accounting
-- Clean merges auto-proceed; conflict merges require user [C]
-
-### ❌ SYSTEM FAILURE:
-
-- ANY [MANUAL] content lost or modified without user consent
-- Auto-resolving [MANUAL] conflicts without user input
-- Writing files during merge planning (edits are executed in step 06)
-- Applying merge out of priority order
-- Not detecting orphaned [MANUAL] blocks on deleted exports
-- Not handling stack skill multi-file merge
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

@@ -8,42 +8,12 @@ nextStepFile: './step-05-compile.md'
 
 To enrich the extraction inventory with temporal context from QMD knowledge searches — issues, PRs, changelogs, and migration notes that add T2-confidence annotations to extracted functions. Deep tier only; Quick, Forge, and Forge+ tiers skip this step entirely.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🎯 ALWAYS follow the exact instructions in the step file
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a skill compilation engine performing knowledge enrichment
-- ✅ QMD enrichment adds temporal depth — it never replaces AST extraction
-- ✅ Enrichment failure is graceful degradation, not an error
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on QMD searches to annotate extracted functions
-- 🚫 FORBIDDEN to modify extraction results — enrichment is additive only
-- 🚫 FORBIDDEN to begin compilation — that's step-05
-- 💬 QMD failures degrade gracefully — continue without enrichment
-- ⏱️ Quick, Forge, and Forge+ tiers: skip this step entirely, auto-proceed
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow MANDATORY SEQUENCE exactly
-- 💾 Enrichment annotations are added to extraction inventory in context
-- 📖 QMD results become T2-confidence annotations
-- 🚫 Never replace T1 extraction data with QMD findings
-
-## CONTEXT BOUNDARIES:
-
-- Available: extraction_inventory from step-03, brief_data, tier from step-01
-- Focus: Adding temporal context to extracted functions
-- Limits: Do NOT modify extraction results, only annotate them
-- Dependencies: Extraction inventory must exist from step-03
+- Focus only on QMD searches to annotate extracted functions — enrichment is additive only
+- Do not begin compilation (Step 05)
+- QMD failures degrade gracefully — continue without enrichment
+- Quick, Forge, and Forge+ tiers: skip this step entirely, auto-proceed
 
 ## MANDATORY SEQUENCE
 
@@ -94,7 +64,7 @@ For each function, derive the **module context** from the extraction inventory's
 
 4. **Semantic migration context:** `qmd_bridge.vector_search("{module_context} {function_name} migration deprecated")` — adds semantic matches (synonyms, paraphrases) that BM25 keyword search may miss. Merge results with search #3, deduplicating by document ID. If `vector_search` fails (VRAM, GPU driver, model loading), discard silently — the BM25 results from search #3 provide baseline coverage.
 
-**Tool resolution for qmd_bridge:** Use QMD MCP tools — `mcp__plugin_qmd-plugin_qmd__search` for BM25 search, `mcp__plugin_qmd-plugin_qmd__vector_search` for semantic search (Claude Code). Cursor: qmd MCP server. CLI: `qmd search "{query}"` / `qmd vector_search "{query}"`. See [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md).
+**Tool resolution for qmd_bridge:** Use QMD MCP tools — `mcp__plugin_qmd-plugin_qmd__search` for BM25 search, `mcp__plugin_qmd-plugin_qmd__vector_search` for semantic search (Claude Code). Cursor: qmd MCP server. CLI: `qmd search "{query}"` / `qmd vector_search "{query}"`. See `knowledge/tool-resolution.md`.
 
 **For each QMD result:**
 
@@ -153,30 +123,3 @@ After enrichment is complete (or skipped for non-Deep tiers), immediately load, 
 
 ONLY WHEN enrichment is complete (Deep tier) or the step is skipped (Quick/Forge/Forge+) will you proceed to load `{nextStepFile}` for SKILL.md compilation.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Quick/Forge/Forge+ tiers: skipped silently with no output, auto-proceeded
-- Deep tier: collection inventory checked before searching
-- Deep tier: no temporal collections → reported and auto-proceeded (not silently skipped)
-- Deep tier: temporal collections exist → QMD searches performed per public API function (10-20, not all exports) with module context derived from extraction inventory source paths
-- T2 annotations added with proper provenance citations
-- Extraction data unmodified — enrichment is additive only
-- QMD failures handled gracefully (skip and continue)
-- Auto-proceeded to step-05
-
-### ❌ SYSTEM FAILURE:
-
-- Halting on QMD unavailability or search failures
-- Modifying T1 extraction results with QMD data
-- Displaying skip messages for Quick/Forge/Forge+ tiers (should be silent)
-- Pre-emptively skipping all searches without checking the collection inventory
-- Searching all 800+ exports instead of scoping to public API surface (10-20)
-- Using bare function names without module context when source path is available in extraction inventory
-- Beginning compilation or SKILL.md assembly in this step
-- Not labeling QMD annotations as T2 confidence
-
-**Master Rule:** Enrichment is additive and optional. QMD adds temporal depth but never replaces structural extraction. Failures degrade gracefully.

@@ -9,41 +9,10 @@ outputFile: '{forge_data_folder}/feasibility-report-{project_name}.md'
 
 Calculate the overall feasibility verdict based on all three analysis passes, generate prescriptive recommendations for every non-verified finding, check for a previous feasibility report to produce a delta, and compile the synthesis section of the report.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a stack verification analyst delivering the final synthesis
-- ✅ The overall verdict must follow the decision logic exactly — no subjectivity
-- ✅ Every recommendation must be specific and actionable — not vague advice
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on synthesizing findings from Steps 02-04 into a verdict
-- 🚫 FORBIDDEN to discover new findings or re-analyze skills
-- 🚫 FORBIDDEN to present the final report to the user — that is Step 06
-- 💬 Recommendations must name specific tools, libraries, or actions
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Apply verdict decision logic to produce FEASIBLE / CONDITIONALLY FEASIBLE / NOT FEASIBLE
-- 💾 Append Synthesis & Recommendations section to {outputFile}
-- 📖 Check for previous report and generate delta if found
-- 🚫 Only synthesis — no new analysis, no final presentation
-
-## CONTEXT BOUNDARIES:
-
-- Available: Coverage matrix (Step 02), integration verdicts (Step 03), requirements coverage (Step 04 if applicable)
-- Focus: Verdict calculation, recommendation generation, delta comparison
-- Limits: Do not present the full report — that is Step 06
-- Dependencies: Steps 02-03 must be complete; Step 04 completed or skipped
+- Focus only on synthesizing findings from Steps 02-04 into a verdict — do not discover new findings
+- Recommendations must name specific tools, libraries, or actions
 
 ## MANDATORY SEQUENCE
 
@@ -162,27 +131,3 @@ Write the **Synthesis & Recommendations** section to `{outputFile}`:
 
 Load, read the full file and then execute `{nextStepFile}`.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- Overall verdict calculated using the exact decision logic (not subjective judgment)
-- Every non-verified finding has a specific, actionable recommendation
-- Recommendations name concrete tools ([CS], [QS], [VS], [RA]) and specific libraries
-- Previous report delta generated if applicable
-- Synthesis section appended to {outputFile} with verdict, recommendations, and next workflow
-- Frontmatter updated with overall_verdict and metric counts
-- Auto-proceeded to step 06
-
-### ❌ SYSTEM FAILURE:
-
-- Subjective or vague overall verdict not following the decision logic
-- Recommendations without specific actions ("improve the integration")
-- Not checking for previous report
-- Discovering new findings or re-analyzing skills
-- Presenting the full report to the user (that is Step 06)
-- Hardcoded paths instead of frontmatter variables
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.

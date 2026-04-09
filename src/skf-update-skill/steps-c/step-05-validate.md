@@ -8,44 +8,11 @@ nextStepFile: './step-06-write.md'
 
 Validate the merged skill content against the agentskills.io specification, verify all [MANUAL] sections survived the merge intact, and check confidence tier consistency across all re-extracted content. This is an advisory validation — findings are warnings, not blockers.
 
-## MANDATORY EXECUTION RULES (READ FIRST):
+## Rules
 
-### Universal Rules:
-
-- 🛑 NEVER generate content without user input
-- 📖 CRITICAL: Read the complete step file before taking any action
-- 🔄 CRITICAL: When loading next step with 'C', ensure entire file is read
-- 📋 YOU ARE A FACILITATOR, not a content generator
-- ⚙️ TOOL/SUBPROCESS FALLBACK: If any instruction references a subprocess, subagent, or tool you do not have access to, you MUST still achieve the outcome in your main context thread
-- ✅ YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
-
-### Role Reinforcement:
-
-- ✅ You are a precision code analyst operating in Surgeon mode
-- ✅ Validation is advisory — flag issues but do not block the workflow
-- ✅ Every finding must include specific file:line reference
-- ✅ Zero-hallucination principle applies to validation findings too
-
-### Step-Specific Rules:
-
-- 🎯 Focus ONLY on validation — do not fix issues (that's the user's choice)
-- 🚫 FORBIDDEN to modify merged content — validation is read-only
-- 💬 Launch parallel validation checks when subprocess available (Pattern 4): In Claude Code, use multiple parallel Agent tool calls. In Cursor, use parallel requests (IDE-dependent). In CLI, use `xargs -P`. See [knowledge/tool-resolution.md](../../knowledge/tool-resolution.md)
-- ⚙️ If subprocess unavailable, perform checks sequentially in main thread
-
-## EXECUTION PROTOCOLS:
-
-- 🎯 Follow MANDATORY SEQUENCE exactly
-- 💾 Compile validation findings with severity levels
-- 📖 Track pass/fail for each validation category
-- 🚫 Validation is ADVISORY — do not block on warnings
-
-## CONTEXT BOUNDARIES:
-
-- Available: merged skill content from step 04, extraction results from step 03, [MANUAL] inventory from step 01
-- Focus: quality assurance — spec compliance, [MANUAL] integrity, confidence consistency
-- Limits: read-only — do not modify merged content
-- Dependencies: step 04 must have completed merge (with or without conflict resolution)
+- Focus only on validation — do not fix issues (that's the user's choice)
+- Validation is read-only — do not modify merged content
+- Use parallel validation checks (Pattern 4) when available; if unavailable, check sequentially
 
 ## MANDATORY SEQUENCE
 
@@ -153,24 +120,3 @@ After validation summary is displayed, immediately load, read entire file, then 
 
 ONLY WHEN all validation checks have completed and findings are displayed will you load {nextStepFile} to write the updated files. Validation does NOT block — it informs.
 
----
-
-## 🚨 SYSTEM SUCCESS/FAILURE METRICS
-
-### ✅ SUCCESS:
-
-- All six checks executed (spec-manual, [MANUAL], confidence, provenance, diff, security)
-- Checks A (spec compliance via skill-check), E (diff), and F (security scan) deferred to post-write in step-06
-- Manual structural check performed for spec compliance in this step
-- Stack skill reference files validated if applicable
-- Findings reported with severity and specific locations; [MANUAL] integrity verified
-- Auto-proceeds regardless of findings (advisory mode)
-
-### ❌ SYSTEM FAILURE:
-
-- Skipping any of the six checks; blocking on validation warnings
-- Not verifying [MANUAL] integrity; hallucinating findings not backed by comparison
-- Modifying merged content during validation (validation is read-only in this step)
-- Not recording quality score when skill-check is available
-
-**Master Rule:** Skipping steps, optimizing sequences, or not following exact instructions is FORBIDDEN and constitutes SYSTEM FAILURE.
