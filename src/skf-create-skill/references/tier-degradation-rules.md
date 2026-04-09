@@ -6,14 +6,15 @@ When `source_repo` is a remote URL (GitHub URL or owner/repo format) and the tie
 
 - **ast-grep requires local files** — it cannot operate on remote URLs
 
-**Ephemeral clone strategy (preferred):**
+**Workspace-first clone strategy (preferred):**
 
 1. Check `git` availability (`git --version`). `git` is effectively guaranteed at Deep tier (via `gh` dependency) but NOT guaranteed at Forge tier.
-2. If `git` is available: perform an ephemeral shallow clone to a system temp path (`{system_temp}/skf-ephemeral-{skill-name}-{timestamp}/`).
-3. For create-skill: use `--depth 1 --single-branch --filter=blob:none`; if `include_patterns` are specified, apply mode selection: if `exclude_patterns` are absent, use cone mode (convert include_patterns to directory roots; use `--skip-checks` for individual file paths); if `exclude_patterns` are present, use `--no-cone` mode (pass gitignore-style patterns with `!`-prefixed excludes — includes first, then negations). See source-resolution-protocols.md for the full conversion rules.
-4. For update-skill: use sparse-checkout with `--skip-checks` scoped to the changed files from the change manifest only (file paths require `--skip-checks`). No `--branch` flag — uses the remote default branch (must match the branch used during original create-skill run).
-5. If clone succeeds: use the local clone path for AST extraction. All results are T1 with `[AST:...]` citations.
-6. Cleanup: delete the temp directory after extraction inventory is built and all data is in context. The clone never persists beyond the extraction step.
+2. If `git` is available: check for an existing workspace checkout at `{workspace_root}/repos/{host}/{owner}/{repo}/`. If found, `git fetch` to update. If not found, clone into the workspace path with `--depth 1 --single-branch`. See `source-resolution-protocols.md` for the full workspace resolution algorithm.
+3. The workspace uses a full checkout (no sparse-checkout). Brief `include_patterns` and `exclude_patterns` are applied as file-level filters at extraction time, not at the git level. This allows a single workspace checkout to serve multiple briefs with different scope filters.
+4. For update-skill: `changed_files_from_manifest` scoping is applied as file-level filters at extraction time on the full workspace checkout.
+5. If workspace clone/fetch succeeds: use the workspace path for AST extraction. All results are T1 with `[AST:...]` citations.
+6. If workspace fails: fall back to ephemeral clone (`{system_temp}/skf-ephemeral-{skill-name}-{timestamp}/`). If ephemeral succeeds, use it. Ephemeral clone is deleted after extraction.
+7. Workspace checkouts persist across forges — CCC indexes, tool outputs, and the checkout itself are reused.
 
 **Fallback (clone fails or `git` unavailable):**
 

@@ -98,14 +98,15 @@ The configured exclusion patterns are stored in `ccc_index.exclude_patterns` in 
 
 ### Deferred Discovery (Remote Sources)
 
-For remote repository sources (GitHub URLs), CCC cannot operate during step-02b because no local code exists yet. The ephemeral clone happens in step-03. To provide CCC pre-ranking for remote sources:
+For remote repository sources (GitHub URLs), CCC cannot operate during step-02b because no local code exists yet. The workspace clone or ephemeral clone happens in step-03. To provide CCC pre-ranking for remote sources:
 
 1. **step-02b:** Detects remote source, sets `{ccc_discovery: []}`, displays deferred message
-2. **step-03:** After ephemeral clone succeeds, detects the deferred scenario (`tools.ccc == true AND {ccc_discovery} is empty AND ephemeral_clone_active == true AND tier is Forge+/Deep`)
-3. **step-03:** Runs `cd {temp_path} && ccc init` on the ephemeral clone, then applies brief `exclude_patterns` (if present) to `{temp_path}/.cocoindex_code/settings.yml` before running `ccc index` (extended timeout or background mode, verified via `ccc status`). This prevents CCC from indexing files the brief explicitly excludes, keeping search results focused on in-scope source code and reducing indexing time for large repositories.
-4. **step-03:** Executes CCC search and populates `{ccc_discovery}` before AST extraction begins
+2. **step-03:** After source resolution succeeds, detects the deferred scenario (`tools.ccc == true AND {ccc_discovery} is empty AND remote_clone_path is set AND tier is Forge+/Deep`)
+3. **step-03 (workspace fast path):** If `{remote_clone_path}/.cocoindex_code/` already exists (persisted workspace index), skips init/index and uses `ccc search --refresh` — CCC daemon re-indexes only if files changed since last index. This is near-instant for unchanged repos.
+4. **step-03 (first-time path):** If no existing CCC index, runs `cd {remote_clone_path} && ccc init`, applies standard build/dependency exclusions (node_modules, dist, .git, vendor, etc.) to `settings.yml`, then runs `ccc index`. Brief-specific `include_patterns`/`exclude_patterns` are NOT written to `settings.yml` — the CCC index is general-purpose. Filtering happens at search result time.
+5. **step-03:** Executes CCC search and populates `{ccc_discovery}` before AST extraction begins
 
-The ephemeral clone index is not registered in `ccc_index_registry` — the clone is deleted after extraction and the CCC daemon's own GC handles orphaned indexes.
+For workspace repos, the CCC index persists at `{workspace_repo_path}/.cocoindex_code/` and is reused across forges, projects, and sessions. For ephemeral fallback clones, the index is not registered in `ccc_index_registry` — the clone is deleted after extraction.
 
 ### Relationship to QMD Registry
 
@@ -130,8 +131,8 @@ To prevent excessive daemon calls, workflow steps cap ccc queries:
 - Running ccc_bridge.ensure_index() without checking ccc_index.status first — unnecessary re-indexing
 - Passing ccc results directly to the extraction inventory — they are candidates, not extractions
 - Listing ccc as "unavailable" in reports for Quick/Forge tiers — ccc is a Forge+ capability, not something Quick/Forge tiers are missing
-- Indexing without configuring SKF exclusions — framework and output directories pollute search results
-- Indexing an ephemeral clone without applying brief `exclude_patterns` — excluded files pollute CCC search results and waste indexing time on large repositories
+- Indexing without configuring exclusions — for project root indexes, apply SKF exclusions (framework/output directories); for workspace repo indexes, apply standard build artifact exclusions (node_modules, dist, .git, etc.)
+- Writing brief-specific `exclude_patterns` to a workspace repo's `settings.yml` — workspace indexes are general-purpose and serve multiple briefs. Apply brief patterns at search result time, not index time. (Exception: ephemeral fallback clones are single-use, so brief exclusions may be applied to their `settings.yml` to reduce indexing time.)
 - Skipping CCC discovery for remote sources without deferring to step-03 — remote repos deserve the same pre-ranking as local sources
 
 ## Related Fragments

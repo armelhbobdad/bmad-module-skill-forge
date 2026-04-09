@@ -8,41 +8,76 @@ If `source_root` (from metadata.json) is a remote URL (GitHub URL or owner/repo 
 
 2. **Resolve source ref:** Read `source_ref` from the existing `metadata.json`. If the user provided a new `target_version`, resolve its tag first (using the Tag Resolution algorithm in `create-skill/references/source-resolution-protocols.md`).
 
-3. **Ephemeral sparse clone:** Clone only the changed files from the change manifest to a system temp path. Note: at this point in the flow, `{source_root}` is known to be a remote URL (the local-path case was already handled above).
+3. **Workspace check:** Compute the workspace path using the same algorithm as `create-skill/references/source-resolution-protocols.md` (parse URL → `{workspace_root}/repos/{host}/{owner}/{repo}/`).
 
+   **If workspace repo exists (`{workspace_repo_path}/.git/` present):**
+
+   Fetch and checkout the requested ref. For update-skill, `changed_files_from_manifest` scoping happens at extraction time via file-level filtering — the workspace has a full checkout.
+
+   ```
+   git -C {workspace_repo_path} fetch origin {source_ref}
+   ```
+
+   Check if checkout is needed — skip if the requested ref is already checked out:
+
+   ```
+   current_head = git -C {workspace_repo_path} rev-parse HEAD
+   fetched_head = git -C {workspace_repo_path} rev-parse FETCH_HEAD
+   ```
+
+   If `current_head != fetched_head`:
+   ```
+   git -C {workspace_repo_path} -c advice.detachedHead=false checkout FETCH_HEAD
+   ```
+
+   Set `remote_clone_path = {workspace_repo_path}`, `remote_clone_type = "workspace"`.
+
+   **If workspace repo does NOT exist:**
+
+   Clone into workspace. Create the parent directory first:
+
+   ```
+   mkdir -p "{workspace_root}/repos/{host}/{owner}/"
+   ```
+
+   Clone with the appropriate branch flag — `--branch` is only valid for real branch/tag names, not for `HEAD`:
+
+   ```
+   # If source_ref is a real branch or tag (not HEAD/null/"local"):
+   git clone --depth 1 --branch {source_ref} --single-branch {source_repo} {workspace_repo_path}
+
+   # If source_ref is HEAD or not set (default branch):
+   git clone --depth 1 --single-branch {source_repo} {workspace_repo_path}
+   ```
+
+   Set `remote_clone_path = {workspace_repo_path}`, `remote_clone_type = "workspace"`.
+
+   **On any workspace failure:** Fall back to ephemeral clone:
    ```
    temp_path = {system_temp}/skf-ephemeral-{skill-name}-{timestamp}/
+
+   # If source_ref is a real branch or tag (not HEAD/null/"local"):
+   git clone --depth 1 --branch {source_ref} --single-branch --filter=blob:none {source_root} {temp_path}
+
+   # If source_ref is HEAD or not set (default branch):
+   git clone --depth 1 --single-branch --filter=blob:none {source_root} {temp_path}
    ```
+   Set `remote_clone_path = {temp_path}`, `remote_clone_type = "ephemeral"`.
 
-   If `source_ref` exists and is not `HEAD`/null/`"local"`:
-   ```
-   git clone --depth 1 --branch {source_ref} --single-branch --filter=blob:none --sparse {source_root} {temp_path}
-   ```
+4. **If clone/fetch succeeds:** Set `source_root = {remote_clone_path}` — this updates the working source path for all subsequent operations. Apply `changed_files_from_manifest` as file-level filters at extraction time. Proceed with the **Forge tier** extraction strategy below.
 
-   If `source_ref` is `HEAD`/null/`"local"` (or absent):
-   ```
-   git clone --depth 1 --single-branch --filter=blob:none --sparse {source_root} {temp_path}
-   ```
+5. **If all cloning fails (workspace AND ephemeral):**
 
-   ```
-   git -C {temp_path} sparse-checkout set --skip-checks {changed_files_from_manifest}
-   ```
-
-   **Note:** `--skip-checks` is required because `changed_files_from_manifest` contains individual file paths (e.g., `src/core/parser.py`), not directories. Without this flag, `git sparse-checkout set` rejects non-directory entries.
-
-   When `source_ref` is a tag (e.g., `v0.5.0`), the clone targets that specific tag to ensure update-skill extracts from the same source version as the original create-skill run. When `source_ref` is `HEAD`, null, or `"local"`, no `--branch` flag is used — the clone targets the remote's default branch. This scopes the clone to only the files identified in step-02's change manifest, avoiding a full repository download.
-
-4. **If clone succeeds:** Update the working source path to `{temp_path}` for all subsequent AST operations in this step. Proceed with the **Forge tier** extraction strategy below. Mark `ephemeral_clone_active = true` for cleanup.
-
-5. **If clone fails (network error, auth failure, timeout):**
-
-   Warning message: "Ephemeral clone of `{source_root}` failed: {error}. Degrading to source reading (T1-low) for this run. For T1 (AST-verified) confidence, clone the repository locally and re-run [CS] Create Skill with the local path, then re-run this update."
+   Warning message: "Clone of `{source_root}` failed: {error}. Degrading to source reading (T1-low) for this run. For T1 (AST-verified) confidence, clone the repository locally and re-run [CS] Create Skill with the local path, then re-run this update."
 
    Override the extraction strategy to Quick tier for this run. Note the degradation reason in context for the evidence report.
 
-## Ephemeral Clone Cleanup
+## Remote Clone Cleanup
 
-After extraction is complete for all files in scope (whether successful or partially failed), before presenting the extraction summary, if `ephemeral_clone_active`, delete the `{temp_path}` directory. Log: "Ephemeral source clone cleaned up." This ensures cleanup runs even if some extractions failed, as long as the step itself is still executing.
+After extraction is complete for all files in scope (whether successful or partially failed), before presenting the extraction summary:
+
+- **If `remote_clone_type == "ephemeral"`:** Reset the working directory first (`cd {project-root}` using the absolute path captured at workflow start), then delete the `{temp_path}` directory. Log: "Ephemeral source clone cleaned up." This ensures cleanup runs even if some extractions failed.
+- **If `remote_clone_type == "workspace"`:** No cleanup. The workspace checkout persists for future forges and updates.
 
 ## Version Reconciliation
 

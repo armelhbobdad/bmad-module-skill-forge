@@ -39,7 +39,7 @@ Perform tier-aware extraction on only the changed files identified in step 02, p
 
 **Remote Source Resolution (Forge/Deep only):**
 
-**MCP source access (ordered fallback):** When `source_repo` is set in metadata.json, try each MCP tool in order to fetch only the changed files from the change manifest. This avoids ephemeral clone overhead entirely. Tools are ordered by data freshness — gh API returns live GitHub content and is preferred for update-skill where current file versions are required. zread and deepwiki depend on manual indexing and may return stale data if indexes haven't been refreshed since the changes being extracted.
+**MCP source access (ordered fallback):** When `source_repo` is set in metadata.json, try each MCP tool in order to fetch only the changed files from the change manifest. This avoids clone overhead entirely. Tools are ordered by data freshness — gh API returns live GitHub content and is preferred for update-skill where current file versions are required. zread and deepwiki depend on manual indexing and may return stale data if indexes haven't been refreshed since the changes being extracted.
 
 1. **gh API** — `gh api repos/{owner}/{repo}/contents/{path}` for raw file content
    - If accessible: fetch file content (base64-decoded), always current
@@ -55,9 +55,9 @@ Perform tier-aware extraction on only the changed files identified in step 02, p
 
 **Confidence labeling:** MCP-fetched content written to a temp file and analyzed with ast-grep → T1. MCP-fetched content analyzed with pattern matching (AST unavailable) → T1-low.
 
-**If all MCP tools fail for this repo:** Fall back to ephemeral clone — load and follow `{remoteSourceResolutionData}` for clone setup, version reconciliation, and AST tool unavailability handling.
+**If all MCP tools fail for this repo:** Fall back to workspace or ephemeral clone — load and follow `{remoteSourceResolutionData}` for clone setup, version reconciliation, and AST tool unavailability handling.
 
-**If all approaches fail (MCP + ephemeral clone):** Degrade to provenance-map-only analysis (State 2, T1 confidence from compilation-time data). Warn user: "Source access failed for {source_repo}. Analysis limited to provenance-map baseline."
+**If all approaches fail (MCP + workspace/ephemeral clone):** Degrade to provenance-map-only analysis (State 2, T1 confidence from compilation-time data). Warn user: "Source access failed for {source_repo}. Analysis limited to provenance-map baseline."
 
 **Quick tier (text pattern matching):**
 - Extract function/class/type names via regex patterns
@@ -118,7 +118,7 @@ This helps the merge step (section 4) prioritize which changes are most likely t
 
 CCC failures: skip ranking silently, all changes treated equally.
 
-**Note on remote sources:** If `source_root` is an ephemeral clone (remote source), the clone path is not indexed by CCC. The search will return empty results and semantic ranking will be skipped. This is expected — deferred CCC indexing is implemented in create-skill step-03 but not in update-skill. All changes are treated equally for remote sources.
+**Note on remote sources:** If `source_root` is a workspace clone, the CCC index may already exist from a prior forge and can be reused via `ccc search --refresh`. If the source is an ephemeral fallback clone, the clone path is not indexed by CCC — the search will return empty results and semantic ranking will be skipped. Deferred CCC indexing is implemented in create-skill step-03 but not in update-skill. All changes are treated equally for ephemeral remote sources.
 
 **IF `tools.ccc` is false:** Skip this section silently.
 
