@@ -1,0 +1,1078 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-workflow-builder
+
+# Workflow & Skill Builder
+
+## Overview
+
+This skill helps you build AI workflows and skills that are **outcome-driven** — describing what to achieve, not micromanaging how to get there. LLMs are powerful reasoners. Great skills give them mission context and desired outcomes; poor skills drown them in mechanical procedures they'd figure out naturally. Your job is to help users articulate the outcomes they want, then build the leanest possible skill that delivers them.
+
+Act as an architect guide — walk users through conversational discovery to understand their vision, then craft skill structures that trust the executing LLM's judgment. The best skill is the one where every instruction carries its weight and nothing tells the LLM how to do what it already knows.
+
+**Args:** Accepts `--headless` / `-H` for non-interactive execution, `--convert <path-or-url>` to convert an existing skill into a lean equivalent with before/after HTML comparison report, an initial description for create, or a path to an existing skill with keywords like analyze, edit, or rebuild.
+
+**Your output:** A skill structure ready to integrate into a module or use standalone — from simple composable utilities to complex multi-stage workflows.
+
+## On Activation
+
+1. Detect user's intent. If `--headless` or `-H` is passed, or intent is clearly non-interactive, set `{headless_mode}=true` for all sub-prompts.
+
+2. Load available config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml` (root and bmb section). If missing, and the `bmad-builder-setup` skill is available, let the user know they can run it at any time to configure. Resolve and apply throughout the session (defaults in parens):
+   - `{user_name}` (default: null) — address the user by name
+   - `{communication_language}` (default: user or system intent) — use for all communications
+   - `{document_output_language}` (default: user or system intent) — use for generated document content
+   - `{bmad_builder_output_folder}` (default: `{project-root}/skills`) — save built agents here
+   - `{bmad_builder_reports}` (default: `{project-root}/skills/reports`) — save reports (quality, eval, planning) here
+
+3. Route by intent — see Quick Reference below.
+
+## Build Process
+
+The core creative path — where workflow and skill ideas become reality. Through conversational discovery, you guide users from a rough vision to a complete, outcome-driven skill structure. This covers building new skills from scratch, converting non-compliant formats, editing existing ones, and rebuilding from intent.
+
+Load `references/build-process.md` to begin.
+
+## Quality Analysis
+
+Comprehensive quality analysis toward outcome-driven design. Analyzes existing skills for over-specification, structural issues, execution efficiency, and enhancement opportunities. Uses deterministic lint scripts and parallel LLM scanner subagents. Produces a synthesized report with themes and actionable opportunities.
+
+Load `references/quality-analysis.md` to begin.
+
+## Convert
+
+One-command conversion of any existing skill into a BMad-compliant, outcome-driven equivalent. Whether the input is bloated, poorly structured, or just doesn't follow BMad best practices, this path reads or fetches the original, rebuilds from intent (always headless), and generates an HTML comparison report showing the before/after — metrics, what changed and why, what survived and why it earned its place.
+
+`--convert` implies headless mode. Accepts a local path or URL. The original skill provides all context needed — no interactive discovery.
+
+Load `references/convert-process.md` to begin.
+
+---
+
+## Skill Intent Routing Reference
+
+| Intent                      | Trigger Phrases                                       | Route                                           |
+| --------------------------- | ----------------------------------------------------- | ------------------------------------------------ |
+| **Build new**               | "build/create/design a workflow/skill/tool"           | Load `references/build-process.md`               |
+| **Convert**                 | `--convert path-or-url`                               | Load `references/convert-process.md`             |
+| **Existing skill provided** | Path to existing skill, or "edit/fix/analyze"         | Ask the 3-way question below, then route         |
+| **Quality analyze**         | "quality check", "validate", "review workflow/skill"  | Load `references/quality-analysis.md`            |
+| **Unclear**                 | —                                                     | Present options and ask                          |
+
+### When given an existing skill, ask:
+
+- **Analyze** — Run quality analysis: identify opportunities, prune over-specification, get an actionable report
+- **Edit** — Modify specific behavior while keeping the current approach
+- **Rebuild** — Rethink from core outcomes using this as reference material, full discovery process
+
+Analyze routes to `references/quality-analysis.md`. Edit and Rebuild both route to `references/build-process.md` with the chosen intent.
+
+Regardless of path, respect headless mode if requested.
+
+---
+
+Analyze
+
+---
+
+My skills are in @src/
+
+---
+
+1. Full analysis on all 16
+
+---
+
+<task-notification>
+<task-id>a958d205d2b05042d</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a958d205d2b05042d.output</output-file>
+<status>completed</status>
+<summary>Agent "L1: Workflow Integrity scan" completed</summary>
+<result>API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_011CZsrrJYzdDiUBjDs4oFa1"}</result>
+<usage><total_tokens>0</total_tokens><tool_uses>0</tool_uses><duration_ms>13432</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a48a9ddb92ed94cc5</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a48a9ddb92ed94cc5.output</output-file>
+<status>completed</status>
+<summary>Agent "L2: Prompt Craft scan" completed</summary>
+<result>API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_011CZsrtrxxLF1k82ZNs6R8A"}</result>
+<usage><total_tokens>119</total_tokens><tool_uses>3</tool_uses><duration_ms>42662</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af22443c9c6580918</task-id>
+<tool-use-id>toolu_01FntxLWRw9WVtXup1oM16ZM</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/af22443c9c6580918.output</output-file>
+<status>completed</status>
+<summary>Agent "L3: Execution Efficiency scan" completed</summary>
+<result>All 16 reports are written. Here is the JSON summary:
+
+```json
+{"completed": 16, "skills_analyzed": ["forger", "skf-analyze-source", "skf-audit-skill", "skf-brief-skill", "skf-create-skill", "skf-create-stack-skill", "skf-drop-skill", "skf-export-skill", "skf-forger", "skf-quick-skill", "skf-refine-architecture", "skf-rename-skill", "skf-setup", "skf-test-skill", "skf-update-skill", "skf-verify-stack"]}
+```
+
+---
+
+All 16 `execution-efficiency-analysis.md` files have been written to `skills/reports/module-quality-analysis/20260409-115655/{skill-name}/`.
+
+Key findings summary across the module:
+
+**High-severity (2 skills):**
+- `skf-refine-architecture` step-02: Parent loads SKILL.md for every skill in the inventory before gap analysis — "read all, then analyze" pattern. 15-45K tokens of avoidable parent context for 5-15 skill projects.
+- `skf-test-skill` step-03: Parent loads full SKILL.md (plus references/*.md for split-body skills) before delegating source analysis to subprocesses — partial read-before-delegate pattern. 5-30K tokens depending on skill size.
+- `skf-verify-stack` step-03: Integration verification likely requires loading SKILL.md content in parent for API signature matching — same anti-pattern as skf-refine-architecture.
+
+**Medium-severity (several skills):**
+- `skf-create-skill` step-03: Four reference files loaded sequentially at step start; CCC deferred indexing blocks synchronously; QMD searches run sequentially per function (3-4 queries) at Deep tier.
+- `skf-create-stack-skill` step-05: No explicit parallelism bound on integration pair grep subprocesses; compose-mode SKILL.md loads are sequential.
+- `skf-export-skill` step-04: Context-snippet.md reads for all exported skills are sequential; multi-IDE write loop is sequential in interactive mode.
+- `skf-setup` step-01: Four independent tool checks (ast-grep, gh, qmd, ccc) run sequentially rather than in parallel.
+- `skf-verify-stack` step-01: metadata.json reads for all skills are sequential; architecture document loading could be delegated.
+
+**Well-designed patterns (module-wide):** `skf-create-stack-skill` step-04 is the strongest parallelization example with explicit concurrency bounds and structured subagent return formats. `skf-forger` correctly loads sidecar files in parallel on activation and uses JiT knowledge fragment loading. `skf-drop-skill` and `skf-rename-skill` are appropriately simple — no over-engineering. All skills correctly implement headless auto-proceed through confirmation gates.</result>
+<usage><total_tokens>141472</total_tokens><tool_uses>100</tool_uses><duration_ms>729929</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a4bddcc88f1552499</task-id>
+<tool-use-id>toolu_01UTQmyakVFgg9YrVufVn5FP</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a4bddcc88f1552499.output</output-file>
+<status>completed</status>
+<summary>Agent "L6: Script Opportunities scan" completed</summary>
+<result>All 16 reports are complete.
+
+```json
+{"completed": 16, "skills_analyzed": ["forger", "skf-analyze-source", "skf-audit-skill", "skf-brief-skill", "skf-create-skill", "skf-create-stack-skill", "skf-drop-skill", "skf-export-skill", "skf-forger", "skf-quick-skill", "skf-refine-architecture", "skf-rename-skill", "skf-setup", "skf-test-skill", "skf-update-skill", "skf-verify-stack"]}
+```
+
+All 16 `script-opportunities-analysis.md` reports are written to `skills/reports/module-quality-analysis/20260409-115655/{skill-name}/`. Key cross-cutting findings:
+
+**High-severity opportunities (script replaces LLM for correctness, not just efficiency):**
+- `skf-rename-skill`: file content rewriting and post-rename grep verification — the LLM missing an `old_name` reference is a real risk; Python string comparison is not.
+- `skf-update-skill`: `[MANUAL]` block byte-identical integrity verification — Python `==` is correct; LLM "verification" is not.
+- `skf-audit-skill`: export set-difference for structural diff — set operations are deterministic; LLM narration introduces false positives/negatives.
+- `skf-export-skill`: token count arithmetic (word count × 1.3) and manifest parsing/path rewriting.
+
+**Cross-skill shared script opportunities identified:**
+- `enumerate-skills.py` — manifest-aware skill inventory builder reusable by skf-create-stack-skill, skf-refine-architecture, skf-verify-stack.
+- `manifest-ops.py` — export manifest read/write/re-key reusable by skf-export-skill, skf-rename-skill, skf-drop-skill.
+- `validate-skill-output.py` — metadata.json schema + stats validation reusable by skf-create-skill, skf-quick-skill, skf-create-stack-skill.
+- The existing `compute-score.py` in skf-test-skill is the positive exemplar of this pattern throughout all reports.
+
+**Skills with zero or near-zero script opportunities:** `forger` (pure config template, no LLM operations), `skf-forger` (pipeline alias expansion only, 50–100 tokens), `skf-refine-architecture` (core work is semantic judgment, 150–300 tokens).</result>
+<usage><total_tokens>36140</total_tokens><tool_uses>103</tool_uses><duration_ms>929800</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a4c3155f3e8dd1839</task-id>
+<tool-use-id>toolu_01UWRxKUC2JkV8zSrEJk8oGy</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a4c3155f3e8dd1839.output</output-file>
+<status>completed</status>
+<summary>Agent "L5: Enhancement Opportunities scan" completed</summary>
+<result>All 16 reports are verified. Here is the JSON summary:
+
+```json
+{"completed": 16, "skills_analyzed": ["forger", "skf-analyze-source", "skf-audit-skill", "skf-brief-skill", "skf-create-skill", "skf-create-stack-skill", "skf-drop-skill", "skf-export-skill", "skf-forger", "skf-quick-skill", "skf-refine-architecture", "skf-rename-skill", "skf-setup", "skf-test-skill", "skf-update-skill", "skf-verify-stack"]}
+```
+
+All 16 `enhancement-opportunities-analysis.md` reports have been written to `skills/reports/module-quality-analysis/20260409-115655/{skill-name}/`.
+
+**What was done:** Each skill was analyzed through all 6 user archetypes (first-timer, expert, confused, edge-case, hostile environment, automator), assessed for headless potential, checked against all 7 facilitative workflow patterns, and evaluated for experience gaps and delight opportunities. Key findings were prioritized by user impact (high/medium/low-opportunity) with concrete, actionable suggestions.
+
+**Cross-cutting themes that surfaced across skills:**
+
+1. **Machine-readable output is the universal CI integration gap.** At least 8 skills produce only human-readable markdown reports. A companion `{workflow}-result.json` on each would unblock pipeline automation without changing the interactive experience.
+
+2. **Completion without direction.** Most workflows end their final report step without naming the recommended next workflow. First-timers consistently face a "now what?" moment at the exit of each skill.
+
+3. **Mermaid-heavy architecture documents silently degrade analysis quality** in both `skf-verify-stack` and `skf-refine-architecture` — same underlying issue, needs fixing in both places.
+
+4. **The headless story is mostly complete** — nearly all workflows already support `--headless` with auto-resolving gates. The gaps are primarily in output contracts (no structured result artifacts) and conflict-resolution strategies for `skf-update-skill`.
+
+5. **The known `sidecar_path` installer bug** is documented in `skf-forger` but has no self-repair path — a high-impact fix for a recurring first-run failure.</result>
+<usage><total_tokens>106561</total_tokens><tool_uses>54</tool_uses><duration_ms>1032176</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a66b2d03e537fecfe</task-id>
+<tool-use-id>toolu_01SEb5jysEt7tFPhXsUY5RUt</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a66b2d03e537fecfe.output</output-file>
+<status>completed</status>
+<summary>Agent "L4: Skill Cohesion scan" completed</summary>
+<result>All 16 skill cohesion analysis reports are now written. Here is the final JSON summary:
+
+```json
+{"completed": 16, "skills_analyzed": ["forger", "skf-analyze-source", "skf-audit-skill", "skf-brief-skill", "skf-create-skill", "skf-create-stack-skill", "skf-drop-skill", "skf-export-skill", "skf-forger", "skf-quick-skill", "skf-refine-architecture", "skf-rename-skill", "skf-setup", "skf-test-skill", "skf-update-skill", "skf-verify-stack"]}
+```
+
+All reports are at `/home/armel/Projects/OSS/bmad-module-skill-forge/skills/reports/module-quality-analysis/20260409-115655/{skill-name}/skill-cohesion-analysis.md`.
+
+**Cross-skill summary of the most significant findings:**
+
+- **HIGH severity:** `skf-drop-skill` headless mode auto-confirms irreversible purge with no logging of the purge scope — a data loss risk in automated pipelines.
+- **MEDIUM severity (3 instances):** `skf-update-skill` headless pipeline halt on [MANUAL] conflicts is undocumented; `skf-rename-skill` headless mode silently executes multi-version multi-directory rename; `skf-verify-stack` delta comparison requires undocumented out-of-band user backup action.
+- **Structural gap:** `skf-create-stack-skill` produces no provenance-map, making stack skills incompatible with `skf-audit-skill` and `skf-update-skill` — the two lifecycle maintenance skills. This is the most significant architectural gap across the module.
+- **Recurring pattern:** Multiple skills have optional parameters (`--from-test-report`, `--update-spec`, `prd_path`, `previous_report_path`, `@version` targeting) not listed in their SKILL.md Invocation Contracts.
+- **Recurring pattern:** `skf-quick-skill` is missing the `shared/health-check.md` chain at step-06, unlike every other skill in the module.</result>
+<usage><total_tokens>47295</total_tokens><tool_uses>120</tool_uses><duration_ms>1180127</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a064d0df146054419</task-id>
+<tool-use-id>toolu_01Mbz5wJoX2mXtfw3coQ75XD</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a064d0df146054419.output</output-file>
+<status>completed</status>
+<summary>Agent "L2: Prompt Craft scan (retry)" completed</summary>
+<result>All 16 files confirmed. Here is the completion summary:
+
+```json
+{"completed": 16, "skills_analyzed": ["forger", "skf-analyze-source", "skf-audit-skill", "skf-brief-skill", "skf-create-skill", "skf-create-stack-skill", "skf-drop-skill", "skf-export-skill", "skf-forger", "skf-quick-skill", "skf-refine-architecture", "skf-rename-skill", "skf-setup", "skf-test-skill", "skf-update-skill", "skf-verify-stack"]}
+```
+
+All 16 `prompt-craft-analysis.md` files written to `skills/reports/module-quality-analysis/20260409-115655/{skill-name}/`. Key findings summary across the module:
+
+**Module-wide patterns (all 15 SKILL.md skills):**
+- Consistent structure (Overview → Role → Workflow Rules → Stages table → Invocation Contract → On Activation) — strong structural discipline.
+- All have config headers; Overviews are uniformly 3 lines — appropriately dense but slightly thin for the most judgment-heavy workflows.
+- Progressive disclosure is correctly implemented: stage logic in steps-c/, domain knowledge in references/.
+- Zero waste patterns detected by prepass — confirmed through content review.
+
+**Notable findings by severity:**
+
+- **Medium (skf-forger):** Communication Style section is thin relative to the hub's persona complexity; Guard condition sentences are dense but load-bearing.
+- **Medium (skf-analyze-source):** Overview doesn't establish what a "skillable unit" is — the primary judgment concept for the workflow.
+- **Medium (skf-brief-skill):** Overview missing "what good looks like" for scoping judgment in the interactive step-3.
+- **Medium (skf-test-skill):** `[min:N]` threshold parameter is undocumented in the Invocation Contract, making it non-discoverable by pipeline users.
+- **Low (skf-export-skill):** No references directory despite multi-platform context injection logic.
+- **Low (skf-drop-skill):** Minor directional ambiguity in "export manifest is the source of truth" framing.
+- **Low (skf-rename-skill):** Step-02 confirm gate not reflected in Invocation Contract Gates field.
+
+**forger:** Not a skill — sidecar storage directory with a README. Not applicable for prompt craft evaluation.</result>
+<usage><total_tokens>75082</total_tokens><tool_uses>56</tool_uses><duration_ms>420313</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a195b6de4f230d0d2</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a195b6de4f230d0d2.output</output-file>
+<status>completed</status>
+<summary>Agent "L1: Workflow Integrity scan (retry)" completed</summary>
+<result>All 16 analysis files are written. Here is the summary:
+
+```json
+{"completed": 16, "skills_analyzed": ["forger", "skf-analyze-source", "skf-audit-skill", "skf-brief-skill", "skf-create-skill", "skf-create-stack-skill", "skf-drop-skill", "skf-export-skill", "skf-forger", "skf-quick-skill", "skf-refine-architecture", "skf-rename-skill", "skf-setup", "skf-test-skill", "skf-update-skill", "skf-verify-stack"]}
+```
+
+Key findings across the 16 skills:
+
+**Systemic issue (all 15 skills with stage files):** The prepass script has a bug — it looks for stage files at the skill root (e.g., `01-init.md`) but every SKILL.md correctly references them as `steps-c/step-01-init.md` and all stage files exist in the `steps-c/` subdirectory. All prepass "critical missing-stage" reports are false positives.
+
+**forger:** Not a skill — it's the forger sidecar data package (preferences.yaml, forge-tier.yaml). Should be excluded from skill scanning.
+
+**skf-forger:** Only skill that passes prepass cleanly. Medium findings: Critical Actions execute before headless_mode is resolved; pipeline-contracts.md path is ambiguous.
+
+**Trigger clause issues (medium, across 6 skills):** `skf-test-skill` ("test" alone), `skf-update-skill` ("update" alone), and `skf-quick-skill` ("quick skill") have over-broad single-word or two-word triggers that could fire accidentally. `skf-create-skill` ("create" alone) is similarly broad. Conservative fix: ensure the quoted trigger phrase always contains the word "skill."
+
+**skf-setup (medium):** Bootstrapping concern — the skill loads config from the file it is responsible for creating. No guard documented for when config.yaml is absent on first run.
+
+**skf-brief-skill (low):** Unclosed quote in description (`"brief a skill` missing closing `"`).
+
+**skf-quick-skill (medium):** Does not resolve `sidecar_path` in On Activation despite reading preferences.yaml for headless mode.</result>
+<usage><total_tokens>87264</total_tokens><tool_uses>63</tool_uses><duration_ms>487795</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa795a09c35de8c8a</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/aa795a09c35de8c8a.output</output-file>
+<status>completed</status>
+<summary>Agent "Synthesize module quality report" completed</summary>
+<result>`/home/armel/Projects/OSS/bmad-module-skill-forge/skills/reports/module-quality-analysis/20260409-115655/report-data.json`</result>
+<usage><total_tokens>17706</total_tokens><tool_uses>49</tool_uses><duration_ms>798627</duration_ms></usage>
+</task-notification>
+
+---
+
+fix them all. However, I read this line from the report "#8Document stack skill lifecycle limitations in skf-create-stack-skill SKILL.md: explicitly state that stack skills do not produce provenance-map.json and are incompatible with skf-audit-skill and skf-update-skill. (resolves 1 observations)". We will need to activate the party mode and advanced elicitation to find the best way to improve or fix that
+
+---
+
+<task-notification>
+<task-id>ab4c848a5cf6f429a</task-id>
+<tool-use-id>toolu_01MXYwmX8CdueLqSzPxoY99K</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/ab4c848a5cf6f429a.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix #4: Tighten trigger phrases" completed</summary>
+<result>All 7 files updated successfully. Here is the summary:
+
+**Files changed** (description `trigger clause` only, summary part unchanged):
+
+1. `src/skf-test-skill/SKILL.md` — `"test" or "verify a skill."` → `"test a skill" or "verify skill completeness."`
+2. `src/skf-update-skill/SKILL.md` — `"update" or "regenerate a skill."` → `"update a skill" or "regenerate a skill."`
+3. `src/skf-create-skill/SKILL.md` — `"create" or "compile a skill."` → `"create a skill" or "compile a skill."`
+4. `src/skf-quick-skill/SKILL.md` — `"quick skill" or "create a skill from URL."` → `"quick skill" or "skill from URL" or "skill from package."`
+5. `src/skf-analyze-source/SKILL.md` — `"analyze source" code for skill opportunities.` → `"analyze source for skills" or "discover skill opportunities."`
+6. `src/skf-refine-architecture/SKILL.md` — `"refine architecture."` → `"refine skill architecture" or "improve architecture doc."`
+7. `src/skf-audit-skill/SKILL.md` — `"audit a skill" for drift.` → `"audit a skill" or "audit skill" for drift.`</result>
+<usage><total_tokens>19927</total_tokens><tool_uses>22</tool_uses><duration_ms>53380</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ae5f4751dd3b8b0b0</task-id>
+<tool-use-id>toolu_01V4frs7k1AHkdNpDtPAyLry</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/ae5f4751dd3b8b0b0.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix #7: First-timer guidance" completed</summary>
+<result>All four files have been modified:
+
+1. `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-brief-skill/steps-c/step-03-scope-definition.md` — Scope guidance block inserted before the "Offer Scope Templates" subsection (section 2c), where users first choose how broadly to cover the library.
+
+2. `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-08-report.md` — Next steps guidance block inserted immediately before the "Suggest Next Steps" section (step 4), pointing users toward TS, EX, or SKILL.md review depending on whether issues were flagged.
+
+3. `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-export-skill/steps-c/step-06-summary.md` — Verification block inserted before "Workflow Complete" (section 6), covering IDE path checks, trigger phrase testing, and token trimming notification.
+
+4. `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-forger/SKILL.md` — Line 71 first-run guidance updated to expand the three-item list (SF, QS, KI) into four items (SF, QS, BS, KI) each with a brief description of what it does.</result>
+<usage><total_tokens>24679</total_tokens><tool_uses>11</tool_uses><duration_ms>50374</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a5940033e3d0c0596</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a5940033e3d0c0596.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix #2: Create structural diff script" completed</summary>
+<result>All four tests pass. The script is at `/home/armel/Projects/OSS/bmad-module-skill-forge/src/shared/scripts/structural-diff.py`.
+
+Here is what was done and the key design decisions:
+
+**What was created:** `src/shared/scripts/structural-diff.py`
+
+**Conventions followed (matching `compute-score.py` exemplar):**
+- `#!/usr/bin/env python3` shebang
+- PEP 723 `# /// script` block with `requires-python = "&gt;=3.9"` (one minor down from the exemplar's 3.10, as specified)
+- Standard library only: `json`, `argparse`, `pathlib`, `sys`
+- `from __future__ import annotations`
+- Docstring at module level with full CLI and format documentation
+- `main()` returning an int, `sys.exit(main())`
+
+**Input format compatibility:** Accepts both the provenance-map format (`{"exports": [...]}` from audit-skill step-01/03) and the extraction-snapshot format (same wrapper, produced by step-02), as well as plain JSON arrays.
+
+**Diff fields compared for change detection:** `type`, `signature`, `file`, `line`, `confidence` — matching the fields documented in step-02's extraction snapshot schema.
+
+**Output structure:**
+- `summary`: `{added, removed, changed, unchanged}` counts
+- `added`: full entry objects for new exports
+- `removed`: full entry objects for deleted exports
+- `changed`: per-field `{name, field, baseline_value, current_value}` records — one record per changed field per export name
+- `unchanged_count`: mirror of `summary.unchanged`
+
+**Exit codes:** 0 = no diff; 1 = differences found or error (matches the spec exactly).
+
+**Note on relationship to existing `skf-structural-diff.py`:** The existing script uses a flat findings-list format (no per-field breakdown, no `-o` flag, exits 0 always). The new `structural-diff.py` has the simpler, more composable interface requested here and is intended for the general shared use case.</result>
+<usage><total_tokens>31317</total_tokens><tool_uses>11</tool_uses><duration_ms>105317</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a61a07dec178ebcdf</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a61a07dec178ebcdf.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix #5: Subagent delegation in 3 skills" completed</summary>
+<result>All four edits look correct and coherent. The changes follow the exemplar's style (concurrency bounds, structured JSON return, "ONLY return" constraint) and preserve all existing downstream logic intact.
+
+Here is a summary of what was done:
+
+**Files modified (4 files):**
+
+1. `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-refine-architecture/steps-c/step-02-gap-analysis.md`
+   - Section 4 "Load Skill API Surfaces for Cross-Reference": replaced direct SKILL.md loading with parallel subagent delegation (up to 8 concurrent). Each subagent reads one SKILL.md and returns `{skill_name, exports, protocols, data_formats}`. Parent retains only lightweight metadata.json reads.
+
+2. `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-verify-stack/steps-c/step-01-init.md`
+   - Section 2 "Scan Skills Folder": replaced sequential metadata.json loading with parallel subagent delegation (up to 8 concurrent). Each subagent reads one `metadata.json` and returns the compact skill summary fields. The skill inventory is built from collected summaries.
+
+3. `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-verify-stack/steps-c/step-03-integrations.md`
+   - Section 3 "Load Skill API Surfaces": replaced direct SKILL.md loading with parallel subagent delegation (up to 8 concurrent), same `{skill_name, exports, protocols, data_formats}` schema. metadata.json fields remain in parent as lightweight reads.
+
+4. `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-03-coverage-check.md`
+   - Section 1: replaced direct SKILL.md + references reading with a single subagent call that reads SKILL.md (and `references/*.md` if split-body applies) and returns a structured JSON inventory including `exports`, `capabilities`, `references`, and `cross_check_mismatches`.
+   - Section 1b: updated to derive split-body consistency findings from the subagent's `cross_check_mismatches` field rather than re-reading files in parent context.</result>
+<usage><total_tokens>34214</total_tokens><tool_uses>18</tool_uses><duration_ms>122332</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a1e03b98bbc290b0c</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a1e03b98bbc290b0c.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix #6: Output contracts for 9 skills" completed</summary>
+<result>All 10 files confirmed. Here is a summary of everything done:
+
+**1 file created:**
+- `src/shared/references/output-contract-schema.md` — the shared schema definition for result JSON files
+
+**9 files modified** (Result Contract section added to each final step):
+
+| Skill | File modified |
+|---|---|
+| skf-analyze-source | `steps-c/step-06-generate-briefs.md` — writes `analyze-source-result.json` with brief paths |
+| skf-create-skill | `steps-c/step-08-report.md` — writes `create-skill-result.json` with SKILL.md, context-snippet.md, metadata.json paths and confidence distribution |
+| skf-quick-skill | `steps-c/step-06-write.md` — writes `quick-skill-result.json` with SKILL.md path and export count |
+| skf-export-skill | `steps-c/step-06-summary.md` — writes `export-skill-result.json` with context files and token counts |
+| skf-audit-skill | `steps-c/step-06-report.md` — writes `audit-skill-result.json` with drift report path, drift_count, and severity |
+| skf-rename-skill | `steps-c/step-03-report.md` — writes `rename-skill-result.json` with updated file paths, old/new names, and versions_renamed |
+| skf-drop-skill | `steps-c/step-03-report.md` — writes `drop-skill-result.json` with purged paths, drop_mode, and versions_affected |
+| skf-refine-architecture | `steps-c/step-06-report.md` — writes `refine-architecture-result.json` with refined architecture doc path and gap/issue/improvement counts |
+| skf-forger | `SKILL.md` — Pipeline Mode step 6 writes `pipeline-result.json` with per-step results and overall pipeline status |
+
+Each instruction block is a brief `### Result Contract` section inserted immediately before the health check invocation, following the exact format specified. No existing content was restructured.</result>
+<usage><total_tokens>46593</total_tokens><tool_uses>33</tool_uses><duration_ms>158207</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa5423bcfd438f94e</task-id>
+<tool-use-id>toolu_01KDyxQHutqx6AygBp7PQGwx</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/aa5423bcfd438f94e.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix #1: Path violations module-wide" completed</summary>
+<result>All targeted violations are fixed. The two remaining scanner findings are in different categories:
+- `skf-test-skill` step-04-coherence-check.md line 85: `../shared/types.ts` is inside a bullet-point example listing reference types that LLM agents would encounter in user code — not an actual file path reference from this skill
+- `skf-create-stack-skill` step-06-compile-stack.md: `./references/{library}.md` is a `cross-dir-dot-slash` category, not a `relative-prefix` (`../`) violation — outside the scope of this task
+
+Here is the violations-fixed summary per skill:
+
+| Skill | Violations Fixed | Files Changed |
+|---|---|---|
+| skf-analyze-source | 2 | step-04-map-and-detect.md, step-01-init.md |
+| skf-audit-skill | 3 | step-02-re-index.md, step-01-init.md (×2) |
+| skf-brief-skill | 1 | step-02-analyze-target.md |
+| skf-create-skill | 10 | step-02b-ccc-discover.md (×2), step-03-extract.md (×3), step-01-load-brief.md, step-04-enrich.md, tier-degradation-rules.md, extraction-patterns.md, source-resolution-protocols.md |
+| skf-create-stack-skill | 11 | step-05-detect-integrations.md (×3), step-04-parallel-extract.md (×2), step-02-detect-manifests.md, step-01-init.md (×2), step-03-rank-and-confirm.md, compose-mode-rules.md |
+| skf-drop-skill | 3 | step-01-select.md, step-02-execute.md (×2) |
+| skf-export-skill | 5 | step-03-generate-snippet.md, step-04-update-context.md, step-02-package.md, step-01-load-skill.md, managed-section-format.md |
+| skf-refine-architecture | 1 | step-01-init.md |
+| skf-rename-skill | 1 | step-02-execute.md |
+| skf-test-skill | 1 | step-01-init.md |
+| skf-update-skill | 5 | step-07-report.md, step-03-re-extract.md (×4), step-01-init.md |
+| skf-verify-stack | 1 | step-01-init.md |
+| **Total** | **44** | **33 files** |
+
+All 12 skills now pass the path standards scanner for `../` violations. The two remaining scanner findings in skf-test-skill (prose example) and skf-create-stack-skill (cross-dir dot-slash, different category) are outside the scope of this task.</result>
+<usage><total_tokens>138180</total_tokens><tool_uses>89</tool_uses><duration_ms>455491</duration_ms></usage>
+</task-notification>
+
+---
+
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-party-mode
+
+Follow the instructions in ./workflow.md.
+
+---
+
+I tried a manual fix. Try to activate the party mode again
+
+---
+
+activate advanced elicitation to stress-test. We should end up with the smartest approach for a long term and stable SKF moduel
+
+---
+
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-advanced-elicitation
+
+# Advanced Elicitation
+
+**Goal:** Push the LLM to reconsider, refine, and improve its recent output.
+
+---
+
+## CRITICAL LLM INSTRUCTIONS
+
+- **MANDATORY:** Execute ALL steps in the flow section IN EXACT ORDER
+- DO NOT skip steps or change the sequence
+- HALT immediately when halt-conditions are met
+- Each action within a step is a REQUIRED action to complete that step
+- Sections outside flow (validation, output, critical-context) provide essential context - review and apply throughout execution
+- **YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the `communication_language`**
+
+---
+
+## INTEGRATION (When Invoked Indirectly)
+
+When invoked from another prompt or process:
+
+1. Receive or review the current section content that was just generated
+2. Apply elicitation methods iteratively to enhance that specific content
+3. Return the enhanced version back when user selects 'x' to proceed and return back
+4. The enhanced content replaces the original section content in the output document
+
+---
+
+## FLOW
+
+### Step 1: Method Registry Loading
+
+**Action:** Load and read `./methods.csv` and `{agent_party}`
+
+#### CSV Structure
+
+- **category:** Method grouping (core, structural, risk, etc.)
+- **method_name:** Display name for the method
+- **description:** Rich explanation of what the method does, when to use it, and why it's valuable
+- **output_pattern:** Flexible flow guide using arrows (e.g., "analysis -> insights -> action")
+
+#### Context Analysis
+
+- Use conversation history
+- Analyze: content type, complexity, stakeholder needs, risk level, and creative potential
+
+#### Smart Selection
+
+1. Analyze context: Content type, complexity, stakeholder needs, risk level, creative potential
+2. Parse descriptions: Understand each method's purpose from the rich descriptions in CSV
+3. Select 5 methods: Choose methods that best match the context based on their descriptions
+4. Balance approach: Include mix of foundational and specialized techniques as appropriate
+
+---
+
+### Step 2: Present Options and Handle Responses
+
+#### Display Format
+
+```
+**Advanced Elicitation Options**
+_If party mode is active, agents will join in._
+Choose a number (1-5), [r] to Reshuffle, [a] List All, or [x] to Proceed:
+
+1. [Method Name]
+2. [Method Name]
+3. [Method Name]
+4. [Method Name]
+5. [Method Name]
+r. Reshuffle the list with 5 new options
+a. List all methods with descriptions
+x. Proceed / No Further Actions
+```
+
+#### Response Handling
+
+**Case 1-5 (User selects a numbered method):**
+
+- Execute the selected method using its description from the CSV
+- Adapt the method's complexity and output format based on the current context
+- Apply the method creatively to the current section content being enhanced
+- Display the enhanced version showing what the method revealed or improved
+- **CRITICAL:** Ask the user if they would like to apply the changes to the doc (y/n/other) and HALT to await response.
+- **CRITICAL:** ONLY if Yes, apply the changes. IF No, discard your memory of the proposed changes. If any other reply, try best to follow the instructions given by the user.
+- **CRITICAL:** Re-present the same 1-5,r,x prompt to allow additional elicitations
+
+**Case r (Reshuffle):**
+
+- Select 5 random methods from methods.csv, present new list with same prompt format
+- When selecting, try to think and pick a diverse set of methods covering different categories and approaches, with 1 and 2 being potentially the most useful for the document or section being discovered
+
+**Case x (Proceed):**
+
+- Complete elicitation and proceed
+- Return the fully enhanced content back to the invoking skill
+- The enhanced content becomes the final version for that section
+- Signal completion back to the invoking skill to continue with next section
+
+**Case a (List All):**
+
+- List all methods with their descriptions from the CSV in a compact table
+- Allow user to select any method by name or number from the full list
+- After selection, execute the method as described in the Case 1-5 above
+
+**Case: Direct Feedback:**
+
+- Apply changes to current section content and re-present choices
+
+**Case: Multiple Numbers:**
+
+- Execute methods in sequence on the content, then re-offer choices
+
+---
+
+### Step 3: Execution Guidelines
+
+- **Method execution:** Use the description from CSV to understand and apply each method
+- **Output pattern:** Use the pattern as a flexible guide (e.g., "paths -> evaluation -> selection")
+- **Dynamic adaptation:** Adjust complexity based on content needs (simple to sophisticated)
+- **Creative application:** Interpret methods flexibly based on context while maintaining pattern consistency
+- Focus on actionable insights
+- **Stay relevant:** Tie elicitation to specific content being analyzed (the current section from the document being created unless user indicates otherwise)
+- **Identify personas:** For single or multi-persona methods, clearly identify viewpoints, and use party members if available in memory already
+- **Critical loop behavior:** Always re-offer the 1-5,r,a,x choices after each method execution
+- Continue until user selects 'x' to proceed with enhanced content, confirm or ask the user what should be accepted from the session
+- Each method application builds upon previous enhancements
+- **Content preservation:** Track all enhancements made during elicitation
+- **Iterative enhancement:** Each selected method (1-5) should:
+  1. Apply to the current enhanced version of the content
+  2. Show the improvements made
+  3. Return to the prompt for additional elicitations or completion
+
+---
+
+1-5
+
+---
+
+y
+
+---
+
+<task-notification>
+<task-id>a9edc721cb5dffb85</task-id>
+<tool-use-id>toolu_0113nk5tYER8TwTkXEiRVQPv</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a9edc721cb5dffb85.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix #8a: Update provenance schema" completed</summary>
+<result>The file has been updated. Here is a summary of what was done:
+
+**File modified:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/assets/skill-sections.md`
+
+**Changes in the `## provenance-map.json Structure` section (around line 261):**
+
+1. Added `provenance_version: "2.0"` and `skill_type: "single|stack"` top-level fields to the JSON schema.
+2. Expanded `source_repo` and `source_commit` to document multi-source support (arrays/objects for stack skills).
+3. Added `source_library` field to each entry object, with a note that it defaults to the skill name for single skills.
+4. Added a new `integrations` array block for stack-only cross-library pattern detection.
+5. Added a new `constituents` array block for stack-only compose-time snapshot tracking (includes `metadata_hash` for drift detection).
+6. Replaced the old trailing prose note with six bullet-point notes explaining each new/changed field, including the omission rules for single vs. stack skills.</result>
+<usage><total_tokens>16878</total_tokens><tool_uses>2</tool_uses><duration_ms>36576</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a23b3c344288e6554</task-id>
+<tool-use-id>toolu_019m5LsLpQQzeuW7eeNDd3Cc</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a23b3c344288e6554.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix #8b: Update create-stack-skill output" completed</summary>
+<result>The file has been updated. Here is a summary of what changed:
+
+**File modified:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-stack-skill/steps-c/step-07-generate-output.md`
+
+**What changed (section "### 7. Write Forge Data Artifacts", provenance-map.json block):**
+
+The old format used a flat object with per-library and per-integration dictionaries keyed by name (`"libraries": { "lib_name": {...} }`, `"integrations": { "libA+libB": {...} }`). It had no version field and no per-export detail.
+
+The new unified v2 format introduces:
+- `provenance_version: "2.0"`, `skill_name`, `skill_type`, `generated_at` top-level fields
+- `source_repo` (array of repo URLs in code-mode, `null` in compose-mode) and `source_commit` (map of repo → hash) in code-mode
+- `entries[]` — a flat array with one object per export, each carrying `export_name`, `export_type`, `source_library`, `params`, `return_type`, `source_file`, `source_line`, `confidence`, `extraction_method`, and `signature_source`
+- `integrations[]` — changed from a keyed object to an array, with `libraries[]`, `pattern_type`, `detection_method`, `co_import_files[]`, and `confidence`
+- `constituents[]` (compose-mode only) — per-constituent audit trail with `skill_name`, `skill_path`, `version`, `composed_at`, and `metadata_hash` (SHA-256 of constituent `metadata.json`)
+- An explanatory note about per-export schema alignment with `skill-sections.md` and constituent drift detection
+
+The `evidence-report.md` bullet and all other step sections are unchanged.</result>
+<usage><total_tokens>18645</total_tokens><tool_uses>2</tool_uses><duration_ms>37463</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa4ea295ae6776bf9</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/aa4ea295ae6776bf9.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix #8c: Add stack support to audit-skill" completed</summary>
+<result>Three files modified:
+
+1. `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-audit-skill/SKILL.md` — appended the stack support sentence to the Overview paragraph.
+
+2. `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-audit-skill/steps-c/step-01-init.md` — inserted a new "Stack Skill Detection" section between the provenance map loading section (step 4) and the source path resolution section (step 5). It sets `{is_stack_skill}` and `{legacy_stack_provenance}` flags, runs constituent freshness checks for compose-mode stacks via SHA-256 hash comparison against `constituent.metadata_hash`, and logs a reduced-depth warning for v1 provenance.
+
+3. `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-audit-skill/steps-c/step-03-structural-diff.md` — inserted a "Stack-Specific Structural Diff" section immediately before "Compile Structural Drift Section" (step 5), covering per-library diffing for v2 provenance, code-mode vs compose-mode handling, v1 legacy fallback, and integration drift verification.</result>
+<usage><total_tokens>21329</total_tokens><tool_uses>6</tool_uses><duration_ms>41159</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a50fbbb2035234f48</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a50fbbb2035234f48.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix #8d: Document stack limitation in update-skill" completed</summary>
+<result>Both files modified:
+
+1. `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-update-skill/SKILL.md` — Appended one sentence to the Overview paragraph noting that stack skills are unsupported by surgical update and will trigger a redirect exit.
+
+2. `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-update-skill/steps-c/step-01-init.md` — Added the `### Stack Skill Guard` block immediately after the metadata `skill_type` detection logic. The guard displays the redirect message and exits before step-02 whenever `skill_type` is `"stack"`. The existing "flag as stack skill" bullet was reordered to place the single-skill case first so the guard reads naturally after it.</result>
+<usage><total_tokens>18672</total_tokens><tool_uses>4</tool_uses><duration_ms>30650</duration_ms></usage>
+</task-notification>
+
+---
+
+x
+
+---
+
+why we have @src/shared/scripts/structural-diff.py and @src/shared/scripts/skf-structural-diff.py ?
+
+---
+
+yes
+
+---
+
+the final script should keep the same standard name starting with skf-*
+
+---
+
+# Feature Development
+
+You are helping a developer implement a new feature. Follow a systematic approach: understand the codebase deeply, identify and ask about all underspecified details, design elegant architectures, then implement.
+
+## Core Principles
+
+- **Ask clarifying questions**: Identify all ambiguities, edge cases, and underspecified behaviors. Ask specific, concrete questions rather than making assumptions. Wait for user answers before proceeding with implementation. Ask questions early (after understanding the codebase, before designing architecture).
+- **Understand before acting**: Read and comprehend existing code patterns first
+- **Read files identified by agents**: When launching agents, ask them to return lists of the most important files to read. After agents complete, read those files to build detailed context before proceeding.
+- **Simple and elegant**: Prioritize readable, maintainable, architecturally sound code
+- **Use TodoWrite**: Track all progress throughout
+
+---
+
+## Phase 1: Discovery
+
+**Goal**: Understand what needs to be built
+
+Initial request: before we commit, review all the changes for any breaking changes, or missing impacts/bugs/regressions and ect... DO NOT HALLUCINATE. IF EVERYTHING IS CLEAN JUST SAY IT.
+
+**Actions**:
+1. Create todo list with all phases
+2. If feature unclear, ask user for:
+   - What problem are they solving?
+   - What should the feature do?
+   - Any constraints or requirements?
+3. Summarize understanding and confirm with user
+
+---
+
+## Phase 2: Codebase Exploration
+
+**Goal**: Understand relevant existing code and patterns at both high and low levels
+
+**Actions**:
+1. Launch 2-3 code-explorer agents in parallel. Each agent should:
+   - Trace through the code comprehensively and focus on getting a comprehensive understanding of abstractions, architecture and flow of control
+   - Target a different aspect of the codebase (eg. similar features, high level understanding, architectural understanding, user experience, etc)
+   - Include a list of 5-10 key files to read
+
+   **Example agent prompts**:
+   - "Find features similar to [feature] and trace through their implementation comprehensively"
+   - "Map the architecture and abstractions for [feature area], tracing through the code comprehensively"
+   - "Analyze the current implementation of [existing feature/area], tracing through the code comprehensively"
+   - "Identify UI patterns, testing approaches, or extension points relevant to [feature]"
+
+2. Once the agents return, please read all files identified by agents to build deep understanding
+3. Present comprehensive summary of findings and patterns discovered
+
+---
+
+## Phase 3: Clarifying Questions
+
+**Goal**: Fill in gaps and resolve all ambiguities before designing
+
+**CRITICAL**: This is one of the most important phases. DO NOT SKIP.
+
+**Actions**:
+1. Review the codebase findings and original feature request
+2. Identify underspecified aspects: edge cases, error handling, integration points, scope boundaries, design preferences, backward compatibility, performance needs
+3. **Present all questions to the user in a clear, organized list**
+4. **Wait for answers before proceeding to architecture design**
+
+If the user says "whatever you think is best", provide your recommendation and get explicit confirmation.
+
+---
+
+## Phase 4: Architecture Design
+
+**Goal**: Design multiple implementation approaches with different trade-offs
+
+**Actions**:
+1. Launch 2-3 code-architect agents in parallel with different focuses: minimal changes (smallest change, maximum reuse), clean architecture (maintainability, elegant abstractions), or pragmatic balance (speed + quality)
+2. Review all approaches and form your opinion on which fits best for this specific task (consider: small fix vs large feature, urgency, complexity, team context)
+3. Present to user: brief summary of each approach, trade-offs comparison, **your recommendation with reasoning**, concrete implementation differences
+4. **Ask user which approach they prefer**
+
+---
+
+## Phase 5: Implementation
+
+**Goal**: Build the feature
+
+**DO NOT START WITHOUT USER APPROVAL**
+
+**Actions**:
+1. Wait for explicit user approval
+2. Read all relevant files identified in previous phases
+3. Implement following chosen architecture
+4. Follow codebase conventions strictly
+5. Write clean, well-documented code
+6. Update todos as you progress
+
+---
+
+## Phase 6: Quality Review
+
+**Goal**: Ensure code is simple, DRY, elegant, easy to read, and functionally correct
+
+**Actions**:
+1. Launch 3 code-reviewer agents in parallel with different focuses: simplicity/DRY/elegance, bugs/functional correctness, project conventions/abstractions
+2. Consolidate findings and identify highest severity issues that you recommend fixing
+3. **Present findings to user and ask what they want to do** (fix now, fix later, or proceed as-is)
+4. Address issues based on user decision
+
+---
+
+## Phase 7: Summary
+
+**Goal**: Document what was accomplished
+
+**Actions**:
+1. Mark all todos complete
+2. Summarize:
+   - What was built
+   - Key decisions made
+   - Files modified
+   - Suggested next steps
+
+---
+
+---
+
+<task-notification>
+<task-id>a2d6f2cc6f71fc660</task-id>
+<tool-use-id>toolu_01B39AnjAvJmqnRoUzo5asUN</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a2d6f2cc6f71fc660.output</output-file>
+<status>completed</status>
+<summary>Agent "Review script and trigger changes" completed</summary>
+<result>I now have everything I need for a complete analysis. Here is my findings report.
+
+---
+
+Reviewing the current state of the four areas requested. The git status shows a clean working tree (no unstaged changes), so this is a review of the committed state of the files as they exist on `dev`.
+
+---
+
+## 1. `skf-structural-diff.py` — Python Script
+
+**Syntax**: Valid Python. No syntax errors. All imports are from the standard library. The PEP 723 metadata block at lines 2-5 is correctly formatted with `requires-python = "&gt;=3.9"` and an empty `dependencies` list.
+
+**`moved` detection logic**: The logic at lines 138-146 detects moves by checking whether a name is in both baseline and current (`common_names`), then comparing `base_file != curr_file`. This correctly identifies same-named exports that changed file. There is one subtle point worth verifying rather than flagging: a moved export will appear in both `moved[]` and `changed[]` (because `file` is in `DIFF_FIELDS` at line 55 and the file-field change will also be recorded in `changed`). This is not a bug — it is intentional double-reporting since the docstring describes `moved` as its own distinct category — but worth being aware that a file move will increment both `summary.moved` and `summary.changed`.
+
+**Exit codes**: Line 251 — `return 1 if has_diff else 0`. Correct. Errors also return 1 (lines 229, 233, 246). Zero is returned only when all four summary counters (`added`, `removed`, `changed`, `moved`) are zero. This matches the documented contract.
+
+**CLI interface (positional args vs. `--baseline`/`--current`)**: No reference to `--baseline` or `--current` exists anywhere in the repository's markdown or Python files. The old named-flag interface is not referenced by any step file, SKILL.md, or any other doc. The positional interface (`baseline.json current.json`) is the only interface described throughout the codebase. The drop is safe.
+
+**No issues found in this file.**
+
+---
+
+## 2. Trigger Phrase Changes in SKILL.md Files
+
+All 7 SKILL.md files were reviewed. The `description` field in each frontmatter follows the pattern: `{summary sentence}. Use when the user requests {specific trigger phrases}.`
+
+The trigger phrases are more specific than a generic "run X":
+- `skf-test-skill`: "test a skill" or "verify skill completeness"
+- `skf-update-skill`: "update a skill" or "regenerate a skill"
+- `skf-create-skill`: "create a skill" or "compile a skill"
+- `skf-quick-skill`: "quick skill" or "skill from URL" or "skill from package"
+- `skf-analyze-source`: "analyze source for skills" or "discover skill opportunities"
+- `skf-refine-architecture`: "refine skill architecture" or "improve architecture doc"
+- `skf-audit-skill`: "audit a skill" or "audit skill" for drift
+
+The summary parts before the period are preserved and descriptively accurate to the skill's purpose. The descriptions end with a proper period before the `Use when...` clause. All are well-formed.
+
+**No issues found.**
+
+---
+
+## 3. Output Contract Additions in Final Step Files
+
+All 6 final step files received a `Result Contract` section. Reviewing each:
+
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-08-report.md` (line 114-118): Contract placed between "Batch Mode Status" and the health check step. Clean insertion, no disruption.
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-quick-skill/steps-c/step-06-write.md` (line 120-122): Contract placed between "Display Completion Summary" and "Workflow Health Check". Clean.
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-export-skill/steps-c/step-06-summary.md` (line 136-138): Contract placed between "Workflow Complete" and "Workflow Health Check". Clean.
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-audit-skill/steps-c/step-06-report.md` (lines 161-163): Contract placed between "Present Final Report Summary" and "Workflow Health Check". Clean.
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-drop-skill/steps-c/step-03-report.md` (lines 72-74): Contract placed between "Render the Report" and "Workflow Health Check". Clean.
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-rename-skill/steps-c/step-03-report.md` (lines 72-74): Contract placed between "Render the Report" and "Workflow Health Check". Clean.
+
+Each contract references `shared/references/output-contract-schema.md`, which exists at `/home/armel/Projects/OSS/bmad-module-skill-forge/src/shared/references/output-contract-schema.md`. The relative path used in instructions (`shared/references/output-contract-schema.md`) is consistent across all six files and matches the actual path relative to `src/`.
+
+Each contract specifies a distinct output filename (`create-skill-result.json`, `quick-skill-result.json`, `export-skill-result.json`, `audit-skill-result.json`, `drop-skill-result.json`, `rename-skill-result.json`), appropriate `outputs` entries, and skill-relevant `summary` fields.
+
+**No issues found.**
+
+---
+
+## 4. `src/shared/references/output-contract-schema.md`
+
+The file exists and contains a valid JSON schema block with the three required `status` values (`success`, `failed`, `partial`), the `outputs` array structure with `type` and `path`, and the `summary` extension point. The write path convention (`{output_dir}/{skill-name}-result.json`) is documented.
+
+One minor observation (not a bug, confidence not actionable at the 80+ threshold): the JSON example uses a `|` pipe character directly inside a JSON string (`"type": "report|skill|manifest|config"`), which is not valid JSON syntax — it reads as a schema-like shorthand, not a literal string. Since this is a reference document for LLM agents rather than a machine-parsed schema, this is intentional and poses no runtime risk.
+
+**No issues found.**
+
+---
+
+## Summary
+
+All four areas reviewed cleanly. No bugs, regressions, or missing impacts were found. The consolidation is correct, the trigger phrase descriptions are well-formed, the Result Contract sections were inserted without disrupting existing content, and the schema reference file is present and valid.</result>
+<usage><total_tokens>36247</total_tokens><tool_uses>29</tool_uses><duration_ms>93828</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a6a9a1a5b99bfc596</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a6a9a1a5b99bfc596.output</output-file>
+<status>completed</status>
+<summary>Agent "Review schema and audit changes" completed</summary>
+<result>The schema at line 270 shows `source_ref` as a simple string with no `null` case documented for the provenance-map. Neither `source_ref` nor `source_commit` is labeled optional in the provenance-map schema. The compose-mode JSON in step-07 omits `source_commit` entirely (no key at all), while `source_repo` is explicitly set to `null`. This is an inconsistency — `source_commit` should either appear as `null` or have the schema document it as omissible in compose-mode.
+
+Let me also check whether there's any guidance in the step-07 note or header about which fields are omissible.
+
+The step-07 note (line 210) only mentions `source_library` and `constituents[]` — it doesn't document that `source_commit` or `source_ref` may be omitted/null in compose-mode.
+
+Now let me compile all findings with confidence scores.
+
+---
+
+Reviewing the provenance schema v2 changes and audit-skill stack support across all five files. The working tree is clean so this is a content/logic review of the current state.
+
+---
+
+## Critical Issues
+
+### 1. Constituent metadata path uses wrong `{skill_name}` variable
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-audit-skill/steps-c/step-01-init.md`, line 95
+
+**Confidence: 95**
+
+The constituent freshness check constructs the path as:
+
+```
+{constituent.skill_path}/active/{skill_name}/metadata.json
+```
+
+At this point in execution, `{skill_name}` is bound to the **stack skill being audited** (e.g., `myproject-stack`), not the constituent's own name. The `constituent.skill_path` value (e.g., `skills/lib-a/`) points to the skill group for constituent `lib-a`, but the inner package directory is named after the constituent, not the stack. The correct path is:
+
+```
+{constituent.skill_path}/active/{constituent.skill_name}/metadata.json
+```
+
+Using the stack's name here produces a path that doesn't exist, meaning the hash comparison always fails or throws — every constituent would be flagged as HIGH severity drift regardless of actual state. This is a functional bug in the freshness check.
+
+**Fix:** Replace `{skill_name}` with `{constituent.skill_name}` on line 95.
+
+---
+
+## Important Issues
+
+### 2. Compose-mode provenance-map.json omits `source_commit` entirely without schema authorization
+
+**File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-stack-skill/steps-c/step-07-generate-output.md`, lines 167–208
+
+**Confidence: 85**
+
+The compose-mode JSON example sets `"source_repo": null` but omits `source_commit` completely — no key, no `null` value. The schema in `skill-sections.md` (line 269) defines `source_commit` as a top-level field with no documented null case or optional marker for compose-mode. The schema prose (lines 318–323) documents which fields are optional (`file_entries`, `integrations`, `constituents`) but says nothing about `source_commit` being omissible.
+
+By contrast, `source_repo` is explicitly set to `null`, which is the correct pattern for communicating "this field has no value in this mode." If an audit tool or validator reads `provenance_version: "2.0"` and expects `source_commit` to be present (following the schema), it will fail on compose-mode maps.
+
+The schema should document `source_commit` as nullable/omissible in compose-mode, or step-07 should emit `"source_commit": null` (matching the treatment of `source_repo`). The same applies to `source_ref`, which is also absent from the compose-mode example with no schema justification.
+
+**Fix (option A — preferred):** In the compose-mode JSON example, add:
+```json
+"source_commit": null,
+"source_ref": null,
+```
+immediately after `"source_repo": null`.
+
+**Fix (option B):** Add a bullet to the schema prose in `skill-sections.md` stating: "`source_commit` and `source_ref` are `null` in compose-mode stacks (no direct source repository access)."
+
+---
+
+## Clean
+
+**`skill-sections.md` schema validity and backward compatibility:** The JSON example is syntactically valid. New fields (`provenance_version`, `skill_type`, `source_library`, `integrations`, `constituents`) are well-defined with prose explanations. Single skills omitting `integrations` and `constituents` is explicitly specified at line 323. The `entries[]` array structure (fields: `export_name`, `export_type`, `source_library`, `params`, `return_type`, `source_file`, `source_line`, `confidence`, `extraction_method`, `ast_node_type`, `signature_source`) is consistent with what `skf-create-skill` step-05 builds (line 112) and step-07 writes (File 5). No breaking change for single skills.
+
+**`step-07-generate-output.md` code-mode JSON:** Syntactically valid. `entries[]` per-export fields match the schema. `integrations[]` structure matches. `constituents[]` in compose-mode includes `metadata_hash`. The note on line 210 correctly cross-references `skill-sections.md`.
+
+**`step-03-structural-diff.md`:** The stack-specific section integrates cleanly — it gates on `{is_stack_skill}`, handles v2 per-`source_library` grouping, compose-mode constituent comparison, and v1 legacy gracefully. No single-skill diff logic was touched or broken.
+
+**`step-update-skill/step-01-init.md` stack guard:** The guard fires correctly after `metadata.json` is loaded (before step-02), reads `skill_type == "stack"`, emits a clear redirect message pointing to `skf-create-stack-skill`, and exits cleanly without proceeding. The message accurately describes both code-mode and compose-mode re-composition paths. The audit report cross-reference is accurate.
+
+**`step-01-init.md` v1/v2 detection logic:** The two detection conditions (line 90–91) are mutually exclusive and correctly ordered — v2 is checked first (`provenance_version == "2.0"`), v1 legacy falls through to the `libraries` key check. No existing single-skill audit path is affected (the stack detection block is entirely additive, gated on `{is_stack_skill}`).</result>
+<usage><total_tokens>41020</total_tokens><tool_uses>27</tool_uses><duration_ms>134497</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ac0e9bf31e18ebb37</task-id>
+<tool-use-id>toolu_013jyXtzetSd56YS7tb4Zi3Q</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/ac0e9bf31e18ebb37.output</output-file>
+<status>completed</status>
+<summary>Agent "Review path fixes for correctness" completed</summary>
+<result>The review is complete. Here is the summary of findings:
+
+The path reference fixes across all four modules are correct. No genuine issues were found.
+
+**Verification results:**
+
+**Knowledge files existence:** Both `src/knowledge/tool-resolution.md` and `src/knowledge/version-paths.md` — the only two knowledge files referenced across all four modules — exist at the correct module-relative paths.
+
+**No residual `../../` markdown links:** A search for `](../../knowledge/`, `](../knowledge/`, `](../../references/`, and `](../references/` across all four module directories returns zero matches. The conversion is complete.
+
+**Backtick format consistency:** Every converted reference uses the `\`knowledge/tool-resolution.md\`` or `\`knowledge/version-paths.md\`` form. The format is uniform across:
+- `src/skf-create-skill/` — 10 references (3 in `references/`, 7 in `steps-c/`)
+- `src/skf-create-stack-skill/` — 11 references (1 in `references/`, 10 in `steps-c/`)
+- `src/skf-update-skill/` — 5 references (all in `steps-c/`)
+- `src/skf-export-skill/` — 6 references (1 in `assets/`, 5 in `steps-c/`)
+
+**Surrounding text integrity:** Spot-checked every file containing a converted reference. The prose reads naturally in all cases — "see `knowledge/tool-resolution.md`", "per `knowledge/version-paths.md`", etc. No truncated sentences, dropped context, or mangled content was found.
+
+**No false conversions:** The one remaining markdown link in the affected area (`[ref](./references/{name}.md)` in `src/skf-create-stack-skill/assets/stack-skill-template.md`) is a template placeholder for a dynamically-resolved reference path, not a static path reference to a knowledge file. It was correctly left as a markdown link.
+
+All fixes are accurate and complete.</result>
+<usage><total_tokens>50774</total_tokens><tool_uses>54</tool_uses><duration_ms>154992</duration_ms></usage>
+</task-notification>
+
+---
+
+commit

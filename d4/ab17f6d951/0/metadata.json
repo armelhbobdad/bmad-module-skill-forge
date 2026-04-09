@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d4ab17f6d951",
+  "session_id": "f91cf4d2-1b71-4a98-a77f-464647caccb6",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-09T09:50:49.438141607Z",
+  "branch": "dev",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "src/shared/references/output-contract-schema.md",
+    "src/shared/scripts/skf-structural-diff.py",
+    "src/skf-analyze-source/SKILL.md",
+    "src/skf-audit-skill/SKILL.md",
+    "src/skf-audit-skill/steps-c/step-01-init.md",
+    "src/skf-create-skill/SKILL.md",
+    "src/skf-create-skill/assets/skill-sections.md",
+    "src/skf-create-stack-skill/steps-c/step-07-generate-output.md",
+    "src/skf-quick-skill/SKILL.md",
+    "src/skf-refine-architecture/SKILL.md",
+    "src/skf-refine-architecture/steps-c/step-02-gap-analysis.md",
+    "src/skf-test-skill/SKILL.md",
+    "src/skf-update-skill/SKILL.md",
+    "src/skf-verify-stack/steps-c/step-01-init.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "1d31f21fdf1b",
+  "token_usage": {
+    "input_tokens": 219,
+    "cache_creation_tokens": 219806,
+    "cache_read_tokens": 17717409,
+    "output_tokens": 61830,
+    "api_call_count": 139
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-09T09:50:48.437631247Z",
+    "agent_lines": 47,
+    "human_added": 509,
+    "human_modified": 331,
+    "human_removed": 0,
+    "total_committed": 884,
+    "agent_percentage": 5.316742081447964
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d4ab17f6d951",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "src/shared/references/output-contract-schema.md",
+    "src/shared/scripts/skf-structural-diff.py",
+    "src/skf-analyze-source/SKILL.md",
+    "src/skf-audit-skill/SKILL.md",
+    "src/skf-audit-skill/steps-c/step-01-init.md",
+    "src/skf-create-skill/SKILL.md",
+    "src/skf-create-skill/assets/skill-sections.md",
+    "src/skf-create-stack-skill/steps-c/step-07-generate-output.md",
+    "src/skf-quick-skill/SKILL.md",
+    "src/skf-refine-architecture/SKILL.md",
+    "src/skf-refine-architecture/steps-c/step-02-gap-analysis.md",
+    "src/skf-test-skill/SKILL.md",
+    "src/skf-update-skill/SKILL.md",
+    "src/skf-verify-stack/steps-c/step-01-init.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d4/ab17f6d951/0/metadata.json",
+      "transcript": "/d4/ab17f6d951/0/full.jsonl",
+      "context": "/d4/ab17f6d951/0/context.md",
+      "content_hash": "/d4/ab17f6d951/0/content_hash.txt",
+      "prompt": "/d4/ab17f6d951/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 219,
+    "cache_creation_tokens": 219806,
+    "cache_read_tokens": 17717409,
+    "output_tokens": 61830,
+    "api_call_count": 139
+  }
+}
