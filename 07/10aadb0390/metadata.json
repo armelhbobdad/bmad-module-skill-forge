@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0710aadb0390",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/skf-rebuild-managed-sections.py",
+    "src/shared/scripts/skf-validate-frontmatter.py",
+    "src/shared/scripts/skf-validate-output.py",
+    "src/skf-forger/SKILL.md",
+    "test/README.md",
+    "test/test-skf-validate-output.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/07/10aadb0390/0/metadata.json",
+      "transcript": "/07/10aadb0390/0/full.jsonl",
+      "context": "/07/10aadb0390/0/context.md",
+      "content_hash": "/07/10aadb0390/0/content_hash.txt",
+      "prompt": "/07/10aadb0390/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 40,
+    "cache_creation_tokens": 113912,
+    "cache_read_tokens": 1666585,
+    "output_tokens": 9965,
+    "api_call_count": 33
+  }
+}
