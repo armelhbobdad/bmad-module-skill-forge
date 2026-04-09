@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0f3bc2c0989f",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "src/knowledge/ccc-bridge.md",
+    "src/skf-create-skill/references/source-resolution-protocols.md",
+    "src/skf-create-skill/references/tier-degradation-rules.md",
+    "src/skf-create-skill/steps-c/step-01-load-brief.md",
+    "src/skf-create-skill/steps-c/step-02b-ccc-discover.md",
+    "src/skf-create-skill/steps-c/step-03-extract.md",
+    "src/skf-update-skill/references/remote-source-resolution.md",
+    "src/skf-update-skill/steps-c/step-03-re-extract.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0f/3bc2c0989f/0/metadata.json",
+      "transcript": "/0f/3bc2c0989f/0/full.jsonl",
+      "context": "/0f/3bc2c0989f/0/context.md",
+      "content_hash": "/0f/3bc2c0989f/0/content_hash.txt",
+      "prompt": "/0f/3bc2c0989f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6574,
+    "cache_creation_tokens": 201365,
+    "cache_read_tokens": 13241233,
+    "output_tokens": 80349,
+    "api_call_count": 105
+  }
+}

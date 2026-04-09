@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0f3bc2c0989f",
+  "session_id": "b14a73cd-50c9-47ac-abfd-c13933046912",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-09T18:24:48.840000227Z",
+  "branch": "dev",
+  "checkpoints_count": 7,
+  "files_touched": [
+    "src/knowledge/ccc-bridge.md",
+    "src/skf-create-skill/references/source-resolution-protocols.md",
+    "src/skf-create-skill/references/tier-degradation-rules.md",
+    "src/skf-create-skill/steps-c/step-01-load-brief.md",
+    "src/skf-create-skill/steps-c/step-02b-ccc-discover.md",
+    "src/skf-create-skill/steps-c/step-03-extract.md",
+    "src/skf-update-skill/references/remote-source-resolution.md",
+    "src/skf-update-skill/steps-c/step-03-re-extract.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "b96db9e35a48",
+  "token_usage": {
+    "input_tokens": 6574,
+    "cache_creation_tokens": 201365,
+    "cache_read_tokens": 13241233,
+    "output_tokens": 80349,
+    "api_call_count": 105
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-09T18:24:47.540273091Z",
+    "agent_lines": 154,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 154,
+    "agent_percentage": 100
+  }
+}
