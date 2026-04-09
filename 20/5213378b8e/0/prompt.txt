@@ -1,0 +1,789 @@
+# Feature Development
+
+You are helping a developer implement a new feature. Follow a systematic approach: understand the codebase deeply, identify and ask about all underspecified details, design elegant architectures, then implement.
+
+## Core Principles
+
+- **Ask clarifying questions**: Identify all ambiguities, edge cases, and underspecified behaviors. Ask specific, concrete questions rather than making assumptions. Wait for user answers before proceeding with implementation. Ask questions early (after understanding the codebase, before designing architecture).
+- **Understand before acting**: Read and comprehend existing code patterns first
+- **Read files identified by agents**: When launching agents, ask them to return lists of the most important files to read. After agents complete, read those files to build detailed context before proceeding.
+- **Simple and elegant**: Prioritize readable, maintainable, architecturally sound code
+- **Use TodoWrite**: Track all progress throughout
+
+---
+
+## Phase 1: Discovery
+
+**Goal**: Understand what needs to be built
+
+Initial request: review the last 3 recent commit changes for any breaking changes, or missing impacts/bugs/regressions and ect... DO NOT HALLUCINATE. IF EVERYTHING IS CLEAN JUST SAY IT
+
+**Actions**:
+1. Create todo list with all phases
+2. If feature unclear, ask user for:
+   - What problem are they solving?
+   - What should the feature do?
+   - Any constraints or requirements?
+3. Summarize understanding and confirm with user
+
+---
+
+## Phase 2: Codebase Exploration
+
+**Goal**: Understand relevant existing code and patterns at both high and low levels
+
+**Actions**:
+1. Launch 2-3 code-explorer agents in parallel. Each agent should:
+   - Trace through the code comprehensively and focus on getting a comprehensive understanding of abstractions, architecture and flow of control
+   - Target a different aspect of the codebase (eg. similar features, high level understanding, architectural understanding, user experience, etc)
+   - Include a list of 5-10 key files to read
+
+   **Example agent prompts**:
+   - "Find features similar to [feature] and trace through their implementation comprehensively"
+   - "Map the architecture and abstractions for [feature area], tracing through the code comprehensively"
+   - "Analyze the current implementation of [existing feature/area], tracing through the code comprehensively"
+   - "Identify UI patterns, testing approaches, or extension points relevant to [feature]"
+
+2. Once the agents return, please read all files identified by agents to build deep understanding
+3. Present comprehensive summary of findings and patterns discovered
+
+---
+
+## Phase 3: Clarifying Questions
+
+**Goal**: Fill in gaps and resolve all ambiguities before designing
+
+**CRITICAL**: This is one of the most important phases. DO NOT SKIP.
+
+**Actions**:
+1. Review the codebase findings and original feature request
+2. Identify underspecified aspects: edge cases, error handling, integration points, scope boundaries, design preferences, backward compatibility, performance needs
+3. **Present all questions to the user in a clear, organized list**
+4. **Wait for answers before proceeding to architecture design**
+
+If the user says "whatever you think is best", provide your recommendation and get explicit confirmation.
+
+---
+
+## Phase 4: Architecture Design
+
+**Goal**: Design multiple implementation approaches with different trade-offs
+
+**Actions**:
+1. Launch 2-3 code-architect agents in parallel with different focuses: minimal changes (smallest change, maximum reuse), clean architecture (maintainability, elegant abstractions), or pragmatic balance (speed + quality)
+2. Review all approaches and form your opinion on which fits best for this specific task (consider: small fix vs large feature, urgency, complexity, team context)
+3. Present to user: brief summary of each approach, trade-offs comparison, **your recommendation with reasoning**, concrete implementation differences
+4. **Ask user which approach they prefer**
+
+---
+
+## Phase 5: Implementation
+
+**Goal**: Build the feature
+
+**DO NOT START WITHOUT USER APPROVAL**
+
+**Actions**:
+1. Wait for explicit user approval
+2. Read all relevant files identified in previous phases
+3. Implement following chosen architecture
+4. Follow codebase conventions strictly
+5. Write clean, well-documented code
+6. Update todos as you progress
+
+---
+
+## Phase 6: Quality Review
+
+**Goal**: Ensure code is simple, DRY, elegant, easy to read, and functionally correct
+
+**Actions**:
+1. Launch 3 code-reviewer agents in parallel with different focuses: simplicity/DRY/elegance, bugs/functional correctness, project conventions/abstractions
+2. Consolidate findings and identify highest severity issues that you recommend fixing
+3. **Present findings to user and ask what they want to do** (fix now, fix later, or proceed as-is)
+4. Address issues based on user decision
+
+---
+
+## Phase 7: Summary
+
+**Goal**: Document what was accomplished
+
+**Actions**:
+1. Mark all todos complete
+2. Summarize:
+   - What was built
+   - Key decisions made
+   - Files modified
+   - Suggested next steps
+
+---
+
+---
+
+fix them all
+
+---
+
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-help
+
+# BMad Help
+
+## Purpose
+
+Help the user understand where they are in their BMad workflow and what to do next. Answer BMad questions when asked.
+
+## Desired Outcomes
+
+When this skill completes, the user should:
+
+1. **Know where they are** — which module and phase they're in, what's already been completed
+2. **Know what to do next** — the next recommended and/or required step, with clear reasoning
+3. **Know how to invoke it** — skill name, menu code, action context, and any args that shortcut the conversation
+4. **Get offered a quick start** — when a single skill is the clear next step, offer to run it for the user right now rather than just listing it
+5. **Feel oriented, not overwhelmed** — surface only what's relevant to their current position; don't dump the entire catalog
+
+## Data Sources
+
+- **Catalog**: `{project-root}/_bmad/_config/bmad-help.csv` — assembled manifest of all installed module skills
+- **Config**: `config.yaml` and `user-config.yaml` files in `{project-root}/_bmad/` and its subfolders — resolve `output-location` variables, provide `communication_language` and `project_knowledge`
+- **Artifacts**: Files matching `outputs` patterns at resolved `output-location` paths reveal which steps are possibly completed; their content may also provide grounding context for recommendations
+- **Project knowledge**: If `project_knowledge` resolves to an existing path, read it for grounding context. Never fabricate project-specific details.
+
+## CSV Interpretation
+
+The catalog uses this format:
+
+```
+module,skill,display-name,menu-code,description,action,args,phase,after,before,required,output-location,outputs
+```
+
+**Phases** determine the high-level flow:
+- `anytime` — available regardless of workflow state
+- Numbered phases (`1-analysis`, `2-planning`, etc.) flow in order; naming varies by module
+
+**Dependencies** determine ordering within and across phases:
+- `after` — skills that should ideally complete before this one
+- `before` — skills that should run after this one
+- Format: `skill-name` for single-action skills, `skill-name:action` for multi-action skills
+
+**Required gates**:
+- `required=true` items must complete before the user can meaningfully proceed to later phases
+- A phase with no required items is entirely optional — recommend it but be clear about what's actually required next
+
+**Completion detection**:
+- Search resolved output paths for `outputs` patterns
+- Fuzzy-match found files to catalog rows
+- User may also state completion explicitly, or it may be evident from the current conversation
+
+**Descriptions carry routing context** — some contain cycle info and alternate paths (e.g., "back to DS if fixes needed"). Read them as navigation hints, not just display text.
+
+## Response Format
+
+For each recommended item, present:
+- `[menu-code]` **Display name** — e.g., "[CP] Create PRD"
+- Skill name in backticks — e.g., `bmad-create-prd`
+- For multi-action skills: action invocation context — e.g., "tech-writer lets create a mermaid diagram!"
+- Description if present in CSV; otherwise your existing knowledge of the skill suffices
+- Args if available
+
+**Ordering**: Show optional items first, then the next required item. Make it clear which is which.
+
+## Constraints
+
+- Present all output in `{communication_language}`
+- Recommend running each skill in a **fresh context window**
+- Match the user's tone — conversational when they're casual, structured when they want specifics
+- If the active module is ambiguous, ask rather than guess
+
+
+ARGUMENTS: I want to validate all the changes made during the review. What skills from BMB should I use?
+
+---
+
+yes
+
+---
+
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-module-builder
+
+# BMad Module Builder
+
+## Overview
+
+This skill helps you bring BMad modules to life — from the first spark of an idea to a fully scaffolded, installable module. It offers three paths:
+
+- **Ideate Module (IM)** — A creative brainstorming session that helps you imagine what your module could be, decide on the right architecture (agent vs. workflow vs. both), and produce a detailed plan document. The plan then guides you through building each piece with the Agent Builder and Workflow Builder.
+- **Create Module (CM)** — Takes an existing folder of built skills (or a single skill) and scaffolds the module infrastructure that makes it installable. For multi-skill modules, generates a dedicated `-setup` skill. For single skills, embeds self-registration directly into the skill. Supports `--headless` / `-H`.
+- **Validate Module (VM)** — Checks that a module's structure is complete and correct — every skill has its capabilities registered, entries are accurate and well-crafted, and structural integrity is sound. Handles both multi-skill and standalone modules. Supports `--headless` / `-H`.
+
+**Args:** Accepts `--headless` / `-H` for CM and VM paths, an initial description for IM, or a path to a skills folder or single SKILL.md file for CM/VM.
+
+## On Activation
+
+Load available config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml` (root level and `bmb` section). If config is missing, let the user know `bmad-builder-setup` can configure the module at any time. Use sensible defaults for anything not configured.
+
+Detect user's intent:
+
+- **Ideate / Plan** keywords or no path argument → Load `./references/ideate-module.md`
+- **Create / Scaffold** keywords, a folder path, or a path to a single SKILL.md file → Load `./references/create-module.md`
+- **Validate / Check** keywords → Load `./references/validate-module.md`
+- **Unclear** → Present options:
+  - **Ideate Module (IM)** — "I have an idea for a module and want to brainstorm and plan it"
+  - **Create Module (CM)** — "I've already built my skills and want to package them as a module"
+  - **Validate Module (VM)** — "I want to check that my module's setup skill is complete and correct"
+
+If `--headless` or `-H` is passed, route to CM with headless mode.
+
+
+ARGUMENTS: validate-module src/
+
+---
+
+yes
+
+---
+
+[AW] on skf-test-skill
+
+---
+
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-workflow-builder
+
+# Workflow & Skill Builder
+
+## Overview
+
+This skill helps you build AI workflows and skills that are **outcome-driven** — describing what to achieve, not micromanaging how to get there. LLMs are powerful reasoners. Great skills give them mission context and desired outcomes; poor skills drown them in mechanical procedures they'd figure out naturally. Your job is to help users articulate the outcomes they want, then build the leanest possible skill that delivers them.
+
+Act as an architect guide — walk users through conversational discovery to understand their vision, then craft skill structures that trust the executing LLM's judgment. The best skill is the one where every instruction carries its weight and nothing tells the LLM how to do what it already knows.
+
+**Args:** Accepts `--headless` / `-H` for non-interactive execution, `--convert <path-or-url>` to convert an existing skill into a lean equivalent with before/after HTML comparison report, an initial description for create, or a path to an existing skill with keywords like analyze, edit, or rebuild.
+
+**Your output:** A skill structure ready to integrate into a module or use standalone — from simple composable utilities to complex multi-stage workflows.
+
+## On Activation
+
+1. Detect user's intent. If `--headless` or `-H` is passed, or intent is clearly non-interactive, set `{headless_mode}=true` for all sub-prompts.
+
+2. Load available config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml` (root and bmb section). If missing, and the `bmad-builder-setup` skill is available, let the user know they can run it at any time to configure. Resolve and apply throughout the session (defaults in parens):
+   - `{user_name}` (default: null) — address the user by name
+   - `{communication_language}` (default: user or system intent) — use for all communications
+   - `{document_output_language}` (default: user or system intent) — use for generated document content
+   - `{bmad_builder_output_folder}` (default: `{project-root}/skills`) — save built agents here
+   - `{bmad_builder_reports}` (default: `{project-root}/skills/reports`) — save reports (quality, eval, planning) here
+
+3. Route by intent — see Quick Reference below.
+
+## Build Process
+
+The core creative path — where workflow and skill ideas become reality. Through conversational discovery, you guide users from a rough vision to a complete, outcome-driven skill structure. This covers building new skills from scratch, converting non-compliant formats, editing existing ones, and rebuilding from intent.
+
+Load `references/build-process.md` to begin.
+
+## Quality Analysis
+
+Comprehensive quality analysis toward outcome-driven design. Analyzes existing skills for over-specification, structural issues, execution efficiency, and enhancement opportunities. Uses deterministic lint scripts and parallel LLM scanner subagents. Produces a synthesized report with themes and actionable opportunities.
+
+Load `references/quality-analysis.md` to begin.
+
+## Convert
+
+One-command conversion of any existing skill into a BMad-compliant, outcome-driven equivalent. Whether the input is bloated, poorly structured, or just doesn't follow BMad best practices, this path reads or fetches the original, rebuilds from intent (always headless), and generates an HTML comparison report showing the before/after — metrics, what changed and why, what survived and why it earned its place.
+
+`--convert` implies headless mode. Accepts a local path or URL. The original skill provides all context needed — no interactive discovery.
+
+Load `references/convert-process.md` to begin.
+
+---
+
+## Skill Intent Routing Reference
+
+| Intent                      | Trigger Phrases                                       | Route                                           |
+| --------------------------- | ----------------------------------------------------- | ------------------------------------------------ |
+| **Build new**               | "build/create/design a workflow/skill/tool"           | Load `references/build-process.md`               |
+| **Convert**                 | `--convert path-or-url`                               | Load `references/convert-process.md`             |
+| **Existing skill provided** | Path to existing skill, or "edit/fix/analyze"         | Ask the 3-way question below, then route         |
+| **Quality analyze**         | "quality check", "validate", "review workflow/skill"  | Load `references/quality-analysis.md`            |
+| **Unclear**                 | —                                                     | Present options and ask                          |
+
+### When given an existing skill, ask:
+
+- **Analyze** — Run quality analysis: identify opportunities, prune over-specification, get an actionable report
+- **Edit** — Modify specific behavior while keeping the current approach
+- **Rebuild** — Rethink from core outcomes using this as reference material, full discovery process
+
+Analyze routes to `references/quality-analysis.md`. Edit and Rebuild both route to `references/build-process.md` with the chosen intent.
+
+Regardless of path, respect headless mode if requested.
+
+
+ARGUMENTS: quality-analysis src/skf-test-skill/SKILL.md
+
+---
+
+<task-notification>
+<task-id>a8165e46083425afa</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a8165e46083425afa.output</output-file>
+<status>completed</status>
+<summary>Agent "L3: Execution efficiency scan" completed</summary>
+<result>`execution-efficiency-analysis.md`
+
+The analysis is written to `/home/armel/Projects/OSS/bmad-module-skill-forge/skills/reports/skf-test-skill/quality-analysis/20260409-142736/execution-efficiency-analysis.md`.
+
+Key findings:
+- The high-severity read-before-delegate issue from the prior analysis round has been fixed -- step-03 now correctly delegates SKILL.md reading to a subagent returning compact JSON.
+- **2 medium findings**: unbounded parallelism in step-03's per-file subprocess delegation, and sequential (rather than parallel) execution of independent external validators (skill-check and tessl) in step-04b.
+- **3 low findings**: sequential independent file reads in step-01, unbounded parallelism in step-04 contextual reference validation, and sequential git commands in step-04b's staleness check.
+- No critical or high findings. The workflow's overall execution efficiency is good, with the most impactful remaining optimization being parallelizing skill-check and tessl runs.</result>
+<usage><total_tokens>53266</total_tokens><tool_uses>23</tool_uses><duration_ms>122114</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ae4980ddd03e72eb5</task-id>
+<tool-use-id>toolu_01PE34UT9L3pjPXi3XT4xuMS</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/ae4980ddd03e72eb5.output</output-file>
+<status>completed</status>
+<summary>Agent "L2: Prompt craft scan" completed</summary>
+<result>`prompt-craft-analysis.md`</result>
+<usage><total_tokens>57752</total_tokens><tool_uses>24</tool_uses><duration_ms>165773</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa592ee569045a054</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/aa592ee569045a054.output</output-file>
+<status>completed</status>
+<summary>Agent "L1: Workflow integrity scan" completed</summary>
+<result>`workflow-integrity-analysis.md`
+
+The analysis is written to `skills/reports/skf-test-skill/quality-analysis/20260409-142736/workflow-integrity-analysis.md`.
+
+**Summary of findings:**
+
+- **1 HIGH issue:** All 7 stage prompts lack config headers specifying `{communication_language}` / `{document_output_language}`. The SKILL.md loads these variables in On Activation but individual stages don't re-establish language context.
+- **1 MEDIUM issue (downgraded from prepass HIGH):** 5 of 7 stages lack standard progression condition keywords. However, every stage uses a consistent `CRITICAL STEP COMPLETION NOTE` pattern with "ONLY WHEN... will you then..." that functions as clear progression logic -- just not using the keywords the automated prepass scanner expects.
+- **1 LOW issue:** "Please" in a user-facing error message at step-01-init.md:91. Reasonable UX for a human-directed message.
+
+**Strengths noted:** Perfect stage wiring with zero broken references, strong cross-file consistency, robust headless mode design, clean frontmatter, well-decomposed reference/asset/template/script ecosystem, and deterministic scoring via Python script with manual fallback.</result>
+<usage><total_tokens>54648</total_tokens><tool_uses>33</tool_uses><duration_ms>170555</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aeed57ac891a91487</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/aeed57ac891a91487.output</output-file>
+<status>completed</status>
+<summary>Agent "L6: Script opportunities scan" completed</summary>
+<result>Analysis complete. The report was written to:
+
+**`/home/armel/Projects/OSS/bmad-module-skill-forge/skills/reports/skf-test-skill/quality-analysis/20260409-142736/script-opportunities-analysis.md`**
+
+**Summary of findings:**
+
+The skill already has one well-implemented script (`compute-score.py`) covering step-05 scoring. 10 additional script opportunities were identified across the remaining steps, with estimated aggregate savings of **1,730-3,130 tokens per invocation**.
+
+**Top-priority findings:**
+
+1. **Documented Inventory Extraction** (High, 500-800 tokens) -- Step-03 delegates SKILL.md API inventory extraction to a subagent LLM. A Python markdown parser with regex could produce the identical JSON output deterministically, eliminating the subagent entirely.
+
+2. **Frontmatter Validation** (High, 400-600 tokens) -- Step-01 has the LLM perform pure predicate checks (YAML parsing, regex matching, field whitelisting) that pyyaml + re handles mechanically. Very high reuse across create/update/export workflows.
+
+3. **Naive Structural Checks** (Medium, 150-300 tokens) -- Step-04's required-section detection, code fence balance checking, and table validation are all regex/counter operations.
+
+4. **Split-Body Cross-Check** (Medium, 200-400 tokens) -- String-level signature comparison between SKILL.md and references files is deterministic text matching.
+
+5. **Version-Aware Path Resolution** (Low, 80-150 tokens) -- The 4-state path resolution waterfall in step-01 is pure filesystem logic with very high reuse across all skill workflows.</result>
+<usage><total_tokens>56490</total_tokens><tool_uses>23</tool_uses><duration_ms>179562</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>afb20a2204efe3c09</task-id>
+<tool-use-id>toolu_014C4fZuGFCSVXtnS8RtVKp5</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/afb20a2204efe3c09.output</output-file>
+<status>completed</status>
+<summary>Agent "L4: Skill cohesion scan" completed</summary>
+<result>The analysis is complete. The report has been written to:
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/skills/reports/skf-test-skill/quality-analysis/20260409-142736/skill-cohesion-analysis.md`
+
+**Summary of findings:**
+
+The skf-test-skill is a well-architected, highly cohesive quality-gate workflow. All six cohesion dimensions scored strong or moderate:
+
+- **Stage Flow Coherence:** Strong -- clean linear pipeline with explicit `nextStepFile` chaining
+- **Purpose Alignment:** Strong -- every stage directly serves the stated purpose; design principles are honored in execution instructions
+- **Complexity Appropriateness:** Strong -- six stages correctly matches the genuine decision space (multi-tier, two modes, five scoring categories)
+- **Gap &amp; Redundancy Detection:** Moderate -- three medium/low findings identified
+- **Dependency Graph Logic:** Strong -- linear chain with clean data dependencies via shared output document
+- **External Skill Integration Coherence:** Strong -- three external references are contextually appropriate with graceful degradation
+
+**Key findings (5 total):**
+
+1. **Medium** -- Pre-check findings from step 01 (frontmatter compliance) are not explicitly collected by step 06's gap report, potentially causing them to be silently dropped
+2. **Medium** -- No structural validation of the scoring script's output in step 05 (malformed output could produce incorrect results silently)
+3. **Low** -- Migration/deprecation logic duplicated identically in step 04 Sections 2b and 5b
+4. **Low** -- No documented recovery path for subagent failure in step 03
+5. **Low** -- Step 05 frontmatter declares `sourceAccessProtocol` but never uses it directly
+
+**Notable strengths:** Deterministic scoring via external Python script with manual fallback, five-state source access waterfall with confidence labels, mode-dependent analysis depth, subagent delegation for context isolation, and consistent auto-proceed patterns.</result>
+<usage><total_tokens>52253</total_tokens><tool_uses>27</tool_uses><duration_ms>187092</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a4b6431b51e730b3d</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c4c7bb02-3347-4f05-8713-8f46bb117ff5/tasks/a4b6431b51e730b3d.output</output-file>
+<status>completed</status>
+<summary>Agent "L5: Enhancement opportunities scan" completed</summary>
+<result>Analysis complete. The report has been written to:
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/skills/reports/skf-test-skill/quality-analysis/20260409-142736/enhancement-opportunities-analysis.md`
+
+**Summary of findings:**
+
+**High-opportunity (2):**
+- Gap report lacks score-impact estimation -- FAIL reports list gaps by severity but never quantify how many points fixing each gap would contribute. A "Path to PASS" section would transform the report from a diagnostic list into a prioritized repair plan.
+- Analysis confidence is buried rather than prominent -- the confidence level (full vs provenance-map vs docs-only) fundamentally qualifies the score's meaning but is presented as a footnote rather than alongside the verdict.
+
+**Medium-opportunity (3):**
+- No differential testing between runs -- every test is a standalone snapshot with no delta comparison to prior results, despite previous reports existing on disk.
+- Subagent delegation in step 03 creates a fragile handoff point -- no validation of the subagent's JSON output and no fallback if it misformats the response.
+- Step 04b staleness check is overly complex -- 5-6 git commands with branching logic for a question that sha256sum could answer definitively in any environment.
+
+**Low-opportunity (3):**
+- Template file provides no self-documenting placeholders for partial failure.
+- Scoring script error handling is not specified in the step 05 instructions.
+- Contextual mode integration pattern check has no discovery mechanism (validates documented patterns but doesn't find undocumented ones).
+
+**Headless assessment:** Headless-ready. Single confirm gate auto-resolves. Result contract JSON exists. Minor gaps in process exit code definition and health check latency in CI.
+
+**Strongest facilitative pattern:** Graceful degradation is exemplary -- the 5-state source access waterfall with scoring weight redistribution is one of the best implementations in the module.</result>
+<usage><total_tokens>60202</total_tokens><tool_uses>23</tool_uses><duration_ms>207006</duration_ms></usage>
+</task-notification>
+
+---
+
+we can commit now.
+
+---
+
+can we go to party mode then advanced elicitation on the opportunity theme?
+
+---
+
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-party-mode
+
+Follow the instructions in ./workflow.md.
+
+
+ARGUMENTS: Discuss the 5 opportunity themes from the skf-test-skill quality analysis report at skills/reports/skf-test-skill/quality-analysis/20260409-142736/report-data.json — specifically whether to act on them, which ones have the best ROI, and which might be over-engineering for this module's context
+
+---
+
+continue
+
+---
+
+I am comfortable. I am a big trust on you guys
+
+---
+
+move to advanced elicitation
+
+---
+
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-advanced-elicitation
+
+# Advanced Elicitation
+
+**Goal:** Push the LLM to reconsider, refine, and improve its recent output.
+
+---
+
+## CRITICAL LLM INSTRUCTIONS
+
+- **MANDATORY:** Execute ALL steps in the flow section IN EXACT ORDER
+- DO NOT skip steps or change the sequence
+- HALT immediately when halt-conditions are met
+- Each action within a step is a REQUIRED action to complete that step
+- Sections outside flow (validation, output, critical-context) provide essential context - review and apply throughout execution
+- **YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the `communication_language`**
+
+---
+
+## INTEGRATION (When Invoked Indirectly)
+
+When invoked from another prompt or process:
+
+1. Receive or review the current section content that was just generated
+2. Apply elicitation methods iteratively to enhance that specific content
+3. Return the enhanced version back when user selects 'x' to proceed and return back
+4. The enhanced content replaces the original section content in the output document
+
+---
+
+## FLOW
+
+### Step 1: Method Registry Loading
+
+**Action:** Load and read `./methods.csv` and `{agent_party}`
+
+#### CSV Structure
+
+- **category:** Method grouping (core, structural, risk, etc.)
+- **method_name:** Display name for the method
+- **description:** Rich explanation of what the method does, when to use it, and why it's valuable
+- **output_pattern:** Flexible flow guide using arrows (e.g., "analysis -> insights -> action")
+
+#### Context Analysis
+
+- Use conversation history
+- Analyze: content type, complexity, stakeholder needs, risk level, and creative potential
+
+#### Smart Selection
+
+1. Analyze context: Content type, complexity, stakeholder needs, risk level, creative potential
+2. Parse descriptions: Understand each method's purpose from the rich descriptions in CSV
+3. Select 5 methods: Choose methods that best match the context based on their descriptions
+4. Balance approach: Include mix of foundational and specialized techniques as appropriate
+
+---
+
+### Step 2: Present Options and Handle Responses
+
+#### Display Format
+
+```
+**Advanced Elicitation Options**
+_If party mode is active, agents will join in._
+Choose a number (1-5), [r] to Reshuffle, [a] List All, or [x] to Proceed:
+
+1. [Method Name]
+2. [Method Name]
+3. [Method Name]
+4. [Method Name]
+5. [Method Name]
+r. Reshuffle the list with 5 new options
+a. List all methods with descriptions
+x. Proceed / No Further Actions
+```
+
+#### Response Handling
+
+**Case 1-5 (User selects a numbered method):**
+
+- Execute the selected method using its description from the CSV
+- Adapt the method's complexity and output format based on the current context
+- Apply the method creatively to the current section content being enhanced
+- Display the enhanced version showing what the method revealed or improved
+- **CRITICAL:** Ask the user if they would like to apply the changes to the doc (y/n/other) and HALT to await response.
+- **CRITICAL:** ONLY if Yes, apply the changes. IF No, discard your memory of the proposed changes. If any other reply, try best to follow the instructions given by the user.
+- **CRITICAL:** Re-present the same 1-5,r,x prompt to allow additional elicitations
+
+**Case r (Reshuffle):**
+
+- Select 5 random methods from methods.csv, present new list with same prompt format
+- When selecting, try to think and pick a diverse set of methods covering different categories and approaches, with 1 and 2 being potentially the most useful for the document or section being discovered
+
+**Case x (Proceed):**
+
+- Complete elicitation and proceed
+- Return the fully enhanced content back to the invoking skill
+- The enhanced content becomes the final version for that section
+- Signal completion back to the invoking skill to continue with next section
+
+**Case a (List All):**
+
+- List all methods with their descriptions from the CSV in a compact table
+- Allow user to select any method by name or number from the full list
+- After selection, execute the method as described in the Case 1-5 above
+
+**Case: Direct Feedback:**
+
+- Apply changes to current section content and re-present choices
+
+**Case: Multiple Numbers:**
+
+- Execute methods in sequence on the content, then re-offer choices
+
+---
+
+### Step 3: Execution Guidelines
+
+- **Method execution:** Use the description from CSV to understand and apply each method
+- **Output pattern:** Use the pattern as a flexible guide (e.g., "paths -> evaluation -> selection")
+- **Dynamic adaptation:** Adjust complexity based on content needs (simple to sophisticated)
+- **Creative application:** Interpret methods flexibly based on context while maintaining pattern consistency
+- Focus on actionable insights
+- **Stay relevant:** Tie elicitation to specific content being analyzed (the current section from the document being created unless user indicates otherwise)
+- **Identify personas:** For single or multi-persona methods, clearly identify viewpoints, and use party members if available in memory already
+- **Critical loop behavior:** Always re-offer the 1-5,r,a,x choices after each method execution
+- Continue until user selects 'x' to proceed with enhanced content, confirm or ask the user what should be accepted from the session
+- Each method application builds upon previous enhancements
+- **Content preservation:** Track all enhancements made during elicitation
+- **Iterative enhancement:** Each selected method (1-5) should:
+  1. Apply to the current enhanced version of the content
+  2. Show the improvements made
+  3. Return to the prompt for additional elicitations or completion
+
+
+ARGUMENTS: Apply first principles thinking to the 5 opportunity themes from the skf-test-skill quality analysis at skills/reports/skf-test-skill/quality-analysis/20260409-142736/report-data.json — challenge the party mode consensus, find blind spots in the priority stack, and stress-test whether the "do now / do incrementally / park" framing is actually the right decomposition
+
+---
+
+1-5
+
+---
+
+y
+
+---
+
+continue
+
+---
+
+take a look at https://github.com/agentskills/agentskills/tree/main/skills-ref/src/skills_ref
+
+---
+
+yes
+
+---
+
+# Feature Development
+
+You are helping a developer implement a new feature. Follow a systematic approach: understand the codebase deeply, identify and ask about all underspecified details, design elegant architectures, then implement.
+
+## Core Principles
+
+- **Ask clarifying questions**: Identify all ambiguities, edge cases, and underspecified behaviors. Ask specific, concrete questions rather than making assumptions. Wait for user answers before proceeding with implementation. Ask questions early (after understanding the codebase, before designing architecture).
+- **Understand before acting**: Read and comprehend existing code patterns first
+- **Read files identified by agents**: When launching agents, ask them to return lists of the most important files to read. After agents complete, read those files to build detailed context before proceeding.
+- **Simple and elegant**: Prioritize readable, maintainable, architecturally sound code
+- **Use TodoWrite**: Track all progress throughout
+
+---
+
+## Phase 1: Discovery
+
+**Goal**: Understand what needs to be built
+
+Initial request: review changes for any breaking changes, or missing impacts/bugs/regressions and ect... DO NOT HALLUCINATE. IF EVERYTHING IS CLEAN JUST SAY IT
+
+**Actions**:
+1. Create todo list with all phases
+2. If feature unclear, ask user for:
+   - What problem are they solving?
+   - What should the feature do?
+   - Any constraints or requirements?
+3. Summarize understanding and confirm with user
+
+---
+
+## Phase 2: Codebase Exploration
+
+**Goal**: Understand relevant existing code and patterns at both high and low levels
+
+**Actions**:
+1. Launch 2-3 code-explorer agents in parallel. Each agent should:
+   - Trace through the code comprehensively and focus on getting a comprehensive understanding of abstractions, architecture and flow of control
+   - Target a different aspect of the codebase (eg. similar features, high level understanding, architectural understanding, user experience, etc)
+   - Include a list of 5-10 key files to read
+
+   **Example agent prompts**:
+   - "Find features similar to [feature] and trace through their implementation comprehensively"
+   - "Map the architecture and abstractions for [feature area], tracing through the code comprehensively"
+   - "Analyze the current implementation of [existing feature/area], tracing through the code comprehensively"
+   - "Identify UI patterns, testing approaches, or extension points relevant to [feature]"
+
+2. Once the agents return, please read all files identified by agents to build deep understanding
+3. Present comprehensive summary of findings and patterns discovered
+
+---
+
+## Phase 3: Clarifying Questions
+
+**Goal**: Fill in gaps and resolve all ambiguities before designing
+
+**CRITICAL**: This is one of the most important phases. DO NOT SKIP.
+
+**Actions**:
+1. Review the codebase findings and original feature request
+2. Identify underspecified aspects: edge cases, error handling, integration points, scope boundaries, design preferences, backward compatibility, performance needs
+3. **Present all questions to the user in a clear, organized list**
+4. **Wait for answers before proceeding to architecture design**
+
+If the user says "whatever you think is best", provide your recommendation and get explicit confirmation.
+
+---
+
+## Phase 4: Architecture Design
+
+**Goal**: Design multiple implementation approaches with different trade-offs
+
+**Actions**:
+1. Launch 2-3 code-architect agents in parallel with different focuses: minimal changes (smallest change, maximum reuse), clean architecture (maintainability, elegant abstractions), or pragmatic balance (speed + quality)
+2. Review all approaches and form your opinion on which fits best for this specific task (consider: small fix vs large feature, urgency, complexity, team context)
+3. Present to user: brief summary of each approach, trade-offs comparison, **your recommendation with reasoning**, concrete implementation differences
+4. **Ask user which approach they prefer**
+
+---
+
+## Phase 5: Implementation
+
+**Goal**: Build the feature
+
+**DO NOT START WITHOUT USER APPROVAL**
+
+**Actions**:
+1. Wait for explicit user approval
+2. Read all relevant files identified in previous phases
+3. Implement following chosen architecture
+4. Follow codebase conventions strictly
+5. Write clean, well-documented code
+6. Update todos as you progress
+
+---
+
+## Phase 6: Quality Review
+
+**Goal**: Ensure code is simple, DRY, elegant, easy to read, and functionally correct
+
+**Actions**:
+1. Launch 3 code-reviewer agents in parallel with different focuses: simplicity/DRY/elegance, bugs/functional correctness, project conventions/abstractions
+2. Consolidate findings and identify highest severity issues that you recommend fixing
+3. **Present findings to user and ask what they want to do** (fix now, fix later, or proceed as-is)
+4. Address issues based on user decision
+
+---
+
+## Phase 7: Summary
+
+**Goal**: Document what was accomplished
+
+**Actions**:
+1. Mark all todos complete
+2. Summarize:
+   - What was built
+   - Key decisions made
+   - Files modified
+   - Suggested next steps
+
+---
+
+---
+
+commit
