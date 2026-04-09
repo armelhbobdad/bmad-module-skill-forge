@@ -21,7 +21,9 @@ Commands:
 from __future__ import annotations
 
 import json
+import os
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -68,11 +70,18 @@ def _migrate_v1_to_v2(data):
 
 
 def write_manifest(manifest_path, data):
-    """Write manifest file atomically."""
+    """Write manifest file atomically via write-to-temp-then-rename."""
     data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    with open(manifest_path, "w") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
+    manifest_path = Path(manifest_path)
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=manifest_path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(tmp_fd, "w") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
+        os.replace(tmp_path, manifest_path)
+    except Exception:
+        os.unlink(tmp_path)
+        raise
 
 
 def cmd_read(manifest_path):

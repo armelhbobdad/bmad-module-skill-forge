@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-02-detect-mode.md'
-outputFile: '{forge_data_folder}/{skill_name}/test-report-{skill_name}.md'
+outputFile: '{forge_version}/test-report-{skill_name}.md'
 templateFile: 'templates/test-report-template.md'
 sidecarFile: '{sidecar_path}/forge-tier.yaml'
 skillsOutputFolder: '{skills_output_folder}'

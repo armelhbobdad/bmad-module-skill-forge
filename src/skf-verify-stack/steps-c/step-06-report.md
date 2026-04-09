@@ -115,6 +115,10 @@ Based on the overall verdict, present the appropriate recommendation:
 
 **After resolving blockers:** Re-run **[VS] Verify Stack**. Repeat until verdict improves to FEASIBLE or CONDITIONALLY FEASIBLE."
 
+### 4b. Result Contract
+
+Write `{forge_data_folder}/verify-stack-result.json` per `shared/references/output-contract-schema.md`. Include the feasibility report path in `outputs`; include `overall_verdict` (FEASIBLE/CONDITIONALLY FEASIBLE/NOT FEASIBLE), `coverage_percentage`, and `recommendation_count` in `summary`.
+
 ### 5. Present Menu
 
 Display: "**[R] Review full report** | **[X] Exit verification**"

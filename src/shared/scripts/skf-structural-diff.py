@@ -52,7 +52,8 @@ from pathlib import Path
 
 # Fields compared for change detection (in order).
 # "name" is the primary key and is not diffed as a field.
-DIFF_FIELDS = ["type", "signature", "file", "line", "confidence"]
+# "file" is excluded — file moves are tracked separately in the "moved" list.
+DIFF_FIELDS = ["type", "signature", "line", "confidence"]
 
 
 def load_inventory(path: Path) -> tuple[list[dict], str | None]:

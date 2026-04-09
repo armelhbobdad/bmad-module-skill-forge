@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-06-report.md'
-outputFile: '{forge_data_folder}/{skill_name}/test-report-{skill_name}.md'
+outputFile: '{forge_version}/test-report-{skill_name}.md'
 scoringRulesFile: 'references/scoring-rules.md'
 sourceAccessProtocol: 'references/source-access-protocol.md'
 scoringScript: 'scripts/compute-score.py'

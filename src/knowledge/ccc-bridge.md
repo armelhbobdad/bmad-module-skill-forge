@@ -92,7 +92,7 @@ CCC stores its configuration at `{project-root}/.cocoindex_code/settings.yml`. T
 | `**/{skills_output_folder}` | Generated skill files (from manifest, default: `skills`) |
 | `**/{forge_data_folder}` | Compilation workspace (from manifest, default: `forge-data`) |
 
-The `skills_output_folder` and `forge_data_folder` values are read from `_bmad/_config/skf-manifest.yaml` when available, falling back to the defaults `skills` and `forge-data`. Patterns are appended only if not already present — user customizations to `settings.yml` are preserved.
+The `skills_output_folder` and `forge_data_folder` values are resolved from the workflow activation context (sourced from `_bmad/skf/config.yaml`), falling back to the defaults `skills` and `forge-data`. Patterns are appended only if not already present — user customizations to `settings.yml` are preserved.
 
 The configured exclusion patterns are stored in `ccc_index.exclude_patterns` in forge-tier.yaml for reference.
 

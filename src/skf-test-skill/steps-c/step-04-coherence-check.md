@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-04b-external-validators.md'
-outputFile: '{forge_data_folder}/{skill_name}/test-report-{skill_name}.md'
+outputFile: '{forge_version}/test-report-{skill_name}.md'
 outputFormatsFile: 'assets/output-section-formats.md'
 ---
 

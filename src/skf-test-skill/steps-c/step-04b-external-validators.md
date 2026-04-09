@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-05-score.md'
-outputFile: '{forge_data_folder}/{skill_name}/test-report-{skill_name}.md'
+outputFile: '{forge_version}/test-report-{skill_name}.md'
 ---
 
 # Step 4b: External Validators

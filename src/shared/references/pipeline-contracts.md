@@ -46,7 +46,7 @@ How outputs from one workflow become inputs to the next:
 | TS | EX | skill name + test result | Forger checks `result` field in test report; if FAIL and circuit breaker active, halts |
 | QS | TS | skill name (from `repo_name`) | Forger passes the quick-skill's output name to TS |
 | QS | EX | skill name | Same |
-| AS | US | skill name + drift score | Forger checks `drift_score`; if CLEAN, skips US |
+| AS | US | skill name + drift severity | Forger checks `summary.severity` in audit-skill-result.json; if CLEAN, skips US |
 | VS | RA | architecture doc path | Already known from VS invocation |
 
 ## Circuit Breakers

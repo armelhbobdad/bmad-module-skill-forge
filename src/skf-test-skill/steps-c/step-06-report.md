@@ -1,7 +1,7 @@
 ---
 nextStepFile: 'shared/health-check.md'
 
-outputFile: '{forge_data_folder}/{skill_name}/test-report-{skill_name}.md'
+outputFile: '{forge_version}/test-report-{skill_name}.md'
 scoringRulesFile: 'references/scoring-rules.md'
 outputFormatsFile: 'assets/output-section-formats.md'
 ---
@@ -90,6 +90,10 @@ After gap enumeration, append a **Discovery Quality** subsection to the gap repo
 - Abbreviated: 'run the {skill-name} thing on this data'"
 
 Record discovery testing status as Info-level in the gap table. This is advisory — it does not affect the score.
+
+### 4c. Result Contract
+
+Write `{forge_version}/test-skill-result.json` per `shared/references/output-contract-schema.md`. Include the test report path in `outputs`; include `score`, `threshold`, `result` (PASS/FAIL), and `testMode` (naive/contextual) in `summary`.
 
 ### 5. Finalize Output Document
 

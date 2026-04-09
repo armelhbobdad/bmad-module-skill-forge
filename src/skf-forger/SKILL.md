@@ -102,7 +102,7 @@ When the user provides multiple workflow codes (e.g., `BS CS TS EX`, `QS TS EX`,
 
 **Special pipeline behaviors:**
 - `AN` in a pipeline with `CS`: if AN produces multiple recommended briefs, auto-select all and process sequentially in batch mode. If only one unit found, auto-select it.
-- `AS` followed by `US`: if drift score is CLEAN, skip US and report "No drift detected — skipping update."
+- `AS` followed by `US`: if `summary.severity` in audit-skill-result.json is CLEAN, skip US and report "No drift detected — skipping update."
 - `TS` followed by `EX`: if test result is FAIL and score is below the circuit breaker threshold, halt before EX.
 
 **Inline action handling:**

@@ -53,17 +53,15 @@ SKF infrastructure and output directories must be excluded from the CCC index �
 
 **Build the SKF exclusion list:**
 
-1. Read `{project-root}/_bmad/_config/skf-manifest.yaml` to resolve configurable paths:
-   - `skills_output_folder` (default: `skills` if manifest is missing or field is absent)
-   - `forge_data_folder` (default: `forge-data` if manifest is missing or field is absent)
+1. Use `{skills_output_folder}` and `{forge_data_folder}` from the workflow activation context (resolved in On Activation from `{project-root}/_bmad/skf/config.yaml`).
 
 2. Assemble the exclusion patterns using `**/` prefix format (matching `.cocoindex_code/settings.yml` convention — e.g., `**/node_modules`):
    - `**/_bmad` — SKF framework module (workflows, agents, knowledge files)
    - `**/_bmad-output` — Build output artifacts
    - `**/.claude` — Claude Code configuration
    - `**/_skf-learn` — SKF learning materials
-   - `**/{skills_output_folder}` — Generated skill files (resolved from manifest)
-   - `**/{forge_data_folder}` — Compilation workspace (resolved from manifest)
+   - `**/{skills_output_folder}` — Generated skill files (from activation context)
+   - `**/{forge_data_folder}` — Compilation workspace (from activation context)
 
 3. Store `{ccc_exclude_patterns}` in context for step-02 to write into forge-tier.yaml.
 

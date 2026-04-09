@@ -138,6 +138,10 @@ Based on the update results:"
 "- **audit-skill** — Re-run to verify CRITICAL/HIGH drift resolved
 - **export-skill** — Package once audit confirms clean state"
 
+### 5b. Result Contract
+
+Write `{forge_version}/update-skill-result.json` per `shared/references/output-contract-schema.md`. Include all modified file paths in `outputs`; include `exports_affected`, `files_modified`, and `validation_status` (passed/warnings/failures) in `summary`.
+
 ### 6. Workflow Complete
 
 "---

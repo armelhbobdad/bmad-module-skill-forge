@@ -88,6 +88,10 @@ Forge tier: **{tier}**"
 
 **Workflow complete.**"
 
+### 6b. Result Contract
+
+Write `{forge_version}/create-stack-skill-result.json` per `shared/references/output-contract-schema.md`. Include `SKILL.md`, `context-snippet.md`, and `metadata.json` paths in `outputs`; include `lib_count`, `integration_count`, and confidence distribution in `summary`.
+
 ### 7. Workflow Health Check
 
 Load and execute `{nextStepFile}` for workflow self-improvement check.

@@ -366,6 +366,12 @@ Machine-readable provenance for every skill:
   "confidence_tier": "Deep",
   "spec_version": "1.3",
   "generation_date": "2026-03-20T16:55:00+04:00",
+  "confidence_distribution": {
+    "t1": 837,
+    "t1_low": 0,
+    "t2": 14,
+    "t3": 10
+  },
   "stats": {
     "exports_documented": 22,
     "exports_public_api": 22,
@@ -373,9 +379,8 @@ Machine-readable provenance for every skill:
     "exports_total": 837,
     "public_api_coverage": 1.0,
     "total_coverage": 0.026,
-    "confidence_t1": 837,
-    "confidence_t2": 14,
-    "confidence_t3": 10
+    "scripts_count": 0,
+    "assets_count": 0
   }
 }
 ```

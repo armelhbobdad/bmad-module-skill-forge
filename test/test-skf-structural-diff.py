@@ -84,6 +84,16 @@ class TestMovedExport:
         r = diff_inventories(baseline, moved_current)
         assert r["moved"][0]["current_file"] == "src/new-location.ts"
 
+    def test_pure_move_no_changed(self, baseline):
+        """A pure file move (same line) should appear in moved but not changed."""
+        moved_current = [
+            {"name": "foo", "file": "src/new-location.ts", "line": 10, "type": "function"},
+            {"name": "Bar", "file": "src/index.ts", "line": 20, "type": "class"},
+        ]
+        r = diff_inventories(baseline, moved_current)
+        assert r["summary"]["moved"] == 1
+        assert r["summary"]["changed"] == 0
+
 
 class TestChangedSignature:
     def test_one_changed(self):
