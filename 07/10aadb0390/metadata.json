@@ -3,7 +3,7 @@
   "checkpoint_id": "0710aadb0390",
   "strategy": "manual-commit",
   "branch": "dev",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "src/shared/scripts/skf-rebuild-managed-sections.py",
     "src/shared/scripts/skf-validate-frontmatter.py",
@@ -19,13 +19,20 @@
       "context": "/07/10aadb0390/0/context.md",
       "content_hash": "/07/10aadb0390/0/content_hash.txt",
       "prompt": "/07/10aadb0390/0/prompt.txt"
+    },
+    {
+      "metadata": "/07/10aadb0390/1/metadata.json",
+      "transcript": "/07/10aadb0390/1/full.jsonl",
+      "context": "/07/10aadb0390/1/context.md",
+      "content_hash": "/07/10aadb0390/1/content_hash.txt",
+      "prompt": "/07/10aadb0390/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 40,
-    "cache_creation_tokens": 113912,
-    "cache_read_tokens": 1666585,
-    "output_tokens": 9965,
-    "api_call_count": 33
+    "input_tokens": 3978,
+    "cache_creation_tokens": 597545,
+    "cache_read_tokens": 21190484,
+    "output_tokens": 72720,
+    "api_call_count": 160
   }
 }

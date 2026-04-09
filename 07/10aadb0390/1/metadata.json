@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0710aadb0390",
+  "session_id": "c7d65e8d-f49b-48ee-8523-73336f0f6b00",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-09T13:29:21.06829663Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-forger/SKILL.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "6778a776050f",
+  "token_usage": {
+    "input_tokens": 3938,
+    "cache_creation_tokens": 483633,
+    "cache_read_tokens": 19523899,
+    "output_tokens": 62755,
+    "api_call_count": 127
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-09T13:29:19.999982667Z",
+    "agent_lines": 1,
+    "human_added": 27,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 28,
+    "agent_percentage": 3.571428571428571
+  }
+}
