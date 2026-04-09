@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0cd5834df8f0",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "docs/how-it-works.md",
+    "src/knowledge/ccc-bridge.md",
+    "src/knowledge/provenance-tracking.md",
+    "src/shared/references/pipeline-contracts.md",
+    "src/shared/scripts/skf-manifest-ops.py",
+    "src/shared/scripts/skf-structural-diff.py",
+    "src/skf-create-stack-skill/steps-c/step-09-report.md",
+    "src/skf-forger/SKILL.md",
+    "src/skf-setup/steps-c/step-01b-ccc-index.md",
+    "src/skf-test-skill/steps-c/step-01-init.md",
+    "src/skf-test-skill/steps-c/step-02-detect-mode.md",
+    "src/skf-test-skill/steps-c/step-03-coverage-check.md",
+    "src/skf-test-skill/steps-c/step-04-coherence-check.md",
+    "src/skf-test-skill/steps-c/step-04b-external-validators.md",
+    "src/skf-test-skill/steps-c/step-05-score.md",
+    "src/skf-test-skill/steps-c/step-06-report.md",
+    "src/skf-update-skill/steps-c/step-07-report.md",
+    "src/skf-verify-stack/steps-c/step-06-report.md",
+    "test/test-skf-structural-diff.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0c/d5834df8f0/0/metadata.json",
+      "transcript": "/0c/d5834df8f0/0/full.jsonl",
+      "context": "/0c/d5834df8f0/0/context.md",
+      "content_hash": "/0c/d5834df8f0/0/content_hash.txt",
+      "prompt": "/0c/d5834df8f0/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 3612,
+    "cache_creation_tokens": 185203,
+    "cache_read_tokens": 6747138,
+    "output_tokens": 30858,
+    "api_call_count": 62
+  }
+}

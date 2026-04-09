@@ -1,0 +1,48 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0cd5834df8f0",
+  "session_id": "c7d65e8d-f49b-48ee-8523-73336f0f6b00",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-09T11:09:42.341052521Z",
+  "branch": "dev",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "docs/how-it-works.md",
+    "src/knowledge/ccc-bridge.md",
+    "src/knowledge/provenance-tracking.md",
+    "src/shared/references/pipeline-contracts.md",
+    "src/shared/scripts/skf-manifest-ops.py",
+    "src/shared/scripts/skf-structural-diff.py",
+    "src/skf-create-stack-skill/steps-c/step-09-report.md",
+    "src/skf-forger/SKILL.md",
+    "src/skf-setup/steps-c/step-01b-ccc-index.md",
+    "src/skf-test-skill/steps-c/step-01-init.md",
+    "src/skf-test-skill/steps-c/step-02-detect-mode.md",
+    "src/skf-test-skill/steps-c/step-03-coverage-check.md",
+    "src/skf-test-skill/steps-c/step-04-coherence-check.md",
+    "src/skf-test-skill/steps-c/step-04b-external-validators.md",
+    "src/skf-test-skill/steps-c/step-05-score.md",
+    "src/skf-test-skill/steps-c/step-06-report.md",
+    "src/skf-update-skill/steps-c/step-07-report.md",
+    "src/skf-verify-stack/steps-c/step-06-report.md",
+    "test/test-skf-structural-diff.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "f50cf53b3fad",
+  "token_usage": {
+    "input_tokens": 3612,
+    "cache_creation_tokens": 185203,
+    "cache_read_tokens": 6747138,
+    "output_tokens": 30858,
+    "api_call_count": 62
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-09T11:09:41.487297552Z",
+    "agent_lines": 70,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 70,
+    "agent_percentage": 100
+  }
+}
