@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "af18333c7982",
+  "session_id": "4c97a6be-984f-4988-a1c2-a6e3ef21ea90",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-09T19:02:00.675658692Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/forger/forge-tier.yaml",
+    "src/shared/health-check.md",
+    "src/skf-setup/SKILL.md",
+    "src/skf-setup/steps-c/step-01-detect-and-tier.md",
+    "src/skf-setup/steps-c/step-01b-ccc-index.md",
+    "src/skf-setup/steps-c/step-02-write-config.md",
+    "src/skf-setup/steps-c/step-03-auto-index.md",
+    "src/skf-setup/steps-c/step-04-report.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "fd086983dd2b",
+  "token_usage": {
+    "input_tokens": 174,
+    "cache_creation_tokens": 188299,
+    "cache_read_tokens": 9543503,
+    "output_tokens": 39157,
+    "api_call_count": 84
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-09T19:01:59.592571723Z",
+    "agent_lines": 17,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 17,
+    "agent_percentage": 100
+  }
+}
