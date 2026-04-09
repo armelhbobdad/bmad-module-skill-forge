@@ -23,9 +23,11 @@ Compare the exports, functions, classes, types, and interfaces documented in SKI
 
 ### 0. Check for Docs-Only Mode
 
-**If metadata.json indicates `confidence_tier: "Quick"` and all SKILL.md citations are `[EXT:...]` format (docs-only skill):**
+**If all SKILL.md citations are `[EXT:...]` format (no local source citations):**
 
-Coverage scoring adapts: instead of comparing SKILL.md against source code exports, compare SKILL.md documented items against themselves for internal completeness (every documented function has a description, parameters, and return type). Score based on documentation completeness rather than source coverage. Set `docs_only_mode: true` in context for step-05 scoring.
+Set `docs_only_mode: true` in context for step-05 scoring. Coverage scoring adapts: instead of comparing SKILL.md against source code exports, compare SKILL.md documented items against themselves for internal completeness (every documented function has a description, parameters, and return type). Score based on documentation completeness rather than source coverage.
+
+**Quick-tier weight adjustment:** If `confidence_tier` is also `"Quick"`, apply Quick-tier weight redistribution (zeroing Signature Accuracy and Type Coverage) as an additional step per `{scoringRulesFile}`.
 
 "**Docs-only skill detected.** Coverage check evaluates documentation completeness rather than source code coverage."
 

@@ -5,6 +5,7 @@ templateFile: 'templates/test-report-template.md'
 sidecarFile: '{sidecar_path}/forge-tier.yaml'
 skillsOutputFolder: '{skills_output_folder}'
 frontmatterScript: 'shared/scripts/skf-validate-frontmatter.py'
+versionPathsKnowledge: 'knowledge/version-paths.md'
 ---
 
 # Step 1: Initialize Test
@@ -36,12 +37,12 @@ Provide the skill path or name. I'll search in `{skillsOutputFolder}`.
 
 ### 2. Validate Skill Exists (version-aware)
 
-Resolve the skill path using version-aware resolution (see `knowledge/version-paths.md`):
+Resolve the skill path using version-aware resolution (see `{versionPathsKnowledge}`):
 
 1. Read `{skillsOutputFolder}/.export-manifest.json` and look up the skill name in `exports` to get `active_version`
 2. If found: resolve to `{skill_package}` = `{skillsOutputFolder}/{skill_name}/{active_version}/{skill_name}/`
 3. If not in manifest: check for `active` symlink at `{skillsOutputFolder}/{skill_name}/active` — resolve to `{skill_group}/active/{skill_name}/`
-4. If neither: fall back to flat path `{skillsOutputFolder}/{skill_name}/`. If SKILL.md exists at the flat path, auto-migrate per `knowledge/version-paths.md` migration rules
+4. If neither: fall back to flat path `{skillsOutputFolder}/{skill_name}/`. If SKILL.md exists at the flat path, auto-migrate per `{versionPathsKnowledge}` migration rules
 5. Store the resolved path as `{resolved_skill_package}`
 
 Check that the skill package contains required files:

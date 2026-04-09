@@ -38,7 +38,7 @@ If no provenance-map.json exists (typical for quick-skill output), fall back to 
 If neither provenance-map nor metadata exports provide a usable baseline, but remote reading tools (zread, deepwiki, gh API, or similar) are available and `source_repo` is set in metadata.json, read the entry point remotely to build the export inventory from scratch. Name-matching only — no AST. Set `analysis_confidence: remote-only`.
 
 **State 5 — No source access at all:**
-If none of the above succeed, fall through to docs-only mode (as defined in step-01-init.md Section 0: pre-analysis source type detection). Set `analysis_confidence: docs-only`. Warn: "**No source access available.** Coverage check evaluates documentation self-consistency only. Re-run with local clone or remote access for source-backed verification."
+If none of the above succeed, fall through to docs-only mode (as defined in step-03-coverage-check.md Section 0: pre-analysis source type detection). Set `analysis_confidence: docs-only`. Warn: "**No source access available.** Coverage check evaluates documentation self-consistency only. Re-run with local clone or remote access for source-backed verification."
 
 Set `analysis_confidence` in context for use in Section 2 analysis depth, step-05 output, and step-05 scoring.
 
