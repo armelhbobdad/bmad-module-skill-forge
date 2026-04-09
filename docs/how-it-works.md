@@ -487,7 +487,11 @@ forge-data/{skill-name}/
     └── extraction-rules.yaml   # Language-specific ast-grep schema
 ```
 
-The `provenance-map.json` includes a `file_entries` array for script/asset file-level provenance (SHA-256 hashes, source paths) alongside the export-level `entries` array.
+The `provenance-map.json` includes per-export `entries` with a `source_library` field identifying which library each export belongs to. For stack skills, it also includes an `integrations` array (cross-library patterns) and a `constituents` array (compose-mode only — tracks the compose-time snapshot of each source skill for staleness detection via metadata hash comparison). The `file_entries` array handles script/asset file-level provenance (SHA-256 hashes, source paths).
+
+### Pipeline Result Contracts
+
+Pipeline-facing workflows write a machine-readable result JSON file (`{skill-name}-result.json`) alongside their human-readable output. This enables reliable CI integration and pipeline chaining — downstream workflows or scripts can verify what the prior step produced without parsing markdown. The schema follows a consistent format: `skill`, `status` (success/failed/partial), `timestamp`, `outputs` (array of produced artifacts with type and path), and a skill-specific `summary` object.
 
 `skills/` and `forge-data/` are committed. Agent memory (`_bmad/_memory/forger-sidecar/`) is gitignored.
 

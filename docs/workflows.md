@@ -123,9 +123,11 @@ SKF has 14 workflows. You trigger them by typing commands to [Ferris](../agents/
 
 **Purpose:** Drift detection between skill and current source.
 
-**When to Use:** To check if a skill has fallen out of date with its source code.
+**When to Use:** To check if a skill has fallen out of date with its source code. Works for both individual skills and stack skills.
 
 **Key Steps:** Load skill → Re-index source → Structural diff (incl. script/asset drift) → Semantic diff (Deep) → Classify severity → Report
+
+**Stack skill support:** Code-mode stacks are audited per-library against their sources. Compose-mode stacks check constituent freshness via metadata hash comparison — if a constituent skill was updated after the stack was composed, audit flags it as constituent drift. Stack skills that need updating are redirected to `@Ferris SS` for re-composition (surgical update is not supported for stacks).
 
 **Agent:** Ferris (Audit mode)
 
