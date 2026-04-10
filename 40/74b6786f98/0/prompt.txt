@@ -1,0 +1,1558 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-help
+
+# BMad Help
+
+## Purpose
+
+Help the user understand where they are in their BMad workflow and what to do next. Answer BMad questions when asked.
+
+## Desired Outcomes
+
+When this skill completes, the user should:
+
+1. **Know where they are** — which module and phase they're in, what's already been completed
+2. **Know what to do next** — the next recommended and/or required step, with clear reasoning
+3. **Know how to invoke it** — skill name, menu code, action context, and any args that shortcut the conversation
+4. **Get offered a quick start** — when a single skill is the clear next step, offer to run it for the user right now rather than just listing it
+5. **Feel oriented, not overwhelmed** — surface only what's relevant to their current position; don't dump the entire catalog
+
+## Data Sources
+
+- **Catalog**: `{project-root}/_bmad/_config/bmad-help.csv` — assembled manifest of all installed module skills
+- **Config**: `config.yaml` and `user-config.yaml` files in `{project-root}/_bmad/` and its subfolders — resolve `output-location` variables, provide `communication_language` and `project_knowledge`
+- **Artifacts**: Files matching `outputs` patterns at resolved `output-location` paths reveal which steps are possibly completed; their content may also provide grounding context for recommendations
+- **Project knowledge**: If `project_knowledge` resolves to an existing path, read it for grounding context. Never fabricate project-specific details.
+
+## CSV Interpretation
+
+The catalog uses this format:
+
+```
+module,skill,display-name,menu-code,description,action,args,phase,after,before,required,output-location,outputs
+```
+
+**Phases** determine the high-level flow:
+- `anytime` — available regardless of workflow state
+- Numbered phases (`1-analysis`, `2-planning`, etc.) flow in order; naming varies by module
+
+**Dependencies** determine ordering within and across phases:
+- `after` — skills that should ideally complete before this one
+- `before` — skills that should run after this one
+- Format: `skill-name` for single-action skills, `skill-name:action` for multi-action skills
+
+**Required gates**:
+- `required=true` items must complete before the user can meaningfully proceed to later phases
+- A phase with no required items is entirely optional — recommend it but be clear about what's actually required next
+
+**Completion detection**:
+- Search resolved output paths for `outputs` patterns
+- Fuzzy-match found files to catalog rows
+- User may also state completion explicitly, or it may be evident from the current conversation
+
+**Descriptions carry routing context** — some contain cycle info and alternate paths (e.g., "back to DS if fixes needed"). Read them as navigation hints, not just display text.
+
+## Response Format
+
+For each recommended item, present:
+- `[menu-code]` **Display name** — e.g., "[CP] Create PRD"
+- Skill name in backticks — e.g., `bmad-create-prd`
+- For multi-action skills: action invocation context — e.g., "tech-writer lets create a mermaid diagram!"
+- Description if present in CSV; otherwise your existing knowledge of the skill suffices
+- Args if available
+
+**Ordering**: Show optional items first, then the next required item. Make it clear which is which.
+
+## Constraints
+
+- Present all output in `{communication_language}`
+- Recommend running each skill in a **fresh context window**
+- Match the user's tone — conversational when they're casual, structured when they want specifics
+- If the active module is ambiguous, ask rather than guess
+
+
+ARGUMENTS: I am going to ship the first major release of SKF. Help me to deeply validate every thing, I am saying everything so I will release a very stable first version.
+
+---
+
+<task-notification>
+<task-id>a956a9329b062e5e6</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/b14a73cd-50c9-47ac-abfd-c13933046912/tasks/a956a9329b062e5e6.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate module metadata consistency" completed</summary>
+<result>Perfect! Here is the complete validation report for bmad-module-skill-forge:
+
+## METADATA VALIDATION REPORT: bmad-module-skill-forge
+
+### EXECUTIVE SUMMARY
+All module metadata is **CONSISTENT and VALID** across all three sources. No orphans, no missing registrations, no version mismatches.
+
+### SKILL INVENTORY CROSS-VALIDATION
+
+**15 Skills Verified Across All Metadata Files:**
+
+| Skill Name | marketplace.json | module-help.csv | Directory | SKILL.md |
+|---|---|---|---|---|
+| skf-analyze-source | YES | YES (row 4) | EXISTS | YES |
+| skf-audit-skill | YES | YES (row 10) | EXISTS | YES |
+| skf-brief-skill | YES | YES (row 5) | EXISTS | YES |
+| skf-create-skill | YES | YES (row 6) | EXISTS | YES |
+| skf-create-stack-skill | YES | YES (row 8) | EXISTS | YES |
+| skf-drop-skill | YES | YES (row 16) | EXISTS | YES |
+| skf-export-skill | YES | YES (row 14) | EXISTS | YES |
+| skf-forger | YES | YES (rows 17,18) | EXISTS | YES |
+| skf-quick-skill | YES | YES (row 7) | EXISTS | YES |
+| skf-refine-architecture | YES | YES (row 12) | EXISTS | YES |
+| skf-rename-skill | YES | YES (row 15) | EXISTS | YES |
+| skf-setup | YES | YES (row 3) | EXISTS | YES |
+| skf-test-skill | YES | YES (row 13) | EXISTS | YES |
+| skf-update-skill | YES | YES (row 9) | EXISTS | YES |
+| skf-verify-stack | YES | YES (row 11) | EXISTS | YES |
+
+### KEY FINDINGS
+
+**1. SKILL COUNT RESOLUTION** ✓
+- Actual directories in src/skf-*: 15
+- marketplace.json version 0.10.0 declares: 15 skills
+- module-help.csv total unique skills: 15
+- Status: CONSISTENT
+
+**2. VERSION CONSISTENCY** ✓
+- package.json: version "0.10.0"
+- marketplace.json: version "0.10.0"
+- Status: MATCH
+
+**3. ORPHAN/MISSING SKILL AUDITS** ✓
+- Skills in src/ but NOT in marketplace.json: 0
+- Skills in src/ but NOT in module-help.csv: 0
+- Entries in marketplace.json pointing to missing dirs: 0
+- Entries in module-help.csv pointing to missing dirs: 0
+- Status: NO ORPHANS, NO DANGLING REFERENCES
+
+**4. MODULE CONFIGURATION (module.yaml)** ✓
+- Module code: "skf"
+- Module name: "SKF: Skill Forge — Evidence-Based Agent Skills Compiler"
+- Config variables defined: 4 (all properly formatted)
+  - skills_output_folder
+  - forge_data_folder
+  - sidecar_path
+  - health_check_repo
+- Status: ALL PROPERLY FORMATTED
+
+**5. SKILL NAME CONSISTENCY** ✓
+- Display names in module-help.csv match skill functions
+- Directory names match metadata entries exactly
+- Menu codes (FF, SF, AN, etc.) all unique and descriptive
+- Status: CONSISTENT ACROSS ALL FILES
+
+**6. SUPPORTING DIRECTORIES (correctly excluded)** ✓
+- /src/forger/ - runtime framework (not a skill)
+- /src/knowledge/ - cross-cutting knowledge base (not a skill)
+- /src/shared/ - shared utilities (not a skill)
+- Status: PROPERLY EXCLUDED FROM SKILL INVENTORY
+
+### CLAIM VERIFICATION: "14 workflows + 1 agent"
+
+The module documentation claims "14 workflows + 1 agent". This is accurate:
+
+**AGENT SKILL (1):**
+- skf-forger: Master agent (Ferris) with dual outputs (Knowledge Index, Workflow Status)
+
+**WORKFLOW SKILLS (14):**
+skf-setup, skf-analyze-source, skf-brief-skill, skf-create-skill, skf-quick-skill, skf-create-stack-skill, skf-update-skill, skf-audit-skill, skf-test-skill, skf-verify-stack, skf-refine-architecture, skf-export-skill, skf-rename-skill, skf-drop-skill
+
+Total: 14 workflow skills + 1 agent skill = 15 registered skills
+Status: **CLAIM VERIFIED** ✓
+
+### CONCLUSION
+
+**VALIDATION RESULT: PASS** ✓
+
+All metadata files are internally consistent and externally validated:
+- **.claude-plugin/marketplace.json** (15 skills, v0.10.0)
+- **src/module-help.csv** (15 unique skills)
+- **src/module.yaml** (module config + cli routing)
+- **package.json** (v0.10.0)
+- **src/ directories** (15 skills, 3 supporting dirs)
+
+**No metadata cleanup required.**</result>
+<usage><total_tokens>81561</total_tokens><tool_uses>12</tool_uses><duration_ms>72917</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af88a300ecda3b7cc</task-id>
+<tool-use-id>toolu_0186hTeR45WCEeHT4f9vYFet</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/b14a73cd-50c9-47ac-abfd-c13933046912/tasks/af88a300ecda3b7cc.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate README accuracy" completed</summary>
+<result>Now let me create a summary document. Based on my thorough validation, here are my findings:
+
+## COMPREHENSIVE README VALIDATION REPORT FOR v1.0.0 RELEASE
+
+I've completed a thorough validation of the README.md against the actual codebase. Here are my findings:
+
+---
+
+### **CRITICAL DISCREPANCIES**
+
+#### 1. **Workflow Count Mismatch** ⚠️
+- **README claims:** "all 14 available workflows" (lines 87 and 102)
+- **Actual count:** 15 workflow directories found in `/src/`:
+  - `skf-analyze-source`, `skf-audit-skill`, `skf-brief-skill`, `skf-create-skill`, `skf-create-stack-skill`, `skf-drop-skill`, `skf-export-skill`, `skf-forger`, `skf-quick-skill`, `skf-refine-architecture`, `skf-rename-skill`, `skf-setup`, `skf-test-skill`, `skf-update-skill`, `skf-verify-stack`
+- **Issue:** Update line 87 to say "15 available workflows" and update line 102 similarly
+
+#### 2. **Package Version Mismatch** ⚠️
+- **README context:** Presented as v1.0.0 release documentation (based on your request)
+- **Actual package.json version:** `0.10.0` (line 4)
+- **Issue:** The package.json needs to be updated to `1.0.0` before release. The README itself doesn't specify a version number, so that's acceptable, but be aware the actual package is still at 0.10.0
+
+---
+
+### **VALIDATED ITEMS - CORRECT**
+
+✓ **Installation command works correctly**
+- `npx bmad-module-skill-forge install` maps to the correct bin entry
+- `package.json` line 32: `"bmad-module-skill-forge": "tools/skf-npx-wrapper.js"` ✓
+- `tools/skf-npx-wrapper.js` has proper shebang (`#!/usr/bin/env node`) ✓
+- CLI properly delegates to `tools/cli/skf-cli.js` ✓
+
+✓ **Prerequisites are accurate**
+- Node.js &gt;= 22: Correctly specified in `package.json` engines (line 122) ✓
+- Python &gt;= 3.10: Mentioned in README (line 70) and used in test scripts ✓
+- uv: Correctly mentioned in README (line 70) and used in npm scripts (line 60: `test:python`) ✓
+- All badge references are correct (lines 13-16) ✓
+
+✓ **IDE count is accurate**
+- README doesn't make a specific claim about number of IDEs
+- Knowledge file at `/src/skf-export-skill/assets/managed-section-format.md` documents **23 named IDEs** (plus "other" fallback)
+- IDEs supported: claude-code, cursor, github-copilot, codex, windsurf, cline, roo, auggie, antigravity, codebuddy, crush, gemini, iflow, junie, kilo, kiro, ona, opencode, pi, qoder, qwen, rovo-dev, trae ✓
+
+✓ **Knowledge fragments verified**
+- 15 knowledge fragment files in `/src/knowledge/`:
+  - agentskills-spec.md, architecture-verification.md, ccc-bridge.md, confidence-tiers.md, doc-fetcher.md, manual-section-integrity.md, overview.md, progressive-capability.md, provenance-tracking.md, qmd-registry.md, skill-lifecycle.md, split-body-strategy.md, tool-resolution.md, version-paths.md, zero-hallucination.md ✓
+
+✓ **Progressive tiers mentioned correctly**
+- README references (line 5): "Progressive capability tiers (Quick/Forge/Forge+/Deep)"
+- Confirmed in codebase module descriptions ✓
+
+✓ **Links validation**
+All 41 unique URLs in README are valid link formats:
+- GitHub URLs reference correct repo: `armelhbobdad/bmad-module-skill-forge` ✓
+- NPM package link points to correct package: `bmad-module-skill-forge` ✓
+- Docs site: `armelhbobdad.github.io/bmad-module-skill-forge/` ✓
+- External links (agentskills.io, skill.sh, nodejs.org, python.org, astral.sh/uv) all present ✓
+
+✓ **Code examples are accurate**
+- "Without SKF" Python example (lines 45-50) correctly shows the hallucination problem ✓
+- "With SKF" example (lines 54-64) correctly references the `oh-my-skills` repo ✓
+- Function signatures and patterns align with tool capabilities ✓
+
+✓ **No 0.x references that should be 1.0.0**
+- All 0.x references are in context examples or documentation (e.g., `cognee@0.5.0` for version targeting examples) ✓
+- No tooling or release artifacts incorrectly versioned ✓
+
+✓ **Feature claims match implementation**
+- "Version-aware" skills: Verified in knowledge/version-paths.md ✓
+- "Evidence-backed" with AST citations: Confirmed in source code ✓
+- "Manageable lifecycle" for rename/drop: `skf-rename-skill`, `skf-drop-skill` directories present ✓
+- "Follows agentskills.io spec": Documented in knowledge/agentskills-spec.md ✓
+
+---
+
+### **SUMMARY FOR v1.0.0 RELEASE**
+
+**Before publishing v1.0.0, you MUST:**
+
+1. Update `/home/armel/Projects/OSS/bmad-module-skill-forge/package.json` line 4: Change `"version": "0.10.0"` → `"version": "1.0.0"`
+
+2. Update README.md:
+   - Line 87: Change "14 available workflows" → "15 available workflows"
+   - Line 102: Change "All 14 workflows" → "All 15 workflows"
+
+**All other claims in the README are accurate and match the codebase.** The tool is ready for v1.0.0 release once you update the version number and workflow count.</result>
+<usage><total_tokens>95340</total_tokens><tool_uses>47</tool_uses><duration_ms>111278</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a8eece9746de2e0fe</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/b14a73cd-50c9-47ac-abfd-c13933046912/tasks/a8eece9746de2e0fe.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate CI/CD workflows" completed</summary>
+<result>Perfect! Now let me provide the final comprehensive report to the user:
+
+## GitHub Actions CI/CD Validation Report for v1.0.0 Release
+
+I've completed a thorough validation of all workflows in `.github/workflows/`. Here are my findings:
+
+### CRITICAL BLOCKING ISSUE
+
+**tools/installer/package.json is MISSING** - This will cause the v1.0.0 release to fail.
+
+- **Location**: Referenced in `manual-release.yaml` line 66
+- **Command that will fail**: `sed -i 's/"version": ".*"/"version": "${{ steps.version.outputs.new_version }}"/' tools/installer/package.json`
+- **Impact**: Release workflow terminates with "file not found" error when attempting version bump
+- **Action required before release**: Either create this file, remove the sed command if deprecated, or update the path
+
+### Detailed Workflow Analysis
+
+**1. quality.yaml - Code Quality Checks** ✓ READY
+- All 12 test commands from package.json exist and are properly configured
+- Node 22 consistency verified (`.nvmrc`=22, `package.json` engines=&gt;=22.0.0)
+- Python 3.12 configured via astral-sh/setup-uv@v6
+- All referenced scripts exist (tools/build-docs.js, .github/scripts/discord-helpers.sh)
+- Uses current GitHub Actions (checkout@v4, setup-node@v4)
+
+**2. publish.yaml - NPM Publishing** ✓ READY (with note)
+- Properly configured for OIDC provenance: `npm publish --provenance`
+- Correct permissions: `id-token: write` (required for OIDC)
+- Correct registry URL and package name (bmad-module-skill-forge)
+- Uses current actions
+- Minor note: Uses NODE_AUTH_TOKEN + OIDC together (hybrid approach works but could simplify to OIDC-only for future releases by removing the env secret)
+
+**3. manual-release.yaml - Version Bumping &amp; Release** ✗ NEEDS FIX
+- Version bump logic is correct (0.10.0→1.0.0 via `npm version major`)
+- Release notes categories well-designed (Features, Fixes, Maintenance, Other)
+- Uses current softprops/action-gh-release@v2
+- **FATAL**: Line 66 sed command references missing `tools/installer/package.json`
+- Git configuration, tag handling, and prerelease detection all correct
+
+**4. docs.yaml - Documentation Deployment** ✓ READY
+- Correct build command: `npm run docs:build`
+- Output path matches (build/site)
+- All current actions (checkout@v4, upload-pages-artifact@v3, deploy-pages@v4)
+- GitHub Pages OIDC setup correct with proper concurrency control
+
+**5. discord.yaml - Event Notifications** ✓ READY
+- Helper script exists and references are correct
+- Graceful failure if DISCORD_WEBHOOK secret not configured
+- All 7 event types properly handled
+- Uses current checkout@v4
+- Note: Verify DISCORD_WEBHOOK is configured in GitHub Settings for v1.0.0 notifications
+
+### Version Consistency ✓ ALL CONSISTENT
+
+| Component | Value | Status |
+|-----------|-------|--------|
+| Node.js | 22 (.nvmrc), &gt;=22.0.0 (package.json) | Consistent |
+| Python | 3.12 (quality.yaml only) | Consistent |
+| npm | Uses `npm ci` consistently | Consistent |
+
+### GitHub Actions Deprecation Review ✓ NO DEPRECATIONS
+
+All actions use current versions:
+- `actions/checkout@v4` (v3 deprecated Dec 2024)
+- `actions/setup-node@v4` (v3 deprecated Sept 2024)
+- `actions/upload-pages-artifact@v3`, `deploy-pages@v4` (current)
+- `astral-sh/setup-uv@v6` (current)
+- `softprops/action-gh-release@v2` (current)
+
+### Pre-Release Checklist
+
+**CRITICAL - Must fix before v1.0.0:**
+1. Create/restore `tools/installer/package.json` OR remove the sed command from manual-release.yaml line 66
+2. Verify `NPM_TOKEN` secret exists and is valid in GitHub Settings
+3. Verify `DISCORD_WEBHOOK` secret configured in GitHub Settings (optional but recommended)
+
+**Test/Verify:**
+1. Create test tag (v1.0.0-rc1) to dry-run the workflow
+2. Ensure all workflow steps complete successfully
+3. Verify NPM package publishes with provenance
+4. Verify GitHub Release created with properly formatted release notes
+
+### Summary
+
+| Component | Status |
+|-----------|--------|
+| quality.yaml | ✓ Ready |
+| publish.yaml | ✓ Ready |
+| manual-release.yaml | ✗ **Blocked** - missing tools/installer/package.json |
+| docs.yaml | ✓ Ready |
+| discord.yaml | ✓ Ready |
+| Version bumping logic | ✓ Correct for 0.10.0→1.0.0 |
+| GitHub Actions versions | ✓ All current |
+| File references | ✗ 1 missing (tools/installer/package.json) |
+
+**Overall Status: NOT READY FOR v1.0.0 RELEASE** - The missing `tools/installer/package.json` file will cause the manual release workflow to fail when attempting the version bump. This must be resolved before proceeding.</result>
+<usage><total_tokens>91772</total_tokens><tool_uses>43</tool_uses><duration_ms>93920</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a89e528c2a54b36ba</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/b14a73cd-50c9-47ac-abfd-c13933046912/tasks/a89e528c2a54b36ba.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate knowledge base integrity" completed</summary>
+<result>Perfect! Let me now provide the comprehensive validation report to the user:
+
+## Knowledge Base Integrity Validation Report
+
+I've completed a comprehensive validation of the bmad-module-skill-forge knowledge base. Here are the findings:
+
+### **Overall Status: PASSED** (with one minor cosmetic note)
+
+The knowledge base is well-organized and functional, with all 15 fragments properly indexed and discoverable.
+
+---
+
+### **Validation Results**
+
+**1. File Existence: ✓ PASS**
+- All 15 markdown files exist on disk
+- All files are in `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/`
+
+**2. CSV-to-File Mapping: ✓ PASS**
+- Every file listed in the CSV exists on disk
+- Every `.md` file in the knowledge directory is indexed in the CSV
+- No orphaned files
+
+**3. Duplicate Detection: ✓ PASS**
+- No duplicate IDs
+- No duplicate file paths
+- All 15 fragment IDs are unique
+
+**4. CSV Structure: ✓ PASS**
+- All required columns present: `id`, `name`, `description`, `tags`, `tier`, `fragment_file`
+- All rows have complete required fields
+- No empty required fields
+
+**5. Column Value Validation: ✓ PASS**
+- All IDs use valid format (lowercase, alphanumeric + hyphens)
+- All tier values are valid: 14 `core`, 1 `extended`
+- No invalid enumeration values
+
+**6. Cross-References: ✓ PASS**
+- All internal markdown links between fragments are valid
+- No broken references detected
+- All fragments properly reference each other
+
+**7. Workflow Integration: ✓ PASS**
+- Workflow steps correctly reference knowledge fragments
+- References found in `skf-forger/SKILL.md`, `skf-create-skill` steps
+- No broken workflow-to-knowledge links
+- Knowledge loading directives properly implemented in JiT protocol
+
+**8. Description Accuracy: ✓ PASS**
+- CSV descriptions align with actual file content
+- Key concepts from descriptions present in markdown files
+- Descriptions useful for JiT loading decisions
+
+---
+
+### **Discrepancies Found**
+
+**LOW SEVERITY (Non-blocking cosmetic issue):**
+
+**Title Mismatch in overview.md:**
+- **File:** `src/knowledge/overview.md`
+- **Issue:** CSV name field lists "Knowledge Overview" but the markdown file has heading "SKF Knowledge Overview"
+- **Impact:** Minimal—cosmetic inconsistency only; does not affect functionality or cross-references
+- **Recommendation:** For consistency, update the CSV row to read `Knowledge Overview` (which is the shortened version) OR update the markdown file to use "Knowledge Overview" as the title
+
+---
+
+### **Fragment Distribution**
+
+**Core tier (14 fragments):**
+- overview
+- zero-hallucination
+- confidence-tiers
+- progressive-capability
+- ccc-bridge
+- agentskills-spec
+- skill-lifecycle
+- provenance-tracking
+- manual-section-integrity
+- qmd-registry
+- architecture-verification
+- split-body-strategy
+- tool-resolution
+- version-paths
+
+**Extended tier (1 fragment):**
+- doc-fetcher (loaded only when doc_urls present in brief)
+
+---
+
+### **Conclusion**
+
+The knowledge base integrity is **sound**. All 15 fragments are:
+- Properly indexed in the CSV
+- Discoverable and accessible
+- Correctly cross-referenced
+- Integrated with workflow steps
+- Ready for just-in-time (JiT) loading via `skf-knowledge-index.csv`
+
+The single title mismatch is cosmetic and non-critical. The knowledge base is production-ready for use.</result>
+<usage><total_tokens>115006</total_tokens><tool_uses>40</tool_uses><duration_ms>123477</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a399b6e20bb1935b1</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/b14a73cd-50c9-47ac-abfd-c13933046912/tasks/a399b6e20bb1935b1.output</output-file>
+<status>completed</status>
+<summary>Agent "Hunt stale refs and TODOs" completed</summary>
+<result>Perfect. Now let me summarize my findings:
+
+## Summary of Findings for v1.0.0 Release
+
+I've conducted a comprehensive search of the bmad-module-skill-forge project for stale references, TODOs, placeholder content, and other release-blocking issues. Here are my findings:
+
+### CRITICAL FINDINGS (Release-blocking):
+
+**None found.** The project is in good shape for v1.0.0 release.
+
+### MINOR FINDINGS (Non-blocking, but worth noting):
+
+**1. One active TODO comment:**
+- **File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/.github/workflows/manual-release.yaml` (line 68)
+- **Content:** `# TODO: Re-enable web bundles once tools/cli/bundlers/ is restored`
+- **Context:** This is a commented-out step for generating web bundles. The `tools/cli/bundlers/` directory does not exist. This is intentionally disabled for the current release, which is appropriate for a v1.0.0 initial release. The release workflow functions correctly without this feature.
+
+**2. One TODO in knowledge documentation:**
+- **File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/ccc-bridge.md` (line 89)
+- **Content:** `| `**/_bmad-output` | Build output artifacts (TODO files, reports) |`
+- **Context:** This is a descriptive comment in a table showing output directory purposes. It uses "TODO files" (meaning files generated during workflows) not a code TODO marker.
+
+**3. "Not yet available" features (documented, not code):**
+- **File:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-02-ecosystem-check.md` (line 23)
+- **Content:** "Ecosystem lookup requires the agentskills.io registry API, which is not yet available."
+- **Context:** This is a legitimate forward-looking note. The workflow gracefully handles API availability and does not block on it.
+
+### VERIFIED AS CLEAN:
+
+- **Version consistency:** All version references correctly show `0.10.0` in package.json, marketplace.json, and CHANGELOG.md
+- **CHANGELOG status:** Properly marked as `[0.10.0] - Unreleased` but contains comprehensive feature descriptions ready for release
+- **Console statements:** All console.log/debug statements found are in legitimate CLI tools and test utilities, not embedded in source
+- **Hardcoded paths:** No `/home/armel` or `/Users/` leaks found in source or documentation
+- **Dead links:** No empty markdown links `[]()` or `[](#)` patterns found
+- **Ephemeral cloning:** All "ephemeral" references are legitimate technical documentation for the fallback cloning strategy; the previous fix mentioned catching "ephemeral-only clone references" has been applied correctly
+- **Pre-release language:** No "coming soon", "placeholder", "lorem ipsum", "alpha", "beta", or "WIP" markers found in released docs (alpha/beta appear only in valid CI/CD workflows and locked package dependencies)
+- **Deprecated content:** References to deprecated versions (0.1.0, 0.5.0, etc.) are legitimate examples in workflow documentation for the "drop-skill" feature
+- **Placeholder text:** "[PENDING — populated by step-06]" text in step-05-compile.md is a legitimate workflow instruction meant to be replaced during execution, not a stale placeholder
+
+### RECOMMENDATION:
+
+The project is **ready for v1.0.0 release**. The two TODO comments are non-blocking—one is intentionally disabled infrastructure for a future release, and the other is merely descriptive text. All functionality is production-ready and well-documented.</result>
+<usage><total_tokens>104261</total_tokens><tool_uses>42</tool_uses><duration_ms>131316</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a16dfd3376bb0e69f</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/b14a73cd-50c9-47ac-abfd-c13933046912/tasks/a16dfd3376bb0e69f.output</output-file>
+<status>completed</status>
+<summary>Agent "Validate SKILL.md consistency" completed</summary>
+<result>Perfect! Now let me generate the final summary to present to the user:
+
+## SKILL.md Validation Report — bmad-module-skill-forge v1.0.0
+
+### Executive Summary
+
+All 15 SKILL.md files in the bmad-module-skill-forge project have been validated for consistency and completeness. **PASS** - The project is ready for v1.0.0 release with no critical issues detected.
+
+---
+
+### Key Findings
+
+**1. Inventory Verification**
+- 15 SKILL.md files present (one per skf-* directory)
+- 14 workflow skills + 1 coordinator agent (skf-forger)
+- All skills have valid YAML frontmatter with matching names and descriptions
+
+**2. Step File References**
+- All 78 step files referenced in SKILL.md files exist in their steps-c/ directories
+- Step numbering is sequential with intentional substeps (1b, 2b, 3b, 3c, 3d, 4b) documented as optional/conditional steps
+- No missing or broken references
+
+**3. Trigger Code Validation**
+- 16 unique menu codes across module-help.csv:
+  - 14 workflow codes: SF, AN, BS, CS, QS, SS, US, AS, VS, RA, TS, EX, RS, DS
+  - 1 agent code: FF (skf-forger)
+  - 2 inline actions: KI, WS
+- All codes are unique with no conflicts
+- Perfect 1:1 alignment between trigger codes, skill directories, and module-help.csv entries
+
+**4. Forger Agent Skill (skf-forger/SKILL.md)**
+- Lists all 14 workflows correctly in Capabilities table with accurate code-to-skill mappings
+- Defines five operational modes: Architect, Surgeon, Audit, Delivery, Management
+- Includes critical guards for config validation and sidecar resolution
+- Knowledge index consultation properly documented
+
+**5. Cross-Skill References**
+- All skill name references in SKILL.md files point to valid, existing skills
+- No broken links or misspelled references
+- Capabilities table in skf-forger matches actual skill implementation
+
+**6. Shared Infrastructure**
+- `/src/shared/references/` contains all 3 required specification files:
+  - headless-gate-convention.md
+  - pipeline-contracts.md
+  - output-contract-schema.md
+- `/src/knowledge/` contains complete knowledge index with 14 fragments
+- All referenced paths resolve correctly
+
+**7. Asset Directories**
+- Present on 11 of 15 skills (simple workflows like drop/rename don't require assets)
+- assets/ directories on 9 skills
+- references/ directories on 12 skills
+- templates/ directories on 2 skills (skf-analyze-source, skf-test-skill)
+- All directories discovered at runtime by step files
+
+---
+
+### Detailed Validation Matrix
+
+| Requirement | Status | Count |
+|---|---|---|
+| SKILL.md files present | PASS | 15/15 |
+| Valid YAML frontmatter | PASS | 15/15 |
+| Names match directories | PASS | 15/15 |
+| Step files exist | PASS | 78/78 |
+| Trigger codes unique | PASS | 16/16 |
+| Skills in CSV ↔ src/ | PASS | 15/15 |
+| Forger workflows listed | PASS | 14/14 |
+| Knowledge fragments indexed | PASS | 14/14 |
+| Shared references accessible | PASS | 3/3 |
+| Cross-references valid | PASS | All |
+
+---
+
+### Issues Found
+
+**NONE - CRITICAL**
+
+**Minor Recommendations (Non-blocking)**
+
+1. **Documentation Enhancement** - Asset/reference/template directories exist but aren't explicitly documented in SKILL.md content. They're discovered at runtime, which works fine, but adding a note would help maintainers understand the structure. (LOW PRIORITY)
+
+2. **Knowledge Path Note** - The forger references knowledge at `{project-root}/_bmad/skf/knowledge/skf-knowledge-index.csv`, which resolves correctly at runtime, but the development location is `src/knowledge/`. This is handled correctly by project configuration but worth documenting for installers. (INFO ONLY)
+
+---
+
+### Release Ready Verification
+
+**✓ All 15 SKILL.md files are consistent and complete**
+**✓ All 14 workflows documented with correct trigger codes**
+**✓ All step sequences properly sequenced**
+**✓ All cross-references valid**
+**✓ Shared infrastructure intact**
+**✓ Knowledge index complete**
+
+**Recommendation: APPROVED FOR v1.0.0 RELEASE**</result>
+<usage><total_tokens>107979</total_tokens><tool_uses>47</tool_uses><duration_ms>170587</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a16187fa99631a7d0</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/b14a73cd-50c9-47ac-abfd-c13933046912/tasks/a16187fa99631a7d0.output</output-file>
+<status>completed</status>
+<summary>Agent "Deep review skf-test-skill workflow" completed</summary>
+<result>Now I have enough information to deliver a thorough, categorized review. Let me compile the final findings.
+
+---
+
+## SKF Test-Skill v1.0.0 Release Validation — Full Findings
+
+### Step Sequencing (Q1)
+
+The sequence is: `step-01-init` → `step-02-detect-mode` → `step-03-coverage-check` → `step-04-coherence-check` → `step-04b-external-validators` → `step-05-score` → `step-06-report`. The numbering gap between 4 and 4b is intentional and explained. All `nextStepFile` chains are correct:
+
+- step-01 → `./step-02-detect-mode.md` (correct)
+- step-02 → `./step-03-coverage-check.md` (correct)
+- step-03 → `./step-04-coherence-check.md` (correct)
+- step-04 → `./step-04b-external-validators.md` (correct)
+- step-04b → `./step-05-score.md` (correct)
+- step-05 → `./step-06-report.md` (correct)
+- step-06 → `shared/health-check.md` (correct; file exists at `/home/armel/Projects/OSS/bmad-module-skill-forge/src/shared/health-check.md`)
+
+The `SKILL.md` stages table lists "Auto-proceed: No (confirm)" for step-06, which correctly matches the menu gate in step-06 Section 7. No sequencing gaps found.
+
+---
+
+### Issues by Severity
+
+#### CRITICAL
+
+**C-1: `source-access-protocol.md` references a non-existent section in `step-01-init.md`**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/references/source-access-protocol.md`, line 41
+
+The text reads:
+
+&gt; "fall through to docs-only mode (as defined in step-01-init.md Section 0: pre-analysis source type detection)"
+
+`step-01-init.md` has no Section 0 of any kind. The "Check for Docs-Only Mode" section is in `step-03-coverage-check.md` (Section 0, lines 24–30), not in step-01. The reference points to the wrong file entirely. An AI agent following state-5 fallback would look for authoritative docs-only detection rules in step-01 and find nothing, potentially breaking the state-5 path. This should read "as defined in step-03-coverage-check.md Section 0."
+
+---
+
+#### HIGH
+
+**H-1: `step-04-coherence-check.md` uses `{scoringRulesFile}` without declaring it in its frontmatter**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-04-coherence-check.md`, lines 108 and 135 and 157
+
+The frontmatter at lines 1–5 declares only `nextStepFile`, `outputFile`, and `outputFormatsFile`. The variable `{scoringRulesFile}` appears three times in the body but is never declared for this step. An agent following step-04 literally would have an unresolved variable when flagging severity (line 108) or deferring to scoring rules (lines 135, 157). All other steps that use `{scoringRulesFile}` declare it in their frontmatter. Step-04 is the only one with this omission. The fix is to add `scoringRulesFile: 'references/scoring-rules.md'` to the frontmatter.
+
+**H-2: Docs-only detection criterion in step-03 mismatches the source-access-protocol State 5 trigger**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-03-coverage-check.md`, Section 0 (line 26)
+
+Step-03 Section 0 sets `docs_only_mode: true` only when `confidence_tier: "Quick"` AND all citations are `[EXT:...]`. But `source-access-protocol.md` State 5 (line 41) triggers docs-only mode when _none of the five source-access states succeed_ — which can happen for any tier (Forge, Deep, etc.) if the library is private and no provenance-map exists. The scoring rules also say docs-only applies "Quick tier, all [EXT:...] citations." The result is that a Deep-tier skill with no source access and no provenance-map would hit State 5 but step-03's Section 0 guard (`confidence_tier: "Quick"`) would not activate docs-only mode there. Instead, coverage check would proceed on an empty inventory. The two entry conditions for docs-only are not consistently defined across files.
+
+**H-3: Naive mode + Quick tier produces an undefined combined skip case not covered by the fallback calculation in step-05**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-05-score.md`, Section 3c (lines 103–112)
+
+The `scoring-rules.md` naive-mode weight table at lines 22–26 states "Do not apply a second redistribution." However, step-05 Section 3c's manual fallback procedure at step 3 says: "Determine skip conditions: Quick tier/docsOnly/state2 skip Signature Accuracy + Type Coverage; naive mode coherence is already 0; null external validation means skip it." For a naive + Quick skill with no external validators, the agent is told to zero out coherence (already 0 in the naive table), Signature Accuracy (25%), Type Coverage (20%), and External Validation (10%), leaving only Export Coverage (45%). The comment "Do not apply a second redistribution" in `scoring-rules.md` refers to the naive table being pre-redistributed for coherence, but the Quick-tier skip is a _separate additional_ redistribution that the naive table does not pre-bake. The compute-score.py script handles this correctly (it always does proportional redistribution of whatever is zeroed, regardless of mode), but the prose in `scoring-rules.md` could mislead an agent into skipping the Quick-tier redistribution step on a naive-mode run, using the wrong denominator. The "Do not apply a second redistribution" language needs a clarifying scope annotation: "Do not re-redistribute for coherence. Quick-tier redistribution still applies additionally."
+
+---
+
+#### MEDIUM
+
+**M-1: `step-01-init.md` frontmatter declares `frontmatterScript: 'shared/scripts/skf-validate-frontmatter.py'` — path is ambiguous**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-01-init.md`, line 7
+
+The frontmatter value is `shared/scripts/skf-validate-frontmatter.py` (relative). The body (line 71) then says it resolves from the SKF module root: `_bmad/skf/shared/scripts/skf-validate-frontmatter.py` (installed) or `src/shared/scripts/skf-validate-frontmatter.py` (development). The frontmatter value matches neither of these: it is missing the `src/` or `_bmad/skf/` prefix. An agent resolving `{frontmatterScript}` relative to the `skf-test-skill/steps-c/` directory would look for `skf-test-skill/steps-c/shared/scripts/skf-validate-frontmatter.py` — a path that does not exist. The script exists at `src/shared/scripts/skf-validate-frontmatter.py`. The body explanation partially recovers from this, but the frontmatter value itself is wrong for direct resolution.
+
+**M-2: `step-06-report.md` references `shared/references/output-contract-schema.md` but this is not declared in the frontmatter**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-06-report.md`, line 96
+
+The instruction in Section 4c says "Write `{forge_version}/test-skill-result.json` per `shared/references/output-contract-schema.md`" but `shared/references/output-contract-schema.md` is a bare path reference in prose, not a declared frontmatter variable. The file does exist at `/home/armel/Projects/OSS/bmad-module-skill-forge/src/shared/references/output-contract-schema.md`, but the path here is ambiguous in resolution context (relative to what?). Other reference files are declared as frontmatter variables (e.g., `scoringRulesFile`, `outputFormatsFile`). This one is not, so an agent cannot reliably locate the file.
+
+**M-3: `step-01-init.md` references `knowledge/version-paths.md` without a frontmatter variable — path is resolution-ambiguous**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-01-init.md`, lines 39 and 44
+
+The file is referenced as `knowledge/version-paths.md` (no frontmatter variable) at two points. The `knowledge/` directory exists at the project level (`src/knowledge/version-paths.md`), not inside `skf-test-skill/`. No `knowledge/` subdirectory exists under `src/skf-test-skill/`, confirmed by the glob. An agent resolving this relative to the step file would find nothing. The file does exist at `src/knowledge/version-paths.md`. The reference should be a declared frontmatter variable or an explicit path from the repo root.
+
+**M-4: Duplicate migration/deprecation verification logic (Section 2b and Section 5b) without shared abstraction**
+
+Files: `step-04-coherence-check.md` lines 61–77 (Section 2b) and lines 137–153 (Section 5b)
+
+Both sections are textually nearly identical (same gate check, same condition logic, same severity assignments). Section 5b explicitly states "This section shares logic with Section 2b." If the logic were updated in one place, the other would drift. For a v1.0.0 release this is not a blocking correctness issue, but it is a documented design debt that has already produced one error (the phrasing differs slightly: Section 2b says "Execute ONLY IF both conditions are met" while Section 5b says "Execute ONLY IF both conditions are met" — phrasing matches but the surrounding context diverges in routing). A single shared section or delegated sub-task would be cleaner. Flagged as Medium because maintenance risk is present at v1.0.
+
+**M-5: `step-06-report.md` Section 4c result contract field naming inconsistency**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-06-report.md`, line 96
+
+The contract says to write `{forge_version}/test-skill-result.json`. The `output-contract-schema.md` schema says write to `{output_dir}/{skill-name}-result.json`. The filename pattern `test-skill-result.json` does not match the schema convention `{skill-name}-result.json`. For the test-skill workflow the file should be `skf-test-skill-result.json` or `test-skill-result.json` — but these must be explicitly reconciled with the schema convention. Currently the field `skill` in the contract schema would need to read `skf-test-skill` to match the filename convention, and the path prefix `{forge_version}/` (workspace artifacts folder) differs from `{output_dir}/` (which the schema intends as the output folder). This is an interface ambiguity between skf-test-skill and the pipeline contract.
+
+---
+
+#### LOW
+
+**L-1: `test-report-template.md` section stubs do not match the complete section list that will actually be written**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/templates/test-report-template.md`, lines 17–28
+
+The template lists six top-level sections: Test Summary, Coverage Analysis, Coherence Analysis, External Validation, Completeness Score, Gap Report. This matches what the steps write. However, within the Gap Report section, step-06 also appends a "Discovery Quality" subsection (Section 4b). The template has no placeholder or comment for this subsection. This is cosmetically minor (step-06 appends the subsection regardless), but makes the template slightly misleading as a structural reference.
+
+**L-2: `step-02-detect-mode.md` Quick-tier adjustment note is informational but incomplete**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-02-detect-mode.md`, lines 52–53
+
+The step says "Quick-tier adjustment (applies to both modes): If `forge_tier` is `Quick`, Signature Accuracy and Type Coverage are skipped during scoring (no AST available). Their weights are redistributed proportionally to remaining active categories. See `scoring-rules.md` Tier-Dependent Scoring section for details." This is a forward-reference and no link or declared variable exists for `scoring-rules.md` in this step's frontmatter. The step itself does nothing with this information — it is just a note. But the forward-reference cannot be resolved by an agent at step-02 time, since `{scoringRulesFile}` is not declared in step-02's frontmatter either. An agent could simply ignore this note and proceed, which is fine, but the reference is dangling.
+
+**L-3: `step-05-score.md` Score Breakdown table always shows all five categories even when some are skipped**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-05-score.md`, lines 141–149
+
+The score breakdown table template has all five categories as fixed rows with no conditional rendering guidance. When categories are skipped (e.g., Quick-tier skips Signature Accuracy and Type Coverage), the table will show those rows with weight 0% and score N/A. The compute-score.py script's `skippedCategories` output supports this, but step-05 does not instruct the agent how to format skipped rows versus active rows. Some implementations may omit rows entirely (losing transparency) or show them with inconsistent N/A notation.
+
+**L-4: `output-section-formats.md` Gap Report section format is incomplete — no individual gap entry section**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/assets/output-section-formats.md`, lines 64–83
+
+The "Gap Report Section" block ends with the remediation summary table, but does not include the individual `### GAP-{NNN}` entry blocks that step-06 Sections 3 and 4 are supposed to render. The `Gap Entry Format` is defined separately below the gap report block (lines 85–97). Step-06 Section 4 says "Load the Gap Report section format from `{outputFormatsFile}`" — an agent loading that block would get only the header/summary table, not the per-gap entries. Step-06 Section 3 says "Load `{outputFormatsFile}` for gap entry format," pointing at the separate `Gap Entry Format` block. This split is functional but the loading sequence in steps-06 Sections 3 vs 4 is subtly inverted from the natural append order (entries before summary), which may cause agents to render the summary table before the per-gap entries.
+
+**L-5: `compute-score.py` does not accept multi-argument CLI invocation**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/scripts/compute-score.py`, lines 229–241
+
+The script accepts only one positional argument (the JSON string). If an agent emits the JSON without shell-quoting (e.g., with unescaped spaces or newlines), `sys.argv[1]` will receive a truncated or split string. Step-05 Section 3b shows `python3 {scoringScript} '&lt;JSON&gt;'` with a single-quoted argument, which is correct, but there is no shell-escaping guidance in the step and no validation that the full JSON was received. The script does validate JSON parse failure and exits with error code 1, so agents will see the error — but the failure mode is silent about the root cause (quoting vs invalid JSON).
+
+---
+
+#### INFO
+
+**I-1: Docs-only mode detection in step-03 does not write `docs_only_mode` to the output file frontmatter**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-03-coverage-check.md`, Section 0 (line 28)
+
+Step-03 says "Set `docs_only_mode: true` in context for step-05 scoring." It sets this in agent working memory, not in `{outputFile}` frontmatter. Step-05 Section 1 says "If the Coverage Analysis section in `{outputFile}` notes docs-only mode." This means step-05 reads the Coverage Analysis prose for the signal rather than a frontmatter flag. The `templates/test-report-template.md` frontmatter has no `docsOnly` field. This is an informal inter-step contract relying on prose scanning rather than a structured signal. It works if the agent is diligent, but it is fragile compared to a frontmatter flag (like `testMode` is handled). Not a blocker, but the pattern is inconsistent with how other inter-step signals (`testMode`, `testResult`, `score`) are handled.
+
+**I-2: `step-06-report.md` Section 4b discovery testing language is fixed and may become stale**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-06-report.md`, lines 86–90
+
+The example "realistic prompt patterns" (Vague, Implicit, Abbreviated) are hardcoded. These examples are reasonable but are not parameterized by `{skill_name}` or the skill's actual capabilities. The abbreviated example uses `{skill-name}` literally (not interpolated), suggesting it was intended to be a variable but was not marked as such. This is advisory-only (Info level) but worth fixing for a v1.0 polish pass.
+
+**I-3: No spec for what happens when `metadata.json` has `skill_type` set to neither `'single'` nor `'stack'`**
+
+File: `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-02-detect-mode.md`, lines 49–52
+
+Step-02 says "IF metadata unclear or skill_type not set → Default to naive mode (conservative)." This correctly handles the null case but does not handle an unexpected value like `skill_type: 'composite'` or a typo. The compute-score.py script validates only `mode` (contextual vs naive) and would receive the right value if step-02 always maps to one of those two. The issue is that step-02's detection heuristics beyond the `skill_type` field (cross-references count, integration patterns) are not specified precisely enough to distinguish reliably when `skill_type` is missing. This is an edge case and the naive-mode default is safe, but the guidance could be more precise.
+
+---
+
+### Test Methodology Assessment (Q3)
+
+The cognitive completeness verification is well-defined at a conceptual level. The five-state source access waterfall in `source-access-protocol.md` is the strongest part of the design — it systematically handles every real-world access scenario from full local source to docs-only. The tier-gating (Quick/Forge/Forge+/Deep) is consistently applied across steps and the compute-score.py script.
+
+The pass/fail threshold at 80% is documented and overridable. Pass/fail criteria are clear and deterministic when the script runs.
+
+The main methodology gaps are:
+
+1. The docs-only trigger condition is defined in two places with subtly different criteria (see H-2 above).
+2. The "cognitive completeness" framing in SKILL.md says "Every finding must trace to actual code with file:line citations" but the test methodology for Quick-tier and docs-only mode explicitly cannot produce file:line citations (no AST, no source). The SKILL.md overview claim is too absolute for those paths.
+
+---
+
+### Scoring System Assessment (Q4)
+
+The scoring is numerically consistent. The base weights sum correctly:
+
+- Contextual: 36 + 22 + 14 + 18 + 10 = 100%
+- Naive: 45 + 25 + 20 + 0 + 10 = 100%
+
+The compute-score.py script implements proportional redistribution correctly and its output has been designed to match the weight tables in `scoring-rules.md`. The `round2()` function uses JavaScript-compatible rounding, which is intentional and documented.
+
+The one scoring inconsistency is the "Do not apply a second redistribution" language in `scoring-rules.md` (H-3 above). The naive table pre-redistributes coherence's 18%, and a naive + Quick run then needs to additionally redistribute Signature Accuracy and Type Coverage. The script does this correctly, but the prose guidance in `scoring-rules.md` may mislead agents using the manual fallback into thinking the naive table is already fully redistributed for all skip conditions.
+
+---
+
+### Edge Case Coverage (Q5)
+
+**Quick tier (minimal skills):** Handled. Step-02 carries a Quick-tier adjustment note; scoring-rules.md has a dedicated Quick Tier section; compute-score.py zeroes and redistributes correctly. The only gap is that naive + Quick has ambiguous prose (H-3).
+
+**Stack skills:** Well-handled. Contextual mode is triggered correctly. Sections 3-5 of step-04 address cross-references and integration pattern completeness. The zero-pattern edge case (line 135 of step-04, line 165 of step-04, scoring-rules.md line 102) is handled consistently: coherence equals reference validity alone.
+
+**Docs-only source:** Two entry paths with inconsistent trigger conditions (H-2). The scenario where State 5 is reached without `confidence_tier: "Quick"` is not handled. Otherwise the docs-only coverage scoring logic is complete.
+
+**Split-body skills:** Well-specified. Step-03 Section 1 delegates a subagent that handles split-body traversal, Section 1b specifies cross-check consistency, `scoring-rules.md` explains tessl's expected score drop, and step-04b Section 3 carries a content-quality warning for split-body situations.
+
+**Skills from docs-only sources (all `[EXT:...]`):** Covered by the docs-only path described above. The `[EXT:...]` citation detection in step-03 Section 0 is the trigger, which is functional for Quick-tier skills but incomplete for other tiers (H-2).
+
+---
+
+### Output Artifacts (Q6)
+
+The workflow produces:
+
+1. `{forge_version}/test-report-{skill_name}.md` — the primary output. Format is specified by the template at `templates/test-report-template.md` and section formats at `assets/output-section-formats.md`. The full section list is: Test Summary, Coverage Analysis, Coherence Analysis, External Validation, Completeness Score, Gap Report (with Discovery Quality subsection). Frontmatter is specified inline in step-01 Section 6.
+
+2. `{forge_version}/test-skill-result.json` — machine-readable result contract, written in step-06 Section 4c. The schema is defined at `src/shared/references/output-contract-schema.md`. The filename and path have an ambiguity vs the schema convention (M-5).
+
+Output format is well-specified overall. The main gap is the template's missing Discovery Quality placeholder (L-1) and the result contract file naming ambiguity (M-5).
+
+---
+
+### Essential Files
+
+The following files are load-bearing for understanding or modifying this workflow:
+
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/SKILL.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-01-init.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-02-detect-mode.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-03-coverage-check.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-04-coherence-check.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-04b-external-validators.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-05-score.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/steps-c/step-06-report.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/references/scoring-rules.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/references/source-access-protocol.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/assets/output-section-formats.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/templates/test-report-template.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/scripts/compute-score.py`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/shared/health-check.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/shared/references/output-contract-schema.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/version-paths.md`</result>
+<usage><total_tokens>59743</total_tokens><tool_uses>35</tool_uses><duration_ms>208278</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a376705e1ef68155e</task-id>
+<tool-use-id>toolu_01222bViKUtY1m5hBpZjqZUe</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/b14a73cd-50c9-47ac-abfd-c13933046912/tasks/a376705e1ef68155e.output</output-file>
+<status>completed</status>
+<summary>Agent "Deep review skf-setup workflow" completed</summary>
+<result>I now have all the information needed for a complete analysis. Let me compile the full report.
+
+---
+
+# skf-setup v1.0.0 Release Validation Report
+
+## Scope
+
+Files reviewed:
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-setup/SKILL.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-setup/steps-c/step-01-detect-and-tier.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-setup/steps-c/step-01b-ccc-index.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-setup/steps-c/step-02-write-config.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-setup/steps-c/step-03-auto-index.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-setup/steps-c/step-04-report.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-setup/references/tier-rules.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/confidence-tiers.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/progressive-capability.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/ccc-bridge.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/tool-resolution.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/forger/forge-tier.yaml` (canonical template)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/forger/preferences.yaml`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/shared/health-check.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/module.yaml`
+
+---
+
+## CRITICAL Issues
+
+### C-1: Tier Logic Conflict Between step-01 and tier-rules.md — Forge+ Can Incorrectly Win Over Deep
+
+**Location:** `src/skf-setup/steps-c/step-01-detect-and-tier.md`, section 8 (lines 87–91)
+
+**The problem:** Step-01's tier evaluation list reads:
+
+```
+- {ast_grep} AND {gh_cli} AND {qmd} all true → Deep
+- {ast_grep} AND {ccc} both true (regardless of gh/qmd) → Forge+
+- {ast_grep} true → Forge
+- Otherwise → Quick
+```
+
+Because the rule says "first matching rule wins," a user with all four tools installed (ast-grep + gh + qmd + ccc) correctly hits Deep first. So far so good. But if a user has ast-grep + ccc + gh (no qmd), the Forge+ rule correctly fires next. That path is also fine.
+
+The conflict is semantic, not computational: the comment in `tier-rules.md` line 33 states "ast-grep + gh + qmd + ccc → Deep (Deep subsumes Forge+; ccc enhances transparently)" — meaning that at Deep tier with ccc also present, ccc is supposed to be a transparent enhancement, not a tier driver. The step-01 logic produces the correct output for this case (Deep wins because it checks first), but the in-line comment on step-01 line 89 says "regardless of gh/qmd" — which is technically true but misleading. An agent reading that rule in isolation might incorrectly conclude Forge+ can override Deep. The `tier-rules.md` is explicit; step-01 is ambiguous.
+
+**Risk:** An LLM executing step-01 sequentially could misread the evaluation order and assign Forge+ when the user actually qualifies for Deep (if all 4 tools are present but the agent evaluates the Forge+ rule before Deep for any reason — e.g., if it doesn't treat "first matching rule wins" as strict sequential evaluation).
+
+**Fix:** Add a parenthetical guard to step-01 line 89: change `- {ast_grep} AND {ccc} both true (regardless of gh/qmd) → Forge+` to `- {ast_grep} AND {ccc} both true AND NOT ({gh_cli} AND {qmd}) → Forge+` — or add an explicit note: "(only reached if the Deep rule above did not match)."
+
+---
+
+### C-2: `shared/health-check.md` Path in step-04 Frontmatter Is Relative to the Wrong Anchor Point — Resolution Depends on Agent Behavior
+
+**Location:** `src/skf-setup/steps-c/step-04-report.md`, frontmatter line 3
+
+```yaml
+nextStepFile: 'shared/health-check.md'
+```
+
+Step-04 lives at `src/skf-setup/steps-c/step-04-report.md`. The reference `shared/health-check.md` has no `../` prefix, which makes it ambiguous: it could resolve to:
+- `src/skf-setup/steps-c/shared/health-check.md` — does not exist
+- `src/skf-setup/shared/health-check.md` — does not exist
+- `src/shared/health-check.md` — exists and is the correct target
+
+Every other workflow in the repo uses the same pattern (`shared/health-check.md`), and all their final-step files live in `steps-c/`. The actual file is at `src/shared/health-check.md`, two levels up from `steps-c/`. This means the reference only works if the agent resolves `shared/health-check.md` relative to the skill root (`src/skf-setup/`) rather than the file (`steps-c/`), or relative to the `src/` directory.
+
+This is a cross-workflow consistency observation — the pattern is uniform across all 14 final-step files, so it is presumably intentional and tested to work. However, the correct relative path from `steps-c/` would be `../../shared/health-check.md`. The current pattern is either relying on a convention that paths are resolved from the skill root, or it is an unresolved ambiguity.
+
+**Verdict:** Not blocking for v1.0.0 only if there is an established runtime convention that `shared/` paths are resolved from the module root rather than the calling file's directory. That convention is nowhere documented in skf-setup — it is implicit. If any agent resolves it relative to the file, it will silently fail to find health-check.md. Since this pattern affects every workflow equally, fixing it is a broader concern, but it should be documented somewhere explicit.
+
+---
+
+## HIGH Issues
+
+### H-1: SKILL.md Invocation Contract Claims "Gates: none" But step-03 Has a Real User-Facing Gate
+
+**Location:** `src/skf-setup/SKILL.md`, line 42; `src/skf-setup/steps-c/step-03-auto-index.md`, section 4
+
+The Invocation Contract table states `| **Gates** | (none) |`. But step-03 (QMD Collection Hygiene) presents a `[R]emove / [K]eep` prompt to the user when orphaned QMD collections are found. Step-03's own EXECUTION RULES section at the bottom correctly notes "This step has one optional user interaction (orphan removal prompt)."
+
+This is a direct contradiction. The contract says no gates; the step has one. For headless mode users, the behavior is defined (SKILL.md line 25: "auto-proceed through confirmation gates with their default action"), but the contract misrepresents the workflow to users who read SKILL.md to understand what to expect. What is the default action for the orphan removal gate? It is not stated explicitly in step-03 or the SKILL.md contract.
+
+**Fix:** Change the Gates row to `| **Gates** | One optional: orphaned QMD collection removal (step 3, Deep tier only) |` and add a default action annotation to step-03's orphan removal prompt (e.g., "Default: [K] Keep").
+
+---
+
+### H-2: step-03 Title and SKILL.md Stages Table Are Mismatched
+
+**Location:** `src/skf-setup/SKILL.md` line 34; `src/skf-setup/steps-c/step-03-auto-index.md` line 5
+
+The Stages table in SKILL.md names step 3 "Auto Index". The actual step file's title (H1) is "Step 3: QMD Collection Hygiene". The step file is named `step-03-auto-index.md`, which compounds the confusion — the filename says "auto-index" but the step title and purpose is "QMD Collection Hygiene."
+
+The step does no indexing at all. It cross-references the QMD collection registry and cleans stale entries. The name "Auto Index" appears to be a holdover from an earlier design. step-02's completion message ("Proceeding to QMD collection hygiene...") correctly uses the actual name, which creates an inconsistency with SKILL.md calling it "Auto Index."
+
+**Fix:** Either rename the Stages table entry to "QMD Hygiene" (preferred) or rename the step file and update all references. The completion message in step-02 already uses the correct name and does not need changing.
+
+---
+
+### H-3: forger Template `forge-tier.yaml` Missing `file_count` and `exclude_patterns` Fields That the Setup Workflow Writes
+
+**Location:** `src/forger/forge-tier.yaml` (lines 19–26); `src/skf-setup/steps-c/step-02-write-config.md` (lines 48–51)
+
+The canonical sidecar template at `src/forger/forge-tier.yaml` defines the `ccc_index` block as:
+
+```yaml
+ccc_index:
+  indexed_path: ~
+  last_indexed: ~
+  status: "none"
+  staleness_threshold_hours: 24
+```
+
+But step-02 writes two additional fields into this block:
+
+```yaml
+  file_count: {ccc_file_count from step-01b, or ~}
+  exclude_patterns: {ccc_exclude_patterns from step-01b, or []}
+```
+
+Neither `file_count` nor `exclude_patterns` appears in the forger template. This means the template does not accurately represent the full schema of the written file. Any tool, consumer, or developer reading the template to understand the schema gets an incomplete picture. The `ccc-bridge.md` knowledge file does describe `ccc_index.exclude_patterns` and the staleness threshold, but the discrepancy with the canonical template is a documentation gap.
+
+**Fix:** Add both fields to `src/forger/forge-tier.yaml` with `~` and `[]` defaults respectively.
+
+---
+
+### H-4: step-01b Section 3 Comment — "undefined (healthy daemon where no explicit state was recorded)" Is Internally Contradictory
+
+**Location:** `src/skf-setup/steps-c/step-01b-ccc-index.md`, section 3, line 89
+
+The condition reads:
+
+```
+If {ccc_daemon} is "stopped" or undefined (healthy daemon where no explicit state was recorded)
+```
+
+`{ccc_daemon}` is set explicitly by step-01 with one of three values: `"healthy"`, `"stopped"`, or `"error"`. It is never undefined after step-01 runs. The parenthetical "(healthy daemon where no explicit state was recorded)" directly contradicts step-01's logic, which always records a state when `ccc` is true. If `ccc` is false, `ccc_daemon` is not set at all, but step-01b skips section 3 entirely in that case (the flow only reaches section 3 when `{needs_reindex}` is true, which only applies when `{ccc}` is true).
+
+The comment appears to describe a legacy path or a defensive fallback. If the intent is to also proceed with indexing when the daemon state is `"healthy"` (the daemon is available, so indexing can start), then the condition should include `"healthy"` explicitly rather than the opaque "undefined" case.
+
+**Fix:** Revise the condition to: `If {ccc_daemon} is "stopped", "healthy", or "error"` — or, since step-01b section 3 is only reached via the `{needs_reindex}` flag, simplify by removing the daemon condition header entirely and handling the `"error"` state with a single note: "Proceed in all daemon states; errors will be caught by the failure path below."
+
+---
+
+## MEDIUM Issues
+
+### M-1: step-03 Forge+ Skip Comment References QMD Not Being Available, But the Check Is Actually Tier-Based
+
+**Location:** `src/skf-setup/steps-c/step-03-auto-index.md`, section 1, paragraph 2 of Rules
+
+The Rules block states: "For Quick and Forge tiers (without ccc), skip silently and proceed. For Forge+ tier, skip QMD hygiene but the step routes correctly to the next step."
+
+The parenthetical "(without ccc)" is incorrect. Quick and Forge tiers skip QMD hygiene because QMD is not available at those tiers — not because ccc is absent. The ccc availability is orthogonal to the QMD skip decision. Forge+ also lacks QMD (it requires only ast-grep + ccc), so the skip logic is tier-based, but the comment misleads by attributing the Quick/Forge skip to ccc absence.
+
+Also, the Forge+ comment "skip QMD hygiene but the step routes correctly to the next step" is worded oddly — the step routes to section 5b (CCC Index Registry Hygiene), not directly to Auto-Proceed. This is a minor framing issue but could confuse a reader expecting a direct skip.
+
+---
+
+### M-2: step-04 `--update-spec` Implementation Is Underdefined for Production Use
+
+**Location:** `src/skf-setup/steps-c/step-04-report.md`, section 3 (lines 86–95)
+
+The `--update-spec` section says "Use `gh` or `curl` to retrieve the spec" without specifying the URL to fetch from, the expected format, or what `agentskills-spec.json` should contain. The destination is `{forge_data_folder}/agentskills-spec.json` but the actual agentskills.io spec endpoint is not named. An LLM executing this step would have no verifiable target URL and would be forced to hallucinate or improvise the fetch location.
+
+For a v1.0.0 release, if `--update-spec` is shipped as a documented feature, the URL must be explicit. If this is a placeholder for a future feature, the section should be marked `(reserved — not yet implemented)` to prevent agents from attempting a fabricated fetch.
+
+---
+
+### M-3: step-02 On Activation Resolves `project_name` but Module.yaml and skf-forger/SKILL.md Don't List It as a Module Variable
+
+**Location:** `src/skf-setup/SKILL.md` line 49; `src/module.yaml`
+
+`SKILL.md`'s On Activation block lists `project_name` as one of the variables to resolve from `config.yaml`. Looking at `module.yaml`, `project_name` is not defined as a module-level variable — the module defines `skills_output_folder`, `forge_data_folder`, `sidecar_path`, and `health_check_repo`, with a comment noting that `user_name`, `communication_language`, `document_output_language`, and `output_folder` come from Core Config. `project_name` is not listed in either place.
+
+This is not necessarily a bug — `project_name` may come from the core BMAD config — but since it appears in On Activation's resolution list without any documentation of where it comes from, it is a potential source of confusion or a missing initialization path.
+
+---
+
+### M-4: step-01b Section 2b — CCC Exclusions Applied Before `ccc init` May Write a `settings.yml` That Gets Overwritten
+
+**Location:** `src/skf-setup/steps-c/step-01b-ccc-index.md`, sections 2b and 3
+
+The flow in section 2b says: if `{settings_yml_existed}` is true, apply exclusions now. Then in section 3, it says: if `{settings_yml_existed}` is false (first-time setup), apply exclusions after `ccc init` creates the file.
+
+The issue: section 2b checks for the file before `ccc init` runs. But if the file exists from a previous run and the user then runs `ccc init` again (in section 3), could `ccc init` overwrite `settings.yml` with defaults, discarding the exclusions just applied in section 2b? The step says "If init fails (project may already be initialized): continue — this is not an error," which implies a re-init scenario. If `ccc init` on a project that already has a CCC config does not overwrite `settings.yml`, this is fine. If it does, exclusions applied in section 2b are silently lost.
+
+This requires verification against ccc's actual behavior. The step should add a note clarifying whether `ccc init` on an already-initialized project preserves `settings.yml`.
+
+---
+
+### M-5: SKILL.md Headless Resolution Order Differs Slightly from skf-forger/SKILL.md
+
+**Location:** `src/skf-setup/SKILL.md` line 52; `src/skf-forger/SKILL.md` line 68
+
+`skf-setup/SKILL.md` says headless is true if `--headless` or `-H` was passed, OR if `headless_mode: true` in preferences.yaml. But at the point SKILL.md runs On Activation step 2, preferences.yaml may not yet exist (first run). Step-02 creates preferences.yaml, which comes after step-01 which runs after On Activation. On a first run, checking `preferences.yaml` for `headless_mode` will return nothing — this is silently fine since the default is false, but the activation steps don't mention the "file may not exist" case explicitly.
+
+`skf-forger/SKILL.md` always loads preferences.yaml as a Critical Action (before dispatching to skf-setup), so for normal usage through Ferris the file would already exist. But if skf-setup is invoked directly, the activation path could try to read a non-existent preferences.yaml. The steps handle this correctly in practice (step-01 explicitly handles "not found → set to null"), but SKILL.md's On Activation description implies preferences.yaml is always readable, which is only true on re-runs.
+
+---
+
+## LOW Issues
+
+### L-1: step-02 Write Config Completion Note Says "execute the auto-index step" — Stale Label
+
+**Location:** `src/skf-setup/steps-c/step-02-write-config.md`, line 122
+
+"ONLY WHEN forge-tier.yaml has been written successfully ... will you load and read fully `{nextStepFile}` to execute the auto-index step."
+
+As noted in H-2, step-03 is QMD Collection Hygiene, not auto-indexing. This completion note preserves the old name. Low impact since it doesn't affect execution, but it will cause confusion for anyone reading the completion notes as documentation.
+
+---
+
+### L-2: step-04 Report Format Template — CCC Index Display Block Uses `{if tools.ccc is true}` But the Variable Spelling Varies
+
+**Location:** `src/skf-setup/steps-c/step-04-report.md`, line 59; `src/skf-setup/steps-c/step-03-auto-index.md`, line 106
+
+Step-04 report template uses `{if tools.ccc is true}` (without underscore in `tools.ccc`). Step-03 section 5b uses `IF tools.ccc is true in forge-tier.yaml`. These match. But step-02's YAML template writes the key as `ccc:` under `tools:`, and the forge-tier.yaml template uses `ccc:` as well. The context variable across step instructions uses `{ccc}` (from step-01) but the YAML key is `tools.ccc`. This is consistent within the overall schema but the context variable vs YAML key naming is easy to confuse: `{ccc}` (boolean context variable from step-01) versus `tools.ccc` (YAML path in forge-tier.yaml) are two different things used in different scopes.
+
+This is documentation clarity, not a bug. Adding a short note in step-02 that "`{ccc}` from step-01 context maps to `tools.ccc` in forge-tier.yaml" would reduce confusion.
+
+---
+
+### L-3: `templates/` and `assets/` Directories Do Not Exist — SKILL.md Description References Neither
+
+**Location:** Glob result; `src/skf-setup/`
+
+The skf-setup skill has no `templates/` or `assets/` subdirectory — only `steps-c/` and `references/`. This is not a problem since SKILL.md does not reference either. Noting it only to confirm the review scope is complete: there are no missing assets referenced from SKILL.md.
+
+---
+
+### L-4: step-04 — "agentskills.io spec" Terminology Is Slightly Ambiguous
+
+**Location:** `src/skf-setup/steps-c/step-04-report.md`, section 3
+
+The stored file is named `agentskills-spec.json`, but the `src/knowledge/agentskills-spec.md` knowledge fragment defines the spec as a YAML frontmatter schema, not a JSON object. The `--update-spec` feature stores to `.json` but the spec documented in the knowledge base is `yaml`-adjacent. This is not a blocking issue but the format choice should be deliberate and documented.
+
+---
+
+## Summary Table
+
+| ID | Severity | Location | Description |
+|---|---|---|---|
+| C-1 | CRITICAL | step-01 §8 | Forge+ rule's "regardless of gh/qmd" wording creates ambiguity that could allow Forge+ to win over Deep if evaluation order breaks |
+| C-2 | CRITICAL | step-04 frontmatter | `shared/health-check.md` path is ambiguous relative to `steps-c/`; resolution depends on undocumented convention |
+| H-1 | HIGH | SKILL.md Invocation Contract | Contract claims "Gates: none" but step-03 has a user-facing orphan removal prompt |
+| H-2 | HIGH | SKILL.md Stages table + step-03 | Step 3 named "Auto Index" in SKILL.md but file title is "QMD Collection Hygiene"; filename is also stale |
+| H-3 | HIGH | `src/forger/forge-tier.yaml` | Template missing `file_count` and `exclude_patterns` fields that setup writes |
+| H-4 | HIGH | step-01b §3 | `"or undefined (healthy daemon...)"` comment is internally contradictory with step-01's always-set logic |
+| M-1 | MEDIUM | step-03 Rules | "(without ccc)" parenthetical incorrectly explains the Quick/Forge skip — ccc is irrelevant to the QMD skip decision |
+| M-2 | MEDIUM | step-04 §3 | `--update-spec` has no URL target — would require an LLM to hallucinate a fetch endpoint |
+| M-3 | MEDIUM | SKILL.md On Activation | `project_name` listed as a resolved variable but not present in `module.yaml` or core variable list |
+| M-4 | MEDIUM | step-01b §2b/§3 | Unclear if `ccc init` on re-run preserves `settings.yml`; exclusions applied in §2b could be overwritten |
+| M-5 | MEDIUM | SKILL.md On Activation §2 | preferences.yaml may not exist on first run when headless check runs; not explicitly handled |
+| L-1 | LOW | step-02 completion note | Says "execute the auto-index step" — stale label, should say "QMD hygiene step" |
+| L-2 | LOW | step-04 report template | `{ccc}` context variable vs `tools.ccc` YAML key distinction undocumented; minor confusion risk |
+| L-3 | LOW | Directory audit | No templates/ or assets/ dirs exist — confirmed expected, no missing files |
+| L-4 | LOW | step-04 §3 | `agentskills-spec.json` extension inconsistent with the YAML-adjacent spec format in knowledge base |
+
+---
+
+## Key Files for This Feature
+
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-setup/SKILL.md` — Entry point, On Activation, Stages table, Invocation Contract
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-setup/steps-c/step-01-detect-and-tier.md` — Tool detection and tier calculation (contains C-1)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-setup/steps-c/step-01b-ccc-index.md` — CCC index lifecycle (contains H-4, M-4)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-setup/steps-c/step-02-write-config.md` — Config file writes, preserves arrays across re-runs (contains L-1)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-setup/steps-c/step-03-auto-index.md` — QMD hygiene and CCC registry hygiene (contains H-1, H-2, M-1)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-setup/steps-c/step-04-report.md` — Status report, chains to shared health check (contains C-2, M-2, L-4)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-setup/references/tier-rules.md` — Canonical tier calculation and capability descriptions
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/forger/forge-tier.yaml` — Canonical sidecar template (contains H-3)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/module.yaml` — Module variable definitions (relevant to M-3)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/progressive-capability.md` — Authoritative tier definitions and graceful degradation rules
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/ccc-bridge.md` — CCC indexing lifecycle, exclusion patterns, stale/fresh semantics
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/shared/health-check.md` — Terminal step, referenced by step-04 (relevant to C-2)</result>
+<usage><total_tokens>64039</total_tokens><tool_uses>51</tool_uses><duration_ms>279636</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af89906b90ebe71ed</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/b14a73cd-50c9-47ac-abfd-c13933046912/tasks/af89906b90ebe71ed.output</output-file>
+<status>completed</status>
+<summary>Agent "Deep review skf-create-skill workflow" completed</summary>
+<result>Now I have everything I need. Let me compile the complete findings report.
+
+---
+
+## v1.0.0 Deep Review: skf-create-skill Workflow
+
+### Summary Statistics
+
+Files reviewed: SKILL.md + 8 step files + 4 references + 2 assets = 15 files total
+Issues found: 3 CRITICAL, 6 HIGH, 8 MEDIUM, 5 LOW
+
+---
+
+### CRITICAL
+
+**CRITICAL-1: `target_version` field not documented in step-01's brief validation**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-01-load-brief.md`, section 3 "Validate Brief Structure"
+
+The Optional fields list in step-01 does not include `target_version`, even though `source-resolution-protocols.md` (which step-03 loads) makes decisions entirely conditional on `brief.target_version`. The whole Tag Resolution section in `source-resolution-protocols.md` is predicated on `brief.target_version` being present, but a model following step-01 will never know to preserve it — and will not validate it or set it in context.
+
+The `skill-brief-schema.md` in `skf-brief-skill/` does document `target_version`, so briefs generated by BS will contain it. However, step-01 must also explicitly read and propagate `target_version` to context because step-03 needs it when calling `source-resolution-protocols.md`. Without step-01 explicitly noting this field, a model executing step-01 has no signal to extract it.
+
+Impact: The tag resolution protocol (targeting a specific version via git tag) silently fails — the model never passes `target_version` forward, so all compilations fall through to the default branch regardless of user intent.
+
+**CRITICAL-2: `scope` field schema mismatch between step-01 and the rest of the pipeline**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-01-load-brief.md`, section 3
+
+Step-01 defines `scope` as a plain string field ("what to extract (e.g., 'all public exports', specific modules)"). But every downstream consumer — step-03 section 2b (`scope.type: "component-library"`), `extraction-patterns.md` (`scope.type: "full-library"`, `scope.exclude`), step-03d (`scope.demo_patterns`, `scope.registry_path`, `scope.ui_variants`), and the CLI streaming template (`scope.exclude`) — treats `scope` as an object with sub-fields `type`, `include`, `exclude`, `notes`, `demo_patterns`, `registry_path`, `ui_variants`.
+
+The `skill-brief-schema.md` in `skf-brief-skill/` defines the correct object structure, and briefs produced by BS will have it. But step-01's validation section describes `scope` as a string, meaning a model validating a brief against step-01's spec will fail to recognise the object structure as valid, or worse, will create an artificial mismatch that aborts validation for legitimate briefs.
+
+Impact: Component library compilation path (step-03d) is never reachable if the model parses scope as a string during step-01. The `scope.exclude` injection into the CLI streaming template also silently fails.
+
+**CRITICAL-3: `create-skill-result.json` written to wrong path**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-08-report.md`, line 118 (Result Contract section)
+
+Step-08 instructs writing `{skill_package}/create-skill-result.json`. But per `shared/references/output-contract-schema.md`, the schema says to write to `{output_dir}/{skill-name}-result.json`. The `{skill_package}` path resolves to `{skills_output_folder}/{name}/{version}/{name}/` — this places the result JSON inside the agentskills.io-compliant skill package directory, which the spec (skill-sections.md) defines as containing only SKILL.md, context-snippet.md, metadata.json, references/, scripts/, assets/. This contaminates the deliverable package with a build artifact that should not be distributed. The result JSON is also never listed in the "Write Deliverables" section of step-07, creating a gap between what step-07 verifies and what step-08 produces.
+
+---
+
+### HIGH
+
+**HIGH-1: Docs-only mode skips Gate 2 without confirming the empty inventory**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-03-extract.md`, section 3 and section 6/7
+
+Section 3 says docs-only mode "auto-proceeds through Gate 2 (section 6)". But section 6's confirmation display includes "Exports found: 0" — showing zero to the user and then skipping their confirmation is different from showing nothing at all. The actual behavior is ambiguous: does the model display the zero-export summary then skip the menu, or display nothing? Section 6's display template always shows export counts, which would alarm a user who sees "0 functions, 0 types, 0 constants" with no explanation. Section 3 correctly notes "T3 content will be produced by the doc-fetcher step" — but that note is only in context, not surfaced in the Gate 2 display that auto-proceeds. A user in non-headless mode who happens to be watching will see "0 exports" without any confirmation option and without understanding that docs-only is intentional.
+
+**HIGH-2: Component library delegation (section 2b) occurs before docs-only check (section 3)**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-03-extract.md`, sections 2b and 3
+
+The section ordering places component-library delegation (2b) before the docs-only check (3). A brief with both `scope.type: "component-library"` AND `source_type: "docs-only"` would attempt to delegate to step-03d before recognizing it's a docs-only skill. Step-03d has no awareness of docs-only mode — it tries to locate a registry, extract props interfaces, etc., all of which would fail or produce incorrect results. The correct order is: check docs-only first, then check component-library. The current order can produce confusing failures for a valid edge case.
+
+**HIGH-3: Sections 2a (source resolution) and 2b (component library delegation) happen in wrong order**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-03-extract.md`, sections 2a and 2b
+
+Section 2a (Resolve Source Access, including the workspace/ephemeral clone) runs after section 2 (Apply Scope Filters). Section 2b (Component Library Delegation) runs after 2a. But `{componentExtractionStepFile}` (step-03d) contains Phase 1 (demo detection using the filtered file list) and Phase 2 (registry detection), which both require that the source is already locally accessible. The frontmatter declares `componentExtractionStepFile: './step-03d-component-extraction.md'` and section 2b loads it — so source must already be available. Section 2a does happen before 2b, which is correct. However, for a remote source the workspace/ephemeral clone happens in section 2a, which means the file list built in section 2 (before 2a) was built from the remote API tree — not from the local checkout. Step-03d Phase 1 scans "the filtered file list" for demo directories, but this list was built from the remote tree listing, not from local files. This will cause demo auto-detection to fail silently for remote component libraries, because the filtered file list has API-tree paths but step-03d tries to scan them locally.
+
+**HIGH-4: `source-resolution-protocols.md` Remote Source Resolution section is titled "Forge/Deep only" but step-03 loads it for all tiers**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/references/source-resolution-protocols.md`, line 36
+
+The header says "Remote Source Resolution (Forge/Deep only)". But step-03 section 2a instructs loading the full file and following the protocol "for Forge/Deep tiers (workspace or ephemeral clone, cleanup)". For Quick tier with a remote source, the Quick tier extraction path uses `gh_bridge.read_file` to read files via the API without cloning. This means the protocol file contains a "Forge/Deep only" section header but no corresponding "Quick tier" section for remote source handling. A model reading the protocol for a Quick-tier run with a remote source either applies the wrong protocol (trying to clone) or is confused by the mismatch. The Quick-tier path is described in step-03 section 4 inline, not in the source-resolution protocols doc, creating a split.
+
+**HIGH-5: Step-08 batch loop references step-01 directly rather than via nextStepFile**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-08-report.md`, section 5 and Result Contract section
+
+In batch mode, step-08 says "loop back to step-01 for the next brief" and updates batch-state.yaml. But the batch loop bypasses the shared health check (`nextStepFile: 'shared/health-check.md'`) — the step correctly says "health check runs only after the last brief," so that's intentional. However, step-08 never specifies the file path to load for the loop-back. It says "loop back to step-01" but the step-01 file is `./step-01-load-brief.md`. An AI model executing this step doesn't have an explicit instruction to load `steps-c/step-01-load-brief.md` — it's told to "loop back to step-01" by description, not by file path. This is inconsistent with the rest of the workflow where every transition uses `{nextStepFile}` or an explicit path. A hallucination-prone model may attempt to re-load step-01 by guessing the filename rather than being given it explicitly.
+
+**HIGH-6: `project_name` resolved in SKILL.md On Activation but never used in any step**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/SKILL.md`, line 56
+
+SKILL.md's "On Activation" section resolves `project_name` from config, alongside the other config variables. But no step file references `{project_name}` — it is resolved but never consumed. If `project_name` is needed for reports or identifiers it must be explicitly used somewhere. If it is not needed, resolving it adds a spurious load that can mislead maintainers into thinking it's used downstream.
+
+---
+
+### MEDIUM
+
+**MEDIUM-1: Step-03 section numbering creates a confusing jump from "2b" to "3"**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-03-extract.md`
+
+Sections are numbered: 1, 2, 2a, 2b, 3, 4, 4b, 4c, 5, 6, 7. This produces a mandatory sequence that says "step-03 section 2" which is "Apply Scope Filters" — but the return-from-delegation note in step-03d says "Return control to step-03 section 5 (Build Extraction Inventory)". A model needs to count correctly through 2/2a/2b/3/4/4b/4c to reach 5. The numeric gaps don't constitute a bug per se, but the "2b" numbering for the component-library delegation causes step-03d's "return to section 5" instruction to require the model to know sections 3 and 4 exist and should be skipped. The return protocol in step-03d should explicitly say "skip sections 3 and 4 — return to section 5" to prevent the model from re-entering the docs-only check or the tier-dependent extraction on the way back.
+
+**MEDIUM-2: Evidence report template in skill-sections.md is incomplete compared to what step-06 writes**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/assets/skill-sections.md`, lines 329-352
+
+The evidence-report.md template in `skill-sections.md` ends at "Warnings." Step-05 instructs inserting placeholder text `[PENDING — populated by step-06]` for validation sections. Step-06 instructs adding a full "Validation Results" block with six sub-sections (Schema, Frontmatter, Body, Security, Content Quality, Metadata) plus "Quality Score Breakdown," "Auto-Fixed Issues," and "Remaining Warnings." None of these sections appear in the template in `skill-sections.md`. A model assembling the evidence report in step-05 is told to "See `{skillSectionsData}` for full template" but the template is incomplete — it doesn't include the placeholder markers that step-06 expects to find and replace.
+
+**MEDIUM-3: `_bmad-output/` staging directory for temporal/docs fetching is never documented as a prerequisite**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-03b-fetch-temporal.md`, section 3; `step-03c-fetch-docs.md`, section 5b
+
+Both steps write to `{project-root}/_bmad-output/{skill-name}-temporal/` and `{project-root}/_bmad-output/{skill-name}-docs/`. But this staging directory is never mentioned in SKILL.md's On Activation, step-01, or any prerequisite. Its relationship to `{output_folder}` is unclear — `{output_folder}` is resolved from config but `_bmad-output/` is hardcoded. If a project has `output_folder` set to something other than `_bmad-output`, the staging writes go to a hardcoded path while final artifacts go to the configured path. This should either be a resolved config variable or documented as intentionally separate.
+
+**MEDIUM-4: `ccc search --refresh` flag documented but not verified to exist in the ccc CLI**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-03-extract.md`, lines 54 and 73
+
+Step-03 describes using `ccc search --refresh` when an existing workspace index is found. This `--refresh` flag is not documented anywhere else in the codebase — not in `knowledge/tool-resolution.md`, not in `knowledge/ccc-bridge.md` reference. The `ccc` CLI documentation is not included in the repo. If `--refresh` is not a real ccc CLI flag, every workspace re-forge will produce a "unrecognized option" error and fall back to treating the index as missing. This needs confirmation against the actual ccc CLI documentation.
+
+**MEDIUM-5: Step-06 security scan section references Snyk Agent Scan but provides a wrong link**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-06-validate.md`, line 97
+
+The parenthetical says "The scan uses [Snyk Agent Scan](https://github.com/snyk/agent-scan)". The `snyk/agent-scan` GitHub repo does not correspond to a standard Snyk security scan of SKILL.md content. The description says it "check for prompt injection risks, sensitive data exposure, and unsafe tool permissions" — this is either a future integration that doesn't exist yet, or mislabeled (the actual tool is `skill-check`'s built-in security checker, not Snyk). The link creates a hallucination risk: a model or user following it will find a repo that doesn't match the described functionality.
+
+**MEDIUM-6: Step-01 initializes `source_root` for remote repos as "to be set during extraction" — but step-02b checks it immediately**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-01-load-brief.md`, line 86; `step-02b-ccc-discover.md`, section 1
+
+Step-01 says for remote repos: "`source_root` for remote repos is set to the workspace or ephemeral clone path during extraction (step-03)." Step-02b then checks: "If `source_root` is a remote URL (GitHub repository — workspace clone or ephemeral clone happens in step-03)." But if `source_root` is not set by step-01 at all for remote repos, what value does step-02b check? The guard reads like `source_root` contains the remote URL string — implying step-01 does set it to the URL, and step-02b uses it to detect "remote URL" vs "local path." But step-01 says `source_root` is *not yet set* (it's set during step-03). This is a documentation inconsistency about what value `source_root` holds between step-01 and step-03.
+
+**MEDIUM-7: `extraction-rules.yaml` is listed as a step-07 output but step-05 assembly rules don't mention building it**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-07-generate-artifacts.md`, section 3 (File 7); `step-05-compile.md`, section 2
+
+Step-07 writes `extraction-rules.yaml` to `{forge_version}`. Step-05's CRITICAL STEP COMPLETION NOTE says "ONLY WHEN all 6 content artifacts (SKILL.md, context-snippet.md, metadata.json, references/, provenance-map.json, evidence-report.md) are assembled." Note `extraction-rules.yaml` is explicitly excluded from the step-05 list with "extraction-rules.yaml is generated by step-07 from extraction data, not assembled here." But step-07 section 3 says "Write these 3 files from the compiled content" — implying it was assembled in step-05. Who actually builds `extraction-rules.yaml`? Step-05 disclaims it, step-07 claims it comes from "compiled content." The build responsibility is not assigned to any step clearly.
+
+**MEDIUM-8: Step-03c does not have a handling path when `doc_urls` are present but `source_type` is `"source"` AND all T1 extraction failed**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-03c-fetch-docs.md`, section 5
+
+The conflict rule says "T3 items NEVER override existing T1, T1-low, or T2 items for the same export." This is correct. But there is no protocol for the case where T1 extraction produced zero exports (e.g., a repo where all exports are behind macros that ast-grep can't parse, or a compiled-only package), and `doc_urls` are present in supplemental mode (`source_type: "source"`). In this case, T3 items could fill the gap entirely — but the "supplemental mode" framing implies the inventory already has data. The step doesn't address whether T3 items should be used as the primary source when T1 produces zero results in supplemental (non-docs-only) mode.
+
+---
+
+### LOW
+
+**LOW-1: `spec_version: "1.3"` is hardcoded in step-06 and skill-sections.md with no upgrade path**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-06-validate.md`, line 153; `assets/skill-sections.md`, line 201
+
+The spec version "1.3" is hardcoded in two places. If the spec bumps to 1.4, both files need manual updates. There's no mechanism (like reading the spec version from a config or the skill-check output) to keep this in sync. Not blocking for v1.0.0 but creates drift risk.
+
+**LOW-2: Step-03b section 2 cache check reads `forge-tier.yaml` but the file may not yet have `qmd_collections`**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-03b-fetch-temporal.md`, section 2
+
+The `forge-tier.yaml` template (at `/home/armel/Projects/OSS/bmad-module-skill-forge/src/forger/forge-tier.yaml`) does not include a `qmd_collections` key — it only has `qmd_collections: []` at the bottom. A first-run forge will have an empty array, but if the forge-tier.yaml was written before the `qmd_collections` array was added to the template (i.e., for users who installed before that field was added), the key will be absent entirely. Step-03b should be explicit that a missing `qmd_collections` key is treated as an empty array, not an error.
+
+**LOW-3: `qmd embed` is required but never mentioned in step-03b eligibility checks or fallback paths**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-03b-fetch-temporal.md`, section 4; `step-03c-fetch-docs.md`, section 5b
+
+Both steps document `qmd embed` as required for vector search. But the step-01 tier check (which loads forge-tier.yaml) does not verify whether `qmd embed` specifically has ever been run. If QMD is available but `qmd embed` has never been run (e.g., the user installed QMD but never indexed anything), step-04 will silently fail on `vector_search` calls. The failure mode is already handled gracefully (falls back to BM25), but the root cause is never surfaced to the user during setup. This is a setup concern more than a create-skill concern, but the create-skill workflow would benefit from noting "if vector_search fails, run `qmd embed`" in the step-04 failure path.
+
+**LOW-4: `source_authority` default inconsistency between step-01 and skill-sections.md**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-01-load-brief.md`, line 67
+
+Step-01 says `source_authority` defaults to `community`. `skill-sections.md` lists it as `"{official|community|internal}"` with no default shown. `skill-brief-schema.md` says `Default: community`. The defaults are consistent across all three, but the level of documentation varies. Not a bug, but the inconsistency in how prominently the default is stated could cause confusion.
+
+**LOW-5: `Snyk Enterprise` requirement for security scan is not mentioned in step-01 or the forge tier check**
+
+`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-06-validate.md`, lines 100-104
+
+Step-06 says if SNYK_TOKEN is missing, display a message about Snyk Enterprise API tokens. But no tier or setup check warns the user about this requirement before they reach step-06. A user reaching validation after a full Deep-tier compilation will discover the security scan requires Snyk Enterprise at the last step. Since security scan is advisory and does not block compilation, the impact is low — but a user who set up Snyk expecting it to work will be surprised this late.
+
+---
+
+### Issue-Specific Cross-Reference Verification
+
+All file references within step frontmatter and inline text were verified:
+
+- `steps-c/step-01-load-brief.md` → nextStepFile `./step-02-ecosystem-check.md`: EXISTS
+- `steps-c/step-02-ecosystem-check.md` → nextStepFile `./step-02b-ccc-discover.md`: EXISTS
+- `steps-c/step-02b-ccc-discover.md` → nextStepFile `./step-03-extract.md`: EXISTS
+- `steps-c/step-03-extract.md` → nextStepFile `./step-03b-fetch-temporal.md`: EXISTS
+- `steps-c/step-03-extract.md` → componentExtractionStepFile `./step-03d-component-extraction.md`: EXISTS
+- `steps-c/step-03-extract.md` → extractionPatternsData `references/extraction-patterns.md`: EXISTS
+- `steps-c/step-03-extract.md` → extractionPatternsTracingData `references/extraction-patterns-tracing.md`: EXISTS
+- `steps-c/step-03-extract.md` → tierDegradationRulesData `references/tier-degradation-rules.md`: EXISTS
+- `steps-c/step-03-extract.md` → sourceResolutionData `references/source-resolution-protocols.md`: EXISTS
+- `steps-c/step-03b-fetch-temporal.md` → nextStepFile `./step-03c-fetch-docs.md`: EXISTS
+- `steps-c/step-03c-fetch-docs.md` → nextStepFile `./step-04-enrich.md`: EXISTS
+- `steps-c/step-03d-component-extraction.md` → returnToStep `./step-03-extract.md`: EXISTS
+- `steps-c/step-03d-component-extraction.md` → extractionPatternsData `references/extraction-patterns.md`: EXISTS
+- `steps-c/step-04-enrich.md` → nextStepFile `./step-05-compile.md`: EXISTS
+- `steps-c/step-05-compile.md` → nextStepFile `./step-06-validate.md`: EXISTS
+- `steps-c/step-05-compile.md` → skillSectionsData `assets/skill-sections.md`: EXISTS
+- `steps-c/step-05-compile.md` → assemblyRulesData `assets/compile-assembly-rules.md`: EXISTS
+- `steps-c/step-06-validate.md` → nextStepFile `./step-07-generate-artifacts.md`: EXISTS
+- `steps-c/step-07-generate-artifacts.md` → nextStepFile `./step-08-report.md`: EXISTS
+- `steps-c/step-07-generate-artifacts.md` → forgeTierConfig `{sidecar_path}/forge-tier.yaml`: EXISTS (template at `src/forger/forge-tier.yaml`)
+- `steps-c/step-08-report.md` → nextStepFile `shared/health-check.md`: EXISTS at `src/shared/health-check.md`
+- `steps-c/step-08-report.md` → `shared/references/output-contract-schema.md`: EXISTS at `src/shared/references/output-contract-schema.md`
+- All inline `knowledge/tool-resolution.md` references: EXISTS at `src/knowledge/tool-resolution.md`
+- `knowledge/version-paths.md` (referenced in step-07): EXISTS at `src/knowledge/version-paths.md`
+
+No broken file references found. All cross-references resolve.
+
+---
+
+### Outdated Terminology Audit (ephemeral-only / persistent workspace)
+
+No instances of "ephemeral-only" or outdated ephemeral-only framing were found in the create-skill workflow files. The terminology correctly uses "workspace or ephemeral clone" throughout, with workspace as preferred and ephemeral as fallback. The recent fix (commit `eeb0f07`) appears to have been applied correctly. Step-01 line 86 correctly says "workspace or ephemeral clone path during extraction (step-03)." Step-02b line 35 correctly says "workspace clone or ephemeral clone happens in step-03."
+
+---
+
+### Hallucination Risk Summary
+
+The workflow's zero-hallucination design is structurally sound. The main hallucination risks identified are:
+
+1. The `ccc search --refresh` flag (MEDIUM-4) — potentially fabricated CLI flag with no verification in the repo
+2. The Snyk Agent Scan link (MEDIUM-5) — the linked repo does not appear to match the described functionality
+3. The `extraction-rules.yaml` ownership gap (MEDIUM-7) — a model may fabricate the content of this file since no step explicitly builds it
+
+---
+
+### Essential Files for Understanding This Workflow
+
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/SKILL.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-01-load-brief.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-03-extract.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-03d-component-extraction.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-05-compile.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-06-validate.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-07-generate-artifacts.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-08-report.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/references/extraction-patterns.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/references/source-resolution-protocols.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/references/tier-degradation-rules.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/assets/skill-sections.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/assets/compile-assembly-rules.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-brief-skill/assets/skill-brief-schema.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/tool-resolution.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/knowledge/version-paths.md`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/shared/references/output-contract-schema.md`</result>
+<usage><total_tokens>98592</total_tokens><tool_uses>58</tool_uses><duration_ms>296061</duration_ms></usage>
+</task-notification>
+
+---
+
+FIX THEM ALL. I REPEAT, FIX THEM ALL. ORGANIZE THE FIXES ON MULTIPLE SMART COMMITS
+
+---
+
+<task-notification>
+<task-id>af5524a4909a61fe6</task-id>
+<tool-use-id>toolu_013RdUcCXACH6sjXmHorcXYg</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/b14a73cd-50c9-47ac-abfd-c13933046912/tasks/af5524a4909a61fe6.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix skf-setup workflow issues" completed</summary>
+<result>All 10 edits applied successfully. Here is a summary of every change:
+
+**C8** -- `src/skf-setup/steps-c/step-01-detect-and-tier.md` line 89: Forge+ tier rule now explicitly guards against Deep overlap: `{ast_grep} AND {ccc} both true, but NOT ({gh_cli} AND {qmd})`.
+
+**C9** -- `src/shared/health-check.md`: Added a path convention note after the title explaining that `shared/` paths resolve relative to the SKF module root, not relative to the calling step file.
+
+**H14** -- `src/skf-setup/SKILL.md` Invocation Contract table: Gates changed from `(none)` to `One optional: orphaned QMD collection removal (step 3, Deep tier only; default: Keep)`.
+
+**H15** -- `src/skf-setup/SKILL.md` Stages table: Step 3 renamed from "Auto Index" to "QMD Hygiene".
+
+**H16** -- `src/forger/forge-tier.yaml`: Added `file_count: ~` and `exclude_patterns: []` fields under `ccc_index:`.
+
+**H17** -- `src/skf-setup/steps-c/step-01b-ccc-index.md` line 89: Changed contradictory condition from `"stopped" or undefined (healthy daemon where no explicit state was recorded)` to `"stopped" or "healthy"`.
+
+**M16** -- `src/skf-setup/steps-c/step-03-auto-index.md`: Replaced `(without ccc)` with accurate explanation `(QMD is not available at those tiers)`.
+
+**M17** -- `src/skf-setup/steps-c/step-04-report.md` section 3: Marked `--update-spec` as reserved/not yet implemented with a user-facing message explaining the feature is pending a spec endpoint.
+
+**M18** -- `src/skf-setup/SKILL.md` On Activation section: Added parenthetical note that `project_name` comes from the installer-generated config.yaml, not module.yaml.
+
+**L1** -- `src/skf-setup/steps-c/step-02-write-config.md`: Changed "execute the auto-index step" to "execute the QMD hygiene step" in the completion note.</result>
+<usage><total_tokens>26113</total_tokens><tool_uses>18</tool_uses><duration_ms>55450</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ad237f0b535cb5edb</task-id>
+<tool-use-id>toolu_01R5fW2s9XXpvuipwvqX8X4E</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/b14a73cd-50c9-47ac-abfd-c13933046912/tasks/ad237f0b535cb5edb.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix skf-test-skill workflow issues" completed</summary>
+<result>All edits are complete. Here is a summary of every change made:
+
+**C7 -- source-access-protocol.md line 41:** Changed `step-01-init.md Section 0` to `step-03-coverage-check.md Section 0` since that is where docs-only mode detection actually lives.
+
+**H11 -- step-04-coherence-check.md frontmatter:** Added `scoringRulesFile: 'references/scoring-rules.md'` to the YAML frontmatter so the `{scoringRulesFile}` variable used in the prose (lines 108, 135) is properly declared.
+
+**H12 -- step-03-coverage-check.md Section 0:** Broadened the docs-only condition to trigger when ALL citations are `[EXT:...]` regardless of tier (removed the `confidence_tier: "Quick"` requirement). Added a separate note that Quick-tier weight redistribution applies as an additional step when the tier is also Quick. Also updated the scoring-rules.md heading from "(Quick tier, all [EXT:...] citations)" to "(all [EXT:...] citations, any tier)" for consistency.
+
+**H13 -- scoring-rules.md Naive Mode section:** Changed "Do not apply a second redistribution" to "Do not re-redistribute for coherence (already handled in this table). Quick-tier redistribution (zeroing Signature Accuracy and Type Coverage) still applies as an additional step."
+
+**M4 -- step-01-init.md:** Verified that line 71 already explains `{frontmatterScript}` resolution from SKF module root. No change needed.
+
+**M5 -- step-06-report.md:** Added `outputContractSchema: 'shared/references/output-contract-schema.md'` to frontmatter and updated the Section 4c prose to reference `{outputContractSchema}` instead of the hardcoded path.
+
+**M6 -- step-01-init.md:** Added `versionPathsKnowledge: 'knowledge/version-paths.md'` to frontmatter and updated both inline references (lines 39 and 44) to use `{versionPathsKnowledge}`.
+
+**M7 -- step-04-coherence-check.md Section 5b:** Added "If updating the shared logic, ensure both sections remain synchronized." to the duplicate logic note.
+
+**M8 -- step-06-report.md Section 4c:** Changed `test-skill-result.json` to `skf-test-skill-result.json` to align with the `{skill-name}-result.json` convention defined in `output-contract-schema.md`.</result>
+<usage><total_tokens>36080</total_tokens><tool_uses>20</tool_uses><duration_ms>121931</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a889982028657f546</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/b14a73cd-50c9-47ac-abfd-c13933046912/tasks/a889982028657f546.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix skf-create-skill workflow issues" completed</summary>
+<result>All edits applied successfully. Here is a summary of all 15 fixes made:
+
+**Files edited and changes made:**
+
+1. **`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-01-load-brief.md`** (C4, C5, M13)
+   - **C4**: Added `target_version` to the Optional fields list in section 3, and added it to the context propagation note in section 6 (auto-proceed)
+   - **C5**: Updated the `scope` field description from a simple string to accept either a string or an object with sub-fields (`type`, `include`, `exclude`, `notes`, `demo_patterns`, `registry_path`, `ui_variants`)
+   - **M13**: Clarified that for remote repos, `source_root` is initially set to the remote URL (for detection purposes) and updated to the local workspace/clone path during step-03
+
+2. **`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-03-extract.md`** (H5, H6, M11)
+   - **H5**: Added a docs-only note in section 6 (Gate 2 display) explaining that T3 content will be added by the doc-fetcher step, then auto-proceeds
+   - **H6**: Added a guard at the top of section 2b: "Skip this section if source_type is 'docs-only'"
+   - **M11**: Added fallback notes at both `ccc search --refresh` references (lines ~54 and ~73): "If `--refresh` is not supported by the installed ccc version, omit the flag"
+
+3. **`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-08-report.md`** (C6, H9)
+   - **C6**: Changed result JSON path from `{skill_package}/create-skill-result.json` to `{forge_version}/create-skill-result.json`
+   - **H9**: Changed all three "loop back to step-01" references to explicit file path: "load and execute `steps-c/step-01-load-brief.md` for the next brief"
+
+4. **`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-03d-component-extraction.md`** (H7)
+   - Added note in Phase 1 (demo detection) that for remote sources, scan the local workspace/clone path for demo directories, not the API-derived file list
+
+5. **`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/references/source-resolution-protocols.md`** (H8)
+   - Updated header from "Remote Source Resolution (Forge/Deep only)" to "Remote Source Resolution"
+   - Updated body from "AND tier is Forge or Deep" to "AND tier is Forge, Forge+, or Deep"
+   - Added note that Quick-tier remote sources use the `gh_bridge.read_file` path in step-03 section 4
+
+6. **`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-06-validate.md`** (M12)
+   - Replaced `[Snyk Agent Scan](https://github.com/snyk/agent-scan)` with `[Snyk](https://docs.snyk.io/)`
+
+7. **`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/SKILL.md`** (H10)
+   - Removed `project_name` from the On Activation variable resolution list (confirmed it is not used anywhere in the workflow)
+
+8. **`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/assets/skill-sections.md`** (M9)
+   - Expanded the evidence-report.md template to include: full Validation Results (Schema, Frontmatter, Body, Security, Content Quality, Metadata), Quality Score Breakdown, Auto-Fixed Issues, and Remaining Warnings sections
+
+9. **`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-07-generate-artifacts.md`** (M14)
+   - Added note under extraction-rules.yaml: "This file is generated here from extraction data collected during steps 3-4, not assembled in step-05"
+
+10. **`/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-skill/steps-c/step-03c-fetch-docs.md`** (M15)
+    - Added edge case note in section 5: when T1 extraction produced zero results and doc_urls are present in supplemental mode, T3 items should be used as the primary inventory</result>
+<usage><total_tokens>57069</total_tokens><tool_uses>36</tool_uses><duration_ms>178572</duration_ms></usage>
+</task-notification>
+
+---
+
+i need to plan some manual tests. Can you help me to write a file that contains all the scenarios I should validate before the release of the first major version?
+
+---
+
+Do you think https://github.com/CopilotKit/aimock, https://github.com/CopilotKit/aimock/releases (you can use deepwiki for deep insigh) could fill the gap of manual testing in some aspect?
+
+---
+
+yes
+
+---
+
+give me a full confluence documentation for this PoC
+
+---
+
+yes

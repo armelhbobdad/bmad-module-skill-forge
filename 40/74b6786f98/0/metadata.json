@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "4074b6786f98",
+  "session_id": "4c97a6be-984f-4988-a1c2-a6e3ef21ea90",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-10T12:39:06.074157332Z",
+  "branch": "testing",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/aimock-poc-confluence.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "a0276e14c487",
+  "token_usage": {
+    "input_tokens": 337,
+    "cache_creation_tokens": 646072,
+    "cache_read_tokens": 24253522,
+    "output_tokens": 84090,
+    "api_call_count": 147
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-10T12:39:04.29373178Z",
+    "agent_lines": 429,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 429,
+    "agent_percentage": 100
+  }
+}
