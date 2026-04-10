@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "818fa50e1a01",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/ISSUE_TEMPLATE/workflow-health-check.md",
+    "src/shared/health-check.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/81/8fa50e1a01/0/metadata.json",
+      "transcript": "/81/8fa50e1a01/0/full.jsonl",
+      "context": "/81/8fa50e1a01/0/context.md",
+      "content_hash": "/81/8fa50e1a01/0/content_hash.txt",
+      "prompt": "/81/8fa50e1a01/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 30,
+    "cache_creation_tokens": 16649,
+    "cache_read_tokens": 1315700,
+    "output_tokens": 13300,
+    "api_call_count": 10
+  }
+}

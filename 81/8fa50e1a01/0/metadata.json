@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "818fa50e1a01",
+  "session_id": "9320e827-f0a8-4e68-91dd-0e7ac72dc12a",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-10T18:44:42.887037046Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/ISSUE_TEMPLATE/workflow-health-check.md",
+    "src/shared/health-check.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "b0ec5d826c22",
+  "checkpoint_transcript_start": 292,
+  "transcript_lines_at_start": 292,
+  "token_usage": {
+    "input_tokens": 30,
+    "cache_creation_tokens": 16649,
+    "cache_read_tokens": 1315700,
+    "output_tokens": 13300,
+    "api_call_count": 10
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-10T18:44:42.456367483Z",
+    "agent_lines": 91,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 91,
+    "agent_percentage": 100
+  }
+}
