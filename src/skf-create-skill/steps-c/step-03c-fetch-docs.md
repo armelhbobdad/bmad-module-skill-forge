@@ -109,6 +109,8 @@ Parse the successfully fetched markdown for:
 
 **Conflict rule:** T3 items NEVER override existing T1, T1-low, or T2 items for the same export. When an export already has a higher-confidence entry, the T3 item is discarded. T3 has the lowest priority.
 
+**Edge case — T1-zero supplemental mode:** If T1 extraction produced zero results and `doc_urls` are present in supplemental mode, T3 items should be used as the primary inventory since no T1 data exists to conflict with.
+
 **Aggregate totals for reporting:**
 - URLs fetched successfully vs. total
 - URLs that failed

@@ -21,6 +21,8 @@ ccc_index:
   last_indexed: ~
   status: "none"
   staleness_threshold_hours: 24
+  file_count: ~
+  exclude_patterns: []
 
 # CCC index registry (tracks which source paths have been indexed for skill workflows)
 ccc_index_registry: []

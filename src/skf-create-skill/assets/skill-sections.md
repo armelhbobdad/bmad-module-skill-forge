@@ -344,9 +344,19 @@ Each reference file includes:
 - Confidence: T1={n}, T1-low={n}, T2={n}, T3={n}
 
 ## Validation Results
-- Schema: {pass/fail}
+- Schema: {pass/fail} (quality score: {score}/100)
 - Frontmatter: {pass/fail}
+- Body: {pass/fail} {split-body applied if applicable}
+- Security: {pass/warn/skipped}
+- Content Quality (tessl): {pass/warn/skipped} (score: {score}%)
+- Metadata: {pass/fail}
 
-## Warnings
+## Quality Score Breakdown
+- Frontmatter (30%): {score} | Description (30%): {score} | Body (20%): {score} | Links (10%): {score} | File (10%): {score}
+
+## Auto-Fixed Issues
+- {list of issues automatically corrected by --fix}
+
+## Remaining Warnings
 - {any warnings from extraction or validation}
 ```

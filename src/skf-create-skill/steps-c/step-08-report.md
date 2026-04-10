@@ -101,7 +101,7 @@ completed: [{list of completed skill names}]
 last_updated: {ISO timestamp}
 ```
 
-Then loop back to step-01 for the next brief. Step-01 detects an active batch via `batch-state.yaml` and loads the brief at `current_index`.
+Then load and execute `steps-c/step-01-load-brief.md` for the next brief. Step-01 detects an active batch via `batch-state.yaml` and loads the brief at `current_index`.
 
 **If all batch briefs complete:**
 
@@ -115,7 +115,7 @@ End workflow. No further steps.
 
 **If not batch mode (or all batch briefs complete):**
 
-Write `{skill_package}/create-skill-result.json` per `shared/references/output-contract-schema.md`. Include `SKILL.md`, `context-snippet.md`, and `metadata.json` paths in `outputs` and confidence distribution in `summary`.
+Write `{forge_version}/create-skill-result.json` per `shared/references/output-contract-schema.md`. Include `SKILL.md`, `context-snippet.md`, and `metadata.json` paths in `outputs` and confidence distribution in `summary`.
 
 ### 6. Workflow Health Check
 
@@ -123,11 +123,11 @@ Write `{skill_package}/create-skill-result.json` per `shared/references/output-c
 
 Load and execute `{nextStepFile}` for workflow self-improvement check.
 
-**If batch mode with remaining briefs:** Skip health check — loop back to step-01 for the next brief. Health check runs after the final brief in the batch.
+**If batch mode with remaining briefs:** Skip health check — load and execute `steps-c/step-01-load-brief.md` for the next brief. Health check runs after the final brief in the batch.
 
 ## CRITICAL STEP COMPLETION NOTE
 
 This step chains to the shared health check (unless batch mode loops back to step-01). After the health check completes, the create-skill workflow is fully done.
 
-For batch mode: loop back to step-01 for remaining briefs via sidecar checkpoint. Health check runs only after the last brief.
+For batch mode: load and execute `steps-c/step-01-load-brief.md` for remaining briefs via sidecar checkpoint. Health check runs only after the last brief.
 

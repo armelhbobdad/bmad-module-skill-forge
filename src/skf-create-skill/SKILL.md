@@ -53,7 +53,7 @@ These rules apply to every step in this workflow:
 ## On Activation
 
 1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
-   - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `sidecar_path`, `skills_output_folder`, `forge_data_folder`
+   - `output_folder`, `user_name`, `communication_language`, `document_output_language`, `sidecar_path`, `skills_output_folder`, `forge_data_folder`
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 

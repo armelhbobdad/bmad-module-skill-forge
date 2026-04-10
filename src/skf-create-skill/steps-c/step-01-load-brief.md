@@ -58,13 +58,14 @@ Check that the loaded skill-brief.yaml contains required fields:
 - `version` — source version to compile against
 - `source_repo` — GitHub owner/repo or local path (**optional when `source_type: "docs-only"`**)
 - `language` — primary source language
-- `scope` — what to extract (e.g., "all public exports", specific modules)
+- `scope` — what to extract. Accepts either a string (simple scope description, e.g., "all public exports") or an object with sub-fields: `type` (e.g., `"component-library"`), `include`, `exclude`, `notes`, and optionally `demo_patterns`, `registry_path`, `ui_variants` for component libraries
 
 **Optional fields:**
 - `source_type` — `"source"` (default) or `"docs-only"` (external documentation only)
 - `doc_urls` — array of `{url, label}` documentation URLs (required when `source_type: "docs-only"`)
 - `source_branch` — branch to use (default: main/master)
 - `source_authority` — official/community/internal (default: community; forced to `community` for docs-only)
+- `target_version` — specific version to compile against (triggers tag resolution for remote repos; see source-resolution-protocols.md)
 - `include_patterns` — file glob patterns to include
 - `exclude_patterns` — file glob patterns to exclude
 - `description` — human description of the skill
@@ -83,7 +84,7 @@ Halt with specific error: "Brief validation failed: missing required field `{fie
 **If source_repo is a GitHub URL or owner/repo format:**
 - Verify repository exists via `gh_bridge.list_tree(owner, repo, branch)` — **Tool resolution:** `gh api repos/{owner}/{repo}/git/trees/{branch}?recursive=1` or direct file listing if local; see `knowledge/tool-resolution.md`
 - If branch not specified, detect default branch
-- Store resolved: owner, repo, branch, file tree — note: `source_root` for remote repos is set to the workspace or ephemeral clone path during extraction (step-03)
+- Store resolved: owner, repo, branch, file tree — note: `source_root` for remote repos is initially set to the remote URL (for detection and API access purposes) and then updated to the local workspace/clone path during step-03 source resolution
 
 **If source_repo is a local path:**
 - Verify path exists and contains source files
@@ -117,7 +118,7 @@ Where tier_description follows positive capability framing:
 
 **Auto-proceed step — no user interaction.**
 
-After initialization is complete and all data is loaded, immediately load, read entire file, then execute `{nextStepFile}`.
+After initialization is complete and all data is loaded (including `target_version` if present in the brief), immediately load, read entire file, then execute `{nextStepFile}`.
 
 #### EXECUTION RULES:
 

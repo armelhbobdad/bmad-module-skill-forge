@@ -7,7 +7,7 @@ nextStepFile: 'shared/health-check.md'
 
 ## STEP GOAL:
 
-Display the forge status report with positive capability framing, report tier changes on re-run, and optionally fetch the latest agentskills.io spec if flagged.
+Display the forge status report with positive capability framing and report tier changes on re-run.
 
 ## Rules
 
@@ -82,20 +82,7 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 - Do NOT list unavailable tools
 - Do NOT show a "missing" column or section
 
-### 3. Handle --update-spec Flag (Optional)
-
-**If the user included `--update-spec` in their workflow invocation (e.g., `@Ferris SF --update-spec`):**
-- Attempt to fetch the latest agentskills.io specification schema
-- Use `gh` or `curl` to retrieve the spec
-- Store in `{forge_data_folder}/agentskills-spec.json` (or appropriate format)
-- If fetch succeeds: display "agentskills.io spec updated."
-- If fetch fails: display "Could not fetch agentskills.io spec. Existing spec (if any) unchanged."
-- Do NOT fail the workflow over this — it is purely optional
-
-**If `--update-spec` was NOT passed:**
-- Skip silently
-
-### 4. Workflow Health Check
+### 3. Workflow Health Check
 
 Load and execute `{nextStepFile}` for workflow self-improvement check.
 

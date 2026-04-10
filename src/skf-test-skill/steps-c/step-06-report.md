@@ -4,6 +4,7 @@ nextStepFile: 'shared/health-check.md'
 outputFile: '{forge_version}/test-report-{skill_name}.md'
 scoringRulesFile: 'references/scoring-rules.md'
 outputFormatsFile: 'assets/output-section-formats.md'
+outputContractSchema: 'shared/references/output-contract-schema.md'
 ---
 
 # Step 6: Gap Report
@@ -93,7 +94,7 @@ Record discovery testing status as Info-level in the gap table. This is advisory
 
 ### 4c. Result Contract
 
-Write `{forge_version}/test-skill-result.json` per `shared/references/output-contract-schema.md`. Include the test report path in `outputs`; include `score`, `threshold`, `result` (PASS/FAIL), and `testMode` (naive/contextual) in `summary`.
+Write `{forge_version}/skf-test-skill-result.json` per `{outputContractSchema}`. Include the test report path in `outputs`; include `score`, `threshold`, `result` (PASS/FAIL), and `testMode` (naive/contextual) in `summary`.
 
 ### 5. Finalize Output Document
 

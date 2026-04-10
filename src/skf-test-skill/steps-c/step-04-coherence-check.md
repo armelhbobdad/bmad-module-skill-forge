@@ -2,6 +2,7 @@
 nextStepFile: './step-04b-external-validators.md'
 outputFile: '{forge_version}/test-report-{skill_name}.md'
 outputFormatsFile: 'assets/output-section-formats.md'
+scoringRulesFile: 'references/scoring-rules.md'
 ---
 
 # Step 4: Coherence Check
@@ -136,7 +137,7 @@ Build integration completeness findings:
 
 ### 5b. Migration/Deprecation Verification (Contextual Path)
 
-**This section shares logic with Section 2b.** If you are on the contextual mode path (Sections 3-5), execute the migration check here using the same rules as Section 2b:
+**This section shares logic with Section 2b.** If updating the shared logic, ensure both sections remain synchronized. If you are on the contextual mode path (Sections 3-5), execute the migration check here using the same rules as Section 2b:
 
 **Gate check:** Execute ONLY IF both conditions are met:
 1. Forge tier is **Deep** (tool-gated)

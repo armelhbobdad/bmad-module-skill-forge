@@ -23,6 +23,8 @@ When `scope.type: "component-library"`, perform specialized extraction that trea
 
 Before extraction, identify and exclude demo/example files to avoid inflating export counts.
 
+**Note:** For remote sources, the file list from step-03 section 2 was built from the API tree. When scanning for demo directories, scan the local workspace/clone path (`remote_clone_path`) instead of the API-derived file list.
+
 **If `scope.demo_patterns` is specified in the brief:** Use those patterns directly.
 
 **Otherwise, auto-detect:**

@@ -51,7 +51,7 @@ If ALL of these conditions are true:
 
 Then run CCC indexing and discovery on the resolved clone (workspace or ephemeral):
 
-1. **Check existing index:** If `{remote_clone_path}/.cocoindex_code/` already exists (workspace repo with a persisted CCC index), skip steps 2-3 and proceed directly to step 4 using `ccc search --refresh` instead of plain `ccc search`. The `--refresh` flag tells CCC to re-index if files have changed since the last index, then search. This is the fast path for workspace repos that have been indexed before.
+1. **Check existing index:** If `{remote_clone_path}/.cocoindex_code/` already exists (workspace repo with a persisted CCC index), skip steps 2-3 and proceed directly to step 4 using `ccc search --refresh` instead of plain `ccc search`. The `--refresh` flag tells CCC to re-index if files have changed since the last index, then search. This is the fast path for workspace repos that have been indexed before. **Note:** If `--refresh` is not supported by the installed ccc version, omit the flag — ccc will use the existing index.
 
 2. **Initialize index (first time only):** Run `cd {remote_clone_path} && ccc init`. If init fails, set `{ccc_discovery: []}` and continue — this is not an error.
 
@@ -70,7 +70,7 @@ Then run CCC indexing and discovery on the resolved clone (workspace or ephemera
 4. **Construct semantic query:** Build from brief data: `"{brief.name} {brief.scope}"`. Truncate to 80 characters — keep the full skill name and trim `brief.scope` from the end. If `brief.scope` is very short (< 10 chars), append terms from `brief.description` to fill the remaining space.
 
 5. **Execute search:** Run `ccc_bridge.search(query, remote_clone_path, top_k=20)`:
-   - **If existing index was found (step 1):** Use `cd {remote_clone_path} && ccc search --refresh --limit 20 "{query}"` — this re-indexes if files changed, then searches.
+   - **If existing index was found (step 1):** Use `cd {remote_clone_path} && ccc search --refresh --limit 20 "{query}"` — this re-indexes if files changed, then searches. If `--refresh` is not supported by the installed ccc version, omit the flag — ccc will use the existing index.
    - **Otherwise:** Use `cd {remote_clone_path} && ccc search --limit 20 "{query}"` after indexing in step 3.
    - **Tool resolution:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or CLI. Note: `ccc search` operates on the index in the current working directory. See `knowledge/tool-resolution.md`.
 
@@ -90,6 +90,8 @@ If `{ccc_discovery}` is in context and non-empty (populated by step-02b or defer
 If `{ccc_discovery}` is empty or not in context: proceed with existing file ordering (no change to current behavior).
 
 ### 2b. Component Library Delegation
+
+**Skip this section if `source_type` is `"docs-only"` — docs-only skills do not use component extraction.**
 
 **If `scope.type: "component-library"` in the brief:**
 
@@ -210,6 +212,8 @@ Compile all extracted data into a structured inventory:
 - Integration point suggestions
 
 ### 6. Present Extraction Summary (Gate 2)
+
+**Docs-only note:** If `docs_only_mode` is active (`extraction_mode: "docs-only"`), display a brief note explaining that T3 content will be added by the doc-fetcher step (step-03c), then auto-proceed past this gate. Example: "Docs-only mode: extraction inventory is empty. Documentation content will be fetched from `doc_urls` in step-03c. Auto-proceeding."
 
 Display the extraction findings for user confirmation:
 

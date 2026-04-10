@@ -17,7 +17,7 @@
 
 ## Naive Mode Weight Redistribution
 
-The following weights replace the default table for naive mode. The 18% coherence weight from the default table has been proportionally redistributed into these values. Do not apply a second redistribution.
+The following weights replace the default table for naive mode. The 18% coherence weight from the default table has been proportionally redistributed into these values. Do not re-redistribute for coherence (already handled in this table). Quick-tier redistribution (zeroing Signature Accuracy and Type Coverage) still applies as an additional step.
 
 When running in naive mode (no coherence category):
 - Export Coverage: 45%
@@ -42,9 +42,9 @@ tessl evaluates SKILL.md body content only — it does not read `references/*.md
 - Score based on: structural completeness only
 - Weight redistribution: skipped categories' weights (Signature Accuracy 22% + Type Coverage 14%) redistributed proportionally to remaining active categories
 
-### Docs-Only Mode (Quick tier, all [EXT:...] citations)
+### Docs-Only Mode (all [EXT:...] citations, any tier)
 
-When `docs_only_mode: true` is set by step-03 (indicating a Quick tier skill where all SKILL.md citations are `[EXT:...]` format with no local source code):
+When `docs_only_mode: true` is set by step-03 (indicating a skill where all SKILL.md citations are `[EXT:...]` format with no local source code):
 
 - **Signature Accuracy:** Not scored (no source to compare against)
 - **Type Coverage:** Not scored (no source to compare against)

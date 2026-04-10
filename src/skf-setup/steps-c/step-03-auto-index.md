@@ -8,7 +8,7 @@ nextStepFile: './step-04-report.md'
 
 If the detected tier is Deep, verify the health of existing QMD collections by cross-referencing them against the `qmd_collections` registry in `forge-tier.yaml`. Identify orphaned collections (in QMD but not in registry) and stale registry entries (in registry but collection missing from QMD). Prompt the user before removing orphaned collections.
 
-For Quick and Forge tiers (without ccc), skip silently and proceed. For Forge+ tier, skip QMD hygiene but the step routes correctly to the next step.
+For Quick and Forge tiers, skip silently and proceed (QMD is not available at those tiers). For Forge+ tier, skip QMD hygiene but the step routes correctly to the next step.
 
 ## Rules
 

@@ -32,11 +32,13 @@ Proceed with local files as-is. Set `source_ref` to `"local"`.
 
 ---
 
-## Remote Source Resolution (Forge/Deep only)
+## Remote Source Resolution
+
+**Note:** Quick-tier remote sources do not use the workspace/clone protocol described below. Quick tier accesses remote files via the `gh_bridge.read_file` path described in step-03 section 4.
 
 If `source_repo` is a local path: proceed with the tier-appropriate strategy as normal.
 
-If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is Forge or Deep:
+If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is Forge, Forge+, or Deep:
 
 1. **Check `git` availability:** Verify `git` is functional (`git --version`). If `git` is not available, skip to the fallback warning below.
 

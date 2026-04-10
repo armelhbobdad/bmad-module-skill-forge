@@ -523,7 +523,7 @@ Provenance maps enable verification: an `official` skill's provenance must trace
 | **Hub-and-spoke cross-knowledge** | Each skill covers one source repository. Stack skills compose cross-library integration patterns in `references/integrations/`, citing each library's own skill. |
 | **Stack skill = compositional** | SKILL.md is the integration layer. references/ contains per-library + integration pairs. Partial regeneration on dependency updates. |
 | **Snippet updates only at export** | Create/update write a draft `context-snippet.md` to `skills/`. Export regenerates the final `context-snippet.md` and publishes it to the platform context file (CLAUDE.md/AGENTS.md/.cursorrules). No managed-section updates in draft workflows. |
-| **Bundle spec with opt-in update** | Offline-capable. Run `@Ferris SF --update-spec` to fetch the latest agentskills.io spec on demand. |
+| **Bundle spec, version-pin at release** | Offline-capable. SKF ships with a vendored agentskills.io spec pinned at release time; spec drift is a maintainer concern handled at SKF release, not a runtime concern for users. |
 
 ---
 

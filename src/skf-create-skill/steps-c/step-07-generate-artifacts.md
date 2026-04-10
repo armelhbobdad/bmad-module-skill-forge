@@ -76,6 +76,7 @@ Write these 3 files from the compiled content:
 
 **File 7:** `{forge_version}/extraction-rules.yaml`
 - Language and ast-grep schema used for this extraction (for reproducibility)
+- Note: This file is generated here from extraction data collected during steps 3-4, not assembled in step-05
 
 ### 4. Create Active Symlink
 

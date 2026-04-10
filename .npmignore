@@ -33,6 +33,17 @@ prettier.config.mjs
 .husky/
 .npmrc
 
+# Quality reports and build output
+skills/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Dev-only validation tools (not needed at runtime)
+tools/validate-skills.js
+tools/validate-file-refs.js
+
 # Output and temp
 temp/
 

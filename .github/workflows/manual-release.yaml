@@ -39,6 +39,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
       - name: Run tests and validation
         run: |
           npm test
@@ -61,13 +66,9 @@ jobs:
           echo "new_version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
           echo "previous_tag=$(git describe --tags --abbrev=0)" >> $GITHUB_OUTPUT
 
-      - name: Update installer package.json
+      - name: Update marketplace.json version
         run: |
-          sed -i 's/"version": ".*"/"version": "${{ steps.version.outputs.new_version }}"/' tools/installer/package.json
-
-      # TODO: Re-enable web bundles once tools/cli/bundlers/ is restored
-      # - name: Generate web bundles
-      #   run: npm run bundle
+          sed -i 's/"version": "[^"]*"/"version": "${{ steps.version.outputs.new_version }}"/' .claude-plugin/marketplace.json
 
       - name: Commit version bump
         run: |
@@ -87,45 +88,40 @@ jobs:
           OTHERS=$(echo "$COMMITS" | grep -v -E "^- (feat|Feature|fix|Fix|chore|Chore|release:|Release:)" || true)
 
           # Build release notes
-          cat > release_notes.md << 'EOF'
-          ## 🚀 What's New in v${{ steps.version.outputs.new_version }}
+          echo "## What's New" > release_notes.md
+          echo "" >> release_notes.md
 
-          EOF
-
-          if [ ! -z "$FEATURES" ]; then
-            echo "### ✨ New Features" >> release_notes.md
+          if [ -n "$FEATURES" ]; then
+            echo "### New Features" >> release_notes.md
             echo "$FEATURES" >> release_notes.md
             echo "" >> release_notes.md
           fi
 
-          if [ ! -z "$FIXES" ]; then
-            echo "### 🐛 Bug Fixes" >> release_notes.md
+          if [ -n "$FIXES" ]; then
+            echo "### Bug Fixes" >> release_notes.md
             echo "$FIXES" >> release_notes.md
             echo "" >> release_notes.md
           fi
 
-          if [ ! -z "$OTHERS" ]; then
-            echo "### 📦 Other Changes" >> release_notes.md
+          if [ -n "$OTHERS" ]; then
+            echo "### Other Changes" >> release_notes.md
             echo "$OTHERS" >> release_notes.md
             echo "" >> release_notes.md
           fi
 
-          if [ ! -z "$CHORES" ]; then
-            echo "### 🔧 Maintenance" >> release_notes.md
+          if [ -n "$CHORES" ]; then
+            echo "### Maintenance" >> release_notes.md
             echo "$CHORES" >> release_notes.md
             echo "" >> release_notes.md
           fi
 
-          cat >> release_notes.md << 'EOF'
-
-          ## 📦 Installation
-
-          ```bash
-          npx bmad-module-skill-forge install
-          ```
-
-          **Full Changelog**: https://github.com/armelhbobdad/bmad-module-skill-forge/compare/${{ steps.version.outputs.previous_tag }}...v${{ steps.version.outputs.new_version }}
-          EOF
+          echo "## Installation" >> release_notes.md
+          echo "" >> release_notes.md
+          echo '```bash' >> release_notes.md
+          echo "npx bmad-module-skill-forge install" >> release_notes.md
+          echo '```' >> release_notes.md
+          echo "" >> release_notes.md
+          echo "**Full Changelog**: https://github.com/armelhbobdad/bmad-module-skill-forge/compare/${{ steps.version.outputs.previous_tag }}...v${{ steps.version.outputs.new_version }}" >> release_notes.md
 
           # Output for GitHub Actions
           echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
@@ -156,9 +152,12 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VERSION="${{ steps.version.outputs.new_version }}"
-          if [[ "$VERSION" == *"alpha"* ]] || [[ "$VERSION" == *"beta"* ]]; then
-            echo "Publishing prerelease version with --tag alpha"
+          if [[ "$VERSION" == *"alpha"* ]]; then
+            echo "Publishing alpha prerelease with --tag alpha"
             npm publish --tag alpha
+          elif [[ "$VERSION" == *"beta"* ]]; then
+            echo "Publishing beta prerelease with --tag beta"
+            npm publish --tag beta
           else
             echo "Publishing stable version with --tag latest"
             npm publish --tag latest

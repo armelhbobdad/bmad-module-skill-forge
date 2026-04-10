@@ -13,7 +13,7 @@ A clear and concise description of what the bug is.
 What lead to the bug and can it be reliable recreated - if so with what steps.
 
 **PR**
-If you have an idea to fix and would like to contribute, please indicate here you are working on a fix, or link to a proposed PR to fix the issue. Please review the contribution.md - contributions are always welcome!
+If you have an idea to fix and would like to contribute, please indicate here you are working on a fix, or link to a proposed PR to fix the issue. Please review the [CONTRIBUTING.md](../../CONTRIBUTING.md) - contributions are always welcome!
 
 **Expected behavior**
 A clear and concise description of what you expected to happen.
