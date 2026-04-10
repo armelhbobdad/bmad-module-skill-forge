@@ -136,33 +136,69 @@ gh issue create \
   --body "{formatted body using issue template structure}"
 ```
 
+**Writing rules — non-negotiable:**
+
+- **One issue per finding.** If you observed two independent problems, submit two issues.
+- **Respect the length budgets.** Finding, Expected, Actual, Impact are each ONE sentence. Evidence is 2-5 bullets, not prose. Suggested Fix is 1-3 sentences with ONE recommendation — multiple options go in the `Alternatives considered` collapsible or (better) not at all.
+- **Quote, don't paraphrase.** In Evidence, cite the exact `file:line` and put the quoted text in quotes. Link the convention to the instruction that caused it.
+- **Never narrate the session.** The reader wants the defect, not the story. If a sentence starts with "During my run..." or "I was trying to...", delete it.
+- **If unsure whether it's a real issue, do not submit it.** Reporting zero findings is a healthy outcome.
+
 **Issue body format:**
 ```markdown
 ## Workflow
-{workflow name}
+{workflow name, e.g. `skf-create-skill`}
 
 ## Step File
-`{exact step file path relative to src/}`
+`src/skf-{workflow}/steps-c/step-NN-name.md`
 
 ## Severity
-{bug | friction | gap}
+`{bug | friction | gap}`
+<!-- bug: instructions were wrong or contradictory -->
+<!-- friction: instructions worked but caused back-and-forth or guessing -->
+<!-- gap: a scenario arose that wasn't covered at all -->
 
 ## Finding
-{description of what went wrong}
+<!-- ONE sentence. What is the problem? Do not explain why yet. -->
+{e.g. Step-05 forbids writes to `skills/` but does not name a staging directory.}
+
+## Expected
+<!-- ONE sentence. What did the step instruct or imply should happen? -->
+{e.g. The step should name the staging directory between assembly and final write.}
+
+## Actual
+<!-- ONE sentence. What did you observe instead? -->
+{e.g. No staging path specified, so artifacts were written to `skills/{name}/` and step-07 had to reorganize them.}
 
 ## Evidence
-{what actually happened during execution}
+<!-- Bulleted `file:line` citations. 2-5 bullets. No narrative prose. -->
+- `path/to/file.md:17` — "quoted text from the file"
+- `path/to/other.md:62` — brief note on what it shows
 
-## Suggested Improvement
-{concrete change to improve the workflow}
+## Impact
+<!-- ONE sentence. What did this cost in THIS session? -->
+{e.g. 50KB of artifacts written to the wrong path; step-07 required a file-move pass.}
+
+## Suggested Fix
+<!-- ONE recommended change. 1-3 sentences. Do NOT list multiple options here. -->
+{e.g. Add a rule to step-05 naming `_bmad-output/{skill-name}-skill/` as the staging directory, matching the 03b/03c convention.}
+
+<details>
+<summary>Alternatives considered (optional)</summary>
+
+<!-- Only fill this if you seriously considered 2+ approaches. Keep under 100 words total. -->
+
+</details>
 
 ## Environment
-- **Date:** {date}
-- **OS:** {detected OS, e.g. macOS 15.2, Ubuntu 24.04, Windows 11}
-- **AI Editor:** {the AI editor or CLI being used, e.g. Claude Code, Cursor, Windsurf}
-- **Model:** {the model executing this workflow, e.g. Claude Opus 4.6, Claude Sonnet 4.6}
-- **Forge Tier:** {if available from sidecar, otherwise "N/A"}
-- **SKF Version:** {read from {project-root}/_bmad/skf/VERSION, otherwise "N/A"}
+| Field | Value |
+|-------|-------|
+| Date | {ISO date} |
+| OS | {e.g. macOS 15.2, Ubuntu 24.04, Windows 11} |
+| AI Editor | {e.g. Claude Code, Cursor, Windsurf} |
+| Model | {e.g. Claude Opus 4.6, Claude Sonnet 4.6} |
+| Forge Tier | {Quick/Forge/Forge+/Deep, else N/A} |
+| SKF Version | {from `{project-root}/_bmad/skf/VERSION`, else N/A} |
 ```
 
 After creating all issues, display:
