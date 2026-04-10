@@ -1,0 +1,107 @@
+Update the @docs/getting-started.md . The installation method from bmad-method install changed. Here is what we have now: 
+◆  Browse community modules:
+│  ○ Design & Creative (1 module)
+│  ● ◎ View all community modules
+│  ○ ◎ Search by keyword
+│  ○ ✓ Done browsing
+└
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+remove that section
+
+---
+
+I did some manual changes too. Please review and commit
+
+---
+
+I just undid the commit. Look what the new bmad method installer proposes: armel@dzeta:~/Projects/OSS/oh-my-skills$ npx bmad-method install
+│ ╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ │                                                                      ██████╗ ███╗   ███╗ █████╗ ██████╗     ███╗   ███╗███████╗████████╗██╗  ██╗ ██████╗ ██████╗ ™                                                                     │
+│ │                                                                      ██╔══██╗████╗ ████║██╔══██╗██╔══██╗    ████╗ ████║██╔════╝╚══██╔══╝██║  ██║██╔═══██╗██╔══██╗                                                                      │
+│ │                                                                      ██████╔╝██╔████╔██║███████║██║  ██║    ██╔████╔██║█████╗     ██║   ███████║██║   ██║██║  ██║                                                                      │
+│ │                                                                      ██╔══██╗██║╚██╔╝██║██╔══██║██║  ██║    ██║╚██╔╝██║██╔══╝     ██║   ██╔══██║██║   ██║██║  ██║                                                                      │
+│ │                                                                      ██████╔╝██║ ╚═╝ ██║██║  ██║██████╔╝    ██║ ╚═╝ ██║███████╗   ██║   ██║  ██║╚██████╔╝██████╔╝                                                                      │
+│ │                                                                      ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚═════╝     ╚═╝     ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═════╝                                                                       │
+│ │                                                                                                        Build More, Architect Dreams                                                                                                    │
+│ │                                                                                                                © BMad Code                                                                                                             │
+│ ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+│
+●  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+│
+│  Agile AI-Driven Development. Powered by BMad Core and a growing module ecosystem.
+│  Install official and community modules during setup to customize your experience.
+│
+│  🌟 100% free. 100% open source. Always.
+│     No paywalls. No gated content. Knowledge shared, not sold.
+│
+│  🌐 CONNECT:
+│    Website:   https://bmadcode.com/
+│    Discord:   https://discord.gg/gk8jAdXWmj
+│    YouTube:   https://www.youtube.com/@BMadCode
+│    X:         https://x.com/BMadCode
+│    Facebook:  https://facebook.com/@BMadCode
+│
+│  ⭐ SUPPORT THE PROJECT:
+│    Star us:   https://github.com/bmad-code-org/BMAD-METHOD/
+│    Donate:    https://buymeacoffee.com/bmad
+│    Corporate sponsorship and speaking inquiries: contact@bmadcode.com
+│
+│  Docs, blog, and latest updates: https://bmadcode.com/
+│
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+│
+◇  Installation directory:
+│  /home/armel/Projects/OSS/oh-my-skills
+│
+●  Resolved installation path: /home/armel/Projects/OSS/oh-my-skills
+│
+│  Directory exists and contains 6 item(s)
+│
+◇  Install to this directory?
+│  Yes
+│
+◇  Select official modules to install:
+│  2 items selected
+│
+│  Selected official modules:
+│    • BMad Core Module (v6.3.0)
+│    • BMad Creative Intelligence Suite (v0.1.9)
+│
+◇  Would you like to browse community modules?
+│  No
+│
+◇  Would you like to install from a custom source (Git URL or local path)?
+│  Yes
+◆  Git URL or local path:
+│  https://github.com/armelhbobdad/bmad-module-skill-forge█
+ . We can paste a URL on local path
+
+---
+
+commit
+
+---
+
+the @tools/cli/lib/ui.js should end by asking user to call the forger. For example: /skf-forger
+
+---
+
+commit
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+we should say `/skf-forger` or `$skf-forger` depending on what your idea support. May be you should use firecrawl to validate for each of them?
+
+---
+
+yes i prefer
