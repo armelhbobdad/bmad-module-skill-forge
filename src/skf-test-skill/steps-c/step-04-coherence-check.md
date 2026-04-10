@@ -70,6 +70,8 @@ If either condition fails, skip silently and proceed to Section 6.
 
 Check whether SKILL.md contains a "Migration & Deprecation Warnings" section (Section 4b). Then check the skill's `evidence-report.md` (at `{forge_data_folder}/{skill_name}/evidence-report.md`) for T2-future annotation counts.
 
+**Scope of Section 4b (authoring rule this gate enforces):** Section 4b is scoped to *forward-looking* breaking changes only — what T2-future annotations capture. Historical deprecations (e.g. `@deprecated` decorators in current source) belong inline in Key API Summary or Full API Reference, and current-state signature gotchas (e.g. "this function is sync not async") belong alongside the function in Full API Reference. They do **not** belong in Section 4b. This scoping is authoritative per `skf-create-skill/assets/skill-sections.md` ("Section 4b (Migration & Deprecation Warnings) is conditional: only emitted for Deep tier when T2-future annotations exist"). If a skill has a legitimate exception where Section 4b was manually populated with non-migration content, downgrade this gap to Low with inline justification — do not relax the gate, which would desync the test workflow from the authoring rule.
+
 - **If T2-future annotations > 0 AND Section 4b is absent:** Flag as Medium severity gap: "Migration section missing — T2-future annotations exist but Section 4b is not present in SKILL.md Tier 1."
 - **If T2-future annotations = 0 AND Section 4b is present:** Flag as Medium severity gap: "Migration section unexpected — Section 4b is present but no T2-future annotations were produced."
 - **If evidence-report.md is unavailable:** Skip this check silently. Note: "Section 4b verification skipped — evidence-report.md not found."
@@ -146,6 +148,8 @@ Build integration completeness findings:
 If either condition fails, skip silently.
 
 Check whether SKILL.md contains a "Migration & Deprecation Warnings" section (Section 4b). Then check the skill's `evidence-report.md` for T2-future annotation counts.
+
+**Scope of Section 4b (authoring rule this gate enforces):** Section 4b is scoped to *forward-looking* breaking changes only — what T2-future annotations capture. Historical deprecations (e.g. `@deprecated` decorators in current source) belong inline in Key API Summary or Full API Reference, and current-state signature gotchas (e.g. "this function is sync not async") belong alongside the function in Full API Reference. They do **not** belong in Section 4b. This scoping is authoritative per `skf-create-skill/assets/skill-sections.md` ("Section 4b (Migration & Deprecation Warnings) is conditional: only emitted for Deep tier when T2-future annotations exist"). If a skill has a legitimate exception where Section 4b was manually populated with non-migration content, downgrade this gap to Low with inline justification — do not relax the gate, which would desync the test workflow from the authoring rule.
 
 - **If T2-future annotations > 0 AND Section 4b is absent:** Flag as Medium severity gap: "Migration section missing — T2-future annotations exist but Section 4b is not present in SKILL.md Tier 1."
 - **If T2-future annotations = 0 AND Section 4b is present:** Flag as Medium severity gap: "Migration section unexpected — Section 4b is present but no T2-future annotations were produced."
