@@ -3,28 +3,33 @@
   "checkpoint_id": "fd6762573935",
   "session_id": "ee5c0900-6d6b-471a-b39f-6d5e3e61c703",
   "strategy": "manual-commit",
-  "created_at": "2026-04-10T15:31:53.9104558Z",
+  "created_at": "2026-04-10T15:36:43.171502749Z",
   "branch": "dev",
-  "checkpoints_count": 1,
+  "checkpoints_count": 0,
   "files_touched": [
+    "tools/cli/lib/ide-skills.js",
+    "tools/cli/lib/installer.js",
+    "tools/cli/lib/platform-codes.yaml",
     "tools/cli/lib/ui.js"
   ],
   "agent": "Claude Code",
-  "turn_id": "66996f344c64",
+  "turn_id": "47003e7c844b",
+  "checkpoint_transcript_start": 446,
+  "transcript_lines_at_start": 446,
   "token_usage": {
-    "input_tokens": 133,
-    "cache_creation_tokens": 151363,
-    "cache_read_tokens": 5583608,
-    "output_tokens": 52309,
-    "api_call_count": 64
+    "input_tokens": 3,
+    "cache_creation_tokens": 1989,
+    "cache_read_tokens": 472605,
+    "output_tokens": 552,
+    "api_call_count": 3
   },
   "initial_attribution": {
-    "calculated_at": "2026-04-10T15:31:53.140798882Z",
-    "agent_lines": 0,
+    "calculated_at": "2026-04-10T15:36:42.590109452Z",
+    "agent_lines": 82,
     "human_added": 0,
     "human_modified": 0,
     "human_removed": 0,
-    "total_committed": 0,
-    "agent_percentage": 0
+    "total_committed": 82,
+    "agent_percentage": 100
   }
 }

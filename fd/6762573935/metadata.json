@@ -3,8 +3,11 @@
   "checkpoint_id": "fd6762573935",
   "strategy": "manual-commit",
   "branch": "dev",
-  "checkpoints_count": 1,
+  "checkpoints_count": 0,
   "files_touched": [
+    "tools/cli/lib/ide-skills.js",
+    "tools/cli/lib/installer.js",
+    "tools/cli/lib/platform-codes.yaml",
     "tools/cli/lib/ui.js"
   ],
   "sessions": [
@@ -17,10 +20,10 @@
     }
   ],
   "token_usage": {
-    "input_tokens": 133,
-    "cache_creation_tokens": 151363,
-    "cache_read_tokens": 5583608,
-    "output_tokens": 52309,
-    "api_call_count": 64
+    "input_tokens": 3,
+    "cache_creation_tokens": 1989,
+    "cache_read_tokens": 472605,
+    "output_tokens": 552,
+    "api_call_count": 3
   }
 }

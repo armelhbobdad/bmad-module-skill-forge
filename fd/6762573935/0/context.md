@@ -62,3 +62,11 @@ can you squash the 3 polish(cli) commit?
 
 1
 
+### Prompt 14
+
+In @docs/getting-started.md  The correct local path is just /path/to/bmad-module-skill-forge, not /path/to/bmad-module-skill-forge/src/
+
+### Prompt 15
+
+Can you amend it to f18bbdd docs(getting-started): update BMad install
+
