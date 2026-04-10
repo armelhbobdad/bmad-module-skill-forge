@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "be1148c2c871",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-analyze-source/steps-c/step-06-generate-briefs.md",
+    "src/skf-audit-skill/steps-c/step-06-report.md",
+    "src/skf-brief-skill/steps-c/step-05-write-brief.md",
+    "src/skf-create-skill/steps-c/step-08-report.md",
+    "src/skf-create-stack-skill/steps-c/step-09-report.md",
+    "src/skf-drop-skill/steps-c/step-03-report.md",
+    "src/skf-export-skill/steps-c/step-06-summary.md",
+    "src/skf-quick-skill/steps-c/step-06-write.md",
+    "src/skf-refine-architecture/steps-c/step-06-report.md",
+    "src/skf-rename-skill/steps-c/step-03-report.md",
+    "src/skf-setup/steps-c/step-04-report.md",
+    "src/skf-test-skill/steps-c/step-06-report.md",
+    "src/skf-update-skill/steps-c/step-07-report.md",
+    "src/skf-verify-stack/steps-c/step-06-report.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/be/1148c2c871/0/metadata.json",
+      "transcript": "/be/1148c2c871/0/full.jsonl",
+      "context": "/be/1148c2c871/0/context.md",
+      "content_hash": "/be/1148c2c871/0/content_hash.txt",
+      "prompt": "/be/1148c2c871/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 46,
+    "cache_creation_tokens": 334183,
+    "cache_read_tokens": 2024765,
+    "output_tokens": 36721,
+    "api_call_count": 27
+  }
+}

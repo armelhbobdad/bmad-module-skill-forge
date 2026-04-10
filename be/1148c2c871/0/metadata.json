@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "be1148c2c871",
+  "session_id": "9320e827-f0a8-4e68-91dd-0e7ac72dc12a",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-10T18:35:55.05065627Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-analyze-source/steps-c/step-06-generate-briefs.md",
+    "src/skf-audit-skill/steps-c/step-06-report.md",
+    "src/skf-brief-skill/steps-c/step-05-write-brief.md",
+    "src/skf-create-skill/steps-c/step-08-report.md",
+    "src/skf-create-stack-skill/steps-c/step-09-report.md",
+    "src/skf-drop-skill/steps-c/step-03-report.md",
+    "src/skf-export-skill/steps-c/step-06-summary.md",
+    "src/skf-quick-skill/steps-c/step-06-write.md",
+    "src/skf-refine-architecture/steps-c/step-06-report.md",
+    "src/skf-rename-skill/steps-c/step-03-report.md",
+    "src/skf-setup/steps-c/step-04-report.md",
+    "src/skf-test-skill/steps-c/step-06-report.md",
+    "src/skf-update-skill/steps-c/step-07-report.md",
+    "src/skf-verify-stack/steps-c/step-06-report.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "f8611485fc3d",
+  "token_usage": {
+    "input_tokens": 46,
+    "cache_creation_tokens": 334183,
+    "cache_read_tokens": 2024765,
+    "output_tokens": 36721,
+    "api_call_count": 27
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-10T18:35:54.647062693Z",
+    "agent_lines": 42,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 42,
+    "agent_percentage": 100
+  }
+}
