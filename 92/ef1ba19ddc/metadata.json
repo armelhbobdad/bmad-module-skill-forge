@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "92ef1ba19ddc",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "ROADMAP.md",
+    "docs/how-it-works.md",
+    "src/skf-setup/steps-c/step-04-report.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/92/ef1ba19ddc/0/metadata.json",
+      "transcript": "/92/ef1ba19ddc/0/full.jsonl",
+      "context": "/92/ef1ba19ddc/0/context.md",
+      "content_hash": "/92/ef1ba19ddc/0/content_hash.txt",
+      "prompt": "/92/ef1ba19ddc/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 75,
+    "cache_creation_tokens": 132806,
+    "cache_read_tokens": 1391973,
+    "output_tokens": 22045,
+    "api_call_count": 27
+  }
+}
