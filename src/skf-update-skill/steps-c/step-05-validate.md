@@ -27,7 +27,7 @@ Run: `npx skill-check -h`
 
 **Important:** Do not assume availability — empirical check required.
 
-**Validation timing note:** Step-04 produces an edit plan, not written files. Checks that require files on disk (skill-check Checks A, E, F) will be **deferred to post-write** — step-06 runs them after writing files. Structural checks (B, C, D) validate the planned merge content and run here.
+**Validation timing note:** Step-04 section 6b has already written SKILL.md (and stack reference files) to disk. External-tool checks against written files (skill-check Checks A, E, F) still run in **step-06 section 7** to co-locate external-tool validation with post-write verification. Structural checks (B, C, D) run here against the merged content — content on disk is byte-identical to the in-context copy.
 
 ### 2. Launch Parallel Validation Checks
 

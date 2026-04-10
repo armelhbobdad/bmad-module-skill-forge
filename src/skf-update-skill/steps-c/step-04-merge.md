@@ -14,7 +14,7 @@ Merge freshly extracted export data into the existing SKILL.md content while pre
 
 - Focus only on merging extractions into existing skill content
 - Never delete or modify [MANUAL] section content
-- Do not write files — merge produces an edit plan for Step 06
+- Write merged SKILL.md (and stack reference files) directly to disk at section 6b — Claude Code's Edit/Write tools commit on call, so there is no held-in-memory "edit plan" primitive; subsequent steps validate and verify against the on-disk files
 - If [MANUAL] conflicts detected: halt and present to user. If clean merge: auto-proceed
 
 ## MANDATORY SEQUENCE
@@ -132,6 +132,27 @@ Merge Results:
 
   stack_files_merged: [count] (if stack skill)
 ```
+
+### 6b. Write Merged Files to Disk
+
+Write the merged content produced by sections 3–5 directly to disk now. Later steps read from these files for validation and verification. The write must happen exactly once, here.
+
+**Write SKILL.md:**
+- Use the `Edit` or `Write` tool to write merged SKILL.md content to `{skill_package}/SKILL.md`
+- Preserve UTF-8 encoding
+- If the source version detected during step-03 differs from the previous metadata version, create the new `{skill_package}` directory (`{skill_group}/{new_version}/`) first and write there — the previous version's directory is preserved on disk. Update `{skill_package}` in context to point at the new path.
+
+**Write stack reference files (if `skill_type == "stack"`):**
+- For each affected file from section 5, use `Edit` or `Write` to write:
+  - `references/{library}.md` with merged per-library content
+  - `references/integrations/{pair}.md` with merged per-integration content
+- Preserve [MANUAL] blocks exactly as captured in section 2.
+
+**Do NOT write here:**
+- `metadata.json`, `provenance-map.json`, `evidence-report.md` — derived from merge + validation output, written by step-06 sections 2–4
+- `context-snippet.md` — regenerated from the on-disk SKILL.md + metadata.json by step-06 section 5
+
+**Halt-on-tool-failure:** If any `Edit`/`Write` call errors (permission denied, disk full, path invalid, etc.), halt and report the failure — do not proceed to step-05 validation. The skill package may be in a partial state and will need manual recovery before re-running update-skill.
 
 ### 7. Display Merge Summary
 

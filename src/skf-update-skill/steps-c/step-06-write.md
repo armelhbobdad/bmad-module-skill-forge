@@ -6,26 +6,30 @@ nextStepFile: './step-07-report.md'
 
 ## STEP GOAL:
 
-Write all updated skill artifacts to disk: the merged SKILL.md, updated provenance-map.json with new timestamps and mappings, updated evidence-report.md with the update operation trail, and for stack skills, all affected reference files.
+Verify the merged SKILL.md and stack reference files that step-04 section 6b wrote to disk, then write the derived artifacts (metadata.json, provenance-map.json, evidence-report.md, context-snippet.md, and the active symlink).
 
 ## Rules
 
-- Focus only on writing files — all merge and validation is complete
-- Write exactly what was produced — do not modify merged content
+- Focus only on verifying merged files and writing derived artifacts — merge content was already written in step-04
+- Do not modify merged SKILL.md content — any mismatch detected during verification triggers HALT, not repair
 - Do not skip provenance map update — critical for future audits
+- HALT immediately on verification failure before writing any derived artifact — a partial-write skill package is worse than an unchanged one
 
 ## MANDATORY SEQUENCE
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
 
-### 1. Write Updated SKILL.md
+### 1. Verify SKILL.md Write
 
-Write the merged SKILL.md content to `{skill_package}/SKILL.md`:
-- Overwrite the existing file with merged content
-- Preserve file encoding (UTF-8)
-- Verify write by reading back and confirming [MANUAL] section count matches expected
+SKILL.md was written in step-04 section 6b. Verify the write landed intact before proceeding to any derived-artifact writes.
 
-If the version changed (source version differs from the previous metadata version), write to the new `{skill_package}` (creating the version directory if needed). The previous version's directory is preserved on disk.
+- Read `{skill_package}/SKILL.md` from disk
+- Count `<!-- [MANUAL:*] -->` opening markers and compare against the [MANUAL] inventory captured in step-01
+- Verify the resolved `{skill_package}` path matches the version directory step-04 wrote to (if the version changed, step-04 updated `{skill_package}` in context to point at the new path)
+- If [MANUAL] count matches and path resolves: proceed to section 2
+- **If [MANUAL] count does not match: HALT immediately.** Do not write `metadata.json`, `provenance-map.json`, or any other artifact — further writes would compound the inconsistency. Alert the user:
+
+  "**[MANUAL] section count mismatch after write.** Expected {N} from step-01 inventory, found {M} on disk at `{skill_package}/SKILL.md`. The skill package is in an inconsistent state. Manual recovery required — restore the previous version from `{skill_group}/{previous_version}/` or fix the file in place, then re-run update-skill."
 
 ### 2. Write Updated metadata.json
 
@@ -119,14 +123,16 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 - Provenance: {PASS/WARN/FAIL}
 ```
 
-### 5. Write Stack Skill Reference Files (Conditional) and Regenerate context-snippet.md
+### 5. Verify Stack Skill Reference File Writes (Conditional) and Regenerate context-snippet.md
 
 **ONLY if skill_type == "stack":**
 
-For each affected reference file from the merge:
-- Write updated `references/{library}.md` files
-- Write updated `references/integrations/{pair}.md` files
-- Verify [MANUAL] sections preserved in each reference file
+Stack reference files were written in step-04 section 6b. Verify each affected reference file that the merge produced:
+
+- Read each `references/{library}.md` back from disk
+- Read each `references/integrations/{pair}.md` back from disk
+- Verify per-file [MANUAL] section counts match the per-file inventory captured in step-01
+- **If any verification fails: HALT** using the same recovery protocol as section 1 — do not regenerate `context-snippet.md` or write any further derived artifact
 
 **For all skills (both single and stack) — regenerate `context-snippet.md`:**
 
@@ -157,23 +163,25 @@ If the version was incremented or changed in section 2 (metadata.json update):
 
 If the version did not change, the existing symlink already points to the correct version -- no action needed.
 
-### 6. Verify All Writes
+### 6. Verify Derived Artifact Writes
 
-For each file written:
+SKILL.md was verified in section 1 and stack reference files in section 5 (both written by step-04 section 6b). This section verifies the artifacts this step wrote: `metadata.json`, `provenance-map.json`, `evidence-report.md`, and `context-snippet.md`.
+
+For each derived artifact:
 - Read back the file
 - Confirm content matches expected output
-- Confirm [MANUAL] sections are intact (count comparison)
 - Report verification status
 
 "**Write Verification:**
 
 | File | Status |
 |------|--------|
-| SKILL.md | {VERIFIED/FAILED} |
+| SKILL.md | {VERIFIED in section 1} |
 | metadata.json | {VERIFIED/FAILED} |
 | provenance-map.json | {VERIFIED/FAILED} |
 | evidence-report.md | {VERIFIED/FAILED} |
-| {stack reference files...} | {VERIFIED/FAILED} |
+| context-snippet.md | {VERIFIED/FAILED} |
+| {stack reference files...} | {VERIFIED in section 5} |
 
 **All files written and verified.**"
 
