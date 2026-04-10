@@ -1,0 +1,19 @@
+Update the @docs/getting-started.md . The installation method from bmad-method install changed. Here is what we have now: 
+◆  Browse community modules:
+│  ○ Design & Creative (1 module)
+│  ● ◎ View all community modules
+│  ○ ◎ Search by keyword
+│  ○ ✓ Done browsing
+└
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+remove that section
+
+---
+
+I did some manual changes too. Please review and commit
