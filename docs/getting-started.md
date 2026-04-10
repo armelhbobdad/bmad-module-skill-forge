@@ -79,9 +79,9 @@ The installer reads the installed version from your manifest and shows the delta
 
 | Tool                                                                   | Required For                                                                          | Install                                                   |
 |------------------------------------------------------------------------|---------------------------------------------------------------------------------------|-----------------------------------------------------------|
-| Node.js >= 22                                                          | Installation, npx commands                                                            | <https://nodejs.org>                                      |
-| Python >= 3.10                                                         | Deterministic scoring, validation, and utility scripts                                | <https://www.python.org>                                  |
-| uv (Python package runner)                                             | Running Python scripts with automatic dependency management                           | <https://docs.astral.sh/uv/getting-started/installation/> |
+| `Node.js` >= 22                                                        | Installation, npx commands                                                            | <https://nodejs.org>                                      |
+| `Python` >= 3.10                                                       | Deterministic scoring, validation, and utility scripts                                | <https://www.python.org>                                  |
+| `uv` (Python package runner)                                           | Running Python scripts with automatic dependency management                           | <https://docs.astral.sh/uv/getting-started/installation/> |
 | `gh` (GitHub CLI)                                                      | Required for Deep mode. Optional convenience in Quick/Forge/Forge+ for source access. | <https://cli.github.com>                                  |
 | `ast-grep`  (CLI tool for code structural search, lint, and rewriting) | Forge + Deep modes                                                                    | <https://ast-grep.github.io>                              |
 | `ast-grep` MCP server (recommended alongside CLI)                      | Forge + Deep modes                                                                    | <https://github.com/ast-grep/ast-grep-mcp>                |
