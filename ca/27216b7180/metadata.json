@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "ca27216b7180",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-test-skill/steps-c/step-04-coherence-check.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ca/27216b7180/0/metadata.json",
+      "transcript": "/ca/27216b7180/0/full.jsonl",
+      "context": "/ca/27216b7180/0/context.md",
+      "content_hash": "/ca/27216b7180/0/content_hash.txt",
+      "prompt": "/ca/27216b7180/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 65,
+    "cache_creation_tokens": 100275,
+    "cache_read_tokens": 2108804,
+    "output_tokens": 35639,
+    "api_call_count": 30
+  }
+}

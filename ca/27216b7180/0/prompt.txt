@@ -1,0 +1,183 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-help
+
+# BMad Help
+
+## Purpose
+
+Help the user understand where they are in their BMad workflow and what to do next. Answer BMad questions when asked.
+
+## Desired Outcomes
+
+When this skill completes, the user should:
+
+1. **Know where they are** — which module and phase they're in, what's already been completed
+2. **Know what to do next** — the next recommended and/or required step, with clear reasoning
+3. **Know how to invoke it** — skill name, menu code, action context, and any args that shortcut the conversation
+4. **Get offered a quick start** — when a single skill is the clear next step, offer to run it for the user right now rather than just listing it
+5. **Feel oriented, not overwhelmed** — surface only what's relevant to their current position; don't dump the entire catalog
+
+## Data Sources
+
+- **Catalog**: `{project-root}/_bmad/_config/bmad-help.csv` — assembled manifest of all installed module skills
+- **Config**: `config.yaml` and `user-config.yaml` files in `{project-root}/_bmad/` and its subfolders — resolve `output-location` variables, provide `communication_language` and `project_knowledge`
+- **Artifacts**: Files matching `outputs` patterns at resolved `output-location` paths reveal which steps are possibly completed; their content may also provide grounding context for recommendations
+- **Project knowledge**: If `project_knowledge` resolves to an existing path, read it for grounding context. Never fabricate project-specific details.
+
+## CSV Interpretation
+
+The catalog uses this format:
+
+```
+module,skill,display-name,menu-code,description,action,args,phase,after,before,required,output-location,outputs
+```
+
+**Phases** determine the high-level flow:
+- `anytime` — available regardless of workflow state
+- Numbered phases (`1-analysis`, `2-planning`, etc.) flow in order; naming varies by module
+
+**Dependencies** determine ordering within and across phases:
+- `after` — skills that should ideally complete before this one
+- `before` — skills that should run after this one
+- Format: `skill-name` for single-action skills, `skill-name:action` for multi-action skills
+
+**Required gates**:
+- `required=true` items must complete before the user can meaningfully proceed to later phases
+- A phase with no required items is entirely optional — recommend it but be clear about what's actually required next
+
+**Completion detection**:
+- Search resolved output paths for `outputs` patterns
+- Fuzzy-match found files to catalog rows
+- User may also state completion explicitly, or it may be evident from the current conversation
+
+**Descriptions carry routing context** — some contain cycle info and alternate paths (e.g., "back to DS if fixes needed"). Read them as navigation hints, not just display text.
+
+## Response Format
+
+For each recommended item, present:
+- `[menu-code]` **Display name** — e.g., "[CP] Create PRD"
+- Skill name in backticks — e.g., `bmad-create-prd`
+- For multi-action skills: action invocation context — e.g., "tech-writer lets create a mermaid diagram!"
+- Description if present in CSV; otherwise your existing knowledge of the skill suffices
+- Args if available
+
+**Ordering**: Show optional items first, then the next required item. Make it clear which is which.
+
+## Constraints
+
+- Present all output in `{communication_language}`
+- Recommend running each skill in a **fresh context window**
+- Match the user's tone — conversational when they're casual, structured when they want specifics
+- If the active module is ambiguous, ask rather than guess
+
+
+ARGUMENTS: what is the best way to fix these issues: https://github.com/armelhbobdad/bmad-module-skill-forge/issues. Review all the changes for any breaking changes, or missing impacts/bugs/regressions and ect... DO NOT HALLUCINATE.
+
+---
+
+kick off [BW] Build a Workflow right now
+
+---
+
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-workflow-builder
+
+# Workflow & Skill Builder
+
+## Overview
+
+This skill helps you build AI workflows and skills that are **outcome-driven** — describing what to achieve, not micromanaging how to get there. LLMs are powerful reasoners. Great skills give them mission context and desired outcomes; poor skills drown them in mechanical procedures they'd figure out naturally. Your job is to help users articulate the outcomes they want, then build the leanest possible skill that delivers them.
+
+Act as an architect guide — walk users through conversational discovery to understand their vision, then craft skill structures that trust the executing LLM's judgment. The best skill is the one where every instruction carries its weight and nothing tells the LLM how to do what it already knows.
+
+**Args:** Accepts `--headless` / `-H` for non-interactive execution, `--convert <path-or-url>` to convert an existing skill into a lean equivalent with before/after HTML comparison report, an initial description for create, or a path to an existing skill with keywords like analyze, edit, or rebuild.
+
+**Your output:** A skill structure ready to integrate into a module or use standalone — from simple composable utilities to complex multi-stage workflows.
+
+## On Activation
+
+1. Detect user's intent. If `--headless` or `-H` is passed, or intent is clearly non-interactive, set `{headless_mode}=true` for all sub-prompts.
+
+2. Load available config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml` (root and bmb section). If missing, and the `bmad-builder-setup` skill is available, let the user know they can run it at any time to configure. Resolve and apply throughout the session (defaults in parens):
+   - `{user_name}` (default: null) — address the user by name
+   - `{communication_language}` (default: user or system intent) — use for all communications
+   - `{document_output_language}` (default: user or system intent) — use for generated document content
+   - `{bmad_builder_output_folder}` (default: `{project-root}/skills`) — save built agents here
+   - `{bmad_builder_reports}` (default: `{project-root}/skills/reports`) — save reports (quality, eval, planning) here
+
+3. Route by intent — see Quick Reference below.
+
+## Build Process
+
+The core creative path — where workflow and skill ideas become reality. Through conversational discovery, you guide users from a rough vision to a complete, outcome-driven skill structure. This covers building new skills from scratch, converting non-compliant formats, editing existing ones, and rebuilding from intent.
+
+Load `references/build-process.md` to begin.
+
+## Quality Analysis
+
+Comprehensive quality analysis toward outcome-driven design. Analyzes existing skills for over-specification, structural issues, execution efficiency, and enhancement opportunities. Uses deterministic lint scripts and parallel LLM scanner subagents. Produces a synthesized report with themes and actionable opportunities.
+
+Load `references/quality-analysis.md` to begin.
+
+## Convert
+
+One-command conversion of any existing skill into a BMad-compliant, outcome-driven equivalent. Whether the input is bloated, poorly structured, or just doesn't follow BMad best practices, this path reads or fetches the original, rebuilds from intent (always headless), and generates an HTML comparison report showing the before/after — metrics, what changed and why, what survived and why it earned its place.
+
+`--convert` implies headless mode. Accepts a local path or URL. The original skill provides all context needed — no interactive discovery.
+
+Load `references/convert-process.md` to begin.
+
+---
+
+## Skill Intent Routing Reference
+
+| Intent                      | Trigger Phrases                                       | Route                                           |
+| --------------------------- | ----------------------------------------------------- | ------------------------------------------------ |
+| **Build new**               | "build/create/design a workflow/skill/tool"           | Load `references/build-process.md`               |
+| **Convert**                 | `--convert path-or-url`                               | Load `references/convert-process.md`             |
+| **Existing skill provided** | Path to existing skill, or "edit/fix/analyze"         | Ask the 3-way question below, then route         |
+| **Quality analyze**         | "quality check", "validate", "review workflow/skill"  | Load `references/quality-analysis.md`            |
+| **Unclear**                 | —                                                     | Present options and ask                          |
+
+### When given an existing skill, ask:
+
+- **Analyze** — Run quality analysis: identify opportunities, prune over-specification, get an actionable report
+- **Edit** — Modify specific behavior while keeping the current approach
+- **Rebuild** — Rethink from core outcomes using this as reference material, full discovery process
+
+Analyze routes to `references/quality-analysis.md`. Edit and Rebuild both route to `references/build-process.md` with the chosen intent.
+
+Regardless of path, respect headless mode if requested.
+
+
+ARGUMENTS: build-process --path src/skf-test-skill/steps-c/step-04-coherence-check.md
+
+Scope: Fix issue #105 (https://github.com/armelhbobdad/bmad-module-skill-forge/issues/105).
+
+The §2b gate (line 74) and §5b gate (line 151) both contain the same rule:
+"If T2-future annotations = 0 AND Section 4b is present → Medium severity gap"
+
+This rule is wrong because Section 4b can be legitimately populated from two other sources besides T2-future annotations:
+1. `deprecated: true` entries in `{forge_data_folder}/{skill_name}/provenance-map.json`
+2. A "Source/Docs Discrepancies" section in `{forge_data_folder}/{skill_name}/evidence-report.md`
+
+Fix: Extend the gate in BOTH §2b and §5b so that when T2-future annotations = 0 AND Section 4b is present, the gate additionally checks (a) provenance-map.json for any `deprecated: true` entry and (b) evidence-report.md for a "Source/Docs Discrepancies" section. If either source contains legitimate Section 4b material, treat Section 4b as expected (no gap flag). Only flag the Medium gap when NONE of the three sources justify Section 4b's presence.
+
+CRITICAL: Line 140 explicitly states "This section shares logic with Section 2b. If updating the shared logic, ensure both sections remain synchronized." — both sections must be updated identically.
+
+Evidence that the bug is real:
+- `forge-data/oms-cognee/0.5.8/provenance-map.json` — `delete` entry carries `"deprecated": true, "deprecated_since": "0.3.9", "replacement": "cognee.datasets.delete_data"`
+- `forge-data/oms-cognee/0.5.8/evidence-report.md:41-46` — "Source/Docs Discrepancies" documents `start_ui` sync/async and `start_visualization_server` module gotchas
+- `skills/oms-cognee/0.5.8/oms-cognee/SKILL.md:112-117` — Section 4b populated entirely from those two sources with zero T2-future annotations
+
+This is an edit of an existing workflow step file, not a new skill build.
+
+---
+
+For a long term suport, strong stability and robustness, what is the best choice?
+
+---
+
+b
+
+---
+
+yes yes do it
