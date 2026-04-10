@@ -33,10 +33,20 @@ Installs SKF on its own. You'll be prompted for project name, output folders, an
 npx bmad-method install
 ```
 
-When prompted **"Add custom modules from your computer?"**, select Yes and provide the path to the SKF `src/` folder (clone this repo first):
+Step through the installer prompts:
+
+- **"Would you like to browse community modules?"** — No (SKF isn't in the community catalog yet)
+- **"Would you like to install from a custom source (Git URL or local path)?"** — Yes
+- **"Git URL or local path:"** — paste the SKF repo URL:
 
 ```
-Path to custom module folder: /path/to/bmad-module-skill-forge/src/
+https://github.com/armelhbobdad/bmad-module-skill-forge
+```
+
+Or, if you've already cloned the repo locally, provide the path to the repo root instead:
+
+```
+/path/to/bmad-module-skill-forge
 ```
 
 This installs BMad core + SKF together with full IDE integration, manifests, and help catalog. Best when you want the complete BMad development workflow.
@@ -67,17 +77,17 @@ The installer reads the installed version from your manifest and shows the delta
 
 ## Prerequisites
 
-| Tool                                                                   | Required For                                     | Install                                                |
-|------------------------------------------------------------------------|--------------------------------------------------|--------------------------------------------------------|
-| [Node.js](https://nodejs.org/) >= 22                                   | Installation, npx commands                       | <https://nodejs.org>                                   |
-| [Python](https://www.python.org/) >= 3.10                              | Deterministic scoring, validation, and utility scripts | <https://www.python.org>                               |
-| [uv](https://docs.astral.sh/uv/) (Python package runner)              | Running Python scripts with automatic dependency management | <https://docs.astral.sh/uv/getting-started/installation/> |
-| `gh` (GitHub CLI)                                                      | Required for Deep mode. Optional convenience in Quick/Forge/Forge+ for source access. | <https://cli.github.com>                               |
-| `ast-grep`  (CLI tool for code structural search, lint, and rewriting) | Forge + Deep modes                               | <https://ast-grep.github.io>                           |
-| `ast-grep` MCP server (recommended alongside CLI)                      | Forge + Deep modes                               | <https://github.com/ast-grep/ast-grep-mcp>             |
-| `ccc` (cocoindex-code semantic code search)                            | Forge+ mode                                      | <https://github.com/cocoindex-io/cocoindex-code>       |
-| `qmd` (local hybrid search engine for project files)                   | Deep mode                                        | <https://github.com/tobi/qmd>                          |
-| `SNYK_TOKEN` (Snyk API token — **Enterprise plan required**)           | Optional security scan                           | <https://docs.snyk.io/snyk-api/authentication-for-api> |
+| Tool                                                                   | Required For                                                                          | Install                                                   |
+|------------------------------------------------------------------------|---------------------------------------------------------------------------------------|-----------------------------------------------------------|
+| `Node.js` >= 22                                                        | Installation, npx commands                                                            | <https://nodejs.org>                                      |
+| `Python` >= 3.10                                                       | Deterministic scoring, validation, and utility scripts                                | <https://www.python.org>                                  |
+| `uv` (Python package runner)                                           | Running Python scripts with automatic dependency management                           | <https://docs.astral.sh/uv/getting-started/installation/> |
+| `gh` (GitHub CLI)                                                      | Required for Deep mode. Optional convenience in Quick/Forge/Forge+ for source access. | <https://cli.github.com>                                  |
+| `ast-grep`  (CLI tool for code structural search, lint, and rewriting) | Forge + Deep modes                                                                    | <https://ast-grep.github.io>                              |
+| `ast-grep` MCP server (recommended alongside CLI)                      | Forge + Deep modes                                                                    | <https://github.com/ast-grep/ast-grep-mcp>                |
+| `ccc` (cocoindex-code semantic code search)                            | Forge+ mode                                                                           | <https://github.com/cocoindex-io/cocoindex-code>          |
+| `qmd` (local hybrid search engine for project files)                   | Deep mode                                                                             | <https://github.com/tobi/qmd>                             |
+| `SNYK_TOKEN` (Snyk API token — **Enterprise plan required**)           | Optional security scan                                                                | <https://docs.snyk.io/snyk-api/authentication-for-api>    |
 
 Node.js, Python, and uv are required for all tiers. Don't worry about the rest — SKF detects what's available and sets your tier automatically. Security scanning via Snyk is optional and requires an Enterprise plan; it does not affect your tier level.
 
@@ -87,13 +97,13 @@ Node.js, Python, and uv are required for all tiers. Don't worry about the rest �
 
 SKF has two install-time variables (defined in `src/module.yaml`), one Core Config variable inherited from BMad, and one runtime preference:
 
-| Variable               | Purpose                                                                                              | Default                     |
-|------------------------|------------------------------------------------------------------------------------------------------|-----------------------------|
-| `skills_output_folder` | Where generated skills are saved                                                                     | `{project-root}/skills`     |
-| `forge_data_folder`    | Where workspace artifacts are stored (VS reports, evidence)                                          | `{project-root}/forge-data` |
+| Variable               | Purpose                                                                                                  | Default                     |
+|------------------------|----------------------------------------------------------------------------------------------------------|-----------------------------|
+| `skills_output_folder` | Where generated skills are saved                                                                         | `{project-root}/skills`     |
+| `forge_data_folder`    | Where workspace artifacts are stored (VS reports, evidence)                                              | `{project-root}/forge-data` |
 | `output_folder`        | Where refined architecture documents are saved (used by RA workflow). *Inherited from BMad Core Config.* | Defined by BMad Core Config |
-| `tier_override`        | Force a specific tier for comparison or testing (in `_bmad/_memory/forger-sidecar/preferences.yaml`) | `~` (auto-detect)           |
-| `headless_mode`        | Skip confirmation gates in all workflows (in `_bmad/_memory/forger-sidecar/preferences.yaml`)        | `false`                     |
+| `tier_override`        | Force a specific tier for comparison or testing (in `_bmad/_memory/forger-sidecar/preferences.yaml`)     | `~` (auto-detect)           |
+| `headless_mode`        | Skip confirmation gates in all workflows (in `_bmad/_memory/forger-sidecar/preferences.yaml`)            | `false`                     |
 
 Runtime configuration (tool detection, tier, and collection state) is managed by the `setup` workflow and persisted in `forge-tier.yaml`.
 

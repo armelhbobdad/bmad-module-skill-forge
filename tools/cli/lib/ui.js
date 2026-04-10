@@ -43,29 +43,43 @@ class UI {
       logoLines = ['  S K F'];
     }
 
-    const w = 54;
+    const w = 72;
     const frame = brand.dark;
     const top = frame('  ╔' + '═'.repeat(w) + '╗');
     const mid = frame('  ╟' + '─'.repeat(w) + '╢');
     const bottom = frame('  ╚' + '═'.repeat(w) + '╝');
+    const rule = frame('  ' + '━'.repeat(w));
     const row = (content) => {
       // eslint-disable-next-line no-control-regex -- stripping ANSI escape codes for visual width calculation
       const stripped = content.replaceAll(/\u001B\[\d+(?:;\d+)*m/g, '');
       const pad = Math.max(0, w - stripped.length - 2);
       return frame('  ║ ') + content + ' '.repeat(pad) + frame(' ║');
     };
+    const empty = row('');
+    const indent = '  ';
 
     console.log();
     console.log(top);
+    console.log(empty);
     for (const line of logoLines) {
-      console.log(row(brand.amber.bold(line.replace(/\s+$/, ''))));
+      console.log(row(indent + brand.amber.bold(line.replace(/\s+$/, ''))));
     }
+    console.log(empty);
     console.log(mid);
-    console.log(row(chalk.white.bold('Skill Forge') + chalk.dim(` v${version}`)));
-    console.log(row(chalk.dim('Agent Skill Compiler') + ' '.repeat(15) + brand.spark('⚒')));
-    console.log(mid);
-    console.log(row(chalk.dim('Code · Docs · Discourse → Verified agent skills')));
+    console.log(row(indent + chalk.white.bold('Skill Forge') + '  ' + brand.spark('⚒') + '  ' + chalk.dim('Agent Skill Compiler')));
+    console.log(row(indent + chalk.dim('Turn code and docs into instructions AI agents can actually follow.')));
+    console.log(row(indent + chalk.dim(`v${version}  ·  MIT License  ·  Open Source`)));
     console.log(bottom);
+    console.log();
+    console.log(rule);
+    console.log();
+    const resource = (label, url) => '  ' + chalk.dim(label.padEnd(10)) + brand.amber(url);
+    console.log(resource('Docs', 'https://armelhbobdad.github.io/bmad-module-skill-forge'));
+    console.log(resource('GitHub', 'https://github.com/armelhbobdad/bmad-module-skill-forge'));
+    console.log(resource('Discord', 'https://discord.gg/gk8jAdXWmj'));
+    console.log(resource('Support', 'https://buymeacoffee.com/armelhbobdad'));
+    console.log();
+    console.log(rule);
     console.log();
 
     intro(brand.amber('Skill Forge Installer'));
@@ -156,13 +170,10 @@ class UI {
 
     // Build IDE options from platform-codes.yaml
     const platforms = getAvailablePlatforms();
-    const ideOptions = [
-      ...platforms.map((p) => ({
-        label: p.preferred ? `${p.label} (Recommended)` : p.label,
-        value: p.value,
-      })),
-      { label: 'Other', value: 'other' },
-    ];
+    const ideOptions = platforms.map((p) => ({
+      label: p.preferred ? `${p.label} (Recommended)` : p.label,
+      value: p.value,
+    }));
 
     // Pre-check IDEs: saved config takes priority, then auto-detect from directories
     const savedIdes = savedConfig?.ides || [];
@@ -276,25 +287,57 @@ class UI {
   }
 
   displaySuccess(skfFolder, ides = [], action = 'fresh') {
-    // Build IDE name map from platform-codes.yaml
-    const ideNames = { other: 'your IDE' };
+    // Build per-platform lookup tables from platform-codes.yaml
+    const ideNames = {};
+    const idePrefixes = {};
     for (const p of getAvailablePlatforms()) {
       ideNames[p.value] = p.label;
+      idePrefixes[p.value] = p.skillInvocationPrefix; // null = auto-invoke only
     }
 
+    const selectedIdes = Array.isArray(ides) && ides.length > 0 ? ides : [];
+
     let ideDisplay;
-    if (!ides || ides.length === 0) {
+    if (selectedIdes.length === 0) {
       ideDisplay = 'your IDE';
-    } else if (ides.length === 1) {
-      ideDisplay = ideNames[ides[0]] || 'your IDE';
+    } else if (selectedIdes.length === 1) {
+      ideDisplay = ideNames[selectedIdes[0]] || 'your IDE';
     } else {
-      ideDisplay = ides.map((ide) => ideNames[ide] || ide).join(' or ');
+      ideDisplay = selectedIdes.map((ide) => ideNames[ide] || ide).join(' or ');
+    }
+
+    // Build per-IDE invocation hints. Skills with a prefix get a literal
+    // command; auto-invoke IDEs get a chat-based instruction.
+    const invocations = selectedIdes.map((ide) => {
+      const name = ideNames[ide] || ide;
+      const prefix = idePrefixes[ide];
+      if (prefix) {
+        return { ide: name, command: `${prefix}skf-forger`, auto: false };
+      }
+      return { ide: name, command: null, auto: true };
+    });
+
+    // Compose the activate line shown in steps and outro.
+    let activateLine;
+    if (invocations.length === 0) {
+      // Update flow with no IDE list — show both common forms
+      activateLine = `${brand.gold('/skf-forger')} ${chalk.dim('(Claude Code)')}  ${chalk.dim('·')}  ${brand.gold('$skf-forger')} ${chalk.dim('(Codex)')}`;
+    } else if (invocations.length === 1) {
+      const inv = invocations[0];
+      activateLine = inv.auto ? chalk.dim(`${inv.ide} auto-loads skf-forger`) : brand.gold(inv.command);
+    } else {
+      // Mixed: show one segment per IDE
+      activateLine = invocations
+        .map((inv) =>
+          inv.auto
+            ? `${chalk.dim('auto')} ${chalk.dim('(' + inv.ide + ')')}`
+            : `${brand.gold(inv.command)} ${chalk.dim('(' + inv.ide + ')')}`,
+        )
+        .join('  ');
     }
 
     let noteTitle;
     let noteBody;
-
-    const activateCmd = brand.gold('@Ferris SF');
 
     if (action === 'update') {
       noteTitle = brand.amber.bold('Update complete!');
@@ -304,15 +347,15 @@ class UI {
         'Your config.yaml and sidecar state are preserved.',
         '',
         `${chalk.white.bold('Next Steps')}`,
-        `1. Reload the agent in ${ideDisplay}:  ${activateCmd}`,
-        '2. Run @Ferris SF to re-detect tools if needed',
+        `1. Reload the agent in ${ideDisplay}:  ${activateLine}`,
+        `2. Then ask Ferris to ${chalk.white('"setup the forge"')} to re-detect tools`,
       ].join('\n');
     } else {
       noteTitle = brand.amber.bold('Installation complete!');
       noteBody = [
         `${chalk.white.bold('Get Started')}`,
         `1. Open this folder in ${ideDisplay}`,
-        `2. Activate Ferris:  ${activateCmd}`,
+        `2. Activate Ferris:  ${activateLine}`,
         '3. Ferris (your Skill Architect) will guide you through',
         '   setting up and forging your first agent skill',
       ].join('\n');
@@ -321,7 +364,7 @@ class UI {
     note(noteBody, noteTitle);
 
     outro(
-      `${brand.spark('⚒')}  Agent: ${chalk.white('Ferris')} ${chalk.dim('(Skill Architect & Integrity Guardian)')}\n${brand.dark('⚡')} Docs: ${brand.amber('https://armelhbobdad.github.io/bmad-module-skill-forge')}`,
+      `${brand.spark('⚒')}  Agent: ${chalk.white('Ferris')} ${chalk.dim('(Skill Architect & Integrity Guardian)')}\n${brand.dark('⚡')} Docs: ${brand.amber('https://armelhbobdad.github.io/bmad-module-skill-forge')}\n${brand.gold('▶')}  Call the forger:  ${activateLine}`,
     );
   }
 }

@@ -28,7 +28,8 @@ function loadPlatforms() {
 
 /**
  * Get available platforms for UI display.
- * Returns array of { value: 'claude-code', label: 'Claude Code', preferred: true }
+ * Returns array of { value, label, preferred, skillInvocationPrefix }.
+ * skillInvocationPrefix is null when the IDE only auto-invokes skills.
  */
 function getAvailablePlatforms() {
   const config = loadPlatforms();
@@ -38,6 +39,7 @@ function getAvailablePlatforms() {
       value: code,
       label: p.name,
       preferred: p.preferred || false,
+      skillInvocationPrefix: p.skill_invocation_prefix ?? null,
     }))
     .sort((a, b) => {
       // Preferred first, then alphabetical

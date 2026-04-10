@@ -114,7 +114,7 @@ class Installer {
     // Step 6: Install skills to selected IDEs
     let ideDirectories = [];
     const selectedIdes = config.ides || [];
-    if (selectedIdes.length > 0 && !selectedIdes.every((ide) => ide === 'other')) {
+    if (selectedIdes.length > 0) {
       s.start('Installing skills to IDEs...');
       try {
         const ideResult = await installSkillsToIdes(projectDir, skfDir, selectedIdes);

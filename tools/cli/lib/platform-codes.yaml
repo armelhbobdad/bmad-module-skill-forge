@@ -4,6 +4,13 @@
 #   name: Display name shown to users
 #   preferred: Whether shown as a recommended option on install
 #   suspended: (optional) Message explaining why install is blocked
+#   skill_invocation_prefix: (optional) Prefix users type to invoke a named
+#     skill in this IDE's chat. Examples:
+#       "/"        — slash command, e.g. /skf-forger (most IDEs)
+#       "$"        — dollar mention, e.g. $skf-forger (Codex)
+#       "/skill:"  — namespaced slash, e.g. /skill:skf-forger (Pi)
+#     Omit when the IDE only auto-invokes skills from descriptions and has
+#     no manual invocation form (Cline, GitHub Copilot, Junie, etc.).
 #   installer:
 #     target_dir: Directory where skill directories are installed
 #     legacy_targets: (optional) Old target dirs to clean up on reinstall
@@ -11,6 +18,7 @@ platforms:
   antigravity:
     name: "Google Antigravity"
     preferred: false
+    skill_invocation_prefix: "/"
     installer:
       detection_marker: .agent/antigravity
       legacy_targets:
@@ -20,6 +28,7 @@ platforms:
   auggie:
     name: "Auggie"
     preferred: false
+    skill_invocation_prefix: "/"
     installer:
       legacy_targets:
         - .augment/commands
@@ -28,6 +37,7 @@ platforms:
   claude-code:
     name: "Claude Code"
     preferred: true
+    skill_invocation_prefix: "/"
     installer:
       legacy_targets:
         - .claude/commands
@@ -36,6 +46,7 @@ platforms:
   cline:
     name: "Cline"
     preferred: false
+    # Auto-invoked from descriptions; no manual prefix
     installer:
       detection_marker: .clinerules
       legacy_targets:
@@ -45,6 +56,7 @@ platforms:
   codex:
     name: "Codex"
     preferred: false
+    skill_invocation_prefix: "$"
     installer:
       detection_marker: .codex
       legacy_targets:
@@ -54,6 +66,7 @@ platforms:
   codebuddy:
     name: "CodeBuddy"
     preferred: false
+    skill_invocation_prefix: "/"
     installer:
       legacy_targets:
         - .codebuddy/commands
@@ -62,6 +75,7 @@ platforms:
   crush:
     name: "Crush"
     preferred: false
+    # Auto-invoked from descriptions; no manual prefix
     installer:
       legacy_targets:
         - .crush/commands
@@ -70,6 +84,7 @@ platforms:
   cursor:
     name: "Cursor"
     preferred: true
+    skill_invocation_prefix: "/"
     installer:
       legacy_targets:
         - .cursor/commands
@@ -78,6 +93,7 @@ platforms:
   gemini:
     name: "Gemini CLI"
     preferred: false
+    skill_invocation_prefix: "/"
     installer:
       legacy_targets:
         - .gemini/commands
@@ -86,6 +102,7 @@ platforms:
   github-copilot:
     name: "GitHub Copilot"
     preferred: false
+    # Auto-invoked from descriptions; no manual prefix
     installer:
       detection_marker: .github/copilot-instructions.md
       legacy_targets:
@@ -96,6 +113,7 @@ platforms:
   iflow:
     name: "iFlow"
     preferred: false
+    skill_invocation_prefix: "/"
     installer:
       legacy_targets:
         - .iflow/commands
@@ -104,12 +122,14 @@ platforms:
   junie:
     name: "Junie"
     preferred: false
+    # Auto-invoked from descriptions; no manual prefix
     installer:
       target_dir: .junie/skills
 
   kilo:
     name: "KiloCoder"
     preferred: false
+    # Auto-invoked from descriptions; no manual prefix
     installer:
       legacy_targets:
         - .kilocode/workflows
@@ -118,6 +138,7 @@ platforms:
   kiro:
     name: "Kiro"
     preferred: false
+    # Auto-invoked from descriptions; no manual prefix
     installer:
       legacy_targets:
         - .kiro/steering
@@ -126,12 +147,14 @@ platforms:
   ona:
     name: "Ona"
     preferred: false
+    skill_invocation_prefix: "/"
     installer:
       target_dir: .ona/skills
 
   opencode:
     name: "OpenCode"
     preferred: false
+    skill_invocation_prefix: "/"
     installer:
       legacy_targets:
         - .opencode/agents
@@ -143,18 +166,21 @@ platforms:
   pi:
     name: "Pi"
     preferred: false
+    skill_invocation_prefix: "/skill:"
     installer:
       target_dir: .pi/skills
 
   qoder:
     name: "Qoder"
     preferred: false
+    skill_invocation_prefix: "/"
     installer:
       target_dir: .qoder/skills
 
   qwen:
     name: "QwenCoder"
     preferred: false
+    skill_invocation_prefix: "/"
     installer:
       legacy_targets:
         - .qwen/commands
@@ -163,6 +189,7 @@ platforms:
   roo:
     name: "Roo Code"
     preferred: false
+    skill_invocation_prefix: "/"
     installer:
       legacy_targets:
         - .roo/commands
@@ -171,6 +198,7 @@ platforms:
   rovo-dev:
     name: "Rovo Dev"
     preferred: false
+    # Auto-invoked from descriptions; no manual prefix
     installer:
       legacy_targets:
         - .rovodev/workflows
@@ -179,6 +207,7 @@ platforms:
   trae:
     name: "Trae"
     preferred: false
+    # Auto-invoked from descriptions; no manual prefix
     installer:
       legacy_targets:
         - .trae/rules
@@ -187,6 +216,7 @@ platforms:
   windsurf:
     name: "Windsurf"
     preferred: false
+    skill_invocation_prefix: "/"
     installer:
       legacy_targets:
         - .windsurf/workflows
