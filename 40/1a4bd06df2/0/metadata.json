@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "401a4bd06df2",
+  "session_id": "4c97a6be-984f-4988-a1c2-a6e3ef21ea90",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-10T12:38:39.724042171Z",
+  "branch": "testing",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "package.json",
+    "test/aimock/README.md",
+    "test/aimock/fixtures/step05-score/.gitkeep",
+    "test/aimock/harness.js",
+    "test/aimock/record.js",
+    "test/aimock/test-step05-score.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "a0276e14c487",
+  "checkpoint_transcript_start": 742,
+  "transcript_lines_at_start": 742,
+  "token_usage": {
+    "input_tokens": 155,
+    "cache_creation_tokens": 450273,
+    "cache_read_tokens": 12977079,
+    "output_tokens": 42919,
+    "api_call_count": 55
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-10T12:38:37.836077948Z",
+    "agent_lines": 662,
+    "human_added": 16,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 679,
+    "agent_percentage": 97.49631811487481
+  }
+}
