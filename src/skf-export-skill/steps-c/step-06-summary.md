@@ -130,19 +130,13 @@ No files were written. To run the export for real:
 - Suggest testing by invoking the skill's trigger phrase in a new conversation
 - If token budget was exceeded, note which skills were trimmed
 
-### 6. Workflow Complete
-
-"---
-
-**Skill forged and delivered.** ⚒️"
-
-### Result Contract
+### 6. Result Contract
 
 Write `{skills_output_folder}/export-skill-result.json` per `shared/references/output-contract-schema.md`. Include all context files and target managed-section files in `outputs`; include total always-on and on-trigger token counts in `summary`.
 
 ### 7. Workflow Health Check
 
-Load and execute `{nextStepFile}` for workflow self-improvement check.
+Load and execute `{nextStepFile}` for workflow self-improvement check. The health check is the terminal step and will display the workflow-complete marker on exit.
 
 ## CRITICAL STEP COMPLETION NOTE
 

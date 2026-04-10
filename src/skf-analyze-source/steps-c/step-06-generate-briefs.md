@@ -154,9 +154,9 @@ lastStep: 'step-06-generate-briefs'
 nextWorkflow: '{primary recommendation}'
 ```
 
-### 8. Present Completion Summary
+### 8. Present Summary
 
-"**Analyze-Source Workflow Complete**
+"**Analyze-Source Summary**
 
 **Project:** {project_name}
 **Forge Tier:** {forge_tier}
@@ -179,7 +179,7 @@ nextWorkflow: '{primary recommendation}'
 **Stack Skill Candidates:**
 {List candidates with recommendation to run create-stack-skill after individual skills are created}
 
-**This analysis is complete.** To refine any brief, run the recommended next workflow. To re-analyze with different scope, run analyze-source again."
+To refine any brief, run the recommended next workflow. To re-analyze with different scope, run analyze-source again."
 
 ### 9. Result Contract
 

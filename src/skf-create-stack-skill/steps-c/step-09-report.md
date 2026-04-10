@@ -87,9 +87,7 @@ Forge tier: **{tier}**"
 - **[TS] test-skill** — Validate the stack skill against its own assertions
 - **[EX] export-skill** — Package for distribution or agent loading
 
-- **[VS] verify-stack** — Validate the stack's integration feasibility against your architecture document{IF compose_mode:} (re-run to confirm feasibility after any architecture changes from **[RA] refine-architecture**){END IF}
-
-**Workflow complete.**"
+- **[VS] verify-stack** — Validate the stack's integration feasibility against your architecture document{IF compose_mode:} (re-run to confirm feasibility after any architecture changes from **[RA] refine-architecture**){END IF}"
 
 ### 6b. Result Contract
 

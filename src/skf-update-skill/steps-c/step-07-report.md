@@ -145,13 +145,7 @@ Based on the update results:"
 
 Write `{forge_version}/update-skill-result.json` per `shared/references/output-contract-schema.md`. Include all modified file paths in `outputs`; include `exports_affected`, `files_modified`, and `validation_status` (passed/warnings/failures) in `summary`.
 
-### 6. Workflow Complete
+### 6. Workflow Health Check
 
-"---
-
-**Update-skill workflow complete for `{skill_name}`.**"
-
-### 7. Workflow Health Check
-
-Load and execute `{nextStepFile}` for workflow self-improvement check.
+Load and execute `{nextStepFile}` for workflow self-improvement check. The health check is the terminal step and will display the workflow-complete marker on exit.
 

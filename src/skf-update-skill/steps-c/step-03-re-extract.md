@@ -22,6 +22,45 @@ Perform tier-aware extraction on only the changed files identified in step 02, p
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
 
+### 0. Check for Gap-Driven Mode
+
+**If `update_mode == "gap-driven"` (set in step-01 via `--from-test-report`, confirmed in step-02 section 0):**
+
+Source code has not drifted — the gap-derived manifest from step-02 contains export-level findings translated from the test report, not file-level changes. Perform citation spot-checks instead of full re-extraction to verify each gap-affected export is still at its recorded location.
+
+1. Use the provenance map already loaded in step-01 (at `{forge_version}/provenance-map.json`) — do not re-read
+2. For each entry in the gap-derived change manifest from step-02:
+   - Look up the export by `name` in `provenance_map.exports` — read `source_file` and `source_line`
+   - **If export not found in provenance map:** record as new (`provenance_citation: unknown`) — no spot-check possible; flag for merge step to handle as `NEW_EXPORT`
+   - **If export found:** read the source file at `source_line ± 5` lines and verify the symbol name still appears within that window
+   - Record verification outcome: `verified` (symbol at recorded line), `moved` (symbol found elsewhere in same file — record new line), or `missing` (symbol not found in file)
+3. Build a minimal extraction results block matching section 4's shape, with `mode: gap-driven` and per-export verification records:
+
+   ```
+   Extraction Results:
+     mode: gap-driven
+     files_extracted: 0
+     exports_extracted: {gap_count}
+     confidence_breakdown:
+       T1: {verified_count + moved_count}
+       T1-low: 0
+       T2: 0
+
+     Per-export verification:
+       {export_name}:
+         provenance_citation: {source_file}:{source_line}
+         verification: verified|moved|missing|unknown
+         new_location: {source_file}:{new_line}  # only if moved
+         gap_category: NEW_EXPORT|MODIFIED_EXPORT|metadata_update
+   ```
+
+4. Set `no_reextraction: true` in workflow context — step-06 will use this flag to skip stale `source_file`/`source_line`/`confidence` field updates for verified exports (only `moved` exports get updated citations).
+5. **Skip all remaining sections of step-03** — sections 1–5 are source-drift extraction paths that do not apply. Display the summary below and load `{nextStepFile}` to proceed directly to the merge step.
+
+"**Gap-driven re-extraction.** Verified {verified_count}/{gap_count} citations against live source. Moved: {moved_count}. Missing: {missing_count}. Unknown (not in provenance map): {unknown_count}. No source re-extraction performed — proceeding to merge."
+
+**If normal mode (`update_mode` unset or not `gap-driven`):** Continue with docs-only check and source extraction below.
+
 ### 1. Check for Docs-Only Mode
 
 **If `source_type: "docs-only"` in the original brief or metadata:**
