@@ -43,29 +43,43 @@ class UI {
       logoLines = ['  S K F'];
     }
 
-    const w = 54;
+    const w = 72;
     const frame = brand.dark;
     const top = frame('  ╔' + '═'.repeat(w) + '╗');
     const mid = frame('  ╟' + '─'.repeat(w) + '╢');
     const bottom = frame('  ╚' + '═'.repeat(w) + '╝');
+    const rule = frame('  ' + '━'.repeat(w));
     const row = (content) => {
       // eslint-disable-next-line no-control-regex -- stripping ANSI escape codes for visual width calculation
       const stripped = content.replaceAll(/\u001B\[\d+(?:;\d+)*m/g, '');
       const pad = Math.max(0, w - stripped.length - 2);
       return frame('  ║ ') + content + ' '.repeat(pad) + frame(' ║');
     };
+    const empty = row('');
+    const indent = '  ';
 
     console.log();
     console.log(top);
+    console.log(empty);
     for (const line of logoLines) {
-      console.log(row(brand.amber.bold(line.replace(/\s+$/, ''))));
+      console.log(row(indent + brand.amber.bold(line.replace(/\s+$/, ''))));
     }
+    console.log(empty);
     console.log(mid);
-    console.log(row(chalk.white.bold('Skill Forge') + chalk.dim(` v${version}`)));
-    console.log(row(chalk.dim('Agent Skill Compiler') + ' '.repeat(15) + brand.spark('⚒')));
-    console.log(mid);
-    console.log(row(chalk.dim('Code · Docs · Discourse → Verified agent skills')));
+    console.log(row(indent + chalk.white.bold('Skill Forge') + '  ' + brand.spark('⚒') + '  ' + chalk.dim('Agent Skill Compiler')));
+    console.log(row(indent + chalk.dim('Turn code and docs into instructions AI agents can actually follow.')));
+    console.log(row(indent + chalk.dim(`v${version}  ·  MIT License  ·  Open Source`)));
     console.log(bottom);
+    console.log();
+    console.log(rule);
+    console.log();
+    const resource = (label, url) => '  ' + chalk.dim(label.padEnd(10)) + brand.amber(url);
+    console.log(resource('Docs', 'https://armelhbobdad.github.io/bmad-module-skill-forge'));
+    console.log(resource('GitHub', 'https://github.com/armelhbobdad/bmad-module-skill-forge'));
+    console.log(resource('Discord', 'https://discord.gg/gk8jAdXWmj'));
+    console.log(resource('Support', 'https://buymeacoffee.com/armelhbobdad'));
+    console.log();
+    console.log(rule);
     console.log();
 
     intro(brand.amber('Skill Forge Installer'));
