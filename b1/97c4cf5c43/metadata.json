@@ -3,7 +3,7 @@
   "checkpoint_id": "b197c4cf5c43",
   "strategy": "manual-commit",
   "branch": "dev",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "docs/getting-started.md"
   ],
@@ -17,10 +17,10 @@
     }
   ],
   "token_usage": {
-    "input_tokens": 19,
-    "cache_creation_tokens": 9591,
-    "cache_read_tokens": 507721,
-    "output_tokens": 3616,
-    "api_call_count": 9
+    "input_tokens": 153,
+    "cache_creation_tokens": 167027,
+    "cache_read_tokens": 7038381,
+    "output_tokens": 61629,
+    "api_call_count": 74
   }
 }

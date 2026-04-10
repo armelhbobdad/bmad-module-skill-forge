@@ -85,3 +85,39 @@ I just undid the commit. Look what the new bmad method installer proposes: armel
 ---
 
 commit
+
+---
+
+the @tools/cli/lib/ui.js should end by asking user to call the forger. For example: /skf-forger
+
+---
+
+commit
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+we should say `/skf-forger` or `$skf-forger` depending on what your idea support. May be you should use firecrawl to validate for each of them?
+
+---
+
+yes i prefer
+
+---
+
+can you squash the 3 polish(cli) commit?
+
+---
+
+1
+
+---
+
+In @docs/getting-started.md  The correct local path is just /path/to/bmad-module-skill-forge, not /path/to/bmad-module-skill-forge/src/
+
+---
+
+Can you amend it to f18bbdd docs(getting-started): update BMad install
