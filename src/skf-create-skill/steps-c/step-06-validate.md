@@ -110,7 +110,7 @@ Record: "Security scan skipped — SNYK_TOKEN not configured"
 
 **If tessl available**, run: `npx -y tessl skill review <staging-skill-dir>`
 
-Parse output for: `description_score`, `content_score`, `average_score`, `validation_result`, `judge_suggestions[]`.
+Parse output for: `description_score`, `content_score`, `review_score`, `validation_result`, `judge_suggestions[]`.
 
 - **Content score < 70%:** Record warning: "Content quality warning: tessl scored content at {score}%."
 - **Unavailable:** Skip with note: "Content quality review skipped — tessl tool unavailable"

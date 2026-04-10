@@ -94,13 +94,13 @@ npx -y tessl skill review {skillDir}
 **Parse the output** to extract:
 - `description_score` — percentage (e.g., 100%)
 - `content_score` — percentage (e.g., 45%)
-- `average_score` — percentage (e.g., 73%)
+- `review_score` — percentage (e.g., 73%)
 - `validation_result` — PASSED/FAILED
 - `judge_suggestions[]` — list of improvement suggestions
 
-The tessl output is human-readable text, not JSON. Parse the percentage values from lines like "Description: 100%", "Content: 45%", "Average Score: 73%".
+The tessl output is human-readable text, not JSON. Parse the percentage values from lines like "Description: 100%", "Content: 45%", "Review Score: 73%".
 
-Store in context: `tessl_description_score`, `tessl_content_score`, `tessl_average_score`, `tessl_suggestions`
+Store in context: `tessl_description_score`, `tessl_content_score`, `tessl_review_score`, `tessl_suggestions`
 
 **If tessl content score < 70%:** Flag a warning:
 
@@ -113,10 +113,10 @@ Store in context: `tessl_description_score`, `tessl_content_score`, `tessl_avera
 **If both tools ran:**
 
 ```
-external_score = (skill_check_score + tessl_average_score) / 2
+external_score = (skill_check_score + tessl_review_score) / 2
 ```
 
-Note: `skill_check_score` is 0-100, `tessl_average_score` is 0-100%. Both are on the same scale.
+Note: `skill_check_score` is 0-100, `tessl_review_score` is 0-100%. Both are on the same scale.
 
 **If only one tool ran:** Use that tool's score as the external score.
 
@@ -141,7 +141,7 @@ Append to `{outputFile}`:
 - **Validation:** {PASSED/FAILED}
 - **Description Score:** {score}%
 - **Content Score:** {score}%
-- **Average Score:** {score}%
+- **Review Score:** {score}%
 - **Suggestions:**
 {bulleted list of judge suggestions}
 
