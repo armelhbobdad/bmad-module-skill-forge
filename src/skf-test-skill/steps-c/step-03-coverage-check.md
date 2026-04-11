@@ -173,7 +173,14 @@ Load `{scoringRulesFile}` to determine category scores:
 - **Signature Accuracy:** (matching_signatures / total_documented) * 100 (Forge/Deep only, "N/A" for Quick)
 - **Type Coverage:** (documented_types / total_types) * 100 (Forge/Deep only, "N/A" for Quick)
 
-**State 2 denominator validation:** When using provenance-map as the baseline (State 2), cross-reference the provenance-map entry count against `metadata.json`'s `exports[]` array before computing Export Coverage. If they diverge, use the union as the denominator per the source-access-protocol rules. Log the gap size if any.
+**Stratified-scope denominator (monorepo curated subsets):** Before computing Export Coverage, check whether the Source Access Protocol's stratified-scope clause applies to this skill (see `{sourceAccessProtocol}` §Source API Surface Definition — "Stratified-scope monorepo packages"). When it applies:
+
+1. **Prefer `metadata.json.stats.effective_denominator`** when present. Use it directly as `total_exports`.
+2. **Otherwise re-derive at test time** from the brief's `scope.include` globs per the protocol, and use the resulting union count as `total_exports`.
+
+Record the denominator source in the Coverage Analysis section as `Denominator: stratified ({effective_denominator | scope.include union}, {N} files matched)`. When stratified scope does not apply, use the standard barrel-based denominator and omit the stratified annotation.
+
+**State 2 denominator validation:** When using provenance-map as the baseline (State 2), cross-reference the provenance-map entry count against `metadata.json`'s `exports[]` array before computing Export Coverage. If they diverge, use the union as the denominator per the source-access-protocol rules. Log the gap size if any. The stratified-scope rule above takes precedence when both conditions apply — compute the stratified denominator first, then validate the provenance-map entry count against it.
 
 ### 5. Append Coverage Analysis to Output
 
@@ -186,6 +193,7 @@ Append the **Coverage Analysis** section to `{outputFile}`:
 **Source Access:** {analysis_confidence} (full | provenance-map | metadata-only | remote-only | docs-only)
 **Source Path:** {source_path}
 **Files Analyzed:** {count}
+**Denominator:** {barrel | stratified ({effective_denominator | scope.include union}, {N} files matched)}
 
 ### Export Coverage
 

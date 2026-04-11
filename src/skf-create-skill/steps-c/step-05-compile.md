@@ -107,6 +107,12 @@ Following the structure from the skill-sections data file:
   - `exports_total`: `exports_public_api` + `exports_internal`
   - `public_api_coverage`: `exports_documented / exports_public_api` (1.0 when all public API exports are documented; `null` if `exports_public_api` is 0)
   - `total_coverage`: `exports_documented / exports_total` (may be low for large codebases — this is expected; `null` if `exports_total` is 0)
+  - `effective_denominator` (**optional** — emit only for stratified-scope monorepo packages): the count of public exports from files matched by `scope.include` (filtered by `scope.exclude`), resolved against `source_path`. This is the coverage denominator `skf-test-skill` uses when the package is a curated subset of a multi-package repository — it avoids re-deriving the stratified denominator at test time. Compute when ALL of the following hold:
+    1. The source is a monorepo (detected via `packages/` layout, `workspaces` field in root `package.json`, `lerna.json`, `rush.json`, `nx.json`, or Cargo `[workspace]`).
+    2. `scope.type` is not `full-library`, AND `scope.include` lists a curated file/directory subset rather than the full workspace.
+    3. `scope.notes` is present and documents the stratification strategy (e.g., a tiered A/B/C plan) — this serves as the intent marker confirming the subset is by design.
+
+    Otherwise omit the field entirely — when absent, `skf-test-skill` falls back to `exports_public_api`. See `skf-test-skill` `references/source-access-protocol.md` §Source API Surface Definition ("Stratified-scope monorepo packages") for the test-side consumption rules.
 - Set `description` from the SKILL.md frontmatter `description` field (already assembled in section 2)
 - Set `language` from source analysis (e.g., `"typescript"`, `"python"`) — use the primary language of the entry point file
 - Set `ast_node_count` from extraction stats if ast-grep was used (Forge/Deep tier), otherwise omit

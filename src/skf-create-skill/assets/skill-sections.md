@@ -224,6 +224,7 @@ Indexed pipe-delimited format for CLAUDE.md managed section (~80-120 tokens per 
     "total_coverage": 0.0,
     "scripts_count": 0,
     "assets_count": 0
+    // "effective_denominator": 0  // optional — emitted for stratified-scope monorepo packages; test-skill uses this as the coverage denominator when present. See step-05-compile.md §4 emit rules.
   },
   // scripts[] and assets[] — include ONLY when inventories are non-empty; omit entirely otherwise
   // "scripts": [{ "file": "scripts/{name}", "purpose": "{description}", "source_file": "{source-path}", "confidence": "T1-low" }],

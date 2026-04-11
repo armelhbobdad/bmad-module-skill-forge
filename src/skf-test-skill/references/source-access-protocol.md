@@ -10,6 +10,17 @@
 - **Rust:** items in `pub use` from `lib.rs` or `mod.rs`
 - **Empty-barrel packages (copy-paste / subpath-only distribution):** If the primary entry point is empty or re-exports nothing (e.g., `export {};` in `index.ts`, an empty `__init__.py`, `lib.rs` with no `pub use`), the package does not expose a barrel API. Do **not** compute coverage against the empty barrel — the denominator would be zero and the score meaningless. Instead, consult the skill brief's `scope.include` globs (`forge-data/{skill_name}/skill-brief.yaml`) to identify the authorized entry points, and build the public API surface from the **union of named exports across those files**. The skill brief's `scope.notes` field should document this distribution model explicitly; if present, treat it as confirmation that the empty barrel is by design rather than a bug. If no skill brief is available and the barrel is empty, set `analysis_confidence: docs-only` and report that the source API surface could not be determined.
 
+- **Stratified-scope monorepo packages (curated subsets of multi-package repos):** If the source is a monorepo (detect via `packages/` layout, `workspaces` field in root `package.json`, `lerna.json`, `rush.json`, `nx.json`, or Cargo `[workspace]`) AND the skill brief's `scope.include` lists a curated file/directory subset rather than the full workspace, the coverage denominator must reflect only the authored surface, not the monorepo's global export count. This is distinct from the empty-barrel case: each workspace package may have a non-empty barrel, but the skill intentionally documents only a tiered subset.
+
+  **Resolution order:**
+
+  1. **Prefer `metadata.json.stats.effective_denominator`** when present. `skf-create-skill` step-05 §4 writes this field for stratified-scope skills. When set, use it directly as the `exports_public_api` count for coverage scoring.
+  2. **Fall back to live re-derivation** when `effective_denominator` is absent (older skills, quick-tier output, or skills compiled before this rule existed). Read the brief's `scope.include` globs from `forge-data/{skill_name}/skill-brief.yaml`, resolve them against `source_path`, filter out files matching `scope.exclude`, and compute the source API surface as the **union of named exports across the matched files only**. The skill brief's `scope.notes` field should document the stratification strategy (e.g., "Tier A: fully documented; Tier B: deferred to references; Tier C: excluded") — when present, treat it as confirmation that the curated subset is by design, not a scope gap.
+
+  Leave `analysis_confidence` unchanged (still `full` or `provenance-map` per the waterfall) — stratified scope does not degrade confidence, only the denominator. Annotate the coverage report with: `Stratified scope — denominator: {effective_denominator | scope.include union} ({N} files matched, {M} exports union)`.
+
+  **When this clause does NOT apply:** `scope.type: "full-library"` skills, single-package repositories, or stratified briefs where the full monorepo is intentionally in scope. For those, use the standard barrel-based denominator.
+
 Internal module symbols are **excluded** from the coverage denominator unless they are explicitly documented in SKILL.md (in which case they count as documented extras, not missing coverage).
 
 This matches the extraction-patterns.md convention used during skill creation: coverage measures how well SKILL.md documents what users actually import, not the entire internal codebase.
