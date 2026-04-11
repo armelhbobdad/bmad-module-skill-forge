@@ -145,7 +145,15 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 - [MANUAL] integrity: {PASS/WARN/FAIL}
 - Confidence tiers: {PASS/WARN/FAIL}
 - Provenance: {PASS/WARN/FAIL}
+
+### Description Guard
+- Restored: {true/false}
+- Triggering tool: {tool_name or —}
+- Original description preserved: {true/false}
+- Notes: {one-sentence detail or —}
 ```
+
+**Description Guard population** (used by §7 Post-Write Validation when the §0 protocol fires): fill all four fields from context when `description_guard_restored == true` (triggering tool, whether restore succeeded, what changed). When `Restored: false`, the other three fields are `—` — this is the clean-run expected state. Same field semantics and populator logic as create-skill step-06 §8.
 
 ### 5. Verify Stack Skill Reference File Writes (Conditional) and Regenerate context-snippet.md
 

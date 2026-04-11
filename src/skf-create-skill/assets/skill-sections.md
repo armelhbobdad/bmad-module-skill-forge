@@ -369,9 +369,17 @@ When `file_type: "doc"`:
 ## Quality Score Breakdown
 - Frontmatter (30%): {score} | Description (30%): {score} | Body (20%): {score} | Links (10%): {score} | File (10%): {score}
 
+## Description Guard
+- Restored: {true/false}
+- Triggering tool: {tool_name or —}
+- Original description preserved: {true/false}
+- Notes: {one-sentence detail or —}
+
 ## Auto-Fixed Issues
 - {list of issues automatically corrected by --fix}
 
 ## Remaining Warnings
 - {any warnings from extraction or validation}
 ```
+
+**Description Guard slot:** populated by step-06 §0 (create-skill) and §0 (update-skill) when the guard protocol fires. `Restored: true` indicates that an external tool (typically `skill-check --fix` or `split-body`) rewrote the frontmatter `description` and the guard restored the pre-tool value. When `Restored: false`, leave `Triggering tool`, `Original description preserved`, and `Notes` as `—`. When `Restored: true`, fill all four fields: tool name, whether the original was successfully written back, and a one-sentence note describing what the tool had changed (e.g., "replaced with generic summary", "truncated at 80 chars", "angle-bracket tokens re-introduced"). Downstream test-skill assertions can grep for `Restored: true` to detect unintended tool rewrites without parsing free-form warning prose.

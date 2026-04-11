@@ -207,12 +207,27 @@ Add validation results to evidence-report content in context:
 ## Quality Score Breakdown
 - Frontmatter (30%): {score} | Description (30%): {score} | Body (20%): {score} | Links (10%): {score} | File (10%): {score}
 
+## Description Guard
+- Restored: {true/false}
+- Triggering tool: {tool_name or —}
+- Original description preserved: {true/false}
+- Notes: {one-sentence detail or —}
+
 ## Auto-Fixed Issues
 - {list of issues automatically corrected by --fix}
 
 ## Remaining Warnings / Security Findings / Content Quality (tessl)
 - {warnings, security results, tessl scores and suggestions — or "skipped"}
 ```
+
+**Description Guard population:** if the §0 protocol fired during §2 (`skill-check --fix`) or §4 (`split-body`), fill the four Description Guard fields from context:
+
+- `Restored: true` when `description_guard_restored == true`, otherwise `false`.
+- `Triggering tool`: the tool name recorded by §0 (`skill-check --fix`, `skill-check split-body`, etc.), or `—` if the guard did not fire.
+- `Original description preserved`: `true` if the restore succeeded (on-disk now matches the pre-tool snapshot), `false` if restoration itself failed (rare — treat as a halt condition in a future version).
+- `Notes`: a one-sentence description of what the tool had changed. Typical values: `"replaced with generic summary"`, `"truncated at N chars"`, `"angle-bracket tokens re-introduced"`, `"field deleted entirely"`. If `Restored: false`, use `—`.
+
+When `Restored: false`, the three follow-up fields are all `—` — this is the clean-run expected state.
 
 ### 9. Menu Handling Logic
 
