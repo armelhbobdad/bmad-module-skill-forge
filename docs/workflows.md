@@ -290,7 +290,7 @@ Instead of running one workflow per session, you can chain multiple workflows in
 
 ```
 @Ferris BS CS TS EX                    — space-separated codes
-@Ferris QS[lodash] TS EX               — with target argument in brackets
+@Ferris QS[cocoindex] TS EX            — with target argument in brackets
 @Ferris CS TS[min:80] EX               — with circuit breaker threshold override
 @Ferris forge-quick cognee             — named alias with target
 ```
@@ -321,7 +321,7 @@ Instead of running one workflow per session, you can chain multiple workflows in
 @Ferris forge-quick @tanstack/query                                  — QS + TS + EX for TanStack Query
 @Ferris forge https://github.com/topoteretes/cognee cognee           — BS + CS + TS + EX, explicit URL + name
 @Ferris forge https://github.com/topoteretes/cognee cognee "public API only"   — with scope hint
-@Ferris maintain lodash                                              — AS + US + TS + EX for an existing lodash skill
+@Ferris maintain cocoindex                                           — AS + US + TS + EX for an existing cocoindex skill
 @Ferris onboard                                                      — AN + CS + TS + EX on the current project
 ```
 
@@ -332,7 +332,7 @@ Instead of running one workflow per session, you can chain multiple workflows in
 Add `--headless` or `-H` to any workflow command to skip all confirmation gates. Ferris auto-proceeds with default actions (typically "Continue") and logs each auto-decision. Progress output is still shown — headless skips interaction, not reporting.
 
 ```
-@Ferris QS lodash --headless     — quick skill with no interaction gates
+@Ferris QS cocoindex --headless  — quick skill with no interaction gates
 @Ferris TS --headless             — test a skill without the review pause
 @Ferris EX -H                    — export with auto-approved context update
 ```

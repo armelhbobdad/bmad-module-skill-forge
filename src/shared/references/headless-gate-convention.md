@@ -53,7 +53,7 @@ Presents a menu with multiple options (P/I/A, etc.).
 
 For skills that require user input (skill name, target path, etc.), headless mode accepts arguments via the invocation. Each skill's Invocation Contract documents its required headless args.
 
-Example: `@Ferris QS lodash --headless` passes `lodash` as the target and skips all gates.
+Example: `@Ferris QS cocoindex --headless` passes `cocoindex` as the target and skips all gates.
 
 ## What Headless Does NOT Skip
 

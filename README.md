@@ -80,7 +80,7 @@ You'll be prompted for project name, output folders, and IDE configuration. See 
 1. **Set up your environment:** `@Ferris SF` — detects your tools and sets your capability tier
 2. **Generate your first skill:** `@Ferris QS <package-name>` — creates a verified skill in under a minute
 3. **Full quality path:** `@Ferris BS` → clear session → `@Ferris CS` — brief first, then compile for maximum accuracy
-4. **Pipeline mode:** `@Ferris forge lodash` — chains Brief → Create → Test → Export in one command
+4. **Pipeline mode:** `@Ferris forge cocoindex` — chains Brief → Create → Test → Export in one command
 
 > **Tip:** Start a fresh conversation before each workflow (or use pipeline mode to chain them automatically). SKF workflows load significant context — clearing between them prevents interference.
 

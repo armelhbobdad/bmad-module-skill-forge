@@ -26,7 +26,7 @@ Provide a **GitHub URL** or **package name** and I'll resolve it to source and c
 
 **Target:** (GitHub URL or package name)
 
-Examples: `lodash`, `@tanstack/query`, `https://github.com/tursodatabase/limbo`, `cognee@0.5.0`
+Examples: `cocoindex`, `@tanstack/query`, `https://github.com/tursodatabase/limbo`, `cognee@0.5.0`
 
 **Optional:**
 - **Language hint:** (if the repo is multi-language)

@@ -11,7 +11,7 @@ The forger recognizes pipeline invocations when the user provides multiple workf
 ```
 AN CS TS EX              — space-separated codes
 AN -> CS -> TS -> EX     — arrow-separated (equivalent)
-BS CS[lodash] TS EX      — with target argument in brackets
+BS CS[cocoindex] TS EX   — with target argument in brackets
 CS TS[min:80] EX         — with circuit breaker threshold
 ```
 
@@ -68,7 +68,7 @@ Override syntax: `TS[min:80]` sets the test-skill threshold to 80 for this pipel
 Brackets after a workflow code (`CODE[value]`) are parsed as follows:
 
 - **Circuit breaker override**: `min:N` where N is a number — e.g., `TS[min:80]` sets the threshold for that workflow
-- **Target argument**: any other value — e.g., `CS[lodash]` passes "lodash" as the target to CS
+- **Target argument**: any other value — e.g., `CS[cocoindex]` passes "cocoindex" as the target to CS
 
 Only workflows with a circuit breaker entry (AN, CS, TS, AS, VS) accept `min:N` overrides. All other workflows ignore `min:N` brackets. Target arguments are valid for any workflow that accepts a named input (CS, QS, BS, US, etc.).
 
@@ -84,9 +84,9 @@ pipeline:
     - {code: AN, status: ok, output: {units: 3, briefs: [...]}}
   pending: [CS, TS, EX]
   data:
-    skill_name: "lodash"
+    skill_name: "cocoindex"
     brief_path: "/path/to/skill-brief.yaml"
-    target: "lodash"
+    target: "cocoindex"
 ```
 
 ## Anti-Patterns
