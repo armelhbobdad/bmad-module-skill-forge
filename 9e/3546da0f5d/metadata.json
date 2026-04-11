@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "9e3546da0f5d",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "src/shared/health-check.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9e/3546da0f5d/0/metadata.json",
+      "transcript": "/9e/3546da0f5d/0/full.jsonl",
+      "context": "/9e/3546da0f5d/0/context.md",
+      "content_hash": "/9e/3546da0f5d/0/content_hash.txt",
+      "prompt": "/9e/3546da0f5d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 135,
+    "cache_creation_tokens": 154419,
+    "cache_read_tokens": 5049814,
+    "output_tokens": 99484,
+    "api_call_count": 52
+  }
+}
