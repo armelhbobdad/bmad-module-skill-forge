@@ -95,9 +95,9 @@ Generate:
 
 Estimate token count of generated snippet (approximate: words * 1.3).
 
-- Target: ~80-120 tokens per skill
-- Warning threshold: >150 tokens
-- If exceeding warning threshold, trim description, exports list, or refs to fit
+- Target: ~80-120 tokens per skill (aspirational for Quick/Forge tiers)
+- Warning threshold: >300 tokens (hard ceiling — Deep tier may legitimately exceed 120 when gotchas carry load-bearing breaking-change notices)
+- If exceeding warning threshold, trim description, exports list, or refs to fit — **do NOT drop gotchas to fit the target**; gotchas exist precisely to deliver the "do not rely on training data" signal and are the last thing to cut
 
 ### 5. Write or Preview Snippet
 
