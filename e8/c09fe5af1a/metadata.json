@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e8c09fe5af1a",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/knowledge/version-paths.md",
+    "src/shared/scripts/skf-manifest-ops.py",
+    "src/skf-drop-skill/steps-c/step-02-execute.md",
+    "src/skf-export-skill/steps-c/step-04-update-context.md",
+    "test/test-skf-manifest-ops.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e8/c09fe5af1a/0/metadata.json",
+      "transcript": "/e8/c09fe5af1a/0/full.jsonl",
+      "context": "/e8/c09fe5af1a/0/context.md",
+      "content_hash": "/e8/c09fe5af1a/0/content_hash.txt",
+      "prompt": "/e8/c09fe5af1a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 46,
+    "cache_creation_tokens": 88408,
+    "cache_read_tokens": 2472549,
+    "output_tokens": 27886,
+    "api_call_count": 32
+  }
+}
