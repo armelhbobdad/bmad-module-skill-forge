@@ -58,12 +58,20 @@ Assemble each section in order using the assembly rules data file (`{assemblyRul
 
 **Before writing SKILL.md frontmatter to disk**, scan the assembled `description` string for angle-bracket tokens and substitute them. This prevents `skill-check` and `tessl` deterministic validators from rejecting the description as containing XML tags (which fails the review with 0% description score).
 
-**Detection:** match any substring of the form `<token>` where `token` contains only letters, digits, hyphens, underscores, or dots (e.g., `<name>`, `<component-id>`, `<file.ts>`). Do NOT match email addresses, URLs with `<` / `>`, or tokens containing spaces.
+**Detection:** match any substring of the form `<token>` where ALL of these conditions hold:
 
-**Substitution (in priority order):**
+1. `token` contains only letters, digits, hyphens, underscores, or dots (e.g., `<name>`, `<component-id>`, `<file.ts>`).
+2. The character immediately before `<` is NOT an ASCII letter or digit. This excludes TypeScript / C++ / Rust generics such as `Array<T>`, `Promise<string>`, `Vec<u8>` where the `<` is attached to an identifier. Inline generics are NOT XML tags — validators do not reject them — and wrapping them in backticks would corrupt the surrounding prose into broken markdown.
+3. The token does not contain whitespace (e.g., `<unsigned int>` is a type expression, not a placeholder — skip).
+4. The angle-bracket substring is NOT already inside a backtick span (`` `...` ``). Backticks already protect the content from XML-tag parsing. Example: `` `npx foo add <name>` `` is safe as-is.
 
-1. **Backticked form** — wrap the entire angle-bracket token in backticks: `<name>` → `` `<name>` ``. Preferred for CLI placeholders and example phrasing because it preserves visual intent.
-2. **If the token already sits inside a backtick span**, leave it alone — the backticks already protect it from XML-tag parsing. Example: `` `npx foo add <name>` `` is safe as-is.
+**Anchor positions where the rule IS intended to match:** start of the description, after a space, after punctuation (`.`, `,`, `;`, `:`, `(`, `[`, `/`, `-`, newline). These are the positions where a standalone placeholder token typically appears.
+
+**Anchor positions where the rule is NOT intended to match:** immediately after a word character (generics position). This is the discriminator between "standalone `<name>` placeholder" and "inline `Array<T>` generic."
+
+**Substitution:**
+
+For each match that passes the detection rules above, wrap the entire angle-bracket token in backticks: `<name>` → `` `<name>` ``. This is the only substitution — no uppercase renaming, no curly-brace conversion. The backtick form preserves visual intent and is invariant under future tessl / skill-check rule changes (backticked content is always literal).
 
 Perform this pass on the final assembled description in context before it is written to `SKILL.md`. Record the count of substitutions (if any) in context as `description_sanitizations: {count}` for the evidence report.
 
