@@ -114,6 +114,8 @@ If no integration patterns exist, combined coherence equals reference validity.
 | High     | Signature mismatch between source and SKILL.md                                                                 |
 | Medium   | Missing type or interface documentation                                                                        |
 | Medium   | Migration section present/absent mismatch with T2-future annotation data (Deep tier)                           |
+| Medium   | Metadata drift — conflicting export counts across metadata.json stats, exports[] array, and provenance-map (>10% divergence) |
+| Medium   | Denominator inflation — stratified-scope `scope.include` union exceeds provenance-map entry count by >25% (brief missing `scope.tier_a_include`) |
 | Medium   | Script/asset directory exists but no Scripts & Assets section in SKILL.md                                      |
 | Medium   | Scripts & Assets section references file not found in scripts/ or assets/ directory                            |
 | Low      | Script/asset file present without provenance entry in provenance-map.json file_entries                         |

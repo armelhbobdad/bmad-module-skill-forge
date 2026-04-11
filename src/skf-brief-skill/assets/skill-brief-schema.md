@@ -25,6 +25,7 @@
 | `target_version`   | string | Semantic version (`X.Y.Z` or `X.Y.Z-prerelease`) | User-specified target version. When present, overrides auto-detection and becomes the skill's version. Recommended for docs-only skills where auto-detection is unavailable.                                                   |
 | `source_authority` | string | `official` / `community` / `internal`            | Default `community`. Set to `official` only when the skill creator is the library maintainer. Forced to `community` when `source_type: "docs-only"`.                                                                           |
 | `source_ref`       | string | Git ref (tag/branch/HEAD)                        | Resolved git ref used for source access. Set automatically during tag resolution — do not set manually.                                                                                                                        |
+| `scope.tier_a_include` | array | Glob patterns                                 | Optional. Narrower tier-A include list for stratified-scope monorepo skills. When present, `skf-test-skill` re-derives the coverage denominator from this list instead of the coarse `scope.include`, so the denominator reflects the authoring surface rather than incidentally-matched internal infrastructure. See `skf-test-skill/references/source-access-protocol.md` stratified-scope resolution. |
 
 When `source_type: "docs-only"`:
 - `source_repo` becomes optional (set to doc site URL for reference)
@@ -61,6 +62,10 @@ scope:
   exclude:
     - "**/*.test.*"           # Glob patterns for excluded files
     - "**/node_modules/**"
+  # Optional: narrower tier-A include list for stratified-scope monorepos
+  # tier_a_include:
+  #   - "code/core/src/manager-api/**"
+  #   - "code/core/src/preview-api/**"
   notes: "Optional notes about scope decisions"
   # Optional: amendment log for scope decisions made during create-skill §2a
   # amendments:
