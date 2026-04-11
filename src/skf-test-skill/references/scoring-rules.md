@@ -82,7 +82,7 @@ Note: When provenance-map entries are predominantly T1 (AST-verified at compilat
 - Cross-repository reference verification
 - QMD knowledge enrichment for coherence
 - Full scoring formula with maximum depth
-- **Migration & Deprecation Warnings section:** If T2-future annotations exist in the enrichment data, verify that Section 4b is present in SKILL.md Tier 1 and that each warning traces to a T2 provenance citation. If no T2-future annotations exist, Section 4b should be absent (not empty). Presence/absence mismatch is a Medium severity gap.
+- **Migration & Deprecation Warnings section:** If T2-future annotations exist in the enrichment data, verify that Section 4b is present in SKILL.md Tier 1 and that each warning traces to a T2 provenance citation. If no T2-future annotations exist, Section 4b should normally be absent (not empty). Presence/absence mismatch is a Medium severity gap — with one Info-severity exception for historical-migration content (completed package renames, consolidated import paths, shipped API cutovers that remain load-bearing for training-data drift remediation). See `steps-c/step-04-coherence-check.md` §2b/§5b for the three-case rule.
 
 ## Score Calculation
 
