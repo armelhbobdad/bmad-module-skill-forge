@@ -8,6 +8,7 @@
 - **TypeScript/JavaScript:** named exports from `index.ts` / `index.js` — exclude unexported locals
 - **Go:** exported identifiers (capitalized) from the package's public-facing files
 - **Rust:** items in `pub use` from `lib.rs` or `mod.rs`
+- **Empty-barrel packages (copy-paste / subpath-only distribution):** If the primary entry point is empty or re-exports nothing (e.g., `export {};` in `index.ts`, an empty `__init__.py`, `lib.rs` with no `pub use`), the package does not expose a barrel API. Do **not** compute coverage against the empty barrel — the denominator would be zero and the score meaningless. Instead, consult the skill brief's `scope.include` globs (`forge-data/{skill_name}/skill-brief.yaml`) to identify the authorized entry points, and build the public API surface from the **union of named exports across those files**. The skill brief's `scope.notes` field should document this distribution model explicitly; if present, treat it as confirmation that the empty barrel is by design rather than a bug. If no skill brief is available and the barrel is empty, set `analysis_confidence: docs-only` and report that the source API surface could not be determined.
 
 Internal module symbols are **excluded** from the coverage denominator unless they are explicitly documented in SKILL.md (in which case they count as documented extras, not missing coverage).
 

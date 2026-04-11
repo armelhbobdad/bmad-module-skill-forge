@@ -7,6 +7,9 @@ nextStepFile: 'shared/health-check.md'
 outputFile: '{forge_version}/test-report-{skill_name}.md'
 scoringRulesFile: 'references/scoring-rules.md'
 outputFormatsFile: 'assets/output-section-formats.md'
+# outputContractSchema `shared/references/output-contract-schema.md` resolves
+# relative to the SKF module root (`_bmad/skf/` when installed, `src/` during
+# development), NOT relative to this step file.
 outputContractSchema: 'shared/references/output-contract-schema.md'
 ---
 

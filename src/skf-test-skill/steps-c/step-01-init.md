@@ -4,6 +4,9 @@ outputFile: '{forge_version}/test-report-{skill_name}.md'
 templateFile: 'templates/test-report-template.md'
 sidecarFile: '{sidecar_path}/forge-tier.yaml'
 skillsOutputFolder: '{skills_output_folder}'
+# frontmatterScript `shared/scripts/skf-validate-frontmatter.py` resolves
+# relative to the SKF module root (`_bmad/skf/` when installed, `src/` during
+# development), NOT relative to this step file.
 frontmatterScript: 'shared/scripts/skf-validate-frontmatter.py'
 versionPathsKnowledge: 'knowledge/version-paths.md'
 ---
