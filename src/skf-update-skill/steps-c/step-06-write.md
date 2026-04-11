@@ -58,7 +58,7 @@ SKILL.md was written in step-04 section 6b. Verify the write landed intact befor
 ### 2. Write Updated metadata.json
 
 Update `{skill_package}/metadata.json`:
-- Update `version`: if a source version was detected during re-extraction and differs from the current metadata version, use the source version; otherwise increment patch version
+- Update `version`: **if `update_mode == "gap-driven"`, do not bump — the skill is being repaired against the same source commit, so leave `version` unchanged and update only `generation_date` / `last_update` below.** This keeps metadata `version` consistent with the on-disk `{skill_package}` path, which step-04 §6b also leaves unchanged in gap-driven mode (see step-04 §6b's "If the source version detected during step-03 differs..." carve-out — in gap-driven mode no source version is detected, so step-04 writes into the existing version directory). Otherwise, if a source version was detected during re-extraction and differs from the current metadata version, use the source version; otherwise increment patch version
 - Update `generation_date` timestamp to current ISO-8601 date
 - Update `exports` array to reflect current export list
 - Update `stats` from re-extraction results:
@@ -151,9 +151,16 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 - Triggering tool: {tool_name or —}
 - Original description preserved: {true/false}
 - Notes: {one-sentence detail or —}
+
+### Context Snippet
+- Regenerated: {true/false}
+- Triggers fired: {list or —}
+- Notes: {one-sentence detail or —}
 ```
 
 **Description Guard population** (used by §7 Post-Write Validation when the §0 protocol fires): fill all four fields from context when `description_guard_restored == true` (triggering tool, whether restore succeeded, what changed). When `Restored: false`, the other three fields are `—` — this is the clean-run expected state. Same field semantics and populator logic as create-skill step-06 §8.
+
+**Context Snippet population** (used by §5 after the staleness check runs): §4 writes the sub-block with placeholders; §5 updates the on-disk evidence report in place after deciding whether to regenerate. Set `Regenerated: true` and populate `Triggers fired` with any combination of `headline-exports`, `version`, `gotchas` when at least one trigger fired. Set `Regenerated: false` and `Triggers fired: —` when none fired (the gap-driven / internals-only outcome). Always fill `Notes` with a one-sentence reason (e.g., `"Gap-driven repair — no snippet surface changed"`, `"Version bumped 0.1.0 → 0.2.0; headline exports re-ranked"`).
 
 ### 5. Verify Stack Skill Reference File Writes (Conditional) and Regenerate context-snippet.md
 
@@ -166,11 +173,21 @@ Stack reference files were written in step-04 section 6b. Verify each affected r
 - Verify per-file [MANUAL] section counts match the per-file inventory captured in step-01
 - **If any verification fails: HALT** using the same recovery protocol as section 1 — do not regenerate `context-snippet.md` or write any further derived artifact
 
-**For all skills (both single and stack) — regenerate `context-snippet.md`:**
+**For all skills (both single and stack) — regenerate `context-snippet.md` if stale:**
 
-Per `knowledge/version-paths.md` "Writing Workflows (CS, QS, SS, US)", update-skill is a writing workflow that MUST write all deliverables to `{skill_package}`. `context-snippet.md` is one of those deliverables and goes stale whenever exports, version, or gotchas change.
+`context-snippet.md` is a `{skill_package}` deliverable that goes stale whenever **headline exports**, **version**, or **gotchas** change in this run. Regenerate it only when at least one of these triggers fired; otherwise skip — a skip is the correct outcome for gap-driven repairs and other runs that touch internals below the snippet's surface, where regenerating would produce byte-identical content.
 
-Regenerate the snippet using the format from the matching template file:
+**Staleness triggers:**
+
+- **Headline exports changed** — the top-K exports surfaced in the snippet differ from the prior snippet (a `NEW_EXPORT` was promoted into a headline slot, or a `MODIFIED_EXPORT` changed the signature/shape of a surfaced export).
+- **Version changed** — §2 bumped `version` (normal mode with detected source drift; never fires in gap-driven mode per §2's carve-out).
+- **Gotchas changed** — new gotchas surfaced from this run's evidence that were not in the prior snippet, or a prior gotcha was invalidated and removed.
+
+**Record the decision on the on-disk evidence report:** open `{forge_version}/evidence-report.md` (written by §4 with placeholder values in the `### Context Snippet` sub-block) and update that sub-block under the Update Operation section just written. Set `Regenerated: true|false`, fill `Triggers fired:` with the list of triggers that fired (or `—` when none), and write a one-sentence `Notes:` entry. See §4's "Context Snippet population" note for field semantics.
+
+**If no trigger fired:** skip regeneration — do not touch `context-snippet.md` on disk. The snippet remains valid against the prior run's surface. Continue to §5b.
+
+**If at least one trigger fired:** regenerate the snippet using the format from the matching template file:
 
 - For single skills: `skf-create-skill/assets/skill-sections.md` (pipe-delimited indexed format)
 - For stack skills: `skf-create-stack-skill/assets/stack-skill-template.md`

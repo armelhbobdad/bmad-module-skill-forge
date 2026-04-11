@@ -31,7 +31,9 @@ Source code has not drifted — the gap-derived manifest from step-02 contains e
 1. Use the provenance map already loaded in step-01 (at `{forge_version}/provenance-map.json`) — do not re-read
 2. For each entry in the gap-derived change manifest from step-02:
    - Look up the export by `name` in `provenance_map.exports` — read `source_file` and `source_line`
-   - **If export not found in provenance map:** record as new (`provenance_citation: unknown`) — no spot-check possible; flag for merge step to handle as `NEW_EXPORT`
+   - **If export not found in provenance map:**
+     - **If the manifest entry has a `source_citation` (propagated from the test report by step-02 §0 bullet 4):** read the file at that citation's `file:line ± 5` lines and verify the symbol name still appears within that window. Record a full `verified` / `moved` / `missing` entry using the citation as the starting location — same spot-check logic as the "export found" branch below, keyed on the manifest-supplied citation instead of the provenance map. The export is still flagged `NEW_EXPORT` for the merge step; this branch only upgrades the provenance entry from `unknown` to a live spot-check result so step-06 writes `source_file` / `source_line` instead of `null`.
+     - **If the manifest entry has no `source_citation`:** record as new (`provenance_citation: unknown`) — no spot-check possible; flag for merge step to handle as `NEW_EXPORT`.
    - **If export found:** read the source file at `source_line ± 5` lines and verify the symbol name still appears within that window
    - Record verification outcome: `verified` (symbol at recorded line), `moved` (symbol found elsewhere in same file — record new line), or `missing` (symbol not found in file)
 3. Build a minimal extraction results block matching section 4's shape, with `mode: gap-driven` and per-export verification records:

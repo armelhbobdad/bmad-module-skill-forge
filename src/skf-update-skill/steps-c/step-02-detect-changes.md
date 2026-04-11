@@ -36,7 +36,7 @@ Load the test report at `{test_report_path}` and extract findings:
 | Medium | Stale documentation | MODIFIED_EXPORT (docs reference removed export) |
 | Low | Missing metadata/examples | metadata update |
 
-4. Build the change manifest from translated gaps — no file-level timestamp comparison needed since source hasn't changed
+4. Build the change manifest from translated gaps — no file-level timestamp comparison needed since source hasn't changed. **For each manifest entry, if the corresponding test report finding includes a source citation (`file:line` — e.g., a Gap Report row that cites `packages/utils/src/builder-utils.ts:33`), preserve it on the entry as `source_citation: {file, line}`.** Step-03 §0 uses this field to perform a live spot-check against source rather than flagging the export as `unknown`. If the test report lacks a citation for a finding, omit the field — step-03 will record the entry as `unknown` with no spot-check attempted.
 5. Set `gap_count` from the total number of translated entries
 6. **Skip to section 5** (Display Change Summary) with the gap-derived manifest
 
