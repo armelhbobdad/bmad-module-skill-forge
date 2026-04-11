@@ -256,6 +256,11 @@ These rules apply to all content assembled in SKILL.md and reference files.
 - **For flexible guidance** (reports, analysis): Provide a sensible default template with "Adjust sections as needed" language.
 - **Input/output examples:** When output quality depends on seeing examples and concrete pairs exist in source tests or official docs, include 2-3 input/output pairs sourced from those tests or docs. Examples help agents understand desired style and detail more clearly than descriptions alone. If no examples exist in source, note the gap rather than fabricating pairs — zero hallucination applies.
 
+**Generic-plus-signature code spans:** When documenting a generic class constructor or factory signature, do NOT place the generic brackets and the parameter list inside a single inline code span. `skill-check`'s `links.local_markdown_resolves` validator parses `` `ClassName[T](key: str)` `` as a broken markdown link (`[T]` becomes the link text, `(key: str)` becomes the URL) and emits a `broken local link` warning on the Links axis, regardless of the surrounding backticks. This applies to Tier 1 Key Types, Tier 2 Full API Reference, and reference files. Safe alternatives:
+- Split into two code spans: `` `ClassName[T]` — dataclass with fields `(key: str, value: int)` ``
+- Drop the explicit constructor and describe fields in prose: `` `ClassName[T]` — generic container parameterized by `T`, with field `key: str` ``
+- Use the curly-brace substitution used for frontmatter: `` `ClassName{T}(key: str)` `` (readable, avoids both markdown-link and angle-bracket parsing)
+
 **Workflow checklist pattern:** When a skill includes multi-step workflows, provide a copy-paste checklist that agents can track progress against:
 ```markdown
 Copy this checklist and track your progress:
