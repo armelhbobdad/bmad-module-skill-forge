@@ -38,6 +38,16 @@ Reflect on the workflow that just completed. If real friction, bugs, or gaps wer
 
 ## MANDATORY SEQUENCE
 
+### 0. Announce Arrival
+
+**Display in `{communication_language}`:**
+
+"**Running a quick self-improvement check on this workflow.** If nothing rough came up, I'll close out immediately."
+
+**GATE [default: skip]** — If `{headless_mode}`: skip the display entirely, log: "headless: skipped health-check arrival announcement".
+
+**If interactive:** display the line above, then proceed to step 1 (Read Workflow Context) without waiting. The line is informational, not a commitment gate — the user's commitment to continuing was already captured upstream (either via an explicit menu in the calling step or by auto-chain). This announcement just tells them what is about to happen.
+
 ### 1. Read Workflow Context
 
 From the current session context, identify:
