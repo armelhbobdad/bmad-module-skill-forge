@@ -185,7 +185,7 @@ Record the denominator source in the Coverage Analysis section as `Denominator: 
 
 ### 4b. Metadata Export-Count Coherence Cross-Check
 
-After the denominator has been resolved (standard, stratified, or State 2), cross-check all available export-count sources for internal agreement. Chose the denominator silently when sources disagree is a known friction — the tester cannot tell whether to trust the pick, ignore the drift, or report it. Make it explicit: the tester MUST report a metadata drift finding whenever count sources diverge materially.
+After the denominator has been resolved (standard, stratified, or State 2), cross-check all available export-count sources for internal agreement. Picking the denominator silently when sources disagree is a known friction — the tester cannot tell whether to trust the pick, ignore the drift, or report it. Make it explicit: the tester MUST report a metadata drift finding whenever count sources diverge materially.
 
 **Collect available counts (skip any that are absent):**
 
