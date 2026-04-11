@@ -1,5 +1,6 @@
 ---
 nextStepFile: './step-07-generate-artifacts.md'
+tesslDismissalData: 'assets/tessl-dismissal-rules.md'
 ---
 
 # Step 6: Validate
@@ -12,13 +13,37 @@ To validate the compiled SKILL.md content against the agentskills.io specificati
 
 - Focus only on validating compiled content against spec — only fix spec compliance issues
 - Validation and auto-fix modify files in the staging directory
-- `<staging-skill-dir>` resolves to `_bmad-output/{skill-name}-skill/` as created by step-05
+- `<staging-skill-dir>` resolves to `_bmad-output/{skill-name}/` as created by step-05. The directory name must match the skill's frontmatter `name` field exactly — `skill-check`'s `frontmatter.name_matches_directory` rule rejects any suffix.
 - If skill-check unavailable: skip validation, add warning to evidence report
 - Ignore non-zero exit codes from skill-check if JSON output shows 0 errors
 
 ## MANDATORY SEQUENCE
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
+
+### 0. Description Guard Protocol
+
+**Used by:** §2 (`skill-check check --fix`), §4 (`split-body`), and any future tool invocation that may modify SKILL.md.
+
+External validators occasionally rewrite the frontmatter `description` field — `skill-check --fix` may replace it with a generic or truncated version, and `split-body` may touch it during mechanical restructuring. The step-05 §2a compiled description is **authoritative**: it has already been sanitized of angle-bracket tokens and trigger-optimized for agent discovery. Losing it to a tool's well-meaning rewrite breaks discovery quality and re-introduces the angle-bracket failure mode.
+
+To prevent this, any tool invocation that may touch SKILL.md must run inside the following four-phase guard:
+
+1. **Capture.** Before invoking the tool, read the current SKILL.md frontmatter and snapshot the exact `description` value into a local variable (e.g., `guarded_description`). Capture the in-context copy as well.
+2. **Execute.** Run the tool as specified in its section.
+3. **Verify.** After the tool completes, re-read the on-disk SKILL.md and compare its frontmatter `description` against `guarded_description`. Normalize whitespace for comparison (trim leading/trailing whitespace, collapse internal runs) but do not ignore content differences.
+4. **Restore on divergence.** If the post-tool description differs from `guarded_description` in any way other than whitespace normalization, write `guarded_description` back to the on-disk SKILL.md frontmatter and update the in-context copy to match. Record `description_guard_restored: true` with the tool name in context for the evidence report.
+
+**What counts as divergence:**
+
+- The description was replaced (different content).
+- The description was truncated (suffix missing).
+- Angle-bracket tokens were re-introduced (should never happen after step-05 §2a, but protect anyway).
+- The field was deleted entirely (extreme tool behavior).
+
+**What does NOT count as divergence:** whitespace-only differences (trailing newline, trimmed spaces) — treat as equivalent.
+
+**Why this is centralized:** previously, §2 and §4 each contained their own capture/verify/restore prose. Duplicated defensive code drifts: a fix in one section doesn't propagate to the other, and adding a new tool invocation in the future requires remembering to copy the pattern. Centralizing the protocol gives step-06 one place to update when external validator behavior changes.
 
 ### 1. Check Tool Availability
 
@@ -41,9 +66,7 @@ This performs frontmatter validation, description quality checks, body limit enf
 
 **Parse the JSON output** for: `qualityScore` (0-100), `diagnostics[]` (remaining issues), `fixed[]` (auto-corrected issues).
 
-**Context sync after --fix:** If `fixed[]` is non-empty (i.e., `--fix` modified files on disk), re-read the modified SKILL.md to update the in-context copy. Verify the re-read content matches expectations before proceeding. This prevents silent divergence between the in-context SKILL.md and the on-disk version that step-07 will use for artifact generation.
-
-**Description preservation after --fix:** After re-reading the modified SKILL.md, compare the frontmatter `description` field against the original step-05 compiled description. If `--fix` replaced the description with a generic or truncated version, restore the original description to the on-disk file and update the in-context copy. The step-05 compiled description is authoritative — auto-fix tools must not replace trigger-optimized descriptions.
+**Description Guard Protocol:** This invocation may modify SKILL.md (especially when `fixed[]` is non-empty). Wrap the `skill-check check --fix` call in the four-phase protocol defined in §0: capture `guarded_description` before the call, execute, verify against the post-tool description, and restore on divergence. If `fixed[]` is non-empty, also re-read the modified SKILL.md to sync the in-context copy before proceeding — this prevents silent divergence between the in-context and on-disk versions that step-07 will use for artifact generation.
 
 **Note:** `skill-check` may return non-zero exit code even when `errorCount` is 0. Always rely on parsed JSON, not the shell exit code.
 
@@ -70,7 +93,7 @@ If fails: auto-fix (deterministic), re-validate once, record result. If passes: 
 
 **If step 2 reported `body.max_lines` failure:**
 
-**Description preservation:** Before any split operation, capture the current SKILL.md frontmatter `description` field. After the split completes, verify the `description` was not modified. If it was replaced with a generic placeholder, restore the original immediately.
+**Description Guard Protocol:** Split operations may rewrite the frontmatter. Wrap the split invocation in the four-phase protocol defined in §0 to capture `guarded_description` before the call, execute, verify, and restore on divergence.
 
 **Mandatory approach — selective split:** Identify Tier 2 sections by their `## Full` heading prefix (e.g., `## Full API Reference`, `## Full Type Definitions`, `## Full Integration Patterns`). Extract ONLY those sections to `references/`, starting with the largest. Keep ALL Tier 1 content and any smaller sections inline. Inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval (per Vercel research).
 
@@ -112,23 +135,33 @@ Record: "Security scan skipped — SNYK_TOKEN not configured"
 
 Parse output for: `description_score`, `content_score`, `review_score`, `validation_result`, `judge_suggestions[]`.
 
-- **Content score < 70%:** Record warning: "Content quality warning: tessl scored content at {score}%."
-- **Unavailable:** Skip with note: "Content quality review skipped — tessl tool unavailable"
+**Load dismissal rules:** Before interpreting any findings, load `{tesslDismissalData}` completely. This file is the single source of truth for tessl findings that SKF expects and must dismiss. It defines score thresholds, suggestion dismissal patterns, and the action to take when each rule matches.
 
-> **EXPECTED BEHAVIOR — Two-Tier Scoring:** The Skill Forge two-tier design (Tier 1 Key API Summary + Tier 2 Full API Reference) intentionally includes progressive disclosure. tessl's `conciseness` scorer will flag this as redundancy (typically scoring 2/3), which is **expected behavior — not a defect**. tessl may also suggest removing `[MANUAL]` markers, moving Full API Reference to a separate file, or consolidating duplicate parameter documentation — **all three suggestions conflict with SKF design principles and must be dismissed.** Acceptable threshold: content scores >= 60% are normal for two-tier skills. Do NOT consolidate Tier 1 and Tier 2 content to improve the score — the two-tier structure is a deliberate design choice for standalone usability.
+**Apply dismissal rules** in this order:
+
+1. **Check score thresholds** against the "Score Thresholds" table in `{tesslDismissalData}`. Most importantly:
+   - If `description_score < 100`: halt immediately with the error message from the threshold table. This indicates step-05 §2a sanitization missed a case — do not attempt to fix at step-06.
+   - If `review_score < 60` or `content_score < 60`: record warnings in the evidence report, continue.
+2. **Iterate `judge_suggestions[]`.** For each suggestion:
+   - Cross-reference against the rules in `{tesslDismissalData}` in order.
+   - If a rule matches: record `{rule_id, rationale, suggestion_text}` under "Dismissed tessl suggestions" in the evidence report. Do not apply.
+   - If no rule matches: add to the "Novel tessl suggestions" list for §6b to surface to the user.
+3. **Short-circuit when empty.** If every suggestion was dismissed (no novel suggestions), §6b has nothing to show — auto-proceed to §7.
+
+- **Unavailable:** Skip with note: "Content quality review skipped — tessl tool unavailable"
 
 tessl installs automatically via `npx`. A missing tool is not an error — graceful skip.
 
 #### 6b. User Decision Gate (conditional)
 
-**If tessl returned no suggestions OR tessl was unavailable:** Skip this gate — auto-proceed.
+**If §6 produced no novel suggestions (all dismissed via `{tesslDismissalData}`) OR tessl was unavailable:** Skip this gate — auto-proceed.
 
-**If tessl returned suggestions**, present them to the user:
+**If §6 produced novel suggestions** (ones not matched by any dismissal rule), present them to the user:
 
 "**Content quality review: {score}%**
 
-tessl suggestions:
-{numbered list of judge_suggestions}
+tessl suggestions (novel — not matched by `{tesslDismissalData}`):
+{numbered list of novel suggestions}
 
 **Select an option:**
 - **[S] Skip** — proceed with current content as-is (default)
@@ -174,12 +207,27 @@ Add validation results to evidence-report content in context:
 ## Quality Score Breakdown
 - Frontmatter (30%): {score} | Description (30%): {score} | Body (20%): {score} | Links (10%): {score} | File (10%): {score}
 
+## Description Guard
+- Restored: {true/false}
+- Triggering tool: {tool_name or —}
+- Original description preserved: {true/false}
+- Notes: {one-sentence detail or —}
+
 ## Auto-Fixed Issues
 - {list of issues automatically corrected by --fix}
 
 ## Remaining Warnings / Security Findings / Content Quality (tessl)
 - {warnings, security results, tessl scores and suggestions — or "skipped"}
 ```
+
+**Description Guard population:** if the §0 protocol fired during §2 (`skill-check --fix`) or §4 (`split-body`), fill the four Description Guard fields from context:
+
+- `Restored: true` when `description_guard_restored == true`, otherwise `false`.
+- `Triggering tool`: the tool name recorded by §0 (`skill-check --fix`, `skill-check split-body`, etc.), or `—` if the guard did not fire.
+- `Original description preserved`: `true` if the restore succeeded (on-disk now matches the pre-tool snapshot), `false` if restoration itself failed (rare — treat as a halt condition in a future version).
+- `Notes`: a one-sentence description of what the tool had changed. Typical values: `"replaced with generic summary"`, `"truncated at N chars"`, `"angle-bracket tokens re-introduced"`, `"field deleted entirely"`. If `Restored: false`, use `—`.
+
+When `Restored: false`, the three follow-up fields are all `—` — this is the clean-run expected state.
 
 ### 9. Menu Handling Logic
 

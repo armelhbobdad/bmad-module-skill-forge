@@ -51,15 +51,105 @@ Read the source directory at `{source_root}` and build a current file inventory:
 - Focus on file types relevant to the skill (from provenance map file patterns)
 - Exclude non-source files (node_modules, build artifacts, etc.)
 
+### 1b. Discovered Authoritative Files Protocol (Mirror)
+
+**Purpose:** mirror `skf-create-skill` §2a into update-skill. `skf-create-skill` §2a catches authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.) during **creation**. But a project may add these files *after* the skill was created — for example, an upstream project adopts an `llms.txt` convention six months into development. Without this mirror, update-skill would either miss the new file entirely (if it doesn't match the provenance map's file patterns) or classify it as a generic ADDED file in §2 Category A with no authoritative-file treatment. The mirror surfaces the discovery with the same P/S/U prompt create-skill uses, honoring any prior amendments.
+
+**Skip this section entirely if:**
+
+- `update_mode == "gap-driven"` (source hasn't drifted — we're verifying test report findings, not discovering new files), OR
+- `metadata.json.source_type == "docs-only"` (no source tree to scan)
+
+**Procedure (identical heuristics to create-skill §2a):**
+
+1. **Walk the source tree.** Match file basenames against the heuristic list case-insensitively:
+   - `llms.txt`, `llms-full.txt`
+   - `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `COPILOT.md`
+   - `.cursorrules`, `.windsurfrules`, `.clinerules`
+
+2. **Cross-reference with provenance map.** For each match:
+   - **Already in provenance map** (`entries[].source_file` or `file_entries[].source_file` contains this path): the file is already tracked. §2 will detect any drift in the normal flow. No action in §1b.
+   - **Not in provenance map:** continue to amendment check.
+
+3. **Check brief amendments.** Load `brief.scope.amendments[]` from `{forge_data_folder}/{skill_name}/skill-brief.yaml`. For each candidate not in the provenance map:
+   - **`action: "promoted"` for this path exists:** the brief says this file should be in scope, but it's missing from the provenance map. This means the file was promoted by a prior run but its `file_entries[]` row is missing (e.g. provenance-map was regenerated from source without re-reading amendments). Add the path to `promoted_docs_new[]` (see step 6 below) with its content hash so §4 merge writes a new `file_entries[]` row. No user prompt — the decision was already made. Display: `"Honoring prior amendment: promoted {path} scheduled for file_entries write."`
+   - **`action: "skipped"` for this path exists:** user previously declined promotion. Honor the skip silently. No prompt, no action.
+   - **No amendment for this path:** continue to user prompt.
+
+4. **Prompt.** For each unresolved candidate, present the same prompt as create-skill §2a:
+
+   ```
+   **New authoritative file discovered since skill creation**
+
+   Path: {relative_path_from_source_root}
+   Size: {line_count} lines, {bytes} bytes
+   Matched heuristic: {basename}
+   Provenance age: {days since skill creation}
+
+   First 20 lines:
+   {inline preview}
+
+   This file was not present (or not in scope) when the skill was created. How should update-skill handle it?
+
+   [P] Promote — extract in this update run AND amend brief for future runs
+   [S] Skip    — leave out of scope AND record skip in amendments (no re-prompt)
+   [U] Update  — halt this run and return to skf-brief-skill to refine scope
+   ```
+
+5. **Headless mode (`{headless_mode}` is true):** auto-select `[S] Skip` for every candidate — record `action: "skipped"`, `reason: "headless: no user to prompt"`, `workflow: "skf-update-skill"`. A non-interactive update run must never silently add files to scope.
+
+6. **Apply decision:**
+
+   - **[P] Promote:**
+     1. Append `candidate.path` to `brief.scope.include` as a literal glob.
+     2. Append a `brief.scope.amendments[]` entry: `action: "promoted"`, `path: candidate.path`, `reason: {user-provided or auto: "discovered post-creation — matched heuristic {basename}"}`, `heuristic: {basename}`, `date: {today ISO}`, `workflow: "skf-update-skill"`.
+     3. **Write the amended brief back to disk immediately** at `{forge_data_folder}/{skill_name}/skill-brief.yaml`. Preserve all other fields.
+     4. **Compute SHA-256 content hash** of `candidate.path` and add an entry to the in-context `promoted_docs_new[]` list: `{path, heuristic, size_bytes, line_count, content_hash}`. This list is consumed by §4 merge Priority 7 to write new `file_entries[]` rows — promoted docs do NOT go through §3 code re-extraction, which would produce ghost entries on non-code files.
+     5. Display: `"Promoted {path} — brief amended, scheduled as new file_entries row for file_type doc."`
+
+   - **[S] Skip:**
+     1. Do NOT modify `scope.include`.
+     2. Append a `brief.scope.amendments[]` entry: `action: "skipped"`, `path: candidate.path`, `reason: {user-provided or auto: "user declined promotion at update-skill §1b"}`, `heuristic: {basename}`, `date: {today ISO}`, `workflow: "skf-update-skill"`.
+     3. **Write the amended brief back to disk** so neither update-skill nor create-skill will re-prompt in future runs.
+     4. Display: `"Skipped {path} — decision recorded in amendments."`
+
+   - **[U] Update:**
+     1. Halt the workflow immediately.
+     2. Display: `"Halting update-skill. Re-run skf-brief-skill to refine scope for {skill_name}, then re-run skf-update-skill."`
+     3. Exit with status `halted-for-brief-refinement`. Change manifest is discarded — no partial writes.
+
+7. **Summary.** After all candidates are resolved (or none were found):
+
+   - `"Authoritative files mirror: {N} candidates, {P} promoted, {S} skipped, {A} pre-decided from amendments, {T} already tracked in provenance."`
+   - If N = 0: `"Authoritative files mirror: no candidates."`
+
+**Record for evidence report:** the update-skill evidence report appends `authoritative_files_mirror: {candidates: N, promoted: P, skipped: S, pre_decided: A, already_tracked: T, decisions: [{path, action, heuristic, reason}]}`.
+
+**Interaction with §2 change detection:** promoted docs live in `promoted_docs_new[]`, NOT in the change manifest. But §2 Category A ("files in source but not in provenance map → ADDED") would still find the promoted doc files on disk and classify them as ADDED if nothing prevents it. The coordination mechanism is an explicit pre-filter exclusion set built in §2.0 (below) that every Category A subprocess worker receives as an input before it starts scanning. See §2.0 for the exact contract. The exclusion set is the only mechanism guaranteeing that parallel subprocesses cannot double-count `promoted_docs_new[]` paths — prose-level "skip any path" instructions cannot cross subprocess boundaries.
+
 ### 2. Compare Against Provenance Map
 
 **If normal mode (provenance map available):**
 
-Launch subprocesses in parallel that compare source state against provenance map across these categories, returning change findings per category:
+#### 2.0 — Build Pre-filter Exclusion Set
+
+Before launching parallel subprocesses, build a `change_detection_excludes` set in context that Category A subprocess workers must honor. Parallel subprocesses cannot see each other's in-memory state, so any coordination between §1b's decisions and §2's scan results must be pre-materialized into an explicit input the subprocesses receive.
+
+The exclusion set includes:
+
+- Every path in `promoted_docs_new[]` (populated by §1b). These files are tracked as `file_entries[]` via step-04 Priority 7, not through Category A code extraction. Without this exclusion, Category A would classify them as ADDED (because they're in source but not yet in the provenance map) and §3 re-extract would send them to AST extraction, producing ghost entries.
+- Every source path in `file_entries[].source_file` where `file_type == "doc"` in the existing provenance map. These are already-tracked authoritative docs; any drift in them is handled by Category D (script/asset file changes), not Category A.
+
+Record the set size: "**Change-detection excludes:** {count} paths ({promoted_docs_new count} new promotions + {existing doc file_entries count} already tracked)."
+
+#### 2.1 — Launch Category Subprocesses
+
+Launch subprocesses in parallel that compare source state against provenance map across these categories, returning change findings per category. **Every subprocess receives `change_detection_excludes` as an explicit input** and applies it to its file-path iteration loop.
 
 **Category A — File-level changes:**
 - Files in provenance map but missing from source → DELETED
-- Files in source but not in provenance map → ADDED
+- Files in source but not in provenance map AND not in `change_detection_excludes` → ADDED
+- Files in `change_detection_excludes`: skip entirely (routed to file_entries via §1b → step-04 Priority 7, never through Category A)
 - Files in both but with different timestamps/sizes → MODIFIED
 - Files with same content at different paths → MOVED
 

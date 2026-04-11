@@ -16,6 +16,12 @@ description: >
 
 - `name`: lowercase alphanumeric + hyphens only, must match the skill output directory name. Prefer gerund form (`processing-pdfs`, `analyzing-spreadsheets`) for clarity.
 - `description`: non-empty, max 1024 chars, optimized for agent discovery. **MUST use third-person voice** ("Processes Excel files..." not "I can help you..." or "You can use this to..."). Inconsistent point-of-view causes discovery problems since the description is injected into the system prompt.
+- **`description` must NOT contain angle-bracket tokens** like `<name>`, `<component>`, `<path>`. Both `skill-check`'s `description_field` validator and `tessl`'s deterministic description check reject angle brackets as XML tags and fail the review with 0% description score. When the natural phrasing would use angle brackets (e.g., CLI placeholders: `npx foo add <name>`), substitute one of:
+  - Backticked placeholder: `` `<name>` `` → renders literally, passes the XML-tag rule
+  - Uppercase token: `NAME`, `COMPONENT_ID`
+  - Curly-brace form: `{name}`
+
+  Prefer the backticked form for CLI examples as it preserves the visual intent. Step-05 compile enforces this via a pre-write sanitization pass — see step-05 §2a.
 - Only `name` and `description` in frontmatter — `version` and `author` go in metadata.json
 - No other frontmatter fields for standard skills (only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted by spec)
 

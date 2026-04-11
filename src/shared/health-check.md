@@ -181,7 +181,7 @@ gh issue create \
 
 ## Suggested Fix
 <!-- ONE recommended change. 1-3 sentences. Do NOT list multiple options here. -->
-{e.g. Add a rule to step-05 naming `_bmad-output/{skill-name}-skill/` as the staging directory, matching the 03b/03c convention.}
+{e.g. Add a rule to step-05 naming `_bmad-output/{skill-name}/` as the staging directory used by step-06 validation.}
 
 <details>
 <summary>Alternatives considered (optional)</summary>

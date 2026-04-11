@@ -19,6 +19,8 @@ When `scope.type: "component-library"`, perform specialized extraction that trea
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
 
+**Prerequisite — §2a already ran.** Step-03 executes `§2a Discovered Authoritative Files Protocol` before delegating to this file. Any promoted authoritative files (`llms.txt`, `AGENTS.md`, etc.) are tracked in the `promoted_docs[]` context list and will be written to `file_entries[]` with `file_type: "doc"` by step-05 §6 — they do NOT appear in the filtered file list that was passed into this step, so Phase 1 demo exclusion below only operates on code files. No special handling is required in this file for promoted docs. See step-03 §2a for the full flow.
+
 ### Phase 1: Demo/Example Exclusion
 
 Before extraction, identify and exclude demo/example files to avoid inflating export counts.

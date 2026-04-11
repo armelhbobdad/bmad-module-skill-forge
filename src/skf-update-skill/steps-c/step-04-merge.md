@@ -65,12 +65,37 @@ Follow the merge priority order from {mergeConflictRulesFile}:
 - No conflicts expected (new content, no existing [MANUAL])
 
 **Priority 6 — Process script/asset file changes (from Category D in change manifest):**
-- MODIFIED_FILE: queue file for re-copy from source, update `file_entries` content_hash
-- DELETED_FILE: queue file for removal from `scripts/` or `assets/`, remove from `file_entries`
-- NEW_FILE: queue file for copy from source, add to `file_entries`
-- Files in `scripts/[MANUAL]/` or `assets/[MANUAL]/` are never modified (user-authored)
-- Update Section 7b manifest table to reflect changes
-- Update `metadata.json` `scripts[]`/`assets[]` arrays and `stats.scripts_count`/`stats.assets_count`
+
+Category D operates on every `file_entries[]` row regardless of `file_type`. Handle each entry by its type:
+
+- **`file_type: "script"` or `file_type: "asset"`:**
+  - MODIFIED_FILE: queue file for re-copy from source, update `file_entries` content_hash
+  - DELETED_FILE: queue file for removal from `scripts/` or `assets/`, remove from `file_entries`
+  - NEW_FILE: queue file for copy from source, add to `file_entries`
+  - Files in `scripts/[MANUAL]/` or `assets/[MANUAL]/` are never modified (user-authored)
+  - Update Section 7b manifest table to reflect changes
+  - Update `metadata.json` `scripts[]`/`assets[]` arrays and `stats.scripts_count`/`stats.assets_count`
+
+- **`file_type: "doc"`** (authoritative docs promoted by §2a/§1b):
+  - MODIFIED_FILE: update `file_entries` content_hash only. **Do NOT copy the file** — doc-type entries are source-tracked but not bundled. Record the drift in the update report.
+  - DELETED_FILE: remove from `file_entries`. **Do NOT remove any file from the skill package** (there was nothing copied). Record the removal in the update report — a deleted authoritative doc is a meaningful upstream signal.
+  - NEW_FILE: this path is not used for doc type — new doc entries come from Priority 7 below, not from Category D. If Category D reports NEW_FILE with `file_type: "doc"`, log a warning and route to Priority 7.
+
+**Priority 7 — Process new authoritative docs (from `promoted_docs_new[]` populated by §1b):**
+
+For each entry in the in-context `promoted_docs_new[]` list:
+
+- Add a new row to `file_entries[]` in the merged provenance map with:
+  - `file_name`: `"docs/authoritative/{source_path}"` (synthetic namespace — see skill-sections.md for convention)
+  - `file_type`: `"doc"`
+  - `source_file`: the path from `promoted_docs_new[].path`
+  - `content_hash`: the hash pre-computed by §1b
+  - `confidence`: `"T1-low"`
+  - `extraction_method`: `"promoted-authoritative"`
+- Do NOT copy the file into the skill package (doc type is source-tracked, not bundled).
+- Record in the update report: `"Added authoritative doc: {path} (heuristic: {basename})"`.
+
+**If `promoted_docs_new[]` is empty:** skip Priority 7 silently. No report entry.
 
 ### 4. Check for Conflicts
 

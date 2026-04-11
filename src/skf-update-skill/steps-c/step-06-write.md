@@ -19,6 +19,30 @@ Verify the merged SKILL.md and stack reference files that step-04 section 6b wro
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
 
+### 0. Description Guard Protocol
+
+**Used by:** §7 (`skill-check check --fix` and `skill-check split-body --write`), and any future tool invocation that may modify SKILL.md's frontmatter on disk.
+
+External validators occasionally rewrite the frontmatter `description` field — `skill-check --fix` may replace it with a generic or truncated version, and `split-body` may touch it during mechanical restructuring. The merged description written to disk in step-04 is **authoritative**: it reflects the final merge of the prior skill's description (with any author edits preserved) and fresh re-extraction results. Losing it to a tool's well-meaning rewrite breaks discovery quality and — if the prior skill was compiled from a sanitized description (step-05 §2a) — can re-introduce angle-bracket tokens that then fail tessl on the next run.
+
+To prevent this, any tool invocation in §7 that may touch SKILL.md must run inside the following four-phase guard:
+
+1. **Capture.** Before invoking the tool, read `{skill_package}/SKILL.md` frontmatter and snapshot the exact `description` value into a local variable (e.g., `guarded_description`). Capture the in-context copy as well.
+2. **Execute.** Run the tool as specified in its section.
+3. **Verify.** After the tool completes, re-read the on-disk SKILL.md and compare its frontmatter `description` against `guarded_description`. Normalize whitespace for comparison (trim leading/trailing whitespace, collapse internal runs) but do not ignore content differences.
+4. **Restore on divergence.** If the post-tool description differs from `guarded_description` in any way other than whitespace normalization, write `guarded_description` back to the on-disk SKILL.md frontmatter and update the in-context copy to match. Record `description_guard_restored: true` with the tool name in context for the evidence report.
+
+**What counts as divergence:**
+
+- The description was replaced (different content).
+- The description was truncated (suffix missing).
+- Angle-bracket tokens were re-introduced (should never happen if the prior skill was correctly sanitized, but protect anyway).
+- The field was deleted entirely (extreme tool behavior).
+
+**What does NOT count as divergence:** whitespace-only differences (trailing newline, trimmed spaces) — treat as equivalent.
+
+**Why this lives in update-skill too:** the guard protocol was first introduced in `skf-create-skill/step-06-validate.md §0` to defend the freshly-compiled description. Update-skill runs the identical `skill-check check --fix` command against the merged skill package in §7, so it faces the same risk and needs the same defense. Keep the two §0 protocols functionally identical — if external tool behavior changes, update both workflows.
+
 ### 1. Verify SKILL.md Write
 
 SKILL.md was written in step-04 section 6b. Verify the write landed intact before proceeding to any derived-artifact writes.
@@ -121,7 +145,15 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 - [MANUAL] integrity: {PASS/WARN/FAIL}
 - Confidence tiers: {PASS/WARN/FAIL}
 - Provenance: {PASS/WARN/FAIL}
+
+### Description Guard
+- Restored: {true/false}
+- Triggering tool: {tool_name or —}
+- Original description preserved: {true/false}
+- Notes: {one-sentence detail or —}
 ```
+
+**Description Guard population** (used by §7 Post-Write Validation when the §0 protocol fires): fill all four fields from context when `description_guard_restored == true` (triggering tool, whether restore succeeded, what changed). When `Restored: false`, the other three fields are `—` — this is the clean-run expected state. Same field semantics and populator logic as create-skill step-06 §8.
 
 ### 5. Verify Stack Skill Reference File Writes (Conditional) and Regenerate context-snippet.md
 
@@ -187,16 +219,19 @@ For each derived artifact:
 
 ### 7. Run Post-Write Validation (Deferred from Step 05)
 
-External tool checks deferred from step-05 now run against the written files:
+External tool checks deferred from step-05 now run against the written files.
+
+**Description Guard Protocol:** every invocation below that may modify SKILL.md (`skill-check check --fix` and any `split-body` write) must run inside the four-phase guard defined in §0. Capture `guarded_description` before each call, execute, verify against the post-tool description, and restore on divergence. Do not rely on per-call ad-hoc preservation logic — use the §0 protocol.
 
 **If skill-check available:**
-- Run: `npx skill-check check {skill_package} --fix --format json --no-security-scan`
-- **Context sync after --fix:** If `fixed[]` is non-empty (i.e., `--fix` modified files on disk), re-read the modified SKILL.md to update the in-context copy. This prevents silent divergence between the in-context SKILL.md and the on-disk version that step-07-report will reference.
-- If `body.max_lines` reported, prefer selective split — extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). Fall back to `npx skill-check split-body {skill_package} --write` if not feasible. Verify anchors resolve after split.
-- Run: `npx skill-check diff` if original version was preserved
-- Run: `npx skill-check check {skill_package} --format json` for security scan
 
-Record findings in the evidence report (section 4). These are advisory — do not block on warnings.
+- Run: `npx skill-check check {skill_package} --fix --format json --no-security-scan` **inside the §0 guard**.
+- **Context sync after --fix:** If `fixed[]` is non-empty (i.e., `--fix` modified files on disk), re-read the modified SKILL.md to update the in-context copy. This prevents silent divergence between the in-context SKILL.md and the on-disk version that step-07-report will reference. The §0 guard has already restored `description` if divergent; the re-read picks up any other fix-corrected content.
+- If `body.max_lines` reported, prefer selective split — extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). **If falling back to `npx skill-check split-body {skill_package} --write`, run it inside the §0 guard** — split-body can also touch frontmatter. Verify anchors resolve after split.
+- Run: `npx skill-check diff` if original version was preserved.
+- Run: `npx skill-check check {skill_package} --format json` for security scan. (Read-only; guard not required.)
+
+Record findings in the evidence report (section 4), including any `description_guard_restored` events recorded by the §0 protocol. These are advisory — do not block on warnings.
 
 **If skill-check unavailable:** Skip with note — structural checks from step-05 are sufficient.
 

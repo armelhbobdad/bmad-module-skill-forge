@@ -45,23 +45,44 @@ Based on forge tier detected in Step 01:
 
 **Tool resolution:** `gh_bridge` → `gh api` commands or direct file I/O if local. `ast_bridge` → ast-grep MCP tools (`find_code`, `find_code_by_rule`) or `ast-grep` CLI. `qmd_bridge` → QMD MCP tools (`search`, `vector_search`) or `qmd` CLI. See `knowledge/tool-resolution.md`.
 
-### 2. Scan Source Files
+### 2. Build Bounded Scan List
 
-Identify all source files in the source directory that contain public exports.
+Audit-skill detects drift on files that were in scope during create-skill. The authoritative record of "what was in scope" is the provenance map loaded in step-01. Scan only those files — **audit-skill does NOT discover new files**. New-file detection is the responsibility of `skf-update-skill`, which maintains its own change manifest. To audit a project that has grown new files since creation, run update-skill first, then audit-skill.
 
-"**Scanning source files...**"
+**Why bounded:** without this constraint, files that were deliberately excluded by the original brief's scope patterns (test fixtures, vendored code, generated artifacts, demo code, unrelated modules) get scanned on every audit and their exports are flagged by step-03 structural diff as "added" — false-positive drift that obscures real structural changes.
 
-- List all relevant source files (exclude test files, config files, build artifacts)
-- Count files to process
-- Report: "Found {count} source files to extract."
+**If a provenance map was loaded in step-01** (normal mode):
+
+1. Extract the unique set of file paths from the provenance map:
+   - `entries[].source_file` (one path per extracted export)
+   - `file_entries[].source_file` (one path per tracked script/asset, when present)
+2. Deduplicate the combined list. This is the **bounded scan list**.
+3. Verify each path under `{source_root}`. Files that existed at creation time but are now missing are **not** errors at this stage — keep them in the list so step-03 can classify them as DELETED. Handling missing files is step-03's job, not step-02's.
+4. Record `bounded_scan: true` and `bounded_scan_source: "provenance-map"` in context for the evidence report.
+5. Report:
+
+   "**Bounded scan:** {count} files from provenance map ({provenance_date})."
+
+**If degraded mode** (no provenance map was loaded — user confirmed `[D]egraded mode` at step-01 §4):
+
+1. Fall back to a source-tree scan: list all source files under `{source_root}` matching the project's primary language extensions (derive from `metadata.json.language` — e.g., `*.ts` / `*.tsx` for typescript, `*.py` for python, `*.rs` for rust, `*.go` for go).
+2. Apply generic exclusions: `**/tests/**`, `**/test/**`, `**/__tests__/**`, `*.test.*`, `*.spec.*`, `node_modules/**`, `dist/**`, `build/**`, `target/**`, `__pycache__/**`, `.venv/**`, `vendor/**`.
+3. Record `bounded_scan: false` and `bounded_scan_source: "source-tree-fallback"` in context.
+4. Report:
+
+   "**Degraded mode scan:** {count} files from source tree (no provenance map — results may include files out of the original brief scope)."
+
+**Count files to process** and proceed to section 3 with the resolved scan list.
 
 ### 3. Extract Current Exports
 
-**DO NOT BE LAZY — For EACH source file, launch a subprocess that:**
+**DO NOT BE LAZY — For EACH file in the bounded scan list from §2, launch a subprocess that:**
 1. Loads the source file
 2. Extracts all public exports using tier-appropriate method
 3. Records: export name, type, signature, file path, line number, confidence tier
 4. Returns structured findings to parent
+
+**If a file from the bounded scan list is missing on disk:** record `{file, exports: [], status: "missing"}` and continue — step-03 structural diff will classify exports previously at this path as DELETED.
 
 **If subprocess unavailable:** Perform extraction in main thread, processing each file sequentially.
 
@@ -72,6 +93,8 @@ Identify all source files in the source directory that contain public exports.
   "confidence_tier": "{tier}",
   "source_root": "{source_path}",
   "files_scanned": {count},
+  "bounded_scan": true|false,
+  "bounded_scan_source": "provenance-map|source-tree-fallback",
   "exports": [
     {
       "name": "{export_name}",
@@ -132,6 +155,7 @@ CCC failures: skip rename detection silently, proceed with standard structural d
 
 | Metric | Value |
 |--------|-------|
+| Scan mode | {bounded (provenance-map) / degraded (source-tree)} |
 | Files scanned | {count} |
 | Exports found | {total_exports} |
 | Functions | {function_count} |
