@@ -135,7 +135,7 @@ Ferris reads the repository, extracts the public API, and generates a skill in u
 
 **Full quality path (pipeline mode):**
 ```
-@Ferris forge https://github.com/lodash/lodash lodash
+@Ferris forge https://github.com/cocoindex-io/cocoindex cocoindex
 ```
 
 `forge` chains Brief → Create → Test → Export. It needs an explicit repo URL **and** a skill name because it starts with Brief Skill (BS), which doesn't guess targets. If you just want a fast skill from a package name, use `@Ferris forge-quick cognee` instead — that starts with Quick Skill (QS), which resolves packages via the registry.

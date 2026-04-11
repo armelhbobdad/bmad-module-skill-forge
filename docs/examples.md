@@ -113,7 +113,7 @@ Or one workflow per session:
 Sarah prepares v3.0.0 with breaking changes.
 
 ```
-@Ferris maintain lodash
+@Ferris maintain cocoindex
 ```
 
 Or one workflow per session:

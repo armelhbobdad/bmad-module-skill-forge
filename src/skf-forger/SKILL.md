@@ -84,7 +84,7 @@ When the user provides multiple workflow codes (e.g., `BS CS TS EX`, `QS TS EX`,
 
 **Pipeline activation:**
 
-1. **Parse the sequence** — split codes, expand aliases (`forge` → `BS CS TS EX`, `forge-quick` → `QS TS EX`, `onboard` → `AN CS TS EX`, `maintain` → `AS US TS EX`), extract any bracket arguments (`CS[lodash]`, `TS[min:80]`)
+1. **Parse the sequence** — split codes, expand aliases (`forge` → `BS CS TS EX`, `forge-quick` → `QS TS EX`, `onboard` → `AN CS TS EX`, `maintain` → `AS US TS EX`), extract any bracket arguments (`CS[cocoindex]`, `TS[min:80]`)
 2. **Validate the sequence** — check for anti-patterns (EX before TS, CS without BS, duplicates). If found, warn the user and ask to confirm or adjust. In `{headless_mode}`, warn but proceed.
 3. **Set `{headless_mode}` = true** — pipelines auto-activate headless mode for all workflows in the chain. The user committed to the sequence by providing it.
 4. **Execute left to right** — for each workflow in the sequence:

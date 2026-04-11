@@ -70,12 +70,12 @@ class TestSkfSkillInventory:
         assert result["summary"]["total_skills"] == 0
 
     def test_single_versioned_skill(self, skills_dir):
-        make_skill(skills_dir, "lodash", "2.1.0", with_provenance=True)
+        make_skill(skills_dir, "cocoindex", "2.1.0", with_provenance=True)
         result = scan_inventory(str(skills_dir))
         assert result["status"] == "ok"
         assert result["summary"]["total_skills"] == 1
         s = result["skills"][0]
-        assert s["name"] == "lodash"
+        assert s["name"] == "cocoindex"
         assert s["active_version"] == "2.1.0"
         assert s["has_skill_md"] is True
         assert s["has_provenance_map"] is True
@@ -110,9 +110,9 @@ class TestSkfSkillInventory:
         assert result["code"] == "DIR_NOT_FOUND"
 
     def test_with_export_manifest(self, skills_dir):
-        make_skill(skills_dir, "lodash", "2.0.0")
-        manifest = {"exports": {"lodash": {"active_version": "2.0.0"}}}
+        make_skill(skills_dir, "cocoindex", "2.0.0")
+        manifest = {"exports": {"cocoindex": {"active_version": "2.0.0"}}}
         (skills_dir / ".export-manifest.json").write_text(json.dumps(manifest))
         result = scan_inventory(str(skills_dir))
         assert result["manifest"] is not None
-        assert "lodash" in result["manifest"]["exports"]
+        assert "cocoindex" in result["manifest"]["exports"]

@@ -177,7 +177,7 @@ forge                 — alias for BS CS TS EX
 forge-quick           — alias for QS TS EX
 onboard               — alias for AN CS TS EX
 maintain              — alias for AS US TS EX
-CS[lodash] TS[min:80] EX  — with arguments and circuit breakers
+CS[cocoindex] TS[min:80] EX  — with arguments and circuit breakers
 ```
 
 Pipelines automatically activate headless mode. The forger passes data between workflows using the artifact flow described above. Circuit breakers halt the pipeline when output quality falls below a threshold (e.g., TS score < 60 blocks EX). See `shared/references/pipeline-contracts.md` for the full specification.

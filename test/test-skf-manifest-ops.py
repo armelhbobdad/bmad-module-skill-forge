@@ -36,11 +36,11 @@ class TestManifestOps:
 
     def test_set_and_get_skill(self, manifest_path):
         """S2: Set a skill and verify v2 persistence."""
-        r = mod.cmd_set(manifest_path, "lodash", "2.0.0")
+        r = mod.cmd_set(manifest_path, "cocoindex", "2.0.0")
         assert r["status"] == "ok"
         assert r["version"] == "2.0.0"
         # Verify written in v2 format
-        r = mod.cmd_get(manifest_path, "lodash")
+        r = mod.cmd_get(manifest_path, "cocoindex")
         assert r["entry"]["active_version"] == "2.0.0"
         assert isinstance(r["entry"]["versions"], dict)
         assert "2.0.0" in r["entry"]["versions"]
@@ -48,9 +48,9 @@ class TestManifestOps:
 
     def test_update_version(self, manifest_path):
         """S3: Update version archives old, activates new."""
-        mod.cmd_set(manifest_path, "lodash", "2.0.0")
-        mod.cmd_set(manifest_path, "lodash", "2.1.0")
-        r = mod.cmd_get(manifest_path, "lodash")
+        mod.cmd_set(manifest_path, "cocoindex", "2.0.0")
+        mod.cmd_set(manifest_path, "cocoindex", "2.1.0")
+        r = mod.cmd_get(manifest_path, "cocoindex")
         assert r["entry"]["active_version"] == "2.1.0"
         assert "2.0.0" in r["entry"]["versions"]
         assert "2.1.0" in r["entry"]["versions"]
@@ -59,17 +59,17 @@ class TestManifestOps:
 
     def test_get_nonexistent(self, manifest_path):
         """S4: Get nonexistent."""
-        mod.cmd_set(manifest_path, "lodash", "2.0.0")
+        mod.cmd_set(manifest_path, "cocoindex", "2.0.0")
         r = mod.cmd_get(manifest_path, "react")
         assert r["status"] == "not_found"
-        assert "lodash" in r["available"]
+        assert "cocoindex" in r["available"]
 
     def test_deprecate_skill(self, manifest_path):
         """S5: Deprecate all versions via v2 status field."""
-        mod.cmd_set(manifest_path, "lodash", "2.0.0")
-        r = mod.cmd_deprecate(manifest_path, "lodash")
+        mod.cmd_set(manifest_path, "cocoindex", "2.0.0")
+        r = mod.cmd_deprecate(manifest_path, "cocoindex")
         assert r["status"] == "ok"
-        r = mod.cmd_get(manifest_path, "lodash")
+        r = mod.cmd_get(manifest_path, "cocoindex")
         assert r["entry"]["versions"]["2.0.0"]["status"] == "deprecated"
 
     def test_deprecate_specific_version(self, manifest_path):
@@ -92,23 +92,23 @@ class TestManifestOps:
 
     def test_rename_collision(self, manifest_path):
         """S8: Rename collision."""
-        mod.cmd_set(manifest_path, "lodash", "2.0.0")
+        mod.cmd_set(manifest_path, "cocoindex", "2.0.0")
         mod.cmd_set(manifest_path, "react-dom", "18.0.0")
-        r = mod.cmd_rename(manifest_path, "lodash", "react-dom")
+        r = mod.cmd_rename(manifest_path, "cocoindex", "react-dom")
         assert r["status"] == "error"
         assert "already exists" in r["error"]
 
     def test_remove_skill(self, manifest_path):
         """S9: Remove."""
-        mod.cmd_set(manifest_path, "lodash", "2.0.0")
-        r = mod.cmd_remove(manifest_path, "lodash")
+        mod.cmd_set(manifest_path, "cocoindex", "2.0.0")
+        r = mod.cmd_remove(manifest_path, "cocoindex")
         assert r["status"] == "ok"
-        r = mod.cmd_get(manifest_path, "lodash")
+        r = mod.cmd_get(manifest_path, "cocoindex")
         assert r["status"] == "not_found"
 
     def test_schema_version_written(self, manifest_path):
         """S10: Manifest includes schema_version 2."""
-        mod.cmd_set(manifest_path, "lodash", "2.0.0")
+        mod.cmd_set(manifest_path, "cocoindex", "2.0.0")
         r = mod.cmd_read(manifest_path)
         assert r["manifest"]["schema_version"] == "2"
 
@@ -116,7 +116,7 @@ class TestManifestOps:
         """S11: V1 manifest is migrated to v2 on read."""
         v1_data = {
             "exports": {
-                "lodash": {
+                "cocoindex": {
                     "active_version": "1.0.0",
                     "versions": ["1.0.0"],
                     "deprecated": False,
@@ -125,7 +125,7 @@ class TestManifestOps:
             "updated_at": "2026-04-01T00:00:00+00:00",
         }
         manifest_path.write_text(json.dumps(v1_data))
-        r = mod.cmd_get(manifest_path, "lodash")
+        r = mod.cmd_get(manifest_path, "cocoindex")
         assert r["status"] == "ok"
         assert isinstance(r["entry"]["versions"], dict)
         assert "1.0.0" in r["entry"]["versions"]
