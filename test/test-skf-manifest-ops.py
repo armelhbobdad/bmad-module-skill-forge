@@ -130,3 +130,78 @@ class TestManifestOps:
         assert isinstance(r["entry"]["versions"], dict)
         assert "1.0.0" in r["entry"]["versions"]
         assert r["entry"]["versions"]["1.0.0"]["status"] == "active"
+        assert "ides" in r["entry"]["versions"]["1.0.0"]
+        assert "platforms" not in r["entry"]["versions"]["1.0.0"]
+
+    def test_platforms_to_ides_normalization(self, manifest_path):
+        """S12: Legacy `platforms` field is renamed to `ides` on read (issue #148)."""
+        legacy_v2 = {
+            "schema_version": "2",
+            "exports": {
+                "cocoindex": {
+                    "active_version": "2.0.0",
+                    "versions": {
+                        "2.0.0": {
+                            "platforms": ["claude-code", "cursor"],
+                            "last_exported": "2026-04-01",
+                            "status": "active",
+                        }
+                    },
+                }
+            },
+        }
+        manifest_path.write_text(json.dumps(legacy_v2))
+        r = mod.cmd_get(manifest_path, "cocoindex")
+        assert r["status"] == "ok"
+        entry = r["entry"]["versions"]["2.0.0"]
+        assert entry["ides"] == ["claude-code", "cursor"]
+        assert "platforms" not in entry
+
+    def test_platforms_to_ides_preserved_on_set(self, manifest_path):
+        """S13: cmd_set preserves legacy `platforms` as `ides` when touching a version."""
+        legacy_v2 = {
+            "schema_version": "2",
+            "exports": {
+                "cocoindex": {
+                    "active_version": "2.0.0",
+                    "versions": {
+                        "2.0.0": {
+                            "platforms": ["claude-code"],
+                            "last_exported": "2026-04-01",
+                            "status": "active",
+                        }
+                    },
+                }
+            },
+        }
+        manifest_path.write_text(json.dumps(legacy_v2))
+        # Re-set the same version — should keep the IDE list, rewritten under `ides`
+        mod.cmd_set(manifest_path, "cocoindex", "2.0.0")
+        r = mod.cmd_get(manifest_path, "cocoindex")
+        entry = r["entry"]["versions"]["2.0.0"]
+        assert entry["ides"] == ["claude-code"]
+        assert "platforms" not in entry
+
+    def test_ides_and_platforms_both_present_prefers_ides(self, manifest_path):
+        """S14: When both keys exist (shouldn't happen, but be safe), `ides` wins."""
+        data = {
+            "schema_version": "2",
+            "exports": {
+                "cocoindex": {
+                    "active_version": "2.0.0",
+                    "versions": {
+                        "2.0.0": {
+                            "ides": ["cursor"],
+                            "platforms": ["claude-code"],
+                            "last_exported": "2026-04-01",
+                            "status": "active",
+                        }
+                    },
+                }
+            },
+        }
+        manifest_path.write_text(json.dumps(data))
+        r = mod.cmd_get(manifest_path, "cocoindex")
+        entry = r["entry"]["versions"]["2.0.0"]
+        assert entry["ides"] == ["cursor"]
+        assert "platforms" not in entry

@@ -33,13 +33,14 @@ def read_manifest(manifest_path):
 
     Handles both v1 (flat list) and v2 (dict) manifest formats.
     V1 manifests are migrated in-place to v2 on next write.
+    Legacy `platforms` field at the version level is renamed to `ides`.
     """
     try:
         with open(manifest_path) as f:
             data = json.load(f)
-        # Migrate v1 → v2 in memory if needed
         if data.get("schema_version") != "2":
             data = _migrate_v1_to_v2(data)
+        data = _normalize_platforms_to_ides(data)
         return data, None
     except FileNotFoundError:
         return {"schema_version": "2", "exports": {}, "updated_at": None}, None
@@ -59,13 +60,35 @@ def _migrate_v1_to_v2(data):
             for v in versions:
                 status = "active" if v == active and not deprecated else "archived"
                 new_versions[v] = {
-                    "platforms": [],
+                    "ides": [],
                     "last_exported": data.get("updated_at", ""),
                     "status": "deprecated" if deprecated and v == active else status,
                 }
             entry["versions"] = new_versions
         entry.pop("deprecated", None)
         entry.pop("deprecated_versions", None)
+    return data
+
+
+def _normalize_platforms_to_ides(data):
+    """Rename legacy `platforms` key → `ides` on each version entry.
+
+    Pre-rename v2 manifests used `platforms` for the list of IDE identifiers
+    the version was exported to. The field was ambiguous (IDE name vs context
+    file vs skill root), so it was renamed to `ides` to match
+    `config.yaml.ides`. Existing manifests are upgraded on next read.
+    """
+    for entry in data.get("exports", {}).values():
+        versions = entry.get("versions", {})
+        if not isinstance(versions, dict):
+            continue
+        for v_data in versions.values():
+            if not isinstance(v_data, dict):
+                continue
+            if "platforms" in v_data:
+                legacy = v_data.pop("platforms")
+                if "ides" not in v_data:
+                    v_data["ides"] = legacy
     return data
 
 
@@ -118,8 +141,9 @@ def cmd_set(manifest_path, skill_name, version):
         versions[old_active]["status"] = "archived"
 
     # Add or update the new active version
+    existing_version = versions.get(version, {})
     versions[version] = {
-        "platforms": versions.get(version, {}).get("platforms", []),
+        "ides": existing_version.get("ides", existing_version.get("platforms", [])),
         "last_exported": today,
         "status": "active",
     }

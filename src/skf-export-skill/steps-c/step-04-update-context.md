@@ -93,17 +93,17 @@ Read `{skills_output_folder}/.export-manifest.json` — see `knowledge/version-p
       "active_version": "0.6.0",
       "versions": {
         "0.1.0": {
-          "platforms": ["claude"],
+          "ides": ["claude-code"],
           "last_exported": "2026-01-15",
           "status": "deprecated"
         },
         "0.5.0": {
-          "platforms": ["claude"],
+          "ides": ["claude-code"],
           "last_exported": "2026-03-15",
           "status": "archived"
         },
         "0.6.0": {
-          "platforms": ["claude", "copilot"],
+          "ides": ["claude-code", "github-copilot"],
           "last_exported": "2026-04-04",
           "status": "active"
         }
@@ -119,10 +119,12 @@ Read `{skills_output_folder}/.export-manifest.json` — see `knowledge/version-p
 - `"deprecated"` — dropped via drop-skill workflow; excluded from all exports (files may or may not exist on disk)
 - `"draft"` — created but never exported
 
+**Legacy `platforms` → `ides` rename:** Pre-rename v2 manifests used a `platforms` array at the version level. If a version entry contains `platforms` instead of (or in addition to) `ides`, treat `platforms` as `ides` and rewrite it to `ides` on the next manifest write. This is a silent in-place upgrade — no user prompt, no v3 bump.
+
 **v1 manifest** (no `schema_version` field — migrate in-place to v2):
-1. For each entry in `exports`, read its `platforms` and `last_exported`
+1. For each entry in `exports`, read its `last_exported` (v1 had no per-version IDE list)
 2. Resolve the skill's current version from `{resolved_skill_package}/metadata.json`
-3. Wrap in v2 structure: set `active_version` to the resolved version, create a single entry in `versions` with `status: "active"`, the original `platforms`, and `last_exported`
+3. Wrap in v2 structure: set `active_version` to the resolved version, create a single entry in `versions` with `status: "active"`, `ides: []` (unknown — will be filled on next successful export), and `last_exported`
 4. Set `schema_version: "2"` at root
 5. Hold the migrated structure in context (it will be written in section 9b)
 
@@ -250,9 +252,9 @@ Auto-proceed to {nextStepFile}.
 
 Display: "**Select:** [C] Continue — write changes to {target-file}"
 
-**Multi-platform behavior:** When processing multiple platforms, present all platforms' previews together before asking for a single confirmation. After confirmation, write all target files sequentially, verifying each one.
+**Multi-target behavior:** When processing multiple context files, present all previews together before asking for a single confirmation. After confirmation, write all target files sequentially, verifying each one.
 
-"**Targets:** {list all platform → target-file pairs}
+"**Targets:** {list all context-file → target-file pairs}
 **Ready to write changes to all targets?**"
 
 Display: "**Select:** [C] Continue — write changes to all targets"
@@ -284,17 +286,20 @@ After user confirms with 'C':
 
 ### 9b. Update Export Manifest (Non-Dry-Run Only)
 
-**This section executes ONCE after all platform iterations complete** (outside the per-platform loop defined in section 3). Only platforms whose writes succeeded in section 9 are recorded.
+**This section executes ONCE after all context-file iterations complete** (outside the per-context-file loop defined in section 3). Only IDEs whose target context files were successfully written and verified in section 9 are recorded.
+
+**`ides` field definition:** `ides` is the list of IDE identifiers from `config.yaml.ides` (e.g. `claude-code`, `cursor`, `github-copilot`) whose context files were successfully written and verified in section 9. It is NOT the context file name (`CLAUDE.md`) and NOT the skill root path (`.claude/skills/`). Each IDE → context file → skill root mapping is defined in `skf-export-skill/assets/managed-section-format.md`.
 
 1. Read `{skills_output_folder}/.export-manifest.json` (or start with `{"schema_version": "2", "exports": {}}` if it does not exist)
-2. Ensure `schema_version` is `"2"` (if v1 was migrated in section 4a, the migrated structure is already in context)
-3. Add or update the current skill's entry in v2 format:
+2. Ensure `schema_version` is `"2"` (if v1 was migrated in section 4a, the migrated structure is already in context). If any version entry still has a legacy `platforms` key, rename it to `ides` in place (see §4a).
+3. Compute `ides_written` — the set of IDE identifiers from `config.yaml.ides` whose mapped context file was successfully written in section 9 (deduplicated, sorted). When `--context-file` was passed explicitly, `ides_written` contains only the IDEs that map to that single context file.
+4. Add or update the current skill's entry in v2 format:
    ```json
    "{skill-name}": {
      "active_version": "{version}",
      "versions": {
        "{version}": {
-         "platforms": ["{successfully-written platforms}"],
+         "ides": ["{ides_written}"],
          "last_exported": "{current-date}",
          "status": "active"
        }
@@ -302,15 +307,14 @@ After user confirms with 'C':
    }
    ```
    - `{version}` is the version from `{resolved_skill_package}/metadata.json`
-   - Set `platforms` to only the platforms that were successfully written and verified in section 9
    - If the skill already has a manifest entry:
      - Set `active_version` to the current version
-     - If the version already exists in `versions`, update its `platforms` (merge, deduplicate), `last_exported`, and set `status: "active"`
+     - If the version already exists in `versions`, union its existing `ides` with `ides_written` (deduplicate, keep sorted), refresh `last_exported`, and set `status: "active"`
      - If this is a new version, add it to `versions` with `status: "active"` and set any previously-active version's status to `"archived"`
      - Preserve all other version entries in `versions` (do not delete archived versions)
-4. Write the updated manifest to `{skills_output_folder}/.export-manifest.json`
+5. Write the updated manifest to `{skills_output_folder}/.export-manifest.json`
 
-**Dry-run mode:** Do NOT update the manifest. Display: "**[DRY RUN] Export manifest would be updated for {skill-name} on platform(s) {platform-list}.**"
+**Dry-run mode:** Do NOT update the manifest. Display: "**[DRY RUN] Export manifest would be updated for {skill-name} — ides: {ides_written}.**"
 
 **Error handling:** If manifest write fails, warn but do not fail the workflow — the managed section was already written successfully.
 

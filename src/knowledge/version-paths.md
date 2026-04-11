@@ -144,12 +144,12 @@ The export manifest gains version awareness:
       "active_version": "0.6.0",
       "versions": {
         "0.5.0": {
-          "platforms": ["claude"],
+          "ides": ["claude-code"],
           "last_exported": "2026-03-15",
           "status": "archived"
         },
         "0.6.0": {
-          "platforms": ["claude", "copilot"],
+          "ides": ["claude-code", "github-copilot"],
           "last_exported": "2026-04-04",
           "status": "active"
         }
@@ -163,7 +163,7 @@ The export manifest gains version awareness:
 - `schema_version`: `"2"` — enables v1-to-v2 migration detection
 - `active_version`: The version whose `{skill_package}` supplies the context snippet for the managed section. Must match exactly one version with `status: "active"`
 - `versions.{v}.status`: `"active"` (currently exported), `"archived"` (previously exported, retained on disk), `"deprecated"` (dropped via drop-skill workflow, excluded from all exports), `"draft"` (created but never exported)
-- `versions.{v}.platforms`: Array of platforms this version was last exported to
+- `versions.{v}.ides`: Array of IDE identifiers from `config.yaml.ides` whose context file this version was last exported to (e.g. `["claude-code", "cursor"]`). NOT context file names, NOT skill root paths — the canonical IDE identifier used by the installer. Pre-rename manifests used `platforms` for this field; `skf-manifest-ops.py` silently upgrades them on read
 - `versions.{v}.last_exported`: ISO date of the last export
 
 **Only one version per skill can have `status: "active"` at any time.**

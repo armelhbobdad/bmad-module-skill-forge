@@ -41,7 +41,7 @@ For each version in `target_versions`:
 
 1. Navigate to `exports.{target_skill}.versions.{version}`
 2. Set `status = "deprecated"`
-3. Leave `platforms`, `last_exported`, and all other fields unchanged
+3. Leave `ides`, `last_exported`, and all other fields unchanged
 
 Do NOT change `active_version` on the skill entry in this pass — if the dropped version was the active one (only reachable when it was the sole non-deprecated version per the step-01 guard), the active_version field will still point at it, but every consumer excludes deprecated versions from exports.
 
