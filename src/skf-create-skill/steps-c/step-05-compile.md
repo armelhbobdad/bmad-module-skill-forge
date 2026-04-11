@@ -137,7 +137,15 @@ Group functions logically by module, file, or functional area.
 
 ### 6. Build provenance-map.json Content
 
-One entry per extracted export: export_name, export_type, params[] (typed strings), return_type, source_file, source_line, confidence tier (T1/T1-low/T2), extraction_method, ast_node_type, signature_source ("T1"|"T1-low"|"T2"|"T3" — indicates which tier contributed the structural signature). If `scripts_inventory` or `assets_inventory` is non-empty, add `file_entries[]` with file_name, file_type, source_file, content_hash, confidence, extraction_method. See `{skillSectionsData}` for full schema.
+One entry per extracted export: export_name, export_type, params[] (typed strings), return_type, source_file, source_line, confidence tier (T1/T1-low/T2), extraction_method, ast_node_type, signature_source ("T1"|"T1-low"|"T2"|"T3" — indicates which tier contributed the structural signature).
+
+**File entries** — emit one `file_entries[]` row per tracked non-code file when any of these inventories are non-empty:
+
+- `scripts_inventory` → `file_type: "script"`, `extraction_method: "file-copy"`, stored in `{skill_package}/scripts/` by step-07
+- `assets_inventory` → `file_type: "asset"`, `extraction_method: "file-copy"`, stored in `{skill_package}/assets/` by step-07
+- `promoted_docs` (from step-03 §2a) → `file_type: "doc"`, `extraction_method: "promoted-authoritative"`, **NOT** copied into the skill package by step-07. The source file stays at its original path; only the provenance tracking entry is written. `content_hash` was pre-computed by §2a.
+
+Each `file_entries[]` row has the same shape regardless of `file_type`: `{file_name, file_type, source_file, content_hash, confidence, extraction_method}`. See `{skillSectionsData}` for full schema and the canonical list of `file_type` values.
 
 ### 7. Build evidence-report.md Content
 

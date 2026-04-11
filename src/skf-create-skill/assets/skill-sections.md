@@ -319,8 +319,23 @@ Each reference file includes:
 - `source_library`: Identifies which library an export belongs to. For single skills, defaults to the skill/package name. For stack skills, identifies the constituent library.
 - `integrations`: Stack-only. Describes cross-library integration patterns with their own schema — NOT shoehorned into entries.
 - `constituents`: Stack-only (compose-mode). Tracks the compose-time snapshot of each source skill for staleness detection. `metadata_hash` enables audit to detect constituent drift without re-reading all constituent files.
-- `file_entries` remains optional — omit when no scripts/assets exist.
+- `file_entries` remains optional — omit when no scripts, assets, or promoted docs exist.
 - Single skills omit `integrations` and `constituents` arrays entirely (not empty arrays).
+
+**`file_type` enum — canonical values:**
+
+| Value | Source inventory | Copied to skill package? | `extraction_method` | Purpose |
+|---|---|---|---|---|
+| `"script"` | `scripts_inventory` | yes → `scripts/` | `"file-copy"` | Runnable scripts (CLI tools, validation scripts, etc.) bundled into the skill for execution. |
+| `"asset"` | `assets_inventory` | yes → `assets/` | `"file-copy"` | Data files (templates, JSON schemas, config fixtures) bundled for reference. |
+| `"doc"` | `promoted_docs` (from step-03 §2a) | **no** | `"promoted-authoritative"` | Authoritative AI documentation files (`llms.txt`, `AGENTS.md`, etc.) promoted into scope by the Discovered Authoritative Files Protocol. The source file is tracked for drift detection but not bundled into the skill — its content influences compile-time decisions (description, Quick Start) and is watched for upstream changes. |
+
+When `file_type: "doc"`:
+
+- `source_file` is the relative path from the source root to the authoritative doc.
+- `content_hash` is computed at promotion time (step-03 §2a) and persisted here so update-skill Category D can detect drift via hash comparison.
+- `file_name` convention: use the source-relative path prefixed with `docs/authoritative/` to namespace doc entries away from script/asset filenames in tools that iterate `file_entries[]` by `file_name`. Example: `docs/authoritative/apps/docs/public/llms.txt`. Step-07 does not write this path — it is a synthetic namespace used only within the provenance map.
+- `confidence` is `"T1-low"` (the promotion decision is source-level but the content was not AST-parsed).
 
 ---
 

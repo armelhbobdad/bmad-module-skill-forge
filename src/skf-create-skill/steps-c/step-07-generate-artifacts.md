@@ -64,6 +64,10 @@ Write these 4 files from the compiled content:
 - One file per detected asset, copied from source with content preserved
 - Only created when `assets_inventory` is non-empty
 
+**Note on `file_type: "doc"` entries** (promoted authoritative docs from step-03 §2a):
+
+Promoted docs are tracked in `file_entries[]` with `file_type: "doc"` for drift detection but are **NOT** copied into the skill package. The source file remains at its original location outside `{skill_package}`. Step-07 must skip any `file_entries[]` row where `file_type == "doc"` when iterating for file copy — these entries exist only for provenance tracking, not bundling. Step-07 verification (§5) also does not check for doc files in the skill package.
+
 ### 3. Write Workspace Artifacts to {forge_version}
 
 Write these 3 files from the compiled content:

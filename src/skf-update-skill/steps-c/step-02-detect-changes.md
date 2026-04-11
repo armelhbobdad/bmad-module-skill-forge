@@ -72,7 +72,7 @@ Read the source directory at `{source_root}` and build a current file inventory:
    - **Not in provenance map:** continue to amendment check.
 
 3. **Check brief amendments.** Load `brief.scope.amendments[]` from `{forge_data_folder}/{skill_name}/skill-brief.yaml`. For each candidate not in the provenance map:
-   - **`action: "promoted"` for this path exists:** the brief says this file should be in scope, but it's missing from the provenance map. This means the file was promoted by a prior run but has not yet been extracted — add the path to the change manifest as **ADDED** so §3 re-extracts it and §4 merges it in. No user prompt (the decision was already made). Display: `"Honoring prior amendment: promoted {path} scheduled for extraction."`
+   - **`action: "promoted"` for this path exists:** the brief says this file should be in scope, but it's missing from the provenance map. This means the file was promoted by a prior run but its `file_entries[]` row is missing (e.g. provenance-map was regenerated from source without re-reading amendments). Add the path to `promoted_docs_new[]` (see step 6 below) with its content hash so §4 merge writes a new `file_entries[]` row. No user prompt — the decision was already made. Display: `"Honoring prior amendment: promoted {path} scheduled for file_entries write."`
    - **`action: "skipped"` for this path exists:** user previously declined promotion. Honor the skip silently. No prompt, no action.
    - **No amendment for this path:** continue to user prompt.
 
@@ -104,8 +104,8 @@ Read the source directory at `{source_root}` and build a current file inventory:
      1. Append `candidate.path` to `brief.scope.include` as a literal glob.
      2. Append a `brief.scope.amendments[]` entry: `action: "promoted"`, `path: candidate.path`, `reason: {user-provided or auto: "discovered post-creation — matched heuristic {basename}"}`, `heuristic: {basename}`, `date: {today ISO}`, `workflow: "skf-update-skill"`.
      3. **Write the amended brief back to disk immediately** at `{forge_data_folder}/{skill_name}/skill-brief.yaml`. Preserve all other fields.
-     4. Add `candidate.path` to the change manifest under **Category A — File-level changes → ADDED** so §3 re-extracts it and §4 merges its exports.
-     5. Display: `"Promoted {path} — brief amended, scheduled for extraction in step-03."`
+     4. **Compute SHA-256 content hash** of `candidate.path` and add an entry to the in-context `promoted_docs_new[]` list: `{path, heuristic, size_bytes, line_count, content_hash}`. This list is consumed by §4 merge Priority 7 to write new `file_entries[]` rows — promoted docs do NOT go through §3 code re-extraction, which would produce ghost entries on non-code files.
+     5. Display: `"Promoted {path} — brief amended, scheduled as new file_entries row for file_type doc."`
 
    - **[S] Skip:**
      1. Do NOT modify `scope.include`.
@@ -125,7 +125,7 @@ Read the source directory at `{source_root}` and build a current file inventory:
 
 **Record for evidence report:** the update-skill evidence report appends `authoritative_files_mirror: {candidates: N, promoted: P, skipped: S, pre_decided: A, already_tracked: T, decisions: [{path, action, heuristic, reason}]}`.
 
-**Interaction with §2 change detection:** promoted files added to the change manifest in step 6 above appear in §2 as ADDED entries. §2 does not need to re-detect them — but it must not treat them as duplicates. When §2 builds Category A, skip any path already marked as ADDED by §1b.
+**Interaction with §2 change detection:** promoted docs live in `promoted_docs_new[]`, NOT in the change manifest. But §2 Category A ("files in source but not in provenance map → ADDED") would still find the promoted doc files on disk and try to classify them as ADDED code. Prevent this collision: before building the Category A pre-filter exclusion set (step 0 below), add every path in `promoted_docs_new[]` to the exclusion set. This ensures promoted docs are never marked ADDED, never sent to §3 re-extraction, and only ever reach step-04 as file_entries additions via Priority 7.
 
 ### 2. Compare Against Provenance Map
 
@@ -135,7 +135,7 @@ Launch subprocesses in parallel that compare source state against provenance map
 
 **Category A — File-level changes:**
 - Files in provenance map but missing from source → DELETED
-- Files in source but not in provenance map → ADDED (skip any path already marked ADDED by §1b — do not duplicate)
+- Files in source but not in provenance map → ADDED (skip any path in the `promoted_docs_new[]` exclusion set built by §1b — promoted docs are routed to file_entries via Priority 7, not through Category A code extraction)
 - Files in both but with different timestamps/sizes → MODIFIED
 - Files with same content at different paths → MOVED
 

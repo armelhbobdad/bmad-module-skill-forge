@@ -56,12 +56,12 @@ This protocol detects such files, prompts the user, and records the decision in 
 1. **Walk the source tree** resolved in step-01 (NOT the filtered file list from §2 — we want files the brief excluded too). Match file basenames against the heuristic list case-insensitively.
 
 2. **Diff against filtered list.** For each match, check whether the path is already present in §2's filtered file list:
-   - **Already in scope:** no action, move on.
-   - **Excluded by brief patterns:** this is a **candidate** for the prompt.
+   - **Already in scope (matched by `scope.include`):** **remove the path from the filtered file list** and add it directly to `promoted_docs[]` with `{path, heuristic, size_bytes, line_count, content_hash}`. No prompt — the user or a prior amendment already said it belongs in scope, but authoritative docs must never reach §4 code extraction. This is both the "already promoted from a prior run" case and the "user manually added to scope.include" case.
+   - **Excluded by brief patterns:** this is a **candidate** for the prompt at step 5.
 
 3. **Check existing amendments.** Before prompting, consult `brief.scope.amendments[]` (see `src/skf-brief-skill/assets/skill-brief-schema.md` for the schema). If any amendment entry has `path == candidate.path`, the decision is already recorded:
-   - `action: "promoted"` → the file should already be in `scope.include` (amendments are write-through). No prompt. No further action.
-   - `action: "skipped"` → user previously declined. No prompt. Move on.
+   - `action: "promoted"` → the file should already be in `scope.include` (amendments are write-through). No prompt. **Still populate `promoted_docs[]`** for this path — compute its content hash and add a `{path, heuristic, size_bytes, line_count, content_hash}` entry so step-05 §6 writes the `file_entries[]` row. This is the deterministic replay path for re-runs.
+   - `action: "skipped"` → user previously declined. No prompt. Do not add to `promoted_docs[]`. Move on.
 
 4. **Load preview.** For each unresolved candidate, read the first 20 lines of the file. Record the line count and file size in bytes.
 
@@ -90,11 +90,11 @@ This protocol detects such files, prompts the user, and records the decision in 
 7. **Apply decision:**
 
    - **[P] Promote:**
-     1. Add `candidate.path` to the in-memory filtered file list from §2. Extraction in §4 will include it.
-     2. Append to `brief.scope.include`: add the exact `candidate.path` as a literal glob (no wildcards — the amendment targets this specific file).
+     1. **Do NOT add the path to the filtered file list from §2.** Authoritative documentation files are not code — they must not go through the AST extraction pipeline in §4, which would silently produce no exports (ghost entries). Instead, add the path to a new in-context list `promoted_docs[]` with `{path, heuristic, size_bytes, line_count, content_hash}`. Compute the SHA-256 content hash of the file now.
+     2. Append to `brief.scope.include`: add the exact `candidate.path` as a literal glob (no wildcards — the amendment targets this specific file). This write ensures that a re-run of `skf-create-skill` against the amended brief sees the path in scope and skips re-prompting.
      3. Append to `brief.scope.amendments[]` a new entry with `action: "promoted"`, `path: candidate.path`, `reason: {user-provided one-sentence reason or auto-generated "authoritative AI docs — matched heuristic {basename}"}`, `heuristic: {basename}`, `date: {today ISO}`, `workflow: "skf-create-skill"`.
      4. **Write the amended brief back to disk immediately** at `{forge_data_folder}/{skill_name}/skill-brief.yaml`. Immediate write (not deferred to step-07) ensures a crashed run still leaves the amendment recorded. Preserve all other brief fields and formatting.
-     5. Display: "**Promoted `{path}`** — added to scope.include, amendment recorded."
+     5. Display: "**Promoted `{path}`** — tracked as documentation file, amendment recorded."
 
    - **[S] Skip:**
      1. Do NOT modify `scope.include` or `scope.exclude`.
@@ -114,13 +114,22 @@ This protocol detects such files, prompts the user, and records the decision in 
 
 **Record for evidence report:** `authoritative_files_scan: {candidates: N, promoted: P, skipped: S, pre_decided: A, decisions: [{path, action, heuristic, reason}]}` — step-07 includes this in `evidence-report.md`.
 
-**Downstream consumers:** this protocol interacts with three other workflows, all without requiring code changes in them:
+**How promoted docs reach the provenance map:**
 
-- **`skf-update-skill`** reads `provenance-map.json` for the file universe. Promoted files land in provenance-map during §4-§6 of this run. Update-skill automatically tracks them from that point on.
-- **`skf-audit-skill`** (after the §2 bounding fix) scans files from `provenance-map.json`. Same story: promoted files are in the provenance map, so audit-skill includes them.
-- **Re-running `skf-create-skill`** reads the amended brief. Files with `action: "promoted"` amendments already appear in `scope.include`, so §2 includes them in the filtered list without §2a needing to prompt again.
+Promoted docs do NOT flow through §4 code extraction. Instead:
 
-The brief is the single source of truth for authored scope intent. The provenance map is the single source of truth for extracted state. Amendments are the bridge that records when those two intentionally diverged.
+1. §2a populates the in-context `promoted_docs[]` list with content hashes.
+2. **Step-05 §6** (provenance-map assembly) reads `promoted_docs[]` and emits one `file_entries[]` entry per promoted doc with `file_type: "doc"`, `extraction_method: "promoted-authoritative"`, `confidence: "T1-low"`, and the pre-computed `content_hash`.
+3. **Step-07 §2** does NOT copy doc files into the skill package (unlike scripts and assets). The source file remains at its original path; only the provenance map tracks it. Future audit and update workflows compare against this tracking entry via content hash — no file copy is required because the intent is drift detection on the *source*, not bundling documentation into the skill output.
+
+**Re-running `skf-create-skill`** reads the amended brief. Files with `action: "promoted"` amendments already appear in `scope.include`, but §2a still runs — it detects the file is in scope AND has an existing amendment, and takes the "pre-decided" silent path. The `promoted_docs[]` list is rebuilt on each run by scanning amendments with `action: "promoted"` (this is the deterministic replay path).
+
+**Downstream workflow consumption** (zero code changes required):
+
+- **`skf-update-skill`** reads `provenance-map.json`. Promoted docs appear as `file_entries[]` entries. Update-skill Category D (script/asset file changes) iterates `file_entries` and compares content hashes — this works identically for `file_type: "doc"` entries, giving drift detection for free.
+- **`skf-audit-skill`** (after the bounded re-index fix) scans files from `provenance-map.json`. The re-index builds its list from `entries[].source_file ∪ file_entries[].source_file`, so promoted doc paths are naturally included in the audit scan.
+
+The brief is the single source of truth for authored scope intent. The provenance map is the single source of truth for extracted state. `scope.amendments[]` is the bridge that records when those two intentionally diverged. `promoted_docs[]` is the in-memory handoff from §2a to step-05 §6; it is not persisted — the persisted form is the `file_entries[]` list in provenance-map.json.
 
 ### 2b. Resolve Source Access
 

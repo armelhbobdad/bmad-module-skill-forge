@@ -123,7 +123,9 @@ Source code has not drifted — the gap-derived manifest from step-02 contains e
 
 ### 2. Extract Changed Files
 
-DO NOT BE LAZY — For EACH file in the change manifest with status MODIFIED, ADDED, or RENAMED, launch a subprocess that:
+**Skip authoritative doc paths.** Before iterating the change manifest, build a skip set from `promoted_docs_new[]` (populated by step-02 §1b) and any existing `file_entries[]` entries with `file_type: "doc"` from the provenance map. These are documentation files tracked for drift detection only — they must not reach AST extraction, which would produce ghost entries on non-code content. If a change manifest entry matches the skip set, skip it silently and continue; doc-type drift is handled by step-02 Category D and step-04 Priority 6/7.
+
+DO NOT BE LAZY — For EACH remaining file in the change manifest with status MODIFIED, ADDED, or RENAMED, launch a subprocess that:
 
 1. Loads the source file
 2. Performs tier-appropriate extraction (Quick/Forge/Forge+/Deep)
