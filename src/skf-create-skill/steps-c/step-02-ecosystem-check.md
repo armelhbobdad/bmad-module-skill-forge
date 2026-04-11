@@ -1,5 +1,5 @@
 ---
-nextStepFile: './step-02b-ccc-discover.md'
+nextStepFile: './sub/step-02b-ccc-discover.md'
 ---
 
 # Step 2: Ecosystem Check

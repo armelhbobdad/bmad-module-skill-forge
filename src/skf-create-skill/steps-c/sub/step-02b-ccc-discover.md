@@ -1,5 +1,5 @@
 ---
-nextStepFile: './step-03-extract.md'
+nextStepFile: '../step-03-extract.md'
 ---
 
 # Step 2b: CCC Semantic Discovery

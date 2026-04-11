@@ -1,5 +1,5 @@
 ---
-nextStepFile: './step-03b-fetch-temporal.md'
+nextStepFile: './sub/step-03b-fetch-temporal.md'
 componentExtractionStepFile: './step-03d-component-extraction.md'
 extractionPatternsData: 'references/extraction-patterns.md'
 extractionPatternsTracingData: 'references/extraction-patterns-tracing.md'

@@ -1,5 +1,5 @@
 ---
-nextStepFile: './step-04-enrich.md'
+nextStepFile: '../step-04-enrich.md'
 ---
 
 # Step 3c: Fetch Remote Documentation

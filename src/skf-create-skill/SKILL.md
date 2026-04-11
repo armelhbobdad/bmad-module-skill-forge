@@ -30,16 +30,18 @@ These rules apply to every step in this workflow:
 |---|------|------|--------------|
 | 1 | Load Brief | steps-c/step-01-load-brief.md | Yes |
 | 2 | Ecosystem Check | steps-c/step-02-ecosystem-check.md | Conditional |
-| 2b | CCC Discover | steps-c/step-02b-ccc-discover.md | Yes |
+| 2b | CCC Discover | steps-c/sub/step-02b-ccc-discover.md | Yes |
 | 3 | Extract | steps-c/step-03-extract.md | No (confirm) |
-| 3b | Fetch Temporal | steps-c/step-03b-fetch-temporal.md | Yes |
-| 3c | Fetch Docs | steps-c/step-03c-fetch-docs.md | Yes |
+| 3b | Fetch Temporal | steps-c/sub/step-03b-fetch-temporal.md | Yes |
+| 3c | Fetch Docs | steps-c/sub/step-03c-fetch-docs.md | Yes |
 | 3d | Component Extraction | steps-c/step-03d-component-extraction.md | Conditional |
 | 4 | Enrich | steps-c/step-04-enrich.md | Yes |
 | 5 | Compile | steps-c/step-05-compile.md | Yes |
 | 6 | Validate | steps-c/step-06-validate.md | Conditional |
 | 7 | Generate Artifacts | steps-c/step-07-generate-artifacts.md | Yes |
 | 8 | Report | steps-c/step-08-report.md | Yes |
+
+*Sub-steps under `steps-c/sub/` are conditional branches (CCC discovery, temporal/doc enrichment) kept out of the top-level step count so main-line steps 1–8 drive the workflow. Step 3d (Component Extraction) stays top-level as an alternative main step that replaces the standard extraction path when `scope.type: "component-library"`.*
 
 ## Invocation Contract
 

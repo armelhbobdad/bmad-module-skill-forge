@@ -223,10 +223,10 @@ async function runTests() {
       steps: [
         'step-01-load-brief.md',
         'step-02-ecosystem-check.md',
-        'step-02b-ccc-discover.md',
+        'sub/step-02b-ccc-discover.md',
         'step-03-extract.md',
-        'step-03b-fetch-temporal.md',
-        'step-03c-fetch-docs.md',
+        'sub/step-03b-fetch-temporal.md',
+        'sub/step-03c-fetch-docs.md',
         'step-03d-component-extraction.md',
         'step-04-enrich.md',
         'step-05-compile.md',
