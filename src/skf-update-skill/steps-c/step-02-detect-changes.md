@@ -51,6 +51,82 @@ Read the source directory at `{source_root}` and build a current file inventory:
 - Focus on file types relevant to the skill (from provenance map file patterns)
 - Exclude non-source files (node_modules, build artifacts, etc.)
 
+### 1b. Discovered Authoritative Files Protocol (Mirror)
+
+**Purpose:** mirror `skf-create-skill` §2c into update-skill. `skf-create-skill` §2c catches authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.) during **creation**. But a project may add these files *after* the skill was created — for example, an upstream project adopts an `llms.txt` convention six months into development. Without this mirror, update-skill would either miss the new file entirely (if it doesn't match the provenance map's file patterns) or classify it as a generic ADDED file in §2 Category A with no authoritative-file treatment. The mirror surfaces the discovery with the same P/S/U prompt create-skill uses, honoring any prior amendments.
+
+**Skip this section entirely if:**
+
+- `update_mode == "gap-driven"` (source hasn't drifted — we're verifying test report findings, not discovering new files), OR
+- `metadata.json.source_type == "docs-only"` (no source tree to scan)
+
+**Procedure (identical heuristics to create-skill §2c):**
+
+1. **Walk the source tree.** Match file basenames against the heuristic list case-insensitively:
+   - `llms.txt`, `llms-full.txt`
+   - `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `COPILOT.md`
+   - `.cursorrules`, `.windsurfrules`, `.clinerules`
+
+2. **Cross-reference with provenance map.** For each match:
+   - **Already in provenance map** (`entries[].source_file` or `file_entries[].source_file` contains this path): the file is already tracked. §2 will detect any drift in the normal flow. No action in §1b.
+   - **Not in provenance map:** continue to amendment check.
+
+3. **Check brief amendments.** Load `brief.scope.amendments[]` from `{forge_data_folder}/{skill_name}/skill-brief.yaml`. For each candidate not in the provenance map:
+   - **`action: "promoted"` for this path exists:** the brief says this file should be in scope, but it's missing from the provenance map. This means the file was promoted by a prior run but has not yet been extracted — add the path to the change manifest as **ADDED** so §3 re-extracts it and §4 merges it in. No user prompt (the decision was already made). Display: `"Honoring prior amendment: promoted {path} scheduled for extraction."`
+   - **`action: "skipped"` for this path exists:** user previously declined promotion. Honor the skip silently. No prompt, no action.
+   - **No amendment for this path:** continue to user prompt.
+
+4. **Prompt.** For each unresolved candidate, present the same prompt as create-skill §2c:
+
+   ```
+   **New authoritative file discovered since skill creation**
+
+   Path: {relative_path_from_source_root}
+   Size: {line_count} lines, {bytes} bytes
+   Matched heuristic: {basename}
+   Provenance age: {days since skill creation}
+
+   First 20 lines:
+   {inline preview}
+
+   This file was not present (or not in scope) when the skill was created. How should update-skill handle it?
+
+   [P] Promote — extract in this update run AND amend brief for future runs
+   [S] Skip    — leave out of scope AND record skip in amendments (no re-prompt)
+   [U] Update  — halt this run and return to skf-brief-skill to refine scope
+   ```
+
+5. **Headless mode (`{headless_mode}` is true):** auto-select `[S] Skip` for every candidate — record `action: "skipped"`, `reason: "headless: no user to prompt"`, `workflow: "skf-update-skill"`. A non-interactive update run must never silently add files to scope.
+
+6. **Apply decision:**
+
+   - **[P] Promote:**
+     1. Append `candidate.path` to `brief.scope.include` as a literal glob.
+     2. Append a `brief.scope.amendments[]` entry: `action: "promoted"`, `path: candidate.path`, `reason: {user-provided or auto: "discovered post-creation — matched heuristic {basename}"}`, `heuristic: {basename}`, `date: {today ISO}`, `workflow: "skf-update-skill"`.
+     3. **Write the amended brief back to disk immediately** at `{forge_data_folder}/{skill_name}/skill-brief.yaml`. Preserve all other fields.
+     4. Add `candidate.path` to the change manifest under **Category A — File-level changes → ADDED** so §3 re-extracts it and §4 merges its exports.
+     5. Display: `"Promoted {path} — brief amended, scheduled for extraction in step-03."`
+
+   - **[S] Skip:**
+     1. Do NOT modify `scope.include`.
+     2. Append a `brief.scope.amendments[]` entry: `action: "skipped"`, `path: candidate.path`, `reason: {user-provided or auto: "user declined promotion at update-skill §1b"}`, `heuristic: {basename}`, `date: {today ISO}`, `workflow: "skf-update-skill"`.
+     3. **Write the amended brief back to disk** so neither update-skill nor create-skill will re-prompt in future runs.
+     4. Display: `"Skipped {path} — decision recorded in amendments."`
+
+   - **[U] Update:**
+     1. Halt the workflow immediately.
+     2. Display: `"Halting update-skill. Re-run skf-brief-skill to refine scope for {skill_name}, then re-run skf-update-skill."`
+     3. Exit with status `halted-for-brief-refinement`. Change manifest is discarded — no partial writes.
+
+7. **Summary.** After all candidates are resolved (or none were found):
+
+   - `"Authoritative files mirror: {N} candidates, {P} promoted, {S} skipped, {A} pre-decided from amendments, {T} already tracked in provenance."`
+   - If N = 0: `"Authoritative files mirror: no candidates."`
+
+**Record for evidence report:** the update-skill evidence report appends `authoritative_files_mirror: {candidates: N, promoted: P, skipped: S, pre_decided: A, already_tracked: T, decisions: [{path, action, heuristic, reason}]}`.
+
+**Interaction with §2 change detection:** promoted files added to the change manifest in step 6 above appear in §2 as ADDED entries. §2 does not need to re-detect them — but it must not treat them as duplicates. When §2 builds Category A, skip any path already marked as ADDED by §1b.
+
 ### 2. Compare Against Provenance Map
 
 **If normal mode (provenance map available):**
@@ -59,7 +135,7 @@ Launch subprocesses in parallel that compare source state against provenance map
 
 **Category A — File-level changes:**
 - Files in provenance map but missing from source → DELETED
-- Files in source but not in provenance map → ADDED
+- Files in source but not in provenance map → ADDED (skip any path already marked ADDED by §1b — do not duplicate)
 - Files in both but with different timestamps/sizes → MODIFIED
 - Files with same content at different paths → MOVED
 
