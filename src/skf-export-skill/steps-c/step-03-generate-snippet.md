@@ -46,9 +46,11 @@ These values will be used as a fallback in section 3 if new gotchas cannot be de
 
 ### 2.7. Resolve Skill Root Path
 
-Using the first entry in `target_context_files` (resolved in step-01), take its `skill_root` value. This is the IDE's actual skill directory (e.g., `.claude/skills/`, `.windsurf/skills/`, `.github/skills/`).
+**If `snippet_skill_root_override` is set in config.yaml:** Use its value directly as `{skill_root}` and skip the IDE-mapping lookup below. This is the authoring-repo escape hatch — repos where skills live under a single shared directory (e.g. `skills/`) that does not match any per-IDE skill root. Log: "Using snippet_skill_root_override: `{override}` — bypassing IDE mapping for snippet root path."
 
-Store `{skill_root}` for use in snippet generation. The context-snippet.md written to disk uses this IDE's skill root path.
+**Otherwise (default):** Using the first entry in `target_context_files` (resolved in step-01), take its `skill_root` value. This is the IDE's actual skill directory (e.g., `.claude/skills/`, `.windsurf/skills/`, `.github/skills/`).
+
+Store `{skill_root}` for use in snippet generation. The context-snippet.md written to disk uses this resolved skill root path.
 
 ### 3. Generate Snippet Content
 

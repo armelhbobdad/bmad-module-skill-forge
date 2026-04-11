@@ -199,7 +199,7 @@ For each entry in `target_context_files`:
 
 4. **Rewrite root paths for the current context file** using the generic rewrite algorithm from export-skill step-04 section 4d:
 
-   For each snippet, parse the `root:` line (`root: {prefix}{skill-name}/`), strip the trailing `{skill-name}/` to extract the current prefix, and replace it with the current entry's `skill_root` if different.
+   For each snippet, parse the `root:` line (`root: {prefix}{skill-name}/`), strip the trailing `{skill-name}/` to extract the current prefix, and replace it with the current entry's `skill_root` if different. **Override guard:** If `snippet_skill_root_override` is set in config.yaml AND the extracted prefix equals the override value, skip the rewrite — leave the root path untouched. See `skf-export-skill/steps-c/step-04-update-context.md` §4d for full semantics.
 
 5. **Sort skills alphabetically by name.** Count totals (skills, stack skills).
 

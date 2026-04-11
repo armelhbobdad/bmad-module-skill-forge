@@ -68,6 +68,13 @@ All other IDEs use AGENTS.md as the context file, each with its own skill direct
 
 **Unknown IDE values:** Warn: "Unknown IDE '{value}' in config.yaml — defaulting to AGENTS.md with `.agents/skills/`"
 
+**`snippet_skill_root_override` (optional):** Authoring repos where all skills live under one shared on-disk directory (e.g. `skills/`) that does not match any per-IDE skill root may set `snippet_skill_root_override: skills/` in `config.yaml`. When set:
+
+- `export-skill/step-03` §2.7 uses the override as `{skill_root}` for snippet generation instead of the IDE-mapped value
+- `export-skill/step-04` §4d (and its equivalents in `drop-skill/step-02` and `rename-skill/step-02`) skip the prefix rewrite for any snippet whose current prefix already equals the override — the managed section will reference the on-disk location instead of a per-IDE directory that does not exist
+
+Consuming projects (the common case) omit the field and keep the default IDE-mapping behavior. The override is a narrow escape hatch for repos that author skills into `{skills_output_folder}` and never duplicate them into `.claude/skills/`-style directories.
+
 ### Consumers
 
 This mapping is the single source of truth. Workflows that need it: `export-skill/step-01` (resolves `target_context_files` from config.yaml IDE list), `export-skill/step-04` (applies four-case logic and rewrites root paths when writing managed sections), `drop-skill/step-02` and `rename-skill/step-02` (rebuild context files after a management operation).
