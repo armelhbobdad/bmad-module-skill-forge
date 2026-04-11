@@ -140,7 +140,7 @@ Parse output for: `description_score`, `content_score`, `review_score`, `validat
 **Apply dismissal rules** in this order:
 
 1. **Check score thresholds** against the "Score Thresholds" table in `{tesslDismissalData}`. Most importantly:
-   - If `description_score < 100`: halt immediately with the error message from the threshold table. This indicates step-05 §2a sanitization missed a case — do not attempt to fix at step-06.
+   - If `description_score < 100`: follow the **recover-then-halt** path defined by the `description-xml-tags-guarded-upstream` rule in `{tesslDismissalData}`. Re-apply step-05 §2a's `<`/`>` → `{`/`}` substitution in place on the staging SKILL.md frontmatter `description`, re-sync the in-context copy, and re-run `npx -y tessl skill review <staging-skill-dir>` once. If the re-run produces `description_score == 100`, log `description-recovery: applied ({count} substitutions)` in the evidence report under "Dismissed tessl suggestions" and continue suggestion iteration against the rerun's `judge_suggestions[]`. If recovery fails, halt with the rule's failure message and do NOT proceed to §6b.
    - If `review_score < 60` or `content_score < 60`: record warnings in the evidence report, continue.
 2. **Iterate `judge_suggestions[]`.** For each suggestion:
    - Cross-reference against the rules in `{tesslDismissalData}` in order.

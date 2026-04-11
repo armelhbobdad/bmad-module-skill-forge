@@ -16,12 +16,12 @@ description: >
 
 - `name`: lowercase alphanumeric + hyphens only, must match the skill output directory name. Prefer gerund form (`processing-pdfs`, `analyzing-spreadsheets`) for clarity.
 - `description`: non-empty, max 1024 chars, optimized for agent discovery. **MUST use third-person voice** ("Processes Excel files..." not "I can help you..." or "You can use this to..."). Inconsistent point-of-view causes discovery problems since the description is injected into the system prompt.
-- **`description` must NOT contain angle-bracket tokens** like `<name>`, `<component>`, `<path>`. Both `skill-check`'s `description_field` validator and `tessl`'s deterministic description check reject angle brackets as XML tags and fail the review with 0% description score. When the natural phrasing would use angle brackets (e.g., CLI placeholders: `npx foo add <name>`), substitute one of:
-  - Backticked placeholder: `` `<name>` `` → renders literally, passes the XML-tag rule
-  - Uppercase token: `NAME`, `COMPONENT_ID`
-  - Curly-brace form: `{name}`
+- **`description` must NOT contain angle brackets** — neither standalone placeholders like `<name>`, `<component>`, `<path>`, nor inline generics like `` `Array<T>` `` or `` `Meta<typeof X>` ``. Both `skill-check`'s `description_field` validator and `tessl`'s deterministic description check parse the frontmatter description as a raw string and reject any `<` or `>`, regardless of markdown context (backticks do NOT protect content here). A rejected description fails the review with 0% score. When the natural phrasing would use angle brackets:
+  - Prefer the curly-brace form in prose: `{name}`, `{component-id}`, `{path}` — readable and tessl-safe.
+  - Uppercase placeholders are also acceptable: `NAME`, `COMPONENT_ID`.
+  - For code-ish fragments, use curly braces in place of angle brackets inside the backticks: `` `Meta{typeof X}` ``, `` `Array{T}` ``.
 
-  Prefer the backticked form for CLI examples as it preserves the visual intent. Step-05 compile enforces this via a pre-write sanitization pass — see step-05 §2a.
+  Authors should not rely on remembering this — step-05 §2a enforces it via a pre-write sanitization pass that unconditionally replaces every `<` with `{` and every `>` with `}` in the frontmatter `description`. See step-05 §2a for the rule and `assets/tessl-dismissal-rules.md` (`description-xml-tags-guarded-upstream`) for the recovery path if a downstream tool rewrites the description after §2a has run.
 - Only `name` and `description` in frontmatter — `version` and `author` go in metadata.json
 - No other frontmatter fields for standard skills (only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted by spec)
 

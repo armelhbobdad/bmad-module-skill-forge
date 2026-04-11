@@ -56,26 +56,21 @@ Assemble each section in order using the assembly rules data file (`{assemblyRul
 
 ### 2a. Description Sanitization Pass
 
-**Before writing SKILL.md frontmatter to disk**, scan the assembled `description` string for angle-bracket tokens and substitute them. This prevents `skill-check` and `tessl` deterministic validators from rejecting the description as containing XML tags (which fails the review with 0% description score).
+**Before writing SKILL.md frontmatter to disk**, sanitize the assembled `description` string by replacing every `<` with `{` and every `>` with `}`. Apply this pass unconditionally to the final assembled description in context, then write the result to `SKILL.md`.
 
-**Detection:** match any substring of the form `<token>` where ALL of these conditions hold:
+**Why unconditional?** Both `skill-check`'s `description_field` validator and `tessl`'s deterministic description check parse the frontmatter `description` as a raw string — they reject any `<` or `>` regardless of whether the content is inside a backtick span or a generic expression. The previous rule exempted backticked content on the assumption that backticks protect from XML-tag parsing, but that assumption is false for these validators: a backticked TypeScript generic like `` `Meta<typeof X>` `` still fails tessl's check because tessl reads the raw string before markdown parsing. Unconditional replacement guarantees no angle brackets reach either validator.
 
-1. `token` contains only letters, digits, hyphens, underscores, or dots (e.g., `<name>`, `<component-id>`, `<file.ts>`).
-2. The character immediately before `<` is NOT an ASCII letter or digit. This excludes TypeScript / C++ / Rust generics such as `Array<T>`, `Promise<string>`, `Vec<u8>` where the `<` is attached to an identifier. Inline generics are NOT XML tags — validators do not reject them — and wrapping them in backticks would corrupt the surrounding prose into broken markdown.
-3. The token does not contain whitespace (e.g., `<unsigned int>` is a type expression, not a placeholder — skip).
-4. The angle-bracket substring is NOT already inside a backtick span (`` `...` ``). Backticks already protect the content from XML-tag parsing. Example: `` `npx foo add <name>` `` is safe as-is.
+**Coverage examples** (all handled by the same `<`/`>` → `{`/`}` replacement):
 
-**Anchor positions where the rule IS intended to match:** start of the description, after a space, after punctuation (`.`, `,`, `;`, `:`, `(`, `[`, `/`, `-`, newline). These are the positions where a standalone placeholder token typically appears.
+- Standalone placeholders: `<name>` → `{name}`, `<component-id>` → `{component-id}` — curly braces are the standard placeholder notation in prose and render cleanly.
+- Backticked TypeScript / C++ / Rust generics: `` `Meta<typeof X>` `` → `` `Meta{typeof X}` ``, `` `Array<T>` `` → `` `Array{T}` ``, `` `Vec<u8>` `` → `` `Vec{u8}` `` — readable approximations that preserve the author's intent for code-ish fragments.
+- Any other angle-bracket content, whether inside backticks or bare, is also rewritten.
 
-**Anchor positions where the rule is NOT intended to match:** immediately after a word character (generics position). This is the discriminator between "standalone `<name>` placeholder" and "inline `Array<T>` generic."
+**Scope:** This rule applies **only** to the frontmatter `description` field. Body content, code examples, reference files, and assembly-rule documents retain their original angle brackets — they are parsed through the markdown AST where backticks do protect content.
 
-**Substitution:**
+Record the count of substitutions in context as `description_sanitizations: {count}` for the evidence report.
 
-For each match that passes the detection rules above, wrap the entire angle-bracket token in backticks: `<name>` → `` `<name>` ``. This is the only substitution — no uppercase renaming, no curly-brace conversion. The backtick form preserves visual intent and is invariant under future tessl / skill-check rule changes (backticked content is always literal).
-
-Perform this pass on the final assembled description in context before it is written to `SKILL.md`. Record the count of substitutions (if any) in context as `description_sanitizations: {count}` for the evidence report.
-
-**Rationale:** The LTS-stable guarantee is that no angle-bracket token reaches step-06 validation. The assembly rules in `{assemblyRulesData}` define this as a drafting rule; this step makes it an enforced pass so authors and reviewers don't have to remember it. See the description rule in `{assemblyRulesData}` for the full rationale.
+**Rationale:** The LTS-stable guarantee is that no angle-bracket character reaches step-06 validation in the description field. The assembly rules in `{assemblyRulesData}` define this as a drafting rule; this step makes it an enforced pass so authors and reviewers don't have to remember it. If the rule is ever bypassed (e.g., by a downstream tool rewriting the description), step-06 §6 provides a recovery path — see `description-xml-tags-guarded-upstream` in `assets/tessl-dismissal-rules.md`.
 
 ### 3. Build context-snippet.md Content
 

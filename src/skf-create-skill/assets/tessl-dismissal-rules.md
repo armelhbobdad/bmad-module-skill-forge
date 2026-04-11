@@ -13,10 +13,10 @@ When parsing tessl output, check these fields against the thresholds below. Viol
 | Field | Threshold | Severity on violation | Rationale |
 |---|---|---|---|
 | `review_score` (overall) | `>= 60` | warn | Two-tier SKF skills trade some conciseness score for progressive disclosure. 60 is the floor below which something is genuinely wrong. |
-| `description_score` | `== 100` | **error — halt** | step-05 §2a sanitizes the description of angle-bracket tokens before validation. A score below 100 indicates the sanitizer missed a case (compilation bug in step-05) or a novel tessl rule not yet accounted for. Do not attempt to rewrite the description at step-06 — fix the sanitizer instead. |
+| `description_score` | `== 100` | **error — recover, then halt** | step-05 §2a unconditionally replaces `<` with `{` and `>` with `}` in the frontmatter description before validation. A score below 100 indicates the sanitizer was bypassed (downstream tool rewrote the description) or a novel tessl rule. Attempt recovery per rule `description-xml-tags-guarded-upstream` (re-apply the §2a substitution in place on the staging SKILL.md frontmatter and re-run tessl). Halt only if recovery fails. |
 | `content_score` | `>= 60` | warn | Two-tier design deliberately duplicates key API data across Tier 1 and Tier 2. Conciseness scorer penalizes this. 60 is the acceptable floor. |
 
-If `description_score < 100`, halt with: "Description sanitization failed in step-05 §2a — tessl detected content that should have been sanitized. Do not rework the description at step-06. File a health-check issue against step-05 §2a." Do NOT proceed to §6b user prompt.
+If `description_score < 100`, **attempt recovery first** per rule `description-xml-tags-guarded-upstream` below: re-apply step-05 §2a's `<` → `{` / `>` → `}` substitution in place on the staging SKILL.md frontmatter `description`, then re-run `npx -y tessl skill review <staging-skill-dir>` once. If the re-run produces `description_score == 100`, log `description-recovery: applied ({count} substitutions)` in the evidence report and proceed to normal suggestion handling. If recovery fails, halt with: "Description sanitization recovery failed — step-05 §2a's `<`/`>` → `{`/`}` replacement did not resolve the tessl finding. Investigate the staging SKILL.md frontmatter for non-angle-bracket content that tessl is still rejecting, and patch §2a accordingly. Do not edit the description manually." Do NOT proceed to §6b user prompt on an unrecovered failure.
 
 ---
 
@@ -66,8 +66,14 @@ Each rule below describes a tessl suggestion that Skill Forge expects and dismis
 - **Scorer:** `description_field` (deterministic validator)
 - **Match criteria (any of):**
   - Finding rule ID is `description_field` AND message mentions `XML tag`, `must not contain`, or angle-bracket-related text
-- **Expected occurrence:** zero. step-05 §2a sanitizes angle-bracket tokens before SKILL.md is written.
-- **Action:** **DO NOT DISMISS.** This is an error, not an expected dismissal. Halt with: "Description sanitization failed in step-05 §2a. tessl detected angle-bracket content that should have been replaced. Fix the sanitizer in step-05 §2a — do not work around by editing the description at step-06."
+- **Expected occurrence:** zero. step-05 §2a unconditionally replaces `<` with `{` and `>` with `}` in the frontmatter description before SKILL.md is written.
+- **Action:** **Attempt recovery, then halt if recovery fails.** This is not a dismissal — the finding represents a real sanitizer bypass that step-06 must resolve before proceeding.
+  1. **Re-apply §2a in place.** Read the current `description` from the on-disk staging SKILL.md frontmatter, replace every `<` with `{` and every `>` with `}`, and write the result back to the frontmatter. Re-sync the in-context copy to match. Count the substitutions; if zero, the description is already clean and the tessl finding points at something other than angle brackets — skip to the halt branch below.
+  2. **Re-run tessl once.** Execute `npx -y tessl skill review <staging-skill-dir>` a second time and re-parse the JSON output.
+  3. **On success** (`description_score == 100`): log `description-recovery: applied ({count} substitutions)` in the evidence report under "Dismissed tessl suggestions", then continue §6 with the recovered review result (proceed to normal suggestion handling against the rules below). The rerun's `judge_suggestions[]` replaces the original.
+  4. **On failure** (`description_score` still < 100 after re-sanitization): halt with: "Description sanitization recovery failed — step-05 §2a's `<`/`>` → `{`/`}` replacement did not resolve the tessl finding. Investigate the staging SKILL.md frontmatter for non-angle-bracket content that tessl is still rejecting, and patch §2a accordingly. Do not edit the description manually."
+
+The recovery path makes the skill shippable when a downstream tool (`skill-check --fix`, `split-body`, or a future validator) re-introduces angle brackets into the description after §2a has run. The Description Guard Protocol in step-06 §0 is the first line of defense against such rewrites; this rule is the second line, active when the guard also missed.
 
 ---
 
@@ -75,7 +81,7 @@ Each rule below describes a tessl suggestion that Skill Forge expects and dismis
 
 1. Load this file completely at the start of §6.
 2. Run `npx -y tessl skill review <staging-skill-dir>` and parse JSON output.
-3. Check score thresholds. For `description_score < 100`: halt per the threshold table above. For other warns: continue, log warnings to evidence report.
+3. Check score thresholds. For `description_score < 100`: follow the recovery-then-halt path described in the threshold table above and the `description-xml-tags-guarded-upstream` rule below — re-apply §2a in place, re-run tessl once, and continue on recovery success or halt on recovery failure. For other warns: continue, log warnings to evidence report.
 4. For each `judge_suggestions[]` entry in the output:
    a. Iterate the rules above in order.
    b. If a rule's match criteria are satisfied, record `{rule_id, rationale, suggestion_text}` in the evidence report under "Dismissed tessl suggestions" and move to the next suggestion.
