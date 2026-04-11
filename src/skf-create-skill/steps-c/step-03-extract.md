@@ -37,7 +37,7 @@ From the brief, apply scope and pattern filters:
 
 Build the filtered file list from the source tree resolved in step-01. Record the result: "**Filtered file count: {N} files in scope**" — this count is the input to the AST Extraction Protocol decision tree in the extraction patterns data file.
 
-### 2c. Discovered Authoritative Files Protocol
+### 2a. Discovered Authoritative Files Protocol
 
 **Skip this section entirely if `source_type: "docs-only"`** — there is no source tree to scan.
 
@@ -98,7 +98,7 @@ This protocol detects such files, prompts the user, and records the decision in 
 
    - **[S] Skip:**
      1. Do NOT modify `scope.include` or `scope.exclude`.
-     2. Append to `brief.scope.amendments[]` a new entry with `action: "skipped"`, `path: candidate.path`, `reason: {user-provided reason or auto-generated "user declined promotion at create-skill §2c"}`, `heuristic: {basename}`, `date: {today ISO}`, `workflow: "skf-create-skill"`.
+     2. Append to `brief.scope.amendments[]` a new entry with `action: "skipped"`, `path: candidate.path`, `reason: {user-provided reason or auto-generated "user declined promotion at create-skill §2a"}`, `heuristic: {basename}`, `date: {today ISO}`, `workflow: "skf-create-skill"`.
      3. **Write the amended brief back to disk** so future runs do not re-prompt.
      4. Display: "**Skipped `{path}`** — decision recorded in amendments."
 
@@ -118,11 +118,11 @@ This protocol detects such files, prompts the user, and records the decision in 
 
 - **`skf-update-skill`** reads `provenance-map.json` for the file universe. Promoted files land in provenance-map during §4-§6 of this run. Update-skill automatically tracks them from that point on.
 - **`skf-audit-skill`** (after the §2 bounding fix) scans files from `provenance-map.json`. Same story: promoted files are in the provenance map, so audit-skill includes them.
-- **Re-running `skf-create-skill`** reads the amended brief. Files with `action: "promoted"` amendments already appear in `scope.include`, so §2 includes them in the filtered list without §2c needing to prompt again.
+- **Re-running `skf-create-skill`** reads the amended brief. Files with `action: "promoted"` amendments already appear in `scope.include`, so §2 includes them in the filtered list without §2a needing to prompt again.
 
 The brief is the single source of truth for authored scope intent. The provenance map is the single source of truth for extracted state. Amendments are the bridge that records when those two intentionally diverged.
 
-### 2a. Resolve Source Access
+### 2b. Resolve Source Access
 
 Load `{sourceResolutionData}` completely. Follow the **Remote Source Resolution** protocol for Forge/Deep tiers (workspace or ephemeral clone, cleanup), the **Source Commit Capture** protocol for all tiers, and the **Version Reconciliation** protocol for all tiers. This ensures source code is accessible regardless of which extraction path is taken below (standard, component-library, or docs-only).
 
@@ -174,7 +174,7 @@ If `{ccc_discovery}` is in context and non-empty (populated by step-02b or defer
 
 If `{ccc_discovery}` is empty or not in context: proceed with existing file ordering (no change to current behavior).
 
-### 2b. Component Library Delegation
+### 2c. Component Library Delegation
 
 **Skip this section if `source_type` is `"docs-only"` — docs-only skills do not use component extraction.**
 
@@ -198,7 +198,7 @@ Build an empty extraction inventory with zero exports. Set `extraction_mode: "do
 
 ### 4. Execute Tier-Dependent Extraction
 
-Source resolution, version reconciliation, and CCC discovery were completed in section 2a. Proceed with the tier-specific extraction strategy below.
+Source resolution, version reconciliation, and CCC discovery were completed in section 2b. Proceed with the tier-specific extraction strategy below.
 
 **Quick Tier (No AST tools):**
 

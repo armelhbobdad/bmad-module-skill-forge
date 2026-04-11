@@ -60,7 +60,7 @@ Read the source directory at `{source_root}` and build a current file inventory:
 - `update_mode == "gap-driven"` (source hasn't drifted — we're verifying test report findings, not discovering new files), OR
 - `metadata.json.source_type == "docs-only"` (no source tree to scan)
 
-**Procedure (identical heuristics to create-skill §2c):**
+**Procedure (identical heuristics to create-skill §2a):**
 
 1. **Walk the source tree.** Match file basenames against the heuristic list case-insensitively:
    - `llms.txt`, `llms-full.txt`
@@ -76,7 +76,7 @@ Read the source directory at `{source_root}` and build a current file inventory:
    - **`action: "skipped"` for this path exists:** user previously declined promotion. Honor the skip silently. No prompt, no action.
    - **No amendment for this path:** continue to user prompt.
 
-4. **Prompt.** For each unresolved candidate, present the same prompt as create-skill §2c:
+4. **Prompt.** For each unresolved candidate, present the same prompt as create-skill §2a:
 
    ```
    **New authoritative file discovered since skill creation**

@@ -62,7 +62,7 @@ scope:
     - "**/*.test.*"           # Glob patterns for excluded files
     - "**/node_modules/**"
   notes: "Optional notes about scope decisions"
-  # Optional: amendment log for scope decisions made during create-skill §2c
+  # Optional: amendment log for scope decisions made during create-skill §2a
   # amendments:
   #   - path: "apps/docs/public/llms.txt"
   #     action: "promoted"          # "promoted" | "skipped"
@@ -82,7 +82,7 @@ scope:
 
 ### Scope Amendments (Optional)
 
-`scope.amendments[]` is an additive, optional audit log of scope decisions made by workflows after the brief was first authored. Its primary writer is `skf-create-skill` §2c (Discovered Authoritative Files Protocol), which appends entries when extraction discovers authoritative AI documentation files (`llms.txt`, `AGENTS.md`, etc.) that the original scope patterns excluded.
+`scope.amendments[]` is an additive, optional audit log of scope decisions made by workflows after the brief was first authored. Its primary writer is `skf-create-skill` §2a (Discovered Authoritative Files Protocol), which appends entries when extraction discovers authoritative AI documentation files (`llms.txt`, `AGENTS.md`, etc.) that the original scope patterns excluded.
 
 **Entry fields:**
 
@@ -93,25 +93,25 @@ scope:
 | `reason` | string | yes | Human-readable sentence explaining the decision. Either user-provided at prompt time or auto-generated ("authoritative AI docs — matched heuristic {basename}"). |
 | `heuristic` | string | yes | The basename heuristic that matched (`llms.txt`, `AGENTS.md`, etc.) so future audits can verify the file still matches its original classification. |
 | `date` | string | yes | ISO date (`YYYY-MM-DD`) when the amendment was recorded. |
-| `workflow` | string | yes | Workflow name that wrote the amendment (`skf-create-skill`, `skf-update-skill`). Identifies which workflow's §2c-equivalent made the decision. |
+| `workflow` | string | yes | Workflow name that wrote the amendment (`skf-create-skill`, `skf-update-skill`). Identifies which workflow's §2a-equivalent made the decision. |
 
-**Promotion write-through:** When `action: "promoted"`, the workflow also appends the literal path to `scope.include`. This is a belt-and-suspenders design: future `skf-create-skill` runs read `scope.include` during §2 and include the file in the filtered list automatically, so §2c finds no candidate and does not re-prompt. The `amendments[]` entry is the human-readable audit trail of *why* the path was added.
+**Promotion write-through:** When `action: "promoted"`, the workflow also appends the literal path to `scope.include`. This is a belt-and-suspenders design: future `skf-create-skill` runs read `scope.include` during §2 and include the file in the filtered list automatically, so §2a finds no candidate and does not re-prompt. The `amendments[]` entry is the human-readable audit trail of *why* the path was added.
 
-**Skip recording:** When `action: "skipped"`, the workflow does NOT modify `scope.include` or `scope.exclude`. The amendment entry alone is enough to prevent re-prompting, because §2c checks `amendments[]` before prompting.
+**Skip recording:** When `action: "skipped"`, the workflow does NOT modify `scope.include` or `scope.exclude`. The amendment entry alone is enough to prevent re-prompting, because §2a checks `amendments[]` before prompting.
 
 **Backward compatibility:** `scope.amendments` is optional. Briefs without this field validate unchanged. Treat missing as an empty list.
 
 **Who reads `amendments[]`:**
 
-- `skf-create-skill` §2c consults it to avoid re-prompting on decided files.
-- `skf-update-skill` §2 (mirror §2c) consults it for the same reason.
+- `skf-create-skill` §2a consults it to avoid re-prompting on decided files.
+- `skf-update-skill` §1b (mirror of §2a) consults it for the same reason.
 - `skf-audit-skill` may optionally report on stale promotions (promoted files that no longer exist in source) as a future enhancement — not currently implemented.
 - Humans reading the brief see the audit trail of non-obvious scope decisions.
 
 **Who writes `amendments[]`:**
 
-- `skf-create-skill` §2c (Discovered Authoritative Files Protocol)
-- `skf-update-skill` §2 (mirror of §2c applied during change detection)
+- `skf-create-skill` §2a (Discovered Authoritative Files Protocol)
+- `skf-update-skill` §1b (mirror of §2a applied during change detection)
 - Manual edits by the brief author are permitted but should include all required fields above.
 
 ## YAML Template

@@ -19,7 +19,7 @@ When `scope.type: "component-library"`, perform specialized extraction that trea
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
 
-**Prerequisite — §2c already ran.** Step-03 executes `§2c Discovered Authoritative Files Protocol` before delegating to this file. Any promoted authoritative files (`llms.txt`, `AGENTS.md`, etc.) are already in the filtered file list that was passed in. Phase 1 below excludes demo files from that list but must not remove any file that was added by §2c — if a demo-pattern auto-detection matches a §2c-promoted path, preserve the §2c decision. Check against `brief.scope.amendments[]` entries with `action: "promoted"` before excluding anything.
+**Prerequisite — §2a already ran.** Step-03 executes `§2a Discovered Authoritative Files Protocol` before delegating to this file. Any promoted authoritative files (`llms.txt`, `AGENTS.md`, etc.) are already in the filtered file list that was passed in. Phase 1 below excludes demo files from that list but must not remove any file that was added by §2a — if a demo-pattern auto-detection matches a §2a-promoted path, preserve the §2a decision. Check against `brief.scope.amendments[]` entries with `action: "promoted"` before excluding anything.
 
 ### Phase 1: Demo/Example Exclusion
 
