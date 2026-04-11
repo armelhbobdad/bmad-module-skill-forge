@@ -114,7 +114,7 @@ If no integration patterns exist, combined coherence equals reference validity.
 | High     | Signature mismatch between source and SKILL.md                                                                 |
 | Medium   | Missing type or interface documentation                                                                        |
 | Medium   | Migration section present/absent mismatch with T2-future annotation data (Deep tier)                           |
-| Medium   | Metadata drift — conflicting export counts across metadata.json stats, exports[] array, and provenance-map (>10% divergence) |
+| Medium   | Metadata drift — intra-cluster export counts diverge (barrel: `stats.exports_public_api` vs `exports[].length`; or documented-surface: `stats.exports_documented` vs provenance-map entry count; >10% divergence) |
 | Medium   | Denominator inflation — stratified-scope `scope.include` union exceeds provenance-map entry count by >25% (brief missing `scope.tier_a_include`) |
 | Medium   | Script/asset directory exists but no Scripts & Assets section in SKILL.md                                      |
 | Medium   | Scripts & Assets section references file not found in scripts/ or assets/ directory                            |
@@ -123,3 +123,4 @@ If no integration patterns exist, combined coherence equals reference validity.
 | Low      | Description trigger optimization recommended (third-person voice, negative triggers, or keyword coverage gaps) |
 | Info     | Style suggestions, non-blocking observations                                                                   |
 | Info     | Discovery testing not performed — realistic prompt testing recommended before export                           |
+| Info     | Multi-denominator reporting — barrel vs documented-surface clusters diverge by design (>10% cross-cluster)     |

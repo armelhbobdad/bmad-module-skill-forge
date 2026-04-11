@@ -186,22 +186,33 @@ Record the denominator source in the Coverage Analysis section as `Denominator: 
 
 ### 4b. Metadata Export-Count Coherence Cross-Check
 
-After the denominator has been resolved (standard, stratified, or State 2), cross-check all available export-count sources for internal agreement. Picking the denominator silently when sources disagree is a known friction — the tester cannot tell whether to trust the pick, ignore the drift, or report it. Make it explicit: the tester MUST report a metadata drift finding whenever count sources diverge materially.
+After the denominator has been resolved (standard, stratified, or State 2), cross-check export counts *within each semantic cluster* to detect extraction drift without false-positiving on intentional multi-denominator reporting. Picking the denominator silently when sources disagree is a known friction — the tester cannot tell whether to trust the pick, ignore the drift, or report it. Make it explicit, but only for counts that are authored to measure the *same* surface.
 
-**Collect available counts (skip any that are absent):**
+**Collect available counts (skip any that are absent) and bin them into two clusters:**
+
+**Cluster A — public-barrel surface** (what `__init__.py` / `index.ts` / `lib.rs` re-exports):
 
 1. `metadata.json.stats.exports_public_api` — the declared public API count
-2. `metadata.json.stats.exports_documented` — the declared documented count
-3. `metadata.json.exports[]` array length — the enumerated export list
+2. `metadata.json.exports[]` array length — the enumerated public export list
+
+**Cluster B — documented surface** (what was extracted and documented, including methods and submodule members):
+
+3. `metadata.json.stats.exports_documented` — the declared documented count
 4. Provenance-map entry count (if `{forge_data_folder}/{skill_name}/provenance-map.json` exists)
 
-**Divergence rule:** If two or more counts are present and any pair disagrees by more than 10% of the larger count, emit a **Medium**-severity gap titled `metadata drift — N conflicting export counts` where N is the number of sources collected. Enumerate every offending count in the gap body (e.g., `stats.exports_public_api=430, stats.exports_documented=320, exports[].length=82, provenance-map=222`). Classify under structural/metadata coherence regardless of naive/contextual mode. The gap is informational about data quality — it does not change the denominator chosen above, but it signals that upstream extraction or compilation produced inconsistent stats that a downstream update or re-compile should reconcile.
+Cluster assignment is canonical: `skf-create-skill` step-05 derives `exports_public_api` from entry-point validation and writes the `exports[]` array from the same barrel surface (see `skf-create-skill/steps-c/step-05-compile.md:105`), while `exports_documented` tracks the broader documented surface that the provenance-map also enumerates.
 
-**When sources agree within 10%:** Skip silently. Do not emit a finding.
+**Intra-cluster divergence (Medium):** For each cluster, if two counts are present and disagree by more than 10% of the larger, emit a **Medium**-severity gap titled `metadata drift — {cluster} export counts diverge` (substitute `barrel` for Cluster A, `documented-surface` for Cluster B). Enumerate the offending counts in the gap body (e.g., `stats.exports_public_api=55, exports[].length=48` → 13% drift). This is the real drift signal — the two sources should mirror the same surface and they don't, so upstream extraction or compilation produced inconsistent output that a re-compile should reconcile. Classify under structural/metadata coherence regardless of naive/contextual mode.
 
-**When only one count is available:** Skip silently — there is nothing to cross-check.
+**Cross-cluster divergence (Info):** After intra-cluster checks, if both clusters resolved to a representative count (pick the higher of each cluster's available counts) and the two cluster values differ by more than 10%, append a single **Info**-severity note titled `multi-denominator reporting — barrel vs documented surface` with both values (e.g., `barrel=55, documented=114`). This is expected for skills whose documented surface intentionally exceeds the barrel (methods, submodule members, re-exported classes) — it is not drift. The note exists so the test report makes the dual-denominator design visible and auditable without demanding action.
 
-Append any drift finding to the Coverage Analysis section's gap list (built in section 5) so it surfaces in the final test report alongside coverage and signature findings.
+**When a cluster has only one count available:** Skip that cluster's intra-cluster check silently — there is nothing to cross-check within it.
+
+**When both clusters agree within 10% of each other:** Skip the cross-cluster note silently — no multi-denominator reporting is in play.
+
+**When only one count is available across both clusters:** Skip silently — there is nothing to cross-check.
+
+Append any findings (Medium gaps and/or the Info note) to the Coverage Analysis section's gap list (built in section 5) so they surface in the final test report alongside coverage and signature findings. Findings are informational about data quality — they do not change the denominator chosen above.
 
 ### 5. Append Coverage Analysis to Output
 
