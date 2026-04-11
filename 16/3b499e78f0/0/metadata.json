@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "163b499e78f0",
+  "session_id": "c0c1ffec-3189-49cb-bc2c-540a4091da07",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-11T20:16:59.022115009Z",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-export-skill/steps-c/step-03-generate-snippet.md",
+    "src/skf-export-skill/assets/snippet-format.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "1bcb6df79c6e",
+  "token_usage": {
+    "input_tokens": 45,
+    "cache_creation_tokens": 85411,
+    "cache_read_tokens": 1494385,
+    "output_tokens": 10629,
+    "api_call_count": 26
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-11T20:16:58.815337796Z",
+    "agent_lines": 4,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 4,
+    "agent_percentage": 100
+  }
+}
