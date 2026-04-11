@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "3c6ed2d0bbf3",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-skill/references/extraction-patterns.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/3c/6ed2d0bbf3/0/metadata.json",
+      "transcript": "/3c/6ed2d0bbf3/0/full.jsonl",
+      "context": "/3c/6ed2d0bbf3/0/context.md",
+      "content_hash": "/3c/6ed2d0bbf3/0/content_hash.txt",
+      "prompt": "/3c/6ed2d0bbf3/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 65,
+    "cache_creation_tokens": 142191,
+    "cache_read_tokens": 4501354,
+    "output_tokens": 29461,
+    "api_call_count": 51
+  }
+}

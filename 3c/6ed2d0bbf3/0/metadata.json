@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "3c6ed2d0bbf3",
+  "session_id": "5655f05f-c635-4530-b2cb-dcb6e9a99fec",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-11T19:31:46.472871683Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-skill/references/extraction-patterns.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "75eb8e282d9d",
+  "token_usage": {
+    "input_tokens": 65,
+    "cache_creation_tokens": 142191,
+    "cache_read_tokens": 4501354,
+    "output_tokens": 29461,
+    "api_call_count": 51
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-11T19:31:46.029242593Z",
+    "agent_lines": 6,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 6,
+    "agent_percentage": 100
+  }
+}
