@@ -58,7 +58,7 @@ SKILL.md was written in step-04 section 6b. Verify the write landed intact befor
 ### 2. Write Updated metadata.json
 
 Update `{skill_package}/metadata.json`:
-- Update `version`: if a source version was detected during re-extraction and differs from the current metadata version, use the source version; otherwise increment patch version
+- Update `version`: **if `update_mode == "gap-driven"`, do not bump — the skill is being repaired against the same source commit, so leave `version` unchanged and update only `generation_date` / `last_update` below.** This keeps metadata `version` consistent with the on-disk `{skill_package}` path, which step-04 §6b also leaves unchanged in gap-driven mode (see step-04 §6b's "If the source version detected during step-03 differs..." carve-out — in gap-driven mode no source version is detected, so step-04 writes into the existing version directory). Otherwise, if a source version was detected during re-extraction and differs from the current metadata version, use the source version; otherwise increment patch version
 - Update `generation_date` timestamp to current ISO-8601 date
 - Update `exports` array to reflect current export list
 - Update `stats` from re-extraction results:
