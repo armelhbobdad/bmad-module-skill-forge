@@ -9,6 +9,9 @@
  * - Relative path references (./file.md, ../data/file.csv) point to existing files
  * - exec="..." and <invoke-task> targets exist
  * - Step metadata (thisStepFile, nextStepFile) references are valid
+ * - Workflow-data frontmatter keys (<name>Data: 'assets/...' or 'references/...')
+ *   resolved relative to the workflow root (parent of steps-c/) — e.g.
+ *   assemblyRulesData, skillSectionsData, tesslDismissalData, extractionPatternsData
  * - Load directives (Load: `./file.md`) target existing files
  * - No absolute paths (/Users/, /home/, C:\) leak into source files
  *
@@ -63,6 +66,14 @@ const RELATIVE_PATH_DOT = /['"](\.\/[^'"]+\.(?:md|yaml|yml|xml|json|csv|txt))['"
 
 // Pattern: step metadata
 const STEP_META = /(?:thisStepFile|nextStepFile|continueStepFile|skipToStepFile|altStepFile|workflowFile):\s*['"](\.[^'"]+)['"]/g;
+
+// Pattern: workflow-data frontmatter keys
+// Matches any `<name>Data:` frontmatter key with a bare relative path value
+// (no leading ./ or ../). These paths resolve relative to the workflow root
+// (parent of steps-c/), not the step file's directory. Used by step files to
+// reference shared assets like assets/compile-assembly-rules.md or
+// references/extraction-patterns.md.
+const WORKFLOW_DATA_REF = /(\w+Data):\s*['"]([^'"./][^'"]*\.(?:md|yaml|yml|json))['"]/g;
 
 // Pattern: Load directives
 const LOAD_DIRECTIVE = /Load[:\s]+`(\.[^`]+)`/g;
@@ -293,6 +304,17 @@ function extractMarkdownRefs(filePath, content) {
   // Step metadata
   runPattern(STEP_META, 'relative');
 
+  // Workflow-data frontmatter keys — capture the path (group 2, not group 1 which is the key name)
+  {
+    WORKFLOW_DATA_REF.lastIndex = 0;
+    let match;
+    while ((match = WORKFLOW_DATA_REF.exec(stripped)) !== null) {
+      const raw = match[2];
+      if (!isResolvable(raw)) continue;
+      refs.push({ file: filePath, raw, type: 'workflow-data', line: offsetToLine(stripped, match.index) });
+    }
+  }
+
   // Load directives
   runPattern(LOAD_DIRECTIVE, 'relative');
 
@@ -360,6 +382,24 @@ function resolveRef(ref) {
 
   if (ref.type === 'relative') {
     return path.resolve(path.dirname(ref.file), ref.raw);
+  }
+
+  if (ref.type === 'workflow-data') {
+    // Two resolution conventions:
+    //  1. Bare path starting with a workflow name (e.g., 'skf-create-skill/references/foo.md')
+    //     → resolve relative to src/ (cross-workflow reference).
+    //  2. Bare path starting with 'assets/' or 'references/' (or any other directory that is
+    //     NOT a sibling workflow) → resolve relative to the current workflow root.
+    const stepParent = path.dirname(ref.file); // src/{workflow}/steps-c
+    const workflowRoot = path.dirname(stepParent); // src/{workflow}
+    const firstSegment = ref.raw.split('/')[0];
+    const crossWorkflowCandidate = path.join(SRC_DIR, firstSegment);
+    if (firstSegment && fs.existsSync(crossWorkflowCandidate) && fs.statSync(crossWorkflowCandidate).isDirectory()) {
+      // First segment is a real directory under src/ — treat as cross-workflow reference.
+      return path.resolve(SRC_DIR, ref.raw);
+    }
+    // Default: resolve relative to the current workflow root.
+    return path.resolve(workflowRoot, ref.raw);
   }
 
   if (ref.type === 'exec-attr') {
