@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "215855f6eeec",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-skill/steps-c/step-06-validate.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/21/5855f6eeec/0/metadata.json",
+      "transcript": "/21/5855f6eeec/0/full.jsonl",
+      "context": "/21/5855f6eeec/0/context.md",
+      "content_hash": "/21/5855f6eeec/0/content_hash.txt",
+      "prompt": "/21/5855f6eeec/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 125,
+    "cache_creation_tokens": 343189,
+    "cache_read_tokens": 10128747,
+    "output_tokens": 74693,
+    "api_call_count": 86
+  }
+}
