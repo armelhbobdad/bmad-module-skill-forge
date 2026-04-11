@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "15d694ace9d7",
+  "strategy": "manual-commit",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "docs/examples.md",
+    "docs/getting-started.md",
+    "docs/workflows.md",
+    "src/knowledge/skill-lifecycle.md",
+    "src/shared/references/headless-gate-convention.md",
+    "src/shared/references/pipeline-contracts.md",
+    "src/skf-forger/SKILL.md",
+    "src/skf-quick-skill/steps-c/step-01-resolve-target.md",
+    "test/test-skf-manifest-ops.py",
+    "test/test-skf-skill-inventory.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/15/d694ace9d7/0/metadata.json",
+      "transcript": "/15/d694ace9d7/0/full.jsonl",
+      "context": "/15/d694ace9d7/0/context.md",
+      "content_hash": "/15/d694ace9d7/0/content_hash.txt",
+      "prompt": "/15/d694ace9d7/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 23,
+    "cache_creation_tokens": 88010,
+    "cache_read_tokens": 781758,
+    "output_tokens": 9994,
+    "api_call_count": 13
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "15d694ace9d7",
+  "session_id": "c61a02de-82bb-41a9-bfd2-fadceed88f6d",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-11T16:09:14.142905891Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "docs/examples.md",
+    "docs/getting-started.md",
+    "docs/workflows.md",
+    "src/knowledge/skill-lifecycle.md",
+    "src/shared/references/headless-gate-convention.md",
+    "src/shared/references/pipeline-contracts.md",
+    "src/skf-forger/SKILL.md",
+    "src/skf-quick-skill/steps-c/step-01-resolve-target.md",
+    "test/test-skf-manifest-ops.py",
+    "test/test-skf-skill-inventory.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "31b881fd6f3a",
+  "checkpoint_transcript_start": 43,
+  "transcript_lines_at_start": 43,
+  "token_usage": {
+    "input_tokens": 23,
+    "cache_creation_tokens": 88010,
+    "cache_read_tokens": 781758,
+    "output_tokens": 9994,
+    "api_call_count": 13
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-11T16:09:13.875684584Z",
+    "agent_lines": 37,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 37,
+    "agent_percentage": 100
+  }
+}
