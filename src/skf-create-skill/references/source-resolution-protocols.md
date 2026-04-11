@@ -1,6 +1,12 @@
 # Source Resolution Protocols
 
-## Tag Resolution (when target_version is set)
+## Tag Resolution
+
+Tag resolution maps a declared version in the brief onto a concrete git ref before cloning, so the skill is built from code matching its declared version. Two paths trigger tag resolution: an **explicit** `brief.target_version` (deliberate user intent) or an **implicit** `brief.version` (auto-populated hint from `brief-skill`). Both apply only when `source_repo` is a remote URL.
+
+**When neither `brief.target_version` nor `brief.version` is set:** skip tag resolution entirely. Set `source_ref` to `HEAD` (default branch).
+
+### Explicit Tag Resolution (when target_version is set)
 
 When `brief.target_version` is present AND `source_repo` is a remote URL, resolve the target version to a git tag before cloning:
 
@@ -20,7 +26,26 @@ When `brief.target_version` is present AND `source_repo` is a remote URL, resolv
 
 4. **Store `source_ref`** in context. This value is written to metadata.json and provenance-map.json for downstream workflows (update-skill, audit-skill) to re-clone from the same ref.
 
-When `brief.target_version` is NOT set: skip tag resolution. Set `source_ref` to `HEAD` (default branch behavior, unchanged from before).
+### Implicit Tag Resolution (when only brief.version is set)
+
+When `brief.target_version` is absent but `brief.version` is present AND `source_repo` is a remote URL, treat `brief.version` as an **implicit** target version and attempt tag resolution before cloning. This matches `brief-skill`'s behavior, which auto-populates `brief.version` from the latest non-prerelease release tag — so a tag matching `brief.version` is the common case, and silently cloning HEAD would produce a skill labeled with `brief.version` but built from an unrelated default-branch commit.
+
+1. **List available tags** exactly as in Explicit Tag Resolution above.
+
+2. **Match `brief.version` against tags** in this reduced priority order. Package-scoped monorepo variants are **not** tried — those require deliberate user intent via `target_version`, since implicit matching against a monorepo tag like `{brief.name}@{version}` could silently select a sibling package's ref:
+   - **Exact match:** `{brief.version}` (e.g., `0.3.37`)
+   - **With `v` prefix:** `v{brief.version}` (e.g., `v0.3.37`)
+
+3. **Resolution outcomes:**
+   - **Single match:** Store the matched tag as `source_ref`. Use it as `{branch}` in all subsequent clone/API commands. Do not warn — this is the expected path.
+   - **Multiple matches:** Present the matching tags to the user — "Multiple tags match `brief.version` ({brief.version}): {list}. Which one should I use, or fall back to HEAD?" Wait for selection.
+   - **Zero matches:** ⚠️ Warn: "No git tag found matching `brief.version` ({brief.version}). Falling back to default branch — **extracted code may not match the declared version.** If you intended to pin a specific version, set `target_version` explicitly in the brief." Set `source_ref` to `HEAD` and proceed with default branch.
+
+4. **Do not halt on zero matches.** Unlike the explicit path, implicit resolution never blocks compilation — `brief.version` is an auto-populated hint, and some repositories simply do not tag releases. The warning is sufficient notice; the evidence report in step-08 will surface the HEAD fallback for reviewers.
+
+5. **Store `source_ref`** in context exactly as in the explicit path. It flows through to metadata.json and provenance-map.json so downstream workflows (update-skill, audit-skill) can re-clone from the same ref.
+
+**Interaction with Version Reconciliation (below):** When implicit tag resolution succeeds, the clone's source files should carry the same version as `brief.version` — so the Version Reconciliation section's source-vs-brief mismatch warning will not fire. When implicit resolution falls back to HEAD, Version Reconciliation runs normally against the default branch's version file and may produce its own mismatch warning.
 
 ### Local Source Warning
 
@@ -29,6 +54,8 @@ When `brief.target_version` is set AND `source_repo` is a local path:
 ⚠️ "**Local source may not match target version {target_version}.** Ensure you've checked out the correct version locally, or use a remote GitHub URL so SKF can clone from the git tag automatically."
 
 Proceed with local files as-is. Set `source_ref` to `"local"`.
+
+Implicit resolution via `brief.version` is **not applied to local sources** — local paths reflect whatever the user has checked out, and rewriting them from a tag would be out of scope for a local-source workflow.
 
 ---
 

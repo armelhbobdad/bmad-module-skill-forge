@@ -8,6 +8,8 @@ If `source_root` (from metadata.json) is a remote URL (GitHub URL or owner/repo 
 
 2. **Resolve source ref:** Read `source_ref` from the existing `metadata.json`. If the user provided a new `target_version`, resolve its tag first (using the Tag Resolution algorithm in `create-skill/references/source-resolution-protocols.md`).
 
+   **Note — implicit tag resolution is NOT re-run on update:** `create-skill`'s Implicit Tag Resolution path (which treats `brief.version` as an implicit `target_version` for remote sources) runs only at create time. On update, `skf-update-skill` faithfully re-uses the `source_ref` that was stored in `metadata.json` by the original create — even if that ref is `HEAD` and the brief now has a `version` that would resolve to a tag. This preserves the invariant that an update reflects source drift on the same ref the skill was originally built against, not a re-pinning to a different commit. If the intent is to re-pin an older HEAD-based skill to a tag derived from `brief.version`, re-run `skf-create-skill` (which applies implicit resolution) rather than `skf-update-skill`. Explicit re-pinning via a new `target_version` on update remains supported and takes priority over the stored `source_ref`.
+
 3. **Workspace check:** Compute the workspace path using the same algorithm as `create-skill/references/source-resolution-protocols.md` (parse URL → `{workspace_root}/repos/{host}/{owner}/{repo}/`).
 
    **If workspace repo exists (`{workspace_repo_path}/.git/` present):**

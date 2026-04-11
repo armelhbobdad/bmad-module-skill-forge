@@ -133,7 +133,13 @@ The brief is the single source of truth for authored scope intent. The provenanc
 
 ### 2b. Resolve Source Access
 
-Load `{sourceResolutionData}` completely. Follow the **Remote Source Resolution** protocol for Forge/Deep tiers (workspace or ephemeral clone, cleanup), the **Source Commit Capture** protocol for all tiers, and the **Version Reconciliation** protocol for all tiers. This ensures source code is accessible regardless of which extraction path is taken below (standard, component-library, or docs-only).
+Load `{sourceResolutionData}` completely. Follow these protocols in order:
+1. **Tag Resolution** — run the explicit variant when `brief.target_version` is set, or the implicit variant when only `brief.version` is set (Forge/Deep remote sources only). This sets `source_ref` before any clone happens. Quick tier remote sources skip this.
+2. **Remote Source Resolution** — workspace or ephemeral clone, cleanup (Forge/Deep tiers).
+3. **Source Commit Capture** — all tiers.
+4. **Version Reconciliation** — all tiers.
+
+This ensures source code is accessible regardless of which extraction path is taken below (standard, component-library, or docs-only).
 
 **Deferred CCC Discovery (Forge+ and Deep — remote sources only):**
 

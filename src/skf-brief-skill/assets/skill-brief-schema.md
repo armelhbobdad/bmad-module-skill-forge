@@ -5,7 +5,7 @@
 | Field       | Type   | Constraint                                       | Description                                                                 |
 |-------------|--------|--------------------------------------------------|-----------------------------------------------------------------------------|
 | name        | string | kebab-case `[a-z0-9-]+`                          | Unique skill identifier                                                     |
-| version     | string | Semantic version (`X.Y.Z` or `X.Y.Z-prerelease`) | Auto-detect from source (see Version Detection below), fall back to `1.0.0` |
+| version     | string | Semantic version (`X.Y.Z` or `X.Y.Z-prerelease`) | Auto-detect from source (see Version Detection below), fall back to `1.0.0`. **Side effect on remote sources:** `skf-create-skill` treats `version` as an **implicit** `target_version` hint when `target_version` itself is absent — it will try to resolve `{version}` or `v{version}` to a git tag before cloning and fall back to HEAD with a warning if no tag matches. See `skf-create-skill/references/source-resolution-protocols.md` → "Implicit Tag Resolution". |
 | source_repo | string | GitHub URL or local path                         | Repository or project root (optional when `source_type: "docs-only"`)       |
 | language    | string | Recognized language                              | Primary programming language                                                |
 | scope       | object | See Scope Object below                           | Boundary definition                                                         |

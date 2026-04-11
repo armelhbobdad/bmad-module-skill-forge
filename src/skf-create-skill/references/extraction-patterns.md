@@ -235,7 +235,8 @@ constraints:
 id: python-public-classes
 language: python
 rule:
-  pattern: 'class $NAME($$$BASES)'
+  pattern: 'class $NAME'
+  kind: class_definition
   inside:
     kind: module
     stopBy: end
@@ -243,6 +244,8 @@ constraints:
   NAME:
     regex: '^[^_]'
 ```
+
+> **Pattern note:** The minimal `class $NAME` pattern (with `kind: class_definition` to disambiguate the AST node) works on ast-grep 0.42.x via both MCP `find_code_by_rule` and CLI `--json=stream`. The previously documented `class $NAME($$$BASES)` and `class $NAME($$$BASES):` variants are known-broken on 0.42.x — see Known Limitations #7 below. For simple CLI extraction without a YAML rule, use `ast-grep run -p 'class $NAME' -l python --json=stream {path}` and post-filter names via the `^[^_]` regex in the Python processing step of the CLI streaming template.
 
 **JavaScript/TypeScript — exported functions:**
 
@@ -394,6 +397,8 @@ When using ast-grep for extraction, be aware of these documented limitations:
 5. **TSX `export function` pattern failure:** The `export function $NAME($$$PARAMS)` pattern may return zero results in TSX files with ast-grep 0.41.x. This affects both MCP tools and CLI. `export const` and `export type` patterns are unaffected. **Workaround:** For TSX files, use `export const` patterns first (which work), then fall back to source reading (grep/file read) for `export function` declarations. When a TSX codebase shows zero `export function` matches but source files clearly contain them, this is a known ast-grep tree-sitter tsx parser limitation — not an extraction error. Log it in the evidence report and proceed with T1-low confidence for those exports.
 
 6. **CLI `--json=stream` may produce no output:** On ast-grep 0.41.x, `--json=stream` may produce empty output for certain patterns. The `--json=stream` flag requires the explicit `run` subcommand: use `ast-grep run -p '{pattern}' --json=stream` (not `ast-grep -p '{pattern}' --json=stream`). If streaming still produces no output, fall back to the MCP tool or source reading.
+
+7. **Python class patterns with bases/colon return zero (ast-grep 0.42.x):** The patterns `class $NAME($$$BASES)` and `class $NAME($$$BASES):` return zero matches on real Python sources with ast-grep 0.42.0, even on files containing dozens of subclassed public classes. `find_code_by_rule` also rejects the bare inline rule without `kind` as `Rule must specify a set of AST kinds to match. Try adding \`kind\` rule.` **Workaround:** Use the minimal `class $NAME` pattern with `kind: class_definition` (YAML) or `ast-grep run -p 'class $NAME' -l python --json=stream` (CLI), then post-filter names via the `^[^_]` regex. The `^[^_]` constraint enforces the "public" filter since ast-grep's base-match rule is what's broken, not the name-match rule. See the Python — public classes recipe above.
 
 ### Component Library Demo/Example Auto-Exclusion
 

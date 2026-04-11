@@ -29,6 +29,33 @@ Internal module symbols are **excluded** from the coverage denominator unless th
 
 This matches the extraction-patterns.md convention used during skill creation: coverage measures how well SKILL.md documents what users actually import, not the entire internal codebase.
 
+### Provenance-map canonicalization
+
+When the test-side intersects documented SKILL.md exports against a stratified-scope provenance-map, raw provenance-map entry names may include **bookkeeping variants** of the same underlying export. These variants are artifacts of how the source library structures its registry (e.g., Storybook's component-plus-story decomposition, accessibility renderer shadowing, exact-match versus fuzzy-match renderer disambiguation). Counting them as separate exports inflates the denominator and produces false "missing documentation" findings for names that are structurally duplicates of an already-documented base export.
+
+Before intersecting documented names against the provenance-map entry list, **fold bookkeeping variants back to their base name** using the rules below. This matches the convention `skf-create-skill` records in `metadata.json.stats.effective_denominator_source` (e.g., `"provenance-map canonicalized count (ThemesGlobals_def folds with ThemesGlobals under _def convention)"`) — the base form is authoritative; the variant form is a sibling record, not an independent export.
+
+**Folding rules (apply in order, case-sensitive):**
+
+1. **Suffix `_def`** — registry definition twin. `ThemesGlobals_def` folds to `ThemesGlobals`. Common in Storybook-style component registries where the definition object and the rendered component share the same public name.
+2. **Suffix `_exact`** — exact-match variant. `ButtonSpec_exact` folds to `ButtonSpec`. Common in matcher/renderer registries where an `_exact` sibling signals a stricter resolution path.
+3. **Prefix `a11y_`** — accessibility renderer shadow. `a11y_Checkbox` folds to `Checkbox`. Common in accessibility-wrapper layers that re-export every component under a parallel prefixed namespace.
+4. **Other renderer-prefix disambiguation** — when the library uses a prefix-namespace convention (e.g., `mobile_`, `web_`, `ssr_`) to shadow the base export, fold the prefix form back to the base. **Only apply when the base form is also present in the provenance-map** — otherwise the prefix form is the real export and should be kept. Document the specific prefix used in the test report so the rule is auditable.
+
+**How to apply:**
+
+1. Read all entry names from the provenance-map.
+2. Build a canonical-name set by applying the folding rules above — each variant maps to its base. Retain the original variant → base mapping for reporting.
+3. Intersect the documented SKILL.md export names against the **canonical** set, not the raw entry list.
+4. When computing `Export Coverage`, use the **canonical count** as the denominator — not the raw provenance-map entry count. This aligns the denominator with `metadata.json.stats.effective_denominator` (when present), which `skf-create-skill` already writes as the canonicalized count.
+5. In the test report, note the fold summary: `Provenance-map canonicalization: {N} raw entries → {M} canonical bases ({N−M} bookkeeping variants folded: _def×{a}, _exact×{b}, a11y_×{c}, other×{d})`. This makes the reduction auditable by future testers and update runs.
+
+**When to skip canonicalization:**
+
+- If the library's public surface genuinely distinguishes the variants (e.g., `a11y_Checkbox` is a separately-documented, separately-installed component and not a shadow), do not fold — the variant is a real export. Check SKILL.md for explicit documentation of the variant before folding. When in doubt, err on the side of not folding and report both forms.
+- If `metadata.json.stats.effective_denominator` is present and the provenance-map raw count matches it (no drift), canonicalization is not needed — the denominator is already canonical. Fold only when raw count > `effective_denominator` and the drift corresponds to recognizable bookkeeping suffixes/prefixes.
+- If drift remains after folding (e.g., raw 222 → canonical 215 but `effective_denominator` says 216), record the residual 1-count drift as an unexplained-reconciliation note in the test report. Do not fabricate additional fold rules to close the gap.
+
 ## Source Access Resolution
 
 Before analysis, determine source access level. Walk through these states in order — use the first that succeeds:
