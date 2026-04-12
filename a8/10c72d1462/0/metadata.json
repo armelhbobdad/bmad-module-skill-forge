@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "a810c72d1462",
+  "session_id": "7c64e3f6-ddd5-4255-8153-44ddf12b98cd",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-12T22:46:22.726953889Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/health-check.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "4cb8d8ea1d33",
+  "token_usage": {
+    "input_tokens": 31,
+    "cache_creation_tokens": 33904,
+    "cache_read_tokens": 496399,
+    "output_tokens": 4861,
+    "api_call_count": 12
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-12T22:46:22.532580326Z",
+    "agent_lines": 11,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 1,
+    "total_committed": 11,
+    "agent_percentage": 100
+  }
+}
