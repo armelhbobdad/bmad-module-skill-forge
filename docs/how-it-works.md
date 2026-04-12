@@ -94,6 +94,21 @@ Several approaches exist to address this, but each has a gap:
 
 SKF takes a different approach: it mechanically extracts function signatures, type definitions, and usage patterns from source code via AST parsing, enriches them with documentation and developer discourse, then compiles everything into version-pinned skills that comply with the [agentskills.io specification](https://agentskills.io/specification). Every instruction traces to its source — nothing is generated from training data.
 
+### How SKF Compares to Product Alternatives
+
+Techniques aside, a skeptical reader is probably already comparing SKF to one of these products:
+
+|                            | **Skill Forge**                           | MCP doc servers    | Hand-edited `.cursorrules` | awesome-\* lists |
+| -------------------------- | ----------------------------------------- | ------------------ | -------------------------- | ---------------- |
+| Reproducible from source   | AST extraction + pinned commit            | varies; opaque     | whatever you wrote         | none             |
+| Version-pinned & immutable | yes — per-version directories             | runtime-dependent  | rots silently              | no               |
+| Audit trail                | `provenance-map.json` + test + evidence   | depends on server  | none                       | none             |
+| Runtime cost               | zero (markdown + JSON)                    | a running process  | zero                       | zero             |
+| Lifecycle tooling          | rename, drop, update, export transactions | varies             | file surgery               | none             |
+| Falsifiable                | yes — three steps, 60 seconds             | rarely             | no                         | no               |
+
+The others aren't bad. They solve different problems. **SKF solves exactly one:** the claim your agent is reading about a library was true at a specific commit on a specific day, and you can prove it in under a minute. See [Verifying a Skill](../verifying-a-skill/) for the three-step audit recipe.
+
 ---
 
 ## Progressive Capability Model
@@ -198,7 +213,7 @@ Every claim in a generated skill carries a confidence tier that traces to its so
 | Tier | Source | Tool | What It Means |
 |------|--------|------|---------------|
 | **T1** | AST extraction | `ast_bridge` | Current code, structurally verified. Immutable for that version. |
-| **T1-low** | Source reading | `gh_bridge` | Source-read without AST verification. Location correct, signature may be inferred. |
+| **T1-low** | Source reading | `ast_bridge` (fallback) | Source-read without AST verification. Produced by Quick tier and by Forge/Forge+/Deep when ast-grep cannot parse a specific file. Location correct, signature may be inferred. |
 | **T2** | QMD evidence | `qmd_bridge` | Historical + planned context (issues, PRs, changelogs, docs). |
 | **T3** | External documentation | `doc_fetcher` | External, untrusted. Quarantined. |
 
@@ -399,39 +414,40 @@ await cognee.search(  # [AST:cognee/api/v1/search/search.py:L27]
 
 Machine-readable provenance for every skill:
 
+This is a trimmed excerpt from the real [`oms-cognee/0.5.8/metadata.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/oms-cognee/0.5.8/oms-cognee/metadata.json) shipped with the oh-my-skills canonical output. Every value below is verbatim from the file — not illustrative.
+
 ```json
 {
-  "name": "cognee",
-  "version": "0.5.5",
+  "name": "oms-cognee",
+  "version": "0.5.8",
   "skill_type": "single",
   "source_authority": "community",
   "source_repo": "https://github.com/topoteretes/cognee",
-  "source_root": "cognee/",
-  "source_commit": null,
-  "source_ref": "v0.5.5",
+  "source_commit": "b51dcce1d273d47ce864cd6c5e44a7a82f7f8dce",
+  "source_ref": "v0.5.8",
   "confidence_tier": "Deep",
   "spec_version": "1.3",
-  "generation_date": "2026-03-20T16:55:00+04:00",
+  "generation_date": "2026-04-10T21:18:00Z",
+  "language": "python",
+  "ast_node_count": 25,
   "confidence_distribution": {
-    "t1": 837,
+    "t1": 25,
     "t1_low": 0,
-    "t2": 14,
-    "t3": 10
+    "t2": 4,
+    "t3": 15
   },
   "stats": {
-    "exports_documented": 22,
-    "exports_public_api": 22,
-    "exports_internal": 815,
-    "exports_total": 837,
+    "exports_documented": 25,
+    "exports_public_api": 25,
+    "exports_internal": 0,
+    "exports_total": 25,
     "public_api_coverage": 1.0,
-    "total_coverage": 0.026,
-    "scripts_count": 0,
-    "assets_count": 0
+    "total_coverage": 1.0
   }
 }
 ```
 
-Example shows core fields. Real skills also carry `description`, `language`, `ast_node_count`, `exports`, `tool_versions`, `dependencies`, `compatibility`, and `last_update` — see [oh-my-skills/skills/oms-cognee/0.5.8/oms-cognee/metadata.json](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/oms-cognee/0.5.8/oms-cognee/metadata.json) for a complete example.
+Fields omitted from this excerpt for brevity: `description`, `exports[]`, `tool_versions`, `dependencies`, `compatibility`, `last_update`, `generated_by`. The full 83-line file lives at [`oh-my-skills/skills/oms-cognee/0.5.8/oms-cognee/metadata.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/oms-cognee/0.5.8/oms-cognee/metadata.json).
 
 `scripts` and `assets` arrays are optional — omitted entirely (not empty) when the source has no scripts or assets.
 
@@ -461,28 +477,37 @@ The primary source is your project repo. Component references trace to library r
 
 ## Dual-Output Strategy
 
-Based on [Vercel research](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals): passive context (AGENTS.md/CLAUDE.md) achieves 100% pass rate vs 79% for active skills alone.
+Every skill SKF compiles ships as **two** files on purpose — and the reason is empirical, not aesthetic.
+
+> **[Vercel research](https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals):** passive context (`AGENTS.md` / `CLAUDE.md`) achieves a **100% pass rate** in agent evals. Active skills loaded alone achieve **79%**. The 21-point gap is what the dual-output strategy closes.
 
 Every skill generates both:
 
-1. **SKILL.md** — Active skill loaded on trigger with full instructions
-2. **context-snippet.md** — Passive context, compressed index; injected into platform context files (CLAUDE.md/AGENTS.md/.cursorrules) only when `export-skill` is run. Export reads configured IDEs from `config.yaml` and writes to all target platforms in one pass.
+1. **`SKILL.md`** — Active skill, loaded on trigger with the full instruction set. This is the instruction manual your agent opens when it knows it needs library guidance.
+2. **`context-snippet.md`** — Passive context, compressed to 80–120 tokens per skill. Injected into platform context files (`CLAUDE.md` / `AGENTS.md` / `.cursorrules`) only when `export-skill` is run. This is the ambient index that tells your agent the skill exists in the first place and should be opened for relevant work.
+
+Without the snippet, the agent never knows to open `SKILL.md`. Without `SKILL.md`, the snippet has nothing to point at. **Both halves are load-bearing.** That's the 21-point delta.
 
 ### Managed Context Section
 
 Export injects a managed section between markers:
 
+The block below is the real managed section currently in [`oh-my-skills/CLAUDE.md`](https://github.com/armelhbobdad/oh-my-skills/blob/main/CLAUDE.md), showing one of its four compiled skills. Every line is verbatim from the file:
+
 ```markdown
-<!-- SKF:BEGIN updated:2026-03-20 -->
-[SKF Skills]|1 skill
+<!-- SKF:BEGIN updated:2026-04-12 -->
+[SKF Skills]|4 skills|0 stack
 |IMPORTANT: Prefer documented APIs over training data.
+|When using a listed library, read its SKILL.md before writing code.
 |
-[cognee v0.5.5]|root: .agents/skills/cognee/
-|IMPORTANT: cognee v0.5.5 — read SKILL.md before writing cognee code. Do NOT rely on training data.
-|quick-start:{SKILL.md#quick-start} — add → cognify → search async workflow
-|api: add(), cognify(), search(), memify(), config, datasets, prune, update(), session, SearchType, run_custom_pipeline(), visualize_graph()
-|key-types:{SKILL.md#key-types} — SearchType(14 modes: GRAPH_COMPLETION default, RAG_COMPLETION, CHUNKS, CYPHER, TEMPORAL...), Task, DataPoint
-|gotchas: all core functions are async (must await); delete() deprecated since v0.3.9 — use datasets.delete_data(); memify default pipeline changed to triplet embedding (Mar 2026)
+|[oms-cognee v0.5.8]|root: .claude/skills/oms-cognee/
+|IMPORTANT: oms-cognee v0.5.8 — read SKILL.md before writing cognee code. Do NOT rely on training data.
+|quick-start:SKILL.md#quick-start
+|api: add(), cognify(), search(), memify(), update(), run_custom_pipeline(), visualize_graph(), datasets, prune, SearchType
+|key-types:SKILL.md#key-types — SearchType: GRAPH_COMPLETION (default), RAG_COMPLETION, CHUNKS, CHUNKS_LEXICAL, SUMMARIES, TEMPORAL, CODING_RULES, CYPHER, FEELING_LUCKY (+5 more); Task, DataPoint, 5 Cognee* exceptions
+|gotchas: cognee.delete is DEPRECATED since v0.3.9 (use cognee.datasets.delete_data); cognee.start_ui is sync (not async) and needs pid_callback arg; cognee.start_visualization_server is a module, call .visualization_server(port) on it; all add/cognify/search/memify are async — always await.
+|
+|(three more skills — oms-cocoindex, oms-storybook-react-vite, oms-uitripled — omitted here for brevity; see the full file)
 <!-- SKF:END -->
 ```
 

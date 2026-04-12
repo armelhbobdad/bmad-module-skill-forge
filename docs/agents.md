@@ -85,14 +85,7 @@ MANAGE:
 
 **Pipeline Aliases:**
 
-| Alias | Expands To | First Workflow | Required Target |
-|-------|-----------|----------------|-----------------|
-| `forge` | BS CS TS EX | BS | GitHub URL or local path **+** skill name |
-| `forge-quick` | QS TS EX | QS | GitHub URL **or** package name |
-| `onboard` | AN CS TS EX | AN | Project path (defaults to current directory) |
-| `maintain` | AS US TS EX | AS | Existing skill name |
-
-Example: `@Ferris forge-quick cognee` chains Quick → Test → Export with automatic data forwarding — QS resolves the package to its GitHub repo. For the full brief-driven pipeline, use `@Ferris forge <repo-url> <skill-name>`. See [Workflows → Pipeline Mode](../workflows/#pipeline-mode) for the full specification.
+Ferris chains multiple workflows in one command via named aliases (`forge`, `forge-quick`, `onboard`, `maintain`). The full alias table, expansion rules, and target-resolution contract live in [Workflows → Pipeline Mode](../workflows/#pipeline-mode) — the canonical source. Example: `@Ferris forge-quick cognee` chains Quick → Test → Export with automatic data forwarding.
 
 **Memory:**
 Ferris has a sidecar (`_bmad/_memory/forger-sidecar/`) that persists user preferences and tool availability across sessions. Set `headless_mode: true` in preferences to make headless the default.

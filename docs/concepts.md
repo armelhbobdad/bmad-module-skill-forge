@@ -87,7 +87,7 @@ Your forge tier determines which categories are scored. Quick-tier skills skip s
 
 Every skill records the exact version (or commit) of the source code it was built from. This means you always know which version of the library the instructions apply to.
 
-By default, the version is auto-detected from the source (package.json, pyproject.toml, etc.). You can also target a specific version — either by specifying it during `@Ferris BS` (brief-skill) or by appending `@version` to a quick skill command (`@Ferris QS cognee@0.5.0`). This is especially useful for docs-only skills where no source code is available for auto-detection. When targeting a specific version on a remote repository, SKF resolves the matching git tag and clones from it — so the extracted API signatures actually reflect the target version's code, not just the label applied to whatever happens to be on the default branch.
+By default, the version is auto-detected from the source (package.json, pyproject.toml, etc.). You can also target a specific version — either by specifying it during `@Ferris BS` (brief-skill) or by appending `@version` to a quick skill command (`@Ferris QS cognee@0.5.8`). This is especially useful for docs-only skills where no source code is available for auto-detection. When targeting a specific version on a remote repository, SKF resolves the matching git tag and clones from it — so the extracted API signatures actually reflect the target version's code, not just the label applied to whatever happens to be on the default branch.
 
 When the source updates, you can re-run `@Ferris US` (update-skill) to regenerate the skill for the new version while preserving any manual additions you've made.
 
@@ -99,7 +99,7 @@ Two workflows let you rename and retire skills without manually editing files:
 
 **Rename (`@Ferris RS`)** — Change a skill's name across all its versions. Transactional: copies to the new name, verifies every reference, then deletes the old name only after verification succeeds. If anything fails mid-rename, the old skill stays intact. Use it to graduate quick-skills to formal names, or to add a suffix like `-community`.
 
-**Drop (`@Ferris DS`)** — Retire a specific version (e.g., drop `cognee 0.1.0` because it's deprecated) or an entire skill. Two modes:
+**Drop (`@Ferris DS`)** — Retire a specific version (e.g., drop an older cognee skill version because it's deprecated) or an entire skill. Two modes:
 - **Soft drop (default)** marks the version as deprecated in the manifest and keeps files on disk. It stops appearing in CLAUDE.md/AGENTS.md/.cursorrules immediately but is reversible by editing the manifest.
 - **Hard drop (purge)** also deletes the files from disk. Irreversible.
 

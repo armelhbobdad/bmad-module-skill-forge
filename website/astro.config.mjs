@@ -97,12 +97,13 @@ export default defineConfig({
       // Custom CSS
       customCss: ['./src/styles/custom.css'],
 
-      // Sidebar configuration (flat structure for SKF's 5 docs)
+      // Sidebar configuration (flat structure for SKF's docs)
       sidebar: [
         { label: 'Welcome', slug: 'index' },
         { label: 'Getting Started', slug: 'getting-started' },
         { label: 'Concepts', slug: 'concepts' },
         { label: 'How It Works', slug: 'how-it-works' },
+        { label: 'Verifying a Skill', slug: 'verifying-a-skill' },
         { label: 'Workflows', slug: 'workflows' },
         { label: 'Agents', slug: 'agents' },
         { label: 'Examples', slug: 'examples' },
