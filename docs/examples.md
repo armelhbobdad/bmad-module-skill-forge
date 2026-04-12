@@ -30,13 +30,15 @@ description: Use when cognee is a Python AI memory engine that transforms
 
 | Function | Purpose | Key Params | Source |
 |----------|---------|------------|--------|
-| add() | Ingest text, files, binary data | data, dataset_name | [AST:cognee/api/v1/add/add.py:L22] |
-| cognify() | Build knowledge graph | datasets, graph_model | [AST:cognee/api/v1/cognify/cognify.py:L47] |
-| search() | Query knowledge graph | query_text, query_type | [AST:cognee/api/v1/search/search.py:L26] |
-| memify() | Enrich graph with custom tasks | extraction_tasks, data | [AST:cognee/modules/memify/memify.py:L27] |
-| session.* | Session history and feedback | get_session(), add_feedback() | [SRC:cognee/api/v1/session/__init__.py:L8] |
+| add() | Ingest text, files, binary data | data, dataset_name | [AST:cognee/api/v1/add/add.py:L21] |
+| cognify() | Build knowledge graph | datasets, graph_model | [AST:cognee/api/v1/cognify/cognify.py:L44] |
+| search() | Query knowledge graph | query_text, query_type | [AST:cognee/api/v1/search/search.py:L27] |
+| memify() | Enrich graph with custom tasks | extraction_tasks, data | [AST:cognee/modules/memify/memify.py:L25] |
+| session | Session module | session.py module | [SRC:cognee/api/v1/session/session.py:L16] |
 | DataPoint | Base class for custom graph nodes | inherit and add fields | [EXT:docs.cognee.ai/guides/custom-data-models] |
 ```
+
+Every line number above is verbatim from the real [`forge-data/oms-cognee/0.5.8/provenance-map.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/forge-data/oms-cognee/0.5.8/provenance-map.json) shipped with oh-my-skills — not illustrative.
 
 Provenance tags trace each instruction to its source:
 - `[AST:file:line]` — extracted from code via AST parsing (highest confidence)
@@ -46,13 +48,13 @@ Provenance tags trace each instruction to its source:
 
 See [How It Works](../how-it-works/) for the full output structure.
 
-**Full skill directory structure:**
+**Full skill directory structure** (real layout from [`oh-my-skills/skills/oms-cognee/`](https://github.com/armelhbobdad/oh-my-skills/tree/main/skills/oms-cognee)):
 
 ```
-skills/cognee/
-├── active -> 0.5.5
-└── 0.5.5/
-    └── cognee/
+skills/oms-cognee/
+├── active -> 0.5.8
+└── 0.5.8/
+    └── oms-cognee/
         ├── SKILL.md              # What your agent reads
         ├── context-snippet.md    # Compressed index for platform context files
         ├── metadata.json         # Machine-readable provenance
@@ -65,7 +67,7 @@ skills/cognee/
             └── config-schema.json
 ```
 
-Skills are stored per-version — updating cognee to v0.6.0 creates a new version directory without overwriting v0.5.5. The `active` symlink always points to the current version. The `scripts/` and `assets/` directories appear only when the source repository contains them. Each file traces back to its source with provenance citations and SHA-256 hashes.
+Skills are stored per-version — updating cognee to v0.5.9 creates a new version directory without overwriting v0.5.8. The `active` symlink always points to the current version. The `scripts/` and `assets/` directories appear only when the source repository contains them. Each file traces back to its source with provenance citations and SHA-256 hashes.
 
 ---
 
@@ -84,7 +86,7 @@ Ferris reads the repository, extracts the public API, and validates against the 
 Need a specific version? Append `@version`:
 
 ```
-@Ferris QS cognee@0.5.0
+@Ferris QS cognee@0.5.8
 ```
 
 ### Brownfield Platform — Pipeline or per-workflow

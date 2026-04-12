@@ -77,7 +77,7 @@ SKF has 14 workflows. You trigger them by typing commands to [Ferris](../agents/
 
 **Purpose:** Brief-less fast skill with package-to-repo resolution.
 
-**When to Use:** When you need a skill quickly — no brief needed. Accepts package names or GitHub URLs. Append `@version` to target a specific version (e.g., `@Ferris QS cognee@0.5.0`).
+**When to Use:** When you need a skill quickly — no brief needed. Accepts package names or GitHub URLs. Append `@version` to target a specific version (e.g., `@Ferris QS cognee@0.5.8`).
 
 **Key Steps:** Resolve target → Ecosystem check → Quick extract → Compile → Validate → Write
 
@@ -219,7 +219,7 @@ SKF has 14 workflows. You trigger them by typing commands to [Ferris](../agents/
 
 **Purpose:** Drop a specific skill version or an entire skill. Soft drop (default) marks the version as deprecated in the manifest and keeps files on disk. Hard drop (`--purge`) also deletes the files.
 
-**When to Use:** Retire a deprecated version (e.g., drop `cognee 0.1.0` because it's obsolete), free disk space, or remove a skill you no longer need.
+**When to Use:** Retire a deprecated version (e.g., drop an older cognee skill version because it's obsolete), free disk space, or remove a skill you no longer need.
 
 **Key Steps:** Select skill → Select version(s) + mode → Update manifest → Rebuild context files → Delete files (if purge)
 

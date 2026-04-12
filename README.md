@@ -34,9 +34,11 @@ This isn't an edge case. It's the default experience.
 
 1. **Analyzes your sources** — extracts real function signatures, types, and patterns from code repositories, documentation websites, and developer discourse
 2. **Compiles verified instruction files** — every instruction links to the exact file and line it came from
-3. **Version-aware** — skills are stored per-version, so updating to v2.0 doesn't break your v1.x skill. Compatible with [skill.sh](https://skill.sh) and [npx skills](https://www.npmjs.com/package/skills)
+3. **Version-aware** — skills are stored per-version, so updating to v2.0 doesn't break your v1.x skill. Compatible with [skills.sh](https://skills.sh) and [npx skills](https://www.npmjs.com/package/skills)
 4. **Manageable lifecycle** — rename skills and drop deprecated versions without manual file surgery. Transactional safety for destructive operations.
 5. **Follows an open standard** — skills comply with the [agentskills.io](https://agentskills.io) spec and work across Claude, Cursor, Copilot, and other AI agents
+
+> **Why two output files?** Every skill SKF produces ships both `SKILL.md` (the full instruction set, loaded on trigger) and `context-snippet.md` (an 80–120 token always-on index injected into `CLAUDE.md` / `AGENTS.md` / `.cursorrules`). Per [How It Works → Dual-Output Strategy](https://armelhbobdad.github.io/bmad-module-skill-forge/how-it-works/#dual-output-strategy), Vercel research shows passive context achieves a **100% pass rate vs. 79% for active skills loaded alone**. Both halves ship in every skill SKF compiles.
 
 ## Before vs After
 
@@ -56,14 +58,26 @@ import cognee
 
 # Agent follows the skill instruction:
 # `search(query_text: str, query_type: SearchType = GRAPH_COMPLETION) -> List[SearchResult]`
-# [AST:cognee/api/v1/search/search.py:L26]
+# [AST:cognee/api/v1/search/search.py:L27]
 results = await cognee.search(
     query_text="What does Cognee do?",
     query_type=cognee.SearchType.GRAPH_COMPLETION
 )
 ```
 
-The skill told the agent the real function name, the real parameters, and that the call requires `await` — all traced to the exact source line. This is from a [real generated skill](https://github.com/armelhbobdad/oh-my-skills).
+The skill told the agent the real function name, the real parameters, and that the call requires `await` — all traced to the exact source line. This example is from the real [`oms-cognee`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/oms-cognee/0.5.8/oms-cognee/SKILL.md) skill in [**oh-my-skills**](https://github.com/armelhbobdad/oh-my-skills) — SKF's reference output. Want to walk the citation chain yourself? The section below shows how.
+
+## Verifying a Skill
+
+Every AST citation in an SKF-compiled skill is falsifiable in under a minute:
+
+1. **Open the skill's `provenance-map.json`** — find your symbol; read its `source_file` and `source_line`.
+2. **Open the skill's `metadata.json`** — read `source_commit` and `source_repo`.
+3. **Jump to the upstream repo at that commit**, open that file, find that line. The signature in `SKILL.md` should match the one you're reading.
+
+If it doesn't, that's a bug — open an issue and SKF will republish with a new commit SHA and a new provenance map. Falsifiability isn't a feature; it's the whole deal.
+
+**Reference output: [oh-my-skills](https://github.com/armelhbobdad/oh-my-skills)** — four Deep-tier skills compiled by SKF (cocoindex, cognee, Storybook v10, uitripled), each shipping its full audit trail in-repo. Scores between 99.0% and 99.49%, every claim walk-able to an upstream line in under 60 seconds. Both the worked example for this section and the continuing proof that the pipeline does what it says.
 
 ## Install
 
@@ -73,29 +87,22 @@ Requires [Node.js](https://nodejs.org/) >= 22, [Python](https://www.python.org/)
 npx bmad-module-skill-forge install
 ```
 
-You'll be prompted for project name, output folders, and IDE configuration. See the [docs](https://armelhbobdad.github.io/bmad-module-skill-forge/getting-started/) for other install methods.
+You'll be prompted for project name, output folders, and IDE configuration. When the install completes, open your IDE and invoke `@Ferris SF` to confirm Ferris is reachable — it will report your detected tools and capability tier. See the [docs](https://armelhbobdad.github.io/bmad-module-skill-forge/getting-started/) for other install methods.
 
 ## Quick Start
 
-1. **Set up your environment:** `@Ferris SF` — detects your tools and sets your capability tier
-2. **Generate your first skill:** `@Ferris QS <package-name>` — creates a verified skill in under a minute
-3. **Full quality path:** `@Ferris BS` → clear session → `@Ferris CS` — brief first, then compile for maximum accuracy
-4. **Pipeline mode:** `@Ferris forge cocoindex` — chains Brief → Create → Test → Export in one command
+1. **Set up your environment:** `@Ferris SF` *(Setup Forge)* — detects your tools and sets your capability tier
+2. **Generate your first skill:** `@Ferris QS <package-name>` *(Quick Skill)* — creates a verified skill in under a minute
+3. **Full quality path:** `@Ferris BS` *(Brief Skill)* → clear session → `@Ferris CS` *(Create Skill)* — brief first, then compile for maximum accuracy
+4. **Pipeline mode:** `@Ferris forge <your-library>` — chains Brief → Create → Test → Export in one command
 
 > **Tip:** Start a fresh conversation before each workflow (or use pipeline mode to chain them automatically). SKF workflows load significant context — clearing between them prevents interference.
 
-See the [workflows docs](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/) for all 14 available workflows, pipeline aliases, and headless mode.
+See the [workflows docs](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/) for all available workflows, pipeline aliases, and headless mode.
 
-## Help SKF Improve — Let Workflows Finish
+## Help SKF Improve
 
-Every SKF workflow ends with a **health check** — a reflection step where Ferris captures any friction, bugs, or gaps from the session and offers to file them as GitHub issues (with your approval). Clean runs exit in one line; when something breaks, this is how SKF learns to do better.
-
-**Please let workflows run to completion.** If you cancel early or the terminal step gets skipped, the feedback is lost. If the health check didn't run, you can:
-
-- Ask Ferris directly: `@Ferris please run the workflow health check for this session`, or
-- [Open an issue](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose) — every concrete report makes SKF sharper for the next person.
-
-See the [Workflow Health Check](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/#terminal-step-health-check) docs for details.
+Every workflow ends with a health-check reflection that can file bugs or friction reports as GitHub issues (with your approval). **Please let workflows run to completion** so the feedback isn't lost. If you skipped the terminal step, ask Ferris: `@Ferris please run the workflow health check for this session` — or [open an issue](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose) directly. Full details: [How It Works → Workflow Health Check](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/#terminal-step-health-check).
 
 ## Who Is This For?
 
@@ -105,12 +112,27 @@ See the [Workflow Health Check](https://armelhbobdad.github.io/bmad-module-skill
 - **You use a SaaS API or closed-source tool** with no public code — SKF can generate skills from documentation alone
 - **You need different skills for different use cases** from the same target — compile multiple skills with different scopes from one repo or doc set (e.g., a core API skill and a migration guide skill)
 
+## How SKF Compares
+
+A skeptical reader is probably already considering one of these alternatives. Here's the grid:
+
+|                            | **Skill Forge**                           | MCP doc servers   | Hand-edited `.cursorrules` | awesome-\* lists |
+|----------------------------|-------------------------------------------|-------------------|----------------------------|------------------|
+| Reproducible from source   | AST extraction + pinned commit            | varies; opaque    | whatever you wrote         | none             |
+| Version-pinned & immutable | yes — per-version directories             | runtime-dependent | rots silently              | no               |
+| Audit trail                | `provenance-map.json` + test + evidence   | depends on server | none                       | none             |
+| Runtime cost               | zero (markdown + JSON)                    | a running process | zero                       | zero             |
+| Lifecycle tooling          | rename, drop, update, export transactions | varies            | file surgery               | none             |
+| Falsifiable                | yes — three steps, 60 seconds             | rarely            | no                         | no               |
+
+The others aren't bad. They solve different problems. **SKF solves exactly one: the claim your agent is reading about a library was true at a specific commit on a specific day, and you can prove it in under a minute.**
+
 ## Learn More
 
 - **[Getting Started](https://armelhbobdad.github.io/bmad-module-skill-forge/getting-started/)** — Installation, prerequisites, and your first skill
 - **[Concepts](https://armelhbobdad.github.io/bmad-module-skill-forge/concepts/)** — Plain-English definitions of all key terms
 - **[How It Works](https://armelhbobdad.github.io/bmad-module-skill-forge/how-it-works/)** — Architecture, capability tiers, output format, and design decisions
-- **[Workflows](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/)** — All 14 workflows with commands and connection diagrams
+- **[Workflows](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/)** — All available workflows with commands and connection diagrams
 - **[Agents](https://armelhbobdad.github.io/bmad-module-skill-forge/agents/)** — Ferris: the AI agent that runs all SKF workflows
 - **[Examples](https://armelhbobdad.github.io/bmad-module-skill-forge/examples/)** — Real-world scenarios, tips, and troubleshooting
 - **[BMAD Synergy](https://armelhbobdad.github.io/bmad-module-skill-forge/bmad-synergy/)** — How SKF workflows pair with BMAD CORE phases and optional modules

@@ -1,0 +1,98 @@
+# Skill Forge — Pinned Canonical Anchors
+#
+# This file is the SINGLE SOURCE OF TRUTH for every version number, commit
+# SHA, and library reference that the docs cite about oh-my-skills, the
+# canonical SKF reference output.
+#
+# Every time a skill is recompiled in oh-my-skills, update the matching
+# entry here and then run `npm run validate:docs-drift` from the SKF repo
+# root. The script will:
+#
+#   1. Verify every skill below actually exists at the claimed version and
+#      commit in $OMS/skills/<name>/<version>/<name>/metadata.json
+#   2. Grep every docs/*.md for stale version strings and flag any that
+#      disagree with the anchors
+#
+# If the drift check fails after a recompilation, update this file first,
+# then fix the docs until the check is clean.
+#
+# Do NOT edit docs/*.md version references without updating this file
+# first — the drift check will catch you. That's the point.
+#
+# File ignored by Astro/Starlight content collections because the parent
+# directory starts with `_`. It is purely a build-time / CI-time anchor.
+
+# SKF package version — matches the `version` field in package.json
+skf_version: "0.10.0"
+
+# Path to the oh-my-skills repo, resolved relative to this repo's root.
+# Override at runtime with the OMS environment variable if oh-my-skills
+# lives elsewhere on your machine.
+oh_my_skills_path: "../oh-my-skills"
+
+# Every oms-* skill currently shipped in oh-my-skills. The library key
+# (e.g. cognee) is the user-facing library name; the entry key is the
+# skill package name (oms-<library>).
+skills:
+  oms-cognee:
+    library: cognee
+    version: "0.5.8"
+    source_repo: "https://github.com/topoteretes/cognee"
+    source_commit: "b51dcce1d273d47ce864cd6c5e44a7a82f7f8dce"
+    source_ref: "v0.5.8"
+    upstream_commit_date: "2026-04-08"
+    test_score: 99.45
+    test_mode: "naive"
+    confidence_tier: "Deep"
+    source_authority: "community"
+    language: "python"
+
+  oms-cocoindex:
+    library: cocoindex
+    version: "0.3.37"
+    source_repo: "https://github.com/cocoindex-io/cocoindex"
+    source_commit: "87c5dbf087bfccca83791861db0d33519ef09677"
+    source_ref: "v0.3.37"
+    upstream_commit_date: "2026-03-31"
+    test_score: 99.0
+    test_mode: "naive"
+    confidence_tier: "Deep"
+    source_authority: "community"
+    language: "python"
+
+  oms-storybook-react-vite:
+    library: storybook
+    version: "10.3.5"
+    source_repo: "https://github.com/storybookjs/storybook"
+    source_commit: "e486d3826bcd40c52db1c766966d1c8ec16df6cb"
+    source_ref: "v10.3.5"
+    upstream_commit_date: "2026-04-07"
+    test_score: 99.49
+    test_mode: "naive"
+    confidence_tier: "Deep"
+    source_authority: "community"
+    language: "typescript"
+
+  oms-uitripled:
+    library: uitripled
+    version: "0.1.0"
+    source_repo: "https://github.com/moumen-soliman/uitripled"
+    source_commit: "a5ffb45be05335d2c547436664cfbfb8c22d04df"
+    source_ref: "HEAD"
+    upstream_commit_date: "2026-03-22"
+    test_score: 99.45
+    test_mode: "naive"
+    confidence_tier: "Deep"
+    source_authority: "community"
+    language: "typescript"
+
+# Libraries that are mentioned in docs as illustrative examples but don't
+# have a corresponding oms-* skill. The drift check IGNORES version
+# mentions for these libraries — they're allowed to drift because they're
+# illustration, not canonical.
+illustrative_libraries:
+  - better-auth
+  - hono
+  - drizzle-orm
+  - spacetimedb-sdk
+  - serwist
