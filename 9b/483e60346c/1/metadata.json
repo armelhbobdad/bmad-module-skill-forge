@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "9b483e60346c",
+  "session_id": "cff0ac02-5c2d-4fd6-8e03-4ab47f83c0d1",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-13T13:22:07.164731133Z",
+  "branch": "docs/cognee-1.0.0-refresh",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "ROADMAP.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "f6ac0f39defd",
+  "token_usage": {
+    "input_tokens": 3654,
+    "cache_creation_tokens": 166183,
+    "cache_read_tokens": 2332565,
+    "output_tokens": 27200,
+    "api_call_count": 37
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-13T13:22:06.700651666Z",
+    "agent_lines": 0,
+    "human_added": 5035,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 5035,
+    "agent_percentage": 0
+  }
+}
