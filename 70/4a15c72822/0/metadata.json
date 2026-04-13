@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "704a15c72822",
+  "session_id": "6974ee40-9475-4de0-a86f-1967292f3acb",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-13T13:36:52.047283141Z",
+  "branch": "docs/cognee-1.0.0-refresh",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-test-skill/references/migration-section-rules.md",
+    "src/skf-test-skill/references/scoring-rules.md",
+    "src/skf-test-skill/steps-c/step-03-coverage-check.md",
+    "src/skf-test-skill/steps-c/step-04-coherence-check.md",
+    "src/skf-test-skill/steps-c/step-05-score.md",
+    "src/skf-test-skill/steps-c/step-06-report.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "4f13149abe6f",
+  "token_usage": {
+    "input_tokens": 288,
+    "cache_creation_tokens": 566135,
+    "cache_read_tokens": 25717668,
+    "output_tokens": 118500,
+    "api_call_count": 153
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-13T13:36:51.017408744Z",
+    "agent_lines": 214,
+    "human_added": 328,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 542,
+    "agent_percentage": 39.48339483394834
+  }
+}
