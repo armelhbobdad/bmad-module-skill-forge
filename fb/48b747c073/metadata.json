@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "fb48b747c073",
+  "strategy": "manual-commit",
+  "branch": "docs/cognee-1.0.0-refresh",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "CONTRIBUTING.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fb/48b747c073/0/metadata.json",
+      "transcript": "/fb/48b747c073/0/full.jsonl",
+      "context": "/fb/48b747c073/0/context.md",
+      "content_hash": "/fb/48b747c073/0/content_hash.txt",
+      "prompt": "/fb/48b747c073/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 240,
+    "cache_creation_tokens": 292080,
+    "cache_read_tokens": 14722831,
+    "output_tokens": 87956,
+    "api_call_count": 110
+  }
+}
