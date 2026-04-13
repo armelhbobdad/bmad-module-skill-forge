@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "dfdbca7b1518",
+  "strategy": "manual-commit",
+  "branch": "docs/cognee-1.0.0-refresh",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-skill/steps-c/step-02-ecosystem-check.md",
+    "src/skf-create-skill/steps-c/step-06-validate.md",
+    "src/skf-create-skill/steps-c/step-07-generate-artifacts.md",
+    "src/skf-create-skill/steps-c/sub/step-03b-fetch-temporal.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/df/dbca7b1518/0/metadata.json",
+      "transcript": "/df/dbca7b1518/0/full.jsonl",
+      "context": "/df/dbca7b1518/0/context.md",
+      "content_hash": "/df/dbca7b1518/0/content_hash.txt",
+      "prompt": "/df/dbca7b1518/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 285,
+    "cache_creation_tokens": 564010,
+    "cache_read_tokens": 24874167,
+    "output_tokens": 116527,
+    "api_call_count": 150
+  }
+}
