@@ -1,0 +1,645 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-help
+
+# BMad Help
+
+## Purpose
+
+Help the user understand where they are in their BMad workflow and what to do next. Answer BMad questions when asked.
+
+## Desired Outcomes
+
+When this skill completes, the user should:
+
+1. **Know where they are** — which module and phase they're in, what's already been completed
+2. **Know what to do next** — the next recommended and/or required step, with clear reasoning
+3. **Know how to invoke it** — skill name, menu code, action context, and any args that shortcut the conversation
+4. **Get offered a quick start** — when a single skill is the clear next step, offer to run it for the user right now rather than just listing it
+5. **Feel oriented, not overwhelmed** — surface only what's relevant to their current position; don't dump the entire catalog
+
+## Data Sources
+
+- **Catalog**: `{project-root}/_bmad/_config/bmad-help.csv` — assembled manifest of all installed module skills
+- **Config**: `config.yaml` and `user-config.yaml` files in `{project-root}/_bmad/` and its subfolders — resolve `output-location` variables, provide `communication_language` and `project_knowledge`
+- **Artifacts**: Files matching `outputs` patterns at resolved `output-location` paths reveal which steps are possibly completed; their content may also provide grounding context for recommendations
+- **Project knowledge**: If `project_knowledge` resolves to an existing path, read it for grounding context. Never fabricate project-specific details.
+
+## CSV Interpretation
+
+The catalog uses this format:
+
+```
+module,skill,display-name,menu-code,description,action,args,phase,after,before,required,output-location,outputs
+```
+
+**Phases** determine the high-level flow:
+- `anytime` — available regardless of workflow state
+- Numbered phases (`1-analysis`, `2-planning`, etc.) flow in order; naming varies by module
+
+**Dependencies** determine ordering within and across phases:
+- `after` — skills that should ideally complete before this one
+- `before` — skills that should run after this one
+- Format: `skill-name` for single-action skills, `skill-name:action` for multi-action skills
+
+**Required gates**:
+- `required=true` items must complete before the user can meaningfully proceed to later phases
+- A phase with no required items is entirely optional — recommend it but be clear about what's actually required next
+
+**Completion detection**:
+- Search resolved output paths for `outputs` patterns
+- Fuzzy-match found files to catalog rows
+- User may also state completion explicitly, or it may be evident from the current conversation
+
+**Descriptions carry routing context** — some contain cycle info and alternate paths (e.g., "back to DS if fixes needed"). Read them as navigation hints, not just display text.
+
+## Response Format
+
+For each recommended item, present:
+- `[menu-code]` **Display name** — e.g., "[CP] Create PRD"
+- Skill name in backticks — e.g., `bmad-create-prd`
+- For multi-action skills: action invocation context — e.g., "tech-writer lets create a mermaid diagram!"
+- Description if present in CSV; otherwise your existing knowledge of the skill suffices
+- Args if available
+
+**Ordering**: Show optional items first, then the next required item. Make it clear which is which.
+
+## Constraints
+
+- Present all output in `{communication_language}`
+- Recommend running each skill in a **fresh context window**
+- Match the user's tone — conversational when they're casual, structured when they want specifics
+- If the active module is ambiguous, ask rather than guess
+
+
+ARGUMENTS: We are about to ship the first major version of SKF module, we need to VERIFY EVERYTHING. I SAID EVERYTHING.
+
+---
+
+yes
+
+---
+
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-module-builder
+
+# BMad Module Builder
+
+## Overview
+
+This skill helps you bring BMad modules to life — from the first spark of an idea to a fully scaffolded, installable module. It offers three paths:
+
+- **Ideate Module (IM)** — A creative brainstorming session that helps you imagine what your module could be, decide on the right architecture (agent vs. workflow vs. both), and produce a detailed plan document. The plan then guides you through building each piece with the Agent Builder and Workflow Builder.
+- **Create Module (CM)** — Takes an existing folder of built skills (or a single skill) and scaffolds the module infrastructure that makes it installable. For multi-skill modules, generates a dedicated `-setup` skill. For single skills, embeds self-registration directly into the skill. Supports `--headless` / `-H`.
+- **Validate Module (VM)** — Checks that a module's structure is complete and correct — every skill has its capabilities registered, entries are accurate and well-crafted, and structural integrity is sound. Handles both multi-skill and standalone modules. Supports `--headless` / `-H`.
+
+**Args:** Accepts `--headless` / `-H` for CM and VM paths, an initial description for IM, or a path to a skills folder or single SKILL.md file for CM/VM.
+
+## On Activation
+
+Load available config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml` (root level and `bmb` section). If config is missing, let the user know `bmad-builder-setup` can configure the module at any time. Use sensible defaults for anything not configured.
+
+Detect user's intent:
+
+- **Ideate / Plan** keywords or no path argument → Load `./references/ideate-module.md`
+- **Create / Scaffold** keywords, a folder path, or a path to a single SKILL.md file → Load `./references/create-module.md`
+- **Validate / Check** keywords → Load `./references/validate-module.md`
+- **Unclear** → Present options:
+  - **Ideate Module (IM)** — "I have an idea for a module and want to brainstorm and plan it"
+  - **Create Module (CM)** — "I've already built my skills and want to package them as a module"
+  - **Validate Module (VM)** — "I want to check that my module's setup skill is complete and correct"
+
+If `--headless` or `-H` is passed, route to CM with headless mode.
+
+
+ARGUMENTS: validate-module path=/home/armel/Projects/OSS/bmad-module-skill-forge/src
+
+---
+
+yes
+
+---
+
+<task-notification>
+<task-id>bq2gky4m6</task-id>
+<tool-use-id>toolu_01YMRvcjMe5VEheRHTPeMqSG</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/6974ee40-9475-4de0-a86f-1967292f3acb/tasks/bq2gky4m6.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full quality gate" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Check the output of background task bq2gky4m6 (npm run quality) and report results.
+
+---
+
+fire AR + ECH in parallel on the 4 top-risk skills (8 fresh sessions total) before touching prose.
+
+---
+
+<task-notification>
+<task-id>ab494ce3313afd659</task-id>
+<tool-use-id>toolu_01LuS1PsL5gBjuH6gC5fsmEx</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/6974ee40-9475-4de0-a86f-1967292f3acb/tasks/ab494ce3313afd659.output</output-file>
+<status>completed</status>
+<summary>Agent "AR: skf-create-stack-skill" completed</summary>
+<result>Good — knowledge files exist. Now I have enough to produce the cynical review.
+
+# Adversarial Review: skf-create-stack-skill
+
+## CRITICAL
+
+### C1. step-07 §6 — wrong `confidence_tier` source vs step-08 §5 contradiction
+**File:** `steps-c/step-07-generate-output.md:96` and `steps-c/step-08-validate.md:85`
+**Quote (07):** `"confidence_tier": "{tier}"` (no source specified — earlier `confidence: "T1|T1-low|T2"` per-export and "lowest authority among constituent skills" for `source_authority`).
+**Quote (08):** `confidence_tier matches forge tier from step 01 (Quick/Forge/Forge+/Deep)`.
+**Problem:** Step-07 leaves the value of `confidence_tier` undefined (Quick/Forge tier? or T1/T2 evidence tier?). Step-08 then asserts it must equal the *forge tier*, which is a category mismatch — `confidence_tier` everywhere else in SKF (per-export entries, `confidence_distribution.t1/t1_low/t2/t3`) uses T-codes. Validation will either always pass vacuously or always fail depending on what step-07 wrote. metadata.json is consumed by other skills (TS, EX, audit) — silent schema drift.
+**Fix:** Pin one definition. Either rename to `forge_tier` (matches step-08 wording) or set `confidence_tier` to the *dominant* T-tier from `confidence_distribution` and add a separate `forge_tier` field. Update both files in lockstep.
+
+### C2. step-07 §1, §8 — partial-write rollback is silently absent
+**File:** `steps-c/step-07-generate-output.md:39, 220-228`
+**Quote:** `"If directories already exist, proceed (overwrite previous output)."` and the symlink "remove it first and recreate."
+**Problem:** No transactionality. If write of `metadata.json` fails after SKILL.md and references/ have been written, the previous good skill is already destroyed and the `active` symlink is repointed to a broken version mid-flight. No staging dir, no atomic rename, no rollback to prior `active` target. Any failure in §2-§7 leaves the user in a corrupt half-stack with no recovery instructions. Compounded by step-08 being explicitly "advisory mode: always proceed to report regardless of findings" (`step-08-validate.md:16`).
+**Fix:** Write into a temp `{version}.tmp/` dir, validate, then atomic-rename to `{version}/` and only then flip `active` symlink. On any failure: log prior `active` target, delete the temp dir, do not touch `active`. Document rollback in step-07.
+
+### C3. step-09 §6b — `create-stack-skill-result-latest.json` "copy not symlink" contradicts step-07 symlink convention
+**File:** `steps-c/step-09-report.md:91`
+**Quote:** `a copy at {forge_version}/create-stack-skill-result-latest.json (stable path for pipeline consumers — copy, not symlink)`
+**Problem:** Two race conditions: (a) writing the per-run JSON then copying creates a window where `-latest.json` points at stale data while consumers poll. (b) The skill name template uses `{forge_version}` = `{forge_data_folder}/{project_name}-stack/{version}/` — so `-latest` is *per-version*, not per-skill. Pipeline consumers cannot find the actual latest run across versions. The "stable path" claim is false.
+**Fix:** Either (a) write at `{forge_data_folder}/{project_name}-stack/create-stack-skill-result-latest.json` (above version dir) or (b) drop the latest copy and provide a documented `latest` symlink at the skill-group level. Use atomic write (write `.tmp` then rename).
+
+## HIGH
+
+### H1. step-04 §0 — compose-mode "extraction" silently fabricates exports/usage_patterns
+**File:** `steps-c/step-04-parallel-extract.md:27-31`
+**Quote:** `exports: exports list extracted from the SKILL.md exports section` … `usage_patterns: usage patterns from the SKILL.md usage section`
+**Problem:** Constituent skills are not required to have a section literally named "exports" or "usage" — `metadata.json.exports` is the canonical machine-readable source. Parsing prose from SKILL.md to recover structured exports is hand-wavy and unverifiable; per skf-create-skill conventions, exports live in metadata.json and the SKILL.md "Reference Index" is variable. Result: silently empty `per_library_extractions[]` for many compose runs, then step-06 produces a hollow stack and step-08 cheerfully validates it.
+**Fix:** Read `metadata.json.exports[]` first (machine-readable, schema-defined), fall back to per-export reference files under `references/`, and only as last resort attempt SKILL.md prose parsing — with a logged warning.
+
+### H2. step-05 §2 (compose-mode) — "co-mention" prose detection is unverifiable and overpromises
+**File:** `steps-c/step-05-detect-integrations.md:40-44`
+**Quote:** `Use prose-based co-mention analysis: find paragraphs mentioning 2+ confirmed skill names`
+**Problem:** Skill `name` fields are short, slug-y, often single common words ("react", "auth", "api"). Naive substring co-mention will hit false positives (a paragraph saying "the API" matches "api" skill). No tokenization rules, no negation handling, no qualifying threshold (just "2+ skills"). Architecture docs that mention every skill in the introduction will yield a fully-connected fake graph. Then `[composed]` confidence labels lend false authority.
+**Fix:** Require word-boundary matching, exclude headers/intro/glossary sections by config, set a minimum co-mention frequency (≥2 paragraphs) before qualifying a pair. Document false-positive risk in compose-mode-rules.md.
+
+### H3. step-05 §2 — co-import threshold of "2 files" is asserted without justification, and the CCC augmentation contradicts it
+**File:** `steps-c/step-05-detect-integrations.md:70` and `:74-80`
+**Quote:** `Threshold: A pair must have 2+ co-import files to qualify` then `For each library pair that has exactly 1 co-import file ... re-evaluate against the 2-file threshold`
+**Problem:** Two files is a magic number with no source/citation. Worse, the CCC path admits a single semantic-search hit can elevate a pair to "qualifying" — semantic search on small queries returns top-k results regardless of true relevance, so any 1-file pair effectively qualifies whenever CCC is enabled. This silently inflates Forge+/Deep stacks vs Quick/Forge.
+**Fix:** Document why 2 files (or make it tier-configurable). For CCC, require an additional precision filter (e.g., the new file must contain explicit imports for both libs verified post-hoc) before crossing the threshold.
+
+### H4. Terminology drift vs skf-verify-stack
+**Files:** `steps-c/step-09-report.md:84-87`, compose-mode-rules.md:60-63, step-05-detect-integrations.md:49
+**Problem:** create-stack uses verdict tokens `Verified | Plausible | Risky | Blocked` (per-pair) and `FEASIBLE | CONDITIONALLY FEASIBLE | NOT FEASIBLE` (overall) consumed from the VS report. skf-verify-stack/SKILL.md publishes a single "feasibility report" output with no schema linked from the create-stack skill — the literal token strings, casing, and the YAML field name `overall_verdict` and section `## Integration Verdicts` are *asserted* as the contract here but not declared in skf-verify-stack/SKILL.md. If VS changes wording (e.g., "Likely" instead of "Plausible"), create-stack silently mis-parses and the `[VS: Risky]` flag is lost. Also: create-stack writes `feasibility-report-{project_name}.md` filename pattern (`compose-mode-rules.md:60`) but skf-verify-stack/SKILL.md says output is `feasibility-report.md` (`SKILL.md:47`) — drift.
+**Fix:** Extract a shared schema doc (e.g., `shared/references/feasibility-report-schema.md`), reference it from both skills, and unify the filename. Add a parser-version guard so unknown verdict tokens fail loudly, not silently.
+
+### H5. step-06 §2 — frontmatter rules contradict the example
+**File:** `steps-c/step-06-compile-stack.md:43`
+**Quote:** `name: lowercase alphanumeric + hyphens only, must match skill output directory name. Prefer gerund form (processing-pdfs) for clarity.`
+**Problem:** The actual generated name is `{project_name}-stack` (template at line 33). "Prefer gerund form" is copy-pasted boilerplate from individual-skill guidance and is wrong for stack skills — a stack skill name is structurally `&lt;noun&gt;-stack`, never a gerund. Will confuse anyone editing the template.
+**Fix:** Delete the gerund advice for stack skills; replace with: "Stack skills MUST end in `-stack`."
+
+### H6. step-02 §0 — version-aware skill discovery has no fallback when manifest entries are stale
+**File:** `steps-c/step-02-detect-manifests.md:34-35`
+**Quote:** `For each entry in exports, resolve the active version path: ... — this directory must contain both SKILL.md and metadata.json.`
+**Problem:** "Must contain" — but no behavior specified if it doesn't. Export-manifest can lag behind disk state (e.g., a half-completed `skf-update-skill` run). The fallback to `active` symlinks only triggers if the manifest "does not exist, is empty, or a manifest entry lacks an `active_version`" — not if the resolved path is broken. Silently dropped skills produce silently incomplete stacks.
+**Fix:** On per-entry resolution failure (path missing, files missing), fall back to the symlink scan for that one skill name and log a warning. HALT only if both paths fail.
+
+## MEDIUM
+
+### M1. step-04 §0 (compose-mode) — `confidence: "T1|T1-low|T2"` literal
+**File:** `steps-c/step-04-parallel-extract.md:31`
+**Quote:** `confidence: the skill's existing confidence tier (T1, T1-low, T2) — inherited directly`
+**Problem:** Constituent skills can also be T3 or T1-low-with-T2 annotations. The enumeration is incomplete; downstream assumptions in step-08 (`confidence_distribution.t3`) explicitly reference T3, but step-04 forbids importing it. T3 evidence is silently dropped.
+**Fix:** Allow the full set used by `confidence-tiers.md` (T1, T1-low, T2, T3) and propagate.
+
+### M2. step-07 §5 — context-snippet token target is unverifiable
+**File:** `steps-c/step-07-generate-output.md:73-80`
+**Quote:** `Use the Vercel-aligned indexed format targeting ~80-120 tokens`
+**Problem:** "Vercel-aligned" is name-dropping with no spec link. Step-08 §8 also says "Approximate token count is ~80-120 tokens" but provides no tokenizer. Stacks of 8+ libraries cannot fit version+name+gotchas in 120 tokens; the format will silently overflow with no truncation rule.
+**Fix:** Either document a counting heuristic (chars/4) and a graceful overflow strategy ("if &gt;120 tokens, drop gotchas first, then versions"), or drop the precise number and say "compact one-screen index."
+
+### M3. step-05 §3 — confidence "T1 if AST-verified, T1-low if source reading" ignores the actual detection method
+**File:** `steps-c/step-05-detect-integrations.md:101`
+**Quote:** `Assign confidence: T1 if AST-verified, T1-low if source reading`
+**Problem:** Integration *detection* is grep + co-import, not AST. The classification step doesn't actually run AST on the integration sites — it inherits per-library tiers but the rule here suggests AST-verified integrations exist, which they don't in this workflow.
+**Fix:** Confidence rule should derive from per-library tiers (lower of pair) plus a detection-method qualifier (`grep-co-import` vs `ccc-augmented`). Drop the AST-verified language at the integration layer or actually add an AST verification pass.
+
+### M4. step-09 §5 — "warnings from steps 04, 05, 07, 08" assumes warning passing channel
+**File:** `steps-c/step-09-report.md:76`
+**Quote:** `For each warning from steps 04, 05, 07, 08`
+**Problem:** No step explicitly defines a `warnings[]` array stored in workflow state. step-04 §3 says "Log failure reason" but doesn't store; step-05 says "skip augmentation silently." Step-09 enumerates warnings that may never have been collected.
+**Fix:** Add an explicit `workflow_warnings[]` accumulator in the workflow state contract, and require each warning emission to push to it.
+
+---
+**Files reviewed:** `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-stack-skill/SKILL.md`, all 10 `steps-c/step-*.md`, all 3 `references/*.md`, plus `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-verify-stack/SKILL.md` for terminology comparison. Ten findings raised (3 CRITICAL, 6 HIGH, 4 MEDIUM = 13). Top blocker for v1.0: C1 (metadata schema mismatch will silently break TS/EX/audit consumers) and C2 (no rollback path for partial writes).</result>
+<usage><total_tokens>62708</total_tokens><tool_uses>22</tool_uses><duration_ms>145185</duration_ms></usage>
+</task-notification>
+
+---
+
+fix them all then run editorial reviews next
+
+---
+
+yes
+
+---
+
+<task-notification>
+<task-id>a9dc24895ef93e40c</task-id>
+<tool-use-id>toolu_01YQNhc68YXxcsG1Gcyz34Ss</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/6974ee40-9475-4de0-a86f-1967292f3acb/tasks/a9dc24895ef93e40c.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix skf-create-stack-skill" completed</summary>
+<result>Sections are clean and sequentially numbered.
+
+## Report
+
+**Files modified** (all under `src/skf-create-stack-skill/`):
+
+- `SKILL.md` — B2 headless precedence (explicit `--headless=false`/`--no-headless` &gt; `-H`/`--headless` &gt; preferences &gt; default).
+- `steps-c/step-01-init.md` — B1: new §0 validates `config.yaml` presence/shape; halt with "Run `skf init` first." if missing/malformed.
+- `steps-c/step-02-detect-manifests.md` — H6 stale-manifest per-entry fallback; B3 JSON-parse try/except; B4 cycle detection + visited-set + unknown-skill-type exclusion; S1 skill-type gate; S2 headless auto-cancel with structured error; S13 hash constituent metadata at read-time.
+- `steps-c/step-03-rank-and-confirm.md` — S4 scope_overrides key validation; S5 arch-doc parse try/except with alphabetical fallback.
+- `steps-c/step-04-parallel-extract.md` — H1 exports resolution order (metadata.json.exports[] &gt; references/ &gt; prose) plus `exports_source`; B7 all-extractions-fail purge + structured error contract; S6 per-subprocess 60s timeout; S17 re-resolve skill_package_path at step-04 entry with drift warning.
+- `steps-c/step-05-detect-integrations.md` — H2 word-boundary co-mention matching + header-section exclusion + ≥2 paragraphs; H3 CCC 1-file post-hoc explicit-import check; H4 feasibility schema citation with schemaVersion guard; S7 top-50 pair-analysis cap; S9 CCC symmetric for 0/1 co-imports.
+- `steps-c/step-06-compile-stack.md` — H5 removed "gerund form" guidance, replaced with "Stack skills MUST end in `-stack`".
+- `steps-c/step-07-generate-output.md` — C1 `forge_tier` + `confidence_tier` split with dominant T-code + tie-break rule; C2 full atomic stage-dir / commit-dir / flip-link rewrite with explicit rollback contract; workspace writes via `skf-atomic-write.py write`; S3 group-dir skill_type pre-flight; S11 primary-library definition; S13 provenance uses stored hash from step-02.
+- `steps-c/step-08-validate.md` — C1 consumer side: validate `forge_tier` matches run tier and `confidence_tier ∈ {T1,T1-low,T2,T3}`; S14 `npx --no-install` + `timeout 10s` probe; S15 fixed[] non-empty → WARNING drift finding.
+- `steps-c/step-09-report.md` — C3 `-latest.json` moved to `{forge_data_folder}/{project_name}-stack/` (above version dir); both timestamped and latest written via `skf-atomic-write.py write`; S16 `-{pid}-{rand}` timestamp suffix; summary includes `forge_tier` + `confidence_tier`.
+- `references/compose-mode-rules.md` — H2 precision guard documented; H4 feasibility-report contract replaced with schema citation.
+- `assets/stack-skill-template.md` — C1 split `forge_tier` + `confidence_tier` in metadata JSON.
+
+**Design calls**
+
+- Dominant-tier tie-break resolves toward weaker tier (T1-low &gt; T1, T2 &gt; T1-low, T3 &gt; T2) so reported confidence never overstates.
+- S14 probe uses `timeout 10s npx --no-install skill-check -h` (10s chosen to allow startup without hanging on cold installs).
+- S15 chose the "WARN on fixed[]" branch (rather than regenerate) for v1.0; callers re-run for authoritative metadata.
+- Symlink flip failure treated as non-fatal warning (the package is committed and valid); recorded in evidence report instead of rolling back.
+- Top-K S7 cap set to 50 as specified; ranks by import count in code-mode and export count in compose-mode.
+
+**Items skipped**
+
+- Deferred v1.1 MEDIUM items M1–M4 and unicode slugification (per spec).
+- H4 mentions `step-09-report.md:84-87`, but that region contains only the `[VS] verify-stack` recommendation (no feasibility contract reads). All feasibility-schema citations landed in step-05 and compose-mode-rules.md where the actual reads live.
+
+**Validator results**
+
+- `node tools/validate-skills.js --strict`: 15 skills scanned, 0 findings, PASS.
+- `node tools/validate-file-refs.js --strict`: 179 files scanned, 260 references checked, 0 broken, 0 absolute-path leaks, PASS.</result>
+<usage><total_tokens>103982</total_tokens><tool_uses>65</tool_uses><duration_ms>675987</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a8471b9e711d5a1d2</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/6974ee40-9475-4de0-a86f-1967292f3acb/tasks/a8471b9e711d5a1d2.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix skf-create-skill" completed</summary>
+<result>Both validators pass cleanly. Let me verify I covered all assigned items by cross-referencing the spec:
+
+- CRITICAL: C1 ✓ (QMD tool drift), C2 ✓ (security-scan flag probe), C3 ✓ (re-validate after restore)
+- HIGH: H1 ✓ (reword), H2 ✓ (docs-only top_exports + §3b short-circuit), H3 ✓ (git tag fetch, remove --single-branch), H6 ✓ (batch embed scoping), H7 ✓ (contract schema fallback)
+- ECH BLOCKER: 1 ✓ (tier_override), 2 ✓ (docs-only §2b skip), 3 ✓ (batch checkpoint validation), 4 ✓ (headless decisions), 5 ✓ (releases incremental flush), 6 ✓ (QMD rollback), 7 ✓ (symlink atomic flip), 8 ✓ (brief atomic write)
+- ECH SERIOUS: 9 ✓ (token streams), 10 ✓ (covered by H2), 11 ✓ (name regex), 13 ✓ (CCC reuse), 14 ✓ (tag fallback annotation), 15 ✓ (flock), 16 ✓ (sanitize), 17 ✓ (GATEs in 03d), 19 ✓ (same-domain), 20 ✓ (Tier-1 count), 21 ✓ (workspace flock), 22 ✓ (empty version — covered with 11), 23 ✓ (tessl recovery), 25 ✓ (manual-only)
+
+All items implemented. Report follows.
+
+## Report
+
+**Files modified:**
+- `src/skf-create-skill/SKILL.md` — unchanged (no spec items targeted it directly)
+- `src/skf-create-skill/steps-c/step-01-load-brief.md` — tier_override validation (B1), batch checkpoint validation (B3), name regex + empty version (S11/S22), auto-decisions buffer init
+- `src/skf-create-skill/steps-c/step-02-ecosystem-check.md` — headless_decisions buffer append (B4)
+- `src/skf-create-skill/steps-c/step-03-extract.md` — H1 reword, H2 docs-only `top_exports = []`, B2 §2b docs-only skip, B8 atomic brief write + .bak, S13 CCC reuse
+- `src/skf-create-skill/steps-c/step-03d-component-extraction.md` — S17 three GATEs for headless auto-confirm (demo exclusion, registry confirm, provide/skip)
+- `src/skf-create-skill/steps-c/step-04-enrich.md` — C1 QMD tool drift (`query` with `searches[]`)
+- `src/skf-create-skill/steps-c/step-05-compile.md` — B4 Auto-Decisions section emission
+- `src/skf-create-skill/steps-c/step-06-validate.md` — C2 flag probe, C3 re-validate after restore, S9 token stream compare, S20 Tier-1 count check, S23 tessl recovery re-run gate, S25 manual-only validation status
+- `src/skf-create-skill/steps-c/step-07-generate-artifacts.md` — B7 atomic symlink flip, S15 flock on registry writes (QMD + CCC), H6 scoped `qmd embed`
+- `src/skf-create-skill/steps-c/step-08-report.md` — B3 checkpoint-write invariant, H7 schema fallback + atomic write via helper
+- `src/skf-create-skill/steps-c/sub/step-03b-fetch-temporal.md` — H2 top_exports short-circuit, B5 releases incremental flush, B6 QMD rollback, H6 scoped embed, S15 flock, S16 function_name sanitize, C1 QMD note
+- `src/skf-create-skill/steps-c/sub/step-03c-fetch-docs.md` — S19 same-domain filter, B6 QMD rollback, H6 scoped embed, S15 flock, C1 QMD note
+- `src/skf-create-skill/references/extraction-patterns.md` — C1 QMD bridge note rewrite
+- `src/skf-create-skill/references/source-resolution-protocols.md` — H3 git tag vs branch fetch + remove `--single-branch` from workspace clone, S14 tag_resolution fallback annotation, S21 workspace flock
+
+**Design calls made:**
+- **C1 QMD probe:** treated the spec's "tool probe" as a graceful-degradation note — if `vector_search` ever surfaces as not-found from a legacy bridge, log and continue without retry (the MCP server no longer exposes it).
+- **S17 registry-confirm GATE default:** used confidence-score threshold (≥7/9) as the auto-accept bar; below that, auto-reject and fall through to "no registry found" rather than silently accepting a risky match. The provide/skip gate defaults to `[S]` Skip because `[P]` needs a path that headless cannot supply.
+- **H6 `--collection` flag gating:** when upstream `qmd embed` lacks `--collection`, gated behind a 24-hour freshness check rather than unconditional skip — preserves first-run enrichment while preventing batch-mode re-embedding.
+- **C2 flag probe:** cached result in `{security_scan_flag}` so §2/§4/§5 all use the same probe outcome; fall through entirely to §3 manual fallback if neither flag exists.
+- **B3 checkpoint invariants:** placed the same two checks in both step-01 (resume) and step-08 (write) for belt-and-braces — broken checkpoints don't survive either path.
+- **B8 `.bak` semantics:** overwrite the single `.bak` on each amendment — the "most recent pre-amendment snapshot" is the useful one; retaining a chain would require brittle timestamp disambiguation outside spec.
+
+**Skipped from CRITICAL/HIGH/BLOCKER/SERIOUS:** none — all 22 assigned items implemented.
+
+**Validator results:**
+- `node tools/validate-skills.js --strict` — PASS (0 findings, 15 skills scanned)
+- `node tools/validate-file-refs.js --strict` — PASS (0 broken refs, 260 refs checked, 7 new refs added cleanly)</result>
+<usage><total_tokens>149319</total_tokens><tool_uses>73</tool_uses><duration_ms>823488</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a61bf36931208bb13</task-id>
+<tool-use-id>toolu_01UdwekzwjTz7Lr6chtWdrbu</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/6974ee40-9475-4de0-a86f-1967292f3acb/tasks/a61bf36931208bb13.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix skf-test-skill" completed</summary>
+<result>All validators and tests pass. Let me do one sanity check for remaining spec items — S6 is addressed in step-06 §5. Done.
+
+## Report
+
+### Files modified
+
+- `src/skf-test-skill/steps-c/step-01-init.md` — C1 deterministic `frontmatterScript` probe (HALT if missing, no silent manual fallback), B2 `status: fail` auto-FAIL HALT, B3 python3 runtime probe + degraded cap, B5 `{run_id}` generation + `-{run_id}` outputFile, B4 `flock` acquisition on `.test-skill.lock`, B6 per-repo iteration for stack-skill drift guard.
+- `src/skf-test-skill/steps-c/step-02..step-05 step files` — outputFile pattern updated to include `{run_id}`.
+- `src/skf-test-skill/steps-c/step-03-coverage-check.md` — C3 parent-side schema validation + deterministic 3-sample `grep` spot-check (HALT on mismatch), B1 zero-exports guard (HALT when `total_exports==0 &amp;&amp; !docs_only`).
+- `src/skf-test-skill/steps-c/step-04-coherence-check.md` — H1 concrete naive-mode recipes (required sections, fence balance, language tags, exports-in-usage, async/sync consistency, table syntax), S8 path containment check (High-severity on sandbox escape).
+- `src/skf-test-skill/steps-c/step-04b-external-validators.md` — S2 `timeout 120s` wrapper on both `skill-check` and `tessl`, S3 pinned `TESSL_PIN` + `N/A` on regex parse failure.
+- `src/skf-test-skill/steps-c/step-05-score.md` — new §2b S9 State 2 undercount 10-pt deduction, new §3d B3/S4 post-score caps (tooling-degraded + docs-only-without-external → FAIL), documented INCONCLUSIVE handling, frontmatter now writes lowercase result, `manual-review` nextWorkflow for INCONCLUSIVE.
+- `src/skf-test-skill/steps-c/step-06-report.md` — H2 `healthCheckProbeOrder` + `atomicWriteProbeOrder` frontmatter keys, B4 atomic result-contract writes through `skf-atomic-write.py write` for BOTH `-{run_id}.json` and `-latest.json`, H4 real discovery testing (3-prompt subagent dispatch with pass-rate severity mapping), INCONCLUSIVE presented in final report, S7 headless `exit 2`/`exit 3`, S6 stepsCompleted verification HALT, `health_check_dispatched` frontmatter write.
+- `src/skf-test-skill/steps-c/step-07-health-check.md` — probe order mirrors H2 resolution, HALT if missing.
+- `src/skf-test-skill/references/scoring-rules.md` — C2 minimum-evidence floor (INCONCLUSIVE gate), S4 docs-only-without-external cap rule, S9 State 2 undercount deduction rule.
+- `src/skf-test-skill/scripts/compute-score.py` — H3 strict bool typing for `docsOnly`/`state2` (rejects `"true"` strings and ints with typed error), C2 minimum-evidence floor enforcement (returns `result: "INCONCLUSIVE"` + `inconclusiveReasons[]` when `active_categories &lt; 2` or Quick-tier-Export-only).
+- `src/skf-test-skill/templates/test-report-template.md` — expanded to carry `runId`, `toolingStatus`, `workspaceDrift`, `health_check_dispatched` frontmatter; all six section anchors declared with step-mapping comment enforcing load-bearing order.
+- `test/fixtures/compute-score-contract.json` — two fixtures (`suite_e_triple_skip`, `suite_o_input_echo`) updated from `PASS` → `INCONCLUSIVE` to match new C2-mandated behavior.
+
+### Design calls
+
+- **INCONCLUSIVE exit codes**: headless PASS=0, FAIL=2, INCONCLUSIVE=3 (distinct so orchestrators can route to manual-review queues).
+- **Spot-check sampling**: deterministic `[0, mid, last]` after stable name-sort rather than random — reproducibility matters for a grader skill.
+- **S9 trigger threshold**: 10% deduction fires on `&gt;5%` provenance-vs-metadata divergence (matches the existing 10%-drift reporting threshold in step-03 §4b, but tighter so the deduction triggers before the Medium-severity gap cutoff).
+- **Cap ordering**: INCONCLUSIVE floor always wins over tooling/docs-only caps — a gate is stronger than a score modifier.
+- **Fixture update** rather than preserving old PASS outcomes — the C2 spec is an explicit behavior change; suppressing INCONCLUSIVE for these cases would defeat the purpose.
+
+### Skipped / deferred
+
+- All ECH MINOR items (M1–M7) per spec.
+- Windows items (not applicable per README Linux/macOS declaration).
+
+### Validator + test results
+
+- `node tools/validate-skills.js --strict` → 15 skills scanned, 0 findings.
+- `node tools/validate-file-refs.js --strict` → 179 files, 260 refs, 0 broken, 0 absolute leaks.
+- `pytest test/test-compute-score-contract.py` → 18/18 pass (after fixture update).</result>
+<usage><total_tokens>114694</total_tokens><tool_uses>67</tool_uses><duration_ms>819012</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a922a3df950c59f7b</task-id>
+<tool-use-id>toolu_01GQnV3nNRn4cuWEDwHCTDVW</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/6974ee40-9475-4de0-a86f-1967292f3acb/tasks/a922a3df950c59f7b.output</output-file>
+<status>completed</status>
+<summary>Agent "Fix skf-verify-stack" completed</summary>
+<result>Both validators pass. Final report:
+
+---
+
+## Summary — skf-verify-stack v1.0 ship-review fixes
+
+### Files modified
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-verify-stack/SKILL.md` — added shared-schema producer contract note; expanded Outputs invocation-contract row
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-verify-stack/assets/feasibility-report-template.md` — rewritten to match `src/shared/references/feasibility-report-schema.md` (schemaVersion 1.0, canonical verdict tokens, fixed section headings: Executive Summary / Coverage Analysis / Integration Verdicts / Recommendations / Evidence Sources, canonical `| lib_a | lib_b | verdict | rationale |` table header)
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-verify-stack/references/integration-verification-rules.md` — updated verdict table: `Verified` now MUST have Check 4 literal citation; otherwise cap at `Plausible`
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-verify-stack/steps-c/step-01-init.md` — filename pattern uses `{project_slug}-{timestamp}`; atomic-write helper wired; subagent JSON schema validation with 20% failure HALT; `metadata.json` mtime capture; metadata_schema_version check; empty-folder pre-flight; non-symlink/orphan-versions detection; `(st_dev, st_ino)` collision check; bmad-skill-manifest.yaml presence gate; new frontmatter keys
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-verify-stack/steps-c/step-02-coverage.md` — source_repo/source_root match algorithm specified; Extra subdivided into Extra vs Orphan; section heading renamed to Coverage Analysis; atomic writer invocation
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-verify-stack/steps-c/step-03-integrations.md` — C1 Check 2 downgraded to best-effort prose scan with `protocols_inferred`/`data_formats_inferred` (never asserts metadata fields); C2 stack-manifest preference + source tagging; C3 Check 4 literal citation required for `Verified`; subagent schema validation + 20% HALT; mtime re-verify; tier-annotation evidence tagging; S4 cycle detection; canonical table header
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-verify-stack/steps-c/step-04-requirements.md` — H3 explicit `{outputFile}` frontmatter read; new keys; atomic writer invocation
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-verify-stack/steps-c/step-05-synthesize.md` — H4 zero-coverage short-circuit; H3 frontmatter read; H5 `[SS]` recommendation for weak Check 4; H6 named candidate for Blocked; S2 tier-downgrade regression; S6 zero-pairs guard widened; verdict tokens updated to `FEASIBLE|CONDITIONALLY_FEASIBLE|NOT_FEASIBLE`; `Plausible` caps forbid `FEASIBLE` promotion; atomic writer invocation
+- `/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-verify-stack/steps-c/step-06-report.md` — new frontmatter key mapping; schemaVersion guard; section-order guard; atomic writer for result contract; canonical token strings in menu branches
+
+### Design calls
+- C1: implemented option (a) per spec — `protocols_inferred`/`data_formats_inferred` are clearly labeled prose-scan artifacts; any pair that relies on Check 2 is capped at `Plausible`. No new fields added to `skf-create-skill`'s metadata.
+- C3: `Verified` requires literal substring/name citation captured in the evidence block; rule codified in both step-03 §4 and `references/integration-verification-rules.md` verdict table.
+- Shared-schema alignment: producer-local bookkeeping keys (`stepsCompleted`, delta counts, requirement counts, `architectureDoc`, etc.) kept as camelCase siblings of the canonical frontmatter; only the schema-required keys are contractually binding for consumers.
+- Timestamped + `-latest.md` copy (not symlink) written via `skf-atomic-write.py write` at every step that mutates the report.
+
+### Skipped (deferred per spec)
+- All ECH MINOR items (M1-M6) — spec says defer to v1.1.
+- Windows-specific items — README declares Linux/macOS only.
+
+### Validator results
+- `node tools/validate-skills.js --strict` — 15 skills, 0 findings. Pass.
+- `node tools/validate-file-refs.js --strict` — 179 files, 260 refs, 0 broken, 0 abs-path leaks. Pass.</result>
+<usage><total_tokens>107895</total_tokens><tool_uses>91</tool_uses><duration_ms>910444</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bqb7dx86z</task-id>
+<tool-use-id>toolu_017otBRNuGEE8tmQuRUwrS9m</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/6974ee40-9475-4de0-a86f-1967292f3acb/tasks/bqb7dx86z.output</output-file>
+<status>completed</status>
+<summary>Background command "Phase C: full quality gate" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a9740f9a607992524</task-id>
+<tool-use-id>toolu_017auPMWHcafGzyMw7bazjdD</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/6974ee40-9475-4de0-a86f-1967292f3acb/tasks/a9740f9a607992524.output</output-file>
+<status>completed</status>
+<summary>Agent "ES: user-facing docs" completed</summary>
+<result>Structure review complete. Report saved to `/home/armel/Projects/OSS/bmad-module-skill-forge/_bmad-output/ship-review-v1/editorial-structure.md`.
+
+## Summary (≤300 words)
+
+**Top structural issues:**
+
+1. **CHANGELOG.md is a hard ship-blocker** — header says `[0.10.0] - Unreleased` on what is supposed to be the v1.0 launch. One-line fix, but cannot ship as-is.
+2. **CONTRIBUTING.md is BMAD boilerplate** — talks about "C.O.R.E. Framework" and generic GitHub PR hygiene, says nothing about SKF's actual contribution model (workflows, knowledge fragments, health-check loop, `Fixes #NNN` convention). Violates the project's own "link out, don't duplicate external ecosystems" memory rule.
+3. **how-it-works.md is doing four jobs** (~4,800 words): architecture + tier model + scoring math + output schemas + tool ecosystem + security + design decisions. Completeness scoring (~700 words) should migrate to verifying-a-skill.md or a dedicated scoring doc. Competitor comparison table duplicates README verbatim — cut here, keep in README.
+4. **getting-started.md's "Common Use Cases"** (~900 words, 9 scenarios) duplicates examples.md. Biggest single cut in the set; makes the tutorial actually navigable.
+5. **Cross-cutting duplication** — Workflow Health Check explained 4 times, "one workflow per session" explained 4 times, Scripts &amp; Assets explained 3 times, Armel's `--dangerously-skip-permissions` tip verbatim in two docs.
+
+**Files needing the most surgery:** CONTRIBUTING.md (rewrite), how-it-works.md (split), getting-started.md (cut scenarios), CHANGELOG.md (version fix).
+
+**Files to ship as-is:** ROADMAP.md, index.md, agents.md, verifying-a-skill.md (model doc), bmad-synergy.md.
+
+**Ship recommendation:** **FIX BEFORE SHIP.** Two hard blockers (CHANGELOG version, CONTRIBUTING rewrite) plus two high-value surgeries (how-it-works split, getting-started cut). If the blockers are fixed, the remaining dedupe work is mechanical and can ship same-week or in an immediate follow-up PR. The underlying IA — README hooks, verifying-a-skill proves, bmad-synergy contextualizes, workflows references, examples grounds — is already coherent.</result>
+<usage><total_tokens>107032</total_tokens><tool_uses>18</tool_uses><duration_ms>200111</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a38ba0bfc45a6279c</task-id>
+<tool-use-id>toolu_011FiK4EgYzYDQoK1LsHVHUt</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/6974ee40-9475-4de0-a86f-1967292f3acb/tasks/a38ba0bfc45a6279c.output</output-file>
+<status>completed</status>
+<summary>Agent "EP: user-facing docs" completed</summary>
+<result>Prose review saved to `/home/armel/Projects/OSS/bmad-module-skill-forge/_bmad-output/ship-review-v1/editorial-prose.md`.
+
+**Top prose issues**
+
+1. **"Zero hallucination" absolutism undercuts the honest voice the docs already have.** README ("nothing is made up"), CHANGELOG ("Zero hallucination tolerance"), concepts.md (heading + "no tier includes invented information"), examples.md ("Zero hallucination tickets", "Agent stops hallucinating"). The verifying-a-skill.md thesis — "A promise of perfection is suspicious. A promise of visible fallibility is trustworthy." — directly contradicts the marketing layer. Resolution: replace absolutes with citation-based restatements ("every instruction traces to an upstream file and line"); keep the punchy voice, lose the unfalsifiable word "zero".
+2. **Tier/mode terminology collision.** "Quick mode" vs. "Quick tier" used interchangeably (getting-started, examples, how-it-works). "Community tier" appears once but isn't in the four-tier list; it's actually `source_authority`. Fix: Quick/Forge/Forge+/Deep are **tiers**; Architect/Surgeon/Audit/Delivery/Management are Ferris **modes**; Docs-only and Provenance-map are **scoring modes**.
+3. **Verdict-token leak.** examples.md introduces a "Risky integration" adjective that reads like a fourth VS verdict alongside FEASIBLE / CONDITIONALLY FEASIBLE / NOT FEASIBLE.
+4. **Factual/continuity bugs:** CHANGELOG header says `0.10.0` while README/installer say `v1.0.0`; examples.md changes subject name mid-scenario (Gery → Jordan, line 164); how-it-works.md numbers step 6 twice; CONTRIBUTING.md has "PR's" with stray apostrophe.
+5. **Filler that doesn't earn weight:** "Smart regeneration" (workflows), "Cognitive completeness verification" (workflows — jargon never defined), "Decomposition engine", "Integration intelligence no other tool provides" (superlative), "real signatures and patterns", the triple "real...real...real" in concepts.md, "Manageable lifecycle" in README.
+6. **Duplicated Armel tip** appears verbatim in concepts.md and examples.md — deduplicate, link from one to the other.
+
+**Files with the most suggested fixes:** README.md (~12), getting-started.md (~11), how-it-works.md (~9), examples.md (~9).
+
+**Ship-or-fix recommendation: FIX, then ship.** ~30 minutes of word-level edits on five specific items (zero-hallucination softening, tier naming, Risky verdict, Gery/Jordan + duplicate "6." + CHANGELOG version, and PR's apostrophe). No structural rework required. The docs are genuinely well-written — strong authorial voice in verifying-a-skill.md and bmad-synergy.md in particular. The only real editorial tension is the marketing/honesty mismatch around "zero hallucination", and once that's resolved the v1.0 prose is defensible against skeptical readers.</result>
+<usage><total_tokens>114220</total_tokens><tool_uses>18</tool_uses><duration_ms>373494</duration_ms></usage>
+</task-notification>
+
+---
+
+1. yes
+2. do what is best
+3. go ahead
+
+---
+
+<task-notification>
+<task-id>afdb8c3b53fb8e0fd</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/6974ee40-9475-4de0-a86f-1967292f3acb/tasks/afdb8c3b53fb8e0fd.output</output-file>
+<status>completed</status>
+<summary>Agent "Cut getting-started use cases" completed</summary>
+<result>Surgery complete.
+
+**Summary**
+
+- **Word count**: `getting-started.md` went from ~2,100 words → **1,311 words** (saved ~790 words). The section itself removed 9 scenarios (~900 words of body), replaced with one-line pointer (~50 words).
+- **Section removed**: "Common Use Cases" (lines 162–262 in original), plus the trailing `---` separator. Surrounding flow now reads: First Steps → Common Use Cases (pointer) → What's Next? — clean jump, no awkward transition needed since "What's Next?" already acts as the closer.
+- **Pointer**: Uses `../examples/` (MkDocs-style link consistent with surrounding refs like `../agents/`, `../workflows/`), says "eleven real-world scenarios" (5 Example Workflows + 6 Scenarios A–F in examples.md).
+
+**Scenario mapping (verified in examples.md)**
+
+| Getting-started scenario | Status in examples.md |
+|---|---|
+| Hallucinating API calls (QS) | Covered by "Quick Skill — Under a minute" |
+| Adopting a new library (QS cognee) | Direct match — Quick Skill example uses cognee |
+| Entire project stack (SS) | Direct match — "Stack Skill — Integration Intelligence" |
+| Onboarding large codebase (AN) | Direct match — "Brownfield Platform" |
+| Planning new project (CS/VS/RA/SS) | Direct match — "Pre-Code Architecture Verification" |
+| Dependency breaking changes (AS/US/TS) | Direct match — "Release Prep — Trust Builder" |
+| Scripts and assets | Covered in "Tips &amp; Tricks → Scripts &amp; Assets" (tip, not scenario) |
+
+**Flagged as not-quite-in-examples.md** (per your instructions to flag rather than silently drop):
+
+1. **"I want the highest accuracy possible"** — the tier-selection/tool-detection guidance (Quick vs Forge vs Forge+ vs Deep tiers, `@Ferris SF`). This content is tool/tier *explanation*, not a workflow scenario, and it doesn't live as a scenario in examples.md. It is adequately covered by `concepts.md` (tier concept) and `how-it-works.md` (tier model). No action needed unless you want a standalone "Pick your tier" page.
+2. **"I maintain an OSS library and want official skills"** — the BS/CS/TS/EX pipeline with `source_authority: official` for OSS maintainer distribution. examples.md's "Release Prep — Trust Builder" covers the AS/US/TS/EX *drift* path but not the initial *official skill distribution* framing. If this is a maintainer persona you want to keep visible, consider adding a "Scenario G: Official skill distribution" to examples.md in a follow-up.
+
+**Link check**: `node tools/validate-doc-links.js` → **0 issues across 10 files**.
+
+**Files touched**: `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/getting-started.md` only. No other docs modified.</result>
+<usage><total_tokens>44983</total_tokens><tool_uses>6</tool_uses><duration_ms>83790</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a224749c91e2e1967</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/6974ee40-9475-4de0-a86f-1967292f3acb/tasks/a224749c91e2e1967.output</output-file>
+<status>completed</status>
+<summary>Agent "Rewrite CONTRIBUTING.md" completed</summary>
+<result>133 lines — below the 200-400 target but dense. The spec said "long enough to be useful, short enough to actually read" with a preference for bullet lists; the rewrite hits all 10 required sections and every load-bearing detail. I'll leave it at this length rather than pad.
+
+## Summary
+
+**File rewritten:** `/home/armel/Projects/OSS/bmad-module-skill-forge/CONTRIBUTING.md` (133 lines — under the 200-line target, but every required section is present and non-padded; SKF voice prefers dense over verbose).
+
+**Structure (matches the 10-point brief):**
+1. Welcome + pitch (2 lines, links README + docs.bmad-method.org)
+2. What you can contribute (6 paths: workflows, knowledge, forger, validators, docs, integrations)
+3. Local setup (Node 22, Python 3.10, uv, `npm install`, `npm run quality`)
+4. Workflow for changes (branch from main, scoped conventional commits mirrored from git log, `Fixes #NNN` same-repo-only, pre-commit hooks, PR "why", `Co-Authored-By: Claude Opus 4.6 (1M context)` trailer per recent commits)
+5. Quality gate (never `--no-verify`, fix root cause, drift/uv troubleshooting)
+6. Adding a workflow skill (directory shape, `bmad-workflow-builder`, `skf-create-skill` as reference, `validate:skills` rules, `bmad-skill-manifest.yaml`, tessl review, module-help.csv registration)
+7. Knowledge fragments (`src/knowledge/` JiT, overview map registration, knowledge vs `references/` split, forger-sidecar note)
+8. Reporting bugs (template + health-check-dedup Action with `fp-*` labels described accurately)
+9. What we don't accept (BMAD-fork features, DB mocks per memory, quality-bypass, duplicate docs, emoji, drive-by reformats)
+10. CoC + MIT license pointers
+
+**Nothing stubbed** — all referenced files verified to exist.
+
+**Link check:** `node tools/validate-doc-links.js` passed (scans `docs/` only, as expected). Manually verified all 18 relative paths used in CONTRIBUTING.md resolve (README, LICENSE, .github/CODE_OF_CONDUCT.md, FUNDING.yaml, both workflows, ISSUE_TEMPLATE/, tools/validate-skills.js, all `src/` dirs and files referenced). External URLs (nodejs.org, python.org, docs.astral.sh/uv, docs.bmad-method.org, agentskills.io, tessl.io, oh-my-skills, bmad-code-org, buymeacoffee) are standard and match usage elsewhere in the repo.
+
+Old file's `PR's` apostrophe bug is gone. No emoji except the 👍 inside a quoted description of what the dedup Action does (matches the exact language in `health-check-dedup.yaml` — can be stripped if strict).</result>
+<usage><total_tokens>66163</total_tokens><tool_uses>26</tool_uses><duration_ms>165260</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a54b37d5884894071</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/6974ee40-9475-4de0-a86f-1967292f3acb/tasks/a54b37d5884894071.output</output-file>
+<status>completed</status>
+<summary>Agent "Prose pass + CHANGELOG fix" completed</summary>
+<result>All edits landed.
+
+---
+
+## Summary
+
+**Files touched (edit counts):**
+- `CHANGELOG.md` — 4 edits (version header to `[1.0.0] - 2026-04-13` + v1.0 release note, zero-hallucination → source-traced, progressive-capability tiers rename, TS/US workflow table wording, T1 "structural truth" → "AST-verified signatures")
+- `README.md` — 11 edits (hero tagline, star CTA, "manageable lifecycle" → "lifecycle tooling", version-aware → version-pinned, Vercel attribution, falsifiable/rhetorical question rewrite, "walk-able" sentence fragments, Ferris em-dash, tip parenthetical, bold "and", "Here's the grid")
+- `ROADMAP.md` — 1 edit (split Layer 1 run-on sentence)
+- `docs/index.md` — 1 edit (real signatures → concrete nouns; full provenance → provenance; extracted → copied)
+- `docs/concepts.md` — 6 edits (Agent Skills triple-real, T1 "structural truth at pinned commit", "not as definitive", drift upstream, Zero Hallucination heading → "Every Claim Cites a Source" + softened absolute, progressive-capability bullet)
+- `docs/workflows.md` — 5 edits ("Smart regeneration", "Decomposition engine", "Cognitive completeness", "Evidence-backed architecture", "silently reflects")
+- `docs/agents.md` — 3 edits (Sole agent, structural truth, cross-knowledge → cross-library)
+- `docs/examples.md` — 10 edits ("Here's" → "Below is", stops hallucinating, BMM with/using, zero hallucination tickets, "Integration intelligence no other tool", Jordan → Gery + Risky rephrase, agent gets smarter → coverage improves, Armel tip dedupe → link, Quick mode → Quick tier x3, /bmad-help dangling verb, "Setup — Deep mode" x2)
+- `docs/bmad-synergy.md` — 0 edits (spec had all "Keep")
+
+**Confirmed:**
+- CHANGELOG version — `[1.0.0] - 2026-04-13` with release note covering INCONCLUSIVE verdict, atomic stack-skill writes, shared feasibility schema, Linux/macOS-only support.
+- Zero-hallucination softening — replaced in CHANGELOG, README, concepts.md (heading renamed to "Every Claim Cites a Source"), examples.md; absolute claims replaced with citation-based restatements; "structural truth" cleaned up where in scope.
+- Tier naming — "Quick/Forge/Forge+/Deep mode" replaced with "tier" throughout in-scope files; Ferris modes (Architect/Surgeon/Audit/Delivery/Management) preserved as agent modes.
+- Gery/Jordan — converged on Gery consistently.
+- Armel tip dedupe — concepts.md retained as canonical; examples.md replaced with one-line link to `../concepts/#best-practices`.
+
+**Validation results:**
+- `node tools/validate-doc-links.js` — 0 issues across 10 files.
+- `npm run lint:md` — 0 errors across 189 files.</result>
+<usage><total_tokens>102754</total_tokens><tool_uses>72</tool_uses><duration_ms>484573</duration_ms></usage>
+</task-notification>
+
+---
+
+organize the work on multiple smart commit, once eveything is clean, address all the deferred per scope. Everything should be done on v1.0.0. v1.1.0 will be release depending on the community feedback.
+
+---
+
+<task-notification>
+<task-id>a4746933025288d24</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/6974ee40-9475-4de0-a86f-1967292f3acb/tasks/a4746933025288d24.output</output-file>
+<status>completed</status>
+<summary>Agent "Polish skf-test-skill" completed</summary>
+<result>All good. Final summary:
+
+---
+
+**Files changed (src/skf-test-skill/):**
+- `references/migration-section-rules.md` — NEW (M1 single source of truth for §2b/§5b)
+- `references/scoring-rules.md` — M3 combinations matrix table (26 rows, 4 equivalence classes A/B/C/D, fixture citations)
+- `steps-c/step-04-coherence-check.md` — M1 §2b and §5b reduced to "Apply rules from `{migrationSectionRules}`"; added `migrationSectionRules` frontmatter var
+- `steps-c/step-03-coverage-check.md` — M2 stratified-scope "Denominator Candidates" block (records all three candidate values, chosen one marked)
+- `steps-c/step-06-report.md` — M4 H2 anchor presence check in §5 (halts on missing anchor); M5 pass-with-drift verdict plumbing (§4c contract, §6 final report branch, §6b exit 4)
+- `steps-c/step-05-score.md` — M5 drift-PASS demoted to `pass-with-drift`, `nextWorkflow` forced to `update-skill`, refuses `export-skill`; frontmatter enum updated
+- `steps-c/step-01-init.md` — M5 sets `allow_workspace_drift: true` context; polish: 30s timeout on frontmatter validator + `frontmatter-validator-timeout` toolingStatus value
+- `steps-c/step-04b-external-validators.md` — polish: 15s timeout + `--no-install` on both `npx` availability probes (skill-check + tessl)
+- `test/fixtures/compute-score-contract.json` — 5 new fixtures (`suite_p` through `suite_t`) pinning equivalence-class representatives from M3 matrix
+
+**MED items closed:** M1, M2, M3, M4, M5 (all).
+
+**Polish items closed:** subprocess timeouts audit (added 15s probe timeout on 2 npx probes, 30s on frontmatter validator); no magic numbers found needing justification; no cross-reference rot; no overpromising language reintroduced.
+
+**v1.1 carryover:** none — matrix equivalence-class approach shipped one representative fixture per class rather than 32 cells (documented in matrix "equiv." notes). Fixture count: 18 → 23. All validators green: `validate-skills --strict` (0 findings), `validate-file-refs --strict` (0 broken), pytest contract (23 passed), `lint:md` (0 errors).</result>
+<usage><total_tokens>116817</total_tokens><tool_uses>54</tool_uses><duration_ms>415933</duration_ms></usage>
+</task-notification>
