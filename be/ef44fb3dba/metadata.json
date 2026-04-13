@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "beef44fb3dba",
+  "strategy": "manual-commit",
+  "branch": "docs/cognee-1.0.0-refresh",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/how-it-works.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/be/ef44fb3dba/0/metadata.json",
+      "transcript": "/be/ef44fb3dba/0/full.jsonl",
+      "context": "/be/ef44fb3dba/0/context.md",
+      "content_hash": "/be/ef44fb3dba/0/content_hash.txt",
+      "prompt": "/be/ef44fb3dba/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 241,
+    "cache_creation_tokens": 292887,
+    "cache_read_tokens": 14952516,
+    "output_tokens": 88491,
+    "api_call_count": 111
+  }
+}
