@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0bf7dcaaf286",
+  "session_id": "6974ee40-9475-4de0-a86f-1967292f3acb",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-13T13:17:31.250806283Z",
+  "branch": "docs/cognee-1.0.0-refresh",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "src/shared/references/feasibility-report-schema.md",
+    "src/shared/scripts/skf-atomic-write.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "2895a9b30fb4",
+  "token_usage": {
+    "input_tokens": 235,
+    "cache_creation_tokens": 286910,
+    "cache_read_tokens": 13590172,
+    "output_tokens": 83866,
+    "api_call_count": 105
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-13T13:17:30.476925659Z",
+    "agent_lines": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 1192,
+    "total_committed": 300,
+    "agent_percentage": 0
+  }
+}
