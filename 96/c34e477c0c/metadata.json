@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "96c34e477c0c",
+  "strategy": "manual-commit",
+  "branch": "docs/cognee-1.0.0-refresh",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-stack-skill/SKILL.md",
+    "src/skf-create-stack-skill/references/integration-patterns.md",
+    "src/skf-create-stack-skill/steps-c/step-04-parallel-extract.md",
+    "src/skf-create-stack-skill/steps-c/step-05-detect-integrations.md",
+    "src/skf-create-stack-skill/steps-c/step-07-generate-output.md",
+    "src/skf-create-stack-skill/steps-c/step-08-validate.md",
+    "src/skf-create-stack-skill/steps-c/step-09-report.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/96/c34e477c0c/0/metadata.json",
+      "transcript": "/96/c34e477c0c/0/full.jsonl",
+      "context": "/96/c34e477c0c/0/context.md",
+      "content_hash": "/96/c34e477c0c/0/content_hash.txt",
+      "prompt": "/96/c34e477c0c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 286,
+    "cache_creation_tokens": 564718,
+    "cache_read_tokens": 25154640,
+    "output_tokens": 117089,
+    "api_call_count": 151
+  }
+}

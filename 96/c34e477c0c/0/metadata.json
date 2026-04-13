@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "96c34e477c0c",
+  "session_id": "6974ee40-9475-4de0-a86f-1967292f3acb",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-13T13:35:40.371040886Z",
+  "branch": "docs/cognee-1.0.0-refresh",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-stack-skill/SKILL.md",
+    "src/skf-create-stack-skill/references/integration-patterns.md",
+    "src/skf-create-stack-skill/steps-c/step-04-parallel-extract.md",
+    "src/skf-create-stack-skill/steps-c/step-05-detect-integrations.md",
+    "src/skf-create-stack-skill/steps-c/step-07-generate-output.md",
+    "src/skf-create-stack-skill/steps-c/step-08-validate.md",
+    "src/skf-create-stack-skill/steps-c/step-09-report.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "4f13149abe6f",
+  "token_usage": {
+    "input_tokens": 286,
+    "cache_creation_tokens": 564718,
+    "cache_read_tokens": 25154640,
+    "output_tokens": 117089,
+    "api_call_count": 151
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-13T13:35:39.377772222Z",
+    "agent_lines": 30,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 30,
+    "agent_percentage": 100
+  }
+}
