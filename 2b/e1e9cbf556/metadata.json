@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "2be1e9cbf556",
+  "strategy": "manual-commit",
+  "branch": "feat/windows-support",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-quick-skill/steps-c/step-01-resolve-target.md",
+    "src/skf-quick-skill/steps-c/step-03-quick-extract.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2b/e1e9cbf556/0/metadata.json",
+      "transcript": "/2b/e1e9cbf556/0/full.jsonl",
+      "context": "/2b/e1e9cbf556/0/context.md",
+      "content_hash": "/2b/e1e9cbf556/0/content_hash.txt",
+      "prompt": "/2b/e1e9cbf556/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 27,
+    "cache_creation_tokens": 95799,
+    "cache_read_tokens": 676718,
+    "output_tokens": 14955,
+    "api_call_count": 13
+  }
+}
