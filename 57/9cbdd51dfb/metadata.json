@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "579cbdd51dfb",
+  "strategy": "manual-commit",
+  "branch": "feat/windows-support",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/quality.yaml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/57/9cbdd51dfb/0/metadata.json",
+      "transcript": "/57/9cbdd51dfb/0/full.jsonl",
+      "context": "/57/9cbdd51dfb/0/context.md",
+      "content_hash": "/57/9cbdd51dfb/0/content_hash.txt",
+      "prompt": "/57/9cbdd51dfb/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 40,
+    "cache_creation_tokens": 41269,
+    "cache_read_tokens": 689091,
+    "output_tokens": 11465,
+    "api_call_count": 15
+  }
+}
