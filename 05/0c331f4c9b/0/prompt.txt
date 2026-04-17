@@ -1,0 +1,9 @@
+❯ In index.md, the Install button should point to getting-started/#install. Please check every anchor and external links accross the @docs/
+
+---
+
+yes run
+
+---
+
+push and open a PR against main
