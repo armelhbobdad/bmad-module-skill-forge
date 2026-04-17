@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "18916fc8ef9e",
+  "session_id": "2e3df92b-358b-4e2f-83f5-8b62591ddca5",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-17T19:50:27.537305974Z",
+  "branch": "dev",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/bmad-synergy.md",
+    "docs/concepts.md",
+    "docs/verifying-a-skill.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "d64efe58cf81",
+  "token_usage": {
+    "input_tokens": 1027,
+    "cache_creation_tokens": 797616,
+    "cache_read_tokens": 42938602,
+    "output_tokens": 226883,
+    "api_call_count": 146
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-17T19:50:25.804363544Z",
+    "agent_lines": 12,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 12,
+    "agent_percentage": 100
+  }
+}
