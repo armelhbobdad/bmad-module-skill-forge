@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "20050bc032fa",
+  "session_id": "932e07e5-df90-4ef5-9ff0-242c944309e0",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-17T15:12:52.217844749Z",
+  "branch": "feat/windows-support",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-quick-skill/steps-c/step-06-write.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "2b1832b517a9",
+  "checkpoint_transcript_start": 117,
+  "transcript_lines_at_start": 117,
+  "token_usage": {
+    "input_tokens": 3,
+    "cache_creation_tokens": 2907,
+    "cache_read_tokens": 238817,
+    "output_tokens": 1834,
+    "api_call_count": 3
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-17T15:12:51.98039871Z",
+    "agent_lines": 10,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 10,
+    "agent_percentage": 100
+  }
+}
