@@ -1,0 +1,495 @@
+Look at @docs/ . We should make it follow production ready standard. Go to party mode with the most appropriated agents for this work. I am open to all kind of critics
+
+---
+
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-party-mode
+
+# Party Mode
+
+Facilitate roundtable discussions where BMAD agents participate as **real subagents** — each spawned independently via the Agent tool so they think for themselves. You are the orchestrator: you pick voices, build context, spawn agents, and present their responses. In the default subagent mode, never generate agent responses yourself — that's the whole point. In `--solo` mode, you roleplay all agents directly.
+
+## Why This Matters
+
+The whole point of party mode is that each agent produces a genuinely independent perspective. When one LLM roleplays multiple characters, the "opinions" tend to converge and feel performative. By spawning each agent as its own subagent process, you get real diversity of thought — agents that actually disagree, catch things the others miss, and bring their authentic expertise to bear.
+
+## Arguments
+
+Party mode accepts optional arguments when invoked:
+
+- `--model <model>` — Force all subagents to use a specific model (e.g. `--model haiku`, `--model opus`). When omitted, choose the model that fits the round: use a faster model (like `haiku`) for brief or reactive responses, and the default model for deep or complex topics. Match model weight to the depth of thinking the round requires.
+- `--solo` — Run without subagents. Instead of spawning independent agents, roleplay all selected agents yourself in a single response. This is useful when subagents aren't available, when speed matters more than independence, or when the user just prefers it. Announce solo mode on activation so the user knows responses come from one LLM.
+
+## On Activation
+
+1. **Parse arguments** — check for `--model` and `--solo` flags from the user's invocation.
+
+2. Load config from `{project-root}/_bmad/core/config.yaml` and resolve:
+  - Use `{user_name}` for greeting
+  - Use `{communication_language}` for all communications
+
+3. **Read the agent manifest** at `{project-root}/_bmad/_config/agent-manifest.csv`. Build an internal roster of available agents with their displayName, title, icon, role, identity, communicationStyle, and principles.
+
+4. **Load project context** — search for `**/project-context.md`. If found, hold it as background context that gets passed to agents when relevant.
+
+5. **Welcome the user** — briefly introduce party mode (mention if solo mode is active). Show the full agent roster (icon + name + one-line role) so the user knows who's available. Ask what they'd like to discuss.
+
+## The Core Loop
+
+For each user message:
+
+### 1. Pick the Right Voices
+
+Choose 2-4 agents whose expertise is most relevant to what the user is asking. Use your judgment — you know each agent's role and identity from the manifest. Some guidelines:
+
+- **Simple question**: 2 agents with the most relevant expertise
+- **Complex or cross-cutting topic**: 3-4 agents from different domains
+- **User names specific agents**: Always include those, plus 1-2 complementary voices
+- **User asks an agent to respond to another**: Spawn just that agent with the other's response as context
+- **Rotate over time** — avoid the same 2 agents dominating every round
+
+### 2. Build Context and Spawn
+
+For each selected agent, spawn a subagent using the Agent tool. Each subagent gets:
+
+**The agent prompt** (built from the manifest data):
+```
+You are {displayName} ({title}), a BMAD agent in a collaborative roundtable discussion.
+
+## Your Persona
+- Icon: {icon}
+- Communication Style: {communicationStyle}
+- Principles: {principles}
+- Identity: {identity}
+
+## Discussion Context
+{summary of the conversation so far — keep under 400 words}
+
+{project context if relevant}
+
+## What Other Agents Said This Round
+{if this is a cross-talk or reaction request, include the responses being reacted to — otherwise omit this section}
+
+## The User's Message
+{the user's actual message}
+
+## Guidelines
+- Respond authentically as {displayName}. Your perspective should reflect your genuine expertise.
+- Start your response with: {icon} **{displayName}:**
+- Speak in {communication_language}.
+- Scale your response to the substance — don't pad. If you have a brief point, make it briefly.
+- Disagree with other agents when your expertise tells you to. Don't hedge or be polite about it.
+- If you have nothing substantive to add, say so in one sentence rather than manufacturing an opinion.
+- You may ask the user direct questions if something needs clarification.
+- Do NOT use tools. Just respond with your perspective.
+```
+
+**Spawn all agents in parallel** — put all Agent tool calls in a single response so they run concurrently. If `--model` was specified, use that model for all subagents. Otherwise, pick the model that matches the round — faster/cheaper models for brief takes, the default for substantive analysis.
+
+**Solo mode** — if `--solo` is active, skip spawning. Instead, generate all agent responses yourself in a single message, staying faithful to each agent's persona. Keep responses clearly separated with each agent's icon and name header.
+
+### 3. Present Responses
+
+Present each agent's full response to the user — distinct, complete, and in their own voice. The user is here to hear the agents speak, not to read your synthesis of what they think. Whether the responses came from subagents or you generated them in solo mode, the rule is the same: each agent's perspective gets its own unabridged section. Never blend, paraphrase, or condense agent responses into a summary.
+
+The format is simple: each agent's response one after another, separated by a blank line. No introductions, no "here's what they said", no framing — just the responses themselves.
+
+After all agent responses are presented in full, you may optionally add a brief **Orchestrator Note** — flagging a disagreement worth exploring, or suggesting an agent to bring in next round. Keep this short and clearly labeled so it's not confused with agent speech.
+
+### 4. Handle Follow-ups
+
+The user drives what happens next. Common patterns:
+
+| User says... | You do... |
+|---|---|
+| Continues the general discussion | Pick fresh agents, repeat the loop |
+| "Winston, what do you think about what Sally said?" | Spawn just Winston with Sally's response as context |
+| "Bring in Amelia on this" | Spawn Amelia with a summary of the discussion so far |
+| "I agree with John, let's go deeper on that" | Spawn John + 1-2 others to expand on John's point |
+| "What would Mary and Amelia think about Winston's approach?" | Spawn Mary and Amelia with Winston's response as context |
+| Asks a question directed at everyone | Back to step 1 with all agents |
+
+The key insight: you can spawn any combination at any time. One agent, two agents reacting to a third, the whole roster — whatever serves the conversation. Each spawn is cheap and independent.
+
+## Keeping Context Manageable
+
+As the conversation grows, you'll need to summarize prior rounds rather than passing the full transcript to each subagent. Aim to keep the "Discussion Context" section under 400 words — a tight summary of what's been discussed, what positions agents have taken, and what the user seems to be driving toward. Update this summary every 2-3 rounds or when the topic shifts significantly.
+
+## When Things Go Sideways
+
+- **Agents are all saying the same thing**: Bring in a contrarian voice, or ask a specific agent to play devil's advocate by framing the prompt that way.
+- **Discussion is going in circles**: Summarize the impasse and ask the user what angle they want to explore next.
+- **User seems disengaged**: Ask directly — continue, change topic, or wrap up?
+- **Agent gives a weak response**: Don't retry. Present it and let the user decide if they want more from that agent.
+
+## Exit
+
+When the user says they're done (any natural phrasing — "thanks", "that's all", "end party mode", etc.), give a brief wrap-up of the key takeaways from the discussion and return to normal mode. Don't force exit triggers — just read the room.
+
+
+ARGUMENTS: Review the docs/ folder to make it follow production-ready documentation standards. User wants candid critiques. Files: verifying-a-skill.md, concepts.md, _data/, workflows.md, getting-started.md, bmad-synergy.md, how-it-works.md, 404.md, examples.md, agents.md, index.md. Select the most appropriate agents for documentation quality, structure, prose, and strategic positioning.
+
+---
+
+what is the best move?
+
+---
+
+yes
+
+---
+
+<task-notification>
+<task-id>a301caecd8cb6cf66</task-id>
+<tool-use-id>toolu_011zQBAk23Gr93Mkzb5ny9zA</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/2e3df92b-358b-4e2f-83f5-8b62591ddca5/tasks/a301caecd8cb6cf66.output</output-file>
+<status>completed</status>
+<summary>Agent "Caravaggio — info design review" completed</summary>
+<result>🎨 **Caravaggio:**
+
+Okay, cameras rolling. Let's cut the negative.
+
+### #1 Move (the one)
+
+**Rewrite `index.md` as a single-screen film poster: hero sentence, one diagram, three CTAs.** Everything downstream — bounce rate, scroll depth, whether anyone *reaches* the good pages — is gated by this 51-line file. If visitors don't make it past the fold, it doesn't matter how elegant your tier taxonomy is. Fix the poster, the theater fills.
+
+### The 10-Move Punch List (stack-ranked)
+
+1. **Rewrite `index.md`** → hero sentence, one input→SKF→skill+receipt diagram, three CTAs (Install / See a Skill / Why SKF). Kill everything else above the fold.
+2. **Split `how-it-works.md` into 3 pages** — `architecture.md`, `tiers.md`, `skill-anatomy.md`. (See verdict below — I'm holding the line.)
+3. **Create `why-skf.md`** — the wedge page. Falsifiability in 60 seconds, comparison table, one-liner for each persona.
+4. **Restructure nav into 3 buckets** — *Why / Try / Reference*. Flat nav is a directory listing; this is a docs site.
+5. **Convert `examples.md` into a card grid index** + one page per scenario (or tabs if you're allergic to page proliferation). 358 lines of A–H is a menu nobody finishes.
+6. **Move Design Decisions/ADRs out of `how-it-works.md`** into `/design/adr/` — appendix territory, not main-path reading.
+7. **Add production-site basics** — Pagefind search on, breadcrumbs on, prev/next on, "last updated" per page, OG images per page. One afternoon of Starlight config.
+8. **Add a "Skills Zoo" page** — visual gallery of real example outputs. Thumbnails, one-line descriptions, links. Show, don't tell.
+9. **Cut `concepts.md` to 7 entries max** and restructure as a two-column glossary with a sticky A–Z index. (Sophia's "cut to 7" wins on quantity; I add the visual treatment.)
+10. **Extract the scoring formula from `verifying-a-skill.md`** into a boxed-out "Score Card" component so it's scannable, not buried in prose.
+
+### The Cuts (proving I can subtract)
+
+- **CUT:** ~8 of 15 entries in `concepts.md` (#9)
+- **CUT:** Design Decisions section out of `how-it-works.md` (#6)
+- **CUT:** Everything below the fold on `index.md` that isn't hero/diagram/CTAs (#1)
+- **CUT (bonus):** The "promise of perfection" flourish Sophia flagged — she's right, it's a tell
+
+### Verdicts on the Two Disagreements
+
+**1. `how-it-works.md` — SPLIT.** Sophia's plain-English-opener fix is real, but it's a patch on a structural problem. A page answering four questions is four pages no matter how charming paragraph one is. Rewrite the opener *on the new architecture page* — you get both wins.
+
+**2. Landing-page surface — VICTOR. Pitch-first.** Maya's persona-sorter is a brilliant *second* page (it should BE `why-skf.md` section two), but a cold visitor needs the wedge before they need empathy. You don't ask "is this for you?" before you've said what *it* is. Pitch opens the door; empathy furnishes the room.
+
+### The Move I'm Dropping from Round 1
+
+**I over-called the mermaid diagrams.** I threw "are they earning their space or decorative?" into the critique without having looked at them. That was rhetoric, not analysis — a cheap shot dressed as a question. Pulling it. If the diagrams need work, whoever *actually reads them* gets to say so. I'll stick to what I can see: the page structure, the hierarchy, the 3-second test. Those I'll die on.
+
+Cut. Print it. Let's ship. 🎬</result>
+<usage><total_tokens>15529</total_tokens><tool_uses>0</tool_uses><duration_ms>27786</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a180d5d183f406434</task-id>
+<tool-use-id>toolu_01JRbS2dGeTNK1J4cx9eHF12</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/2e3df92b-358b-4e2f-83f5-8b62591ddca5/tasks/a180d5d183f406434.output</output-file>
+<status>completed</status>
+<summary>Agent "Sophia — prose and narrative review" completed</summary>
+<result>📖 **Sophia:**
+
+---
+
+**#1 Move — the one that moves the needle most:**
+
+**Rewrite index.md's hero-to-second-paragraph transition so the emotional arc doesn't collapse at word 40.** The page currently goes *recognition → curiosity → spec sheet* in under five seconds. Fix that single seam and everything downstream inherits momentum. Every other page is downstream of whether the reader is still leaning in when they leave the landing page. Start there. Nothing else matters if the front door thuds.
+
+---
+
+**Stack-ranked 10-move punch list:**
+
+1. **Rewrite index.md paragraph 2** — replace the signature/type-definition inventory with one sentence: *"SKF reads the source and hands your agent the truth — with receipts."* Spec lives one page down.
+2. **Rewrite how-it-works.md's first 40 lines as a plain-English walkthrough of one skill being built** — narrative before apparatus.
+3. **CUT concepts.md from 15 sections to 7** — Agent Skills, Provenance, Confidence Tiers, Drift, Version Pinning, BMAD Module, Every Claim Cites a Source. The other eight live in-context where first used.
+4. **CUT the "promise of perfection / promise of visible fallibility" flourish** — trim to "Perfection is suspicious. Visible fallibility is trustworthy." Two beats, not four.
+5. **Add a 60-second wedge block to index.md** — a visible, clickable *"See a citation resolve to source in 60 seconds"* that lands on verifying-a-skill.md. Victor's right that the wedge is buried; wrong about where to fix it.
+6. **Rewrite bmad-synergy.md opener** — replace "Assumes you know BMAD" with "This page builds on BMAD (BMM phases, TEA, modules). New to BMAD? Start [here] first." Same gate, extended hand.
+7. **CUT named personas in examples.md OR give each one exactly one concrete detail** — "Jin, a Rust maintainer chasing a regression." No bare first names doing pronoun-work.
+8. **Consolidate the three Armels into one voice-spec document** (internal, not shipped) — Evangelist cadence for landing/verifying, Engineer for how-it-works body, Tutor for examples. Decide which voice owns each page and enforce.
+9. **CUT the "Ferris" entry from concepts.md** unless it's doing real teaching work — mascots are not concepts.
+10. **Rewrite verifying-a-skill.md's opener as the single strongest page in the set** — it's already closest to landing. Make it the thesis-page the whole doc set orbits, and link back to it from every other page's footer.
+
+---
+
+**Disagreements — committed:**
+
+**how-it-works.md:** *Rewrite the opener, don't split.* Splitting a 569-line page into four means four pages nobody reads instead of one nobody finishes. The problem isn't length; it's that the first 40 lines greet the reader with acronyms. Fix the doorway and people walk further in than you'd expect. Caravaggio's architectural instinct is sound for code, wrong for prose — readers don't navigate, they flow.
+
+**Landing-page strategic surface:** *"Why SKF" beats "Is this for me?"* Empathy-first sounds kinder but it asks the reader to self-sort before they know what they're sorting toward. Pitch-first gives them the thing, and the right readers recognize themselves in it. Persona-sorting is a UX pattern for enterprise SaaS with eight product tiers; SKF has one proposition. Lead with it.
+
+---
+
+**One move I'd drop from round 1:**
+
+**I overcalled the named-personas problem in examples.md.** On reflection, the real issue isn't that Alex/Jin/Gery exist — it's that they're *undersketched*, not that they're named. A single concrete detail per persona fixes it. I framed it as "cut or keep," implied "probably cut." That was lazy editing on my part. The correct edit is "keep and specify," and I should have said so the first time. Names can do narrative work; I was too quick to call them performative when the fix is one modifier each.</result>
+<usage><total_tokens>16026</total_tokens><tool_uses>0</tool_uses><duration_ms>27327</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a3ccf6abdf54fc878</task-id>
+<tool-use-id>toolu_01E9oPiFdt9xt8hskGViLnvH</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/2e3df92b-358b-4e2f-83f5-8b62591ddca5/tasks/a3ccf6abdf54fc878.output</output-file>
+<status>completed</status>
+<summary>Agent "Maya — reader-empathy review" completed</summary>
+<result>🎨 **Maya:**
+
+Alright. Trumpet down, pencil up. Here's the chart.
+
+---
+
+**1. My singular #1 move.**
+
+**Put a "Who's this for?" block at the top of `index.md` — five two-line bullets, one per persona, each ending with the exact link that serves them.** Not a separate page. Not a button. A block. Above the fold. The curious dev, the BMAD user, the skeptic, the OSS maintainer, the team lead — each sees themselves named in the first screen and gets routed to the page that respects their time. Every other fix in this doc set compounds behind that one. Route first, teach second.
+
+---
+
+**2. Stack-ranked 10-move punch list.**
+
+1. **Add "Who's this for?" block to `index.md`** — 5 persona rows, each a named link. Above the fold.
+2. **Add a skeptic CTA to the hero** — "Don't trust AI-generated docs? [Verify any skill in 5 minutes →]" pointing at `verifying-a-skill.md`. Earn them in the first screen.
+3. **Invert `getting-started.md`** — 60-second "here's the output" demo FIRST, prereq install SECOND. No reader installs six tools before they've seen one artifact.
+4. **CUT the full prereq table from the top of `getting-started.md`** — move it to a `## Prerequisites` anchor below the demo. Keep it; just stop leading with it.
+5. **Write one new page: `ship-with-your-library.md`** — the OSS maintainer's recipe. Release-pipeline wiring, fingerprint dedup, official-skill publishing. This persona currently has no home.
+6. **CUT `concepts.md` from primary nav** — 15 definitions is a glossary. Move to `/reference/glossary.md` and link inline on first use in other pages. Don't make readers learn vocabulary as a precondition.
+7. **Rewrite the 4 tier names into a decision sentence** on `how-it-works.md` opener: "Prototyping → Quick. Shipping → Forge. Public release → Forge+. Auditing legacy → Deep." One line. Then the taxonomy.
+8. **Demote 11 of the 14 workflow codes** in `workflows.md` — surface SF, QS, EX up top as "the three you'll use 90% of the time." The other 11 go below a `## Full workflow reference` fold.
+9. **CUT the named personas in `examples.md`** ("Alex the…", "Priya the…") — Sophia's right, they're performative. Replace with the actual outcome: "Scenario: brownfield Django audit" is more empathetic than a fake name.
+10. **Add an FAQ page, 8 questions max**, led by "Isn't this AI writing docs for AI?" Answer it out loud. Skeptics reward the admission.
+
+Cuts embedded: #4 (prereq table demotion), #6 (concepts.md out of primary nav), #9 (named personas), plus #8 which is a demotion-cut of 11 workflow codes. Four cuts. Subtraction proved.
+
+---
+
+**3. Cuts called out.** Covered above — #4, #6, #8, #9. I'm not precious. Delete more than you add.
+
+---
+
+**4. Verdicts on the two disagreements.**
+
+- **`how-it-works.md`:** **Split.** Caravaggio's right. 569 lines is a building, not a page — Architecture / Tiers / Skill Anatomy / ADRs each deserve their own door. Sophia's rewrite-the-opener fix is necessary but not sufficient; readers still hit a wall at line 200.
+- **Landing-page surface:** **Persona-sorter wins.** Victor's "Why SKF" is a better pitch for an audience that's already leaning in — my "Is this for me?" catches the four out of five who are leaning *out*. Empathy-first. A reader routed correctly will find the "why" on their own page; a reader mis-routed is gone.
+
+---
+
+**5. The move I'd drop from round 1.**
+
+**The 2-minute screencast.** I over-called it. It's the kind of thing that sounds like production polish and actually becomes a six-month maintenance burden that goes stale the first time the CLI output changes. The persona block and the skeptic CTA do the same job in plain HTML that ages gracefully. Kill the video before it's born.
+
+Ship it, Armel. The instrument's good — just open the door.</result>
+<usage><total_tokens>16077</total_tokens><tool_uses>0</tool_uses><duration_ms>27825</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a98976c8d81440210</task-id>
+<tool-use-id>toolu_01EF7UenewCQknF4PkbZomUJ</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/2e3df92b-358b-4e2f-83f5-8b62591ddca5/tasks/a98976c8d81440210.output</output-file>
+<status>completed</status>
+<summary>Agent "Victor — strategic positioning review" completed</summary>
+<result>⚡ **Victor:**
+
+**#1 Move — the one that moves the needle alone.**
+
+Rewrite the `index.md` hero around the wedge. One sentence, one sub-sentence, one comparison table, one CTA. If you do nothing else this quarter, do this. The hero is the only surface 80% of visitors will ever see. Every other fix is downstream of that real estate being wasted.
+
+Headline: *"Every instruction your AI reads cites a file, a line, and a commit SHA."*
+Sub: *"Verify any claim in 60 seconds. Hallucination becomes falsifiable."*
+Below: the comparison table, lifted from line 90 of `how-it-works.md`.
+CTA: *"Audit a real skill in 60 seconds →"* linking to `verifying-a-skill.md`.
+
+That's the game.
+
+**Stack-ranked 10-move punch list:**
+
+1. Rewrite `index.md` hero around falsifiability — wedge sentence, sub, comparison table, single CTA to the 60-second audit.
+2. Promote `verifying-a-skill.md` to a top-nav primary — rename it `/verify` or similar. It's the wedge; treat it like one.
+3. Create `why-skf.md` — JTBD framing, 1 page, linked from hero as secondary CTA. (See disagreement #2 below.)
+4. Move the comparison table out of `how-it-works.md` entirely — it lives on `index.md` and `why-skf.md`, nowhere else.
+5. Restructure nav into three tiers: **Why → Try → Reference.** Kill the flat 7-link index.
+6. Rewrite `how-it-works.md` opener (first 40 lines) as a plain-English walkthrough of one skill end-to-end. Do not split the page. (See disagreement #1.)
+7. **CUT** the 9-tool prereq table from Getting Started's top. Move to a collapsed "Full prereqs" section at the bottom. Lead with a 2-command quickstart.
+8. **CUT** `concepts.md` down from 15 definitions to 5 — the five a reader needs to evaluate, not the fifteen needed to contribute. The other ten move inline where used.
+9. **CUT** the "Support" section from `index.md`. Buy-me-a-coffee belongs in the footer or in `CONTRIBUTING.md`. It pollutes the pitch surface.
+10. Add an oh-my-skills showcase strip on `index.md` — 4 Deep-tier skills, logos/names, "audit these now" links. Social proof as evidence, not decoration.
+
+Cuts: #7 (prereq table), #8 (concepts.md bloat), #9 (Support section on index). Three real subtractions. I could have called for more — the named personas in examples.md also earn the axe, but that's Maya's territory and I'll let her swing.
+
+**Disagreements — committed verdicts:**
+
+**1. `how-it-works.md`:** Sophia wins. Rewrite the opener, don't split. Splitting multiplies nav surface and creates four half-pages where one strong page belongs. The problem isn't length — it's that the first 40 lines bury the lede. Fix the lede; leave the apparatus.
+
+**2. Landing-page strategic surface:** I hold my ground — pitch-first. `why-skf.md` over persona-sorter. Maya's empathy move is correct for a *secondary* surface, not the hero. A first-time visitor doesn't know which persona they are yet; they need the wedge first, then self-sort. Persona-sorter can live on `why-skf.md` as a mid-page section. Hero stays strategic.
+
+**One move I'd drop from round 1:**
+
+I called the flat nav "strategic malpractice." Overcooked. It's a symptom, not the disease. The disease is that the hero doesn't do its job. Fix the hero and the flat nav becomes a medium problem, not a fatal one. I over-indexed on IA when the real lever is the first screen.
+
+Ship the hero. Everything else is negotiable.</result>
+<usage><total_tokens>15884</total_tokens><tool_uses>0</tool_uses><duration_ms>25751</duration_ms></usage>
+</task-notification>
+
+---
+
+spawn
+
+---
+
+what is the best move?
+
+---
+
+yes
+
+---
+
+we don't need github issues
+
+---
+
+ready
+
+---
+
+good plan
+
+---
+
+approve
+
+---
+
+The astro server is already lived at http://localhost:4321/
+
+---
+
+Base directory for this skill: /home/armel/.claude/plugins/cache/claude-plugins-official/frontend-design/unknown/skills/frontend-design
+
+This skill guides creation of distinctive, production-grade frontend interfaces that avoid generic "AI slop" aesthetics. Implement real working code with exceptional attention to aesthetic details and creative choices.
+
+The user provides frontend requirements: a component, page, application, or interface to build. They may include context about the purpose, audience, or technical constraints.
+
+## Design Thinking
+
+Before coding, understand the context and commit to a BOLD aesthetic direction:
+- **Purpose**: What problem does this interface solve? Who uses it?
+- **Tone**: Pick an extreme: brutally minimal, maximalist chaos, retro-futuristic, organic/natural, luxury/refined, playful/toy-like, editorial/magazine, brutalist/raw, art deco/geometric, soft/pastel, industrial/utilitarian, etc. There are so many flavors to choose from. Use these for inspiration but design one that is true to the aesthetic direction.
+- **Constraints**: Technical requirements (framework, performance, accessibility).
+- **Differentiation**: What makes this UNFORGETTABLE? What's the one thing someone will remember?
+
+**CRITICAL**: Choose a clear conceptual direction and execute it with precision. Bold maximalism and refined minimalism both work - the key is intentionality, not intensity.
+
+Then implement working code (HTML/CSS/JS, React, Vue, etc.) that is:
+- Production-grade and functional
+- Visually striking and memorable
+- Cohesive with a clear aesthetic point-of-view
+- Meticulously refined in every detail
+
+## Frontend Aesthetics Guidelines
+
+Focus on:
+- **Typography**: Choose fonts that are beautiful, unique, and interesting. Avoid generic fonts like Arial and Inter; opt instead for distinctive choices that elevate the frontend's aesthetics; unexpected, characterful font choices. Pair a distinctive display font with a refined body font.
+- **Color & Theme**: Commit to a cohesive aesthetic. Use CSS variables for consistency. Dominant colors with sharp accents outperform timid, evenly-distributed palettes.
+- **Motion**: Use animations for effects and micro-interactions. Prioritize CSS-only solutions for HTML. Use Motion library for React when available. Focus on high-impact moments: one well-orchestrated page load with staggered reveals (animation-delay) creates more delight than scattered micro-interactions. Use scroll-triggering and hover states that surprise.
+- **Spatial Composition**: Unexpected layouts. Asymmetry. Overlap. Diagonal flow. Grid-breaking elements. Generous negative space OR controlled density.
+- **Backgrounds & Visual Details**: Create atmosphere and depth rather than defaulting to solid colors. Add contextual effects and textures that match the overall aesthetic. Apply creative forms like gradient meshes, noise textures, geometric patterns, layered transparencies, dramatic shadows, decorative borders, custom cursors, and grain overlays.
+
+NEVER use generic AI-generated aesthetics like overused font families (Inter, Roboto, Arial, system fonts), cliched color schemes (particularly purple gradients on white backgrounds), predictable layouts and component patterns, and cookie-cutter design that lacks context-specific character.
+
+Interpret creatively and make unexpected choices that feel genuinely designed for the context. No design should be the same. Vary between light and dark themes, different fonts, different aesthetics. NEVER converge on common choices (Space Grotesk, for example) across generations.
+
+**IMPORTANT**: Match implementation complexity to the aesthetic vision. Maximalist designs need elaborate code with extensive animations and effects. Minimalist or refined designs need restraint, precision, and careful attention to spacing, typography, and subtle details. Elegance comes from executing the vision well.
+
+Remember: Claude is capable of extraordinary creative work. Don't hold back, show what can truly be created when thinking outside the box and committing fully to a distinctive vision.
+
+ARGUMENTS: review the changes everytime. Focus on visual and structure while we edit
+
+---
+
+we should apply all the recommendations everytime. I say ALL
+
+---
+
+#6
+
+---
+
+go
+
+---
+
+go
+
+---
+
+go combined
+
+---
+
+go
+
+---
+
+#9
+
+---
+
+go
+
+---
+
+in the index page, we reference verifying-a-skill/ page twice. I propose we only keep Install and Why skill forge buttons. What do you think?
+
+---
+
+I am aligned with your recommendation
+
+---
+
+Now organize the whole work into multiple smart commits. Delete all unnecessary files (most of them are generated by playwright)
+
+---
+
+Now update the @README.md
+
+---
+
+We need to rework the tag version from the documentation header. It is not professional. What do you think?
+
+---
+
+yes
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+Its position is correct? Or you can propose a better one?
+
+---
+
+yes
+
+---
+
+[Request interrupted by user]
+
+---
+
+align it to the bottom
+
+---
+
+yes
