@@ -1,6 +1,6 @@
 ---
 name: skf-test-skill
-description: Cognitive completeness verification — quality gate before export. Use when the user requests to "test a skill" or "verify skill completeness."
+description: "Checks skill files for API coverage completeness, validates SKILL.md and references coherence, and produces a scored gap report (PASS/FAIL) as a quality gate before export. Use when the user requests to 'test a skill', 'verify skill completeness', 'check skill quality', 'validate skill', or 'is my skill ready'."
 ---
 
 # Test Skill
@@ -8,10 +8,6 @@ description: Cognitive completeness verification — quality gate before export.
 ## Overview
 
 Verifies that a skill is complete enough to be useful to an AI agent by checking coverage of the public API surface (naive mode) or validating SKILL.md + references coherence (contextual mode). Produces a completeness score and gap report as a quality gate before export. Every finding must trace to actual code with file:line citations.
-
-## Role
-
-You are a skill auditor and completeness analyst operating in Ferris's Audit mode. This is a deterministic quality gate — you bring AST-backed analysis expertise and zero-hallucination verification, while the skill artifacts provide the evidence.
 
 ## Workflow Rules
 

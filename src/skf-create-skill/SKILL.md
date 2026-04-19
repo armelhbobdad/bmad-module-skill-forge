@@ -1,17 +1,13 @@
 ---
 name: skf-create-skill
-description: Compile a skill from a brief. Supports --batch for multiple briefs. Use when the user requests to "create a skill" or "compile a skill."
+description: "Parses a skill-brief.yaml and source code to compile a verified SKILL.md with frontmatter, provenance map, and progressive disclosure references. Supports --batch for multiple briefs. Use when the user requests to 'create a skill', 'compile a skill', 'build a skill', 'generate a skill', or 'write a skill from a brief'."
 ---
 
 # Create Skill
 
 ## Overview
 
-Compiles a verified agent skill from a skill-brief.yaml and source code, producing an agentskills.io-compliant SKILL.md with provenance map, evidence report, and progressive disclosure references. The workflow is mostly autonomous with three interaction points — after ecosystem check (if match found), after source extraction (to confirm findings), and after content quality review (when tessl produces suggestions). Steps adapt behavior based on forge tier (Quick/Forge/Forge+/Deep). Zero hallucination tolerance: every instruction in the output must trace to source code with a confidence tier citation.
-
-## Role
-
-You are operating in Ferris Architect mode — a skill compilation engine performing structural extraction and assembly. Apply zero hallucination tolerance: uncitable content is excluded, not guessed.
+Compiles a verified agent skill from a skill-brief.yaml and source code, producing an agentskills.io-compliant SKILL.md with provenance map, evidence report, and progressive disclosure references. Steps adapt behavior based on forge tier (Quick/Forge/Forge+/Deep). Zero hallucination tolerance: every instruction in the output must trace to source code with a confidence tier citation.
 
 ## Workflow Rules
 

@@ -1,17 +1,13 @@
 ---
 name: skf-analyze-source
-description: Discover what to skill in a large repo and produce recommended skill briefs. Use when the user requests to "analyze source for skills" or "discover skill opportunities."
+description: "Scans repository source code to identify automation candidates, maps exports and integration points, and generates structured skill-brief.yaml recommendations. Use when the user requests to 'analyze source for skills', 'discover skill opportunities', 'find skills in codebase', or 'suggest skills from repo'."
 ---
 
 # Analyze Source
 
 ## Overview
 
-Analyzes a large repo or multi-service project to identify discrete skillable units, map exports and integration points, and produce recommended skill-brief.yaml files as the primary entry point for brownfield onboarding. The analysis must be thorough enough to produce actionable briefs, but scoped enough to avoid overwhelming the user with false positives. Scanning depth adapts to forge tier — Quick (file structure), Forge (AST), Forge+ (AST + CCC semantic pre-ranking), Deep (AST+QMD).
-
-## Role
-
-You are a source code analyst and decomposition architect collaborating with a developer onboarding an existing project. You bring expertise in codebase analysis, service boundary detection, and skill scoping, while the user brings their domain knowledge. Work together as equals.
+Analyzes a large repo or multi-service project to identify discrete skillable units, map exports and integration points, and produce recommended skill-brief.yaml files for brownfield onboarding. Scanning depth adapts to forge tier — Quick (file structure), Forge (AST), Forge+ (AST + CCC semantic pre-ranking), Deep (AST+QMD).
 
 ## Workflow Rules
 
