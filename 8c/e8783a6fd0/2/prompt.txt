@@ -1,0 +1,181 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-code-review
+
+Follow the instructions in ./workflow.md.
+
+---
+
+Y
+
+---
+
+Y
+
+---
+
+<task-notification>
+<task-id>a11f3af596d303333</task-id>
+<tool-use-id>toolu_01TRvNvbXoMNEUcxUVdSrHok</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/99109b41-36f6-4373-a37e-ad4453c75012/tasks/a11f3af596d303333.output</output-file>
+<status>completed</status>
+<summary>Agent "Blind Hunter adversarial review" completed</summary>
+<result>Now I have the full diff. Let me analyze it adversarially.
+
+## Adversarial Review Findings — Story 1.3 diff (npm Trusted Publisher registration)
+
+- **Commit title claims `release.yaml` but docs hedge on `.yaml` vs `.yml`** — major. Commit subject reads "register npm Trusted Publisher for release.yaml workflow" and the registered value is `release.yaml`, yet the Rename-coupling paragraph warns "flipping the extension between `.yaml` and `.yml`" is load-bearing. The diff never establishes why `.yaml` was picked over GitHub's more common `.yml`; if Story 3.1 authors the workflow with `.yml` by habit, the first publish silently 404s. Lock the extension choice in the diff itself, not in a future story.
+
+- **Self-contradiction on whether a publish was attempted** — major. Commit body says "No live publish attempted in this story: release.yaml does not yet exist." The "Fixing a bad registration" paragraph justifies delete-and-re-add with "there is no destructive side effect (no publish is attempted until Story 3.2)". Fine — but the same diff also labels the token as "defence-in-depth fallback behind the OIDC path," implying an OIDC path exists. You cannot have a fallback behind a path that does not yet exist. One of the two framings is wrong.
+
+- **"Silent 404 … with no actionable signal" asserted twice but never supported** — major. The section claims a mismatch "causes a silent `404` at publish time with no actionable signal," then in the next bullet quotes the message "npm could not match your workflow run." That is an actionable signal and it is not silent. Pick one: either the error is opaque (drop the quoted string) or it is diagnosable (drop "silent" and "no actionable signal"). Currently the doc contradicts itself across two adjacent paragraphs.
+
+- **"First diagnostic … character-for-character" against a workflow that does not exist** — major. The Pre-registration inversion paragraph tells the reader, on a 404 in Story 3.2, to "verify all four fields character-for-character against the workflow's header." But Story 3.1 writes `release.yaml`. If the workflow was authored wrong, the doc's instruction to treat the workflow as ground truth will have the reader "verify" a typo against itself. The correct first diagnostic is to compare both against the registered record in this RELEASING.md table — the doc misses that.
+
+- **Commit body claims Prettier-only cosmetic drift; diff shows semantic-adjacent edits** — major. Body asserts "Semantic content of those pre-existing sections is unchanged." The `## Release Process` bullet in README changes from one-line prose to a four-clause enumeration naming the Trusted Publisher — that is a semantic change, not a prettier normalization. It belongs to this story, but the commit body buries it under "one-line extension" which understates the rewrite.
+
+- **Italic-marker churn (`*…*` → `_…_`) is noise, not a required prettier behaviour** — minor. Prettier's default `--prose-wrap`/emphasis style does not rewrite `*foo*` to `_foo_` across a file; this is a configured preference. The commit frames it as mandatory ruleset compliance ("Prettier --write also normalized latent … drift"). Without a linked prettier config the reader cannot reproduce this and will wonder why the PR touches unrelated emphasis.
+
+- **Environment name duplicated between ruleset and Trusted Publisher with no single source of truth** — major. `release` is hard-coded into the new table, into the README one-liner, and (per prior section) into the GitHub environment. The Rename-coupling paragraph says renaming requires a matching npm-side update but does not enumerate the README. Any future rename of the environment quietly leaves README.md out of sync.
+
+- **Link label styled as code pointing at an external URL is a markdown antipattern** — minor. `[`https://www.npmjs.com/package/bmad-module-skill-forge`](https://www.npmjs.com/package/bmad-module-skill-forge)` renders a code-styled link whose visible text is the URL. Either use a descriptive label or drop the backticks; the current form is both redundant and style-inconsistent with the rest of the doc, which uses prose labels.
+
+- **"Settings → Trusted Publisher section" UI claim is timestamped but not testable** — minor. "npm UI as of 2026-04-20; if the tab is reorganised later, the section still lives on the package Settings page" is a hedge, not a guarantee. npm has historically moved publisher settings between account-level and package-level. The doc promises a location it cannot promise.
+
+- **`Entire-Checkpoint: e349ed56e39f` commit trailer is unexplained** — nit. No other commit in the shown history uses this trailer; its semantics are opaque to a reviewer. If it is meaningful to tooling, the convention should be documented; if not, it is noise in the permanent log.
+
+- **"1 approver" + `prevent_self_review: false` reasoning is load-bearing but only linked sideways** — minor. The new section relies on the gate being meaningful ("required-reviewer gate"), but the adjacent existing section admits the solo maintainer self-approves. The Trusted Publisher section inherits that weakness without acknowledging it — an auditor reading only the new section will overestimate the control.
+
+- **SLSA Build Level 2 provenance claim is asserted, not cited** — nit. "auto-attached SLSA Build Level 2 provenance attestation" appears in commit body and in the new section. npm's provenance feature's SLSA level is a moving target (was L2, advertised as L3 in some contexts depending on runner attestation). No link, no date-stamped citation. A blind reader cannot verify the level.
+
+- **"Defence-in-depth" framing contradicts threat model** — major. NPM_TOKEN sitting at repo level is reachable by any workflow with `secrets.*` access on `main`; that is strictly more exposure than a scoped environment secret. Calling it "defence-in-depth fallback" inverts the security posture — a leftover token is an attack surface, not a safety net. The doc's own Story 6.3 acknowledges removal is the goal; the transitional label should be "legacy residual risk," not "defence-in-depth."
+
+- **Rollback playbook placeholder left as bare HTML comment** — nit. `&lt;!-- Rollback Playbook — added in Story 4.1 --&gt;` followed by a real `## Rollback Playbook` heading with no body. Readers hitting the TOC will click into an empty section. Either stub a "TBD — Story 4.1" line or omit the heading until it has content.
+
+- **Clean areas** — the ruleset table reformat (pipe-alignment) and the Release Environment table reformat are mechanically consistent and introduce no semantic drift; the four registered fields match across commit body and the new markdown table exactly.</result>
+<usage><total_tokens>34984</total_tokens><tool_uses>3</tool_uses><duration_ms>65476</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a6c49279d7a4c2977</task-id>
+<tool-use-id>toolu_01UqaRjpZhjnowykjx5qaZpT</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/99109b41-36f6-4373-a37e-ad4453c75012/tasks/a6c49279d7a4c2977.output</output-file>
+<status>completed</status>
+<summary>Agent "Acceptance Auditor review" completed</summary>
+<result>I have enough to render findings.
+
+## Acceptance Audit: Story 1.3
+
+### AC #8 — `docs/RELEASING.md § npm Trusted Publisher`
+
+- **AC #8 — Section placement: MET.** New `## npm Trusted Publisher` lands at lines 155–177, after § Release Environment (final paragraph line 153) and before `&lt;!-- Rollback Playbook — added in Story 4.1 --&gt;` (line 179). Placeholder preserved verbatim.
+- **AC #8 — Four field values recorded: MET.** Table at lines 161–167 lists Publisher type, Organization/user, Repository, Workflow filename, Environment with the exact values (`GitHub Actions`, `armelhbobdad`, `bmad-module-skill-forge`, `release.yaml`, `release`).
+- **AC #8 — Rename-coupling note: MET.** Line 171 explicitly calls out env rename, workflow rename/move, and `.yaml`↔`.yml` flip coupling to opaque 404.
+- **AC #8 — Pre-registration inversion: MET.** Line 173 documents pre-registration, names Story 3.2 as the first live validator, and defines the npm-Settings-first diagnostic order for a 404.
+- **AC #8 — Escape hatch for 404: MET.** Line 177 "Fixing a bad registration" describes Edit vs. delete-and-re-add, both observed 2026-04-20, with non-destructive rationale.
+- **AC #8 — npm Package Settings URL: PARTIAL DEVIATION (minor).** Spec language in AC #8 says "the npm Package Settings URL to inspect them." The rendered doc links `https://www.npmjs.com/package/bmad-module-skill-forge` and instructs navigation to Settings → Trusted Publisher rather than the skeleton's `/access` URL. Dev Notes § "Doc section skeleton" explicitly pre-authorized this adjustment when the UI layout differs at read time, and the Completion Notes flag the deviation. Acceptable but worth flagging.
+
+### AC #9 — README.md § Release Process
+
+- **AC #9 — MET.** Line 180 of README.md adds "the npm Trusted Publisher registration (OIDC-backed publish, auto-provenance)" between the release-environment reference and "(later) the rollback playbook," exactly matching the Task 6 target string. No new heading, no restructure.
+
+### AC #10 — Commit message evidence
+
+- **AC #10 — Timestamp: MET.** Commit body line 12: "npmjs.com save action: 2026-04-20 by armelhbobdad" (date only; no clock-time, but the spec requires only a "timestamp of the npmjs.com save action"). The green-banner observation reinforces evidentiary weight.
+- **AC #10 — Four field values pasted inline: MET (with one extra).** Lines 19–23 list Publisher type, Organization/user, Repository, Workflow filename, Environment. Five fields listed because "Publisher type" (`GitHub Actions`) is included, which is additive, not contradictory — the four binding fields are all present.
+- **AC #10 — NPM_TOKEN-remains-at-repo-scope confirmation: MET.** Lines 25–28 state `NPM_TOKEN` "present at repo-level secrets (unchanged, unrotated, NOT moved to the release environment)" — this is the required one-line (two-line wrap here) confirmation.
+
+### AC #7 — NPM_TOKEN untouched
+
+- **AC #7 — MET.** Commit body explicitly says "unchanged, unrotated, NOT moved." Diff does not touch any secrets config (diff is docs-only). Neither `docs/RELEASING.md` nor `README.md` describes a rotation or deletion action; the docs only promise Story 6.3 as the future removal point.
+
+### Off-repo ACs (#1–#6) — claim-backing check
+
+- **AC #1 (entry exists with four fields populated, no draft):** Commit claim backs it ("post-save page displayed entry with all four fields bound," green success banner). Diff cannot independently verify.
+- **AC #2 (org `armelhbobdad`):** Commit line 20 asserts literal `armelhbobdad`. No contradiction.
+- **AC #3 (repo `bmad-module-skill-forge`):** Commit line 21 asserts literal, no `.git` suffix, no org prefix. Consistent.
+- **AC #4 (filename `release.yaml`, lowercase, `.yaml` not `.yml`, bare):** Commit line 22 asserts `release.yaml`. No contradiction.
+- **AC #5 (environment `release`):** Commit line 23 asserts `release`. Dev Notes record cross-referenced `gh api .../environments/release` returning `{id: 14347249917, name: "release"}`. Consistent.
+- **AC #6 (cross-check done before save):** Commit body does not explicitly narrate the pre-save eyeball step, but the Dev Notes section of the spec artifact does record the cross-reference. Acceptable — AC #6 is a process AC whose trace lives in the story artifact rather than the commit body.
+
+### Unsupported claims / extras
+
+- **Prettier-noise caveat: FLAGGED, not a violation.** The diff contains substantial prettier normalization (table pipe padding in README.md tool-list + RELEASING.md tables, and `*emphasis*` → `_emphasis_` flips in README prose). The commit body's final paragraph (lines 45–48) explicitly discloses this as a pre-existing-drift normalization required for the Story 1.1 `quality.yaml` prettier gate. The spec's Task 5 says "No code changes to workflow YAML, `package.json`, or any other file... `docs/RELEASING.md` + `README.md` are the only repo-side diffs" — the actual diff respects that envelope (only those two files changed), so the prettier churn is within scope even if noisy. Reviewers should note that the intra-file edits are larger than a strict reading of the spec's "one new section + one-line extension" would suggest, but the deviation is acknowledged and justified.
+- **No unsupported claims found** beyond the minor URL-structure deviation in AC #8 (pre-authorized by Dev Notes).
+
+### Summary
+
+All ten ACs are met. One minor deviation (AC #8 inspection URL points to package page + Settings tab navigation rather than the skeleton's `/access` URL) is within the Dev-Notes-sanctioned flex. Prettier normalization is larger than a bare reading of the spec implies, but the commit body discloses it and the file envelope matches the spec's "only these two files" constraint.</result>
+<usage><total_tokens>43921</total_tokens><tool_uses>4</tool_uses><duration_ms>58821</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ae1b9c719e07131c8</task-id>
+<tool-use-id>toolu_01U3vhwohvdw6B6cNorewwjW</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/99109b41-36f6-4373-a37e-ad4453c75012/tasks/ae1b9c719e07131c8.output</output-file>
+<status>completed</status>
+<summary>Agent "Edge Case Hunter review" completed</summary>
+<result>I have sufficient evidence. Walking through the edge classes now.
+
+Key findings from evidence:
+- `release.yaml` does not exist in `.github/workflows/` yet (directory listing confirms only publish.yaml, manual-release.yaml, discord, docs, health-check, quality).
+- `publish.yaml` already contains `npm publish --provenance` and uses `NPM_TOKEN` via `NODE_AUTH_TOKEN` — it is NOT yet a trusted-publisher consumer but could accidentally try to use OIDC if invoked during transition.
+- Epic AC #10 "evidence" was not supplied separately, but the commit body does claim timestamp, four fields, NPM_TOKEN status.
+- Prettier reflow touched: README emphasis asterisks → underscores (4 occurrences), table pipe alignment in 3 tables. No semantic changes detected.
+- README link `[docs/RELEASING.md](docs/RELEASING.md)` still resolves; anchor-free.
+- The doc's "Inspect current state" step uses a URL click-through but offers no CLI/programmatic verification command (unlike every other section in RELEASING.md which does).
+- The doc says environment-scoped secrets must be `0` (invariant) — if a maintainer reads the Release Environment section after this doc and accidentally scopes NPM_TOKEN there, nothing in the Trusted Publisher section cross-warns.
+
+Now reporting findings:
+
+# Edge Case Hunter Findings
+
+- **Workflow filename extension drift handled in prose but not in evidence** — the doc warns about `.yaml` vs `.yml` rename coupling, but `.github/workflows/` currently contains zero files named `release.*`. Story 3.1's author has no machine-readable binding (no stub, no CODEOWNERS hint, no workflow comment) forcing the `.yaml` extension. Evidence: `ls .github/workflows/` shows only `discord.yaml, docs.yaml, health-check-dedup.yaml, manual-release.yaml, publish.yaml, quality.yaml`. **Fails if:** Story 3.1 author picks `.yml` (half of GitHub's own examples use `.yml`); the doc diagnoses the failure post-hoc, it does not prevent it.
+
+- **No programmatic verification command for Trusted Publisher state** — every other section in `docs/RELEASING.md` offers a `gh api …` inspect command (ruleset § line 46, environment § line 91, branch policies § line 96, secrets § line 99). The new `## npm Trusted Publisher` section at line 169 gives only a UI click-path (`npmjs.com → Settings tab → Trusted Publisher`). **Fails if:** npm UI is reorganised, maintainer is offline-scripting a drift check, or an incident response needs machine-readable state. npm's `GET /-/package/bmad-module-skill-forge/access` / trusted-publisher list API is not referenced. No fallback.
+
+- **`npm publish --provenance` in legacy `publish.yaml` will silently take the OIDC path once the Trusted Publisher is registered** — `publish.yaml:37` runs `npm publish --provenance` AND sets `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}`. Registering a Trusted Publisher makes npm's publish endpoint prefer OIDC when a valid `id-token` is present; `publish.yaml` already has `id-token: write` (line 10). The Trusted Publisher, however, binds workflow filename `release.yaml`, not `publish.yaml` — so any tag push firing `publish.yaml` now 404s on OIDC and falls through to token auth… or doesn't, depending on the exact npm policy precedence. The doc does not warn that registering the TP has non-local effects on the **existing** `publish.yaml` path. **Fails:** next `v*` tag-push before Story 3.3 retires `publish.yaml` may either 404 unexpectedly or publish without provenance, with no diagnostic anchored to this story.
+
+- **Case sensitivity of the four fields is unstated** — GitHub organization and repository slugs are case-insensitive for routing but case-sensitive in OIDC subject claims; the npm TP matcher uses exact-string comparison. `docs/RELEASING.md:163-167` renders `armelhbobdad` / `bmad-module-skill-forge` / `release.yaml` / `release` lowercase but the surrounding prose never says "case-sensitive, do not capitalize on re-registration." **Fails if:** an admin re-registers using `armelhbobdad`'s display form (GitHub UI sometimes surfaces a capital-letter vanity), producing the exact "opaque 404" the doc warns about while appearing correct to the eye.
+
+- **Environment rename/delete produces no observable signal before first publish** — `docs/RELEASING.md:87` in Release Environment says env rename requires npm-side update; the new § line 191 repeats this. Neither says what happens if the `release` GitHub environment is **deleted** (e.g. during an env-config refactor). Deletion without renaming leaves the npm TP pointing at a nonexistent env; no CI check, no status check, no pre-publish dry-run mentioned. **Fails:** first alpha cut (Story 3.2) 404s; nothing between Story 1.3 and Story 3.2 catches this.
+
+- **NPM_TOKEN rotation/deletion before Story 6.3 has no documented fallback path** — § line 175 names `NPM_TOKEN` as "defence-in-depth fallback" and says "temporary flip of the new workflow to token-based publishing" is the last-resort escape. But it does not cover the inverse failure: if NPM_TOKEN is rotated, revoked, or accidentally deleted **while OIDC is also broken**, both paths are down. No "how to mint a short-lived token during incident" pointer, no link to npm token-creation docs. **Fails:** double-failure mode leaves release path inoperable with no escape hatch documented.
+
+- **"Edit vs delete-and-re-add" guidance lacks a re-registration race window warning** — § line 177 recommends delete-and-re-add for multi-field fixes and states "no destructive side effect (no publish is attempted until Story 3.2)." This is only true **until Story 3.2 lands**. After Story 3.2, any concurrent workflow run during the delete-and-re-add window would 404. The doc's safety claim is time-bounded but reads as unconditional. **Fails:** later maintainer reads this as evergreen advice post-3.2, deletes TP, a concurrent `workflow_dispatch` lands in the gap.
+
+- **Post-save "evidence" claim in commit body is unverifiable from the diff** — AC #10 evidence requirement (timestamp, four field values, NPM_TOKEN confirmation) lives in the commit message only. No screenshot, no saved JSON, no append-only audit log file in the repo. If the commit is ever rebased/squashed in a rewrite, the evidence is lost. **Fails:** downstream auditor asking "prove registration happened 2026-04-20" has only the commit message, which is the weakest-trust artifact.
+
+- **Prettier reflow is semantically clean but dropped no anchors** — verified: README emphasis toggles (`*…*` → `_…_`) and three table header re-pipings. No headings were renamed, no inline anchors existed. However, `README.md:180` now contains the phrase "the npm Trusted Publisher registration" with no cross-link to the new RELEASING.md section. Target section has no explicit `&lt;a&gt;` anchor either; GitHub auto-slug `#npm-trusted-publisher` will work, but the README does not use it. **Fails (weakly):** anchor-free deep link; a reader clicking the RELEASING.md link lands at top and must scroll. Not broken, just under-linked.
+
+- **Diff touches no test/CI file that asserts the registration's shape** — nothing in the repo verifies, even probabilistically, that (a) `release.yaml` will one day exist, (b) its filename matches the npm TP, (c) the `release` environment still exists. A CI check reading `docs/RELEASING.md` table values and `gh api` / `npm` API responses could catch drift. None is introduced. **Fails:** drift between npm-side registration and repo-side reality is detectable only at publish time (Story 3.2 onward), which is exactly the opaque-404 failure mode the doc laments.
+
+Related files: `/home/armel/Projects/OSS/bmad-module-skill-forge/docs/RELEASING.md`, `/home/armel/Projects/OSS/bmad-module-skill-forge/README.md`, `/home/armel/Projects/OSS/bmad-module-skill-forge/.github/workflows/publish.yaml`, `/home/armel/Projects/OSS/bmad-module-skill-forge/_bmad-output/planning-artifacts/epics.md`.</result>
+<usage><total_tokens>56296</total_tokens><tool_uses>13</tool_uses><duration_ms>98905</duration_ms></usage>
+</task-notification>
+
+---
+
+what is the best move?
+
+---
+
+yes
+
+---
+
+what is the best move?
+
+---
+
+yes
+
+---
+
+0
+
+---
+
+commit
