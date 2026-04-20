@@ -1,0 +1,23 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-code-review
+
+Follow the instructions in ./workflow.md.
+
+---
+
+vs dev
+
+---
+
+Y
+
+---
+
+1
+
+---
+
+3
+
+---
+
+commit
