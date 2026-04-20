@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "a0c86d626f59",
+  "session_id": "1acd7c66-2a92-497b-a8f3-b7cde6fe6c75",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-20T16:29:10.464442509Z",
+  "branch": "dev",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-test-skill/steps-c/step-04-coherence-check.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "3e0c91b253f5",
+  "token_usage": {
+    "input_tokens": 282,
+    "cache_creation_tokens": 188846,
+    "cache_read_tokens": 796194,
+    "output_tokens": 15039,
+    "api_call_count": 17
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-20T16:29:10.10288401Z",
+    "agent_lines": 0,
+    "human_added": 19,
+    "human_modified": 5,
+    "human_removed": 0,
+    "total_committed": 19,
+    "agent_percentage": 0
+  }
+}
