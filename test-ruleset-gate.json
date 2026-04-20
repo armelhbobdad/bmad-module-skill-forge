@@ -1,0 +1,5 @@
+{
+    "purpose":   "intentionally unformatted — proves main's required_status_checks blocks merge when prettier fails",
+        "story": "1.1",
+  "delete": "closing PR without merge"
+}
