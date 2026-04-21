@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "dc7e448d8e0d",
+  "strategy": "manual-commit",
+  "branch": "feat/release-workflow",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/release.yaml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/dc/7e448d8e0d/0/metadata.json",
+      "transcript": "/dc/7e448d8e0d/0/full.jsonl",
+      "context": "/dc/7e448d8e0d/0/context.md",
+      "content_hash": "/dc/7e448d8e0d/0/content_hash.txt",
+      "prompt": "/dc/7e448d8e0d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 102,
+    "cache_creation_tokens": 270475,
+    "cache_read_tokens": 7390019,
+    "output_tokens": 48359,
+    "api_call_count": 68
+  }
+}
