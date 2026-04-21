@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d7f2364a0e4d",
+  "session_id": "4c97a6be-984f-4988-a1c2-a6e3ef21ea90",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-21T10:34:25.051401014Z",
+  "branch": "feat/release-workflow",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/publish.yaml"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "a0276e14c487",
+  "token_usage": {
+    "input_tokens": 339,
+    "cache_creation_tokens": 647661,
+    "cache_read_tokens": 24978498,
+    "output_tokens": 84628,
+    "api_call_count": 149
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-21T10:34:23.283760231Z",
+    "agent_lines": 0,
+    "human_added": 8853,
+    "human_modified": 3,
+    "human_removed": 0,
+    "total_committed": 8853,
+    "agent_percentage": 0
+  }
+}
