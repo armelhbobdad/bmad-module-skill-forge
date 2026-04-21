@@ -3,7 +3,7 @@
   "checkpoint_id": "02d5df884964",
   "strategy": "manual-commit",
   "branch": "feat/release-workflow",
-  "checkpoints_count": 2,
+  "checkpoints_count": 5,
   "files_touched": [
     "CHANGELOG.md"
   ],
@@ -14,13 +14,20 @@
       "context": "/02/d5df884964/0/context.md",
       "content_hash": "/02/d5df884964/0/content_hash.txt",
       "prompt": "/02/d5df884964/0/prompt.txt"
+    },
+    {
+      "metadata": "/02/d5df884964/1/metadata.json",
+      "transcript": "/02/d5df884964/1/full.jsonl",
+      "context": "/02/d5df884964/1/context.md",
+      "content_hash": "/02/d5df884964/1/content_hash.txt",
+      "prompt": "/02/d5df884964/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 67,
-    "cache_creation_tokens": 166963,
-    "cache_read_tokens": 5148316,
-    "output_tokens": 36446,
-    "api_call_count": 58
+    "input_tokens": 181,
+    "cache_creation_tokens": 362188,
+    "cache_read_tokens": 10585604,
+    "output_tokens": 74203,
+    "api_call_count": 108
   }
 }
