@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "a116ef552cc6",
+  "strategy": "manual-commit",
+  "branch": "feat/release-workflow",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "docs/STABILITY.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a1/16ef552cc6/0/metadata.json",
+      "transcript": "/a1/16ef552cc6/0/full.jsonl",
+      "context": "/a1/16ef552cc6/0/context.md",
+      "content_hash": "/a1/16ef552cc6/0/content_hash.txt",
+      "prompt": "/a1/16ef552cc6/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 105,
+    "cache_creation_tokens": 143518,
+    "cache_read_tokens": 6821270,
+    "output_tokens": 55177,
+    "api_call_count": 61
+  }
+}
