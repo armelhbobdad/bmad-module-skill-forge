@@ -3,7 +3,7 @@
   "checkpoint_id": "f26662d8d99f",
   "strategy": "manual-commit",
   "branch": "feat/release-workflow",
-  "checkpoints_count": 3,
+  "checkpoints_count": 5,
   "files_touched": [
     ".github/workflows/release.yaml"
   ],
@@ -14,13 +14,20 @@
       "context": "/f2/6662d8d99f/0/context.md",
       "content_hash": "/f2/6662d8d99f/0/content_hash.txt",
       "prompt": "/f2/6662d8d99f/0/prompt.txt"
+    },
+    {
+      "metadata": "/f2/6662d8d99f/1/metadata.json",
+      "transcript": "/f2/6662d8d99f/1/full.jsonl",
+      "context": "/f2/6662d8d99f/1/context.md",
+      "content_hash": "/f2/6662d8d99f/1/content_hash.txt",
+      "prompt": "/f2/6662d8d99f/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 148,
-    "cache_creation_tokens": 346484,
-    "cache_read_tokens": 14513058,
-    "output_tokens": 92101,
-    "api_call_count": 104
+    "input_tokens": 240,
+    "cache_creation_tokens": 442588,
+    "cache_read_tokens": 17668492,
+    "output_tokens": 127588,
+    "api_call_count": 147
   }
 }
