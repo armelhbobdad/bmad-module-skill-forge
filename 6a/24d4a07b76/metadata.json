@@ -3,7 +3,7 @@
   "checkpoint_id": "6a24d4a07b76",
   "strategy": "manual-commit",
   "branch": "feat/release-workflow",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     "CONTRIBUTING.md",
     "package.json"
@@ -15,13 +15,20 @@
       "context": "/6a/24d4a07b76/0/context.md",
       "content_hash": "/6a/24d4a07b76/0/content_hash.txt",
       "prompt": "/6a/24d4a07b76/0/prompt.txt"
+    },
+    {
+      "metadata": "/6a/24d4a07b76/1/metadata.json",
+      "transcript": "/6a/24d4a07b76/1/full.jsonl",
+      "context": "/6a/24d4a07b76/1/context.md",
+      "content_hash": "/6a/24d4a07b76/1/content_hash.txt",
+      "prompt": "/6a/24d4a07b76/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 43,
-    "cache_creation_tokens": 158481,
-    "cache_read_tokens": 2719654,
-    "output_tokens": 33173,
-    "api_call_count": 33
+    "input_tokens": 341,
+    "cache_creation_tokens": 728691,
+    "cache_read_tokens": 29858966,
+    "output_tokens": 154400,
+    "api_call_count": 191
   }
 }
