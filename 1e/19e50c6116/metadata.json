@@ -5,7 +5,13 @@
   "branch": "feat/v1-readiness-audit",
   "checkpoints_count": 4,
   "files_touched": [
-    "docs/RELEASING.md"
+    ".github/workflows/release.yaml",
+    "CHANGELOG.md",
+    "docs/RELEASING.md",
+    "docs/STABILITY.md",
+    "docs/v1.0.0-launch-audit.md",
+    "tools/cli/commands/install.js",
+    "website/astro.config.mjs"
   ],
   "sessions": [
     {
@@ -21,13 +27,20 @@
       "context": "/1e/19e50c6116/1/context.md",
       "content_hash": "/1e/19e50c6116/1/content_hash.txt",
       "prompt": "/1e/19e50c6116/1/prompt.txt"
+    },
+    {
+      "metadata": "/1e/19e50c6116/2/metadata.json",
+      "transcript": "/1e/19e50c6116/2/full.jsonl",
+      "context": "/1e/19e50c6116/2/context.md",
+      "content_hash": "/1e/19e50c6116/2/content_hash.txt",
+      "prompt": "/1e/19e50c6116/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 6102,
-    "cache_creation_tokens": 340000,
-    "cache_read_tokens": 9944482,
-    "output_tokens": 89855,
-    "api_call_count": 92
+    "input_tokens": 6177,
+    "cache_creation_tokens": 636230,
+    "cache_read_tokens": 17622970,
+    "output_tokens": 134912,
+    "api_call_count": 157
   }
 }
