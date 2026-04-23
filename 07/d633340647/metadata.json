@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "07d633340647",
+  "strategy": "manual-commit",
+  "branch": "fix/release-wait-check-runs-direct-poll",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".github/workflows/release.yaml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/07/d633340647/0/metadata.json",
+      "transcript": "/07/d633340647/0/full.jsonl",
+      "context": "/07/d633340647/0/context.md",
+      "content_hash": "/07/d633340647/0/content_hash.txt",
+      "prompt": "/07/d633340647/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 77,
+    "cache_creation_tokens": 146663,
+    "cache_read_tokens": 1815438,
+    "output_tokens": 15484,
+    "api_call_count": 24
+  }
+}
