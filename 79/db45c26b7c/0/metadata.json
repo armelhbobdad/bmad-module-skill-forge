@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "79db45c26b7c",
+  "session_id": "4dbf34d0-e29e-4cef-b432-46c919c71ce0",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-23T13:28:51.082138981Z",
+  "branch": "fix/release-pr-auto-merge-hardening",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".github/workflows/release.yaml",
+    "docs/RELEASING.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "228e1da5fb9d",
+  "token_usage": {
+    "input_tokens": 74,
+    "cache_creation_tokens": 241002,
+    "cache_read_tokens": 7609472,
+    "output_tokens": 83107,
+    "api_call_count": 59
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-23T13:28:50.568747628Z",
+    "agent_lines": 152,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 152,
+    "agent_percentage": 100
+  }
+}
