@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "1e19e50c6116",
+  "strategy": "manual-commit",
+  "branch": "feat/v1-readiness-audit",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/RELEASING.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/1e/19e50c6116/0/metadata.json",
+      "transcript": "/1e/19e50c6116/0/full.jsonl",
+      "context": "/1e/19e50c6116/0/context.md",
+      "content_hash": "/1e/19e50c6116/0/content_hash.txt",
+      "prompt": "/1e/19e50c6116/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 46,
+    "cache_creation_tokens": 193627,
+    "cache_read_tokens": 3692594,
+    "output_tokens": 44522,
+    "api_call_count": 37
+  }
+}
