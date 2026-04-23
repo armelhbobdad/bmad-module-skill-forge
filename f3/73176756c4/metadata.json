@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "f373176756c4",
+  "strategy": "manual-commit",
+  "branch": "feat/v1-install-smoke-workflow",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".github/workflows/install-smoke.yaml",
+    "docs/RELEASING.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f3/73176756c4/0/metadata.json",
+      "transcript": "/f3/73176756c4/0/full.jsonl",
+      "context": "/f3/73176756c4/0/context.md",
+      "content_hash": "/f3/73176756c4/0/content_hash.txt",
+      "prompt": "/f3/73176756c4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1958,
+    "cache_creation_tokens": 131758,
+    "cache_read_tokens": 2090819,
+    "output_tokens": 14113,
+    "api_call_count": 28
+  }
+}
