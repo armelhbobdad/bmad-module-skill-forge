@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "6e679307d88b",
+  "session_id": "4793982f-3366-49e6-95eb-1e3375189b6a",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-23T11:07:31.632450828Z",
+  "branch": "feat/release-pr-auto-merge",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/RELEASING.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "a71474a4465f",
+  "token_usage": {
+    "input_tokens": 6056,
+    "cache_creation_tokens": 146373,
+    "cache_read_tokens": 6251888,
+    "output_tokens": 45333,
+    "api_call_count": 55
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-23T11:07:31.176549656Z",
+    "agent_lines": 0,
+    "human_added": 224,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 224,
+    "agent_percentage": 0
+  }
+}

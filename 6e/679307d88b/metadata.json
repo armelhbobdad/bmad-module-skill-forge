@@ -3,7 +3,7 @@
   "checkpoint_id": "6e679307d88b",
   "strategy": "manual-commit",
   "branch": "feat/release-pr-auto-merge",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "docs/RELEASING.md"
   ],
@@ -14,13 +14,20 @@
       "context": "/6e/679307d88b/0/context.md",
       "content_hash": "/6e/679307d88b/0/content_hash.txt",
       "prompt": "/6e/679307d88b/0/prompt.txt"
+    },
+    {
+      "metadata": "/6e/679307d88b/1/metadata.json",
+      "transcript": "/6e/679307d88b/1/full.jsonl",
+      "context": "/6e/679307d88b/1/context.md",
+      "content_hash": "/6e/679307d88b/1/content_hash.txt",
+      "prompt": "/6e/679307d88b/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 46,
-    "cache_creation_tokens": 193627,
-    "cache_read_tokens": 3692594,
-    "output_tokens": 44522,
-    "api_call_count": 37
+    "input_tokens": 6102,
+    "cache_creation_tokens": 340000,
+    "cache_read_tokens": 9944482,
+    "output_tokens": 89855,
+    "api_call_count": 92
   }
 }
