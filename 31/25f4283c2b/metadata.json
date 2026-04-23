@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "3125f4283c2b",
+  "strategy": "manual-commit",
+  "branch": "feat/v1-install-smoke-review-patches",
+  "checkpoints_count": 6,
+  "files_touched": [
+    ".github/workflows/install-smoke.yaml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/31/25f4283c2b/0/metadata.json",
+      "transcript": "/31/25f4283c2b/0/full.jsonl",
+      "context": "/31/25f4283c2b/0/context.md",
+      "content_hash": "/31/25f4283c2b/0/content_hash.txt",
+      "prompt": "/31/25f4283c2b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 2223,
+    "cache_creation_tokens": 241984,
+    "cache_read_tokens": 17897258,
+    "output_tokens": 77111,
+    "api_call_count": 143
+  }
+}

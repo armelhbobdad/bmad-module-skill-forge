@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "3125f4283c2b",
+  "session_id": "cdfcc02f-d808-4660-ae34-0376a10227cf",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-23T21:00:54.000616788Z",
+  "branch": "feat/v1-install-smoke-review-patches",
+  "checkpoints_count": 6,
+  "files_touched": [
+    ".github/workflows/install-smoke.yaml"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "9806d1b01ae6",
+  "token_usage": {
+    "input_tokens": 2223,
+    "cache_creation_tokens": 241984,
+    "cache_read_tokens": 17897258,
+    "output_tokens": 77111,
+    "api_call_count": 143
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-23T21:00:53.258909111Z",
+    "agent_lines": 0,
+    "human_added": 80,
+    "human_modified": 3,
+    "human_removed": 0,
+    "total_committed": 80,
+    "agent_percentage": 0
+  }
+}
