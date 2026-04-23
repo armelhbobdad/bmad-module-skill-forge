@@ -3,9 +3,11 @@
   "checkpoint_id": "79766833c461",
   "strategy": "manual-commit",
   "branch": "feat/v1-readiness-audit",
-  "checkpoints_count": 3,
+  "checkpoints_count": 8,
   "files_touched": [
-    "docs/RELEASING.md"
+    "docs/RELEASING.md",
+    "release-audits/v1.0.0-launch-audit.md",
+    "tools/cli/commands/update.js"
   ],
   "sessions": [
     {
@@ -28,13 +30,20 @@
       "context": "/79/766833c461/2/context.md",
       "content_hash": "/79/766833c461/2/content_hash.txt",
       "prompt": "/79/766833c461/2/prompt.txt"
+    },
+    {
+      "metadata": "/79/766833c461/3/metadata.json",
+      "transcript": "/79/766833c461/3/full.jsonl",
+      "context": "/79/766833c461/3/context.md",
+      "content_hash": "/79/766833c461/3/content_hash.txt",
+      "prompt": "/79/766833c461/3/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 6120,
-    "cache_creation_tokens": 362310,
-    "cache_read_tokens": 13136506,
-    "output_tokens": 107220,
-    "api_call_count": 110
+    "input_tokens": 6236,
+    "cache_creation_tokens": 561742,
+    "cache_read_tokens": 21965914,
+    "output_tokens": 182653,
+    "api_call_count": 171
   }
 }
