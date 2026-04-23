@@ -5,6 +5,7 @@
   "branch": "feat/release-pr-auto-merge",
   "checkpoints_count": 2,
   "files_touched": [
+    ".github/workflows/release.yaml",
     "docs/RELEASING.md"
   ],
   "sessions": [
@@ -21,13 +22,20 @@
       "context": "/6e/679307d88b/1/context.md",
       "content_hash": "/6e/679307d88b/1/content_hash.txt",
       "prompt": "/6e/679307d88b/1/prompt.txt"
+    },
+    {
+      "metadata": "/6e/679307d88b/2/metadata.json",
+      "transcript": "/6e/679307d88b/2/full.jsonl",
+      "context": "/6e/679307d88b/2/context.md",
+      "content_hash": "/6e/679307d88b/2/content_hash.txt",
+      "prompt": "/6e/679307d88b/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 6102,
-    "cache_creation_tokens": 340000,
-    "cache_read_tokens": 9944482,
-    "output_tokens": 89855,
-    "api_call_count": 92
+    "input_tokens": 6148,
+    "cache_creation_tokens": 533467,
+    "cache_read_tokens": 12907178,
+    "output_tokens": 132884,
+    "api_call_count": 123
   }
 }
