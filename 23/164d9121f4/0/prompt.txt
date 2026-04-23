@@ -1,0 +1,43 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-code-review
+
+Follow the instructions in ./workflow.md.
+
+
+ARGUMENTS: 5-2
+
+---
+
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-code-review
+
+Follow the instructions in ./workflow.md.
+
+
+ARGUMENTS: 5-2
+
+---
+
+Y
+
+---
+
+what is the best move?
+
+---
+
+proceed
+
+---
+
+what is the best move?
+
+---
+
+0
+
+---
+
+proceed
+
+---
+
+1

@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "23164d9121f4",
+  "session_id": "6c6f8d49-086a-4abc-9726-0e3f8f9fb3fd",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-23T17:26:57.124515472Z",
+  "branch": "feat/v1-rc3-review-patches",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "release-audits/v1.0.0-launch-audit.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "944bd93e8cf2",
+  "token_usage": {
+    "input_tokens": 3806,
+    "cache_creation_tokens": 151827,
+    "cache_read_tokens": 8048879,
+    "output_tokens": 55975,
+    "api_call_count": 70
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-23T17:26:56.660092734Z",
+    "agent_lines": 46,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 46,
+    "agent_percentage": 100
+  }
+}
