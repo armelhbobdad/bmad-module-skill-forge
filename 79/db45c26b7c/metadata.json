@@ -3,7 +3,7 @@
   "checkpoint_id": "79db45c26b7c",
   "strategy": "manual-commit",
   "branch": "fix/release-pr-auto-merge-hardening",
-  "checkpoints_count": 2,
+  "checkpoints_count": 7,
   "files_touched": [
     ".github/workflows/release.yaml",
     "docs/RELEASING.md"
@@ -15,13 +15,20 @@
       "context": "/79/db45c26b7c/0/context.md",
       "content_hash": "/79/db45c26b7c/0/content_hash.txt",
       "prompt": "/79/db45c26b7c/0/prompt.txt"
+    },
+    {
+      "metadata": "/79/db45c26b7c/1/metadata.json",
+      "transcript": "/79/db45c26b7c/1/full.jsonl",
+      "context": "/79/db45c26b7c/1/context.md",
+      "content_hash": "/79/db45c26b7c/1/content_hash.txt",
+      "prompt": "/79/db45c26b7c/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 74,
-    "cache_creation_tokens": 241002,
-    "cache_read_tokens": 7609472,
-    "output_tokens": 83107,
-    "api_call_count": 59
+    "input_tokens": 2079,
+    "cache_creation_tokens": 382047,
+    "cache_read_tokens": 13947260,
+    "output_tokens": 146603,
+    "api_call_count": 117
   }
 }
