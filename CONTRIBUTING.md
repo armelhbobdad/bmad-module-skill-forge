@@ -83,7 +83,6 @@ Maintainers only — if you're not cutting a release, skip this section.
 
 - **Canonical path:** `.github/workflows/release.yaml`, triggered via GitHub Actions → Run workflow → choose `version_bump` (`alpha` / `beta` / `rc` / `patch` / `minor` / `major`). That is the only supported route — OIDC-backed publish, required-reviewer gate on the `release` environment, auto-provenance on the npm tarball.
 - **Do not use `npm run release:*` locally.** Every `release:*` script (plus the bare `release` alias) is retained only as a fail-loud stub: it prints a `[DEPRECATED]` warning pointing at the canonical path and exits 1. The stubs exist to catch muscle-memory `npm run release` invocations before they ship anything; a post-v1.0.0 cleanup pass removes them outright.
-- **Do not invoke `publish.yaml` or `manual-release.yaml` directly.** Both are DEPRECATED (see each workflow's top-of-file comment header) and scheduled for deletion as part of that same post-v1.0.0 cleanup.
 
 See [docs/RELEASING.md](docs/RELEASING.md) for the full procedure — branch-protection rules, the `release` environment with its required-reviewer gate, npm Trusted Publisher registration, and the seven-scenario [rollback playbook](docs/RELEASING.md#rollback-playbook).
 

@@ -174,7 +174,7 @@ The future `release.yaml` workflow (Story 3.1) publishes to npm via **OIDC trust
 
 **Pre-registration inversion.** This entry was registered **before** `release.yaml` was authored (Story 3.1). The first live validator of the full OIDC chain is Story 3.2's alpha cut. If that cut's publish step 404s, open a **three-way comparison**: (1) the npm Settings tab, (2) the workflow YAML's `name` / `on` / `jobs.<id>.environment` lines, and (3) the Registered table above. The table is the ground truth because it captured the values at npm-save time — compare both the npm record and the workflow header against the table, never the workflow against itself (verifying the workflow against its own header will silently confirm a typo).
 
-**`NPM_TOKEN` is a legacy residual, not a safety net.** The token remains at repo-level secrets for two reasons: (a) the legacy `publish.yaml` still uses it until Story 3.3 retires that path, and (b) Story 6.3 deletes the secret entirely post-v1.0.0. Treat its continued presence as attack surface to minimize, not defence-in-depth — a repo-scope token is reachable from any workflow with `secrets.*` access. The token does NOT sit "behind" OIDC: `release.yaml` does not yet exist, so there is no OIDC path for it to be a fallback to. If a future OIDC incident forces a last-resort token-based re-publish, document the flip in the commit body and revert as soon as OIDC is restored.
+**`NPM_TOKEN` is a legacy residual, not a safety net.** The token remains at repo-level secrets only because Story 6.3 has not yet removed it; no workflow on `main` consumes it. Treat its continued presence as attack surface to minimize, not defence-in-depth — a repo-scope token is reachable from any workflow with `secrets.*` access. The token does NOT sit "behind" OIDC as a fallback: `release.yaml` authenticates via Trusted Publisher OIDC and never reads `NPM_TOKEN`. If a future OIDC incident forces a last-resort token-based re-publish, document the flip in the commit body and revert as soon as OIDC is restored.
 
 **Fixing a bad registration.** The npm UI exposes both **Edit** and **Delete** on an existing Trusted Publisher entry (observed 2026-04-20). Prefer edit for a single-field typo; prefer delete-and-re-add if multiple fields are wrong or the edit form ever feels ambiguous. **Pre-Story 3.2**: there is no destructive side effect because no publish is attempted yet, and delete-and-re-add keeps the audit trail cleaner. **Post-Story 3.2**: a publish that fires during the delete-and-re-add window will 404 — gate any delete-and-re-add behind a manual publish freeze (pause any active `release.yaml` runs, confirm no tags are in-flight) before touching the entry.
 
@@ -465,29 +465,16 @@ Placeholder substitutions used throughout:
   grep -l 'id-token: write' .github/workflows/*.{yaml,yml} 2>/dev/null
   # expected set:
   #   - docs.yaml (GitHub Pages — orthogonal to release)
-  #   - publish.yaml (DEPRECATED — kept until Story 6.1 deletes it; workflow_dispatch-only,
-  #                   surviving as the Scenario G emergency hatch)
   #   - release.yaml (canonical)
 
-  # No `v*` push trigger should exist in any workflow — release.yaml is workflow_dispatch-only,
-  # and publish.yaml had its push:tags:v* trigger neutralized in Story 3.3 Patch A.
+  # No `v*` push trigger should exist in any workflow — release.yaml is workflow_dispatch-only.
   # Scan the 3 lines following each `push:` block for a v* tag pattern.
   grep -A3 -E '^\s*push:' .github/workflows/*.{yaml,yml} 2>/dev/null \
     | grep -E "['\"]v\*['\"]"
   # expected: zero matches.
   ```
 
-- **Escalation path — emergency hatch.** If Scenario G is detected mid-incident when a release is urgently needed, the legacy `.github/workflows/publish.yaml` retains `workflow_dispatch:` as an emergency hatch (NPM_TOKEN still at repo scope until Story 6.3). Invoke via:
-
-  ```bash
-  gh workflow run publish.yaml
-  ```
-
-  Read the next two paragraphs **before** dispatching:
-  - **Auth vs. provenance — they are independent.** `publish.yaml` authenticates to npm with `NODE_AUTH_TOKEN=${{ secrets.NPM_TOKEN }}` (token-based; NOT OIDC trusted publishing — that path is `release.yaml`-only). However, the workflow also has `id-token: write` permission and calls `npm publish --provenance`, so npm WILL attach a SLSA-L2 provenance attestation derived from the GitHub Actions OIDC token. Provenance is independent of the auth-to-npm path. The trade-off is auth lineage (token vs. trusted-publisher OIDC), not attestation presence.
-  - **State divergence — `publish.yaml` does NOT bump version, push the `v*` tag, update `CHANGELOG.md`, or create a GitHub Release.** It only runs `npm publish` against whatever `package.json` is at HEAD of the dispatched ref. Every emergency-hatch use therefore leaves npm + git state diverged and requires a Scenario E-style reconciliation afterward: bump `package.json` manually on `main` (so the next release does not collide), then recreate the tag and GitHub Release per Scenario E.
-
-  Document every emergency-hatch use in an incident post-mortem, and re-enable `release.yaml` before the next release. This fallback disappears when Story 6.1 deletes `publish.yaml`.
+- **Escalation path — PR-revert only.** There is no out-of-band emergency hatch. Recovery flows exclusively through the Case 2 PR-revert path above: revert the offending workflow change via `gh pr revert`, merge through branch protection, then retry the release via `release.yaml`. Every release threads through branch protection + code review + OIDC Trusted Publisher, matching NFR2 and NFR3.
 
 - **Constraints.** Branch protection on `main` blocks direct pushes — recovery goes through a PR in every case. Do not attempt to sidestep branch protection to "fix" `release.yaml` faster; the cost of a bad release (NFR5 audit-trail breakage, NFR10 commit-trail breakage) far exceeds the cost of a normal-review PR.
 
