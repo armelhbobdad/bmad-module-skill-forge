@@ -5,7 +5,8 @@
   "branch": "feat/v1-cleanup-release-scripts",
   "checkpoints_count": 2,
   "files_touched": [
-    "CONTRIBUTING.md"
+    "CONTRIBUTING.md",
+    "package.json"
   ],
   "sessions": [
     {
@@ -14,13 +15,20 @@
       "context": "/9d/4113d344fd/0/context.md",
       "content_hash": "/9d/4113d344fd/0/content_hash.txt",
       "prompt": "/9d/4113d344fd/0/prompt.txt"
+    },
+    {
+      "metadata": "/9d/4113d344fd/1/metadata.json",
+      "transcript": "/9d/4113d344fd/1/full.jsonl",
+      "context": "/9d/4113d344fd/1/context.md",
+      "content_hash": "/9d/4113d344fd/1/content_hash.txt",
+      "prompt": "/9d/4113d344fd/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 78,
-    "cache_creation_tokens": 166494,
-    "cache_read_tokens": 6442350,
-    "output_tokens": 38263,
-    "api_call_count": 69
+    "input_tokens": 112,
+    "cache_creation_tokens": 292630,
+    "cache_read_tokens": 8108338,
+    "output_tokens": 51565,
+    "api_call_count": 94
   }
 }
