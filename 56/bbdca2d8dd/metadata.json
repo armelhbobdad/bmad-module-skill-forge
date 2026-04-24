@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "56bbdca2d8dd",
+  "strategy": "manual-commit",
+  "branch": "fix/audit-skill-workflow-gaps",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-audit-skill/steps-c/step-01-init.md",
+    "src/skf-audit-skill/steps-c/step-06-report.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/56/bbdca2d8dd/0/metadata.json",
+      "transcript": "/56/bbdca2d8dd/0/full.jsonl",
+      "context": "/56/bbdca2d8dd/0/context.md",
+      "content_hash": "/56/bbdca2d8dd/0/content_hash.txt",
+      "prompt": "/56/bbdca2d8dd/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 53,
+    "cache_creation_tokens": 156393,
+    "cache_read_tokens": 3056087,
+    "output_tokens": 31080,
+    "api_call_count": 39
+  }
+}
