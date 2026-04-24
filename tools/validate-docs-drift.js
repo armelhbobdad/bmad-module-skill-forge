@@ -5,6 +5,9 @@
  * every version number, commit SHA, and library reference the docs cite.
  *
  * What it checks:
+ * - The anchor `skf_version` matches `package.json.version` (self-reference invariant
+ *   declared in pinned.yaml's header; enforced here at CI/pre-commit time AND bumped
+ *   by release.yaml on every release)
  * - Every skill listed in `docs/_data/pinned.yaml` actually exists at the
  *   claimed version and commit in $OMS/skills/<name>/<version>/<name>/metadata.json
  * - The metadata.json `version` field matches the anchor `version`
@@ -32,6 +35,7 @@ const yaml = require('js-yaml');
 const SKF_ROOT = path.resolve(__dirname, '..');
 const DOCS_DIR = path.join(SKF_ROOT, 'docs');
 const ANCHORS_PATH = path.join(DOCS_DIR, '_data', 'pinned.yaml');
+const PACKAGE_JSON_PATH = path.join(SKF_ROOT, 'package.json');
 
 function loadAnchors() {
   if (!fs.existsSync(ANCHORS_PATH)) {
@@ -44,6 +48,38 @@ function loadAnchors() {
     console.error(`error: could not parse ${ANCHORS_PATH}: ${error.message}`);
     process.exit(2);
   }
+}
+
+function checkSkfVersionAgainstPackageJson(anchors) {
+  const errors = [];
+  if (!fs.existsSync(PACKAGE_JSON_PATH)) {
+    errors.push(`CRITICAL: package.json not found at ${PACKAGE_JSON_PATH}`);
+    return errors;
+  }
+  let pkg;
+  try {
+    pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, 'utf8'));
+  } catch (error) {
+    errors.push(`CRITICAL: could not parse ${PACKAGE_JSON_PATH}: ${error.message}`);
+    return errors;
+  }
+  const anchorVersion = anchors.skf_version;
+  const packageVersion = pkg.version;
+  if (!anchorVersion) {
+    errors.push(`MISSING_ANCHOR: pinned.yaml has no skf_version key`);
+    return errors;
+  }
+  if (!packageVersion) {
+    errors.push(`MISSING_PKG_VERSION: package.json has no version field`);
+    return errors;
+  }
+  if (anchorVersion !== packageVersion) {
+    errors.push(
+      `SKF_VERSION_DRIFT: pinned.yaml skf_version "${anchorVersion}" !== package.json version "${packageVersion}" ` +
+        `— bump pinned.yaml or check that release.yaml's "Update pinned.yaml skf_version" step fired`,
+    );
+  }
+  return errors;
 }
 
 function resolveOmsPath(anchors) {
@@ -172,7 +208,11 @@ function main() {
   const anchors = loadAnchors();
   const omsPath = resolveOmsPath(anchors);
 
-  const errors = [...checkCanonicalFiles(anchors, omsPath), ...checkDocsForStaleVersions(anchors)];
+  const errors = [
+    ...checkSkfVersionAgainstPackageJson(anchors),
+    ...checkCanonicalFiles(anchors, omsPath),
+    ...checkDocsForStaleVersions(anchors),
+  ];
 
   if (errors.length > 0) {
     console.error('DRIFT DETECTED:\n');
@@ -186,7 +226,7 @@ function main() {
   }
 
   const skillCount = Object.keys(anchors.skills).length;
-  console.log(`OK: ${skillCount} skills checked against ${omsPath}, no drift.`);
+  console.log(`OK: skf_version ${anchors.skf_version} matches package.json; ${skillCount} skills checked against ${omsPath}, no drift.`);
   process.exit(0);
 }
 
