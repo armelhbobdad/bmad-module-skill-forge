@@ -1,0 +1,9 @@
+can we have and animated skill forge logo in the @README.md ? A production ready well crafted by the top 1% SVG animator engineer in the world.
+
+---
+
+will it be good to have it in doc header logo?
+
+---
+
+create a new branch, commit, push and open a PR

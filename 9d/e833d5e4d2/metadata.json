@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "9de833d5e4d2",
+  "strategy": "manual-commit",
+  "branch": "docs/animated-readme-logo",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "website/public/img/skf-logo-animated.svg"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9d/e833d5e4d2/0/metadata.json",
+      "transcript": "/9d/e833d5e4d2/0/full.jsonl",
+      "context": "/9d/e833d5e4d2/0/context.md",
+      "content_hash": "/9d/e833d5e4d2/0/content_hash.txt",
+      "prompt": "/9d/e833d5e4d2/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 26,
+    "cache_creation_tokens": 46920,
+    "cache_read_tokens": 544723,
+    "output_tokens": 17252,
+    "api_call_count": 11
+  }
+}
