@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "8201bc069a74",
+  "session_id": "5ed9f5ff-3132-461d-ab9d-82ad2068a401",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-24T20:29:38.039633795Z",
+  "branch": "fix/lock-pinned-skf-version-to-package-json",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".github/workflows/release.yaml"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "d8a9b4b1c60d",
+  "token_usage": {
+    "input_tokens": 90,
+    "cache_creation_tokens": 307511,
+    "cache_read_tokens": 9370756,
+    "output_tokens": 59846,
+    "api_call_count": 51
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-24T20:29:36.65678348Z",
+    "agent_lines": 0,
+    "human_added": 67,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 67,
+    "agent_percentage": 0
+  }
+}
