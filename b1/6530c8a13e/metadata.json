@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "b16530c8a13e",
+  "strategy": "manual-commit",
+  "branch": "fix/test-skill-fence-strip-235",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-test-skill/steps-c/step-03-coverage-check.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b1/6530c8a13e/0/metadata.json",
+      "transcript": "/b1/6530c8a13e/0/full.jsonl",
+      "context": "/b1/6530c8a13e/0/context.md",
+      "content_hash": "/b1/6530c8a13e/0/content_hash.txt",
+      "prompt": "/b1/6530c8a13e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 22,
+    "cache_creation_tokens": 48810,
+    "cache_read_tokens": 664173,
+    "output_tokens": 8794,
+    "api_call_count": 13
+  }
+}

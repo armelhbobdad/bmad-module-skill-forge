@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "b16530c8a13e",
+  "session_id": "87e8a265-dfe9-4f2b-9cbb-4806a69261c6",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-24T23:30:52.818994189Z",
+  "branch": "fix/test-skill-fence-strip-235",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-test-skill/steps-c/step-03-coverage-check.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "2700571e2ba9",
+  "token_usage": {
+    "input_tokens": 22,
+    "cache_creation_tokens": 48810,
+    "cache_read_tokens": 664173,
+    "output_tokens": 8794,
+    "api_call_count": 13
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-24T23:30:52.592708402Z",
+    "agent_lines": 1,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1,
+    "agent_percentage": 100
+  }
+}
