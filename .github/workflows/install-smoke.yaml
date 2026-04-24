@@ -1,0 +1,73 @@
+# Post-publish install smoke test (NFR9 cross-platform verification).
+#
+# Purpose: verify a published `bmad-module-skill-forge` version resolves and
+# executes cleanly on ubuntu-latest + windows-latest + macos-latest by running
+# `npx --yes bmad-module-skill-forge@<version> --version` on each runner.
+#
+# Trigger: `workflow_dispatch` — run manually after a release (e.g. `latest`,
+# `rc`, `alpha`, or an explicit version like `1.0.0`). NOT coupled to
+# `release.yaml`; runs against the published npm tarball, not the repo source.
+#
+# Expected use: the maintainer dispatches this workflow within 1 hour after a
+# cut per NFR9; results feed the matching release audit artifact's
+# `## Story <N> Post-Publish Verification § Matrix results` table.
+#
+# Why `--version` and not `install` / `status`: the interactive `install`
+# subcommand multiselect prompt is not pipe-able from CI stdin (issue #211);
+# `status` and `uninstall` depend on prior install state. `--version` is the
+# maximum-portable smoke check — it proves the npm tarball resolves, the
+# `bin` wrapper (`tools/skf-npx-wrapper.js`) is executable with the correct
+# shebang, Node can load the CLI entrypoint, commander dispatch works, and
+# `package.json.version` is readable at runtime. That covers the common
+# cross-platform regression vectors (tarball corruption, shebang issues,
+# bin-wrapper bugs, filesystem case-sensitivity) without TTY simulation.
+#
+# Node version coupling: `node-version: '22'` is hardcoded to match
+# `.nvmrc`. If `.nvmrc` advances to Node 23+, update this workflow in
+# lockstep.
+
+name: Install Smoke Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "npm dist-tag (latest / rc / alpha) or explicit version (e.g. 1.0.0)"
+        required: true
+        type: string
+        default: "latest"
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run npx bmad-module-skill-forge --version
+        shell: bash
+        env:
+          # Pass workflow_dispatch input via env (not `${{ inputs.version }}`
+          # interpolation in `run:`) to prevent GitHub Actions script injection.
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          OUTPUT="$(npx --yes "bmad-module-skill-forge@${VERSION}" --version)"
+          # Strip trailing CR that Windows Git Bash can leave on captured stdout
+          # so the semver assertion below is CR-insensitive.
+          OUTPUT="${OUTPUT//$'\r'/}"
+          echo "stdout: ${OUTPUT}"
+          if [[ ! "${OUTPUT}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::--version stdout '${OUTPUT}' is not a valid semver — smoke failed"
+            exit 1
+          fi

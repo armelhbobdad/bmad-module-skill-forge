@@ -16,7 +16,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join%20Community-7289da?logo=discord&logoColor=white)](https://discord.gg/gk8jAdXWmj)
 [![GitHub stars](https://img.shields.io/github/stars/armelhbobdad/bmad-module-skill-forge?style=social)](https://github.com/armelhbobdad/bmad-module-skill-forge/stargazers)
 
-*Skill Forge analyzes your code repositories, documentation, and developer discourse to build verified instruction files for AI agents. Every instruction links back to a specific file and line in the source it was compiled from.*
+_Skill Forge analyzes your code repositories, documentation, and developer discourse to build verified instruction files for AI agents. Every instruction links back to a specific file and line in the source it was compiled from._
 
 **If SKF fixes your agent's API guesses, give it a ⭐ — it helps others find this tool.**
 **If it saved you an afternoon, [grab me a coffee ☕](https://buymeacoffee.com/armelhbobdad) — it helps me keep forging.**
@@ -31,7 +31,7 @@ You ask an AI agent to use a library. It invents function names that don't exist
 
 This isn't an edge case. It's the default experience.
 
-For the full story behind SKF, read [*Hallucination has a line number*](https://medium.com/@armelhbobdad/hallucination-has-a-line-number-32209b4688de) on Medium.
+For the full story behind SKF, read [_Hallucination has a line number_](https://medium.com/@armelhbobdad/hallucination-has-a-line-number-32209b4688de) on Medium.
 
 ## Before vs After
 
@@ -72,8 +72,8 @@ You'll be prompted for project name, output folders, and IDE configuration. When
 
 ## Quick Start
 
-1. **Set up your environment:** `@Ferris SF` *(Setup Forge)* — detects your tools and sets your capability tier
-2. **Generate your first skill:** `@Ferris QS <package-name>` *(Quick Skill)* — creates a verified skill in under a minute
+1. **Set up your environment:** `@Ferris SF` _(Setup Forge)_ — detects your tools and sets your capability tier
+2. **Generate your first skill:** `@Ferris QS <package-name>` _(Quick Skill)_ — creates a verified skill in under a minute
 3. **Full quality path:** `@Ferris forge <your-library>` chains Brief → Create → Test → Export automatically — or run manually: `@Ferris BS` → clear session → `@Ferris CS` for maximum control
 
 > **Tip:** Start a fresh conversation before each workflow, or use pipeline mode to chain them automatically. SKF workflows load significant context; clearing between them prevents interference.
@@ -93,7 +93,7 @@ See the [workflows docs](https://armelhbobdad.github.io/bmad-module-skill-forge/
 A skeptical reader is probably already considering one of these alternatives:
 
 |                            | **Skill Forge**                           | MCP doc servers   | Hand-edited `.cursorrules` | awesome-\* lists |
-|----------------------------|-------------------------------------------|-------------------|----------------------------|------------------|
+| -------------------------- | ----------------------------------------- | ----------------- | -------------------------- | ---------------- |
 | Reproducible from source   | AST extraction + pinned commit            | varies; opaque    | whatever you wrote         | none             |
 | Version-pinned & immutable | yes — per-version directories             | runtime-dependent | rots silently              | no               |
 | Audit trail                | `provenance-map.json` + test + evidence   | depends on server | none                       | none             |
@@ -158,22 +158,34 @@ The docs are organized into three buckets — **Why** (start here), **Try** (do 
 
 SKF builds on these excellent open-source tools:
 
-| Tool                                                         | Role in SKF                                                        |
-|--------------------------------------------------------------|--------------------------------------------------------------------|
-| [agentskills.io](https://github.com/agentskills/agentskills) | Skill specification and ecosystem standard                         |
-| [GitHub CLI](https://cli.github.com/)                        | Source code access and repository intelligence (all tiers)         |
-| [ast-grep](https://github.com/ast-grep/ast-grep)             | AST-based structural code extraction (Forge/Forge+/Deep tiers)     |
-| [ast-grep MCP](https://github.com/ast-grep/ast-grep-mcp)     | MCP server for memory-efficient AST queries (recommended)          |
-| [cocoindex-code](https://github.com/cocoindex-io/cocoindex-code) | Semantic code search and file discovery pre-ranking (Forge+ tier)  |
-| [QMD](https://github.com/tobi/qmd)                           | Local hybrid search engine for knowledge indexing (Deep tier)      |
-| [skill-check](https://github.com/thedaviddias/skill-check)   | Skill validation, auto-fix, quality scoring, and security scanning |
-| [Snyk Agent Scan](https://github.com/snyk/agent-scan)   | Security scanning for prompt injection and data exposure (optional) |
-| [tessl](https://tessl.io)                                     | Content quality review, actionability scoring, and AI judge evaluation |
-| [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD)  | Agent-workflow framework that SKF extends as a module              |
+| Tool                                                             | Role in SKF                                                            |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| [agentskills.io](https://github.com/agentskills/agentskills)     | Skill specification and ecosystem standard                             |
+| [GitHub CLI](https://cli.github.com/)                            | Source code access and repository intelligence (all tiers)             |
+| [ast-grep](https://github.com/ast-grep/ast-grep)                 | AST-based structural code extraction (Forge/Forge+/Deep tiers)         |
+| [ast-grep MCP](https://github.com/ast-grep/ast-grep-mcp)         | MCP server for memory-efficient AST queries (recommended)              |
+| [cocoindex-code](https://github.com/cocoindex-io/cocoindex-code) | Semantic code search and file discovery pre-ranking (Forge+ tier)      |
+| [QMD](https://github.com/tobi/qmd)                               | Local hybrid search engine for knowledge indexing (Deep tier)          |
+| [skill-check](https://github.com/thedaviddias/skill-check)       | Skill validation, auto-fix, quality scoring, and security scanning     |
+| [Snyk Agent Scan](https://github.com/snyk/agent-scan)            | Security scanning for prompt injection and data exposure (optional)    |
+| [tessl](https://tessl.io)                                        | Content quality review, actionability scoring, and AI judge evaluation |
+| [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD)      | Agent-workflow framework that SKF extends as a module                  |
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## Changelog
+
+Past releases are documented in [CHANGELOG.md](CHANGELOG.md).
+
+## Versioning & Stability
+
+The v1.0.0 public API contract is documented in [docs/STABILITY.md](docs/STABILITY.md).
+
+## Release Process
+
+Maintainers: see [docs/RELEASING.md](docs/RELEASING.md) for branch-protection rules, required status checks, the [`release` environment with required-reviewer gate](docs/RELEASING.md#release-environment), the [npm Trusted Publisher registration](docs/RELEASING.md#npm-trusted-publisher) (OIDC-backed publish, auto-provenance), and the [rollback playbook](docs/RELEASING.md#rollback-playbook) covering seven failure scenarios.
 
 ## License
 

@@ -55,9 +55,10 @@ If `npm run quality` passes locally, CI should too. The same steps run in [`.git
    - `chore: ...` (no scope needed)
 
    `git log --oneline -20` is the authoritative style guide. Match what you see.
+
 3. **Reference issues with `Fixes #NNN`** in the PR body (and optionally in the commit trailer). Use **same-repo GitHub issue numbers only** — do not reference internal IDs under `_bmad-output/todo/` or elsewhere; those are author notes, not public contracts.
 4. **Pre-commit hooks run automatically** via husky + lint-staged: `eslint --fix`, `prettier --write`, and `markdownlint-cli2` on `.md` files. They run on staged files only.
-5. **PR description:** explain *why*. What was broken, what does this change, and how did you verify it? Keep it honest and short. The template in [.github/](.github/) is a starting point; ignore the sections that don't apply.
+5. **PR description:** explain _why_. What was broken, what does this change, and how did you verify it? Keep it honest and short. The template in [.github/](.github/) is a starting point; ignore the sections that don't apply.
 6. **If you used Claude (or any AI assistant)** to help write a non-trivial chunk of the change, add a `Co-Authored-By:` trailer to the commit — SKF's recent history uses the format:
 
    ```
@@ -75,6 +76,14 @@ If `npm run quality` passes locally, CI should too. The same steps run in [`.git
 - **If `docs:validate-drift` fails,** you either touched a pinned version/commit SHA that no longer resolves in [oh-my-skills](https://github.com/armelhbobdad/oh-my-skills), or you added a library reference the whitelist doesn't cover. Fix the reference; don't relax the validator unless the fix is clearly out of scope.
 
 CI re-runs everything on the PR. A green local run and a red CI run means either (a) you have uncommitted files, or (b) your Node/uv versions drift from `.nvmrc` / `test:python`. Check both before filing a CI bug.
+
+## Releasing
+
+Maintainers only — if you're not cutting a release, skip this section.
+
+- **Canonical path:** `.github/workflows/release.yaml`, triggered via GitHub Actions → Run workflow → choose `version_bump` (`alpha` / `beta` / `rc` / `patch` / `minor` / `major`). That is the only supported route — OIDC-backed publish, required-reviewer gate on the `release` environment, auto-provenance on the npm tarball.
+
+See [docs/RELEASING.md](docs/RELEASING.md) for the full procedure — branch-protection rules, the `release` environment with its required-reviewer gate, npm Trusted Publisher registration, and the seven-scenario [rollback playbook](docs/RELEASING.md#rollback-playbook).
 
 ## Adding a New Workflow Skill
 

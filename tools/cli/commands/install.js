@@ -23,6 +23,9 @@ module.exports = {
       if (result && result.success) {
         ui.displaySuccess(config.skfFolder, config.ides, config._action);
         process.exit(0);
+      } else {
+        console.error(chalk.red('\nInstallation failed.'));
+        process.exit(1);
       }
     } catch (error) {
       console.error(chalk.red('\nInstallation failed:'), error.message);

@@ -52,9 +52,11 @@ module.exports = {
         }
         const ui = new UI();
         ui.displaySuccess(SKF_FOLDER, ides, 'update');
+        process.exit(0);
+      } else {
+        console.error(chalk.red('\nUpdate failed.'));
+        process.exit(1);
       }
-
-      process.exit(0);
     } catch (error) {
       console.error(chalk.red('\nUpdate failed:'), error.message);
       process.exit(1);
