@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "6beb8e69c144",
+  "strategy": "manual-commit",
+  "branch": "fix/audit-skill-workflow-gaps",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-audit-skill/steps-c/step-03-structural-diff.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/6b/eb8e69c144/0/metadata.json",
+      "transcript": "/6b/eb8e69c144/0/full.jsonl",
+      "context": "/6b/eb8e69c144/0/context.md",
+      "content_hash": "/6b/eb8e69c144/0/content_hash.txt",
+      "prompt": "/6b/eb8e69c144/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 55,
+    "cache_creation_tokens": 158889,
+    "cache_read_tokens": 3284129,
+    "output_tokens": 31995,
+    "api_call_count": 41
+  }
+}
