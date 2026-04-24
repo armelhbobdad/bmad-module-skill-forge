@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "155350adbcbe",
+  "strategy": "manual-commit",
+  "branch": "fix/audit-skill-gaps-230-231",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-audit-skill/steps-c/step-05-severity-classify.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/15/5350adbcbe/0/metadata.json",
+      "transcript": "/15/5350adbcbe/0/full.jsonl",
+      "context": "/15/5350adbcbe/0/context.md",
+      "content_hash": "/15/5350adbcbe/0/content_hash.txt",
+      "prompt": "/15/5350adbcbe/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 21256,
+    "cache_read_tokens": 993291,
+    "output_tokens": 12176,
+    "api_call_count": 10
+  }
+}
