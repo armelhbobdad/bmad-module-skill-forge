@@ -47,7 +47,16 @@ Continue to section 2.
 ### 2. Query Original Knowledge Context
 
 Launch a subprocess (Pattern 3 — data operations) that:
-1. Read the `qmd_collections` registry from `{sidecar_path}/forge-tier.yaml`. Find the entry where `skill_name` matches `{skill_name}` AND `type` is `"extraction"`. Use the `name` field from that entry as the collection to query. If no matching entry exists, log: "No QMD extraction collection found for {skill_name}. Semantic diff skipped." → Auto-proceed to {nextStepFile}.
+1. Read the `qmd_collections` registry from `{sidecar_path}/forge-tier.yaml`. Find the entry where `skill_name` matches `{skill_name}` AND `type` is `"extraction"`. Three cases must be handled distinctly — collapsing them into "found vs. not found" silently degrades semantic diff when a collection is registered but never indexed.
+
+   - **Registry entry missing.** Log: "No QMD extraction collection found for `{skill_name}`. Semantic diff skipped." → Auto-proceed to {nextStepFile}.
+   - **Registry entry present but collection empty.** Run a pre-query probe — `qmd ls {collection_name}` (CLI) or the equivalent MCP call. If it reports zero files (`Files: 0 (updated never)` or an empty listing), the collection is registered but has never been indexed. Do **not** proceed to querying — queries will return nothing and the step would silently degrade.
+     - Log: "QMD collection `{collection_name}` is registered but empty. Run `qmd update` to (re-)index `{collection.path}`, then re-audit for full Deep-tier semantic coverage."
+     - Fall through to the **direct-content fallback** below instead of skipping outright.
+   - **Registry entry present and populated.** Use the `name` field from the registry entry as the collection to query. Proceed to bullet 2.
+
+   **Direct-content fallback** (used when the collection is registered but empty): load `SKILL.md` and `references/*.md` from the audited skill, then spot-check each documented export against the current source tree under `{source_root}` using the Deep-tier AST tooling this step already requires (ast_bridge; see step-02 §1 "Deep tier"). This fallback is reachable only from Deep tier — §1 short-circuits Quick/Forge/Forge+ before §2 runs, so AST tooling is guaranteed available here. Record findings with confidence label `T1-low-fallback` rather than T2 — this is direct content inspection, not QMD-backed semantic analysis. The step's output schema is otherwise unchanged; set `qmd_collection = null` in the Semantic Drift header and annotate: "Semantic diff ran in direct-content fallback mode — QMD collection was registered but empty."
+
 2. Queries for knowledge context around each export documented in the skill
 3. Retrieves: usage patterns, conventions, architectural context, dependency relationships
 4. Returns structured findings to parent

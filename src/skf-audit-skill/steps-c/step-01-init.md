@@ -104,11 +104,71 @@ If `{legacy_stack_provenance}` is true: log a note that this stack uses v1 prove
 **If provenance map loaded:**
 - Use `source_root` from provenance map as source code path
 - Verify source path still exists and is accessible
+- Extract `baseline_commit` = `provenance-map.source_commit` (fall back to `metadata.source_commit` if absent from the provenance map)
+- Extract `baseline_ref` = `metadata.source_ref` (may be a tag, branch, `HEAD`, or `"local"`)
 
 **If degraded mode:**
 - Ask user: "Please provide the path to the current source code."
+- `baseline_commit` and `baseline_ref` are unavailable — §5b will short-circuit
 
 **Validate:** Confirm source directory exists and contains expected files.
+
+### 5b. Detect Upstream Drift
+
+Upstream drift detection is the primary use case of this workflow. If the local clone is still pinned to the baseline commit while upstream has shipped newer tags, auditing against the unchanged tree will misleadingly report CLEAN even after a major release.
+
+**Skip this section** if any of the following hold:
+- `baseline_ref` is `"local"`, `null`, or unset (non-git source)
+- `{source_root}` is not a git worktree (`git -C {source_root} rev-parse --git-dir` fails)
+- `baseline_commit` is unavailable
+- Degraded mode is active (no provenance map)
+
+When skipping, log the reason, then set the audit-ref context variables to baseline values so step-06 renders a coherent Provenance row: `audit_ref = baseline_ref or "(unknown)"`, `audit_ref_source = "baseline"` (or `"unavailable"` if both `baseline_ref` and `baseline_commit` are unset), `audit_commit = baseline_commit or "(unknown)"`, `latest_tag = null`, `remote_head = null`. Continue to §6.
+
+**Otherwise:**
+
+1. **Fetch upstream refs** (read-only, no working-tree mutation):
+
+   ```bash
+   git -C {source_root} fetch --tags --quiet origin
+   ```
+
+   If fetch fails (no network, no remote, detached clone), log the reason, record `upstream_fetch: "failed:{reason}"` in context, set `audit_ref = baseline_ref`, `audit_ref_source = "baseline"`, `audit_commit = baseline_commit`, `latest_tag = null`, `remote_head = null`, and continue to §6 without gating.
+
+2. **Find latest remote ref:**
+   - Remote default-branch HEAD: `git -C {source_root} rev-parse origin/HEAD` (fall back to `origin/main` or `origin/master` if the symbolic ref is unavailable) — record as `remote_head`.
+   - Newest semver tag: `git -C {source_root} for-each-ref --sort=-v:refname --format='%(refname:short)' 'refs/tags/v*' | head -1` — record as `latest_tag`.
+
+3. **Compare to baseline:**
+   - If `baseline_commit` equals the commit that `remote_head` resolves to AND (`latest_tag` is empty OR semver-equals `baseline_ref` OR is older than `baseline_ref`), upstream has not moved. Set `audit_ref = baseline_ref`, `audit_ref_source = "baseline"`, `audit_commit = baseline_commit`. Continue to §6.
+   - Otherwise upstream has moved — proceed to the gate.
+
+4. **User gate — Upstream drift detected:**
+
+   "**Upstream has moved since this skill was created.**
+
+   | | Baseline | Upstream |
+   |---|---|---|
+   | Ref | `{baseline_ref}` | `{latest_tag}` (newest tag) / `{remote_head}` (default HEAD) |
+   | Commit | `{baseline_commit_short}` | `{latest_tag_commit_short}` / `{remote_head_short}` |
+
+   Auditing against the baseline clone will report little-to-no structural drift even if the upstream API has changed. Options:
+
+   - **[C] Checkout-and-audit-against-latest** — checkout `{latest_tag}` (or `{remote_head}` if no newer tag) in `{source_root}` and audit against that. Re-extraction will reflect the current upstream surface.
+   - **[S] Stay-on-baseline** — keep `{source_root}` at `{baseline_ref}` and audit structural drift against the unchanged tree. The report will note `audit_ref = baseline`.
+   - **[X] Abort** — halt the workflow without producing a report.
+
+   **Select:** [C] / [S] / [X]"
+
+   **Gate handling:**
+   - **[C]:** Acquire an exclusive lock on `{source_root}/.skf-workspace.lock` (`flock -x` or `fcntl.flock(LOCK_EX)`) before mutating the working tree — matches the concurrency discipline in `src/skf-create-skill/references/source-resolution-protocols.md` and avoids racing with a concurrent create-skill / test-skill run against the same workspace clone. If `flock` is unavailable, emit a warning and proceed. Then `git -C {source_root} checkout {chosen_ref}` (prefer `latest_tag` when present, else `remote_head`). Set `audit_ref = {chosen_ref}`, `audit_ref_source = "checkout-latest"`, `audit_commit = git rev-parse HEAD`. Hold the lock through step-02 re-extraction and release only after the extraction snapshot is complete.
+   - **[S]:** Keep baseline. Set `audit_ref = baseline_ref`, `audit_ref_source = "baseline"`, `audit_commit = baseline_commit`.
+   - **[X]:** HALT workflow — do not create drift report.
+   - **Other input:** help user, redisplay gate.
+
+   **Headless default** (when `{headless_mode}`): auto-select **[S]** and emit a loud log line: `"headless: upstream drift detected ({baseline_ref} → {latest_tag or remote_head}); staying on baseline. Re-run interactively to audit against latest."` Do not check out in headless mode — silent ref changes under automation would mutate the user's working tree without consent.
+
+5. **Record for report:** store `audit_ref`, `audit_ref_source`, `audit_commit`, `latest_tag`, `remote_head`, and `baseline_commit` in context. Step-06 surfaces them in the Provenance section so readers can tell which comparison actually ran.
 
 ### 6. Create Drift Report
 

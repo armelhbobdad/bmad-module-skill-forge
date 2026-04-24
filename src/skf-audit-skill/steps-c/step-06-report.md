@@ -102,6 +102,9 @@ Append to {outputFile}:
 | **Provenance Map** | {provenance_map_path} |
 | **Provenance Age** | {days} days |
 | **Mode** | {normal / degraded} |
+| **Baseline Ref / Commit** | `{baseline_ref}` @ `{baseline_commit_short}` |
+| **Audit Ref / Commit** | `{audit_ref}` @ `{audit_commit_short}` ({audit_ref_source}) |
+| **Upstream Latest** | `{latest_tag or remote_head or "(not fetched)"}` |
 
 **Confidence Legend:**
 - **T1:** AST extraction — high reliability, structural truth
