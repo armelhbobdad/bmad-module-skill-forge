@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "ad5ee33fe4e2",
+  "strategy": "manual-commit",
+  "branch": "feat/v1-cleanup-npm-token",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/RELEASING.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ad/5ee33fe4e2/0/metadata.json",
+      "transcript": "/ad/5ee33fe4e2/0/full.jsonl",
+      "context": "/ad/5ee33fe4e2/0/context.md",
+      "content_hash": "/ad/5ee33fe4e2/0/content_hash.txt",
+      "prompt": "/ad/5ee33fe4e2/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 57,
+    "cache_creation_tokens": 303417,
+    "cache_read_tokens": 2881895,
+    "output_tokens": 17533,
+    "api_call_count": 38
+  }
+}

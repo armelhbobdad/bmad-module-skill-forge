@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "ad5ee33fe4e2",
+  "session_id": "2e111e9b-1400-496f-b7d8-41704a320d63",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-24T19:28:37.402604732Z",
+  "branch": "feat/v1-cleanup-npm-token",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/RELEASING.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "6ef291ec9d93",
+  "token_usage": {
+    "input_tokens": 57,
+    "cache_creation_tokens": 303417,
+    "cache_read_tokens": 2881895,
+    "output_tokens": 17533,
+    "api_call_count": 38
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-24T19:28:36.851372346Z",
+    "agent_lines": 0,
+    "human_added": 0,
+    "human_modified": 3,
+    "human_removed": 1,
+    "total_committed": 0,
+    "agent_percentage": 0
+  }
+}
