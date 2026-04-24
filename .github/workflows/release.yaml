@@ -188,6 +188,9 @@ jobs:
 
       - name: Pre-publish dry-run (catch package validation failures before tag push)
         env:
+          # DO NOT REMOVE — FR4 defense-in-depth against stale runner-env token auto-pickup;
+          # see docs/RELEASING.md § npm Trusted Publisher. Paired with the identical override
+          # on the final publish step below.
           NPM_TOKEN: ""
         run: |
           VERSION="${{ steps.version.outputs.new_version }}"
@@ -685,6 +688,9 @@ jobs:
 
       - name: Publish to npm via OIDC trusted publishing
         env:
+          # DO NOT REMOVE — FR4 defense-in-depth against stale runner-env token auto-pickup;
+          # see docs/RELEASING.md § npm Trusted Publisher. Paired with the identical override
+          # on the pre-publish dry-run step above.
           NPM_TOKEN: ""
         run: |
           VERSION="${{ steps.version.outputs.new_version }}"
