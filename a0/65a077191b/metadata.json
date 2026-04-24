@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "a065a077191b",
+  "strategy": "manual-commit",
+  "branch": "chore/post-epic-6-releasing-md-polish",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/RELEASING.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a0/65a077191b/0/metadata.json",
+      "transcript": "/a0/65a077191b/0/full.jsonl",
+      "context": "/a0/65a077191b/0/context.md",
+      "content_hash": "/a0/65a077191b/0/content_hash.txt",
+      "prompt": "/a0/65a077191b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 148,
+    "cache_creation_tokens": 354546,
+    "cache_read_tokens": 7929345,
+    "output_tokens": 50366,
+    "api_call_count": 76
+  }
+}
