@@ -131,6 +131,80 @@ Read the source directory at `{source_root}` and build a current file inventory:
 
 **Interaction with §2 change detection:** promoted docs live in `promoted_docs_new[]`, NOT in the change manifest. But §2 Category A ("files in source but not in provenance map → ADDED") would still find the promoted doc files on disk and classify them as ADDED if nothing prevents it. The coordination mechanism is an explicit pre-filter exclusion set built in §2.0 (below) that every Category A subprocess worker receives as an input before it starts scanning. See §2.0 for the exact contract. The exclusion set is the only mechanism guaranteeing that parallel subprocesses cannot double-count `promoted_docs_new[]` paths — prose-level "skip any path" instructions cannot cross subprocess boundaries.
 
+### 1c. Major-Version Scope Reconciliation (Pre-Detection)
+
+**Purpose:** When upstream undergoes a paradigm shift (rebrand, package restructure, major-version rewrite), the brief's `scope.include` no longer reflects the real public API. §1b handles new authoritative-doc files; §1c handles new **code globs** that fall outside the original scope. Without it, update-skill silently misses the new surface and pays the gap cost on every future update — the cocoindex `0.3.37 → 1.0.0` and cognee `0.5.8 → 1.0.0` runs are existence proofs that this case is real and recurring.
+
+**Skip this section entirely if:**
+
+- `update_mode == "gap-driven"` (test-report mode — source hasn't drifted), OR
+- `metadata.json.source_type == "docs-only"` (no source tree to scope), OR
+- No audit drift report is available at the path computed in step 1 below.
+
+**Procedure:**
+
+1. **Locate the most recent audit drift report.** Search `{forge_data_folder}/{skill_name}/{baseline_version}/drift-report-*.md`, sorted by timestamp descending. Pick the latest. If none found, **skip §1c entirely** — the post-detection deletion-ratio trigger in §2.2 still catches major restructures even without an audit pass.
+
+2. **Parse the report for an "Out-of-Scope Observations" section.** Look for either a top-level `## Out-of-Scope Observations` heading or a `### Out-of-Scope New Public API` subsection under `## Remediation Suggestions`. Each entry must expose:
+
+   - `path` — literal file path or directory glob (e.g., `python/cocoindex/_internal/api.py` or `python/cocoindex/resources/**`)
+   - `evidence` — short one-liner from the report (export count, rationale)
+
+   **Note:** This section is an optional audit-skill output. `skf-audit-skill` does not currently discover new files (per `src/skf-audit-skill/steps-c/step-02-re-index.md` — new-file detection is the responsibility of update-skill). The section is a forward-looking integration point: manual additions to the drift report or a future audit-skill enhancement populate it. If absent, no candidates from this trigger — proceed to step 6.
+
+3. **Reconcile against existing amendments.** For each candidate, consult `brief.scope.amendments[]`:
+
+   - `action: "promoted"` AND `path` matches → already in scope, skip silently.
+   - `action: "skipped"` AND `path` matches → user previously declined, honor silently.
+   - `action: "demoted-include"` or `action: "demoted-exclude"` AND `path` matches → user previously narrowed scope on this path, do not re-prompt; record as `pre_decided`.
+   - No matching amendment → continue to user prompt.
+
+4. **Prompt for each unresolved candidate.** Present the same menu shape as §1b:
+
+   ```
+   **Out-of-scope new public API discovered**
+
+   Path:          {candidate.path}
+   Evidence:      {evidence from drift report}
+   Drift report:  {report relative path}
+
+   This path was not in the brief's `scope.include` when the skill was created. How should update-skill handle it?
+
+   [P] Promote — add to scope.include AND extract in this run
+   [S] Skip    — leave out of scope AND record skip in amendments (no re-prompt)
+   [U] Update  — halt this run and return to skf-brief-skill to refine scope
+   ```
+
+5. **Headless mode (`{headless_mode}` is true):** auto-select `[S] Skip` for every candidate — record `action: "skipped"`, `category: "scope-expansion"`, `reason: "headless: no user to prompt"`, `workflow: "skf-update-skill"`. A non-interactive update run must never silently expand scope.
+
+6. **Apply decision:**
+
+   - **[P] Promote:**
+     1. Append `candidate.path` to `brief.scope.include` as a literal glob (preserve any wildcards from the drift report).
+     2. Append a `brief.scope.amendments[]` entry: `action: "promoted"`, `category: "scope-expansion"`, `path: candidate.path`, `reason: {user-provided or auto: "out-of-scope new public API — drift report {report basename}"}`, `evidence: {evidence string}`, `date: {today ISO}`, `workflow: "skf-update-skill"`.
+     3. **Write the amended brief back to disk immediately** at `{forge_data_folder}/{skill_name}/skill-brief.yaml`. Preserve all other fields.
+     4. Display: `"Promoted {path} — brief amended; §2 Category A will pick up matching files as ADDED."`
+     5. **No `promoted_docs_new[]` entry and no `change_detection_excludes` write** — promoted code globs flow through the standard §2 Category A → §3 extraction path, unlike §1b's promoted docs which bypass extraction.
+
+   - **[S] Skip:**
+     1. Do NOT modify `scope.include` or `scope.exclude`.
+     2. Append a `brief.scope.amendments[]` entry: `action: "skipped"`, `category: "scope-expansion"`, `path: candidate.path`, `reason: {user-provided or auto: "user declined promotion at update-skill §1c"}`, `evidence: {evidence string}`, `date: {today ISO}`, `workflow: "skf-update-skill"`.
+     3. **Write the amended brief back to disk** so neither §1c nor a future run will re-prompt.
+     4. Display: `"Skipped {path} — decision recorded in amendments."`
+
+   - **[U] Update:**
+     1. Halt the workflow immediately.
+     2. Display: `"Halting update-skill. Re-run skf-brief-skill to refine scope for {skill_name}, then re-run skf-update-skill."`
+     3. Exit with status `halted-for-brief-refinement`. Change manifest is not yet built — no partial writes to provenance.
+
+7. **Summary:** After all candidates are resolved (or none were found):
+
+   - `"Scope reconciliation: {N} candidates, {P} promoted, {S} skipped, {A} pre-decided from amendments."`
+   - If N = 0 (section absent or empty): `"Scope reconciliation: no out-of-scope observations in drift report."`
+   - If §1c was skipped entirely (no drift report): omit this line; §2.2 will still run.
+
+**Record for evidence report:** the update-skill evidence report appends `scope_reconciliation_pre: {drift_report: path, candidates: N, promoted: P, skipped: S, pre_decided: A, decisions: [{path, action, evidence}]}` (omit when §1c was skipped).
+
 ### 2. Compare Against Provenance Map
 
 **If normal mode (provenance map available):**
@@ -182,6 +256,55 @@ Aggregate all subprocess results into a unified change manifest.
 - All source files are treated as MODIFIED
 - All exports will be fully re-extracted in step 03
 - Skip export-level comparison
+
+#### 2.2 — Major-Version Scope Reconciliation (Post-Detection)
+
+**Purpose:** §1c catches the major-version case when an audit drift report supplies explicit candidates. §2.2 is the safety net that fires when no audit was run (or audit emitted no out-of-scope section): it inspects the just-built Category A/B results for the deletion-ratio signature of a major-version restructure and gives the user an off-ramp before §3 commits the change manifest.
+
+**Skip this section entirely if:**
+
+- `update_mode == "gap-driven"` (test-report mode), OR
+- `degraded_mode == true` (no provenance baseline to compare against — every export looks "modified", deletion ratio is meaningless), OR
+- Provenance map's tracked export count is zero.
+
+**Trigger:** Compute
+
+```
+deleted_export_count = (sum of exports across Category A DELETED files)
+                     + (DELETED_EXPORT count from Category B)
+total_provenance_exports = provenance_map.entries.length
+deletion_ratio = deleted_export_count / total_provenance_exports
+```
+
+If `deletion_ratio >= 0.50`, present the prompt below. Otherwise skip §2.2 silently and continue to §3.
+
+**Prompt:**
+
+```
+**Major-version scope shift detected**
+
+Deleted exports:        {deleted_export_count} of {total_provenance_exports} ({percent}%)
+Deleted files:          {deleted_file_count}
+Added files (in scope): {added_in_scope_count}
+Renamed/moved exports:  {renamed_or_moved_count}
+
+The upstream surface appears to have been substantially replaced. The brief's
+`scope.include` patterns may no longer reflect the real public API.
+
+[C] Continue — proceed with re-extraction; the deletion is intentional
+[B] Brief    — halt and re-run skf-brief-skill to refine scope first
+[A] Audit    — halt and run skf-audit-skill to map the new surface, then re-run update-skill
+```
+
+**Headless mode (`{headless_mode}` is true):** auto-select `[C] Continue`, log a WARN-level entry to the evidence report (`scope_reconciliation_post: {trigger: "deletion-ratio", ratio: X, decision: "headless-continue"}`), and surface the warning in step-07's report. A non-interactive run must not silently halt, but the user must be able to see the signal post-hoc.
+
+**Apply decision:**
+
+- **[C] Continue:** record `scope_reconciliation_post: {trigger: "deletion-ratio", ratio: X, decision: "continue"}` and proceed to §3.
+- **[B] Brief:** halt with status `halted-for-brief-refinement`. Display: `"Halting update-skill. Re-run skf-brief-skill to refine scope for {skill_name}, then re-run skf-update-skill."` Change manifest discarded — no partial writes.
+- **[A] Audit:** halt with status `halted-for-audit`. Display: `"Halting update-skill. Run skf-audit-skill against {skill_name} to map the new surface — its drift report will feed §1c on the next update-skill run."` Change manifest discarded.
+
+**Why both §1c and §2.2:** §1c is precise (per-path P/S/U) but requires upstream signal from audit-skill. §2.2 is coarse (single halt/continue) but self-contained — it fires even when the user runs update-skill directly without audit. Together they cover the major-version case across the two real workflows.
 
 ### 3. Build Change Manifest
 

@@ -67,14 +67,23 @@ scope:
   #   - "code/core/src/manager-api/**"
   #   - "code/core/src/preview-api/**"
   notes: "Optional notes about scope decisions"
-  # Optional: amendment log for scope decisions made during create-skill §2a
+  # Optional: amendment log for scope decisions made during create-skill §2a,
+  # update-skill §1b (auth-doc), and update-skill §1c (scope-expansion).
   # amendments:
   #   - path: "apps/docs/public/llms.txt"
-  #     action: "promoted"          # "promoted" | "skipped"
+  #     action: "promoted"          # "promoted" | "skipped" | "demoted-include" | "demoted-exclude"
+  #     category: "auth-doc"        # "auth-doc" (default for legacy entries) | "scope-expansion"
   #     reason: "authoritative AI docs — only source for canonical install command"
-  #     heuristic: "llms.txt"
+  #     heuristic: "llms.txt"        # required for auth-doc; absent for scope-expansion
   #     date: "2026-04-11"
   #     workflow: "skf-create-skill"
+  #   - path: "python/cocoindex/_internal/api.py"
+  #     action: "promoted"
+  #     category: "scope-expansion"
+  #     reason: "out-of-scope new public API — drift report drift-report-20260424-212355.md"
+  #     evidence: "~70 new exports flagged out-of-scope by audit"
+  #     date: "2026-04-25"
+  #     workflow: "skf-update-skill"
   # Additional fields when scope.type is "component-library":
   # registry_path: "path/to/registry.ts"  # Optional — auto-detected if omitted
   # ui_variants:                           # Optional — design system variants
@@ -87,37 +96,46 @@ scope:
 
 ### Scope Amendments (Optional)
 
-`scope.amendments[]` is an additive, optional audit log of scope decisions made by workflows after the brief was first authored. Its primary writer is `skf-create-skill` §2a (Discovered Authoritative Files Protocol), which appends entries when extraction discovers authoritative AI documentation files (`llms.txt`, `AGENTS.md`, etc.) that the original scope patterns excluded.
+`scope.amendments[]` is an additive, optional audit log of scope decisions made by workflows after the brief was first authored. Two writer paths exist today:
+
+- **Auth-doc promotions** (`category: "auth-doc"`) — `skf-create-skill` §2a and its mirror `skf-update-skill` §1b append entries when extraction discovers authoritative AI documentation files (`llms.txt`, `AGENTS.md`, etc.) that the original scope patterns excluded.
+- **Scope-expansion promotions** (`category: "scope-expansion"`) — `skf-update-skill` §1c appends entries when an audit drift report flags out-of-scope new public API paths (typically a major-version restructure where the brief's `scope.include` no longer reflects the real surface).
 
 **Entry fields:**
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `path` | string | yes | Relative path from source root to the file being amended. Matches the literal path added to `scope.include` (for `promoted` actions). |
-| `action` | string | yes | One of: `promoted` (file added to scope with a literal `scope.include` entry), `skipped` (user declined promotion; file remains out of scope, decision recorded to prevent re-prompting). |
-| `reason` | string | yes | Human-readable sentence explaining the decision. Either user-provided at prompt time or auto-generated ("authoritative AI docs — matched heuristic {basename}"). |
-| `heuristic` | string | yes | The basename heuristic that matched (`llms.txt`, `AGENTS.md`, etc.) so future audits can verify the file still matches its original classification. |
+| `path` | string | yes | Relative path (or glob, for `category: "scope-expansion"`) from source root to the file or tree being amended. For `promoted` actions this matches the literal entry added to `scope.include`. |
+| `action` | string | yes | One of: `promoted` (path added to `scope.include`), `skipped` (user declined promotion; decision recorded to prevent re-prompting), `demoted-include` (path removed from `scope.include` — only valid with `category: "scope-expansion"`), `demoted-exclude` (path removed from `scope.exclude` — only valid with `category: "scope-expansion"`). |
+| `category` | string | no | One of: `auth-doc` (default for entries without this field — the historical sole use case), `scope-expansion`. Distinguishes which workflow path wrote the entry and which writer-rules apply on re-runs. |
+| `reason` | string | yes | Human-readable sentence explaining the decision. Either user-provided at prompt time or auto-generated. |
+| `heuristic` | string | conditional | Required for `category: "auth-doc"` — the basename that matched (`llms.txt`, `AGENTS.md`, etc.). Omit for `category: "scope-expansion"`. |
+| `evidence` | string | conditional | Required for `category: "scope-expansion"` — short rationale from the source signal (e.g., a drift-report finding's evidence one-liner). Omit for `category: "auth-doc"`. |
 | `date` | string | yes | ISO date (`YYYY-MM-DD`) when the amendment was recorded. |
-| `workflow` | string | yes | Workflow name that wrote the amendment (`skf-create-skill`, `skf-update-skill`). Identifies which workflow's §2a-equivalent made the decision. |
+| `workflow` | string | yes | Workflow name that wrote the amendment (`skf-create-skill`, `skf-update-skill`). Identifies which workflow made the decision. |
 
-**Promotion write-through:** When `action: "promoted"`, the workflow also appends the literal path to `scope.include`. This is a belt-and-suspenders design: future `skf-create-skill` runs read `scope.include` during §2 and include the file in the filtered list automatically, so §2a finds no candidate and does not re-prompt. The `amendments[]` entry is the human-readable audit trail of *why* the path was added.
+**Promotion write-through:** When `action: "promoted"`, the workflow also appends the literal path to `scope.include`. This is a belt-and-suspenders design: future runs read `scope.include` during scope filtering and include the file in the filtered list automatically, so the §2a/§1b/§1c discovery loop finds no candidate and does not re-prompt. The `amendments[]` entry is the human-readable audit trail of *why* the path was added.
 
-**Skip recording:** When `action: "skipped"`, the workflow does NOT modify `scope.include` or `scope.exclude`. The amendment entry alone is enough to prevent re-prompting, because §2a checks `amendments[]` before prompting.
+**Skip recording:** When `action: "skipped"`, the workflow does NOT modify `scope.include` or `scope.exclude`. The amendment entry alone is enough to prevent re-prompting, because the discovery loop checks `amendments[]` before prompting.
 
-**Backward compatibility:** `scope.amendments` is optional. Briefs without this field validate unchanged. Treat missing as an empty list.
+**Demotion (scope-expansion only):** `demoted-include` removes a previously-promoted path from `scope.include` — used when a prior `[P]` decision is reversed. `demoted-exclude` removes a path from `scope.exclude` — used when a previously excluded path needs to be re-evaluated. Both write the structural change and append the amendment so future runs see the rationale. Demotion is not valid for `category: "auth-doc"`: auth-doc skips already prevent re-prompting without scope mutation.
+
+**Backward compatibility:** `scope.amendments` is optional. Briefs without this field validate unchanged. Treat missing as an empty list. Existing entries without `category` are equivalent to `category: "auth-doc"` — readers must default the field when absent.
 
 **Who reads `amendments[]`:**
 
-- `skf-create-skill` §2a consults it to avoid re-prompting on decided files.
-- `skf-update-skill` §1b (mirror of §2a) consults it for the same reason.
-- `skf-audit-skill` may optionally report on stale promotions (promoted files that no longer exist in source) as a future enhancement — not currently implemented.
+- `skf-create-skill` §2a consults it to avoid re-prompting on decided auth-doc files.
+- `skf-update-skill` §1b (mirror of §2a) consults it for the same auth-doc reason.
+- `skf-update-skill` §1c consults it to avoid re-prompting on decided scope-expansion candidates and to honor prior `demoted-*` decisions.
+- `skf-audit-skill` may optionally report on stale promotions (promoted paths that no longer exist in source) as a future enhancement — not currently implemented.
 - Humans reading the brief see the audit trail of non-obvious scope decisions.
 
 **Who writes `amendments[]`:**
 
-- `skf-create-skill` §2a (Discovered Authoritative Files Protocol)
-- `skf-update-skill` §1b (mirror of §2a applied during change detection)
-- Manual edits by the brief author are permitted but should include all required fields above.
+- `skf-create-skill` §2a (Discovered Authoritative Files Protocol) — `category: "auth-doc"`
+- `skf-update-skill` §1b (mirror of §2a applied during change detection) — `category: "auth-doc"`
+- `skf-update-skill` §1c (Major-Version Scope Reconciliation) — `category: "scope-expansion"`
+- Manual edits by the brief author are permitted but should include all required fields above (and `category` when the entry is not an auth-doc decision).
 
 ## YAML Template
 
