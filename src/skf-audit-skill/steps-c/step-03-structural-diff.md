@@ -116,6 +116,14 @@ If `{is_stack_skill}` is true:
 
 ### 5. Compile Structural Drift Section
 
+**Rollup for high-volume uniform findings.** When ≥ 10 findings in the same table share one root cause (deleted source file, renamed module, entire package tree removed), you MAY collapse them into one row per root cause. Rollup rows replace the per-symbol `Export`/`Signature` columns with `Count` and `Representative symbols` (up to 3 names, `…` if more). Rollup applies to **Added Exports**, **Removed Exports**, and **Script/Asset Drift** tables — **not** to Changed Exports, which are heterogeneous by construction (signature changes and cross-file changes are inspected per-finding). Record which groupings were collapsed in workflow context for reviewer traceability.
+
+**Rollup row form (Added / Removed Exports):**
+
+| Root Cause | Count | Representative symbols | Location | Confidence |
+|------------|-------|------------------------|----------|------------|
+| {deleted/renamed path or similar} | {N} | `{sym1}`, `{sym2}`, `{sym3}`, … | {root-cause path} | {T1/T1-low} |
+
 Append to {outputFile}:
 
 ```markdown
