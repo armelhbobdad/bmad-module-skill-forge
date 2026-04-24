@@ -137,6 +137,26 @@ jobs:
             echo "::error::marketplace.json version write failed: expected $VERSION, got $WROTE"; exit 1
           fi
 
+      - name: Update docs/_data/pinned.yaml skf_version
+        env:
+          VERSION: ${{ steps.version.outputs.new_version }}
+        run: |
+          # Keep docs/_data/pinned.yaml.skf_version locked to package.json.version —
+          # pinned.yaml's own header declares this as an invariant and tools/validate-docs-drift.js
+          # enforces it at pre-commit time. This step enforces it at release time so
+          # the invariant is upheld atomically on every version bump.
+          #
+          # Targeted sed: matches ONLY a top-level `skf_version: "X.Y.Z"` line. The
+          # VERSION value is passed via env (not ${{ }} interpolation into the script
+          # body) to avoid shell-injection on inputs per Story 5.4 defense-in-depth.
+          sed -i.bak -E 's/^skf_version: "[^"]*"$/skf_version: "'"$VERSION"'"/' docs/_data/pinned.yaml
+          rm -f docs/_data/pinned.yaml.bak
+          # Sanity check: the written version matches what we set.
+          WROTE=$(grep -E '^skf_version:' docs/_data/pinned.yaml | sed -E 's/^skf_version: "([^"]*)"$/\1/')
+          if [ "$WROTE" != "$VERSION" ]; then
+            echo "::error::docs/_data/pinned.yaml skf_version write failed: expected $VERSION, got $WROTE"; exit 1
+          fi
+
       - name: Update CHANGELOG.md
         run: |
           npx conventional-changelog-cli -p conventionalcommits -i CHANGELOG.md -s
@@ -203,7 +223,7 @@ jobs:
 
       - name: Commit version bump
         run: |
-          git add package.json .claude-plugin/marketplace.json CHANGELOG.md
+          git add package.json .claude-plugin/marketplace.json docs/_data/pinned.yaml CHANGELOG.md
           git commit -m "release: bump to v${{ steps.version.outputs.new_version }}"
 
       - name: Generate release notes
