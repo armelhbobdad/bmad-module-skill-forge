@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="website/public/img/skf-logo.svg" alt="Skill Forge Logo" width="120" />
+<img src="website/public/img/skf-logo-animated.svg" alt="Skill Forge Logo" width="120" />
 
 # Skill Forge (SKF)
 
