@@ -85,6 +85,14 @@ Apply scoring rules from {severityRulesFile}:
 
 ### 5. Compile Severity Classification Section
 
+**Rollup inherits from step-03.** If step-03 §5 collapsed ≥ 10 same-kind findings into a single rollup row (deleted source file, renamed module, entire package tree removed), carry that rollup through to the matching severity table as one row — do not re-expand it here. Keep the existing 6-column severity table shape; the rollup encodes root cause, count, and representative symbols **inline in the `Finding` cell** rather than adding new columns, so rollup and per-item rows render cleanly in one table. Changed-signature and cross-file findings remain per-row; they were not eligible for rollup in step-03 and are not eligible here.
+
+**Rollup row form (any severity table):**
+
+| # | Finding | Type | Detail | Location | Confidence |
+|---|---------|------|--------|----------|------------|
+| N | {root cause} (×{Count}; rep: `{sym1}`, `{sym2}`, `{sym3}`, …) | {structural/semantic} | {shared detail} | {root-cause path} | {T1/T2} |
+
 Append to {outputFile}:
 
 ```markdown

@@ -77,6 +77,11 @@ Append to {outputFile}:
 {IF any CRITICAL or HIGH findings:}
 **Recommended:** Run `[US] Update Skill` workflow to apply priority remediations automatically.
 
+{IF `audit_ref != baseline_ref` (source version bump detected in step-01 §5b):}
+**Version preservation (non-destructive).** `update-skill` preserves the prior version at `{skill_group}/{baseline_version}/` unchanged and writes the new skill to `{skill_group}/{audit_version}/` (see `skf-update-skill/steps-c/step-04-merge.md` §6b, which creates the new version directory and leaves the previous one on disk). The `active` symlink at `{skill_group}/active` repoints to the new version (see `skf-update-skill/steps-c/step-06-write.md` §5b). On the next export, the prior version's export-manifest entry transitions to `status: archived` — files retained for rollback (see `skf-export-skill/steps-c/step-04-update-context.md`). Do **not** recommend `skf-drop-skill` + `skf-create-skill` for a version bump — that destroys the prior version's artifacts.
+
+**Surface new entry points for the brief gate.** If the audit observed new top-level modules, renamed package trees, or new public entry points (new `__init__.py`, `index.ts`, `lib.rs`, or equivalent) that were not in the brief's original scope, call them out here. `update-skill` step-02 §1b detects new candidate files via heuristic and prompts `[P]romote` / `[S]kip` / `[U]pdate-brief`; surfacing them in advance makes that gate faster to resolve, or lets the user refine scope via `skf-brief-skill` before running update-skill.
+
 {IF only MEDIUM or LOW findings:}
 **Optional:** Minor drift detected. Manual updates sufficient, or run `[US] Update Skill` for automated remediation.
 
