@@ -116,7 +116,9 @@ Read the `qmd_collections` registry from `{sidecar_path}/forge-tier.yaml`.
 
 Find the collection entry matching the current skill: look for an entry where `skill_name` matches the current skill being audited AND `type` is `"extraction"`.
 
-**If a matching extraction collection is found:**
+Three collection states must be handled distinctly (same branching as step-04 §2 — keep them in sync):
+
+**If a matching extraction collection is found and populated** (pre-query probe via `qmd ls {collection_name}` or equivalent returns one or more files):
 Query qmd_bridge against the `{skill_name}-extraction` collection for temporal context on each extracted export:
 - When was this export first added?
 - Has it been modified recently?
@@ -124,6 +126,10 @@ Query qmd_bridge against the `{skill_name}-extraction` collection for temporal c
 - How does the current extraction compare to the previously compiled skill content?
 
 Append temporal metadata to each export in the snapshot.
+
+**If a matching extraction collection is found but empty** (pre-query probe reports `Files: 0 (updated never)` or an empty listing):
+Log: "QMD collection `{collection_name}` is registered but empty. Run `qmd update` to (re-)index `{collection.path}`, then re-audit. Temporal enrichment skipped for this run."
+Continue without T2 enrichment — the unpopulated collection is a setup gap, not an extraction failure. Step-04 will fall through to its direct-content fallback for semantic diff.
 
 **If no matching collection found in registry:**
 Log: "No QMD extraction collection found for {skill_name}. Temporal enrichment skipped. Re-run [CS] Create Skill to generate the collection."
