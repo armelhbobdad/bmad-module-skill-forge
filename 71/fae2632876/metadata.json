@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "71fae2632876",
+  "strategy": "manual-commit",
+  "branch": "feat/v1-cleanup-legacy-workflows",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/manual-release.yaml",
+    ".github/workflows/publish.yaml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/71/fae2632876/0/metadata.json",
+      "transcript": "/71/fae2632876/0/full.jsonl",
+      "context": "/71/fae2632876/0/context.md",
+      "content_hash": "/71/fae2632876/0/content_hash.txt",
+      "prompt": "/71/fae2632876/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 339,
+    "cache_creation_tokens": 647661,
+    "cache_read_tokens": 24978498,
+    "output_tokens": 84628,
+    "api_call_count": 149
+  }
+}
