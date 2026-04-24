@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "71fae2632876",
+  "session_id": "99586b2e-2c31-438b-84d5-bc0115485fc9",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-24T12:53:12.942918732Z",
+  "branch": "feat/v1-cleanup-legacy-workflows",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "CONTRIBUTING.md",
+    "docs/RELEASING.md",
+    ".github/workflows/manual-release.yaml",
+    ".github/workflows/publish.yaml"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "487ceb795ed9",
+  "token_usage": {
+    "input_tokens": 42,
+    "cache_creation_tokens": 131069,
+    "cache_read_tokens": 2377305,
+    "output_tokens": 14030,
+    "api_call_count": 33
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-24T12:53:12.647523504Z",
+    "agent_lines": 0,
+    "human_added": 0,
+    "human_modified": 3,
+    "human_removed": 240,
+    "total_committed": 0,
+    "agent_percentage": 0
+  }
+}
