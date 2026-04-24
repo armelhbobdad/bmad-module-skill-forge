@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "71fae2632876",
+  "session_id": "cdfcc02f-d808-4660-ae34-0376a10227cf",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-24T12:53:14.892046574Z",
+  "branch": "feat/v1-cleanup-legacy-workflows",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/RELEASING.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "596fe0a420b9",
+  "token_usage": {
+    "input_tokens": 2268,
+    "cache_creation_tokens": 249562,
+    "cache_read_tokens": 21041205,
+    "output_tokens": 82698,
+    "api_call_count": 158
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-24T12:53:14.088303961Z",
+    "agent_lines": 0,
+    "human_added": 0,
+    "human_modified": 3,
+    "human_removed": 13,
+    "total_committed": 0,
+    "agent_percentage": 0
+  }
+}
