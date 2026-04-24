@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "eec8aeb1366e",
+  "session_id": "ccb17ef9-5f72-4b8e-b4ed-bbcf7e7229d6",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-24T21:01:19.783751464Z",
+  "branch": "fix/audit-skill-workflow-gaps",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-audit-skill/steps-c/step-02-re-index.md",
+    "src/skf-audit-skill/steps-c/step-04-semantic-diff.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "18ecac81dc24",
+  "token_usage": {
+    "input_tokens": 57,
+    "cache_creation_tokens": 160958,
+    "cache_read_tokens": 3516752,
+    "output_tokens": 32841,
+    "api_call_count": 43
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-24T21:01:19.366220266Z",
+    "agent_lines": 17,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 17,
+    "agent_percentage": 100
+  }
+}
