@@ -5,6 +5,7 @@
   "branch": "chore/post-epic-6-releasing-md-polish",
   "checkpoints_count": 2,
   "files_touched": [
+    ".github/workflows/release.yaml",
     "docs/RELEASING.md"
   ],
   "sessions": [
@@ -14,13 +15,20 @@
       "context": "/a0/65a077191b/0/context.md",
       "content_hash": "/a0/65a077191b/0/content_hash.txt",
       "prompt": "/a0/65a077191b/0/prompt.txt"
+    },
+    {
+      "metadata": "/a0/65a077191b/1/metadata.json",
+      "transcript": "/a0/65a077191b/1/full.jsonl",
+      "context": "/a0/65a077191b/1/context.md",
+      "content_hash": "/a0/65a077191b/1/content_hash.txt",
+      "prompt": "/a0/65a077191b/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 148,
-    "cache_creation_tokens": 354546,
-    "cache_read_tokens": 7929345,
-    "output_tokens": 50366,
-    "api_call_count": 76
+    "input_tokens": 200,
+    "cache_creation_tokens": 625945,
+    "cache_read_tokens": 11932844,
+    "output_tokens": 90693,
+    "api_call_count": 104
   }
 }

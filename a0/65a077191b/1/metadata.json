@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "a065a077191b",
+  "session_id": "5ed9f5ff-3132-461d-ab9d-82ad2068a401",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-24T20:14:59.713752841Z",
+  "branch": "chore/post-epic-6-releasing-md-polish",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/RELEASING.md",
+    ".github/workflows/release.yaml"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "0033398f0425",
+  "token_usage": {
+    "input_tokens": 52,
+    "cache_creation_tokens": 271399,
+    "cache_read_tokens": 4003499,
+    "output_tokens": 40327,
+    "api_call_count": 28
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-24T20:14:58.816147736Z",
+    "agent_lines": 0,
+    "human_added": 16,
+    "human_modified": 3,
+    "human_removed": 0,
+    "total_committed": 16,
+    "agent_percentage": 0
+  }
+}
