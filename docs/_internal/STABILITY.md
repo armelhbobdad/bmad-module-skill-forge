@@ -111,13 +111,13 @@ If a surface you depend on is NOT explicitly enumerated in [§ Covered Surfaces]
 
 ## Changes to This Contract
 
-Shrinking the covered surface (removing a commitment) is a breaking change and requires a major-version bump. Expanding the covered surface (promoting an `@internal` surface to covered, or adding a new commitment) is additive and ships in a minor release. This document is versioned alongside the package; historical versions are visible via `git log docs/STABILITY.md`.
+Shrinking the covered surface (removing a commitment) is a breaking change and requires a major-version bump. Expanding the covered surface (promoting an `@internal` surface to covered, or adding a new commitment) is additive and ships in a minor release. This document is versioned alongside the package; historical versions are visible via `git log -- docs/STABILITY.md docs/_internal/STABILITY.md`.
 
 ## References
 
 - [agentskills.io spec](https://github.com/agentskills/agentskills) — external canonical source for the `SKILL.md` frontmatter grammar.
 - [Semantic Versioning 2.0.0](https://semver.org/) — the SemVer semantics this contract commits to.
 - [`CHANGELOG.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/CHANGELOG.md) — release-by-release history; breaking changes are called out there.
-- [`docs/RELEASING.md`](RELEASING.md) — maintainer reference for the release pipeline (companion document: this file is about what ships, `RELEASING.md` is about how).
+- [`docs/_internal/RELEASING.md`](RELEASING.md) — maintainer reference for the release pipeline (companion document: this file is about what ships, `RELEASING.md` is about how).
 - [`tools/cli/lib/platform-codes.yaml`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/tools/cli/lib/platform-codes.yaml) — source of truth for the IDE → skills-directory mapping covered under [§ Installation Layout](#installation-layout).
 - [`test/schema/agent.js`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/test/schema/agent.js) — zod schema definitions for `bmad-skill-manifest.yaml` covered under [§ Skill Manifest & Frontmatter Contract](#skill-manifest--frontmatter-contract).

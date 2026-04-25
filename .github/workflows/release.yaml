@@ -4,7 +4,7 @@ name: Release
 # Consolidates publish.yaml + manual-release.yaml. Gated on the `release` GitHub
 # Environment (required-reviewer approval). Filename MUST remain literal
 # `release.yaml` — the npm Trusted Publisher is registered character-for-character
-# on `release.yaml` + job id `release`. See docs/RELEASING.md § npm Trusted Publisher.
+# on `release.yaml` + job id `release`. See docs/_internal/RELEASING.md § npm Trusted Publisher.
 
 on:
   workflow_dispatch:
@@ -209,7 +209,7 @@ jobs:
       - name: Pre-publish dry-run (catch package validation failures before tag push)
         env:
           # DO NOT REMOVE — FR4 defense-in-depth against stale runner-env token auto-pickup;
-          # see docs/RELEASING.md § npm Trusted Publisher. Paired with the identical override
+          # see docs/_internal/RELEASING.md § npm Trusted Publisher. Paired with the identical override
           # on the final publish step below.
           NPM_TOKEN: ""
         run: |
@@ -709,7 +709,7 @@ jobs:
       - name: Publish to npm via OIDC trusted publishing
         env:
           # DO NOT REMOVE — FR4 defense-in-depth against stale runner-env token auto-pickup;
-          # see docs/RELEASING.md § npm Trusted Publisher. Paired with the identical override
+          # see docs/_internal/RELEASING.md § npm Trusted Publisher. Paired with the identical override
           # on the pre-publish dry-run step above.
           NPM_TOKEN: ""
         run: |
