@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "04442c1e6b61",
+  "session_id": "9c0c67ee-a0b9-4514-93b9-9e8fe195d6a8",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-25T17:13:54.0847586Z",
+  "branch": "docs/why-skf-fix-not-for-you-claims",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/why-skf.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "16001dfd2602",
+  "checkpoint_transcript_start": 101,
+  "transcript_lines_at_start": 101,
+  "token_usage": {
+    "input_tokens": 25,
+    "cache_creation_tokens": 83303,
+    "cache_read_tokens": 1017286,
+    "output_tokens": 7974,
+    "api_call_count": 15
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-25T17:13:53.819181672Z",
+    "agent_lines": 4,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 4,
+    "agent_percentage": 100
+  }
+}

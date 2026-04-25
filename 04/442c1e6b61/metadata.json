@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "04442c1e6b61",
+  "strategy": "manual-commit",
+  "branch": "docs/why-skf-fix-not-for-you-claims",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/why-skf.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/04/442c1e6b61/0/metadata.json",
+      "transcript": "/04/442c1e6b61/0/full.jsonl",
+      "context": "/04/442c1e6b61/0/context.md",
+      "content_hash": "/04/442c1e6b61/0/content_hash.txt",
+      "prompt": "/04/442c1e6b61/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 25,
+    "cache_creation_tokens": 83303,
+    "cache_read_tokens": 1017286,
+    "output_tokens": 7974,
+    "api_call_count": 15
+  }
+}
