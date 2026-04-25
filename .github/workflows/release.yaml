@@ -147,8 +147,9 @@ jobs:
           # the invariant is upheld atomically on every version bump.
           #
           # Targeted sed: matches ONLY a top-level `skf_version: "X.Y.Z"` line. The
-          # VERSION value is passed via env (not ${{ }} interpolation into the script
-          # body) to avoid shell-injection on inputs per Story 5.4 defense-in-depth.
+          # VERSION value is passed via env (not via GitHub-Actions expression
+          # interpolation into the script body) to avoid shell-injection on inputs
+          # per Story 5.4 defense-in-depth.
           sed -i.bak -E 's/^skf_version: "[^"]*"$/skf_version: "'"$VERSION"'"/' docs/_data/pinned.yaml
           rm -f docs/_data/pinned.yaml.bak
           # Sanity check: the written version matches what we set.
