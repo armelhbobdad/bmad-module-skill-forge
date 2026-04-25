@@ -78,9 +78,8 @@ You're considering running SKF across a brownfield platform. You need to know ab
 ## Not for you if…
 
 - You want docs that hand-hold through every happy path with screenshots and emojis. SKF is a citation machine, not a tutorial series.
-- You need perfect coverage of every private implementation detail. SKF extracts public APIs; if you want internals, read the code directly.
 - You don't have Node.js ≥ 22 and Python ≥ 3.10 installed. SKF is a Node/Python toolchain at its core.
-- You're looking for something that generates skills from natural-language descriptions alone. SKF compiles from source code and documentation — not prompts.
+- You have neither source code nor published documentation for the target. SKF compiles from one or both — a source repo (citations as `file:line@SHA`) or doc URLs (citations as `[EXT:{url}]`). A vague description with no upstream artifact to cite isn't enough.
 
 Everything else is downstream of one question: *are the instructions your AI reads provably true?* If yes, SKF isn't adding value. If you can't be sure, SKF is the tool.
 
