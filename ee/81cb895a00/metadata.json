@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "ee81cb895a00",
+  "strategy": "manual-commit",
+  "branch": "fix/release-yaml-empty-expression-literal",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".github/workflows/release.yaml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ee/81cb895a00/0/metadata.json",
+      "transcript": "/ee/81cb895a00/0/full.jsonl",
+      "context": "/ee/81cb895a00/0/context.md",
+      "content_hash": "/ee/81cb895a00/0/content_hash.txt",
+      "prompt": "/ee/81cb895a00/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 148,
+    "cache_creation_tokens": 465333,
+    "cache_read_tokens": 12469777,
+    "output_tokens": 74389,
+    "api_call_count": 94
+  }
+}
