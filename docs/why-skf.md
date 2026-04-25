@@ -3,7 +3,7 @@ title: Why Skill Forge?
 description: The strategic case for SKF — the problem it solves, how it compares to alternatives, who it's for, and who it isn't.
 ---
 
-Skill Forge is the only AI-skills toolchain where every claim your agent reads cites a file, a line, and a commit SHA. Not "sourced from training data." Not "retrieved from context." **Cited.** You can open the upstream repo at the pinned commit and see the function exists — in under a minute. That's the wedge. This page explains why it matters, how SKF compares to alternatives, and who it's for.
+Skill Forge is the only AI-skills toolchain where every claim your agent reads points back to a real upstream location — a `file:line` at a pinned commit when source is available, or a documentation URL when it isn't. Not "sourced from training data." Not "retrieved from context." **Cited.** You can open the upstream repo (or the doc page) and see the function exists — in under a minute. That's the wedge. This page explains why it matters, how SKF compares to alternatives, and who it's for.
 
 ---
 
@@ -26,7 +26,7 @@ SKF treats this as a citation problem, not a model problem. If a skill claims `c
 | RAG / context stuffing | Retrieves relevant code snippets | Returns fragments without synthesis — no coherent skill output |
 | Manual authoring | High initial accuracy | Drifts as the source code changes, doesn't scale across dependencies |
 | IDE built-in context (Copilot, Cursor) | Convenient, zero setup | Uses generic training data, not your project's specific integration patterns |
-| **Skill Forge** | **Every instruction cites upstream `file:line` at a pinned commit. Falsifiable in 60 seconds.** | **Coverage depends on which tools you've installed (Quick / Forge / Forge+ / Deep tiers).** |
+| **Skill Forge** | **Every instruction cites upstream — `file:line@SHA` for source skills, doc URL for docs-only skills. Falsifiable in 60 seconds.** | **Coverage depends on which tools you've installed (Quick / Forge / Forge+ / Deep tiers).** |
 
 </div>
 
@@ -39,6 +39,8 @@ Pick any symbol in any SKF-compiled skill. Three clicks:
 1. Open the skill's `metadata.json` — it names the upstream repo and the exact commit SHA.
 2. Open the skill's `provenance-map.json` — find your symbol; it lists the file and line.
 3. Visit the upstream repo at that commit and that line. The signature in the skill should match.
+
+For docs-only skills, the audit shape is the same — `provenance-map.json` still lists every symbol — but entries cite `[EXT:{url}]` instead of `file:line@SHA`, and step 3 becomes "open the doc URL and confirm the signature matches."
 
 If it doesn't, **that's a bug.** [Open an issue](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose) and SKF republishes the skill with a new commit SHA and a new provenance map. No other AI-skills tool treats disagreement between claim and source as a defect. SKF does.
 
