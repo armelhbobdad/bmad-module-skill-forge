@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "92120d56a846",
+  "session_id": "910d20d4-1239-499e-8a12-98d65591a6a5",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-25T00:37:33.745424057Z",
+  "branch": "fix/skf-export-skill-override-effective-target-237",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-export-skill/steps-c/step-04-update-context.md",
+    "src/skf-export-skill/assets/managed-section-format.md",
+    "src/skf-drop-skill/steps-c/step-02-execute.md",
+    "src/skf-rename-skill/steps-c/step-02-execute.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "a90368271e0b",
+  "token_usage": {
+    "input_tokens": 37,
+    "cache_creation_tokens": 75021,
+    "cache_read_tokens": 1830689,
+    "output_tokens": 18081,
+    "api_call_count": 28
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-25T00:37:33.507139516Z",
+    "agent_lines": 7,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 7,
+    "agent_percentage": 100
+  }
+}
