@@ -125,8 +125,6 @@ export default defineConfig({
             { label: 'Agents', slug: 'agents' },
             { label: 'BMAD Synergy', slug: 'bmad-synergy' },
             { label: 'Troubleshooting', slug: 'troubleshooting' },
-            { label: 'Stability', slug: 'stability' },
-            { label: 'Releasing', slug: 'releasing' },
           ],
         },
       ],
