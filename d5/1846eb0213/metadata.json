@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d51846eb0213",
+  "strategy": "manual-commit",
+  "branch": "docs/hide-stability-releasing-from-site",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".github/workflows/release.yaml",
+    "CONTRIBUTING.md",
+    "README.md",
+    "docs/_internal/STABILITY.md",
+    "website/astro.config.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d5/1846eb0213/0/metadata.json",
+      "transcript": "/d5/1846eb0213/0/full.jsonl",
+      "context": "/d5/1846eb0213/0/context.md",
+      "content_hash": "/d5/1846eb0213/0/content_hash.txt",
+      "prompt": "/d5/1846eb0213/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 83,
+    "cache_creation_tokens": 176696,
+    "cache_read_tokens": 5904078,
+    "output_tokens": 50189,
+    "api_call_count": 53
+  }
+}

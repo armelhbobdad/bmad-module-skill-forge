@@ -1,0 +1,13 @@
+@docs/STABILITY.md and @docs/RELEASING.md should not be accessible from the astro doc. What is the best appraoch? Activate the party mode and the advanced elicitation for a robust solution.
+
+---
+
+hide both
+
+---
+
+review your work to make sure we have no breaking changes, or missing impacts/bugs/regressions and ect... DO NOT HALLUCINATE
+
+---
+
+create a new branch and commit

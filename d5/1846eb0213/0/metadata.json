@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d51846eb0213",
+  "session_id": "8a4df509-043a-4374-bfa8-be37f07e533a",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-25T01:05:12.962510918Z",
+  "branch": "docs/hide-stability-releasing-from-site",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".github/workflows/release.yaml",
+    "CONTRIBUTING.md",
+    "README.md",
+    "docs/_internal/STABILITY.md",
+    "website/astro.config.mjs"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "69186add5996",
+  "token_usage": {
+    "input_tokens": 83,
+    "cache_creation_tokens": 176696,
+    "cache_read_tokens": 5904078,
+    "output_tokens": 50189,
+    "api_call_count": 53
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-25T01:05:12.663859668Z",
+    "agent_lines": 129,
+    "human_added": 642,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 771,
+    "agent_percentage": 16.731517509727624
+  }
+}
