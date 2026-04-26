@@ -18,7 +18,7 @@ If you're not sure where a change belongs, open an issue and ask before writing 
 
 ## Local Setup
 
-**Platforms:** Linux and macOS. Windows is not supported (POSIX-only shell tooling, symlinks, path quoting). WSL2 works.
+**Platforms:** Linux, Windows, and macOS. Linux and Windows are exercised in CI on every PR (`ubuntu-latest` + `windows-latest` matrix); macOS works in practice (POSIX-equivalent to Linux) but isn't CI-gated. On Windows, SKF transparently falls back to NTFS junctions when symlink privilege isn't held — no Developer Mode or admin rights required. Git Bash (bundled with [Git for Windows](https://git-scm.com/download/win)), PowerShell, and WSL2 all work.
 
 **Prerequisites:**
 
