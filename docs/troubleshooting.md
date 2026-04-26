@@ -13,7 +13,7 @@ If something isn't working, start here. For general setup help see [Getting Star
 
 If setup reports that ast-grep was not detected, install it to unlock the Forge tier: <https://ast-grep.github.io>. Re-run `@Ferris SF` afterward — your tier upgrades automatically.
 
-### "No brief found"
+### "No skill brief found"
 
 Run `@Ferris BS` first to create a skill brief, or use `@Ferris QS` for brief-less generation. `CS` requires either a brief or a direct invocation with scope arguments.
 

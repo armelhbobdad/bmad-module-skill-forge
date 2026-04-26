@@ -135,7 +135,7 @@ Analyzes your project's dependencies and generates a consolidated stack skill wi
 
 ## Common use cases
 
-> **Looking for end-to-end examples?** See [Examples](../examples/) for eleven real-world scenarios with full command transcripts — from Quick Skill under a minute, to brownfield onboarding, stack verification, release-prep drift remediation, and SaaS docs-only skills.
+> **Looking for end-to-end examples?** See [Examples](../examples/) for thirteen real-world scenarios with full command transcripts — from Quick Skill under a minute, to brownfield onboarding, stack verification, release-prep drift remediation, and SaaS docs-only skills.
 
 ---
 

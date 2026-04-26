@@ -16,7 +16,7 @@
 [![Discord](https://img.shields.io/badge/Discord-Join%20Community-7289da?logo=discord&logoColor=white)](https://discord.gg/gk8jAdXWmj)
 [![GitHub stars](https://img.shields.io/github/stars/armelhbobdad/bmad-module-skill-forge?style=social)](https://github.com/armelhbobdad/bmad-module-skill-forge/stargazers)
 
-_Skill Forge analyzes your code repositories, documentation, and developer discourse to build verified instruction files for AI agents. Every instruction links back to a specific file and line in the source it was compiled from._
+_Skill Forge analyzes your code repositories, documentation, and developer discourse to build verified instruction files for AI agents. Every instruction links back to its upstream — a specific `file:line` at a pinned commit when source is available, or a documentation URL when it isn't._
 
 **If SKF fixes your agent's API guesses, give it a ⭐ — it helps others find this tool.**
 **If it saved you an afternoon, [grab me a coffee ☕](https://buymeacoffee.com/armelhbobdad) — it helps me keep forging.**
@@ -94,7 +94,7 @@ A skeptical reader is probably already considering one of these alternatives:
 
 |                            | **Skill Forge**                           | MCP doc servers   | Hand-edited `.cursorrules` | awesome-\* lists |
 | -------------------------- | ----------------------------------------- | ----------------- | -------------------------- | ---------------- |
-| Reproducible from source   | AST extraction + pinned commit            | varies; opaque    | whatever you wrote         | none             |
+| Reproducible from upstream | AST + pinned commit (or pinned doc URL)   | varies; opaque    | whatever you wrote         | none             |
 | Version-pinned & immutable | yes — per-version directories             | runtime-dependent | rots silently              | no               |
 | Audit trail                | `provenance-map.json` + test + evidence   | depends on server | none                       | none             |
 | Runtime cost               | zero (markdown + JSON)                    | a running process | zero                       | zero             |
@@ -115,13 +115,15 @@ SKF extracts real function signatures, types, and patterns from code, docs, and 
 
 ## Verifying a Skill
 
-You can falsify any AST citation in an SKF-compiled skill in under a minute:
+You can falsify any citation in an SKF-compiled skill in under a minute:
 
 1. **Open the skill's `provenance-map.json`** — find your symbol; read its `source_file` and `source_line`.
 2. **Open the skill's `metadata.json`** — read `source_commit` and `source_repo`.
 3. **Jump to the upstream repo at that commit**, open that file, find that line. The signature in `SKILL.md` should match the one you're reading.
 
-If it doesn't, that's a bug — open an issue and SKF will republish with a new commit SHA and a new provenance map. Falsifiability isn't a feature; it's the whole deal.
+For docs-only skills, the audit shape is the same — `provenance-map.json` still lists every symbol — but entries cite `[EXT:{url}]` instead of `file:line@SHA`, and step 3 becomes "open the doc URL and confirm the signature matches."
+
+If it doesn't, that's a bug — open an issue and SKF will republish the skill with a fresh provenance map (a new commit SHA for source skills, a fresh fetch for docs-only). Falsifiability isn't a feature; it's the whole deal.
 
 **Reference output: [oh-my-skills](https://github.com/armelhbobdad/oh-my-skills)** — four Deep-tier skills compiled by SKF (cocoindex, cognee, Storybook v10, uitripled), each shipping its full audit trail in-repo. Scores range from 99.0% to 99.49%. Every claim walks to an upstream line in under 60 seconds. Serves as both the worked example for this section and ongoing proof that the pipeline does what it says.
 
