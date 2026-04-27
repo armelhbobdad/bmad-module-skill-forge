@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "203a105d7d98",
+  "session_id": "1aee48de-b992-43e8-b07c-23a85c0fa459",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-27T06:57:25.754088005Z",
+  "branch": "refactor/skf-setup-step-prompts-invoke-shared-scripts",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-setup/steps-c/step-04-report.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "8d064e22b139",
+  "token_usage": {
+    "input_tokens": 467,
+    "cache_creation_tokens": 593234,
+    "cache_read_tokens": 60572489,
+    "output_tokens": 295029,
+    "api_call_count": 213
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-27T06:57:23.248250705Z",
+    "agent_lines": 0,
+    "human_added": 4,
+    "human_modified": 46,
+    "human_removed": 0,
+    "total_committed": 4,
+    "agent_percentage": 0
+  }
+}
