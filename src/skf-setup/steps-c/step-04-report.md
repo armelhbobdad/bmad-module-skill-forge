@@ -27,13 +27,19 @@ Display the forge status report with positive capability framing, surface tier c
 - Never inline-render the envelope JSON — the script owns the schema; drift breaks pipelines
 - Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing status report is NOT the terminal step
 
+## Headless Mode Display Rule
+
+When `{headless_mode}` is `true`, sections 2 (the human-readable banner) and 3 (the REQUIRED TIER NOT MET human prose block) are **skipped entirely**. The single line of stdout in headless mode is the `SKF_SETUP_RESULT_JSON: {…}` envelope from section 4 — every signal the human banner would have surfaced is already in the envelope (`tier`, `previous_tier`, `tier_changed`, `tools`, `tools_added`, `tools_removed`, `files_written`, `tier_override_*`, `require_tier_satisfied`, `warnings`, `error`). Parent skills and CI pipelines consume one parseable line; they should not be forced to scroll past 30 lines of ASCII-art they cannot use.
+
+When `{headless_mode}` is `false`, sections 2 and 3 display normally and section 4 is skipped (interactive runs read the human banner; envelope emission would just be log noise).
+
 ## MANDATORY SEQUENCE
 
 ### 1. Load Capability Descriptions
 
-Load and read {tierRulesData} for the tier capability descriptions and re-run messages.
+Load and read {tierRulesData} for the tier capability descriptions and re-run messages. Needed by section 2; safe to load unconditionally — the data load itself is silent.
 
-### 2. Display Forge Status Report
+### 2. Display Forge Status Report (skip when `{headless_mode}` is true)
 
 **Format the report as follows:**
 
@@ -136,9 +142,11 @@ The same-tier-with-tool-deltas branch reads `{tools_added}` and `{tools_removed}
 - Do NOT list unavailable tools
 - Do NOT show a "missing" column or section
 
-### 3. Display Required-Tier Failure Block (when applicable)
+### 3. Display Required-Tier Failure Block (when applicable; skip when `{headless_mode}` is true)
 
-If `{require_tier_satisfied}` is `false`, display this block immediately after the status report and BEFORE the JSON envelope:
+If `{require_tier_satisfied}` is `false` AND `{headless_mode}` is `false`, display this block immediately after the status report. In headless mode the failure surfaces via the envelope's `require_tier_satisfied: false` and the synthesized `warnings` entry — the human prose block would be log noise that pipelines have to scroll past.
+
+When the block does fire (interactive run with require-tier failure):
 
 ```
 ═══════════════════════════════════════
