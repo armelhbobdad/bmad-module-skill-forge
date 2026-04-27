@@ -57,6 +57,12 @@ These rules apply to every step in this workflow:
    - `project_name` (from installer-generated config.yaml, not module.yaml), `output_folder`, `user_name`, `communication_language`, `document_output_language`
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
 
+   **If the file does not exist**, halt with a single cohesive "wrong directory" diagnostic rather than failing later with a generic file-read error from a downstream step:
+
+   "**Setup cannot proceed: `{project-root}/_bmad/skf/config.yaml` was not found.** This directory does not appear to be an SKF-initialised project. From the project root, run `npx bmad-module-skill-forge install` (or `npx bmad-method install` and add SKF as a custom module — see `docs/getting-started.md`), then re-run `/skf-setup`. If you ARE in the right project but the file was deleted, restore it from version control or re-run the SKF installer."
+
+   **If the file exists but is malformed YAML**, halt and surface the parser error along with the file path so the user can fix it directly: "**Setup cannot proceed: `{project-root}/_bmad/skf/config.yaml` is not valid YAML.** Parser error: {error_message}. Open the file and repair the YAML, or restore from version control."
+
 3. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 
 4. **Resolve `{require_tier}`**: parse `--require-tier=<value>` from the invocation arguments. Accept exactly `Quick`, `Forge`, `Forge+`, or `Deep` (case-sensitive). If absent or unparseable, leave as null (no tier requirement).

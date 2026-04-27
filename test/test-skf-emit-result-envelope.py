@@ -149,6 +149,29 @@ def test_warnings_includes_tier_override_invalid():
     assert any("tier_override_invalid: forge+" in w for w in env["skf_setup"]["warnings"])
 
 
+def test_warnings_includes_tier_override_invalid_suggestion_when_present():
+    p = _baseline_payload()
+    p["tier_override_invalid"] = True
+    p["tier_override_invalid_value"] = "forge+"
+    p["tier_override_invalid_suggestion"] = "Forge+"
+    env = mod.assemble_envelope(p)
+    assert any("tier_override_invalid: forge+ (did you mean Forge+?)" in w
+               for w in env["skf_setup"]["warnings"])
+
+
+def test_warnings_omits_did_you_mean_when_suggestion_null():
+    """No suggestion → fall back to the bare warning shape (no parenthetical)."""
+    p = _baseline_payload()
+    p["tier_override_invalid"] = True
+    p["tier_override_invalid_value"] = "xyzzy"
+    p["tier_override_invalid_suggestion"] = None
+    env = mod.assemble_envelope(p)
+    invalid_warnings = [w for w in env["skf_setup"]["warnings"] if "tier_override_invalid" in w]
+    assert len(invalid_warnings) == 1
+    assert "did you mean" not in invalid_warnings[0]
+    assert "tier_override_invalid: xyzzy" in invalid_warnings[0]
+
+
 def test_warnings_includes_tier_override_unsafe():
     p = _baseline_payload()
     p["tier_override_unsafe"] = True

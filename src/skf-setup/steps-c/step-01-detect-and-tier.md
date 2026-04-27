@@ -82,6 +82,7 @@ From `tier`:
 - `{tier_override_active}` ← `tier.override_applied`
 - `{tier_override_invalid}` ← `tier.override_invalid`
 - `{tier_override_invalid_value}` ← `tier.override_invalid_value`
+- `{tier_override_invalid_suggestion}` ← `tier.override_invalid_suggestion` (closest valid tier name from a fuzzy match — `null` when no candidate cleared the cutoff or when override is valid; consumed by step-04's invalid-override note as a "did you mean ...?" hint)
 - `{tier_override_unsafe}` ← `tier.override_unsafe`
 - `{tier_override_unsafe_missing}` ← `tier.override_unsafe_missing` (a list — step-04 joins with `", "` for display)
 

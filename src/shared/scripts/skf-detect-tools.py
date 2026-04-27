@@ -71,6 +71,7 @@ DETECT_OUTPUT_SCHEMA (v1):
       "override_value":          str|null,
       "override_invalid":        bool,
       "override_invalid_value":  str|null,
+      "override_invalid_suggestion": str|null,
       "override_unsafe":         bool,
       "override_unsafe_missing": [str]
     },
@@ -206,6 +207,33 @@ def calculate_tier(tools: dict) -> str:
     return "Quick"
 
 
+def suggest_valid_tier(bad_value: str) -> str | None:
+    """For an invalid --tier-override value, return the closest valid tier name.
+
+    Two-stage match:
+    1. Case-insensitive exact match — handles `deep` / `DEEP` / `forge+` /
+       `FORGE+` (the most common typo class: right tier, wrong case).
+    2. difflib fuzzy match against `VALID_TIERS` with a 0.6 cutoff — handles
+       `frorge`, `quik`, `forge plus`, etc.
+
+    Returns None if no candidate clears the cutoff. Used only for diagnostic
+    messages — the override itself is never silently auto-corrected.
+    """
+    import difflib
+
+    if not bad_value or not isinstance(bad_value, str):
+        return None
+    cleaned = bad_value.strip()
+    if not cleaned:
+        return None
+    cleaned_lower = cleaned.lower()
+    for valid in VALID_TIERS:
+        if valid.lower() == cleaned_lower:
+            return valid
+    matches = difflib.get_close_matches(cleaned, VALID_TIERS, n=1, cutoff=0.6)
+    return matches[0] if matches else None
+
+
 def tier_prerequisites_met(tier: str, tools: dict) -> tuple[bool, list[str]]:
     """Return (satisfied, missing_tools) for tier-prerequisite checks.
 
@@ -243,6 +271,7 @@ def detect(args: argparse.Namespace) -> dict:
     override_value: str | None = None
     override_invalid = False
     override_invalid_value: str | None = None
+    override_invalid_suggestion: str | None = None
     override_unsafe = False
     override_unsafe_missing: list[str] = []
 
@@ -258,6 +287,7 @@ def detect(args: argparse.Namespace) -> dict:
         else:
             override_invalid = True
             override_invalid_value = args.tier_override
+            override_invalid_suggestion = suggest_valid_tier(args.tier_override)
             calculated = detected
     else:
         calculated = detected
@@ -281,6 +311,7 @@ def detect(args: argparse.Namespace) -> dict:
             "override_value": override_value,
             "override_invalid": override_invalid,
             "override_invalid_value": override_invalid_value,
+            "override_invalid_suggestion": override_invalid_suggestion,
             "override_unsafe": override_unsafe,
             "override_unsafe_missing": override_unsafe_missing,
         },
