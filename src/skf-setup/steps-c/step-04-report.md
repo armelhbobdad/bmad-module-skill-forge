@@ -12,6 +12,8 @@ emitEnvelopeProbeOrder:
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 ---
 
+<!-- Config: communicate in {communication_language}; emit user-visible report text (FORGE STATUS banner, climb hint, REQUIRED TIER NOT MET block, breadcrumb) in {document_output_language}. The JSON envelope from section 4 is a machine contract — its keys and enum values stay English regardless. -->
+
 # Step 4: Forge Status Report
 
 ## STEP GOAL:
@@ -62,6 +64,7 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
   {if tools.ast_grep and not tools.gh_cli: - Install GitHub CLI (https://cli.github.com) — required for Deep tier (cross-repository synthesis)}
   {if tools.ast_grep and not tools.qmd and qmd_status is "absent": - Install qmd (https://github.com/tobi/qmd) — required for Deep tier (knowledge search)}
   {if tools.ast_grep and not tools.qmd and qmd_status is "daemon_stopped": - Start the qmd daemon (already installed) — run `qmd start` (or your distribution's qmd service command) to unlock Deep tier (knowledge search)}
+  {if tools.ccc and ccc_daemon is "error": - The ccc daemon is reporting errors — run `ccc doctor` to diagnose. CCC index will fail until resolved (mirrors the qmd daemon-stopped pattern above for parity)}
   {end if}
 
   {if hygiene_result is "completed":}
@@ -107,6 +110,7 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 
 {if tier_override_invalid is true:}
   Note: tier_override value "{tier_override_invalid_value}" in preferences.yaml is not valid.
+        {if tier_override_invalid_suggestion is non-null: Did you mean "{tier_override_invalid_suggestion}"?}
         Valid values are case-sensitive: Quick, Forge, Forge+, Deep. Using detected tier {calculated_tier}.
 
 {if tier_override_unsafe is true:}

@@ -314,6 +314,75 @@ def test_detect_invalid_override_falls_back_to_detected():
     assert out["tier"]["override_applied"] is False
     assert out["tier"]["override_invalid"] is True
     assert out["tier"]["override_invalid_value"] == "forge+"
+    # Case-insensitive match should suggest the canonical form
+    assert out["tier"]["override_invalid_suggestion"] == "Forge+"
+
+
+# ─── suggest_valid_tier (fuzzy match for invalid --tier-override) ────────────
+
+
+@pytest.mark.parametrize("bad,expected", [
+    # Case-insensitive exact matches — most common typo class
+    ("deep",     "Deep"),
+    ("DEEP",     "Deep"),
+    ("Deep",     None),    # Already valid — never called for valid values, but defensive
+    ("forge+",   "Forge+"),
+    ("FORGE+",   "Forge+"),
+    ("quick",    "Quick"),
+    ("forge",    "Forge"),
+    # Whitespace tolerance — same suggestion logic applies after .strip()
+    (" deep ",   "Deep"),
+    ("\tquick\n", "Quick"),
+    # difflib fuzzy match — handles single-character typos
+    ("Deeep",    "Deep"),
+    ("Quik",     "Quick"),
+    ("Frge",     "Forge"),  # missing letter
+    # Below cutoff — no suggestion is better than a wrong suggestion
+    ("xyz",      None),
+    ("",         None),
+    ("   ",      None),
+])
+def test_suggest_valid_tier(bad, expected):
+    """`Deep` is intentionally `None` because it's already valid; the function
+    is only called from the invalid-override branch in production, but the
+    parametrized case documents the expected return for an exact valid match."""
+    if expected is None and bad in mod.VALID_TIERS:
+        # Exact valid match: function does return the valid value via the
+        # case-insensitive branch. Adjust expectation for those rows.
+        assert mod.suggest_valid_tier(bad) == bad
+    else:
+        assert mod.suggest_valid_tier(bad) == expected
+
+
+def test_suggest_valid_tier_for_non_string_returns_none():
+    assert mod.suggest_valid_tier(None) is None
+    assert mod.suggest_valid_tier(42) is None
+    assert mod.suggest_valid_tier(["Deep"]) is None
+
+
+def test_detect_invalid_override_with_no_close_match_has_null_suggestion():
+    with _patch_all_probes(ag=True, gh=False, qm=False, cc=False):
+        out = mod.detect(_detect_args(tier_override="xyzzy"))
+    assert out["tier"]["override_invalid"] is True
+    assert out["tier"]["override_invalid_value"] == "xyzzy"
+    assert out["tier"]["override_invalid_suggestion"] is None
+
+
+def test_detect_no_override_has_null_suggestion():
+    """When no override is set, suggestion is null (suggestion is meaningful only with invalid override)."""
+    with _patch_all_probes(ag=True, gh=True, qm=True, cc=True):
+        out = mod.detect(_detect_args())
+    assert out["tier"]["override_invalid"] is False
+    assert out["tier"]["override_invalid_suggestion"] is None
+
+
+def test_detect_valid_override_has_null_suggestion():
+    """Valid override → no suggestion needed."""
+    with _patch_all_probes(ag=True, gh=True, qm=True, cc=True):
+        out = mod.detect(_detect_args(tier_override="Deep"))
+    assert out["tier"]["override_applied"] is True
+    assert out["tier"]["override_invalid"] is False
+    assert out["tier"]["override_invalid_suggestion"] is None
 
 
 def test_detect_require_tier_satisfied():

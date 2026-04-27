@@ -45,6 +45,7 @@ Context payload shape (consumed by `emit`):
     "tier_override_active":          bool,
     "tier_override_invalid":         bool,
     "tier_override_invalid_value":   "string|null",
+    "tier_override_invalid_suggestion": "string|null",
     "tier_override_unsafe":          bool,
     "tier_override_unsafe_missing":  ["gh", "qmd", ...],
     "require_tier_satisfied":        bool|null,
@@ -152,7 +153,12 @@ def _assemble_warnings(payload: dict) -> list[str]:
     warnings: list[str] = []
     if payload.get("tier_override_invalid"):
         bad = payload.get("tier_override_invalid_value")
-        warnings.append(f"tier_override_invalid: {bad if bad is not None else '<unknown>'}")
+        suggestion = payload.get("tier_override_invalid_suggestion")
+        bad_text = bad if bad is not None else "<unknown>"
+        if suggestion:
+            warnings.append(f"tier_override_invalid: {bad_text} (did you mean {suggestion}?)")
+        else:
+            warnings.append(f"tier_override_invalid: {bad_text}")
     if payload.get("tier_override_unsafe"):
         missing = payload.get("tier_override_unsafe_missing", []) or []
         warnings.append(f"tier_override_unsafe: missing {', '.join(missing) if missing else '<none>'}")

@@ -10,6 +10,8 @@ mergeCccExclusionsProbeOrder:
   - '{project-root}/src/shared/scripts/skf-merge-ccc-exclusions.py'
 ---
 
+<!-- Config: communicate in {communication_language}. User-visible status messages (CCC exclusion summary, indexing progress message) render in the user's language. -->
+
 # Step 1b: CCC Index Verification
 
 ## STEP GOAL:
