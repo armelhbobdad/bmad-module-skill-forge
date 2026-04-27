@@ -108,7 +108,57 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 - Do NOT list unavailable tools
 - Do NOT show a "missing" column or section
 
-### 3. Chain to Health Check
+### 3. Display Required-Tier Failure Block (when applicable)
 
-After the forge status report has been displayed, load `{nextStepFile}`, read it fully, and execute it. The health-check step is the true terminal step — do not stop here even though the report reads as final. step-05 in turn delegates to `shared/health-check.md`; after that returns, the setup workflow is fully done.
+If `{require_tier_satisfied}` is `false`, display this block immediately after the status report and BEFORE the JSON envelope:
+
+```
+═══════════════════════════════════════
+  REQUIRED TIER NOT MET
+═══════════════════════════════════════
+
+  Required:  {require_tier}
+  Detected:  {calculated_tier}
+  Missing:   {require_tier_failure_missing_tools}
+
+  Install the missing tool(s) and re-run, or relax `--require-tier`.
+  See "Climb to next tier" above for install URLs.
+═══════════════════════════════════════
+```
+
+This block exists to make pipeline failures visible without the operator parsing the JSON envelope.
+
+### 4. Emit Headless JSON Envelope (when `{headless_mode}` is true)
+
+When `{headless_mode}` is `true`, emit a single line at the end of step-04's output (after the human-readable banner and any required-tier failure block) using the literal prefix `SKF_SETUP_RESULT_JSON: ` followed by a one-line JSON document. This lets a CI pipeline grep one line out of the workflow log without parsing ASCII-art and without racing the forge-tier.yaml writer.
+
+**Schema (one line, no embedded newlines):**
+
+```json
+{
+  "skf_setup": {
+    "tier": "Quick|Forge|Forge+|Deep",
+    "tools": {"ast_grep": true|false, "gh_cli": true|false, "qmd": true|false, "ccc": true|false},
+    "config_path": "{absolute path to forge-tier.yaml}",
+    "ccc_index": {"status": "fresh|created|failed|none", "indexed_path": "{abs}|null", "file_count": <int>|null},
+    "files_written": ["forge-tier.yaml", "preferences.yaml", "settings.yml", "ccc_index"],
+    "tier_override_active": true|false,
+    "tier_override_invalid": true|false,
+    "require_tier_satisfied": true|false|null,
+    "warnings": ["..."]
+  }
+}
+```
+
+**Field rules:**
+
+- `files_written` — include only the keys whose write actually occurred this run. Always includes `"forge-tier.yaml"`. Includes `"preferences.yaml"` only when `{preferences_yaml_created}` is true. Includes `"settings.yml"` only when `{settings_yml_written}` is true. Includes `"ccc_index"` only when `{ccc_index_result}` is `"created"`.
+- `require_tier_satisfied` — `null` when `--require-tier` was not set; otherwise the boolean from §3.
+- `warnings` — collect any non-fatal anomalies surfaced during the run (e.g. `"tier_override invalid: <value>"`, `"qmd_unavailable"`, `"ccc indexing failed"`). Empty array when none.
+
+When `{headless_mode}` is `false`, do NOT emit the envelope — interactive runs read the human-readable banner.
+
+### 5. Chain to Health Check
+
+After the forge status report (and any failure block + JSON envelope) has been displayed, load `{nextStepFile}`, read it fully, and execute it — UNLESS `{require_tier_satisfied}` is `false`, in which case halt the workflow here without chaining to step-05. The health-check step is the true terminal step on success — do not stop after the report on a passing run even though it reads as final. step-05 in turn delegates to `shared/health-check.md`; after that returns, the setup workflow is fully done.
 

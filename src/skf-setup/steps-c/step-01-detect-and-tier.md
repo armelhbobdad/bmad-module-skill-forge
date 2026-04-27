@@ -91,6 +91,24 @@ ccc availability gates the Forge+ tier and enhances Deep tier when present.
 
 **If `{tier_override}` is set but invalid (any value other than the case-sensitive `Quick`, `Forge`, `Forge+`, or `Deep`):** ignore it, use detected tier. Set `{tier_override_invalid: true}` and `{tier_override_invalid_value: <the bad value>}` in context for step-04 reporting.
 
+### 8b. Evaluate `--require-tier` (when set)
+
+If `{require_tier}` is set (resolved in On Activation), check whether the available tools satisfy the requested tier — independent of which tier was *named* — using the tool prerequisites from `{tierRulesData}`:
+
+- `Quick` — always satisfied.
+- `Forge` — satisfied iff `{ast_grep}` is true.
+- `Forge+` — satisfied iff `{ast_grep}` AND `{ccc}` are both true.
+- `Deep` — satisfied iff `{ast_grep}` AND `{gh_cli}` AND `{qmd}` are all true.
+
+This is a tool-prerequisite check, not a tier-name comparison. Deep does not subsume Forge+ (Deep does not require ccc), so a `Deep` calculation with no ccc still fails `--require-tier=Forge+`.
+
+Set the following context flags for step-04:
+
+- `{require_tier_satisfied: true|false}`
+- `{require_tier_failure_missing_tools: <comma-separated list of missing tools, e.g. "gh, qmd">}` (only when not satisfied)
+
+If `{require_tier}` is null (not set), set `{require_tier_satisfied: null}` so step-04 knows to skip the failure block entirely.
+
 ### 9. Auto-Proceed
 
 After all 4 core tools have been verified, the optional security scan checked, and the tier calculated, display "**Proceeding to CCC index check...**", then load `{nextStepFile}`, read it fully, and execute it.

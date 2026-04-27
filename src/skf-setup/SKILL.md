@@ -40,9 +40,11 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | (none) |
+| **Flags** | `--headless` / `-H` (skip prompts, auto-resolve gates to defaults); `--require-tier=<Quick\|Forge\|Forge+\|Deep>` (halt with failure if calculated tier does not satisfy the requirement) |
 | **Gates** | One optional: orphaned QMD collection removal (step 3, Deep tier only; default: Keep) |
 | **Outputs** | `forger-sidecar/forge-tier.yaml`, `forger-sidecar/preferences.yaml`, `{forge_data_folder}/`; when ccc is available, `.cocoindex_code/settings.yml` (exclusion patterns merged) and the project ccc index |
-| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
+| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. step-04 emits a single-line `SKF_SETUP_RESULT_JSON: {…}` envelope after the human-readable banner so pipelines can parse the outcome without reading forge-tier.yaml. Schema documented in `steps-c/step-04-report.md` §4. |
+| **Failure modes** | `--require-tier` not satisfied → step-04 prints a "REQUIRED TIER NOT MET" block, the JSON envelope sets `"require_tier_satisfied": false`, and the workflow halts before step-05. |
 
 ## On Activation
 
@@ -52,4 +54,6 @@ These rules apply to every step in this workflow:
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 
-3. Load, read the full file, and then execute `./steps-c/step-01-detect-and-tier.md` to begin the workflow.
+3. **Resolve `{require_tier}`**: parse `--require-tier=<value>` from the invocation arguments. Accept exactly `Quick`, `Forge`, `Forge+`, or `Deep` (case-sensitive). If absent or unparseable, leave as null (no tier requirement).
+
+4. Load, read the full file, and then execute `./steps-c/step-01-detect-and-tier.md` to begin the workflow.
