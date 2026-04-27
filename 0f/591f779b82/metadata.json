@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0f591f779b82",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-setup-step-prompts-invoke-shared-scripts",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-setup/steps-c/step-01b-ccc-index.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0f/591f779b82/0/metadata.json",
+      "transcript": "/0f/591f779b82/0/full.jsonl",
+      "context": "/0f/591f779b82/0/context.md",
+      "content_hash": "/0f/591f779b82/0/content_hash.txt",
+      "prompt": "/0f/591f779b82/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 459,
+    "cache_creation_tokens": 565457,
+    "cache_read_tokens": 56173833,
+    "output_tokens": 278248,
+    "api_call_count": 205
+  }
+}
