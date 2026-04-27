@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d1de421fde67",
+  "session_id": "1aee48de-b992-43e8-b07c-23a85c0fa459",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-27T08:45:23.308144292Z",
+  "branch": "polish/skf-setup-close-remaining-themes",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/skf-detect-tools.py",
+    "src/shared/scripts/skf-emit-result-envelope.py",
+    "src/skf-setup/SKILL.md",
+    "src/skf-setup/steps-c/step-01-detect-and-tier.md",
+    "src/skf-setup/steps-c/step-04-report.md",
+    "test/test-skf-detect-tools.py",
+    "test/test-skf-emit-result-envelope.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "4c2316740931",
+  "token_usage": {
+    "input_tokens": 634,
+    "cache_creation_tokens": 727848,
+    "cache_read_tokens": 132475002,
+    "output_tokens": 386088,
+    "api_call_count": 325
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-27T08:45:20.302480935Z",
+    "agent_lines": 0,
+    "human_added": 138,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 138,
+    "agent_percentage": 0
+  }
+}

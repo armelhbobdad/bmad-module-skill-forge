@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d1de421fde67",
+  "strategy": "manual-commit",
+  "branch": "polish/skf-setup-close-remaining-themes",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/skf-detect-tools.py",
+    "src/shared/scripts/skf-emit-result-envelope.py",
+    "src/skf-setup/SKILL.md",
+    "src/skf-setup/steps-c/step-01-detect-and-tier.md",
+    "src/skf-setup/steps-c/step-04-report.md",
+    "test/test-skf-detect-tools.py",
+    "test/test-skf-emit-result-envelope.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d1/de421fde67/0/metadata.json",
+      "transcript": "/d1/de421fde67/0/full.jsonl",
+      "context": "/d1/de421fde67/0/context.md",
+      "content_hash": "/d1/de421fde67/0/content_hash.txt",
+      "prompt": "/d1/de421fde67/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 634,
+    "cache_creation_tokens": 727848,
+    "cache_read_tokens": 132475002,
+    "output_tokens": 386088,
+    "api_call_count": 325
+  }
+}
