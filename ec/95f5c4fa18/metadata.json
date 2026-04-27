@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "ec95f5c4fa18",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-setup-health-check-243-244-245",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-setup/SKILL.md",
+    "src/skf-setup/steps-c/step-03-auto-index.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ec/95f5c4fa18/0/metadata.json",
+      "transcript": "/ec/95f5c4fa18/0/full.jsonl",
+      "context": "/ec/95f5c4fa18/0/context.md",
+      "content_hash": "/ec/95f5c4fa18/0/content_hash.txt",
+      "prompt": "/ec/95f5c4fa18/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 5,
+    "cache_creation_tokens": 3636,
+    "cache_read_tokens": 444620,
+    "output_tokens": 2190,
+    "api_call_count": 5
+  }
+}
