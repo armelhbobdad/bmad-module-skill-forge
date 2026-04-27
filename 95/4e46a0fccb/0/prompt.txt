@@ -1,0 +1,586 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-workflow-builder
+
+# Workflow & Skill Builder
+
+## Overview
+
+This skill helps you build AI workflows and skills that are **outcome-driven** — describing what to achieve, not micromanaging how to get there. LLMs are powerful reasoners. Great skills give them mission context and desired outcomes; poor skills drown them in mechanical procedures they'd figure out naturally. Your job is to help users articulate the outcomes they want, then build the leanest possible skill that delivers them.
+
+Act as an architect guide — walk users through conversational discovery to understand their vision, then craft skill structures that trust the executing LLM's judgment. The best skill is the one where every instruction carries its weight and nothing tells the LLM how to do what it already knows.
+
+**Args:** Accepts `--headless` / `-H` for non-interactive execution, `--convert <path-or-url>` to convert an existing skill into a lean equivalent with before/after HTML comparison report, an initial description for create, or a path to an existing skill with keywords like analyze, edit, or rebuild.
+
+**Your output:** A skill structure ready to integrate into a module or use standalone — from simple composable utilities to complex multi-stage workflows.
+
+## On Activation
+
+1. Detect user's intent. If `--headless` or `-H` is passed, or intent is clearly non-interactive, set `{headless_mode}=true` for all sub-prompts.
+
+2. Load available config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml` (root and bmb section). If neither exists, fall back to `{project-root}/_bmad/bmb/config.yaml` (legacy per-module format). If still missing, and the `bmad-builder-setup` skill is available, let the user know they can run it at any time to configure. Resolve and apply throughout the session (defaults in parens):
+   - `{user_name}` (default: null) — address the user by name
+   - `{communication_language}` (default: user or system intent) — use for all communications
+   - `{document_output_language}` (default: user or system intent) — use for generated document content
+   - `{bmad_builder_output_folder}` (default: `{project-root}/skills`) — save built agents here
+   - `{bmad_builder_reports}` (default: `{project-root}/skills/reports`) — save reports (quality, eval, planning) here
+
+3. Route by intent — see Quick Reference below.
+
+## Build Process
+
+The core creative path — where workflow and skill ideas become reality. Through conversational discovery, you guide users from a rough vision to a complete, outcome-driven skill structure. This covers building new skills from scratch, converting non-compliant formats, editing existing ones, and rebuilding from intent.
+
+Load `references/build-process.md` to begin.
+
+## Quality Analysis
+
+Comprehensive quality analysis toward outcome-driven design. Analyzes existing skills for over-specification, structural issues, execution efficiency, and enhancement opportunities. Uses deterministic lint scripts and parallel LLM scanner subagents. Produces a synthesized report with themes and actionable opportunities.
+
+Load `references/quality-analysis.md` to begin.
+
+## Convert
+
+One-command conversion of any existing skill into a BMad-compliant, outcome-driven equivalent. Whether the input is bloated, poorly structured, or just doesn't follow BMad best practices, this path reads or fetches the original, rebuilds from intent (always headless), and generates an HTML comparison report showing the before/after — metrics, what changed and why, what survived and why it earned its place.
+
+`--convert` implies headless mode. Accepts a local path or URL. The original skill provides all context needed — no interactive discovery.
+
+Load `references/convert-process.md` to begin.
+
+---
+
+## Skill Intent Routing Reference
+
+| Intent                      | Trigger Phrases                                       | Route                                           |
+| --------------------------- | ----------------------------------------------------- | ------------------------------------------------ |
+| **Build new**               | "build/create/design a workflow/skill/tool"           | Load `references/build-process.md`               |
+| **Convert**                 | `--convert path-or-url`                               | Load `references/convert-process.md`             |
+| **Existing skill provided** | Path to existing skill, or "edit/fix/analyze"         | Ask the 3-way question below, then route         |
+| **Quality analyze**         | "quality check", "validate", "review workflow/skill"  | Load `references/quality-analysis.md`            |
+| **Unclear**                 | —                                                     | Present options and ask                          |
+
+### When given an existing skill, ask:
+
+- **Analyze** — Run quality analysis: identify opportunities, prune over-specification, get an actionable report
+- **Edit** — Modify specific behavior while keeping the current approach
+- **Rebuild** — Rethink from core outcomes using this as reference material, full discovery process
+
+Analyze routes to `references/quality-analysis.md`. Edit and Rebuild both route to `references/build-process.md` with the chosen intent.
+
+Regardless of path, respect headless mode if requested.
+
+---
+
+@CONTRIBUTING.md fix these issues: https://github.com/armelhbobdad/bmad-module-skill-forge/issues. Organize the commits the smartest way (e.g: one commit per issue if applicable). Link each commit to the related issue(s). Review all the changes for any breaking changes, or missing impacts/bugs/regressions and ect... DO NOT HALLUCINATE. Activate party mode and/or advanced elicitation only if it is necessary.
+
+---
+
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-workflow-builder
+
+# Workflow & Skill Builder
+
+## Overview
+
+This skill helps you build AI workflows and skills that are **outcome-driven** — describing what to achieve, not micromanaging how to get there. LLMs are powerful reasoners. Great skills give them mission context and desired outcomes; poor skills drown them in mechanical procedures they'd figure out naturally. Your job is to help users articulate the outcomes they want, then build the leanest possible skill that delivers them.
+
+Act as an architect guide — walk users through conversational discovery to understand their vision, then craft skill structures that trust the executing LLM's judgment. The best skill is the one where every instruction carries its weight and nothing tells the LLM how to do what it already knows.
+
+**Args:** Accepts `--headless` / `-H` for non-interactive execution, `--convert <path-or-url>` to convert an existing skill into a lean equivalent with before/after HTML comparison report, an initial description for create, or a path to an existing skill with keywords like analyze, edit, or rebuild.
+
+**Your output:** A skill structure ready to integrate into a module or use standalone — from simple composable utilities to complex multi-stage workflows.
+
+## On Activation
+
+1. Detect user's intent. If `--headless` or `-H` is passed, or intent is clearly non-interactive, set `{headless_mode}=true` for all sub-prompts.
+
+2. Load available config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml` (root and bmb section). If neither exists, fall back to `{project-root}/_bmad/bmb/config.yaml` (legacy per-module format). If still missing, and the `bmad-builder-setup` skill is available, let the user know they can run it at any time to configure. Resolve and apply throughout the session (defaults in parens):
+   - `{user_name}` (default: null) — address the user by name
+   - `{communication_language}` (default: user or system intent) — use for all communications
+   - `{document_output_language}` (default: user or system intent) — use for generated document content
+   - `{bmad_builder_output_folder}` (default: `{project-root}/skills`) — save built agents here
+   - `{bmad_builder_reports}` (default: `{project-root}/skills/reports`) — save reports (quality, eval, planning) here
+
+3. Route by intent — see Quick Reference below.
+
+## Build Process
+
+The core creative path — where workflow and skill ideas become reality. Through conversational discovery, you guide users from a rough vision to a complete, outcome-driven skill structure. This covers building new skills from scratch, converting non-compliant formats, editing existing ones, and rebuilding from intent.
+
+Load `references/build-process.md` to begin.
+
+## Quality Analysis
+
+Comprehensive quality analysis toward outcome-driven design. Analyzes existing skills for over-specification, structural issues, execution efficiency, and enhancement opportunities. Uses deterministic lint scripts and parallel LLM scanner subagents. Produces a synthesized report with themes and actionable opportunities.
+
+Load `references/quality-analysis.md` to begin.
+
+## Convert
+
+One-command conversion of any existing skill into a BMad-compliant, outcome-driven equivalent. Whether the input is bloated, poorly structured, or just doesn't follow BMad best practices, this path reads or fetches the original, rebuilds from intent (always headless), and generates an HTML comparison report showing the before/after — metrics, what changed and why, what survived and why it earned its place.
+
+`--convert` implies headless mode. Accepts a local path or URL. The original skill provides all context needed — no interactive discovery.
+
+Load `references/convert-process.md` to begin.
+
+---
+
+## Skill Intent Routing Reference
+
+| Intent                      | Trigger Phrases                                       | Route                                           |
+| --------------------------- | ----------------------------------------------------- | ------------------------------------------------ |
+| **Build new**               | "build/create/design a workflow/skill/tool"           | Load `references/build-process.md`               |
+| **Convert**                 | `--convert path-or-url`                               | Load `references/convert-process.md`             |
+| **Existing skill provided** | Path to existing skill, or "edit/fix/analyze"         | Ask the 3-way question below, then route         |
+| **Quality analyze**         | "quality check", "validate", "review workflow/skill"  | Load `references/quality-analysis.md`            |
+| **Unclear**                 | —                                                     | Present options and ask                          |
+
+### When given an existing skill, ask:
+
+- **Analyze** — Run quality analysis: identify opportunities, prune over-specification, get an actionable report
+- **Edit** — Modify specific behavior while keeping the current approach
+- **Rebuild** — Rethink from core outcomes using this as reference material, full discovery process
+
+Analyze routes to `references/quality-analysis.md`. Edit and Rebuild both route to `references/build-process.md` with the chosen intent.
+
+Regardless of path, respect headless mode if requested.
+
+---
+
+4
+
+---
+
+src/skf-setup/
+
+---
+
+Push branch fix/skf-setup-health-check-243-244-245 + open PR for #243/#244/#245. I will merge it manually affter the CI tests pass. Then, we will be focus ono the all quality fixes.
+
+---
+
+I jumped back on the main branch. You can start with your recommendation
+
+---
+
+1
+
+---
+
+PR merged
+
+---
+
+3
+
+---
+
+yes
+
+---
+
+what is the best move?
+
+---
+
+yes
+
+---
+
+PR merged. I'm ready
+
+---
+
+go
+
+---
+
+A
+
+---
+
+You applied the fix in the installed bmad-builder artefact but I am not seeing that changes in the upstream PR too. I just see the test files. Please review that work first so the PR will contain everything that need to be merged. Here is  the local edit you did. You can adapt or improve it depending on what you find the local fork: the fix.
+
+● Update(.claude/skills/bmad-workflow-builder/scripts/prepass-workflow-integrity.py)
+  ⎿  Added 49 lines, removed 17 lines
+      207      return findings                                                      
+      208  
+      209                                                                           
+      210 +STAGE_FILE_PATTERN = re.compile(r'^(?:step-)?\d+\w*-')                                                                                                                                                                    
+      211 +STAGE_SUBDIRS = ('steps-c', 'steps-a', 'steps-b', 'prompts')                                                                                                                                                              
+      212 +                                                                                                                                                                                                                          
+      213 +                                                                                                                                                                                                                          
+      214 +def discover_step_files(skill_path: Path) -> list[Path]:                                                                                                                                                                  
+      215 +    """Return Path objects for numbered step files anywhere they live.                                                                                                                                                    
+      216 +                                                                                                                                                                                                                          
+      217 +    Walks the skill root (legacy layout) AND the conventional subdirectories                                                                                                                                                     
+      218 +    (`steps-c/`, `steps-a/`, `steps-b/`, `prompts/`) used by SKF and other                                                                                                                                                
+      219 +    BMad modules. Recognizes both the legacy `NN-<slug>.md` filename pattern                                                                                                                                                     
+      220 +    and the modern `step-NN<suffix>-<slug>.md` pattern (e.g. `step-01b-...`)                                                                                                                                                   
+      221 +    enforced by `tools/validate-skills.js` STEP-04.                                                                                                                                                                       
+      222 +    """                                                                                                                                                                                                                   
+      223 +    found: list[Path] = []                                                                                                                                                                                                
+      224 +    for f in skill_path.iterdir():                                                                                                                                                                                        
+      225 +        if f.is_file() and f.suffix == '.md' and f.name != 'SKILL.md' and STAGE_FILE_PATTERN.match(f.name):                                                                                                               
+      226 +            found.append(f)                                                                                                                                                                                               
+      227 +    for subdir_name in STAGE_SUBDIRS:                                                                                                                                                                                     
+      228 +        subdir = skill_path / subdir_name                                                                                                                                                                                 
+      229 +        if not subdir.is_dir():                                                                                                                                                                                           
+      230 +            continue                                                                                                                                                                                                      
+      231 +        for f in subdir.iterdir():                                                                                                                                                                                        
+      232 +            if f.is_file() and f.suffix == '.md' and STAGE_FILE_PATTERN.match(f.name):                                                                                                                                    
+      233 +                found.append(f)                                                                                                                                                                                           
+      234 +    return found                                                                                                                                                                                                          
+      235 +                                                                                                                                                                                                                          
+      236 +                                                                                                                                                                                                                          
+      237 +def _rel_step_path(skill_path: Path, step_file: Path) -> str:                                                                                                                                                             
+      238 +    """Step file path relative to the skill root, with forward slashes for cross-platform comparison."""                                                                                                                  
+      239 +    return step_file.relative_to(skill_path).as_posix()                                                                                                                                                                   
+      240 +                                                                                                                                                                                                                          
+      241 +                                                                                                                                                                                                                          
+      242  def cross_reference_stages(skill_path: Path, skill_content: str) -> tuple[dict, list[dict]]:
+      211 -    """Cross-reference stage files between SKILL.md and numbered prompt files at skill root."""                                                                                                                           
+      243 +    """Cross-reference stage files between SKILL.md and numbered prompt files."""                                                                                                                                         
+      244      findings = []
+      245  
+      214 -    # Get actual numbered prompt files at skill root (exclude SKILL.md)                                                                                                                                                   
+      215 -    actual_files = set()                                                                                                                                                                                                  
+      216 -    for f in skill_path.iterdir():                                                                                                                                                                                        
+      217 -        if f.is_file() and f.suffix == '.md' and f.name != 'SKILL.md' and re.match(r'^\d+-', f.name):                                                                                                                     
+      218 -            actual_files.add(f.name)                                                                                                                                                                                      
+      246 +    actual_paths = discover_step_files(skill_path)                                                                                                                                                                        
+      247 +    actual_files = {_rel_step_path(skill_path, p) for p in actual_paths}                                                                                                                                                  
+      248  
+      220 -    # Find stage references in SKILL.md — look for both old prompts/ style and new root style                                                                                                                             
+      249 +    # Match references with optional subdir prefix (steps-c/, steps-a/, steps-b/, prompts/)                                                                                                                               
+      250 +    # and either the legacy `NN-...` or modern `step-NN[suffix]-...` filename pattern.                                                                                                                                    
+      251      referenced = set()
+      222 -    # Match `prompts/XX-name.md` (legacy) or bare `XX-name.md` references                                                                                                                                                 
+      223 -    ref_pattern = re.compile(r'(?:prompts/)?(\d+-[^\s)`]+\.md)')                                                                                                                                                          
+      252 +    ref_pattern = re.compile(                                                                                                                                                                                             
+      253 +        r'((?:steps-c/|steps-a/|steps-b/|prompts/)?(?:step-)?\d+\w*-[^\s)`]+\.md)'                                                                                                                                        
+      254 +    )                                                                                                                                                                                                                     
+      255      for m in ref_pattern.finditer(skill_content):
+      256          referenced.add(m.group(1))
+      257  
+      227 -    # Missing files (referenced but don't exist)                                                                                                                                                                          
+      258      missing = referenced - actual_files
+      259      for f in sorted(missing):
+      260          findings.append({
+     ...
+      263              'issue': f'Referenced stage file does not exist: {f}',
+      264          })
+      265  
+      236 -    # Orphaned files (exist but not referenced)                                                                                                                                                                           
+      266      orphaned = actual_files - referenced
+      267      for f in sorted(orphaned):
+      268          findings.append({
+     ...
+      271              'issue': f'Stage file exists but not referenced in SKILL.md: {f}',
+      272          })
+      273  
+      245 -    # Stage numbering check                                                                                                                                                                                               
+      274 +    # Stage numbering check — extract leading integer from each step file's basename.                                                                                                                                     
+      275 +    # Letter suffixes (e.g. step-01b) are sub-stages of the integer base and don't                                                                                                                                        
+      276 +    # break sequence; "1, 1b, 2, 3" is well-formed. Group by integer for the check.                                                                                                                                       
+      277      numbered = []
+      247 -    for f in sorted(actual_files):                                                                                                                                                                                        
+      248 -        m = re.match(r'^(\d+)-(.+)\.md$', f)                                                                                                                                                                              
+      278 +    num_pattern = re.compile(r'^(?:step-)?(\d+)\w*-(.+)\.md$')                                                                                                                                                            
+      279 +    for rel in sorted(actual_files):                                                                                                                                                                                      
+      280 +        basename = rel.split('/')[-1]                                                                                                                                                                                     
+      281 +        m = num_pattern.match(basename)                                                                                                                                                                                   
+      282          if m:
+      250 -            numbered.append((int(m.group(1)), f))                                                                                                                                                                         
+      283 +            numbered.append((int(m.group(1)), rel))                                                                                                                                                                       
+      284  
+      285      if numbered:
+      253 -        numbered.sort()                                                                                                                                                                                                   
+      314 -    prompt_files = sorted(                                                                                                                                                                                                
+      315 -        f for f in skill_path.iterdir()                                                                                                                                                                                   
+      316 -        if f.is_file() and f.suffix == '.md' and f.name != 'SKILL.md' and re.match(r'^\d+-', f.name)                                                                                                                      
+      317 -    )                                                                                                                                                                                                                     
+      313 +    prompt_files = sorted(discover_step_files(skill_path), key=lambda p: _rel_step_path(skill_path, p))                                                                                                                   
+      314      if not prompt_files:
+      315          return prompt_details, findings
+      316  
+      317      for f in prompt_files:
+      318          content = f.read_text(encoding='utf-8')
+      323 -        rel_path = f.name                                                                                                                                                                                                 
+      319 +        rel_path = _rel_step_path(skill_path, f)                                                                                                                                                                          
+      320          detail = {'file': f.name, 'has_config_header': False, 'has_progression': False}
+      321  
+      322          # Config header check
+
+● Update(.claude/skills/bmad-workflow-builder/scripts/prepass-workflow-integrity.py)
+  ⎿  Added 1 line, removed 1 line
+      317      for f in prompt_files:
+      318          content = f.read_text(encoding='utf-8')
+      319          rel_path = _rel_step_path(skill_path, f)
+      320 -        detail = {'file': f.name, 'has_config_header': False, 'has_progression': False}                                                                                                                                   
+      320 +        detail = {'file': rel_path, 'has_config_header': False, 'has_progression': False}                                                                                                                                 
+      321  
+      322          # Config header check
+      323          if '{communication_language}' in content or '{document_output_language}' in content:
+
+● Update(.claude/skills/bmad-workflow-builder/scripts/prepass-workflow-integrity.py)
+  ⎿  Added 3 lines, removed 1 line
+      362  
+      363  def detect_workflow_type(skill_content: str, has_prompts: bool) -> str:
+      364      """Detect workflow type from SKILL.md content."""
+      365 -    has_stage_refs = bool(re.search(r'(?:prompts/)?\d+-\S+\.md', skill_content))                                                                                                                                          
+      365 +    has_stage_refs = bool(                                                                                                                                                                                                
+      366 +        re.search(r'(?:steps-c/|steps-a/|steps-b/|prompts/)?(?:step-)?\d+\w*-\S+\.md', skill_content)                                                                                                                     
+      367 +    )                                                                                                                                                                                                                     
+      368      has_routing = bool(re.search(r'(?i)(rout|stage|branch|path)', skill_content))
+      369  
+      370      if has_stage_refs or (has_prompts and has_routing):
+
+● Update(.claude/skills/bmad-workflow-builder/scripts/prepass-workflow-integrity.py)
+  ⎿  Added 1 line, removed 4 lines
+      419              })
+      420  
+      421      # Workflow type
+      422 -    has_prompts = any(                                                                                                                                                                                                    
+      423 -        f.is_file() and f.suffix == '.md' and f.name != 'SKILL.md' and re.match(r'^\d+-', f.name)                                                                                                                         
+      424 -        for f in skill_path.iterdir()                                                                                                                                                                                     
+      425 -    )                                                                                                                                                                                                                     
+      422 +    has_prompts = bool(discover_step_files(skill_path))                                                                                                                                                                   
+      423      workflow_type = detect_workflow_type(skill_content, has_prompts)
+      424  
+      425      # Stage cross-reference
+
+● Verifying the fix retires the false positives by running it against src/skf-setup/.
+
+● Bash(uv run /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-workflow-builder/scripts/prepass-workflow-integrity.py /home/armel/Projects/OSS/bmad…)                                                                   
+  ⎿  status: warning
+     issues by severity: {'critical': 0, 'high': 4, 'medium': 6, 'low': 0}                                                                                                                                                                  
+     total stages found: 6                                                                                                                                                                                                                
+     … +9 lines (ctrl+o to expand)                                                                                                                                                                                                          
+                                                                                                                                                                                                                                            
+● Bash(for skill in skf-quick-skill skf-audit-skill skf-create-skill skf-export-skill; do echo "=== $skill ==="; uv run /home/armel/Projects/OSS/bmad-module-skill-forg…)
+  ⎿  === skf-quick-skill ===                                                                                                                                                                                                                
+     status: warning | stages: 7 | missing: 0 | orphaned: 0                                                                                                                                                                               
+     === skf-audit-skill ===          
+     … +5 lines (ctrl+o to expand)
+                                                                                                                                                                                                                                            
+● Q8 fix works — skf-setup now shows 0 critical (was 5 false-positives), 6 stages discovered, 0 missing/orphaned. Other skills also clean. Let me verify skf-create-skill's 3 "missing" are real vs another false-positive class.
+                                                                                                                                                                                                                                            
+● Bash(uv run /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-workflow-builder/scripts/prepass-workflow-integrity.py /home/armel/Projects/OSS/bmad…)                                                                   
+  ⎿  missing: ['step-02b-ccc-discover.md', 'step-03b-fetch-temporal.md', 'step-03c-fetch-docs.md']
+     actual sample: ['steps-c/step-01-load-brief.md', 'steps-c/step-02-ecosystem-check.md', 'steps-c/step-03-extract.md', 'steps-c/step-03d-component-extraction.md', 'steps-c/step-04-enrich.md']                                          
+                                                                  
+  Listed 1 directory (ctrl+o to expand)                                                                                                                                                                                                     
+                                                                                                                                                                                                                                            
+● Real issue but a different shape — skf-create-skill uses a steps-c/sub/ nested subdirectory the fix didn't account for. Extending the discovery walk to be recursive within stage dirs.                                                   
+                                                                                                                                                                                                                                            
+● Update(.claude/skills/bmad-workflow-builder/scripts/prepass-workflow-integrity.py)                                                                                                                                                        
+  ⎿  Added 9 lines, removed 7 lines                               
+      214  def discover_step_files(skill_path: Path) -> list[Path]:                                                                                                                                                                         
+      215      """Return Path objects for numbered step files anywhere they live.
+      216                                                                                                                                                                                                                                   
+      217 -    Walks the skill root (legacy layout) AND the conventional subdirectories                                                                                                                                              
+      218 -    (`steps-c/`, `steps-a/`, `steps-b/`, `prompts/`) used by SKF and other                                                                                                                                                       
+      219 -    BMad modules. Recognizes both the legacy `NN-<slug>.md` filename pattern                                                                                                                                              
+      220 -    and the modern `step-NN<suffix>-<slug>.md` pattern (e.g. `step-01b-...`)                                                                                                                                              
+      221 -    enforced by `tools/validate-skills.js` STEP-04.                                                                                                                                                                       
+      217 +    Walks the skill root (legacy layout), the conventional stage subdirectories                                                                                                                                           
+      218 +    (`steps-c/`, `steps-a/`, `steps-b/`, `prompts/`), AND any nested                                                                                                                                                      
+      219 +    subdirectories underneath them (e.g. `steps-c/sub/` used by                                                                                                                                                           
+      220 +    skf-create-skill for sub-step files). Recognizes both the legacy                                                                                                                                                      
+      221 +    `NN-<slug>.md` filename pattern and the modern `step-NN<suffix>-<slug>.md`                                                                                                                                            
+      222 +    pattern (e.g. `step-01b-...`) enforced by `tools/validate-skills.js`                                                                                                                                                  
+      223 +    STEP-04.                                                                                                                                                                                                              
+      224      """
+      225      found: list[Path] = []
+      226      for f in skill_path.iterdir():
+     ...
+      230          subdir = skill_path / subdir_name
+      231          if not subdir.is_dir():
+      232              continue
+      231 -        for f in subdir.iterdir():                                                                                                                                                                                        
+      232 -            if f.is_file() and f.suffix == '.md' and STAGE_FILE_PATTERN.match(f.name):                                                                                                                                    
+      233 +        for f in subdir.rglob('*.md'):                                                                                                                                                                                    
+      234 +            if f.is_file() and STAGE_FILE_PATTERN.match(f.name):                                                                                                                                                          
+      235                  found.append(f)
+      236      return found
+      237  
+
+● Update(.claude/skills/bmad-workflow-builder/scripts/prepass-workflow-integrity.py)
+  ⎿  Added 7 lines, removed 4 lines
+      248      actual_paths = discover_step_files(skill_path)
+      249      actual_files = {_rel_step_path(skill_path, p) for p in actual_paths}
+      250  
+      251 -    # Match references with optional subdir prefix (steps-c/, steps-a/, steps-b/, prompts/)                                                                                                                               
+      252 -    # and either the legacy `NN-...` or modern `step-NN[suffix]-...` filename pattern.                                                                                                                                    
+      251 +    # Match references with optional stage-subdir prefix (steps-c/, steps-a/,                                                                                                                                             
+      252 +    # steps-b/, prompts/) plus optional nested subdirectories (e.g.                                                                                                                                                       
+      253 +    # `steps-c/sub/step-02b-...`), and either the legacy `NN-...` or modern                                                                                                                                               
+      254 +    # `step-NN[suffix]-...` filename pattern.                                                                                                                                                                             
+      255      referenced = set()
+      256      ref_pattern = re.compile(
+      255 -        r'((?:steps-c/|steps-a/|steps-b/|prompts/)?(?:step-)?\d+\w*-[^\s)`]+\.md)'                                                                                                                                        
+      257 +        r'((?:steps-c/|steps-a/|steps-b/|prompts/)(?:[^\s)`/]+/)*(?:step-)?\d+\w*-[^\s)`/]+\.md'                                                                                                                          
+      258 +        r'|(?<![\w/])(?:step-)?\d+\w*-[^\s)`/]+\.md)'                                                                                                                                                                     
+      259      )
+      260      for m in ref_pattern.finditer(skill_content):
+      258 -        referenced.add(m.group(1))                                                                                                                                                                                        
+      261 +        referenced.add(m.group(0))                                                                                                                                                                                        
+      262  
+      263      missing = referenced - actual_files
+      264      for f in sorted(missing):
+
+● Bash(for skill in skf-setup skf-create-skill skf-quick-skill skf-audit-skill skf-export-skill skf-update-skill skf-brief-skill; do echo "=== $skill ==="; uv run /hom…)
+  ⎿  === skf-setup ===
+     status=warning  critical=0  high=4  stages=6  missing=0  orphaned=0
+     === skf-create-skill ===
+     … +11 lines (ctrl+o to expand)
+
+● All seven SKF skills now show 0 critical / 0 missing / 0 orphaned, including skf-create-skill correctly finding all 13 stages (the 3 sub/ files were the trickier case).
+
+---
+
+You are right. It looks okay now. By the way, I just merged the PR 249.
+
+---
+
+yes
+
+---
+
+Coderabbit detected 2 problem from our upstream PR: https://github.com/bmad-code-org/bmad-builder/pull/82. Please review them carefully. 
+Two problems compounding:
+
+Operator precedence (RUF021): Python evaluates this as (category == 'naming' AND 'orphaned' in issue) OR ('not referenced' in issue), so any finding (regardless of category) whose issue contains not referenced is captured. A non-naming finding that happens to mention "not referenced" would slip through.
+Dead substring: 'orphaned' never appears in the actual orphan finding text. Per the script (line 276), the issue is Stage file exists but not referenced in SKILL.md: .... The first clause can therefore never match, so the assertion is effectively only validating the OR branch..
+
+---
+
+I just merged the PR 250
+
+---
+
+yes
+
+---
+
+Here is the output of quick setup on windows:  /skf-setup
+
+  Read 4 files, listed 1 directory (ctrl+o to expand)
+
+● About to set up the forge. Detecting tools and writing config to _bmad/_memory/forger-sidecar/. Will augment .cocoindex_code/settings.yml and refresh the project ccc index if ccc is available.
+
+● Bash(python3 C:/Users/abobdadjimo/Documents/demo-skf/_bmad/skf/shared/scripts/skf-detect-tools.py)
+  ⎿  {
+       "tools": {
+         "ast_grep": {
+     … +39 lines (ctrl+o to expand)
+
+● Proceeding to CCC index check...
+
+  Detection complete: tier = Quick. Tools: gh_cli ✓, ast_grep ✗, qmd ✗, ccc ✗.
+
+  Read 1 file (ctrl+o to expand)
+
+● ccc unavailable — skipping ccc index work silently. Proceeding to write configuration...
+
+  Read 1 file (ctrl+o to expand)
+
+● Bash(echo '{"tools":{"ast_grep":false,"gh_cli":true,"qmd":false,"ccc":false,"ccc_daemon":null,"security_scan":false},"tier":"Quick","ccc_index":{"indexed_path":null,…)
+  ⎿  Error: Exit code 1
+     Traceback (most recent call last):
+       File "C:\Users\abobdadjimo\Documents\demo-skf\_bmad\skf\shared\scripts\skf-forge-tier-rw.py", line 73, in <module>
+         import yaml
+     ModuleNotFoundError: No module named 'yaml'
+
+● Bash(python3 C:/Users/abobdadjimo/Documents/demo-skf/_bmad/skf/shared/scripts/skf-forge-tier-rw.py init-prefs --target "C:/Users/abobdadjimo/Documents/demo-skf/_bmad…)
+  ⎿  Cancelled: parallel tool call Bash(echo '{"tools":{"ast_grep":false,"gh_cli…) errored
+
+● Bash(if [ -d "C:/Users/abobdadjimo/Documents/demo-skf/forge-data" ]; then echo "EXISTS"; else mkdir -p "C:/Users/abobdadjimo/Documents/demo-skf/forge-data" && echo "…)
+  ⎿  Cancelled: parallel tool call Bash(echo '{"tools":{"ast_grep":false,"gh_cli…) errored
+
+● Bash(python3 -m pip install --quiet pyyaml 2>&1 | tail -5)
+  ⎿  [notice] A new release of pip is available: 25.3 -> 26.1
+     [notice] To update, run: C:\Users\abobdadjimo\AppData\Local\Python\pythoncore-3.14-64\python.exe -m pip install --upgrade pip
+
+● Bash(echo '{"tools":{"ast_grep":false,"gh_cli":true,"qmd":false,"ccc":false,"ccc_daemon":null,"security_scan":false},"tier":"Quick","ccc_index":{"indexed_path":null,…)
+  ⎿  {
+       "wrote": "C:\\Users\\abobdadjimo\\Documents\\demo-skf\\_bmad\\_memory\\forger-sidecar\\forge-tier.yaml",
+       "preserved_arrays": {
+     … +7 lines (ctrl+o to expand)
+
+● Bash(python3 C:/Users/abobdadjimo/Documents/demo-skf/_bmad/skf/shared/scripts/skf-forge-tier-rw.py init-prefs --target "C:/Users/abobdadjimo/Documents/demo-skf/_bmad…)
+  ⎿  {
+       "exists": true,
+       "wrote": false,
+     … +4 lines (ctrl+o to expand)
+
+● Bash(if [ -d "C:/Users/abobdadjimo/Documents/demo-skf/forge-data" ]; then echo "EXISTS"; else mkdir -p "C:/Users/abobdadjimo/Documents/demo-skf/forge-data" && echo "…)
+  ⎿  EXISTS
+
+● Proceeding to QMD collection hygiene...
+
+  Read 1 file (ctrl+o to expand)
+
+● Quick tier with no ccc — registry hygiene skipped silently. Proceeding to forge status report...
+
+  Read 2 files (ctrl+o to expand)
+
+● ═══════════════════════════════════════
+    FORGE STATUS
+  ═══════════════════════════════════════
+
+    Tier:  Quick
+    Quick tier active. You have fast, template-driven skill generation with
+    package-name resolution. Perfect for getting started quickly.
+
+    Tools Detected:
+    - gh — gh version 2.87.3 (2026-02-23)
+
+    Climb to next tier:
+    - Install ast-grep (https://ast-grep.github.io) — unlocks AST-backed code analysis (Forge tier)
+
+    Files written this run:
+    - forge-tier.yaml — C:\Users\abobdadjimo\Documents\demo-skf\_bmad\_memory\forger-sidecar\forge-tier.yaml
+
+  ═══════════════════════════════════════
+    Forge ready. Quick tier active.
+  ═══════════════════════════════════════
+
+    Next: try [BS] Brief Skill to scope your first compilation target, or [QS] Quick Skill for a fast template-driven path. Already have a skill? [AS] Audit Skill drift-checks an existing skill against current
+   sources.
+
+  {require_tier_satisfied} is null and headless is false — proceeding to health check.
+
+  Read 2 files, listed 1 directory (ctrl+o to expand)
+
+● Running a quick self-improvement check on this workflow. If nothing rough came up, I'll close out immediately.
+
+  Health Check: Clean run. No workflow issues to report.
+
+  Workflow complete.
+
+---
+
+do we need to make sure every other python script follow the same pattern? May be we need to do it in a separate branch. What do you think?
+
+---
+
+I just merged PR 251. We can run the audit now
+
+---
+
+yes
+
+---
+
+I just merged
+
+---
+
+the fixes worked
+
+---
+
+yes
+
+---
+
+let's continue with your pick
