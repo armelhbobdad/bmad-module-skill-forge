@@ -7,7 +7,7 @@ description: Initialize forge environment, detect tools, and set capability tier
 
 ## Overview
 
-Initializes the forge environment by detecting available tools, determining the capability tier (Quick/Forge/Forge+/Deep), and writing persistent configuration to `_bmad/_memory/forger-sidecar/`. When `ccc` (cocoindex-code) is available, also augments `.cocoindex_code/settings.yml` with SKF exclusion patterns and creates or refreshes the project's semantic-search index. On Deep tier, reconciles the QMD collection registry; whenever ccc is available, reconciles the CCC index registry as well. The workflow is autonomous with one optional gate — orphaned QMD collection removal in step 3 (Deep tier only; default action: Keep) — which auto-resolves to the default when `{headless_mode}` is true.
+Initializes the forge environment by detecting available tools, determining the capability tier (Quick/Forge/Forge+/Deep), and writing persistent configuration to `{project-root}/_bmad/_memory/forger-sidecar/`. When `ccc` (cocoindex-code) is available, also augments `.cocoindex_code/settings.yml` with SKF exclusion patterns and creates or refreshes the project's semantic-search index. On Deep tier, reconciles the QMD collection registry; whenever ccc is available, reconciles the CCC index registry as well. The workflow is autonomous with one optional gate — orphaned QMD collection removal in step 3 (Deep tier only; default action: Keep) — which auto-resolves to the default when `{headless_mode}` is true.
 
 ## Role
 
