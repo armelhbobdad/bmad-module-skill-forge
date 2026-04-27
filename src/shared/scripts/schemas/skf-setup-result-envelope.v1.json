@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-setup-result-envelope.v1.json",
+  "title": "SKF_SETUP_RESULT_JSON envelope (v1)",
+  "description": "Single-line JSON document emitted by skf-setup step-04 §4 when {headless_mode} is true, prefixed with the literal 'SKF_SETUP_RESULT_JSON: '. Pipelines grep one line out of the workflow log without parsing ASCII-art and without racing the forge-tier.yaml writer. Schema added in PR #247, extended in PR #248 (header / outputs / failure modes), extended again in this PR with previous_tier / tier_changed / tools_added / tools_removed / error.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["skf_setup"],
+  "properties": {
+    "skf_setup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tier",
+        "previous_tier",
+        "tier_changed",
+        "tools",
+        "tools_added",
+        "tools_removed",
+        "config_path",
+        "ccc_index",
+        "files_written",
+        "tier_override_active",
+        "tier_override_invalid",
+        "require_tier_satisfied",
+        "warnings",
+        "error"
+      ],
+      "properties": {
+        "tier": {
+          "type": "string",
+          "enum": ["Quick", "Forge", "Forge+", "Deep"],
+          "description": "Active capability tier this run."
+        },
+        "previous_tier": {
+          "type": ["string", "null"],
+          "enum": ["Quick", "Forge", "Forge+", "Deep", null],
+          "description": "Tier read from the existing forge-tier.yaml at workflow start. Null on first runs."
+        },
+        "tier_changed": {
+          "type": "boolean",
+          "description": "True when previous_tier is non-null AND differs from tier. False on first runs and same-tier re-runs. Lets pipelines react to upgrades without re-reading forge-tier.yaml."
+        },
+        "tools": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ast_grep", "gh_cli", "qmd", "ccc"],
+          "properties": {
+            "ast_grep": { "type": "boolean" },
+            "gh_cli": { "type": "boolean" },
+            "qmd": { "type": "boolean" },
+            "ccc": { "type": "boolean" }
+          }
+        },
+        "tools_added": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["ast_grep", "gh_cli", "qmd", "ccc"] },
+          "uniqueItems": true,
+          "description": "Tool keys with available=true that were NOT available in previous_tools. On first runs, equals the currently-detected tools."
+        },
+        "tools_removed": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["ast_grep", "gh_cli", "qmd", "ccc"] },
+          "uniqueItems": true,
+          "description": "Tool keys that were available in previous_tools but are NOT available now."
+        },
+        "config_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path to the forge-tier.yaml that this run wrote (or attempted to write — see error)."
+        },
+        "ccc_index": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "indexed_path", "file_count"],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["fresh", "created", "failed", "none"]
+            },
+            "indexed_path": { "type": ["string", "null"] },
+            "file_count": { "type": ["integer", "null"], "minimum": 0 }
+          }
+        },
+        "files_written": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["forge-tier.yaml", "preferences.yaml", "settings.yml", "ccc_index"]
+          },
+          "uniqueItems": true,
+          "description": "Files actually written this run. Empty array when a write failure halted the run before any file was written."
+        },
+        "tier_override_active": {
+          "type": "boolean",
+          "description": "True when a valid tier_override from preferences.yaml was applied."
+        },
+        "tier_override_invalid": {
+          "type": "boolean",
+          "description": "True when tier_override was set but did not match Quick|Forge|Forge+|Deep (case-sensitive). Detected tier was used as fallback."
+        },
+        "require_tier_satisfied": {
+          "type": ["boolean", "null"],
+          "description": "Null when --require-tier was not set. Otherwise true if the tool prerequisites of the requested tier are met (Deep does NOT subsume Forge+)."
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Non-fatal anomalies surfaced during the run. May include tier_override_invalid, tier_override_unsafe, ccc_exclusion_warnings entries, ccc_registry_stale_removed entries, qmd_daemon_stopped, ccc_indexing_failed, etc. Empty when none."
+        },
+        "error": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["phase", "path", "reason"],
+              "properties": {
+                "phase": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Step or operation that failed (e.g. 'step-02-write-config:forge-tier.yaml')."
+                },
+                "path": { "type": "string", "minLength": 1, "description": "Absolute path of the file the failed operation targeted." },
+                "reason": { "type": "string", "minLength": 1, "description": "Human-readable error message." }
+              }
+            }
+          ],
+          "description": "Null on success. Object describing the failure when forge-tier.yaml or preferences.yaml could not be written. Pipelines branch on error !== null for 'exit code 2' semantics."
+        }
+      }
+    }
+  }
+}
