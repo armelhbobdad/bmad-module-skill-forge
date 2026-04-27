@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "240abf77f05e",
+  "session_id": "1aee48de-b992-43e8-b07c-23a85c0fa459",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-27T04:37:46.801029293Z",
+  "branch": "polish/skf-setup-quality-themes-2-5",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-setup/references/tier-rules.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "e2bb53b0c39d",
+  "token_usage": {
+    "input_tokens": 102,
+    "cache_creation_tokens": 194638,
+    "cache_read_tokens": 5858373,
+    "output_tokens": 51389,
+    "api_call_count": 59
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-27T04:37:46.103717128Z",
+    "agent_lines": 0,
+    "human_added": 0,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 0,
+    "agent_percentage": 0
+  }
+}
