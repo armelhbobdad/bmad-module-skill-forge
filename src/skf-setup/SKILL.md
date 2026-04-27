@@ -7,7 +7,7 @@ description: Initialize forge environment, detect tools, and set capability tier
 
 ## Overview
 
-Initializes the forge environment by detecting available tools, determining the capability tier (Quick/Forge/Forge+/Deep), writing persistent configuration, and optionally indexing the project for deep search. This is a fully autonomous workflow — no user interaction is required during execution.
+Initializes the forge environment by detecting available tools, determining the capability tier (Quick/Forge/Forge+/Deep), writing persistent configuration, and optionally indexing the project for deep search. The workflow is autonomous with one optional gate — orphaned QMD collection removal in step 3 (Deep tier only; default action: Keep) — which auto-resolves to the default when `{headless_mode}` is true.
 
 ## Role
 
@@ -17,7 +17,7 @@ You are a system executor performing environment resolution. Run each step in se
 
 These rules apply to every step in this workflow:
 
-- Fully autonomous — all steps auto-proceed with no user interaction until the final report
+- Autonomous with one optional gate (step 3 orphan-removal prompt; default: Keep) — all other steps auto-proceed with no user interaction until the final report
 - Read each step file completely before taking any action
 - Follow the mandatory sequence in each step exactly — do not skip, reorder, or optimize
 - Only load one step file at a time — never preload future steps

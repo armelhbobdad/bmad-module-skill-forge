@@ -78,7 +78,9 @@ Then compare the filtered `{live_collections}` against `{registry_collections}`:
 
 **If orphaned collections found:**
 
-Display to user:
+**Headless gate.** If `{headless_mode}` is true, auto-resolve to the default action **Keep** without prompting: log `"Auto-decision (headless): kept {count} orphaned forge collection(s)"` and skip the prompt branch entirely. This matches the workflow contract (`Headless: All gates auto-resolve with default action when {headless_mode} is true`) declared in the Invocation Contract.
+
+**If `{headless_mode}` is false**, display to user:
 "**QMD Hygiene: Found {count} orphaned collection(s) not tracked in the forge registry:**
 
 {list orphaned collection names}
@@ -86,7 +88,7 @@ Display to user:
 These collections exist in QMD but are not managed by any skill workflow. They may be from a previous auto-index run or manual creation.
 
 **[R]emove** orphaned collections — clean up QMD
-**[K]eep** orphaned collections — leave them as-is"
+**[K]eep** orphaned collections — leave them as-is (default)"
 
 **If user selects R (Remove):**
 For each orphaned collection:
