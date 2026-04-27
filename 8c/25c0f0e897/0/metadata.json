@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "8c25c0f0e897",
+  "session_id": "1aee48de-b992-43e8-b07c-23a85c0fa459",
+  "strategy": "manual-commit",
+  "created_at": "2026-04-27T08:39:29.460414589Z",
+  "branch": "polish/skf-setup-close-remaining-themes",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-setup/steps-c/step-01-detect-and-tier.md",
+    "src/skf-setup/steps-c/step-01b-ccc-index.md",
+    "src/skf-setup/steps-c/step-02-write-config.md",
+    "src/skf-setup/steps-c/step-03-auto-index.md",
+    "src/skf-setup/steps-c/step-04-report.md",
+    "src/skf-setup/steps-c/step-05-health-check.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "4c2316740931",
+  "token_usage": {
+    "input_tokens": 612,
+    "cache_creation_tokens": 710513,
+    "cache_read_tokens": 117196135,
+    "output_tokens": 373868,
+    "api_call_count": 303
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-04-27T08:39:26.429791987Z",
+    "agent_lines": 0,
+    "human_added": 12,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 12,
+    "agent_percentage": 0
+  }
+}
