@@ -91,10 +91,10 @@ SKF module (`skf init`) or run from a development checkout with src/ present.
 
 Do not proceed. No partial test report is written.
 
-**3b. Run the validator (30s timeout — deterministic validator should finish in <1s; the cap only guards against runaway python):**
+**3b. Run the validator (30s timeout — deterministic validator should finish in <1s; the cap only guards against runaway python).** Invoke via `uv run` so the script's PEP 723 PyYAML dependency resolves automatically; bare `python3` would fail with `ModuleNotFoundError: No module named 'yaml'` on a fresh interpreter (`docs/getting-started.md` documents uv as the runtime prereq for exactly this).
 
 ```bash
-timeout 30s python3 {frontmatterScript} {resolved_skill_package}/SKILL.md --skill-dir-name {skill_name}
+timeout 30s uv run {frontmatterScript} {resolved_skill_package}/SKILL.md --skill-dir-name {skill_name}
 ```
 
 If the command trips the 30s wall-clock (exit code `124`), set
@@ -116,7 +116,7 @@ Parse the JSON output. Per B2, treat each `status` value explicitly:
 This skill will fail `npx skills add` and `npx skill-check check`. {If warn:} Consider fixing frontmatter before proceeding (run `npx skill-check check <skill-dir> --fix` to auto-fix deterministic issues). {If fail:} test-skill cannot proceed — halt and repair frontmatter, then re-run.
 ```
 
-**3c. Python runtime probe.** Before the first invocation, confirm `python3` is on `$PATH` (`command -v python3`). If missing, set `analysis_confidence: degraded` in workflow context and carry a **score cap** into step-05: `capped_score = threshold - 1` → forces auto-FAIL until the runtime is restored. Record the reason in evidence-report and the test report frontmatter (`analysisConfidence: degraded`, `toolingStatus: python3-missing`).
+**3c. Python runtime probe.** Before the first invocation, confirm both `python3` AND `uv` are on `$PATH` (`command -v python3` and `command -v uv`). Both are required: `uv run` shells through to `python3` under the hood AND honors the script's PEP 723 PyYAML dependency declaration that bare `python3` ignores. If either is missing, set `analysis_confidence: degraded` in workflow context and carry a **score cap** into step-05: `capped_score = threshold - 1` → forces auto-FAIL until the runtime is restored. Record the reason in evidence-report and the test report frontmatter (`analysisConfidence: degraded`, `toolingStatus: python3-missing` or `uv-missing` as appropriate). `uv` is a documented runtime prerequisite — see `docs/getting-started.md` for install instructions.
 
 ### 4. Load Forge Tier State
 
@@ -199,7 +199,7 @@ testResult: ''
 score: ''
 threshold: ''
 analysisConfidence: '{full|degraded}'
-toolingStatus: '{ok|python3-missing|frontmatter-validator-missing|frontmatter-validator-timeout}'
+toolingStatus: '{ok|python3-missing|uv-missing|frontmatter-validator-missing|frontmatter-validator-timeout}'
 workspaceDrift: '{not-checked|ok|overridden}'
 testDate: '{run_id timestamp ISO-8601 UTC}'
 stepsCompleted: ['step-01-init']

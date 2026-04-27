@@ -11,9 +11,15 @@ agentskills/agentskills/skills-ref/src/skills_ref/validator.py.
 Designed for pre-check use in test-skill, create-skill, update-skill, and
 export-skill workflows. Returns structured JSON for deterministic integration.
 
-CLI:
-  python3 skf-validate-frontmatter.py <skill-md-path>
-  python3 skf-validate-frontmatter.py <skill-md-path> --skill-dir-name <name>
+CLI — invoke via `uv run` so the PEP 723 PyYAML dependency declared
+above is auto-resolved on first call and cached. `docs/getting-started.md`
+documents uv as the runtime prerequisite for exactly this. Bare
+`python3` will fail with `ModuleNotFoundError: No module named 'yaml'`
+on a fresh interpreter where pyyaml has not been pip-installed
+system-wide:
+
+  uv run skf-validate-frontmatter.py <skill-md-path>
+  uv run skf-validate-frontmatter.py <skill-md-path> --skill-dir-name <name>
 
 Input:
   Path to a SKILL.md file.
