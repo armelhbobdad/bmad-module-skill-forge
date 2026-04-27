@@ -29,7 +29,7 @@ These rules apply to every step in this workflow:
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
 | 1 | Detect Tools & Set Tier | steps-c/step-01-detect-and-tier.md | Yes |
-| 1b | CCC Index | steps-c/step-01b-ccc-index.md | Yes |
+| 1b | CCC Index (only when ccc is available) | steps-c/step-01b-ccc-index.md | Yes |
 | 2 | Write Config | steps-c/step-02-write-config.md | Yes |
 | 3 | QMD + CCC Registry Hygiene | steps-c/step-03-auto-index.md | Yes |
 | 4 | Report | steps-c/step-04-report.md | Yes |

@@ -37,6 +37,15 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 
   Tools Detected:
   {for each tool that is available, show: tool name — version}
+  {if no tools are available: (none yet — see "Climb to next tier" below)}
+
+  {if calculated_tier is not Deep:}
+  Climb to next tier:
+  {if not tools.ast_grep: - Install ast-grep (https://ast-grep.github.io) — unlocks AST-backed code analysis (Forge tier)}
+  {if tools.ast_grep and not tools.ccc: - Install cocoindex-code (https://github.com/cocoindex-io/cocoindex-code) — adds semantic-guided precision compilation (Forge+ tier)}
+  {if tools.ast_grep and not tools.gh_cli: - Install GitHub CLI (https://cli.github.com) — required for Deep tier (cross-repository synthesis)}
+  {if tools.ast_grep and not tools.qmd: - Install qmd (https://github.com/tobi/qmd) — required for Deep tier (knowledge search)}
+  {end if}
 
   {if hygiene_result is "completed":}
   QMD Registry:
@@ -78,6 +87,10 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 
 {if tier_override is active:}
   Note: Tier override active (set in preferences.yaml)
+
+{if tier_override_invalid is true:}
+  Note: tier_override value "{tier_override_invalid_value}" in preferences.yaml is not valid.
+        Valid values are case-sensitive: Quick, Forge, Forge+, Deep. Using detected tier {calculated_tier}.
 
 {if re-run with tier change:}
   {appropriate upgrade/downgrade message from tier-rules.md}

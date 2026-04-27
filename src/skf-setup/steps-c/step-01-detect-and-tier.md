@@ -89,7 +89,7 @@ ccc availability gates the Forge+ tier and enhances Deep tier when present.
 - `{ast_grep}` true (regardless of ccc/gh/qmd) → **Forge**
 - Otherwise → **Quick**
 
-**If `{tier_override}` is set but invalid:** ignore it, use detected tier, flag for warning in report.
+**If `{tier_override}` is set but invalid (any value other than the case-sensitive `Quick`, `Forge`, `Forge+`, or `Deep`):** ignore it, use detected tier. Set `{tier_override_invalid: true}` and `{tier_override_invalid_value: <the bad value>}` in context for step-04 reporting.
 
 ### 9. Auto-Proceed
 
