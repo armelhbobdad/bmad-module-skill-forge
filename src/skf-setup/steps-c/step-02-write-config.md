@@ -12,6 +12,8 @@ forgeTierRwProbeOrder:
   - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
 ---
 
+<!-- Config: communicate in {communication_language}. Halt-on-write-failure messages render in the user's language. -->
+
 # Step 2: Write Configuration
 
 ## STEP GOAL:

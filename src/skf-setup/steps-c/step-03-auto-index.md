@@ -13,6 +13,8 @@ forgeTierRwProbeOrder:
   - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
 ---
 
+<!-- Config: communicate in {communication_language}. The orphan-removal prompt and the headless-resolution log message render in the user's language. -->
+
 # Step 3: QMD + CCC Registry Hygiene
 
 ## STEP GOAL:

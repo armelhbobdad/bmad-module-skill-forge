@@ -9,6 +9,8 @@ detectToolsProbeOrder:
   - '{project-root}/src/shared/scripts/skf-detect-tools.py'
 ---
 
+<!-- Config: communicate in {communication_language}. The first-run preamble below is user-visible — render it in the user's language. -->
+
 # Step 1: Detect Tools and Determine Tier
 
 ## STEP GOAL:

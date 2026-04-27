@@ -12,6 +12,8 @@ emitEnvelopeProbeOrder:
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 ---
 
+<!-- Config: communicate in {communication_language}; emit user-visible report text (FORGE STATUS banner, climb hint, REQUIRED TIER NOT MET block, breadcrumb) in {document_output_language}. The JSON envelope from section 4 is a machine contract — its keys and enum values stay English regardless. -->
+
 # Step 4: Forge Status Report
 
 ## STEP GOAL:

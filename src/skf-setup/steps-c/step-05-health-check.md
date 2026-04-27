@@ -5,6 +5,8 @@
 nextStepFile: 'shared/health-check.md'
 ---
 
+<!-- Config: communicate in {communication_language}. This is a delegation-only step (no user-visible output of its own); shared/health-check.md inherits the language directive on load. -->
+
 # Step 5: Workflow Health Check
 
 ## STEP GOAL:
