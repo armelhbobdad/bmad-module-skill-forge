@@ -49,12 +49,16 @@ These rules apply to every step in this workflow:
 
 ## On Activation
 
-1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
+1. **Probe `uv` runtime.** Run `uv --version`. Every step in this workflow invokes shared Python helpers via `uv run` (PEP 723 inline metadata is what auto-resolves `pyyaml` for the helpers that need it — see `docs/getting-started.md`). If `uv` is missing, halt now with a single cohesive diagnostic rather than letting five separate steps each fail with `uv: command not found`:
+
+   "**Setup cannot proceed: `uv` is not installed.** SKF helpers depend on `uv` to auto-resolve their Python dependencies. Install it from <https://docs.astral.sh/uv/getting-started/installation/> and re-run `/skf-setup`. (See the Prerequisites section in <https://docs.astral.sh/uv/getting-started/installation/> or the SKF docs at `docs/getting-started.md` for details.)"
+
+2. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
    - `project_name` (from installer-generated config.yaml, not module.yaml), `output_folder`, `user_name`, `communication_language`, `document_output_language`
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
 
-2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
+3. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 
-3. **Resolve `{require_tier}`**: parse `--require-tier=<value>` from the invocation arguments. Accept exactly `Quick`, `Forge`, `Forge+`, or `Deep` (case-sensitive). If absent or unparseable, leave as null (no tier requirement).
+4. **Resolve `{require_tier}`**: parse `--require-tier=<value>` from the invocation arguments. Accept exactly `Quick`, `Forge`, `Forge+`, or `Deep` (case-sensitive). If absent or unparseable, leave as null (no tier requirement).
 
-4. Load, read the full file, and then execute `./steps-c/step-01-detect-and-tier.md` to begin the workflow.
+5. Load, read the full file, and then execute `./steps-c/step-01-detect-and-tier.md` to begin the workflow.

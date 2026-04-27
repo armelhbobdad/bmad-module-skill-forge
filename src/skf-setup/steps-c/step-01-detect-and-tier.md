@@ -45,6 +45,8 @@ Verify availability of the four forge tools (ast-grep, gh, qmd, ccc), read any e
 - Create `{forge_data_folder}/` if missing
 - When ccc is available: augment `{project-root}/.cocoindex_code/settings.yml` with SKF exclusion patterns, then create or refresh the project ccc index
 
+**About tiers:** SKF picks one of four tiers (Quick / Forge / Forge+ / Deep) based on which tools are installed. **All four are fully usable** — higher tiers add power, they don't fix gaps. If you're new and only have a base Python install, Quick tier is the right starting point and the report at the end will show you exactly which tools to install if you want to climb later.
+
 Press Esc or Ctrl+C now if this isn't the right project — no files have been written yet."
 
 ### 2. Run Detection Helper
