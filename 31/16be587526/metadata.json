@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "3116be587526",
+  "strategy": "manual-commit",
+  "branch": "polish/skf-setup-cleanup-themes-2-5",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-setup/steps-c/step-01-detect-and-tier.md",
+    "src/skf-setup/steps-c/step-01b-ccc-index.md",
+    "src/skf-setup/steps-c/step-03-auto-index.md",
+    "src/skf-setup/steps-c/step-04-report.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/31/16be587526/0/metadata.json",
+      "transcript": "/31/16be587526/0/full.jsonl",
+      "context": "/31/16be587526/0/context.md",
+      "content_hash": "/31/16be587526/0/content_hash.txt",
+      "prompt": "/31/16be587526/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 316,
+    "cache_creation_tokens": 297080,
+    "cache_read_tokens": 16310228,
+    "output_tokens": 118958,
+    "api_call_count": 106
+  }
+}
