@@ -20,8 +20,6 @@ For Quick and Forge tiers, skip silently and proceed (QMD is not available at th
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Check Tier
 
 Read `{calculated_tier}` from context.
@@ -146,19 +144,5 @@ Store in context for step-04 reporting:
 {ccc_registry_stale_cleaned: count}
 ```
 
-"**Proceeding to forge status report...**"
-
-#### Menu Handling Logic:
-
-- After hygiene completes (or is skipped), immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This step has one optional user interaction (orphan removal prompt)
-- If no orphans found, this is an auto-proceed step
-- Proceed directly to next step after hygiene or skip
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the hygiene check has been performed (or skipped for non-Deep tiers) will you load and read fully `{nextStepFile}` to execute the report step.
+After the hygiene check has been performed (or skipped for non-Deep tiers), display "**Proceeding to forge status report...**", then load `{nextStepFile}`, read it fully, and execute it.
 

@@ -19,8 +19,6 @@ Display the forge status report with positive capability framing and report tier
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Load Capability Descriptions
 
 Load and read {tierRulesData} for the tier capability descriptions and re-run messages.
@@ -84,9 +82,5 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 
 ### 3. Chain to Health Check
 
-ONLY WHEN the forge status report has been displayed will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the report reads as final.
-
-## CRITICAL STEP COMPLETION NOTE
-
-This step chains to the local health-check step (`{nextStepFile}`), which in turn delegates to `shared/health-check.md`. After the health check completes, the setup workflow is fully done.
+After the forge status report has been displayed, load `{nextStepFile}`, read it fully, and execute it. The health-check step is the true terminal step — do not stop here even though the report reads as final. step-05 in turn delegates to `shared/health-check.md`; after that returns, the setup workflow is fully done.
 

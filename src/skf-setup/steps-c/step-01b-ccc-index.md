@@ -19,8 +19,6 @@ For Quick and Forge tiers, or when ccc is unavailable, skip silently and proceed
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Check Eligibility
 
 Read `{ccc}` from step-01 context.
@@ -129,18 +127,5 @@ ccc index
 
 ### 4. Auto-Proceed
 
-"**Proceeding to write configuration...**"
-
-#### Menu Handling Logic:
-
-- After ccc index check completes (or is skipped), immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed step with no user choices
-- Proceed directly to next step after ccc index verification
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN ccc index verification is complete (or step is skipped for ccc unavailable) will you load and read fully `{nextStepFile}` to execute the configuration write step.
+After ccc index verification is complete (or skipped because ccc is unavailable), display "**Proceeding to write configuration...**", then load `{nextStepFile}`, read it fully, and execute it.
 

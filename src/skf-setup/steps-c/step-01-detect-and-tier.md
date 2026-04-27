@@ -17,8 +17,6 @@ Verify availability of the four forge tools (ast-grep, gh, qmd, ccc), read any e
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Load Tier Rules
 
 Load and read {tierRulesData} for the tool detection commands and tier calculation logic.
@@ -95,18 +93,5 @@ ccc availability gates the Forge+ tier and enhances Deep tier when present.
 
 ### 9. Auto-Proceed
 
-"**Proceeding to CCC index check...**"
-
-#### Menu Handling Logic:
-
-- After tier calculation is complete, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed step with no user choices
-- Proceed directly to next step after detection and calculation
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN all 4 core tools have been verified, optional security scan checked, and the tier calculated will you load and read fully `{nextStepFile}` to execute the CCC index check step.
+After all 4 core tools have been verified, the optional security scan checked, and the tier calculated, display "**Proceeding to CCC index check...**", then load `{nextStepFile}`, read it fully, and execute it.
 
