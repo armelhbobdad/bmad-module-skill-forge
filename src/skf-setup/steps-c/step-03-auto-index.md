@@ -49,13 +49,24 @@ qmd collection list
 
 ### 3. Cross-Reference and Classify
 
-Compare the two lists:
+**Apply the forge-namespace filter first.** QMD is a shared daemon — other tools (memory-bank systems, ad-hoc indexers, unrelated workflows) may own collections in the same QMD instance. Never enumerate, display, or propose for removal a collection the forge does not own.
 
-**Healthy** — collection exists in both registry AND QMD:
+A collection is **forge-owned** only if its name ends with one of the forge collection-type suffixes set by producers `skf-brief-skill` and `skf-create-skill` (see `src/knowledge/qmd-registry.md` § Collection Types):
+
+- `-brief`
+- `-temporal`
+- `-docs`
+- `-extraction`
+
+Live collections whose name does NOT end with one of these suffixes are **foreign** — silently exclude them from `{live_collections}` for the rest of this section. Do not log them, do not surface them in any prompt, do not call `qmd collection remove` on them under any branch.
+
+Then compare the filtered `{live_collections}` against `{registry_collections}`:
+
+**Healthy** — forge-owned collection exists in both registry AND QMD:
 - Mark as verified
 - No action needed
 
-**Orphaned** — collection exists in QMD but NOT in registry:
+**Orphaned** — forge-owned collection exists in QMD but NOT in registry:
 - These may be leftover from prior auto-indexing or manual indexing
 - Flag for user-prompted removal
 
