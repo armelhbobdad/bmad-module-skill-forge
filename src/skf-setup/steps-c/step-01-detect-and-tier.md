@@ -1,37 +1,41 @@
 ---
 nextStepFile: './step-01b-ccc-index.md'
-tierRulesData: 'references/tier-rules.md'
+# Resolve `{detectToolsHelper}` by probing `{detectToolsProbeOrder}` in order
+# (installed SKF module path first, src/ dev-checkout fallback); first existing
+# path wins. HALT if neither resolves — the script is the source of truth for
+# tool detection and tier calculation; no fallback to prose-driven probes.
+detectToolsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-tools.py'
+  - '{project-root}/src/shared/scripts/skf-detect-tools.py'
 ---
 
 # Step 1: Detect Tools and Determine Tier
 
 ## STEP GOAL:
 
-Verify availability of the four forge tools (ast-grep, gh, qmd, ccc), read any existing configuration for re-run comparison, check for tier override, and calculate the capability tier.
+Verify availability of the four forge tools (ast-grep, gh, qmd, ccc), read any existing configuration for re-run comparison, check for tier override, and calculate the capability tier — all via `{detectToolsHelper}` so the deterministic work is done once, by a tested script, never by the LLM.
 
 ## Rules
 
 - Focus only on tool detection and tier calculation — do not write any files (Step 02)
-- Do not skip any tool check — all 4 must be verified
-- Tool command failures are not errors — they indicate unavailability
+- Never reimplement tool probes or the tier rules in prose — the script is authoritative
+- Tool command failures are not errors — they indicate unavailability (the script swallows them)
 
 ## MANDATORY SEQUENCE
 
-### 1. Load Tier Rules
-
-Load and read {tierRulesData} for the tool detection commands and tier calculation logic.
-
-### 2. Check for Existing Configuration (Re-run Detection)
+### 1. Check for Existing Configuration (Re-run Detection)
 
 **Read existing forge-tier.yaml** at `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml`:
-- If exists: store the current `tier` value as `{previous_tier}`, `tier_detected_at` as `{previous_detection_date}`, and the `tools` map as `{previous_tools}` (for tool-set delta detection in step-04 — same-tier re-runs surface newly-installed tools that didn't change the tier).
+
+- If exists: store the current `tier` value as `{previous_tier}`, `tier_detected_at` as `{previous_detection_date}`, and the `tools` map as `{previous_tools}` (for the tool-set delta detection step-04 needs to surface newly-installed tools on same-tier re-runs).
 - If not found: set `{previous_tier}` to null and `{previous_tools}` to an empty map (first run).
 
 **Read existing preferences.yaml** at `{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml`:
+
 - If exists: check for `tier_override` value
 - If not found: set `{tier_override}` to null
 
-**First-run preamble** — when `{previous_tier}` is null AND `{headless_mode}` is `false`, display this preamble before continuing to tool detection so the user knows what is about to happen and can abort cleanly with Esc / Ctrl+C before any writes:
+**First-run preamble** — when `{previous_tier}` is null AND `{headless_mode}` is `false`, display this preamble before continuing so the user knows what is about to happen and can abort cleanly with Esc / Ctrl+C before any writes:
 
 "**About to set up the forge.** This workflow will:
 
@@ -43,93 +47,47 @@ Load and read {tierRulesData} for the tool detection commands and tier calculati
 
 Press Esc or Ctrl+C now if this isn't the right project — no files have been written yet."
 
-### 3. Verify Tool: ast-grep
+### 2. Run Detection Helper
 
-Run: `ast-grep --version`
+Build the Bash invocation. Start with `uv run {detectToolsHelper}` — `uv run` honors the script's PEP 723 inline-metadata dependency declarations (resolved automatically on first call; cached thereafter), which is why uv is documented as a runtime prerequisite in `docs/getting-started.md`. Do NOT call the script via bare `python3` — `python3` ignores PEP 723 metadata, and on a fresh interpreter without the declared deps installed system-wide the call fails with `ModuleNotFoundError`. If `{tier_override}` is non-null, append `--tier-override "{tier_override}"` (the script handles invalid values by flagging them — do NOT pre-validate). If `{require_tier}` (resolved in On Activation) is non-null, append `--require-tier "{require_tier}"`. Then execute.
 
-- If succeeds: record `{ast_grep: true}` and store version string
-- If fails (command not found or error): record `{ast_grep: false}`
+The script (see `src/shared/scripts/skf-detect-tools.py` docstring for the full `DETECT_OUTPUT_SCHEMA`) probes ast-grep / gh / qmd / ccc concurrently with two-step verification for qmd and ccc (binary-identity check + daemon-health check, including the `CocoIndex Code` identity-marker substring check that rejects PATH-shadowing aliases). It applies the 4-rule tier table, performs the tier-override sanity check (override is honored but flagged unsafe when underlying tools are missing), and evaluates `--require-tier` using a tool-prerequisite check (Deep does NOT subsume Forge+ — Deep does not require ccc). Output is one JSON document on stdout.
 
-### 4. Verify Tool: gh
+### 3. Parse Output and Set Context Flags
 
-Run: `gh --version`
+From the JSON, set these context flags. Field paths are relative to the script's top-level object.
 
-- If succeeds: record `{gh_cli: true}` and store version string
-- If fails: record `{gh_cli: false}`
+From `tools`:
 
-### 5. Verify Tool: qmd
+- `{ast_grep}` ← `tools.ast_grep.available`
+- `{ast_grep_version}` ← `tools.ast_grep.version`
+- `{gh_cli}` ← `tools.gh_cli.available`
+- `{gh_cli_version}` ← `tools.gh_cli.version`
+- `{qmd}` ← `tools.qmd.available`
+- `{qmd_status}` ← `tools.qmd.status` (`"absent" | "daemon_stopped" | "healthy"` — drives the climb-hint distinction in step-04)
+- `{qmd_version}` ← `tools.qmd.version`
+- `{ccc}` ← `tools.ccc.available`
+- `{ccc_daemon}` ← `tools.ccc.daemon` (`"healthy" | "stopped" | "error" | null`)
+- `{ccc_version}` ← `tools.ccc.version`
+- `{security_scan}` ← `tools.security_scan.available` (informational only — never affects tier)
 
-**Step A — Binary identity:** Run `qmd --version` (or `qmd --help` if --version is unsupported).
+From `tier`:
 
-- If exits 0: binary present. Continue to Step B.
-- If fails (command not found or error): record `{qmd: false, qmd_status: "absent"}`. Skip Step B. The climb hint will say "Install qmd".
+- `{calculated_tier}` ← `tier.calculated` — the tier downstream steps act on
+- `{detected_tier}` ← `tier.detected` — what would have been chosen without override
+- `{tier_override_active}` ← `tier.override_applied`
+- `{tier_override_invalid}` ← `tier.override_invalid`
+- `{tier_override_invalid_value}` ← `tier.override_invalid_value`
+- `{tier_override_unsafe}` ← `tier.override_unsafe`
+- `{tier_override_unsafe_missing}` ← `tier.override_unsafe_missing` (a list — step-04 joins with `", "` for display)
 
-**Step B — Daemon health:** Run `qmd status`.
+From `require_tier`:
 
-- If succeeds and indicates operational: record `{qmd: true, qmd_status: "healthy"}`.
-- If fails or indicates not initialized: record `{qmd: false, qmd_status: "daemon_stopped"}`. The climb hint will say "qmd is installed but the daemon is stopped — run `qmd start` (or your distribution's qmd service command) and re-run setup", which is materially different guidance from "install qmd".
+- `{require_tier_satisfied}` ← `require_tier.satisfied` (`true | false | null`; null when `--require-tier` was not set)
+- `{require_tier_failure_missing_tools}` ← `require_tier.missing_tools` (a list)
 
-This two-step probe matches the ccc verification pattern (§7) — a tool that exists on disk but cannot serve requests is operationally absent for tier calculation but addressable with different remediation than a tool that was never installed.
+**The script is the source of truth.** Every tier-rules edge case (override-honored-but-unsafe, Deep-doesn't-subsume-Forge+, qmd-binary-vs-daemon distinction, ccc-identity-marker rejection of foreign binaries) is locked into the test suite at `test/test-skf-detect-tools.py`. Substituting prose-driven logic for the script's output here will cause subtle re-run regressions that the prompt's prose is no longer detailed enough to catch.
 
-### 6. Check Optional: Security Scan (SNYK_TOKEN)
+### 4. Auto-Proceed
 
-Check if the `SNYK_TOKEN` environment variable is set:
-
-- If `SNYK_TOKEN` is non-empty: record `{security_scan: true}`
-- If `SNYK_TOKEN` is empty or unset: record `{security_scan: false}`
-
-This is informational only — security scan availability does NOT affect the tier level. It is recorded in forge-tier.yaml so that create-skill's validation step can report actionable guidance when security scanning is unavailable.
-
-### 7. Verify Tool: ccc (cocoindex-code)
-
-**Step A — Binary identity:** Run `ccc --help`
-
-- If exits 0 AND the help output contains the identity marker `CocoIndex Code` (case-insensitive substring match — present in the genuine cocoindex-code CLI banner): identity confirmed. Continue to Step B.
-- If exits 0 BUT the marker is absent (e.g. `ccc` is shadowed by an alias for an unrelated tool such as `code2prompt`): record `{ccc: false}`. Skip Step B. Do not run `ccc doctor` against a foreign binary — its exit code says nothing about cocoindex-code health.
-- If fails (command not found or error): record `{ccc: false}`. Skip Step B.
-
-**Step B — Daemon health:** Run `ccc doctor`
-
-- If daemon is running and model check OK: record `{ccc: true, ccc_daemon: "healthy"}` and store version string from output
-- If daemon is not running: record `{ccc: true, ccc_daemon: "stopped"}` — binary available, daemon needs starting. Step-01b will handle this.
-- If error or timeout: record `{ccc: true, ccc_daemon: "error"}` — binary works but daemon has issues.
-
-ccc availability gates the Forge+ tier and enhances Deep tier when present.
-
-### 8. Calculate Tier
-
-**If `{tier_override}` is set and valid (Quick, Forge, Forge+, or Deep):**
-- Use `{tier_override}` as `{calculated_tier}`
-- Note that override is active for the report step
-- **Sanity-check tool prerequisites for the overridden tier** using the same rules as `--require-tier` (see §8b): Quick = always; Forge = needs ast-grep; Forge+ = needs ast-grep + ccc; Deep = needs ast-grep + gh + qmd. If the underlying tools are NOT present, set `{tier_override_unsafe: true}` and `{tier_override_unsafe_missing: <comma-separated missing tool list>}` for step-04 reporting. Still apply the override — the user's intent is honored — but surface the risk so downstream skills crashing on missing qmd/gh do not look like a setup bug.
-
-**If no override, apply tier rules from {tierRulesData} in order — the first matching rule wins. Do not continue checking once a match is found:**
-- `{ast_grep}` AND `{gh_cli}` AND `{qmd}` all true → **Deep**
-- `{ast_grep}` AND `{ccc}` both true, but NOT (`{gh_cli}` AND `{qmd}`) → **Forge+**
-- `{ast_grep}` true (regardless of ccc/gh/qmd) → **Forge**
-- Otherwise → **Quick**
-
-**If `{tier_override}` is set but invalid (any value other than the case-sensitive `Quick`, `Forge`, `Forge+`, or `Deep`):** ignore it, use detected tier. Set `{tier_override_invalid: true}` and `{tier_override_invalid_value: <the bad value>}` in context for step-04 reporting.
-
-### 8b. Evaluate `--require-tier` (when set)
-
-If `{require_tier}` is set (resolved in On Activation), check whether the available tools satisfy the requested tier — independent of which tier was *named* — using the tool prerequisites from `{tierRulesData}`:
-
-- `Quick` — always satisfied.
-- `Forge` — satisfied iff `{ast_grep}` is true.
-- `Forge+` — satisfied iff `{ast_grep}` AND `{ccc}` are both true.
-- `Deep` — satisfied iff `{ast_grep}` AND `{gh_cli}` AND `{qmd}` are all true.
-
-This is a tool-prerequisite check, not a tier-name comparison. Deep does not subsume Forge+ (Deep does not require ccc), so a `Deep` calculation with no ccc still fails `--require-tier=Forge+`.
-
-Set the following context flags for step-04:
-
-- `{require_tier_satisfied: true|false}`
-- `{require_tier_failure_missing_tools: <comma-separated list of missing tools, e.g. "gh, qmd">}` (only when not satisfied)
-
-If `{require_tier}` is null (not set), set `{require_tier_satisfied: null}` so step-04 knows to skip the failure block entirely.
-
-### 9. Auto-Proceed
-
-After all 4 core tools have been verified, the optional security scan checked, and the tier calculated, display "**Proceeding to CCC index check...**", then load `{nextStepFile}`, read it fully, and execute it.
-
+After context flags are populated, display "**Proceeding to CCC index check...**", then load `{nextStepFile}`, read it fully, and execute it.

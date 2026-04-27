@@ -39,9 +39,13 @@ is appended to the output. The 4 always-include patterns are applied
 unconditionally — config-value rejection cannot disable indexing
 entirely.
 
-CLI:
+CLI — invoke via `uv run` so the PEP 723 PyYAML dependency declared
+above is auto-resolved on first call and cached. `docs/getting-started.md`
+documents uv as the runtime prerequisite for exactly this. Bare
+`python3` will fail with `ModuleNotFoundError: No module named 'yaml'`
+on a fresh interpreter:
 
-  python3 skf-merge-ccc-exclusions.py \\
+  uv run skf-merge-ccc-exclusions.py \\
       --project-root /abs/path \\
       --skills-output-folder skills \\
       --forge-data-folder _bmad-output/forge-data
