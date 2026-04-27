@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "21644927ae51",
+  "strategy": "manual-commit",
+  "branch": "polish/skf-setup-quality-themes-2-5",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-setup/SKILL.md",
+    "src/skf-setup/steps-c/step-01-detect-and-tier.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/21/644927ae51/0/metadata.json",
+      "transcript": "/21/644927ae51/0/full.jsonl",
+      "context": "/21/644927ae51/0/context.md",
+      "content_hash": "/21/644927ae51/0/content_hash.txt",
+      "prompt": "/21/644927ae51/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 110,
+    "cache_creation_tokens": 217228,
+    "cache_read_tokens": 7277175,
+    "output_tokens": 68080,
+    "api_call_count": 67
+  }
+}
