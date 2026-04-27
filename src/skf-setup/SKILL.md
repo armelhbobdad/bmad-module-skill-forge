@@ -7,7 +7,7 @@ description: Initialize forge environment, detect tools, and set capability tier
 
 ## Overview
 
-Initializes the forge environment by detecting available tools, determining the capability tier (Quick/Forge/Forge+/Deep), writing persistent configuration, and optionally indexing the project for deep search. The workflow is autonomous with one optional gate — orphaned QMD collection removal in step 3 (Deep tier only; default action: Keep) — which auto-resolves to the default when `{headless_mode}` is true.
+Initializes the forge environment by detecting available tools, determining the capability tier (Quick/Forge/Forge+/Deep), and writing persistent configuration to `_bmad/_memory/forger-sidecar/`. When `ccc` (cocoindex-code) is available, also augments `.cocoindex_code/settings.yml` with SKF exclusion patterns and creates or refreshes the project's semantic-search index. On Deep tier, reconciles the QMD collection registry; whenever ccc is available, reconciles the CCC index registry as well. The workflow is autonomous with one optional gate — orphaned QMD collection removal in step 3 (Deep tier only; default action: Keep) — which auto-resolves to the default when `{headless_mode}` is true.
 
 ## Role
 
@@ -29,9 +29,9 @@ These rules apply to every step in this workflow:
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
 | 1 | Detect Tools & Set Tier | steps-c/step-01-detect-and-tier.md | Yes |
-| 1b | CCC Index | steps-c/step-01b-ccc-index.md | Yes |
+| 1b | CCC Index (only when ccc is available) | steps-c/step-01b-ccc-index.md | Yes |
 | 2 | Write Config | steps-c/step-02-write-config.md | Yes |
-| 3 | QMD Hygiene | steps-c/step-03-auto-index.md | Yes |
+| 3 | QMD + CCC Registry Hygiene | steps-c/step-03-auto-index.md | Yes |
 | 4 | Report | steps-c/step-04-report.md | Yes |
 | 5 | Workflow Health Check | steps-c/step-05-health-check.md | Yes |
 
@@ -40,9 +40,11 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | (none) |
+| **Flags** | `--headless` / `-H` (skip prompts, auto-resolve gates to defaults); `--require-tier=<Quick\|Forge\|Forge+\|Deep>` (halt with failure if calculated tier does not satisfy the requirement) |
 | **Gates** | One optional: orphaned QMD collection removal (step 3, Deep tier only; default: Keep) |
-| **Outputs** | forge-tier.yaml, preferences.yaml, forge-data directories |
-| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
+| **Outputs** | `forger-sidecar/forge-tier.yaml`, `forger-sidecar/preferences.yaml`, `{forge_data_folder}/`; when ccc is available, `.cocoindex_code/settings.yml` (exclusion patterns merged) and the project ccc index |
+| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. step-04 emits a single-line `SKF_SETUP_RESULT_JSON: {…}` envelope after the human-readable banner so pipelines can parse the outcome without reading forge-tier.yaml. Schema documented in `steps-c/step-04-report.md` §4. |
+| **Failure modes** | `--require-tier` not satisfied → step-04 prints a "REQUIRED TIER NOT MET" block, the JSON envelope sets `"require_tier_satisfied": false`, and the workflow halts before step-05. |
 
 ## On Activation
 
@@ -52,4 +54,6 @@ These rules apply to every step in this workflow:
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 
-3. Load, read the full file, and then execute `./steps-c/step-01-detect-and-tier.md` to begin the workflow.
+3. **Resolve `{require_tier}`**: parse `--require-tier=<value>` from the invocation arguments. Accept exactly `Quick`, `Forge`, `Forge+`, or `Deep` (case-sensitive). If absent or unparseable, leave as null (no tier requirement).
+
+4. Load, read the full file, and then execute `./steps-c/step-01-detect-and-tier.md` to begin the workflow.

@@ -17,8 +17,6 @@ Write the detected tool availability and calculated tier to forge-tier.yaml, cre
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Write forge-tier.yaml
 
 Write to `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml`:
@@ -97,27 +95,16 @@ compact_greeting: false
 
 **If it DOES exist:** Do not modify. Preserve entirely.
 
+Store `{preferences_yaml_created: true|false}` in context (true when this run created the file, false when it pre-existed). step-04 uses this flag in the "Files written" disclosure.
+
 ### 3. Ensure forge-data/ Directory
 
 Check if `{forge_data_folder}` directory exists:
 
-- If missing: create it
-- If exists: skip silently
+- If missing: create it. Store `{forge_data_dir_created: true}` in context.
+- If exists: skip silently. Store `{forge_data_dir_created: false}` in context.
 
 ### 4. Auto-Proceed
 
-"**Proceeding to QMD collection hygiene...**"
-
-#### Menu Handling Logic:
-
-- After all file operations complete successfully, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed step with no user choices
-- Proceed directly to next step after configuration is written
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN forge-tier.yaml has been written successfully and preferences.yaml exists (created or pre-existing) will you load and read fully `{nextStepFile}` to execute the QMD hygiene step.
+After forge-tier.yaml has been written successfully and preferences.yaml exists (created or pre-existing), display "**Proceeding to QMD collection hygiene...**", then load `{nextStepFile}`, read it fully, and execute it.
 
