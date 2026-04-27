@@ -7,7 +7,7 @@ description: Initialize forge environment, detect tools, and set capability tier
 
 ## Overview
 
-Initializes the forge environment by detecting available tools, determining the capability tier (Quick/Forge/Forge+/Deep), writing persistent configuration, and optionally indexing the project for deep search. The workflow is autonomous with one optional gate — orphaned QMD collection removal in step 3 (Deep tier only; default action: Keep) — which auto-resolves to the default when `{headless_mode}` is true.
+Initializes the forge environment by detecting available tools, determining the capability tier (Quick/Forge/Forge+/Deep), and writing persistent configuration to `_bmad/_memory/forger-sidecar/`. When `ccc` (cocoindex-code) is available, also augments `.cocoindex_code/settings.yml` with SKF exclusion patterns and creates or refreshes the project's semantic-search index. On Deep tier, reconciles the QMD collection registry; whenever ccc is available, reconciles the CCC index registry as well. The workflow is autonomous with one optional gate — orphaned QMD collection removal in step 3 (Deep tier only; default action: Keep) — which auto-resolves to the default when `{headless_mode}` is true.
 
 ## Role
 
@@ -31,7 +31,7 @@ These rules apply to every step in this workflow:
 | 1 | Detect Tools & Set Tier | steps-c/step-01-detect-and-tier.md | Yes |
 | 1b | CCC Index | steps-c/step-01b-ccc-index.md | Yes |
 | 2 | Write Config | steps-c/step-02-write-config.md | Yes |
-| 3 | QMD Hygiene | steps-c/step-03-auto-index.md | Yes |
+| 3 | QMD + CCC Registry Hygiene | steps-c/step-03-auto-index.md | Yes |
 | 4 | Report | steps-c/step-04-report.md | Yes |
 | 5 | Workflow Health Check | steps-c/step-05-health-check.md | Yes |
 
@@ -41,7 +41,7 @@ These rules apply to every step in this workflow:
 |--------|--------|
 | **Inputs** | (none) |
 | **Gates** | One optional: orphaned QMD collection removal (step 3, Deep tier only; default: Keep) |
-| **Outputs** | forge-tier.yaml, preferences.yaml, forge-data directories |
+| **Outputs** | `forger-sidecar/forge-tier.yaml`, `forger-sidecar/preferences.yaml`, `{forge_data_folder}/`; when ccc is available, `.cocoindex_code/settings.yml` (exclusion patterns merged) and the project ccc index |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 
 ## On Activation

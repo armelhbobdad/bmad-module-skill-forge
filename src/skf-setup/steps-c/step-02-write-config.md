@@ -95,12 +95,14 @@ compact_greeting: false
 
 **If it DOES exist:** Do not modify. Preserve entirely.
 
+Store `{preferences_yaml_created: true|false}` in context (true when this run created the file, false when it pre-existed). step-04 uses this flag in the "Files written" disclosure.
+
 ### 3. Ensure forge-data/ Directory
 
 Check if `{forge_data_folder}` directory exists:
 
-- If missing: create it
-- If exists: skip silently
+- If missing: create it. Store `{forge_data_dir_created: true}` in context.
+- If exists: skip silently. Store `{forge_data_dir_created: false}` in context.
 
 ### 4. Auto-Proceed
 

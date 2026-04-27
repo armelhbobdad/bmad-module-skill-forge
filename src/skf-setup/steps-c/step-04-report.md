@@ -61,6 +61,21 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
   {if ccc_index_result is "failed": indexing failed — semantic discovery unavailable this session}
   {end if}
 
+  Files written this run:
+  - forge-tier.yaml — {project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml
+  {if preferences_yaml_created is true:}
+  - preferences.yaml — {project-root}/_bmad/_memory/forger-sidecar/preferences.yaml (first-run defaults)
+  {end if}
+  {if forge_data_dir_created is true:}
+  - {forge_data_folder}/ (directory created)
+  {end if}
+  {if settings_yml_written is true:}
+  - .cocoindex_code/settings.yml — {project-root}/.cocoindex_code/settings.yml ({settings_yml_patterns_added} SKF exclusion pattern(s) merged)
+  {end if}
+  {if ccc_index_result is "created":}
+  - .cocoindex_code/ ccc index — {ccc_file_count} files indexed
+  {end if}
+
 {if tier_override is active:}
   Note: Tier override active (set in preferences.yaml)
 

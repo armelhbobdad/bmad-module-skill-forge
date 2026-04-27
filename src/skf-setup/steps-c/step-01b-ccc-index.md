@@ -71,8 +71,8 @@ If `{settings_yml_existed}` is true (from a previous `ccc init` run):
 
 1. Read `settings.yml`
 2. For each pattern in `{ccc_exclude_patterns}`: if the pattern is NOT already present in `exclude_patterns`, append it and set `{exclusions_changed: true}`
-3. If `{exclusions_changed}`: write the updated `settings.yml` back, set `{needs_reindex: true}` (new exclusions require re-indexing), display: "**CCC exclusions configured:** {count} SKF patterns applied to .cocoindex_code/settings.yml"
-4. If no new patterns needed: display nothing (exclusions already configured)
+3. If `{exclusions_changed}`: write the updated `settings.yml` back, set `{needs_reindex: true}` (new exclusions require re-indexing), set `{settings_yml_written: true}` and `{settings_yml_patterns_added: count}` for step-04 reporting, display: "**CCC exclusions configured:** {count} SKF patterns applied to .cocoindex_code/settings.yml"
+4. If no new patterns needed: display nothing (exclusions already configured); set `{settings_yml_written: false}`
 
 This preserves any existing user customizations and default exclusions while ensuring SKF directories are filtered out.
 
@@ -104,8 +104,8 @@ ccc init
 If `{settings_yml_existed}` is false (first-time setup — `ccc init` just created it), apply exclusions now:
 
 1. Read `{project-root}/.cocoindex_code/settings.yml` (created by `ccc init`)
-2. For each pattern in `{ccc_exclude_patterns}`: if the pattern is NOT already present in `exclude_patterns`, append it
-3. Write the updated `settings.yml` back
+2. For each pattern in `{ccc_exclude_patterns}`: if the pattern is NOT already present in `exclude_patterns`, append it (track `{count}` of patterns added)
+3. Write the updated `settings.yml` back. Set `{settings_yml_written: true}` and `{settings_yml_patterns_added: count}` for step-04 reporting.
 4. Display: "**CCC exclusions configured:** {count} SKF patterns applied to .cocoindex_code/settings.yml"
 
 Then run:
