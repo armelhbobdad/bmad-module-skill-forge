@@ -24,12 +24,24 @@ Load and read {tierRulesData} for the tool detection commands and tier calculati
 ### 2. Check for Existing Configuration (Re-run Detection)
 
 **Read existing forge-tier.yaml** at `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml`:
-- If exists: store the current `tier` value as `{previous_tier}` and `tier_detected_at` as `{previous_detection_date}`
-- If not found: set `{previous_tier}` to null (first run)
+- If exists: store the current `tier` value as `{previous_tier}`, `tier_detected_at` as `{previous_detection_date}`, and the `tools` map as `{previous_tools}` (for tool-set delta detection in step-04 — same-tier re-runs surface newly-installed tools that didn't change the tier).
+- If not found: set `{previous_tier}` to null and `{previous_tools}` to an empty map (first run).
 
 **Read existing preferences.yaml** at `{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml`:
 - If exists: check for `tier_override` value
 - If not found: set `{tier_override}` to null
+
+**First-run preamble** — when `{previous_tier}` is null AND `{headless_mode}` is `false`, display this preamble before continuing to tool detection so the user knows what is about to happen and can abort cleanly with Esc / Ctrl+C before any writes:
+
+"**About to set up the forge.** This workflow will:
+
+- Detect available tools (ast-grep, gh, qmd, ccc) — read-only probes only
+- Write `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml` (capability tier + tool state)
+- Write `{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml` (first-run defaults)
+- Create `{forge_data_folder}/` if missing
+- When ccc is available: augment `{project-root}/.cocoindex_code/settings.yml` with SKF exclusion patterns, then create or refresh the project ccc index
+
+Press Esc or Ctrl+C now if this isn't the right project — no files have been written yet."
 
 ### 3. Verify Tool: ast-grep
 

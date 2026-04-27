@@ -95,13 +95,26 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 {if re-run with tier change:}
   {appropriate upgrade/downgrade message from tier-rules.md}
 
-{if re-run with same tier:}
+{if re-run with same tier and {tools_added} is empty and {tools_removed} is empty:}
   {same-tier message from tier-rules.md}
+
+{if re-run with same tier and ({tools_added} or {tools_removed} is non-empty):}
+  Tier unchanged: {calculated_tier}.
+  {if {tools_added} non-empty:} Newly detected: {comma-separated tool names from tools_added}{if ccc was added and tier is Deep: " — ccc enhances Deep tier transparently."}
+  {if {tools_removed} non-empty:} No longer detected: {comma-separated tool names from tools_removed} — re-install to restore those capabilities.
 
 ═══════════════════════════════════════
   Forge ready. {calculated_tier} tier active.
 ═══════════════════════════════════════
+
+{if {headless_mode} is false:}
+  Next: try [BS] Brief Skill to scope your first compilation target, or [QS] Quick Skill for a fast template-driven path. Already have a skill? [AS] Audit Skill drift-checks an existing skill against current sources.
 ```
+
+**Tool delta computation rules:**
+- Compute `{tools_added}` as the list of tool keys where `tools.{key}` is true now but was false (or absent) in `{previous_tools}`.
+- Compute `{tools_removed}` as the list of tool keys where `tools.{key}` is true in `{previous_tools}` but false now.
+- On a first run (`{previous_tools}` empty), `{tools_added}` equals the currently-detected tools and `{tools_removed}` is empty — but the same-tier branch does not fire on first runs (there is no previous tier to compare against), so this is not displayed in that case.
 
 **Tool display rules:**
 - Only show tools that ARE available with their version strings

@@ -108,6 +108,8 @@ If `{settings_yml_existed}` is false (first-time setup — `ccc init` just creat
 3. Write the updated `settings.yml` back. Set `{settings_yml_written: true}` and `{settings_yml_patterns_added: count}` for step-04 reporting.
 4. Display: "**CCC exclusions configured:** {count} SKF patterns applied to .cocoindex_code/settings.yml"
 
+Before invoking `ccc index`, display: "**Building semantic index — this can take several minutes on large codebases (1000+ files). Run `ccc status` in another terminal to monitor progress.**" so the user does not assume the workflow has hung during the long-running call.
+
 Then run:
 ```bash
 ccc index
