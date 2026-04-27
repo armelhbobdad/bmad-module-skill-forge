@@ -21,6 +21,11 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 
 **Key Steps:** Detect tools + Determine tier → CCC index check (Forge+) → Write forge-tier.yaml → QMD + CCC registry hygiene (Deep/Forge+) → Status report
 
+**Flags (v1.2.0+):**
+
+- `--require-tier=<Quick|Forge|Forge+|Deep>` — fail-fast for CI: if the calculated tier does not satisfy the requested tier (tool-prerequisite check, not a name comparison — Deep does NOT subsume Forge+ because Deep does not require ccc), the workflow halts with a "REQUIRED TIER NOT MET" block and exits without chaining to the health check. Pipelines branch on the JSON envelope's `require_tier_satisfied` field.
+- `--headless` / `-H` — see [Headless Mode](#headless-mode) below. For `/skf-setup` specifically, headless mode emits a single-line `SKF_SETUP_RESULT_JSON: {…}` envelope to stdout (schema-locked, includes `tier`, `previous_tier`, `tier_changed`, `tools`, `tools_added`/`removed`, `files_written`, `warnings`, `error`) and SUPPRESSES the human-readable banner — the entire payload pipelines need is on one parseable line.
+
 **Agent:** Ferris (Architect mode)
 
 ---
@@ -336,6 +341,14 @@ Add `--headless` or `-H` to any workflow command to skip all confirmation gates.
 ```
 
 You can also set `headless_mode: true` in your forge preferences (`_bmad/_memory/forger-sidecar/preferences.yaml`) to make headless the default for all workflows.
+
+**Exception — `/skf-setup` headless emits a single-line JSON envelope (v1.2.0+).** Unlike other workflows, headless `/skf-setup` SUPPRESSES the human-readable status banner entirely and emits exactly one prefixed line on stdout:
+
+```
+SKF_SETUP_RESULT_JSON: {"skf_setup":{"tier":"Deep","previous_tier":"Forge","tier_changed":true,"tools":{...},"tools_added":[...],"tools_removed":[],"config_path":"...","ccc_index":{...},"files_written":[...],"tier_override_active":false,"tier_override_invalid":false,"require_tier_satisfied":null,"warnings":[],"error":null}}
+```
+
+Parent skills and CI pipelines `grep` one line out of the workflow log to learn the outcome — no ASCII-art parsing, no race against the `forge-tier.yaml` writer. The envelope schema is versioned at `src/shared/scripts/schemas/skf-setup-result-envelope.v1.json` and asserted against on every emit.
 
 ---
 
