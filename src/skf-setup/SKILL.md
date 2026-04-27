@@ -39,7 +39,7 @@ These rules apply to every step in this workflow:
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | (none — fully autonomous) |
+| **Inputs** | (none) |
 | **Gates** | One optional: orphaned QMD collection removal (step 3, Deep tier only; default: Keep) |
 | **Outputs** | forge-tier.yaml, preferences.yaml, forge-data directories |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |

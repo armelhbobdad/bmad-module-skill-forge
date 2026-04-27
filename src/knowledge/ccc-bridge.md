@@ -48,7 +48,7 @@ Returns: list of `{file, score, snippet}` entries ranked by semantic relevance t
 ### `ccc_bridge.status()`
 
 **Resolves to:** Two-step verification:
-1. `ccc --help` — confirms binary exists (exit 0)
+1. `ccc --help` — confirms binary exists (exit 0) AND output contains the `CocoIndex Code` identity marker (rejects unrelated `ccc`-named binaries shadowing PATH)
 2. `ccc doctor` — confirms daemon is running, extracts version string, validates embedding model
 
 **Usage context:** Called exclusively by setup step-01 during tool detection. Downstream workflows read the result from forge-tier.yaml — they do not re-verify.
