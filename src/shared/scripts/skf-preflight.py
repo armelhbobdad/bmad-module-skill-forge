@@ -7,8 +7,15 @@
 Loads config.yaml, validates sidecar_path, loads preferences.yaml and
 forge-tier.yaml, and outputs a unified JSON blob for step consumption.
 
-CLI: python3 skf-preflight.py <project-root>
-     python3 skf-preflight.py <project-root> --config-path <alt-config>
+CLI — invoke via `uv run` so the PEP 723 PyYAML dependency declared
+above is auto-resolved on first call and cached. `docs/getting-started.md`
+documents uv as the runtime prerequisite for exactly this. Bare
+`python3` falls back to a defensive ImportError handler that emits
+`{"error": "PyYAML not installed...", "code": "MISSING_DEPENDENCY"}`
+on stdout — that fallback is the safety net, not the canonical path:
+
+  uv run skf-preflight.py <project-root>
+  uv run skf-preflight.py <project-root> --config-path <alt-config>
 
 Output: JSON to stdout with all resolved config variables and sidecar state.
 Exit 0 on success, exit 1 on hard-halt conditions (missing config, bad sidecar).
@@ -24,7 +31,10 @@ try:
     import yaml
 except ImportError:
     print(
-        json.dumps({"error": "PyYAML not installed. Run: pip install pyyaml", "code": "MISSING_DEPENDENCY"}),
+        json.dumps({
+            "error": "PyYAML not installed. Invoke via `uv run` (auto-resolves PEP 723 deps — see docs/getting-started.md) or install manually with `pip install pyyaml`.",
+            "code": "MISSING_DEPENDENCY",
+        }),
     )
     sys.exit(1)
 
@@ -148,7 +158,7 @@ def run_preflight(project_root, config_path=None):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python3 skf-preflight.py <project-root> [--config-path <path>]", file=sys.stderr)
+        print("Usage: uv run skf-preflight.py <project-root> [--config-path <path>]", file=sys.stderr)
         sys.exit(1)
 
     proj_root = sys.argv[1]
