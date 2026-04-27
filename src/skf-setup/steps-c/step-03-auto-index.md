@@ -55,10 +55,10 @@ Parse the output into a comma-separated string of collection names and store as 
 
 **Error handling:** If `qmd collection list` fails (daemon down, daemon errors), set `{hygiene_result: "qmd_unavailable", hygiene_healthy: 0, hygiene_orphaned_removed: 0, hygiene_orphaned_kept: 0, hygiene_stale_cleaned: 0}`, log the error, and skip directly to section 4 (which will still run the ccc-prune branch if `{ccc}` is true).
 
-Run the classifier:
+Run the classifier. Invoke via `uv run` so the script's PEP 723 PyYAML dependency resolves automatically (`docs/getting-started.md` documents uv as the runtime prereq for exactly this); bare `python3` would `ModuleNotFoundError` on a fresh interpreter.
 
 ```bash
-python3 {qmdClassifyHelper} \
+uv run {qmdClassifyHelper} \
     --live-names "{live_collections}" \
     --registry-from-yaml "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"
 ```
@@ -108,7 +108,7 @@ This section ALWAYS runs when reachable — it handles both `qmd_collections` st
 Build the invocation. Always include `--target` for the forge-tier.yaml path. Include `--qmd-live-names "{live_collections}"` ONLY when section 2 ran successfully (i.e. `{hygiene_result}` is `"completed"`); omit the flag entirely otherwise so the script skips QMD cleanup. Include `--prune-missing-ccc-paths` ONLY when `{ccc}` is true; omit it otherwise.
 
 ```bash
-python3 {forgeTierRwHelper} clean-stale \
+uv run {forgeTierRwHelper} clean-stale \
     --target "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml" \
     [--qmd-live-names "{live_collections}"]  \
     [--prune-missing-ccc-paths]

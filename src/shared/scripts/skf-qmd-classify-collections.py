@@ -59,6 +59,16 @@ Output (single JSON document on stdout):
 `foreign_filtered_sample` is capped at 5 names (telemetry; the full list
 is never useful — if it were forge-relevant it would have a forge suffix).
 
+CLI — invoke via `uv run` so the PEP 723 PyYAML dependency declared
+above is auto-resolved on first call and cached. `docs/getting-started.md`
+documents uv as the runtime prerequisite for exactly this. Bare
+`python3` will fail with `ModuleNotFoundError: No module named 'yaml'`
+on a fresh interpreter:
+
+  uv run skf-qmd-classify-collections.py \\
+      --live-names foo-brief,foo-extraction,memory-root-1 \\
+      --registry-from-yaml /path/forge-tier.yaml
+
 Exit codes:
   0 success
   1 user error (bad args, malformed registry file)

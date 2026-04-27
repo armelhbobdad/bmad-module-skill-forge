@@ -52,12 +52,17 @@ mirror skf-atomic-write.py's pattern. Concurrent access requires
 external `flock` coordination — see step-07 of skf-create-skill for
 the precedent.
 
-CLI:
+CLI — invoke via `uv run` so the PEP 723 PyYAML dependency declared
+above is auto-resolved on first call and cached. `docs/getting-started.md`
+documents uv as the runtime prerequisite for exactly this. Bare
+`python3` will fail with `ModuleNotFoundError: No module named 'yaml'`
+on a fresh interpreter where pyyaml has not been pip-installed
+system-wide:
 
-  python3 skf-forge-tier-rw.py read --target /path/forge-tier.yaml
-  echo '{...}' | python3 skf-forge-tier-rw.py write-tools --target /path/forge-tier.yaml
-  python3 skf-forge-tier-rw.py init-prefs --target /path/preferences.yaml
-  python3 skf-forge-tier-rw.py clean-stale --target /path/forge-tier.yaml \\
+  uv run skf-forge-tier-rw.py read --target /path/forge-tier.yaml
+  echo '{...}' | uv run skf-forge-tier-rw.py write-tools --target /path/forge-tier.yaml
+  uv run skf-forge-tier-rw.py init-prefs --target /path/preferences.yaml
+  uv run skf-forge-tier-rw.py clean-stale --target /path/forge-tier.yaml \\
       --qmd-live-names foo-brief,bar-extraction --prune-missing-ccc-paths
 """
 

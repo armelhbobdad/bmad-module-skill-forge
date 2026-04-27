@@ -158,7 +158,7 @@ This block exists to make pipeline failures visible without the operator parsing
 
 ### 4. Emit Headless JSON Envelope
 
-When `{headless_mode}` is `true`, build the context payload from this step's accumulated flags and forward it to `{emitEnvelopeHelper}` on stdin. The script computes derived fields (`tools_added`, `tools_removed`, `tier_changed`, `warnings`), validates the assembled envelope against the JSON Schema at `src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`, and emits the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` on stdout.
+When `{headless_mode}` is `true`, build the context payload from this step's accumulated flags and forward it to `{emitEnvelopeHelper}` on stdin. Invoke via `uv run` so the script's PEP 723 dependency declarations are honored (the canonical runtime invocation per `docs/getting-started.md`'s uv prereq — bare `python3` skips the metadata block and breaks on a fresh interpreter). The script computes derived fields (`tools_added`, `tools_removed`, `tier_changed`, `warnings`), validates the assembled envelope against the JSON Schema at `src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`, and emits the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` on stdout.
 
 ```bash
 echo '{
@@ -190,7 +190,7 @@ echo '{
   "ccc_registry_stale_removed": {ccc_registry_stale_removed_paths_list},
   "ccc_indexing_failed_reason": {ccc_indexing_failed_reason_or_null},
   "error": {error_object_or_null}
-}' | python3 {emitEnvelopeHelper} emit
+}' | uv run {emitEnvelopeHelper} emit
 ```
 
 The script's documented context-payload shape (see `src/shared/scripts/skf-emit-result-envelope.py` docstring) tolerates two `tools` shapes — bare booleans OR `skf-detect-tools.py`'s `{key: {available: bool, ...}}` output — so either step-01's normalized booleans OR the raw detect-tools output forwarded as-is will produce the correct envelope.

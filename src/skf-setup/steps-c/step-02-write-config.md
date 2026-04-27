@@ -31,6 +31,8 @@ Write the detected tool availability and calculated tier to `forge-tier.yaml` (p
 
 Build the JSON payload from context flags set by step-01 and step-01b. The payload must include `tools`, `tier`, and `ccc_index`; the script handles `tier_detected_at` defaulting to "now" if absent and preserves `qmd_collections`, `ccc_index_registry`, and a user-customized `ccc_index.staleness_threshold_hours` from any existing file.
 
+Invoke via `uv run` so the script's PEP 723 PyYAML dependency resolves automatically (this is what `docs/getting-started.md`'s uv prereq exists for). Bare `python3` would fail on a fresh interpreter with `ModuleNotFoundError`.
+
 ```bash
 echo '{
   "tools": {
@@ -49,7 +51,7 @@ echo '{
     "file_count": {ccc_file_count},
     "exclude_patterns": {ccc_exclude_patterns}
   }
-}' | python3 {forgeTierRwHelper} write-tools \
+}' | uv run {forgeTierRwHelper} write-tools \
        --target "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"
 ```
 
@@ -66,7 +68,7 @@ The script atomically writes the file via temp + fsync + rename (mirrors `skf-at
 ### 2. Initialize preferences.yaml
 
 ```bash
-python3 {forgeTierRwHelper} init-prefs \
+uv run {forgeTierRwHelper} init-prefs \
     --target "{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml"
 ```
 

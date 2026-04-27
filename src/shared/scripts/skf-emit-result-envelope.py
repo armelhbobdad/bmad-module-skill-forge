@@ -59,6 +59,15 @@ Context payload shape (consumed by `emit`):
 Caller does NOT need to compute warnings, tools_added/removed, or
 tier_changed — the script derives them from the inputs above.
 
+CLI — invoke via `uv run` for invocation consistency with sibling
+scripts (PEP 723 inline metadata is honored automatically; this script
+declares dependencies = [] so technically `python3` works too, but
+prefer `uv run` so all 5 cutover scripts share one canonical invocation
+pattern documented in docs/getting-started.md):
+
+  echo '{...context payload...}' | uv run skf-emit-result-envelope.py emit
+  echo '{"skf_setup":{...}}' | uv run skf-emit-result-envelope.py validate
+
 Exit codes:
   0 success
   1 user error (bad args, malformed JSON, validation failure)

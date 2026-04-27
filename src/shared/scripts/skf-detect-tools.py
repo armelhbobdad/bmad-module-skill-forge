@@ -38,11 +38,18 @@ Exit codes:
   2  internal error (timeout, subprocess crash that escaped the per-probe
      guard)
 
-CLI:
-  python3 skf-detect-tools.py
-  python3 skf-detect-tools.py --tier-override Deep
-  python3 skf-detect-tools.py --require-tier Forge+
-  python3 skf-detect-tools.py --snyk-env-var SNYK_TOKEN
+CLI (canonical invocation is `uv run` so PEP 723 inline metadata is
+honored — see docs/getting-started.md for why uv is the documented
+runtime prerequisite):
+
+  uv run skf-detect-tools.py
+  uv run skf-detect-tools.py --tier-override Deep
+  uv run skf-detect-tools.py --require-tier Forge+
+  uv run skf-detect-tools.py --snyk-env-var SNYK_TOKEN
+
+Bare `python3` works when dependencies = [] (this script's case) but
+becomes brittle the moment a non-stdlib dep is added — prefer `uv run`
+for invocation consistency with sibling scripts that DO require pyyaml.
 
 DETECT_OUTPUT_SCHEMA (v1):
   {

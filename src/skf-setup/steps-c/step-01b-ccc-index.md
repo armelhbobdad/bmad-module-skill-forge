@@ -58,10 +58,10 @@ Check the `ccc_index` section:
 
 SKF infrastructure and output directories must be excluded from the CCC index — they contain workflow instructions, build artifacts, and generated skills that pollute semantic search results with zero extraction value.
 
-Run the merge helper, forwarding the resolved config values from the workflow activation context:
+Run the merge helper, forwarding the resolved config values from the workflow activation context. Invoke via `uv run` so PEP 723 inline metadata resolves the script's PyYAML dependency automatically (per `docs/getting-started.md`'s prereq list — uv exists for this exact purpose). Bare `python3` will fail on a fresh Python with `ModuleNotFoundError: No module named 'yaml'`.
 
 ```bash
-python3 {mergeCccExclusionsHelper} \
+uv run {mergeCccExclusionsHelper} \
     --project-root "{project-root}" \
     --skills-output-folder "{skills_output_folder}" \
     --forge-data-folder "{forge_data_folder}"
