@@ -7,9 +7,9 @@
 | ast-grep | `ast-grep --version` | Returns version string without error |
 | gh | `gh --version` | Returns version string without error |
 | qmd | `qmd status` | Returns status indicating initialized and operational |
-| ccc | Step A: `ccc --help` Step B: `ccc doctor` | Step A: exits 0 (binary exists). Step B: daemon running, version string, model check OK |
+| ccc | Step A: `ccc --help` Step B: `ccc doctor` | Step A: exits 0 AND help output contains the `CocoIndex Code` identity marker (rejects unrelated `ccc`-named binaries shadowing PATH, e.g. an alias to `code2prompt`). Step B: daemon running, version string, model check OK |
 
-**Important:** Use verification commands, not existence checks (`which`, `command -v`). A tool must be functional, not just present on PATH. For daemon-based tools (ccc), verify both binary existence and daemon health.
+**Important:** Use verification commands, not existence checks (`which`, `command -v`). A tool must be functional, not just present on PATH. For daemon-based tools (ccc), verify both binary identity and daemon health — a binary with the right name but the wrong implementation is a false positive, not a tool.
 
 ## Tier Calculation
 

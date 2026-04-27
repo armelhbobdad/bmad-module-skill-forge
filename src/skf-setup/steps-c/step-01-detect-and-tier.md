@@ -65,9 +65,10 @@ This is informational only — security scan availability does NOT affect the ti
 
 ### 7. Verify Tool: ccc (cocoindex-code)
 
-**Step A — Binary existence:** Run `ccc --help`
+**Step A — Binary identity:** Run `ccc --help`
 
-- If exits 0: binary confirmed. Continue to Step B.
+- If exits 0 AND the help output contains the identity marker `CocoIndex Code` (case-insensitive substring match — present in the genuine cocoindex-code CLI banner): identity confirmed. Continue to Step B.
+- If exits 0 BUT the marker is absent (e.g. `ccc` is shadowed by an alias for an unrelated tool such as `code2prompt`): record `{ccc: false}`. Skip Step B. Do not run `ccc doctor` against a foreign binary — its exit code says nothing about cocoindex-code health.
 - If fails (command not found or error): record `{ccc: false}`. Skip Step B.
 
 **Step B — Daemon health:** Run `ccc doctor`
