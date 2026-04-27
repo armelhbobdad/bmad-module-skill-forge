@@ -53,15 +53,27 @@ SKF infrastructure and output directories must be excluded from the CCC index �
 
 1. Use `{skills_output_folder}` and `{forge_data_folder}` from the workflow activation context (resolved in On Activation from `{project-root}/_bmad/skf/config.yaml`).
 
-2. Assemble the exclusion patterns using `**/` prefix format (matching `.cocoindex_code/settings.yml` convention — e.g., `**/node_modules`):
+2. Assemble the exclusion patterns using `**/` prefix format (matching `.cocoindex_code/settings.yml` convention — e.g., `**/node_modules`).
+
+   **Always include** these four hardcoded patterns:
    - `**/_bmad` — SKF framework module (workflows, agents, knowledge files)
    - `**/_bmad-output` — Build output artifacts
    - `**/.claude` — Claude Code configuration
    - `**/_skf-learn` — SKF learning materials
-   - `**/{skills_output_folder}` — Generated skill files (from activation context)
-   - `**/{forge_data_folder}` — Compilation workspace (from activation context)
 
-3. Store `{ccc_exclude_patterns}` in context for step-02 to write into forge-tier.yaml.
+   **Conditionally include** these two patterns from activation context, but only after **validating the source value** to avoid producing malformed globs that would silently exclude the entire repository from indexing:
+   - `**/{skills_output_folder}` — Generated skill files
+   - `**/{forge_data_folder}` — Compilation workspace
+
+   **Validation rules** — for each of `{skills_output_folder}` and `{forge_data_folder}`, before interpolating into the `**/{value}` pattern, reject the value (skip the pattern entirely) and append a warning to `{ccc_exclusion_warnings}` if any of:
+
+   - The value is empty or whitespace-only (would produce `**/` — matches every path, ccc would index nothing).
+   - The value begins with `/`, `~/`, or `./` (absolute or anchored path — produces `**//abs/path` or `**/./rel`, malformed glob).
+   - The value contains glob meta-characters (`*`, `?`, `[`) — interpolation collides with the surrounding pattern syntax.
+
+   The warning text should name the offending config key, the bad value (quoted verbatim), and the rejection reason — e.g. `"skills_output_folder is an absolute path; refused for ccc exclusion because interpolating it would produce a malformed glob — fix the value in {project-root}/_bmad/skf/config.yaml"`. Step-04 surfaces these in the JSON envelope `warnings` array.
+
+3. Store `{ccc_exclude_patterns}` (the validated list — possibly only the four always-include patterns if both config values were rejected) in context for step-02 to write into forge-tier.yaml.
 
 **Apply exclusions to settings.yml:**
 

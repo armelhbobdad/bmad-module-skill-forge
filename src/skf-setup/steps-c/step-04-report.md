@@ -44,7 +44,8 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
   {if not tools.ast_grep: - Install ast-grep (https://ast-grep.github.io) — unlocks AST-backed code analysis (Forge tier)}
   {if tools.ast_grep and not tools.ccc: - Install cocoindex-code (https://github.com/cocoindex-io/cocoindex-code) — adds semantic-guided precision compilation (Forge+ tier)}
   {if tools.ast_grep and not tools.gh_cli: - Install GitHub CLI (https://cli.github.com) — required for Deep tier (cross-repository synthesis)}
-  {if tools.ast_grep and not tools.qmd: - Install qmd (https://github.com/tobi/qmd) — required for Deep tier (knowledge search)}
+  {if tools.ast_grep and not tools.qmd and qmd_status is "absent": - Install qmd (https://github.com/tobi/qmd) — required for Deep tier (knowledge search)}
+  {if tools.ast_grep and not tools.qmd and qmd_status is "daemon_stopped": - Start the qmd daemon (already installed) — run `qmd start` (or your distribution's qmd service command) to unlock Deep tier (knowledge search)}
   {end if}
 
   {if hygiene_result is "completed":}
@@ -91,6 +92,12 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 {if tier_override_invalid is true:}
   Note: tier_override value "{tier_override_invalid_value}" in preferences.yaml is not valid.
         Valid values are case-sensitive: Quick, Forge, Forge+, Deep. Using detected tier {calculated_tier}.
+
+{if tier_override_unsafe is true:}
+  Warning: tier_override is forcing {calculated_tier} but the underlying tool prerequisites are not satisfied.
+           Missing: {tier_override_unsafe_missing}. The override is honored, but downstream skills that
+           rely on the missing tool(s) will fail at runtime. Install the missing tool(s) or remove
+           the override from preferences.yaml.
 
 {if re-run with tier change:}
   {appropriate upgrade/downgrade message from tier-rules.md}
@@ -167,7 +174,14 @@ When `{headless_mode}` is `true`, emit a single line at the end of step-04's out
 
 - `files_written` — include only the keys whose write actually occurred this run. Always includes `"forge-tier.yaml"`. Includes `"preferences.yaml"` only when `{preferences_yaml_created}` is true. Includes `"settings.yml"` only when `{settings_yml_written}` is true. Includes `"ccc_index"` only when `{ccc_index_result}` is `"created"`.
 - `require_tier_satisfied` — `null` when `--require-tier` was not set; otherwise the boolean from §3.
-- `warnings` — collect any non-fatal anomalies surfaced during the run (e.g. `"tier_override invalid: <value>"`, `"qmd_unavailable"`, `"ccc indexing failed"`). Empty array when none.
+- `warnings` — collect any non-fatal anomalies surfaced during the run. At minimum, fold in:
+  - `"tier_override_invalid: <value>"` when `{tier_override_invalid}` is true.
+  - `"tier_override_unsafe: missing <tools>"` when `{tier_override_unsafe}` is true.
+  - Each entry of `{ccc_exclusion_warnings}` from step-01b §2b (config-value validation rejections — empty/absolute/glob-meta).
+  - Each entry of `{ccc_registry_stale_removed_paths}` from step-03 §5b (paths the cleanup pruned, framed as `"ccc_registry_stale_removed: <path>"` so CI observers can detect ephemeral-mount churn).
+  - `"qmd_daemon_stopped"` when `{qmd_status}` is `"daemon_stopped"` (binary present, daemon not running).
+  - `"qmd_unavailable"`, `"ccc_indexing_failed"`, etc. as they occur.
+  Empty array when none.
 
 When `{headless_mode}` is `false`, do NOT emit the envelope — interactive runs read the human-readable banner.
 

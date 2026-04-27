@@ -59,10 +59,17 @@ Run: `gh --version`
 
 ### 5. Verify Tool: qmd
 
-Run: `qmd status`
+**Step A — Binary identity:** Run `qmd --version` (or `qmd --help` if --version is unsupported).
 
-- If succeeds and indicates operational: record `{qmd: true}`
-- If fails or indicates not initialized: record `{qmd: false}`
+- If exits 0: binary present. Continue to Step B.
+- If fails (command not found or error): record `{qmd: false, qmd_status: "absent"}`. Skip Step B. The climb hint will say "Install qmd".
+
+**Step B — Daemon health:** Run `qmd status`.
+
+- If succeeds and indicates operational: record `{qmd: true, qmd_status: "healthy"}`.
+- If fails or indicates not initialized: record `{qmd: false, qmd_status: "daemon_stopped"}`. The climb hint will say "qmd is installed but the daemon is stopped — run `qmd start` (or your distribution's qmd service command) and re-run setup", which is materially different guidance from "install qmd".
+
+This two-step probe matches the ccc verification pattern (§7) — a tool that exists on disk but cannot serve requests is operationally absent for tier calculation but addressable with different remediation than a tool that was never installed.
 
 ### 6. Check Optional: Security Scan (SNYK_TOKEN)
 
@@ -94,6 +101,7 @@ ccc availability gates the Forge+ tier and enhances Deep tier when present.
 **If `{tier_override}` is set and valid (Quick, Forge, Forge+, or Deep):**
 - Use `{tier_override}` as `{calculated_tier}`
 - Note that override is active for the report step
+- **Sanity-check tool prerequisites for the overridden tier** using the same rules as `--require-tier` (see §8b): Quick = always; Forge = needs ast-grep; Forge+ = needs ast-grep + ccc; Deep = needs ast-grep + gh + qmd. If the underlying tools are NOT present, set `{tier_override_unsafe: true}` and `{tier_override_unsafe_missing: <comma-separated missing tool list>}` for step-04 reporting. Still apply the override — the user's intent is honored — but surface the risk so downstream skills crashing on missing qmd/gh do not look like a setup bug.
 
 **If no override, apply tier rules from {tierRulesData} in order — the first matching rule wins. Do not continue checking once a match is found:**
 - `{ast_grep}` AND `{gh_cli}` AND `{qmd}` all true → **Deep**
