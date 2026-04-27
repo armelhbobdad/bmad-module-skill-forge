@@ -1,101 +1,82 @@
 ---
 nextStepFile: './step-03-auto-index.md'
+# Resolve `{forgeTierRwHelper}` by probing `{forgeTierRwProbeOrder}` in order
+# (installed SKF module path first, src/ dev-checkout fallback); first existing
+# path wins. HALT if neither resolves — the script owns the canonical
+# forge-tier.yaml format AND the array-preservation contract that protects
+# qmd_collections / ccc_index_registry / staleness_threshold_hours from being
+# lost on rewrite. NEVER fall back to inline YAML emission — drift between the
+# script and a prose-rendered template will silently corrupt downstream skills.
+forgeTierRwProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
+  - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
 ---
 
 # Step 2: Write Configuration
 
 ## STEP GOAL:
 
-Write the detected tool availability and calculated tier to forge-tier.yaml, create preferences.yaml with defaults if it does not exist, and ensure the forge-data/ directory is present.
+Write the detected tool availability and calculated tier to `forge-tier.yaml` (preserving registry arrays from any existing file), create `preferences.yaml` with first-run defaults if it does not exist, and ensure the `forge-data/` directory is present. All file mutations go through `{forgeTierRwHelper}` so the format is locked, atomic, and array-preservation is guaranteed.
 
 ## Rules
 
 - Focus only on writing configuration files and creating directories
 - Do not re-detect tools — use results from step-01
-- Do not overwrite existing preferences.yaml
-- File write failures are errors — report clearly
+- Never inline a YAML template for forge-tier.yaml or preferences.yaml — the script owns the canonical format
+- File write failures are errors — report clearly and halt the workflow
 
 ## MANDATORY SEQUENCE
 
 ### 1. Write forge-tier.yaml
 
-Write to `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml`:
+Build the JSON payload from context flags set by step-01 and step-01b. The payload must include `tools`, `tier`, and `ccc_index`; the script handles `tier_detected_at` defaulting to "now" if absent and preserves `qmd_collections`, `ccc_index_registry`, and a user-customized `ccc_index.staleness_threshold_hours` from any existing file.
 
-```yaml
-# Ferris Sidecar: Forge Tier State
-# Written by setup workflow
-
-# Tool availability (detected during [SF] Setup Forge)
-tools:
-  ast_grep: {true/false from detection}
-  gh_cli: {true/false from detection}
-  qmd: {true/false from detection}
-  ccc: {true/false from detection}
-  ccc_daemon: {ccc_daemon from step-01 if available: "healthy"|"stopped"|"error", or ~}
-  security_scan: {true/false — true when SNYK_TOKEN is set}
-
-# Capability tier (derived from tool availability)
-# Quick = no tools | Forge = + ast-grep | Forge+ = + ast-grep + ccc | Deep = + ast-grep + gh + QMD
-tier: {calculated_tier}
-tier_detected_at: {current ISO timestamp}
-
-# CCC semantic index state (managed by setup step-01b and extraction workflows)
-ccc_index:
-  indexed_path: {ccc_indexed_path from step-01b, or ~}
-  last_indexed: {ccc_last_indexed from step-01b, or ~}
-  status: {ccc_index_result from step-01b: "fresh"|"created"|"none"|"failed"}
-  staleness_threshold_hours: 24
-  file_count: {ccc_file_count from step-01b, or ~}
-  exclude_patterns: {ccc_exclude_patterns from step-01b, or []}
-
-# CCC index registry (tracks which source paths have been indexed for skill workflows)
-# PRESERVE existing entries on re-runs — see Note below
-ccc_index_registry: {preserved from existing forge-tier.yaml, or [] if first run}
-
-# QMD collection registry (populated by create-skill, consumed by audit/update-skill)
-# PRESERVE existing entries on re-runs — see Note below
-qmd_collections: {preserved from existing forge-tier.yaml, or [] if first run}
+```bash
+echo '{
+  "tools": {
+    "ast_grep": {ast_grep},
+    "gh_cli": {gh_cli},
+    "qmd": {qmd},
+    "ccc": {ccc},
+    "ccc_daemon": {ccc_daemon},
+    "security_scan": {security_scan}
+  },
+  "tier": "{calculated_tier}",
+  "ccc_index": {
+    "indexed_path": {ccc_indexed_path},
+    "last_indexed": {ccc_last_indexed},
+    "status": "{ccc_index_result}",
+    "file_count": {ccc_file_count},
+    "exclude_patterns": {ccc_exclude_patterns}
+  }
+}' | python3 {forgeTierRwHelper} write-tools \
+       --target "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"
 ```
 
-**Note on re-runs:** The `qmd_collections`, `ccc_index_registry` arrays, and `staleness_threshold_hours` value must be preserved across re-runs. Before overwriting forge-tier.yaml, read these existing values and re-inject them into the new write. These values are populated by create-skill workflows or customized by users and must not be reset. Note: `exclude_patterns` is NOT preserved — it is always written fresh from `{ccc_exclude_patterns}` computed by step-01b.
+The script atomically writes the file via temp + fsync + rename (mirrors `skf-atomic-write.py`'s crash-safety contract) and returns a JSON response with `wrote`, `preserved_arrays.qmd_collections` count, `preserved_arrays.ccc_index_registry` count, and the resolved `tier`.
 
-**This file is ALWAYS overwritten** on every run — it reflects current tool state.
+**Parse the response and set context flags for step-04:**
 
-If the write fails, report the error and halt the workflow.
+- `{forge_tier_yaml_path}` ← `wrote`
+- `{forge_tier_qmd_collections_count}` ← `preserved_arrays.qmd_collections`
+- `{forge_tier_ccc_registry_count}` ← `preserved_arrays.ccc_index_registry`
 
-### 2. Handle preferences.yaml
+**If the script exits non-zero**: parse the stderr JSON `{"status":"error","message":...}`, set `{error: {phase: "step-02:write-tools", path: "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml", reason: <message>}}` for step-04's envelope, and halt the workflow before chaining to step-03.
 
-Check if `{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml` exists:
+### 2. Initialize preferences.yaml
 
-**If it does NOT exist (first run):** Create with defaults:
-
-```yaml
-# Ferris Sidecar: User Preferences
-# Created by setup workflow on first run
-# Edit this file to customize Ferris behavior
-
-# Override detected tier (set to Quick, Forge, Forge+, or Deep to force a tier)
-tier_override: ~
-
-# Passive context injection (set to false to skip snippet generation and CLAUDE.md updates during export)
-passive_context: true
-
-# Headless mode (set to true to skip confirmation gates in all workflows)
-headless_mode: false
-
-# Compact greeting (set to true to skip the full capabilities table on session start)
-compact_greeting: false
-
-# Reserved for future use — these fields are not yet consumed by any workflow step
-# output_language: ~
-# skill_format_version: ~
-# citation_style: ~
-# confidence_display: ~
+```bash
+python3 {forgeTierRwHelper} init-prefs \
+    --target "{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml"
 ```
 
-**If it DOES exist:** Do not modify. Preserve entirely.
+The script creates the file with first-run defaults (matching the prior inline template — `tier_override: ~`, `passive_context: true`, `headless_mode: false`, `compact_greeting: false`, plus reserved-for-future-use commented fields) IF the file does not exist. When the file already exists, the script refuses to overwrite (preserves user customization) and reports `wrote: false`.
 
-Store `{preferences_yaml_created: true|false}` in context (true when this run created the file, false when it pre-existed). step-04 uses this flag in the "Files written" disclosure.
+**Parse the response and set context flags for step-04:**
+
+- `{preferences_yaml_created}` ← `wrote` (true on first run, false on re-run when the file pre-existed)
+
+**If the script exits non-zero**: same halt-and-report pattern as section 1, with `phase: "step-02:init-prefs"` and the matching path.
 
 ### 3. Ensure forge-data/ Directory
 
@@ -104,7 +85,8 @@ Check if `{forge_data_folder}` directory exists:
 - If missing: create it. Store `{forge_data_dir_created: true}` in context.
 - If exists: skip silently. Store `{forge_data_dir_created: false}` in context.
 
+If the create fails (parent unwritable, disk full, permission denied), set `{error: {phase: "step-02:forge-data-dir", path: "{forge_data_folder}", reason: <error message>}}` for step-04's envelope and halt the workflow.
+
 ### 4. Auto-Proceed
 
 After forge-tier.yaml has been written successfully and preferences.yaml exists (created or pre-existing), display "**Proceeding to QMD collection hygiene...**", then load `{nextStepFile}`, read it fully, and execute it.
-
