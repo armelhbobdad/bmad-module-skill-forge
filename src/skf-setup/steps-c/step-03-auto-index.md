@@ -124,7 +124,8 @@ For each entry, verify the indexed path still exists on disk:
 
 **Stale** — path does not exist (source directory removed or moved):
 - Remove the stale entry from `ccc_index_registry`
-- Log: "Removed stale CCC index registry entry: {path} (path no longer exists)"
+- Log: "**WARNING:** Removed stale CCC index registry entry: {path} (path no longer exists). If you are running setup in a CI environment with ephemeral mounts, this is expected — the registry will be re-populated by `skf-create-skill` on the next run. If the path was unexpectedly missing on a developer workstation, verify the source directory is still where you expect."
+- Append the removed path to `{ccc_registry_stale_removed_paths}` (list) so step-04's JSON envelope `warnings` array surfaces them for pipeline observers.
 
 Update forge-tier.yaml with the cleaned registry.
 

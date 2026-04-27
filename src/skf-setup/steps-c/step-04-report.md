@@ -44,7 +44,8 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
   {if not tools.ast_grep: - Install ast-grep (https://ast-grep.github.io) — unlocks AST-backed code analysis (Forge tier)}
   {if tools.ast_grep and not tools.ccc: - Install cocoindex-code (https://github.com/cocoindex-io/cocoindex-code) — adds semantic-guided precision compilation (Forge+ tier)}
   {if tools.ast_grep and not tools.gh_cli: - Install GitHub CLI (https://cli.github.com) — required for Deep tier (cross-repository synthesis)}
-  {if tools.ast_grep and not tools.qmd: - Install qmd (https://github.com/tobi/qmd) — required for Deep tier (knowledge search)}
+  {if tools.ast_grep and not tools.qmd and qmd_status is "absent": - Install qmd (https://github.com/tobi/qmd) — required for Deep tier (knowledge search)}
+  {if tools.ast_grep and not tools.qmd and qmd_status is "daemon_stopped": - Start the qmd daemon (already installed) — run `qmd start` (or your distribution's qmd service command) to unlock Deep tier (knowledge search)}
   {end if}
 
   {if hygiene_result is "completed":}
@@ -92,16 +93,35 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
   Note: tier_override value "{tier_override_invalid_value}" in preferences.yaml is not valid.
         Valid values are case-sensitive: Quick, Forge, Forge+, Deep. Using detected tier {calculated_tier}.
 
+{if tier_override_unsafe is true:}
+  Warning: tier_override is forcing {calculated_tier} but the underlying tool prerequisites are not satisfied.
+           Missing: {tier_override_unsafe_missing}. The override is honored, but downstream skills that
+           rely on the missing tool(s) will fail at runtime. Install the missing tool(s) or remove
+           the override from preferences.yaml.
+
 {if re-run with tier change:}
   {appropriate upgrade/downgrade message from tier-rules.md}
 
-{if re-run with same tier:}
+{if re-run with same tier and {tools_added} is empty and {tools_removed} is empty:}
   {same-tier message from tier-rules.md}
+
+{if re-run with same tier and ({tools_added} or {tools_removed} is non-empty):}
+  Tier unchanged: {calculated_tier}.
+  {if {tools_added} non-empty:} Newly detected: {comma-separated tool names from tools_added}{if ccc was added and tier is Deep: " — ccc enhances Deep tier transparently."}
+  {if {tools_removed} non-empty:} No longer detected: {comma-separated tool names from tools_removed} — re-install to restore those capabilities.
 
 ═══════════════════════════════════════
   Forge ready. {calculated_tier} tier active.
 ═══════════════════════════════════════
+
+{if {headless_mode} is false:}
+  Next: try [BS] Brief Skill to scope your first compilation target, or [QS] Quick Skill for a fast template-driven path. Already have a skill? [AS] Audit Skill drift-checks an existing skill against current sources.
 ```
+
+**Tool delta computation rules:**
+- Compute `{tools_added}` as the list of tool keys where `tools.{key}` is true now but was false (or absent) in `{previous_tools}`.
+- Compute `{tools_removed}` as the list of tool keys where `tools.{key}` is true in `{previous_tools}` but false now.
+- On a first run (`{previous_tools}` empty), `{tools_added}` equals the currently-detected tools and `{tools_removed}` is empty — but the same-tier branch does not fire on first runs (there is no previous tier to compare against), so this is not displayed in that case.
 
 **Tool display rules:**
 - Only show tools that ARE available with their version strings
@@ -138,23 +158,39 @@ When `{headless_mode}` is `true`, emit a single line at the end of step-04's out
 {
   "skf_setup": {
     "tier": "Quick|Forge|Forge+|Deep",
+    "previous_tier": "Quick|Forge|Forge+|Deep|null",
+    "tier_changed": true|false,
     "tools": {"ast_grep": true|false, "gh_cli": true|false, "qmd": true|false, "ccc": true|false},
+    "tools_added": ["ccc"],
+    "tools_removed": [],
     "config_path": "{absolute path to forge-tier.yaml}",
     "ccc_index": {"status": "fresh|created|failed|none", "indexed_path": "{abs}|null", "file_count": <int>|null},
     "files_written": ["forge-tier.yaml", "preferences.yaml", "settings.yml", "ccc_index"],
     "tier_override_active": true|false,
     "tier_override_invalid": true|false,
     "require_tier_satisfied": true|false|null,
-    "warnings": ["..."]
+    "warnings": ["..."],
+    "error": null
   }
 }
 ```
 
 **Field rules:**
 
-- `files_written` — include only the keys whose write actually occurred this run. Always includes `"forge-tier.yaml"`. Includes `"preferences.yaml"` only when `{preferences_yaml_created}` is true. Includes `"settings.yml"` only when `{settings_yml_written}` is true. Includes `"ccc_index"` only when `{ccc_index_result}` is `"created"`.
+- `previous_tier` — value of `{previous_tier}` from step-01 §2 (the tier read from existing forge-tier.yaml at workflow start). `null` on first runs.
+- `tier_changed` — `true` when `previous_tier` is non-null AND differs from `tier`; `false` otherwise (covers both first runs and same-tier re-runs). Lets a pipeline react to upgrades without re-reading forge-tier.yaml.
+- `tools_added` / `tools_removed` — same set deltas the human-facing same-tier re-run message displays (see §2 "Tool delta computation rules"). Empty arrays when nothing changed; on first runs `tools_added` equals the current detected tools and `tools_removed` is empty.
+- `files_written` — include only the keys whose write actually occurred this run. Always includes `"forge-tier.yaml"` on success. Includes `"preferences.yaml"` only when `{preferences_yaml_created}` is true. Includes `"settings.yml"` only when `{settings_yml_written}` is true. Includes `"ccc_index"` only when `{ccc_index_result}` is `"created"`. Empty array when a write failure halted the run before any file was written.
 - `require_tier_satisfied` — `null` when `--require-tier` was not set; otherwise the boolean from §3.
-- `warnings` — collect any non-fatal anomalies surfaced during the run (e.g. `"tier_override invalid: <value>"`, `"qmd_unavailable"`, `"ccc indexing failed"`). Empty array when none.
+- `error` — `null` on success; otherwise an object `{"phase": "<step name>", "path": "<file>", "reason": "<message>"}` describing the failure. Set when forge-tier.yaml or preferences.yaml could not be written (step-02 §1 / §2 halt paths). Pipelines branch on `error !== null` for "exit code 2" semantics described in SKILL.md Invocation Contract.
+- `warnings` — collect any non-fatal anomalies surfaced during the run. At minimum, fold in:
+  - `"tier_override_invalid: <value>"` when `{tier_override_invalid}` is true.
+  - `"tier_override_unsafe: missing <tools>"` when `{tier_override_unsafe}` is true.
+  - Each entry of `{ccc_exclusion_warnings}` from step-01b §2b (config-value validation rejections — empty/absolute/glob-meta).
+  - Each entry of `{ccc_registry_stale_removed_paths}` from step-03 §5b (paths the cleanup pruned, framed as `"ccc_registry_stale_removed: <path>"` so CI observers can detect ephemeral-mount churn).
+  - `"qmd_daemon_stopped"` when `{qmd_status}` is `"daemon_stopped"` (binary present, daemon not running).
+  - `"qmd_unavailable"`, `"ccc_indexing_failed"`, etc. as they occur.
+  Empty array when none.
 
 When `{headless_mode}` is `false`, do NOT emit the envelope — interactive runs read the human-readable banner.
 

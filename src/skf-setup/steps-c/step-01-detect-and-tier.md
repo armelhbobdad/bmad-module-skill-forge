@@ -24,12 +24,24 @@ Load and read {tierRulesData} for the tool detection commands and tier calculati
 ### 2. Check for Existing Configuration (Re-run Detection)
 
 **Read existing forge-tier.yaml** at `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml`:
-- If exists: store the current `tier` value as `{previous_tier}` and `tier_detected_at` as `{previous_detection_date}`
-- If not found: set `{previous_tier}` to null (first run)
+- If exists: store the current `tier` value as `{previous_tier}`, `tier_detected_at` as `{previous_detection_date}`, and the `tools` map as `{previous_tools}` (for tool-set delta detection in step-04 — same-tier re-runs surface newly-installed tools that didn't change the tier).
+- If not found: set `{previous_tier}` to null and `{previous_tools}` to an empty map (first run).
 
 **Read existing preferences.yaml** at `{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml`:
 - If exists: check for `tier_override` value
 - If not found: set `{tier_override}` to null
+
+**First-run preamble** — when `{previous_tier}` is null AND `{headless_mode}` is `false`, display this preamble before continuing to tool detection so the user knows what is about to happen and can abort cleanly with Esc / Ctrl+C before any writes:
+
+"**About to set up the forge.** This workflow will:
+
+- Detect available tools (ast-grep, gh, qmd, ccc) — read-only probes only
+- Write `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml` (capability tier + tool state)
+- Write `{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml` (first-run defaults)
+- Create `{forge_data_folder}/` if missing
+- When ccc is available: augment `{project-root}/.cocoindex_code/settings.yml` with SKF exclusion patterns, then create or refresh the project ccc index
+
+Press Esc or Ctrl+C now if this isn't the right project — no files have been written yet."
 
 ### 3. Verify Tool: ast-grep
 
@@ -47,10 +59,17 @@ Run: `gh --version`
 
 ### 5. Verify Tool: qmd
 
-Run: `qmd status`
+**Step A — Binary identity:** Run `qmd --version` (or `qmd --help` if --version is unsupported).
 
-- If succeeds and indicates operational: record `{qmd: true}`
-- If fails or indicates not initialized: record `{qmd: false}`
+- If exits 0: binary present. Continue to Step B.
+- If fails (command not found or error): record `{qmd: false, qmd_status: "absent"}`. Skip Step B. The climb hint will say "Install qmd".
+
+**Step B — Daemon health:** Run `qmd status`.
+
+- If succeeds and indicates operational: record `{qmd: true, qmd_status: "healthy"}`.
+- If fails or indicates not initialized: record `{qmd: false, qmd_status: "daemon_stopped"}`. The climb hint will say "qmd is installed but the daemon is stopped — run `qmd start` (or your distribution's qmd service command) and re-run setup", which is materially different guidance from "install qmd".
+
+This two-step probe matches the ccc verification pattern (§7) — a tool that exists on disk but cannot serve requests is operationally absent for tier calculation but addressable with different remediation than a tool that was never installed.
 
 ### 6. Check Optional: Security Scan (SNYK_TOKEN)
 
@@ -82,6 +101,7 @@ ccc availability gates the Forge+ tier and enhances Deep tier when present.
 **If `{tier_override}` is set and valid (Quick, Forge, Forge+, or Deep):**
 - Use `{tier_override}` as `{calculated_tier}`
 - Note that override is active for the report step
+- **Sanity-check tool prerequisites for the overridden tier** using the same rules as `--require-tier` (see §8b): Quick = always; Forge = needs ast-grep; Forge+ = needs ast-grep + ccc; Deep = needs ast-grep + gh + qmd. If the underlying tools are NOT present, set `{tier_override_unsafe: true}` and `{tier_override_unsafe_missing: <comma-separated missing tool list>}` for step-04 reporting. Still apply the override — the user's intent is honored — but surface the risk so downstream skills crashing on missing qmd/gh do not look like a setup bug.
 
 **If no override, apply tier rules from {tierRulesData} in order — the first matching rule wins. Do not continue checking once a match is found:**
 - `{ast_grep}` AND `{gh_cli}` AND `{qmd}` all true → **Deep**
