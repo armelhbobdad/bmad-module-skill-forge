@@ -45,6 +45,7 @@ These rules apply to every step in this workflow:
 | **Outputs** | `forger-sidecar/forge-tier.yaml`, `forger-sidecar/preferences.yaml`, `{forge_data_folder}/`; when ccc is available, `.cocoindex_code/settings.yml` (exclusion patterns merged) and the project ccc index |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. step-04 emits a single-line `SKF_SETUP_RESULT_JSON: {…}` envelope after the human-readable banner so pipelines can parse the outcome without reading forge-tier.yaml. Schema documented in `steps-c/step-04-report.md` §4. |
 | **Failure modes** | `--require-tier` not satisfied → step-04 prints a "REQUIRED TIER NOT MET" block, the JSON envelope sets `"require_tier_satisfied": false`, and the workflow halts before step-05. |
+| **Exit codes** | The workflow runs as an LLM-driven sequence rather than a CLI process, so "exit code" describes the agent's terminal state for a calling pipeline that reads `SKF_SETUP_RESULT_JSON`. **0 — success** (no JSON `error` field, all writes completed, `require_tier_satisfied` is `true` or `null`). **1 — required-tier failure** (`require_tier_satisfied` is `false`; envelope still emitted with full state for diagnosis). **2 — write failure** (forge-tier.yaml or preferences.yaml could not be written; envelope `error` field names the path and reason). Pipelines should branch on the JSON `require_tier_satisfied` and `error` fields rather than process exit codes. |
 
 ## On Activation
 

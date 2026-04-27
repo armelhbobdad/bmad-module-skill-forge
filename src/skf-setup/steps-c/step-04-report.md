@@ -158,22 +158,31 @@ When `{headless_mode}` is `true`, emit a single line at the end of step-04's out
 {
   "skf_setup": {
     "tier": "Quick|Forge|Forge+|Deep",
+    "previous_tier": "Quick|Forge|Forge+|Deep|null",
+    "tier_changed": true|false,
     "tools": {"ast_grep": true|false, "gh_cli": true|false, "qmd": true|false, "ccc": true|false},
+    "tools_added": ["ccc"],
+    "tools_removed": [],
     "config_path": "{absolute path to forge-tier.yaml}",
     "ccc_index": {"status": "fresh|created|failed|none", "indexed_path": "{abs}|null", "file_count": <int>|null},
     "files_written": ["forge-tier.yaml", "preferences.yaml", "settings.yml", "ccc_index"],
     "tier_override_active": true|false,
     "tier_override_invalid": true|false,
     "require_tier_satisfied": true|false|null,
-    "warnings": ["..."]
+    "warnings": ["..."],
+    "error": null
   }
 }
 ```
 
 **Field rules:**
 
-- `files_written` — include only the keys whose write actually occurred this run. Always includes `"forge-tier.yaml"`. Includes `"preferences.yaml"` only when `{preferences_yaml_created}` is true. Includes `"settings.yml"` only when `{settings_yml_written}` is true. Includes `"ccc_index"` only when `{ccc_index_result}` is `"created"`.
+- `previous_tier` — value of `{previous_tier}` from step-01 §2 (the tier read from existing forge-tier.yaml at workflow start). `null` on first runs.
+- `tier_changed` — `true` when `previous_tier` is non-null AND differs from `tier`; `false` otherwise (covers both first runs and same-tier re-runs). Lets a pipeline react to upgrades without re-reading forge-tier.yaml.
+- `tools_added` / `tools_removed` — same set deltas the human-facing same-tier re-run message displays (see §2 "Tool delta computation rules"). Empty arrays when nothing changed; on first runs `tools_added` equals the current detected tools and `tools_removed` is empty.
+- `files_written` — include only the keys whose write actually occurred this run. Always includes `"forge-tier.yaml"` on success. Includes `"preferences.yaml"` only when `{preferences_yaml_created}` is true. Includes `"settings.yml"` only when `{settings_yml_written}` is true. Includes `"ccc_index"` only when `{ccc_index_result}` is `"created"`. Empty array when a write failure halted the run before any file was written.
 - `require_tier_satisfied` — `null` when `--require-tier` was not set; otherwise the boolean from §3.
+- `error` — `null` on success; otherwise an object `{"phase": "<step name>", "path": "<file>", "reason": "<message>"}` describing the failure. Set when forge-tier.yaml or preferences.yaml could not be written (step-02 §1 / §2 halt paths). Pipelines branch on `error !== null` for "exit code 2" semantics described in SKILL.md Invocation Contract.
 - `warnings` — collect any non-fatal anomalies surfaced during the run. At minimum, fold in:
   - `"tier_override_invalid: <value>"` when `{tier_override_invalid}` is true.
   - `"tier_override_unsafe: missing <tools>"` when `{tier_override_unsafe}` is true.
