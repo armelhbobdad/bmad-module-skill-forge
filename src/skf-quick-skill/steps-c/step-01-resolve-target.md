@@ -72,14 +72,7 @@ Otherwise, paste the package name or GitHub URL of the library you want to wrap,
 
 ### 3. Registry Resolution
 
-Load {registryResolutionData} for resolution patterns.
-
-**Execute the fallback chain in order — stop at first success. Apply a 10s per-call timeout** so a single hung registry cannot stall the workflow under hostile network conditions; treat timeout as a soft failure and fall through to the next registry:
-
-1. **npm registry:** Fetch `https://registry.npmjs.org/{package_name}` — extract `repository.url`
-2. **PyPI registry:** Fetch `https://pypi.org/pypi/{package_name}/json` — extract `info.project_urls.Source` or `info.home_page`
-3. **crates.io registry:** Fetch `https://crates.io/api/v1/crates/{package_name}` — extract `crate.repository`
-4. **Web search fallback:** Search `"{package_name} github repository"` — look for GitHub URL (15s timeout)
+Load {registryResolutionData} and execute its fallback chain in order — stop at first success. The reference is canonical for the chain order (npm → PyPI → crates.io → web search), the per-registry URL templates and response-field paths, the per-call timeouts (10s per registry, 15s for web search), and the timeout-as-soft-failure semantics.
 
 **If all methods fail — HARD HALT:**
 
