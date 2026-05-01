@@ -1,8 +1,13 @@
 ---
 nextStepFile: './step-06-write.md'
+frontmatterValidatorProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py'
+  - '{project-root}/src/shared/scripts/skf-validate-frontmatter.py'
 ---
 
 # Step 5: Write & Validate
+
+Communicate with the user in `{communication_language}`. Validation reports are user-facing — render their narrative content in `{document_output_language}`.
 
 ## STEP GOAL:
 
@@ -16,8 +21,6 @@ To write the compiled SKILL.md, context-snippet.md, and metadata.json to the ver
 - Community-tier validation (lighter than official requirements)
 
 ## MANDATORY SEQUENCE
-
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
 
 ### 1. Create Output Directory
 
@@ -53,7 +56,7 @@ Confirm after each write: "Written: SKILL.md" / "Written: context-snippet.md" / 
 
 Error: {error details}
 
-Please check:
+Check:
 - Does the output directory exist and is it writable?
 - Is there sufficient disk space?
 - Are there permission issues?"
@@ -69,30 +72,29 @@ Run: `npx skill-check -h`
 
 ### 4. Validate SKILL.md via skill-check (if available)
 
-**If `npx skill-check` is available**, run automated validation with auto-fix against the skill package written in section 2:
+**If `npx skill-check` is available**, run automated validation + security scan in one invocation against the skill package written in section 2 (security scan is enabled by default when `--no-security-scan` is omitted, so the same call covers §8 and avoids paying the npx startup cost twice):
 
 ```bash
-npx skill-check check {skill_package} --fix --format json --no-security-scan
+npx skill-check check {skill_package} --fix --format json
 ```
 
-This validates frontmatter, description, body limits, links, and formatting — and auto-fixes deterministic issues (field ordering, slug format, required fields, trailing newlines).
+This validates frontmatter, description, body limits, links, and formatting; runs the security scan; and auto-fixes deterministic issues (field ordering, slug format, required fields, trailing newlines).
 
 **Parse JSON output** to extract:
 - `qualityScore` — overall score (0-100)
 - `diagnostics[]` — remaining issues after auto-fix
 - `fixed[]` — issues automatically corrected
+- `security[]` (when present) — security findings, recorded as advisory warnings (security issues do not block output)
 
-Record quality score and any remaining diagnostics as validation issues.
+Record quality score, remaining diagnostics, and security findings as validation issues.
 
-**If skill-check is NOT available**, perform manual frontmatter check:
+**If skill-check is NOT available**, run the shared frontmatter validator instead of an LLM-walked checklist. Resolve `{frontmatterValidator}` by probing `{frontmatterValidatorProbeOrder}` (installed `{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py` first, dev `{project-root}/src/shared/scripts/skf-validate-frontmatter.py` fallback); first existing path wins. If neither candidate exists, log a high-severity issue ("frontmatter validator unavailable — both `npx skill-check` and `skf-validate-frontmatter.py` missing") and skip frontmatter validation.
 
-- [ ] **Frontmatter present** — file starts with `---` delimiter and has closing `---`
-- [ ] **`name` field** — present, non-empty, lowercase alphanumeric + hyphens only, 1-64 chars
-- [ ] **`name` matches directory** — frontmatter `name` matches the skill output directory name
-- [ ] **`description` field** — present, non-empty, 1-1024 characters
-- [ ] **No unknown fields** — only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted
+```bash
+python3 {frontmatterValidator} {skill_package}/SKILL.md --skill-dir-name {repo_name}
+```
 
-**For each violation, log an issue.** Missing frontmatter or missing required fields are high-severity issues — skills without valid frontmatter will fail `npx skills add` and `npx skill-check check`.
+The validator emits JSON with `status` (`pass`/`fail`), `issues[]` (each with `severity`, `code`, `message`), and `frontmatter` (the parsed name/description). It checks frontmatter delimiters, name format (Unicode letters + digits + hyphens, no consecutive/trailing hyphens), name-directory match, description presence and length, and unknown fields against the agentskills.io spec — the same shape this step would otherwise hand-walk. Record each `issues[]` entry as a validation issue with its reported severity. Missing frontmatter or missing required fields are high-severity — skills without valid frontmatter will fail `npx skills add` and `npx skill-check check`.
 
 ### 5. Validate SKILL.md Body Structure
 
@@ -136,19 +138,9 @@ Check metadata.json has required fields:
 
 **For each missing or invalid field, log an issue.**
 
-### 8. Security Scan (if skill-check available)
+### 8. Security Scan (covered by §4)
 
-Run security scan on the compiled skill package:
-
-```bash
-npx skill-check check {skill_package} --format json
-```
-
-(Security scan is enabled by default when `--no-security-scan` is omitted.)
-
-Record any security findings as advisory warnings. Security issues do not block output.
-
-**If skill-check unavailable:** Skip with note in validation results.
+Security findings are already collected from the §4 invocation (no separate `npx` round trip needed — `skill-check check ... --fix --format json` runs the security scan by default). If skill-check was unavailable in §3, log "security scan skipped — skill-check unavailable" in validation results.
 
 ### 9. Report Validation Results
 

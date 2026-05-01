@@ -1,15 +1,13 @@
 ---
 nextStepFile: './step-07-health-check.md'
-# Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. HALT if neither resolves — the active-pointer flip below MUST go
-# through the atomic helper for concurrency safety and Windows junction fallback.
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 ---
 
 # Step 6: Finalize
+
+Communicate with the user in `{communication_language}`. Render the user-facing completion summary content in `{document_output_language}`.
 
 ## STEP GOAL:
 
@@ -23,15 +21,13 @@ To finalize the skill by creating the active-version pointer, displaying the com
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Create Active Pointer (atomic flip, Windows-safe)
 
 `{skill_group}` and `{skill_package}` were computed in step-05 §1 from `{skills_output_folder}`, `{repo_name}`, and `{version}`; `{version}` was resolved from the extraction inventory. Reuse the same values here — do not recompute.
 
 Create or update the `active` pointer at `{skill_group}/active` pointing to `{version}` using the shared atomic-flip helper. The helper acquires an `flock` on `{skill_group}/active.skf-lock`, refuses to replace a non-link at `{skill_group}/active` (protecting against accidental `rm -rf` of a real directory), and uses a rename-over-symlink pattern so the update is atomic from a concurrent reader's perspective. On Windows the helper automatically falls back to a directory junction (`mklink /J`) when `os.symlink` fails with `PRIVILEGE_NOT_HELD` / `ACCESS_DENIED` — junctions require no admin elevation and resolve identically for `skf-skill-inventory`'s consumers:
 
-**Resolve `{atomicWriteHelper}`:** probe `{atomicWriteProbeOrder}` (installed `_bmad/skf/...` first, dev `src/...` fallback); first existing path wins. HALT if neither candidate exists — the active-pointer flip MUST go through the atomic helper.
+**Resolve `{atomicWriteHelper}`:** probe `{atomicWriteProbeOrder}` (installed `{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py` first, dev `{project-root}/src/shared/scripts/skf-atomic-write.py` fallback); first existing path wins. HALT if neither candidate exists — the active-pointer flip MUST go through the atomic helper.
 
 ```bash
 python3 {atomicWriteHelper} flip-link \
@@ -54,6 +50,7 @@ Confirm: "Active pointer: {skill_group}/active -> {version} ({kind})" where `{ki
 **Source:** {resolved_url}
 **Authority:** community
 **Confidence:** {extraction confidence}
+{If `scope_hint` is non-empty, add:} **Scope:** {scope_hint}
 
 **Files written:**
 - `{skill_package}/SKILL.md`
@@ -79,4 +76,4 @@ Write the result contract per `shared/references/output-contract-schema.md`: the
 
 ### 4. Chain to Health Check
 
-ONLY WHEN the active pointer has been created and the completion summary and result contract have been written will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.
+ONLY WHEN the active pointer has been created and the completion summary and result contract have been written will you then load, read the full file, and proceed to `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.

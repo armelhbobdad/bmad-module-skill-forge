@@ -4,6 +4,8 @@ nextStepFile: './step-04-compile.md'
 
 # Step 3: Quick Extract
 
+Communicate with the user in `{communication_language}`.
+
 ## STEP GOAL:
 
 To read the resolved GitHub repository source and extract the public API surface using surface-level source reading (no AST). Produces an extraction inventory of exports, descriptions, and manifest data for compilation.
@@ -16,9 +18,9 @@ To read the resolved GitHub repository source and extract the public API surface
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 **Ref-aware source reading:** When `source_ref` is set from tag resolution (see step-01), append `?ref={source_ref}` to all GitHub API content and tree requests (e.g., `gh api repos/{owner}/{repo}/contents/{path}?ref={source_ref}`) to read from the tagged version. When using web browsing, use the tagged URL format (e.g., `github.com/{owner}/{repo}/blob/{source_ref}/{path}`). This ensures extraction reads from the same source version resolved during tag resolution.
+
+**Parallel-fetch directive:** §1 (README), §2 (manifest), and §3 (entry-point exports) read independent files from the same `?ref={source_ref}` and are safe to issue as one batched tool-call message rather than three sequential round trips. For multi-module Maven (`<modules>`) and multi-project Gradle (`include(...)`) builds, also fetch all submodule `pom.xml` / `build.gradle[.kts]` files in parallel rather than serially per module — N module fetches collapse to O(1) wall-clock time.
 
 ### 1. Read README
 

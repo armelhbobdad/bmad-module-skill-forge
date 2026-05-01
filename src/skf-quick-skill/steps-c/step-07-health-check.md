@@ -1,11 +1,13 @@
 ---
 # `shared/health-check.md` resolves relative to the SKF module root
-# (`_bmad/skf/` when installed, `src/` during development), NOT relative
-# to this step file.
+# (`{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during
+# development), NOT relative to this step file.
 nextStepFile: 'shared/health-check.md'
 ---
 
 # Step 7: Workflow Health Check
+
+Communicate with the user in `{communication_language}`.
 
 ## STEP GOAL:
 
@@ -19,4 +21,4 @@ Chain to the shared workflow self-improvement health check at `{nextStepFile}`. 
 
 ## MANDATORY SEQUENCE
 
-Load `{nextStepFile}`, read it fully, then execute it.
+Load `{nextStepFile}`, read it fully, then proceed to execute it.

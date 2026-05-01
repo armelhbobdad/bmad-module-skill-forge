@@ -5,6 +5,8 @@ skillTemplateData: 'assets/skill-template.md'
 
 # Step 4: Compile
 
+Communicate with the user in `{communication_language}`. Compile generated content (descriptions, usage notes, summaries) in `{document_output_language}`.
+
 ## STEP GOAL:
 
 To assemble the best-effort SKILL.md document, context-snippet.md in Vercel-aligned indexed format, and metadata.json with `source_authority: community` from the extraction inventory. Present compiled output for review before validation.
@@ -16,8 +18,6 @@ To assemble the best-effort SKILL.md document, context-snippet.md in Vercel-alig
 - Mark any sections with insufficient data as best-effort
 
 ## MANDATORY SEQUENCE
-
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
 
 ### 1. Load Skill Template
 
@@ -82,50 +82,21 @@ Create context-snippet.md in Vercel-aligned indexed format (~80-120 tokens):
 
 ### 4. Generate Metadata JSON
 
-Generate metadata.json following the exact structure defined in {skillTemplateData} metadata.json section. Populate fields from extraction_inventory:
+Generate metadata.json following the **canonical schema in `{skillTemplateData}` § "metadata.json Format"** (loaded in §1). Use the template's exact field set, ordering, and types — do not duplicate the schema here. Apply these quick-skill-specific population rules on top of the template:
 
-```json
-{
-  "name": "{skill_name}",
-  "version": "{extraction_inventory.version or 1.0.0}",
-  "description": "{brief description of the skill}",
-  "skill_type": "single",
-  "source_authority": "community",
-  "source_repo": "{resolved_url}",
-  "source_root": "{resolved_source_path}",
-  "source_commit": "{commit_sha_if_available}",
-  "source_package": "{package_name from manifest}",
-  "language": "{language}",
-  "generated_by": "quick-skill",
-  "generation_date": "{current ISO date}",
-  "confidence_tier": "Quick",
-  "spec_version": "1.3",
-  "exports": ["{export_1}", "{export_2}"],
-  "confidence_distribution": {
-    "t1": 0,
-    "t1_low": "{number of exports found — must be integer, not string}",
-    "t2": 0,
-    "t3": 0
-  },
-  "tool_versions": {
-    "ast_grep": null,
-    "qmd": null,
-    "skf": "{skf_version}"   // Resolution chain: _bmad/skf/package.json → npm require → _bmad/skf/VERSION → "unknown"
-  },
-  "stats": {
-    "exports_documented": "{number of exports found}",
-    "exports_public_api": "{number of exports found}",
-    "exports_internal": 0,
-    "exports_total": "{number of exports found}",
-    "public_api_coverage": 1.0,
-    "total_coverage": 1.0,
-    "scripts_count": 0,
-    "assets_count": 0
-  },
-  "dependencies": [],
-  "compatibility": "{semver-range or null}"
-}
-```
+- `confidence_tier`: `"Quick"` (constant)
+- `generated_by`: `"quick-skill"` (constant)
+- `source_authority`: `"community"` (constant)
+- `confidence_distribution.t1_low`: number of exports found — **integer, not string**. Other distribution buckets stay at `0`.
+- `tool_versions.skf`: resolved from `{project-root}/_bmad/skf/package.json` → npm require → `{project-root}/_bmad/skf/VERSION` → `"unknown"` (first hit wins)
+- `tool_versions.ast_grep` / `tool_versions.qmd`: `null` (Quick is tier-unaware)
+- `stats.exports_documented` / `exports_public_api` / `exports_total`: equal to the count of exports detected in step-03 (integers); `exports_internal: 0`; `public_api_coverage: 1.0`; `total_coverage: 1.0`; `scripts_count` / `assets_count`: `0` for Quick
+- `provenance.language_hint` / `provenance.scope_hint`: echo the user-supplied hints from step-01 (or `null` when omitted)
+- `version`: `extraction_inventory.version` or `"1.0.0"`
+- `generation_date`: current ISO 8601 UTC datetime
+- `exports[]`: list of detected export names from `extraction_inventory.exports`
+
+If a field is added to the template's metadata.json schema in the future, it lands here automatically — these rules describe **how Quick populates** the template, not what fields exist.
 
 ### 5. Present Compiled Output for Review
 
@@ -154,7 +125,7 @@ Generate metadata.json following the exact structure defined in {skillTemplateDa
 **Extraction confidence:** {confidence}
 **Exports documented:** {count}
 
-Review the output above. When ready, continue to validation."
+Review the output above, then select [C] to continue to validation."
 
 ### 6. Present MENU OPTIONS
 
