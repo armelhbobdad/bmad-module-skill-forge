@@ -68,13 +68,13 @@ If you are describing a skill you want to **create from scratch** rather than co
 
 Otherwise, paste the package name or GitHub URL of the library you want to wrap, and quick-skill will resolve it."
 
-**GATE [default: HALT]** — In headless mode, emit the same redirect message and HALT with exit code 3 (resolution failure). Do not attempt registry lookups against prose input; that wastes ~3-4 round trips and produces a less actionable error message than the redirect above.
+**GATE [default: HALT]** — In headless mode, emit the same redirect message and HALT with **exit code 3 (resolution-failure)** per the SKILL.md exit-code map. Do not attempt registry lookups against prose input; that wastes ~3-4 round trips and produces a less actionable error message than the redirect above.
 
 ### 3. Registry Resolution
 
 Load {registryResolutionData} and execute its fallback chain in order — stop at first success. The reference is canonical for the chain order (npm → PyPI → crates.io → web search), the per-registry URL templates and response-field paths, the per-call timeouts (10s per registry, 15s for web search), and the timeout-as-soft-failure semantics.
 
-**If all methods fail — HARD HALT:**
+**If all methods fail — HARD HALT (exit code 3, resolution-failure):**
 
 "**Resolution failed.** Could not resolve `{package_name}` to a GitHub repository.
 
@@ -85,7 +85,7 @@ Check:
 
 **Provide the GitHub URL directly to continue.**"
 
-Wait for corrected input. Loop back to step 2.
+In interactive mode, wait for corrected input and loop back to step 2. In headless mode, exit 3.
 
 ### 4. Detect Language
 

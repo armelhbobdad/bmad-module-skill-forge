@@ -41,9 +41,25 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | target (GitHub URL or package name) [required], language_hint [optional], scope_hint [optional] |
-| **Gates** | step-01: Input Gate [use args]; step-02: Choice Gate [P] (if match); step-04: Review Gate [C] |
+| **Gates** | step-01: Input Gate [use args]; step-02: Choice Gate [P] (if match); step-04: Review Gate [C/E/S/Q] |
 | **Outputs** | SKILL.md, context-snippet.md, metadata.json, active pointer, result contract (timestamped + `-latest` copy) |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
+| **Exit codes** | See "Exit Codes" below |
+
+## Exit Codes
+
+Every HARD HALT in this workflow exits with a stable, documented code so headless automators can branch on the failure class without grepping message text:
+
+| Code | Meaning                | Raised by                                                   |
+| ---- | ---------------------- | ----------------------------------------------------------- |
+| 0    | success                | step-07 (terminal)                                          |
+| 3    | resolution-failure     | step-01 §2c (prose input), step-01 §3 (registry chain failed) |
+| 4    | write-failure          | step-05 §2 (deliverable write failed)                       |
+| 5    | overwrite-cancelled    | step-05 §1 (user selected [N])                              |
+| 6    | compile-cancelled      | step-04 §6 (user selected [Q])                              |
+| 7    | finalize-blocked       | step-06 §1 (active-pointer flip refused — non-link in place) |
+
+Reserved: `validator-missing` may be promoted from advisory log to fatal exit code in a future revision; consumers should not assume code 8+ is unused.
 
 ## On Activation
 

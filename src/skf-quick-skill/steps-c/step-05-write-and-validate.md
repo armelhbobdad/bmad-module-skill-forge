@@ -39,7 +39,7 @@ If `{skill_package}` already exists, confirm with user before overwriting:
 "**Directory `{skill_package}` already exists.** Overwrite will replace the prior compiled output; validation results, result contracts, and any manual tweaks from the previous run will not be preserved. Overwrite existing files? [Y/N]"
 
 - **If user selects Y:** Proceed to section 2.
-- **If user selects N:** Halt with: "Overwrite cancelled. Existing skill preserved. Run [QS] with a different skill name or remove the existing directory manually."
+- **If user selects N:** HARD HALT with **exit code 5 (overwrite-cancelled)** per the SKILL.md exit-code map: "Overwrite cancelled. Existing skill preserved. Run [QS] with a different skill name or remove the existing directory manually."
 
 **GATE [default: Y]** — If `{headless_mode}` is true, auto-proceed with Y and log: "headless: overwriting existing `{skill_package}`".
 
@@ -53,7 +53,7 @@ Write the three compiled artifacts to the skill package so that validation in se
 
 Confirm after each write: "Written: SKILL.md" / "Written: context-snippet.md" / "Written: metadata.json".
 
-**If any write fails — HARD HALT:**
+**If any write fails — HARD HALT (exit code 4, write-failure):**
 
 "**Write failed:** Could not write to `{file_path}`.
 
