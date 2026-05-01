@@ -1,5 +1,5 @@
 ---
-nextStepFile: './step-05-validate.md'
+nextStepFile: './step-05-write-and-validate.md'
 skillTemplateData: 'assets/skill-template.md'
 ---
 

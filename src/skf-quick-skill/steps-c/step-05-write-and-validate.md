@@ -1,5 +1,5 @@
 ---
-nextStepFile: './step-06-write.md'
+nextStepFile: './step-06-finalize.md'
 frontmatterValidatorProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py'
   - '{project-root}/src/shared/scripts/skf-validate-frontmatter.py'
