@@ -32,8 +32,8 @@ These rules apply to every step in this workflow:
 | 2 | Ecosystem Check | steps-c/step-02-ecosystem-check.md | Yes |
 | 3 | Quick Extract | steps-c/step-03-quick-extract.md | Yes |
 | 4 | Compile | steps-c/step-04-compile.md | No (review) |
-| 5 | Write & Validate | steps-c/step-05-validate.md | Yes |
-| 6 | Finalize | steps-c/step-06-write.md | Yes |
+| 5 | Write & Validate | steps-c/step-05-write-and-validate.md | Yes |
+| 6 | Finalize | steps-c/step-06-finalize.md | Yes |
 | 7 | Workflow Health Check | steps-c/step-07-health-check.md | Yes |
 
 ## Invocation Contract
