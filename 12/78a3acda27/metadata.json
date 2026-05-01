@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "1278a3acda27",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-quick-skill-wire-validator",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/skf-quick-skill/steps-c/step-05-validate.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/12/78a3acda27/0/metadata.json",
+      "transcript": "/12/78a3acda27/0/full.jsonl",
+      "context": "/12/78a3acda27/0/context.md",
+      "content_hash": "/12/78a3acda27/0/content_hash.txt",
+      "prompt": "/12/78a3acda27/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 281,
+    "cache_creation_tokens": 201012,
+    "cache_read_tokens": 21580260,
+    "output_tokens": 77362,
+    "api_call_count": 172
+  }
+}
