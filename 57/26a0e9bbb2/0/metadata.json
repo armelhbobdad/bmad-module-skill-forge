@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "5726a0e9bbb2",
+  "session_id": "f6feae3b-8731-4206-b820-0c4e9423ea25",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-01T07:57:14.275643129Z",
+  "branch": "chore/skf-quick-skill-quality-phase-1",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-quick-skill/steps-c/step-06-write.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "f25b7ad40a3c",
+  "checkpoint_transcript_start": 129,
+  "transcript_lines_at_start": 129,
+  "token_usage": {
+    "input_tokens": 114,
+    "cache_creation_tokens": 55579,
+    "cache_read_tokens": 4486666,
+    "output_tokens": 23081,
+    "api_call_count": 49
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-01T07:57:13.88733134Z",
+    "agent_lines": 0,
+    "human_added": 2,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 2,
+    "agent_percentage": 0
+  }
+}

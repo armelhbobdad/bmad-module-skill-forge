@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "5726a0e9bbb2",
+  "strategy": "manual-commit",
+  "branch": "chore/skf-quick-skill-quality-phase-1",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-quick-skill/steps-c/step-06-write.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/57/26a0e9bbb2/0/metadata.json",
+      "transcript": "/57/26a0e9bbb2/0/full.jsonl",
+      "context": "/57/26a0e9bbb2/0/context.md",
+      "content_hash": "/57/26a0e9bbb2/0/content_hash.txt",
+      "prompt": "/57/26a0e9bbb2/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 114,
+    "cache_creation_tokens": 55579,
+    "cache_read_tokens": 4486666,
+    "output_tokens": 23081,
+    "api_call_count": 49
+  }
+}
