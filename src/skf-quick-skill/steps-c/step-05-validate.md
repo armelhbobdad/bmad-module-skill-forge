@@ -3,6 +3,9 @@ nextStepFile: './step-06-write.md'
 frontmatterValidatorProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py'
   - '{project-root}/src/shared/scripts/skf-validate-frontmatter.py'
+outputValidatorProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-output.py'
+  - '{project-root}/src/shared/scripts/skf-validate-output.py'
 ---
 
 # Step 5: Write & Validate
@@ -42,7 +45,7 @@ If `{skill_package}` already exists, confirm with user before overwriting:
 
 ### 2. Write Deliverables
 
-Write the three compiled artifacts to the skill package so that validation in sections 3–9 has files on disk to read:
+Write the three compiled artifacts to the skill package so that validation in sections 3–7 has files on disk to read:
 
 **File 1:** `{skill_package}/SKILL.md` — the compiled skill document
 **File 2:** `{skill_package}/context-snippet.md` — the compressed context snippet
@@ -72,7 +75,7 @@ Run: `npx skill-check -h`
 
 ### 4. Validate SKILL.md via skill-check (if available)
 
-**If `npx skill-check` is available**, run automated validation + security scan in one invocation against the skill package written in section 2 (security scan is enabled by default when `--no-security-scan` is omitted, so the same call covers §8 and avoids paying the npx startup cost twice):
+**If `npx skill-check` is available**, run automated validation + security scan in one invocation against the skill package written in section 2 (security scan is enabled by default when `--no-security-scan` is omitted, so the same call covers §6 and avoids paying the npx startup cost twice):
 
 ```bash
 npx skill-check check {skill_package} --fix --format json
@@ -96,53 +99,29 @@ python3 {frontmatterValidator} {skill_package}/SKILL.md --skill-dir-name {repo_n
 
 The validator emits JSON with `status` (`pass`/`fail`), `issues[]` (each with `severity`, `code`, `message`), and `frontmatter` (the parsed name/description). It checks frontmatter delimiters, name format (Unicode letters + digits + hyphens, no consecutive/trailing hyphens), name-directory match, description presence and length, and unknown fields against the agentskills.io spec — the same shape this step would otherwise hand-walk. Record each `issues[]` entry as a validation issue with its reported severity. Missing frontmatter or missing required fields are high-severity — skills without valid frontmatter will fail `npx skills add` and `npx skill-check check`.
 
-### 5. Validate SKILL.md Body Structure
+### 5. Validate Body, Snippet, and Metadata via skf-validate-output.py
 
-Check that SKILL.md has these required sections populated:
+Run the shared output validator against the on-disk skill package — it performs the body-structure, snippet-format, and metadata-shape checks that this step previously walked by hand. Pass `--skip-frontmatter` since §4 has already covered frontmatter.
 
-- [ ] **Overview section** present with package name, repo, language, authority
-- [ ] **Description section** present with non-empty content
-- [ ] **Key Exports section** present (may be empty if confidence is low)
-- [ ] **Usage Patterns section** present (may have README fallback)
+**Resolve `{outputValidator}`:** probe `{outputValidatorProbeOrder}` (installed first, dev fallback); first existing path wins. If neither candidate exists, log a high-severity issue ("output validator unavailable — `skf-validate-output.py` missing") and skip body/snippet/metadata validation.
 
-**For each missing or empty required section, log an issue.**
+```bash
+python3 {outputValidator} {skill_package} --generated-by quick-skill --skip-frontmatter
+```
 
-### 6. Validate Context Snippet Format
+The validator emits JSON with `result` (PASS/FAIL), `validation.skill_md.body[]`, `validation.context_snippet.issues[]`, `validation.metadata.issues[]`, and a severity-bucketed `summary`. Record each issue as a validation issue at its reported severity.
 
-Check context-snippet.md format compliance:
+Coverage replaces these former hand-walked checklists:
 
-- [ ] **Vercel-aligned indexed format** — pipe-delimited with version, retrieval instruction, section anchors
-- [ ] **First line** matches pattern: `[{name} v{version}]|root: {prefix}{name}/` where prefix is `skills/` (draft form) or any IDE skill root (`.{dir}/skills/`)
-- [ ] **Second line** starts with: `|IMPORTANT:`
-- [ ] **Approximate token count** is ~80-120 tokens
+- **Body structure** — Overview, Description, Key Exports, Usage sections present (medium when missing)
+- **Context snippet** — `[{name} v{version}]|root: ...` first line, `|IMPORTANT:` second line, ~80–120-token length
+- **Metadata** — required string fields (`name`, `version`, `source_authority`, `language`, `generation_date`), `source_repo`, `generated_by`, `confidence_tier`, and `stats` numerics (`exports_documented`, `exports_public_api`, `exports_total`, `public_api_coverage`, `total_coverage`)
 
-**If format is wrong, log an issue.**
-
-### 7. Validate Metadata JSON
-
-Check metadata.json has required fields:
-
-- [ ] `name` — present, non-empty
-- [ ] `version` — present (auto-detected or "1.0.0")
-- [ ] `source_authority` — must be "community"
-- [ ] `source_repo` — present, valid GitHub URL
-- [ ] `language` — present, non-empty
-- [ ] `generated_by` — must be "quick-skill"
-- [ ] `generation_date` — present
-- [ ] `stats.exports_documented` — present, number
-- [ ] `stats.exports_public_api` — present, number
-- [ ] `stats.exports_total` — present, number
-- [ ] `stats.public_api_coverage` — present, number
-- [ ] `stats.total_coverage` — present, number
-- [ ] `confidence_tier` — present
-
-**For each missing or invalid field, log an issue.**
-
-### 8. Security Scan (covered by §4)
+### 6. Security Scan (covered by §4)
 
 Security findings are already collected from the §4 invocation (no separate `npx` round trip needed — `skill-check check ... --fix --format json` runs the security scan by default). If skill-check was unavailable in §3, log "security scan skipped — skill-check unavailable" in validation results.
 
-### 9. Report Validation Results
+### 7. Report Validation Results
 
 "**Validation complete:**
 
@@ -168,7 +147,7 @@ These issues are advisory for community-tier skills. You can proceed to finalize
 
 Set `validation_result` with pass/fail status, quality score, and issues list.
 
-### 10. Auto-Proceed to Finalize
+### 8. Auto-Proceed to Finalize
 
 #### Menu Handling Logic:
 
