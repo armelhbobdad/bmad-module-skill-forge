@@ -363,6 +363,33 @@ SKF_SETUP_RESULT_JSON: {"skf_setup":{"tier":"Deep","previous_tier":"Forge","tier
 
 Parent skills and CI pipelines `grep` one line out of the workflow log to learn the outcome — no ASCII-art parsing, no race against the [`forge-tier.yaml`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-setup/steps-c/step-02-write-config.md) writer. The envelope schema is versioned at [`src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/shared/scripts/schemas/skf-setup-result-envelope.v1.json) and asserted against on every emit.
 
+**Exception — `/skf-quick-skill` headless emits structured progress + result envelopes (v1.3.0+).** Headless `/skf-quick-skill` runs are first-class building blocks for batch automators. Three operational contracts beyond per-gate auto-proceed:
+
+1. **Per-step JSON progress events to `stderr`** at each step's entry / exit / HARD HALT — one line per event, no pretty-print:
+
+   ```
+   {"step":3,"name":"quick-extract","status":"start"}
+   {"step":3,"name":"quick-extract","status":"done"}
+   {"step":1,"name":"resolve-target","status":"halt","exit":3}
+   ```
+
+   `<name>` is the kebab portion of the step filename: `resolve-target`, `ecosystem-check`, `quick-extract`, `compile`, `write-and-validate`, `finalize`, `health-check`.
+
+2. **Structured exit-code map.** Every HARD HALT exits with a stable code so pipelines branch on the failure class without grepping message text:
+
+   | Code | Meaning             |
+   | ---- | ------------------- |
+   | 0    | success             |
+   | 3    | resolution-failure  |
+   | 4    | write-failure       |
+   | 5    | overwrite-cancelled |
+   | 6    | compile-cancelled   |
+   | 7    | finalize-blocked    |
+
+3. **Error-variant result contract on every HARD HALT.** A `SKF_QUICK_SKILL_RESULT_JSON: {…}` envelope is emitted on `stderr` (always) and copied to `{skill_package}/quick-skill-result-latest.json` when the skill package is known (HALTs at step-05 §1 onward). The schema and full population rules live in [`src/skf-quick-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-quick-skill/SKILL.md) § "Result Contract on HARD HALT".
+
+**Batch mode (`--batch <file>`).** Drives N targets through the full pipeline (steps 1–7 each) in sequence. Input format: one target per line, `#` comments and blank lines ignored, optional per-line modifiers `language=<lang>` and `scope=<path>`. Per-target output lands in `{skill_package}/` as today; an aggregated summary writes to `{skills_output_folder}/_batch/quick-skill-batch-{ts}.json` (with `quick-skill-batch-latest.json` copy). Per-target boundary events (`{"batch":N,"target":"…","status":"start|done|fail",…}`) and a final `{"batch_summary":true,…}` event extend the per-step event stream above. Full input grammar, summary schema, and exit-code semantics in [`src/skf-quick-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-quick-skill/SKILL.md) § "Batch Mode".
+
 ---
 
 ## Terminal Step: Health Check
