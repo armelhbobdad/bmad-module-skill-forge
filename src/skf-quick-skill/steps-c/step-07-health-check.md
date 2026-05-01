@@ -7,6 +7,8 @@ nextStepFile: 'shared/health-check.md'
 
 # Step 7: Workflow Health Check
 
+Communicate with the user in `{communication_language}`.
+
 ## STEP GOAL:
 
 Chain to the shared workflow self-improvement health check at `{nextStepFile}`. This is the terminal step of quick-skill — after the shared health check completes, the workflow is fully done.
@@ -19,4 +21,4 @@ Chain to the shared workflow self-improvement health check at `{nextStepFile}`. 
 
 ## MANDATORY SEQUENCE
 
-Load `{nextStepFile}`, read it fully, then execute it.
+Load `{nextStepFile}`, read it fully, then proceed to execute it.

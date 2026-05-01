@@ -5,6 +5,8 @@ skillTemplateData: 'assets/skill-template.md'
 
 # Step 4: Compile
 
+Communicate with the user in `{communication_language}`. Compile generated content (descriptions, usage notes, summaries) in `{document_output_language}`.
+
 ## STEP GOAL:
 
 To assemble the best-effort SKILL.md document, context-snippet.md in Vercel-aligned indexed format, and metadata.json with `source_authority: community` from the extraction inventory. Present compiled output for review before validation.
@@ -154,7 +156,7 @@ Generate metadata.json following the exact structure defined in {skillTemplateDa
 **Extraction confidence:** {confidence}
 **Exports documented:** {count}
 
-Review the output above. When ready, continue to validation."
+Review the output above, then select [C] to continue to validation."
 
 ### 6. Present MENU OPTIONS
 

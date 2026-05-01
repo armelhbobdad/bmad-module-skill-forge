@@ -4,6 +4,8 @@ nextStepFile: './step-03-quick-extract.md'
 
 # Step 2: Ecosystem Check
 
+Communicate with the user in `{communication_language}`.
+
 ## STEP GOAL:
 
 To query the agentskills.io ecosystem for an existing official skill matching the resolved target, preventing unnecessary duplication. This is an advisory gate — it never blocks the workflow on failure.
@@ -83,5 +85,5 @@ An official skill already exists. You can:
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY WHEN ecosystem check completes (match with user choice, no-match, or skip) will you load and read fully `{nextStepFile}` to execute source extraction.
+ONLY WHEN ecosystem check completes (match with user choice, no-match, or skip) will you load and read fully `{nextStepFile}` to proceed to source extraction.
 

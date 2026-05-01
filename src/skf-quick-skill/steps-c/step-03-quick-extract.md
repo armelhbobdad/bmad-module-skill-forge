@@ -4,6 +4,8 @@ nextStepFile: './step-04-compile.md'
 
 # Step 3: Quick Extract
 
+Communicate with the user in `{communication_language}`.
+
 ## STEP GOAL:
 
 To read the resolved GitHub repository source and extract the public API surface using surface-level source reading (no AST). Produces an extraction inventory of exports, descriptions, and manifest data for compilation.

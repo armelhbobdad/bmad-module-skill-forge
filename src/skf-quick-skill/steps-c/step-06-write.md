@@ -11,6 +11,8 @@ atomicWriteProbeOrder:
 
 # Step 6: Finalize
 
+Communicate with the user in `{communication_language}`. Render the user-facing completion summary content in `{document_output_language}`.
+
 ## STEP GOAL:
 
 To finalize the skill by creating the active-version pointer, displaying the completion summary, and writing the result contract. Deliverables (SKILL.md, context-snippet.md, metadata.json) were already written in step-05 so that validation could run against files on disk; this step only performs the post-write finalization.
@@ -79,4 +81,4 @@ Write the result contract per `shared/references/output-contract-schema.md`: the
 
 ### 4. Chain to Health Check
 
-ONLY WHEN the active pointer has been created and the completion summary and result contract have been written will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.
+ONLY WHEN the active pointer has been created and the completion summary and result contract have been written will you then load, read the full file, and proceed to `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.

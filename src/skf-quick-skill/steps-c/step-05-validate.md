@@ -4,6 +4,8 @@ nextStepFile: './step-06-write.md'
 
 # Step 5: Write & Validate
 
+Communicate with the user in `{communication_language}`. Validation reports are user-facing — render their narrative content in `{document_output_language}`.
+
 ## STEP GOAL:
 
 To write the compiled SKILL.md, context-snippet.md, and metadata.json to the versioned skill package, then validate them on disk against the agentskills.io specification at community tier. Writing happens here (before step-06 finalization) because `skill-check` is a file-based CLI — it reads artifacts from disk — so the files must exist before validation runs. Report any gaps or issues. Validation is advisory — issues are reported but do not block the workflow.
@@ -53,7 +55,7 @@ Confirm after each write: "Written: SKILL.md" / "Written: context-snippet.md" / 
 
 Error: {error details}
 
-Please check:
+Check:
 - Does the output directory exist and is it writable?
 - Is there sufficient disk space?
 - Are there permission issues?"

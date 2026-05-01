@@ -5,6 +5,8 @@ registryResolutionData: 'references/registry-resolution.md'
 
 # Step 1: Resolve Target
 
+Communicate with the user in `{communication_language}`.
+
 ## STEP GOAL:
 
 To accept a GitHub URL or package name from the user, resolve it to a GitHub repository, detect the primary language, and prepare state for source extraction.
@@ -70,7 +72,7 @@ Load {registryResolutionData} for resolution patterns.
 
 "**Resolution failed.** Could not resolve `{package_name}` to a GitHub repository.
 
-Please check:
+Check:
 - Is the package name spelled correctly?
 - Is it a private package?
 - Is the source hosted on a non-GitHub platform?
