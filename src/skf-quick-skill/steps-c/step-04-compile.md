@@ -109,6 +109,14 @@ If a field is added to the template's metadata.json schema in the future, it lan
 
 ### 5. Present Compiled Output for Review
 
+**If `{headless_mode}` is true** — skip the inline preview (no human reviewer reads it) and emit a one-line summary instead:
+
+"Compiled: SKILL.md ({section_count} sections, {export_count} exports), context-snippet.md (~{snippet_token_count} tokens), metadata.json (version {version}, confidence {confidence}). Auto-approving [C]."
+
+Then proceed directly to §6 — the GATE default action takes over.
+
+**Otherwise (interactive mode):**
+
 "**Compilation complete. Review before validation:**
 
 ---
