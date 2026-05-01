@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "6a19459dd5b3",
+  "session_id": "f6feae3b-8731-4206-b820-0c4e9423ea25",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-01T14:34:18.293897949Z",
+  "branch": "refactor/skf-quick-skill-canonical-surfaces",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-quick-skill/steps-c/step-05-validate.md",
+    "src/skf-quick-skill/steps-c/step-06-write.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "065ac800b8e1",
+  "token_usage": {
+    "input_tokens": 281,
+    "cache_creation_tokens": 201012,
+    "cache_read_tokens": 21580260,
+    "output_tokens": 77362,
+    "api_call_count": 172
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-01T14:34:17.554874545Z",
+    "agent_lines": 0,
+    "human_added": 0,
+    "human_modified": 2,
+    "human_removed": 0,
+    "total_committed": 0,
+    "agent_percentage": 0
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "6a19459dd5b3",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-quick-skill-canonical-surfaces",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-quick-skill/steps-c/step-05-validate.md",
+    "src/skf-quick-skill/steps-c/step-06-write.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/6a/19459dd5b3/0/metadata.json",
+      "transcript": "/6a/19459dd5b3/0/full.jsonl",
+      "context": "/6a/19459dd5b3/0/context.md",
+      "content_hash": "/6a/19459dd5b3/0/content_hash.txt",
+      "prompt": "/6a/19459dd5b3/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 281,
+    "cache_creation_tokens": 201012,
+    "cache_read_tokens": 21580260,
+    "output_tokens": 77362,
+    "api_call_count": 172
+  }
+}
