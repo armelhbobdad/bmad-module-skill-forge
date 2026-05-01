@@ -1,5 +1,8 @@
 ---
 nextStepFile: './step-04-compile.md'
+publicApiExtractorProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
+  - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
 ---
 
 # Step 3: Quick Extract
@@ -58,59 +61,50 @@ Select: [C] Continue anyway · [A] Abort"
 
 **GATE [default: C]** — In headless mode, log "headless: detected `{shape}` repo, continuing anyway" and proceed; the result contract's `summary.repo_shape` carries the signal so automators can flag low-quality outputs without re-parsing logs.
 
-### 2. Read Manifest File
+### 2. Fetch Source Files
 
-Based on detected language, read the primary manifest file:
+Fetch the manifest file and the top-level entry-point file(s) for the detected language. The helper invoked in §3 does pure parsing — no I/O — so this step does the fetch work using `gh api` (preferred when source_ref is set) or web browsing.
 
-- **JavaScript/TypeScript:** `package.json` — extract name, version, description, main, exports, dependencies
-- **Python:** `pyproject.toml` or `setup.py` — extract project name, version, description, dependencies
-- **Rust:** `Cargo.toml` — extract package name, version, description, dependencies
-- **Go:** `go.mod` — extract module path, require list
-- **Java (Maven):** `pom.xml` — extract `<groupId>`, `<artifactId>`, `<version>`, `<description>`, direct `<dependencies>`. For multi-module projects, also enumerate `<modules><module>` entries and read each submodule's `pom.xml` (treat each as a logical unit in the extraction inventory).
-- **Kotlin / Java (Gradle):** `build.gradle.kts` or `build.gradle` — extract `group`, `version`, `description` (when declared), and top-level `dependencies { }` block. For multi-project builds, read `settings.gradle[.kts]` for `include(...)` entries and repeat per subproject.
+| Language | Manifest | Entry-point files (quick mode) |
+| --- | --- | --- |
+| JavaScript / TypeScript | `package.json` | `index.{js,ts}`, `src/index.{ts,js}`, or the file pointed to by the `main` field |
+| Python | `pyproject.toml` or `setup.py` | `__init__.py`, `src/{package}/__init__.py` |
+| Rust | `Cargo.toml` | `src/lib.rs` |
+| Go | `go.mod` | top-level `*.go` files (3–5 best-effort) |
+| Java (Maven) | `pom.xml` | top-level `*.java` files under `src/main/java/<groupId-as-path>/` (3–5 best-effort) |
+| Kotlin (Gradle) | `build.gradle.kts` or `build.gradle` | top-level `*.kt` files under `src/main/kotlin/` (3–5 best-effort); also fetch `settings.gradle[.kts]` for `include(...)` entries when present |
 
-Extract:
-- **Package metadata:** name, version, description
-- **Entry points:** main, exports, module fields
-- **Key dependencies:** direct dependencies list
+**If `scope_hint` provided:** focus the entry-point fetch on the specified directories instead of repo root.
 
-### 3. Scan Top-Level Exports
+For multi-module Maven (`<modules>`) and multi-project Gradle (`include(...)`) builds, fetch the parent manifest first, then loop §2+§3 per module. Sub-module fetches are safe to issue as one batched tool-call message — N module fetches collapse to O(1) wall-clock time.
 
-Based on language and entry points from manifest, read the primary export files:
+### 3. Parse Manifest and Scan Exports
 
-**JavaScript/TypeScript:**
-- Read `index.js`, `index.ts`, `src/index.ts`, or `main` field from package.json
-- Extract: `export` statements, `module.exports` assignments
-- Pattern: lines matching `export (const|function|class|default|type|interface)`
+Run the shared extractor against the contents fetched in §2. The helper does manifest parse + export scan in one invocation and emits a structured envelope ready to feed §4's inventory.
 
-**Python:**
-- Read `__init__.py` or `src/{package}/__init__.py`
-- Extract: `__all__` list, top-level function/class definitions
-- Pattern: lines matching `def |class |__all__`
+**Resolve `{publicApiExtractor}`** from `{publicApiExtractorProbeOrder}`; first existing path wins. If no candidate exists, fall back to in-prompt parsing (the legacy per-language regex tables that this section replaces).
 
-**Rust:**
-- Read `src/lib.rs`
-- Extract: `pub fn`, `pub struct`, `pub enum`, `pub trait` declarations
-- Pattern: lines matching `pub (fn|struct|enum|trait|mod)`
+Build the input payload from §2's fetched files and pipe it to the helper:
 
-**Go:**
-- Read exported functions from top-level `.go` files
-- Extract: capitalized function names (Go export convention)
-- Pattern: lines matching `func [A-Z]`
+```bash
+echo '{"language":"<lang>","manifest":{"path":"<rel>","content":"<...>"},"entries":[{"path":"<rel>","content":"<...>"},...],"mode":"quick"}' \
+  | python3 {publicApiExtractor} --mode quick
+```
 
-**Java:**
-- Read `src/main/java/**/*.java` (focus on top-level packages declared in the manifest's `groupId`)
-- Extract: public classes, public methods, and framework annotations that mark API surfaces (Spring, Jakarta EE, CDI)
-- Pattern: lines matching `@(RestController|Service|Component|Configuration|Controller|Repository|Bean)|public (class|interface|enum|record) |public .* \(`
-- **Multi-module Maven:** iterate the `<module>` entries discovered in §2 and repeat the scan per module, reading each `{module}/src/main/java/**/*.java`
+Where `<lang>` is one of `js`, `ts`, `javascript`, `typescript`, `python`, `rust`, `go`, `java`, `kotlin`. The helper accepts arbitrarily many `entries` items and aggregates exports across them.
 
-**Kotlin:**
-- Read `src/main/kotlin/**/*.kt` (Kotlin defaults to `public` visibility — omit `internal`/`private` declarations)
-- Extract: top-level `fun`, `class`, `object`, `interface` declarations
-- Pattern: lines matching `^(fun |class |object |interface |data class |sealed class |@(RestController|Service|Component|Configuration|Controller))`
-- **Multi-project Gradle:** iterate the `include(...)` entries discovered in §2 and repeat the scan per subproject
+The helper emits JSON on stdout with:
 
-**If scope_hint provided:** Focus reading on the specified directories instead of root.
+- `package_name`, `version`, `description` — parsed from the manifest
+- `exports[]` — `{name, type, source_file}` per discovered top-level public symbol
+- `dependencies[]` — declared direct dependencies
+- `modules[]` — for Maven `<modules>` and Gradle `include(...)`, the names of sub-modules to iterate (loop §2+§3 per entry)
+- `extra` — language-specific extras (e.g. `group_id` for Maven)
+- `warnings[]` — manifest parse failures or scanner errors (advisory only; the envelope is still valid)
+
+Capture the helper's output into the extraction context. The shape of the envelope is the same for every language; §4 builds the inventory from it without per-language branching.
+
+**Multi-module loop:** when `modules[]` is non-empty, fetch each sub-module's manifest + entry-point files (§2) and re-invoke the helper per module (§3), aggregating `exports[]` across all module envelopes. The aggregated `exports[]`, `dependencies[]`, and a single resolved `package_name` (from the parent manifest) feed §4.
 
 ### 4. Build Extraction Inventory
 
