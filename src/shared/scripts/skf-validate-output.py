@@ -9,6 +9,7 @@ schema against agentskills.io specification. Outputs JSON validation results.
 
 CLI: python3 skf-validate-output.py <skill-package-dir>
      python3 skf-validate-output.py <skill-package-dir> --generated-by quick-skill
+     python3 skf-validate-output.py <skill-package-dir> --skip-frontmatter
 """
 
 from __future__ import annotations
@@ -73,7 +74,7 @@ def validate_body_structure(content):
     issues = []
     body = content.split("---", 2)[-1] if content.startswith("---") else content
 
-    required_sections = ["Overview", "Key Exports", "Usage"]
+    required_sections = ["Overview", "Description", "Key Exports", "Usage"]
     for section in required_sections:
         pattern = rf"^##\s+.*{re.escape(section)}"
         if not re.search(pattern, body, re.MULTILINE | re.IGNORECASE):
@@ -155,8 +156,13 @@ def validate_metadata_json(data, generated_by=None):
     return issues
 
 
-def validate_skill_package(skill_dir, generated_by=None):
-    """Validate a complete skill package directory."""
+def validate_skill_package(skill_dir, generated_by=None, skip_frontmatter=False):
+    """Validate a complete skill package directory.
+
+    When `skip_frontmatter` is True, the SKILL.md frontmatter pass is omitted —
+    intended for callers that already validated frontmatter via skill-check or
+    skf-validate-frontmatter.py and only want body / snippet / metadata checks.
+    """
     skill_dir = Path(skill_dir)
     skill_name = skill_dir.name
 
@@ -183,9 +189,14 @@ def validate_skill_package(skill_dir, generated_by=None):
     skill_md_path = files["SKILL.md"]
     if skill_md_path.exists():
         content = skill_md_path.read_text(encoding="utf-8")
-        fm_issues = validate_frontmatter(content, skill_name)
+        if skip_frontmatter:
+            fm_section = {"skipped": "frontmatter validation skipped (--skip-frontmatter)"}
+            fm_issues = []
+        else:
+            fm_issues = validate_frontmatter(content, skill_name)
+            fm_section = fm_issues
         body_issues = validate_body_structure(content)
-        result["validation"]["skill_md"] = {"frontmatter": fm_issues, "body": body_issues}
+        result["validation"]["skill_md"] = {"frontmatter": fm_section, "body": body_issues}
         for issue in fm_issues + body_issues:
             result["summary"]["total_issues"] += 1
             result["summary"]["by_severity"][issue["severity"]] += 1
@@ -232,7 +243,11 @@ def validate_skill_package(skill_dir, generated_by=None):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python3 skf-validate-output.py <skill-package-dir> [--generated-by <generator>]", file=sys.stderr)
+        print(
+            "Usage: python3 skf-validate-output.py <skill-package-dir> "
+            "[--generated-by <generator>] [--skip-frontmatter]",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     pkg_dir = sys.argv[1]
@@ -242,6 +257,8 @@ if __name__ == "__main__":
         if idx + 1 < len(sys.argv):
             gen_by = sys.argv[idx + 1]
 
-    result = validate_skill_package(pkg_dir, generated_by=gen_by)
+    skip_fm = "--skip-frontmatter" in sys.argv
+
+    result = validate_skill_package(pkg_dir, generated_by=gen_by, skip_frontmatter=skip_fm)
     print(json.dumps(result, indent=2))
     sys.exit(0 if result["result"] == "PASS" else 1)
