@@ -54,8 +54,23 @@ If no `@version` suffix is present, proceed as today — version will be auto-de
 - Set `repo_name` to the repo name (last path segment)
 - Skip to step 4 (Detect Language)
 
-**If input is a package name:**
+**If input is a package-name-like token** (no whitespace, matches `[@a-zA-Z0-9._/-]+(@<semver>)?`, e.g. `lodash`, `@scope/name`, `requests==2.31`, `cognee@0.5.0`):
 - Proceed to step 3 (Registry Resolution)
+
+**Otherwise — input looks like free-form prose, not a target:**
+
+The user typed something like "I want a skill that helps with onboarding" or "build me a brainstorming workflow" — quick-skill cannot resolve that to a GitHub repository. Instead of falling through to a registry-failure HARD HALT, redirect with a sibling-skill suggestion:
+
+"**This input looks like a description, not a package or URL.** Quick Skill needs a package name (e.g. `lodash`, `@vercel/og`, `requests`) or a GitHub URL (e.g. `https://github.com/lodash/lodash`).
+
+If you are describing a skill you want to **create from scratch** rather than compile from existing source:
+
+- Run `/skf-create-skill` with a skill brief — full pipeline with provenance tracking and AST-verified exports
+- Or use `bmad-agent-builder` for an interactive skill design session
+
+Otherwise, paste the package name or GitHub URL of the library you want to wrap, and quick-skill will resolve it."
+
+**GATE [default: HALT]** — In headless mode, emit the same redirect message and HALT with exit code 3 (resolution failure). Do not attempt registry lookups against prose input; that wastes ~3-4 round trips and produces a less actionable error message than the redirect above.
 
 ### 3. Registry Resolution
 
