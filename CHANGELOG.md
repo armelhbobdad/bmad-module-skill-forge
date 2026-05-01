@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [1.3.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.2.0...v1.3.0) (2026-05-01)
+
+### Features
+
+* **shared:** add --skip-frontmatter flag and Description section to skf-validate-output.py ([6154a40](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/6154a40ab22d2bd0ffe4197d044555cb373fef3c))
+* **shared:** add skf-extract-public-api.py — pure-parser extraction across 6 languages ([fcdd2c0](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/fcdd2c03247020592fbc94626fe428d1acdec2e4))
+* **shared:** add skf-render-quick-metadata.py — pure metadata.json renderer ([3515901](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/35159019c2271214a2d9cbc1ff5d5ee0cbc9b2ca))
+* **shared:** add skf-resolve-package.py for npm/PyPI/crates GitHub URL resolution ([f2800fa](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/f2800fa98955171d30fc30c2b5387639a7859417))
+* **skf-quick-skill:** add --batch and --fail-fast flags to On Activation overrides ([d3f719b](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/d3f719ba9f6cfaf0dcdafb75e0acc4a1e9852f88)), closes [#263](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/263)
+* **skf-quick-skill:** add --description / --exports / --skip-snippet / --no-active-pointer overrides ([1a08559](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/1a08559c1a286fd79c4579da531ba2fb4df89865))
+* **skf-quick-skill:** add [E] edit, [S] re-scope, [Q] quit options to step-04 review gate ([cb2929e](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/cb2929ee818ef44aa7e99e680e81fad3f08ed513))
+* **skf-quick-skill:** add repo-shape sniff between step-03 README read and manifest parse ([3cc0ca6](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/3cc0ca67913dcb9da140dd5618c20d806f764456))
+* **skf-quick-skill:** add zero-exports soft-gate in step-03 §4.5 (rescue mode) ([0b66cde](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/0b66cde90f6e1cadb91899fb2cb71e549b2b95e5))
+* **skf-quick-skill:** document Batch Mode semantics, summary contract, and events ([a2e01a3](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/a2e01a345b48f138236c734df38e9a9c25aa03c9)), closes [#263](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/263)
+* **skf-quick-skill:** emit step.start/step.done JSON events to stderr in headless mode ([d84d2bb](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/d84d2bb4734966b4966afff1fb5d6b833a7ad4b5))
+* **skf-quick-skill:** redirect free-form prose input to sibling skills before registry lookup ([62cdd8b](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/62cdd8b64156d1577ea1dcd88142d2ef2d69b9ec)), closes [#5](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/5)
+* **skf-quick-skill:** surface ambiguous-language choice in step-01 §4 instead of silently picking ([77a549e](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/77a549ee4b82c8012904c0723dc80ede25758f57))
+* **skf-quick-skill:** verify [@version](https://github.com/version) tag exists before extraction in step-01 §3a ([a4daf1c](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/a4daf1c0dad679e4ada350521e8d81c9b6efb2b4))
+* **skf-quick-skill:** wire batch context into step-01 §1 input handling ([1cb645c](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/1cb645c8905879856350b899e7846197c0f44d1c)), closes [#263](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/263)
+* **skf-quick-skill:** write error-variant result contract on every HARD HALT ([ce836c3](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/ce836c3761082c8073f4794a25921dfa9c21b1ba))
+
+### Bug Fixes
+
+* **skf-quick-skill:** prefix bare _bmad/src refs with {project-root}/ ([e01db9f](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/e01db9f2843d474b0e6cd4cbc56319cd7dc6f68e))
+* **skf-quick-skill:** resolve atomic-flip helper via probe order, not hardcoded src/ path ([ff6929a](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/ff6929a4624eb87b04f21ccbd1c7c8e98151cf57)), closes [#257](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/257)
+
+### Performance Improvements
+
+* **skf-quick-skill:** collapse sequential network reads into batched parallel fetches ([9f5a3d6](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/9f5a3d64fc03153ea696f87633b6b974c1b362fb))
+* **skf-quick-skill:** replace step-04 §5 inline preview with one-line summary in headless mode ([e3e143e](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/e3e143ebe118287db8687155d3bd5c279d90a030))
 ## [1.2.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.1.0...v1.2.0) (2026-04-27)
 
 ### Features
