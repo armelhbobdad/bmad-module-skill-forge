@@ -1,6 +1,9 @@
 ---
 nextStepFile: './step-05-write-and-validate.md'
 skillTemplateData: 'assets/skill-template.md'
+quickMetadataRendererProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-render-quick-metadata.py'
+  - '{project-root}/src/shared/scripts/skf-render-quick-metadata.py'
 ---
 
 # Step 4: Compile
@@ -84,30 +87,26 @@ Otherwise, create context-snippet.md in Vercel-aligned indexed format (~80-120 t
 
 ### 4. Generate Metadata JSON
 
-Generate metadata.json following the **canonical schema in `{skillTemplateData}` § "metadata.json Format"** (loaded in §1). Use the template's exact field set, ordering, and types — do not duplicate the schema here. Apply these quick-skill-specific population rules on top of the template:
+Run the shared renderer against the assembled state. The helper applies the constants, echoes input-derived fields, computes export counts and the ISO 8601 UTC timestamp, and emits the canonical envelope per `{skillTemplateData}` § "metadata.json Format".
 
-**Constants (always these literal values for Quick):**
+**Resolve `{quickMetadataRenderer}`** from `{quickMetadataRendererProbeOrder}`; first existing path wins. If no candidate exists, fall back to in-prompt rendering using the constants + input-derived rules previously documented in this section (the helper replaces but does not eliminate those rules — they live in the helper now).
 
-| Field                                                                       | Value                          |
-| --------------------------------------------------------------------------- | ------------------------------ |
-| `confidence_tier`                                                           | `"Quick"`                      |
-| `generated_by`                                                              | `"quick-skill"`                |
-| `source_authority`                                                          | `"community"`                  |
-| `tool_versions.ast_grep`, `tool_versions.qmd`                               | `null` (Quick is tier-unaware) |
-| `stats.exports_internal`, `stats.scripts_count`, `stats.assets_count`       | `0`                            |
-| `stats.public_api_coverage`, `stats.total_coverage`                         | `1.0`                          |
-| Other `confidence_distribution.*` buckets (besides `t1_low`)                | `0`                            |
+**Probe `tool_versions.skf` first** (the helper expects it as input — the filesystem walk stays here because the helper does no I/O):
 
-**Input-derived rules:**
+1. Read `{project-root}/_bmad/skf/package.json` → take `version`
+2. If absent, read `{project-root}/_bmad/skf/VERSION`
+3. If absent, set to `"unknown"`
 
-- `version`: `extraction_inventory.version` or `"1.0.0"`
-- `generation_date`: current ISO 8601 UTC datetime
-- `exports[]`: detected export names from `extraction_inventory.exports`
-- `confidence_distribution.t1_low` and `stats.exports_documented` / `exports_public_api` / `exports_total`: count of exports detected in step-03 (integers, not strings)
-- `provenance.language_hint` / `provenance.scope_hint`: echo the user-supplied hints from step-01 (or `null` when omitted)
-- `tool_versions.skf`: resolved from `{project-root}/_bmad/skf/package.json` → npm require → `{project-root}/_bmad/skf/VERSION` → `"unknown"` (first hit wins)
+Build the input payload from the extraction inventory + step-01 resolution + the probed `tool_versions.skf` and pipe it to the renderer:
 
-If a field is added to the template's metadata.json schema in the future, it lands here automatically — these rules describe **how Quick populates** the template, not what fields exist.
+```bash
+echo '{"name":"<name>","version":"<v>","description":"<desc>","language":"<lang>","source_repo":"<url>","source_root":"<path or empty>","source_commit":"<source_ref or empty>","source_package":"<package or name>","exports":[{"name":"...","type":"..."}],"dependencies":["..."],"compatibility":"<semver-range or empty>","language_hint":<hint or null>,"scope_hint":<hint or null>,"skf_version":"<probed>"}' \
+  | python3 {quickMetadataRenderer}
+```
+
+The renderer emits the rendered metadata.json on stdout. Capture the output as `metadata` for the §5 preview and step-05 §2's deliverable write.
+
+**Schema is canonical in the renderer.** When `{skillTemplateData}` adds a field, the renderer is updated to populate it (constants gain a row; input-derived fields gain a payload key). Do not hand-edit the rendered envelope here — the helper is the single source of truth for the population logic.
 
 ### 5. Present Compiled Output for Review
 
