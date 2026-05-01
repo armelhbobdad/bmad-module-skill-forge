@@ -134,25 +134,29 @@ If a field is added to the template's metadata.json schema in the future, it lan
 **Extraction confidence:** {confidence}
 **Exports documented:** {count}
 
-Review the output above, then select [C] to continue to validation."
+Review the output above, then choose: [C] continue to validation, [E] edit the description, [S] adjust scope and re-extract, or [Q] quit without writing."
 
 ### 6. Present MENU OPTIONS
 
-Display: **Select:** [C] Continue to Validation
+Display: **Select:** [C] Continue to Validation · [E] Edit description · [S] Adjust scope and re-extract · [Q] Quit without writing
 
 #### Menu Handling Logic:
 
-- IF C: Load, read entire file, then execute {nextStepFile}
-- IF Any other: Help user adjust compiled output, then redisplay menu
+- **IF C** — Load, read entire file, then execute {nextStepFile}.
+- **IF E** — Ask the user for a replacement description ("New description (1–1024 chars):"). Update SKILL.md frontmatter `description` and `metadata.json.description` in the in-memory compiled output, then re-render the §5 preview and redisplay this menu. Do not re-run extraction.
+- **IF S** — Ask the user for an adjusted `scope_hint` ("New scope (e.g. `src/server/`, `packages/core/`):") and optionally a `language_hint`. Update the extraction context with the new hints, then load `./step-03-quick-extract.md` to re-extract. The new extraction returns to §1 of this step on completion. Discards the prior compiled output.
+- **IF Q** — HARD HALT with: "Compilation cancelled. No files written." Do not proceed to validation; do not write any artifacts.
+- **IF Any other** — Help the user adjust the compiled output (treated as a free-form revision request), then redisplay the menu.
 
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting compiled output
 - **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-approve compiled output"
-- ONLY proceed to validation when user selects 'C'
-- User can request changes to the compiled output before proceeding
+- ONLY proceed to validation when the user selects 'C' (or headless auto-approve)
+- [E] is local: re-renders the preview without re-running extraction
+- [S] is the heavy option: it discards the compiled output and re-runs step-03 with new hints
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY WHEN the user reviews the compiled output and selects 'C' will you load and read fully `{nextStepFile}` to execute validation.
+ONLY WHEN the user reviews the compiled output and selects 'C' (or [Q] HALTs / [S] re-runs / [E] redisplays) will you load and read fully `{nextStepFile}` to execute validation.
 
