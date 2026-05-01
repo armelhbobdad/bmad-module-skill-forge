@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "c314a6958fdf",
+  "strategy": "manual-commit",
+  "branch": "feat/skf-quick-skill-headless-contract",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-quick-skill/SKILL.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/c3/14a6958fdf/0/metadata.json",
+      "transcript": "/c3/14a6958fdf/0/full.jsonl",
+      "context": "/c3/14a6958fdf/0/context.md",
+      "content_hash": "/c3/14a6958fdf/0/content_hash.txt",
+      "prompt": "/c3/14a6958fdf/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 281,
+    "cache_creation_tokens": 201012,
+    "cache_read_tokens": 21580260,
+    "output_tokens": 77362,
+    "api_call_count": 172
+  }
+}
