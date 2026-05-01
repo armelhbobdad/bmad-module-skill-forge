@@ -34,6 +34,30 @@ Extract:
 
 If README is unavailable, note and continue.
 
+### 1.5. Repo-Shape Sniff
+
+After the README has loaded, classify the repo shape from the available signals before committing further effort to extraction. Quick-skill is designed to wrap a library; non-library repos sail through silently today and produce low-quality skills the user only notices via the description field after compilation.
+
+**Classify as one of:**
+
+- **library** (default) — README has installation / usage / API content; manifest at root with publishable metadata. Proceed normally.
+- **awesome-list** — README H1 contains "awesome" (case-insensitive) or `awesome-` is in the repo name; README body is dominated by curated bullet links of the form `- [name](url) — desc`; no manifest at root.
+- **docs-site / website** — README is short (under ~50 non-empty lines) and primarily points elsewhere ("See https://… for docs"); root has no manifest, or only a docs-framework manifest (e.g. `docusaurus.config.js`, `astro.config.mjs`, `mkdocs.yml`).
+- **examples-only / tutorial** — README explicitly labels the repo as examples or a tutorial ("Code examples for…", "Tutorial: …", "Learn X by building Y"); typically no published package; many small standalone files instead of a single API surface.
+
+**If a non-library shape is detected** — soft-warn and gate before continuing:
+
+"**Heads up — `{repo_name}` looks like a `{shape}` repo, not a library.**
+
+Quick-skill is designed to wrap a library's public API. The compiled SKILL.md will likely have a thin Description and an empty Key Exports list. You can continue anyway, or abort and pick a target library.
+
+Select: [C] Continue anyway · [A] Abort"
+
+- **IF C** — log "user accepted `{shape}` shape" and proceed to §2. Set `extraction_inventory.repo_shape` to the detected shape so the result contract carries the signal for automators.
+- **IF A** — HARD HALT with **exit code 3 (resolution-failure)** per the SKILL.md exit-code map: "Aborted. `{shape}` repos are best wrapped manually with `/skf-create-skill` from a brief, not auto-extracted." Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "quick-extract"`, `error.code: "resolution-failure"`, `error.details: {repo_shape: "{shape}"}`, `skill_package: null`).
+
+**GATE [default: C]** — In headless mode, log "headless: detected `{shape}` repo, continuing anyway" and proceed; the result contract's `summary.repo_shape` carries the signal so automators can flag low-quality outputs without re-parsing logs.
+
 ### 2. Read Manifest File
 
 Based on detected language, read the primary manifest file:
@@ -108,6 +132,29 @@ extraction_inventory:
 - Set confidence to `low`
 - Use README description and features as fallback content
 - Note: "No exports detected — SKILL.md will be based on README content only"
+
+### 4.5. Zero-Exports Soft Gate (rescue mode)
+
+Run this gate **only when** `extraction_inventory.exports.length == 0` AND `extraction_inventory.description` is empty (no usable README content either). When either is non-empty, the README-fallback in §4 produces a usable skill and this section is skipped.
+
+When both are empty, the compiled SKILL.md would be effectively empty — no API surface to document and no description to fall back on. Offer the user a chance to retry with hints before producing a degenerate output:
+
+"**Extraction yielded zero exports and no README description.**
+
+The compiled SKILL.md would be effectively empty — no API surface to document and no description to fall back on.
+
+Common causes:
+- Wrong scope (extraction read the repo root, but the public API lives in a subdir)
+- Wrong language (manifest probe picked the test/build language, not the lib language)
+- Repo lays out exports unconventionally (e.g., not in `src/index.*` or `lib.rs`)
+
+Select: [R] Retry with new hints · [P] Proceed anyway (low-confidence skill) · [A] Abort"
+
+- **IF R** — prompt for new `scope_hint` ("New scope hint (e.g. `src/server/`):") and optional new `language_hint` ("New language hint (or empty to keep `{language}`):"). Update the extraction context with the new hints, then **re-execute step-03 from §1** with the new values. Discards the prior empty inventory.
+- **IF P** — log "user accepted zero-exports outcome" and proceed to §5. The compiled skill will be README-content-only with confidence `low`. Record `zero_exports_rescue: "user-accepted"` in the inventory so the result contract summary surfaces it.
+- **IF A** — HARD HALT with **exit code 3 (resolution-failure)**: "Aborted. Run `/skf-create-skill` from a brief if you want a guided extraction with provenance tracking." Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "quick-extract"`, `error.code: "resolution-failure"`, `error.details: {exports_found: 0, description_empty: true, language: "{language}", scope: "{scope_hint or 'entire repo'}"}`, `skill_package: null`).
+
+**GATE [default: P]** — In headless mode, log "headless: zero exports + empty description, proceeding with low-confidence skill" and proceed; record `zero_exports_rescue: "auto-proceeded"` in the result contract summary so batch automators can re-queue these targets with stricter hints downstream. [P] preserves the pre-rescue behaviour for unattended pipelines.
 
 ### 5. Report Extraction Summary
 

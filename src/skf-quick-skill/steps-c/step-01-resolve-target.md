@@ -50,7 +50,7 @@ If no `@version` suffix is present, proceed as today — version will be auto-de
 - Extract org/repo from URL
 - Set `resolved_url` to the GitHub URL
 - Set `repo_name` to the repo name (last path segment)
-- Skip to step 4 (Detect Language)
+- Skip to step 3a (Verify Target Version Tag), then step 4 (Detect Language)
 
 **If input is a package-name-like token** (no whitespace, matches `[@a-zA-Z0-9._/-]+(@<semver>)?`, e.g. `lodash`, `@scope/name`, `requests==2.31`, `cognee@0.5.0`):
 - Proceed to step 3 (Registry Resolution)
@@ -87,12 +87,40 @@ Check:
 
 In interactive mode, wait for corrected input and loop back to step 2. In headless mode, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "resolve-target"`, `error.code: "resolution-failure"`, `skill_package: null`) and exit 3.
 
+### 3a. Verify Target Version Tag (when applicable)
+
+Skip this section if `target_version` is null (auto-detect path — version comes from manifest read in step-03).
+
+When the user explicitly supplied `@version` in §1b, verify the tag exists in the resolved repo before extraction. Otherwise step-03 silently reads from the default branch while metadata records the requested version — a quiet provenance bug where the SKILL.md claims version 0.5.0 but the exports actually came from main.
+
+Probe both with-and-without v-prefix (the v-prefix is conventional but not universal across ecosystems):
+
+```bash
+gh api repos/{owner}/{repo}/git/ref/tags/{target_version} --silent \
+  || gh api repos/{owner}/{repo}/git/ref/tags/v{target_version} --silent
+```
+
+**If a matching tag is found** — set `source_ref` to the matching ref (with v-prefix when that variant matched). Step-03's ref-aware source reading uses this value to fetch from the tagged commit. Proceed to §4.
+
+**If no tag matches** — HARD HALT with **exit code 3 (resolution-failure)**:
+
+"**Tag `{target_version}` not found in `{owner}/{repo}`.**
+
+The version was parsed from your `@version` suffix but does not exist as a tag in the resolved repository. Quick-skill cannot extract from a version with no commit pointer — the result would be sourced from the default branch but labelled `{target_version}` in metadata.
+
+Recent tags in this repo:
+{list top 5 from `gh api repos/{owner}/{repo}/tags --paginate=false`, or "(none — repo has no tags; omit @version to auto-detect from default branch)"}
+
+Re-run with one of these tags, or omit the `@version` suffix to auto-detect from the default branch."
+
+Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "resolve-target"`, `error.code: "resolution-failure"`, `error.details: {requested_version: "{target_version}", available_tags: [...top 5]}`, `skill_package: null`). In headless mode, exit immediately; do not loop.
+
 ### 4. Detect Language
 
 Determine primary language from:
 
-1. **User-provided language hint** (overrides detection)
-2. **Manifest file presence** (check via GitHub API or web browsing):
+1. **User-provided language hint** (overrides detection — skip the ambiguity gate below).
+2. **Manifest-presence scan** — check the repo root for ALL of these (priority order = first hit wins on auto-pick):
    - `package.json` → JavaScript/TypeScript
    - `pyproject.toml` or `setup.py` → Python
    - `Cargo.toml` → Rust
@@ -100,7 +128,21 @@ Determine primary language from:
    - `pom.xml` → Java (or Kotlin if `src/main/kotlin/` is present)
    - `build.gradle.kts` or `build.gradle` → Kotlin (or Java if only `src/main/java/` is present)
 
-Set `language` to detected language.
+   Collect every match into `detected_languages`.
+
+3. **Single-language case** (`len(detected_languages) <= 1`) — set `language` to the detected value (or HALT in step-01 §3 if zero matches).
+
+4. **Multi-language case** (`len(detected_languages) > 1`) — surface the choice rather than silently picking the first match. Multi-language repos (Python + JS bindings, or monorepos with mixed manifests) otherwise produce a skill for whichever manifest probe hits first, with no signal that the user might have wanted the other one.
+
+   "**`{repo_name}` has manifests for multiple languages:** {detected_languages}.
+
+   Primary guess: **{first_match}** (manifest-priority order). If you wanted a different language, abort and re-run with `--language-hint <lang>` or with the optional language hint at step-01 §1.
+
+   Select: [C] Continue with `{first_match}` · [A] Abort"
+
+   - **IF C** — log "user accepted multi-manifest pick: `{first_match}`" and set `language` to the first match.
+   - **IF A** — HARD HALT with **exit code 3 (resolution-failure)**: "Aborted to disambiguate language. Re-run with a `language_hint`." Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "resolve-target"`, `error.code: "resolution-failure"`, `error.details: {detected_languages: [...], auto_pick: "{first_match}"}`, `skill_package: null`).
+   - **GATE [default: C]** — Headless mode auto-proceeds with the manifest-priority pick; record `detected_languages` and `language_resolution: "auto-picked-first"` in the extraction context so the result contract surfaces the ambiguity downstream.
 
 ### 5. Confirm Resolution
 
