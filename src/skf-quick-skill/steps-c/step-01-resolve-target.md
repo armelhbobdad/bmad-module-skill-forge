@@ -91,8 +91,8 @@ In interactive mode, wait for corrected input and loop back to step 2. In headle
 
 Determine primary language from:
 
-1. **User-provided language hint** (overrides detection)
-2. **Manifest file presence** (check via GitHub API or web browsing):
+1. **User-provided language hint** (overrides detection — skip the ambiguity gate below).
+2. **Manifest-presence scan** — check the repo root for ALL of these (priority order = first hit wins on auto-pick):
    - `package.json` → JavaScript/TypeScript
    - `pyproject.toml` or `setup.py` → Python
    - `Cargo.toml` → Rust
@@ -100,7 +100,21 @@ Determine primary language from:
    - `pom.xml` → Java (or Kotlin if `src/main/kotlin/` is present)
    - `build.gradle.kts` or `build.gradle` → Kotlin (or Java if only `src/main/java/` is present)
 
-Set `language` to detected language.
+   Collect every match into `detected_languages`.
+
+3. **Single-language case** (`len(detected_languages) <= 1`) — set `language` to the detected value (or HALT in step-01 §3 if zero matches).
+
+4. **Multi-language case** (`len(detected_languages) > 1`) — surface the choice rather than silently picking the first match. Multi-language repos (Python + JS bindings, or monorepos with mixed manifests) otherwise produce a skill for whichever manifest probe hits first, with no signal that the user might have wanted the other one.
+
+   "**`{repo_name}` has manifests for multiple languages:** {detected_languages}.
+
+   Primary guess: **{first_match}** (manifest-priority order). If you wanted a different language, abort and re-run with `--language-hint <lang>` or with the optional language hint at step-01 §1.
+
+   Select: [C] Continue with `{first_match}` · [A] Abort"
+
+   - **IF C** — log "user accepted multi-manifest pick: `{first_match}`" and set `language` to the first match.
+   - **IF A** — HARD HALT with **exit code 3 (resolution-failure)**: "Aborted to disambiguate language. Re-run with a `language_hint`." Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "resolve-target"`, `error.code: "resolution-failure"`, `error.details: {detected_languages: [...], auto_pick: "{first_match}"}`, `skill_package: null`).
+   - **GATE [default: C]** — Headless mode auto-proceeds with the manifest-priority pick; record `detected_languages` and `language_resolution: "auto-picked-first"` in the extraction context so the result contract surfaces the ambiguity downstream.
 
 ### 5. Confirm Resolution
 
