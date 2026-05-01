@@ -84,6 +84,19 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 
 **Key Steps:** Resolve target → Ecosystem check → Quick extract → Compile → Validate → Write
 
+**Headless / batch flags:**
+
+- `--headless` / `-H` — auto-proceed all confirmation gates with documented defaults; emits structured stderr progress events and exit codes (see [Headless Mode](#headless-mode))
+- `--batch <file>` — process N targets from a text file in sequence (one target per line, `#` comments and `language=<lang>` / `scope=<path>` per-line modifiers supported); implies `--headless`
+- `--fail-fast` — only with `--batch`; abort the whole batch on the first per-target failure instead of recording it and proceeding
+
+**Per-target overrides** (apply to a single-target run, or globally to every target in `--batch`):
+
+- `--description "<string>"` — override the LLM-derived description used in `SKILL.md` frontmatter and `metadata.json`
+- `--exports "name1,name2,..."` — override the extracted export list (comma-separated)
+- `--skip-snippet` — skip `context-snippet.md` generation and write
+- `--no-active-pointer` — skip the active-pointer flip in finalize (deliverables still land in `{skill_package}`)
+
 **Agent:** Ferris (Architect mode)
 
 ---
