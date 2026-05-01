@@ -23,6 +23,12 @@ These rules apply to every step in this workflow:
 - Only load one step file at a time — never preload future steps
 - Always communicate in `{communication_language}`
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
+- If `{headless_mode}` is true, emit a single-line JSON progress event to **stderr** at each step's entry and exit so pipeline schedulers can stream live progress instead of post-mortem-parsing the result contract:
+  - entry: `{"step":N,"name":"<slug>","status":"start"}`
+  - exit (just before chaining to nextStepFile): `{"step":N,"name":"<slug>","status":"done"}`
+  - on HARD HALT: `{"step":N,"name":"<slug>","status":"halt","exit":<code>}` instead of "done"
+
+  `N` is the step number (1–7) and `<slug>` is the kebab portion of the filename after the number — `resolve-target`, `ecosystem-check`, `quick-extract`, `compile`, `write-and-validate`, `finalize`, `health-check`. One line per event; do not pretty-print.
 
 ## Stages
 
@@ -41,9 +47,61 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | target (GitHub URL or package name) [required], language_hint [optional], scope_hint [optional] |
-| **Gates** | step-01: Input Gate [use args]; step-02: Choice Gate [P] (if match); step-04: Review Gate [C] |
-| **Outputs** | SKILL.md, context-snippet.md, metadata.json, active pointer, result contract (timestamped + `-latest` copy) |
+| **Overrides** | `--description`, `--exports`, `--skip-snippet`, `--no-active-pointer` — see On Activation step 3 |
+| **Gates** | step-01: Input Gate [use args]; step-02: Choice Gate [P] (if match); step-04: Review Gate [C/E/S/Q] |
+| **Outputs** | SKILL.md, context-snippet.md, metadata.json, active pointer, result contract (timestamped + `-latest` copy). Snippet and active pointer can be skipped per overrides. |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
+| **Exit codes** | See "Exit Codes" below |
+
+## Exit Codes
+
+Every HARD HALT in this workflow exits with a stable, documented code so headless automators can branch on the failure class without grepping message text:
+
+| Code | Meaning                | Raised by                                                   |
+| ---- | ---------------------- | ----------------------------------------------------------- |
+| 0    | success                | step-07 (terminal)                                          |
+| 3    | resolution-failure     | step-01 §2c (prose input), step-01 §3 (registry chain failed) |
+| 4    | write-failure          | step-05 §2 (deliverable write failed)                       |
+| 5    | overwrite-cancelled    | step-05 §1 (user selected [N])                              |
+| 6    | compile-cancelled      | step-04 §6 (user selected [Q])                              |
+| 7    | finalize-blocked       | step-06 §1 (active-pointer flip refused — non-link in place) |
+
+Reserved: `validator-missing` may be promoted from advisory log to fatal exit code in a future revision; consumers should not assume code 8+ is unused.
+
+## Result Contract on HARD HALT
+
+In addition to the success-variant result contract written by step-06 §3, every HARD HALT must surface an **error variant** so headless automators don't silently break when `quick-skill-result-latest.json` is missing on failed runs.
+
+**Always (every HARD HALT, regardless of phase)** — emit a single line on **stderr**:
+
+```
+SKF_QUICK_SKILL_RESULT_JSON: {"status":"error","exit_code":<N>,"phase":"<slug>","error":{"code":"<class>","message":"<short>"},"outputs":{},"summary":{},"skill_package":"<path-or-null>"}
+```
+
+One line, no pretty-print. Matches the prefix-and-envelope convention used by `skf-emit-result-envelope.py`.
+
+**Additionally, when `{skill_package}` is known** (HALT at step-05 §1 onward) — write the same JSON object (without the `SKF_QUICK_SKILL_RESULT_JSON: ` prefix) to disk:
+
+```
+{skill_package}/quick-skill-result-{YYYYMMDD-HHmmss}.json
+{skill_package}/quick-skill-result-latest.json   (copy, not symlink)
+```
+
+so consumers that hardcode the `-latest.json` path see a deterministic file even on failed runs. HALTs at step-01/02/03/04 cannot write to disk because `{skill_package}` is computed only in step-05 §1; for those, the stderr envelope plus exit code is the contract.
+
+**Schema:**
+
+| Field           | Type           | Notes                                                                                                       |
+| --------------- | -------------- | ----------------------------------------------------------------------------------------------------------- |
+| `status`        | string         | always `"error"` for HARD HALTs                                                                             |
+| `exit_code`     | integer        | matches the Exit Codes table                                                                                |
+| `phase`         | string         | step slug where the HALT occurred (e.g. `resolve-target`, `compile`)                                        |
+| `error.code`    | string         | one of: `resolution-failure`, `write-failure`, `overwrite-cancelled`, `compile-cancelled`, `finalize-blocked` |
+| `error.message` | string         | the user-facing message that was displayed                                                                  |
+| `error.details` | any            | optional — phase-specific context (e.g. the failed file path)                                               |
+| `outputs`       | object         | empty `{}` on early HALTs; partial when files were already written                                          |
+| `summary`       | object         | empty `{}` on early HALTs                                                                                   |
+| `skill_package` | string \| null | absolute path when known, `null` when HALT preceded step-05 §1                                              |
 
 ## On Activation
 
@@ -53,4 +111,13 @@ These rules apply to every step in this workflow:
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `preferences.yaml`. Default: false.
 
-3. Load, read the full file, and then execute `./steps-c/step-01-resolve-target.md` to begin the workflow.
+3. **Parse CLI overrides** — capture optional override flags into the workflow context as `{overrides}`. Each override is opt-in; when omitted, the workflow runs as today.
+
+   | Flag | Effect |
+   | --- | --- |
+   | `--description "<string>"` | Override the LLM-derived description in step-04 §2 (used in SKILL.md frontmatter and metadata.json). Subject to the same agentskills.io length (1–1024 chars) and voice (third-person) checks as extracted descriptions. |
+   | `--exports "<name1,name2,...>"` | Override the extracted export list. Parse as comma-separated; trim whitespace per item; skip empty items. Used in step-04 §2 Key Exports and the count-derived metadata stats. |
+   | `--skip-snippet` | Skip context-snippet.md generation in step-04 §3 and its write in step-05 §2. Artifact omitted from `outputs`; step-05 §5 advisory snippet validation reports a "skipped" entry. |
+   | `--no-active-pointer` | Skip the active-pointer flip in step-06 §1. Deliverables still land in `{skill_package}` but `{skill_group}/active` is not updated. Useful for batch automators that flip pointers in a separate stage. |
+
+4. Load, read the full file, and then execute `./steps-c/step-01-resolve-target.md` to begin the workflow.

@@ -50,8 +50,8 @@ description: >
 
 **Required sections (after frontmatter):**
 - **Overview:** Package name, repository, language, source authority, generation date
-- **Description:** From extraction_inventory.description (README-derived)
-- **Key Exports:** From extraction_inventory.exports — list each with name, type, brief description
+- **Description:** From `{overrides.description}` if set (subject to the same length/voice checks as extracted descriptions); otherwise from extraction_inventory.description (README-derived)
+- **Key Exports:** From `{overrides.exports}` if set (comma-separated names parsed and trimmed; empty items skipped); otherwise from extraction_inventory.exports — list each with name, type, brief description
 - **Usage Patterns:** From extraction_inventory.usage_patterns (README examples)
 
 **Optional sections (include when data available):**
@@ -65,7 +65,9 @@ description: >
 
 ### 3. Generate Context Snippet
 
-Create context-snippet.md in Vercel-aligned indexed format (~80-120 tokens):
+**If `{overrides.skip_snippet}` is true** — skip generation and note in the §5 preview: "context-snippet.md skipped per `--skip-snippet` override." Step-05 §2 will skip the corresponding write; step-05 §5 advisory snippet validation will report a "skipped" entry.
+
+Otherwise, create context-snippet.md in Vercel-aligned indexed format (~80-120 tokens):
 
 ```
 [{skill_name} v{version}]|root: skills/{skill_name}/
@@ -153,7 +155,7 @@ Display: **Select:** [C] Continue to Validation · [E] Edit description · [S] A
 - **IF C** — Load, read entire file, then execute {nextStepFile}.
 - **IF E** — Ask the user for a replacement description ("New description (1–1024 chars):"). Update SKILL.md frontmatter `description` and `metadata.json.description` in the in-memory compiled output, then re-render the §5 preview and redisplay this menu. Do not re-run extraction.
 - **IF S** — Ask the user for an adjusted `scope_hint` ("New scope (e.g. `src/server/`, `packages/core/`):") and optionally a `language_hint`. Update the extraction context with the new hints, then load `./step-03-quick-extract.md` to re-extract. The new extraction returns to §1 of this step on completion. Discards the prior compiled output.
-- **IF Q** — HARD HALT with: "Compilation cancelled. No files written." Do not proceed to validation; do not write any artifacts.
+- **IF Q** — HARD HALT with **exit code 6 (compile-cancelled)** per the SKILL.md exit-code map: "Compilation cancelled. No files written." Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "compile"`, `error.code: "compile-cancelled"`, `skill_package: null`). Do not proceed to validation; do not write any artifacts.
 - **IF Any other** — Help the user adjust the compiled output (treated as a free-form revision request), then redisplay the menu.
 
 #### EXECUTION RULES:
