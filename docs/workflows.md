@@ -21,7 +21,7 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 
 **Key Steps:** Detect tools + Determine tier → CCC index check (Forge+) → Write forge-tier.yaml → QMD + CCC registry hygiene (Deep/Forge+) → Status report
 
-**Flags (v1.2.0+):**
+**Flags:**
 
 - `--require-tier=<Quick|Forge|Forge+|Deep>` — fail-fast for CI: if the calculated tier does not satisfy the requested tier (tool-prerequisite check, not a name comparison — Deep does NOT subsume Forge+ because Deep does not require ccc), the workflow halts with a "REQUIRED TIER NOT MET" block and exits without chaining to the health check. Pipelines branch on the JSON envelope's `require_tier_satisfied` field.
 - `--headless` / `-H` — see [Headless Mode](#headless-mode) below. For `/skf-setup` specifically, headless mode emits a single-line `SKF_SETUP_RESULT_JSON: {…}` envelope to stdout (schema-locked, includes `tier`, `previous_tier`, `tier_changed`, `tools`, `tools_added`/`removed`, `files_written`, `warnings`, `error`) and SUPPRESSES the human-readable banner — the entire payload pipelines need is on one parseable line.
@@ -83,6 +83,19 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 **When to Use:** When you need a skill quickly — no brief needed. Accepts package names or GitHub URLs. Append `@version` to target a specific version (e.g., `@Ferris QS cognee@1.0.0`).
 
 **Key Steps:** Resolve target → Ecosystem check → Quick extract → Compile → Validate → Write
+
+**Headless / batch flags:**
+
+- `--headless` / `-H` — auto-proceed all confirmation gates with documented defaults; emits structured stderr progress events and exit codes (see [Headless Mode](#headless-mode))
+- `--batch <file>` — process N targets from a text file in sequence (one target per line, `#` comments and `language=<lang>` / `scope=<path>` per-line modifiers supported); implies `--headless`
+- `--fail-fast` — only with `--batch`; abort the whole batch on the first per-target failure instead of recording it and proceeding
+
+**Per-target overrides** (apply to a single-target run, or globally to every target in `--batch`):
+
+- `--description "<string>"` — override the LLM-derived description used in `SKILL.md` frontmatter and `metadata.json`
+- `--exports "name1,name2,..."` — override the extracted export list (comma-separated)
+- `--skip-snippet` — skip `context-snippet.md` generation and write
+- `--no-active-pointer` — skip the active-pointer flip in finalize (deliverables still land in `{skill_package}`)
 
 **Agent:** Ferris (Architect mode)
 
@@ -342,13 +355,40 @@ Add `--headless` or `-H` to any workflow command to skip all confirmation gates.
 
 You can also set `headless_mode: true` in your forge preferences (`_bmad/_memory/forger-sidecar/preferences.yaml`) to make headless the default for all workflows.
 
-**Exception — `/skf-setup` headless emits a single-line JSON envelope (v1.2.0+).** Unlike other workflows, headless `/skf-setup` SUPPRESSES the human-readable status banner entirely and emits exactly one prefixed line on stdout:
+**Exception — `/skf-setup` headless emits a single-line JSON envelope.** Unlike other workflows, headless `/skf-setup` SUPPRESSES the human-readable status banner entirely and emits exactly one prefixed line on stdout:
 
 ```
 SKF_SETUP_RESULT_JSON: {"skf_setup":{"tier":"Deep","previous_tier":"Forge","tier_changed":true,"tools":{...},"tools_added":[...],"tools_removed":[],"config_path":"...","ccc_index":{...},"files_written":[...],"tier_override_active":false,"tier_override_invalid":false,"require_tier_satisfied":null,"warnings":[],"error":null}}
 ```
 
 Parent skills and CI pipelines `grep` one line out of the workflow log to learn the outcome — no ASCII-art parsing, no race against the [`forge-tier.yaml`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-setup/steps-c/step-02-write-config.md) writer. The envelope schema is versioned at [`src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/shared/scripts/schemas/skf-setup-result-envelope.v1.json) and asserted against on every emit.
+
+**Exception — `/skf-quick-skill` headless emits structured progress + result envelopes.** Headless `/skf-quick-skill` runs are first-class building blocks for batch automators. Three operational contracts beyond per-gate auto-proceed:
+
+1. **Per-step JSON progress events to `stderr`** at each step's entry / exit / HARD HALT — one line per event, no pretty-print:
+
+   ```
+   {"step":3,"name":"quick-extract","status":"start"}
+   {"step":3,"name":"quick-extract","status":"done"}
+   {"step":1,"name":"resolve-target","status":"halt","exit":3}
+   ```
+
+   `<name>` is the kebab portion of the step filename: `resolve-target`, `ecosystem-check`, `quick-extract`, `compile`, `write-and-validate`, `finalize`, `health-check`.
+
+2. **Structured exit-code map.** Every HARD HALT exits with a stable code so pipelines branch on the failure class without grepping message text:
+
+   | Code | Meaning             |
+   | ---- | ------------------- |
+   | 0    | success             |
+   | 3    | resolution-failure  |
+   | 4    | write-failure       |
+   | 5    | overwrite-cancelled |
+   | 6    | compile-cancelled   |
+   | 7    | finalize-blocked    |
+
+3. **Error-variant result contract on every HARD HALT.** A `SKF_QUICK_SKILL_RESULT_JSON: {…}` envelope is emitted on `stderr` (always) and copied to `{skill_package}/quick-skill-result-latest.json` when the skill package is known (HALTs at step-05 §1 onward). The schema and full population rules live in [`src/skf-quick-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-quick-skill/SKILL.md) § "Result Contract on HARD HALT".
+
+**Batch mode (`--batch <file>`).** Drives N targets through the full pipeline (steps 1–7 each) in sequence. Input format: one target per line, `#` comments and blank lines ignored, optional per-line modifiers `language=<lang>` and `scope=<path>`. Per-target output lands in `{skill_package}/` as today; an aggregated summary writes to `{skills_output_folder}/_batch/quick-skill-batch-{ts}.json` (with `quick-skill-batch-latest.json` copy). Per-target boundary events (`{"batch":N,"target":"…","status":"start|done|fail",…}`) and a final `{"batch_summary":true,…}` event extend the per-step event stream above. Full input grammar, summary schema, and exit-code semantics in [`src/skf-quick-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-quick-skill/SKILL.md) § "Batch Mode".
 
 ---
 
