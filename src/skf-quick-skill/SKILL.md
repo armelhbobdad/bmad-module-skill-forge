@@ -41,8 +41,8 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | target (GitHub URL or package name) [required], language_hint [optional], scope_hint [optional] |
-| **Gates** | step-01: Input Gate [use args] | step-02: Choice Gate [P] (if match) | step-04: Review Gate [C] |
-| **Outputs** | SKILL.md, context-snippet.md, metadata.json, active symlink |
+| **Gates** | step-01: Input Gate [use args]; step-02: Choice Gate [P] (if match); step-04: Review Gate [C] |
+| **Outputs** | SKILL.md, context-snippet.md, metadata.json, active pointer, result contract (timestamped + `-latest` copy) |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 
 ## On Activation

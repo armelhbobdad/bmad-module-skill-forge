@@ -125,7 +125,11 @@ Generate metadata.json following the exact structure defined in {skillTemplateDa
     "assets_count": 0
   },
   "dependencies": [],
-  "compatibility": "{semver-range or null}"
+  "compatibility": "{semver-range or null}",
+  "provenance": {
+    "language_hint": "{language_hint or null}",
+    "scope_hint": "{scope_hint or null}"
+  }
 }
 ```
 

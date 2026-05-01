@@ -56,6 +56,7 @@ Confirm: "Active pointer: {skill_group}/active -> {version} ({kind})" where `{ki
 **Source:** {resolved_url}
 **Authority:** community
 **Confidence:** {extraction confidence}
+{If `scope_hint` is non-empty, add:} **Scope:** {scope_hint}
 
 **Files written:**
 - `{skill_package}/SKILL.md`
