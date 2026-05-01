@@ -23,6 +23,10 @@ To accept a GitHub URL or package name from the user, resolve it to a GitHub rep
 
 ### 1. Accept User Input
 
+**Batch mode:** if `--batch` is active (see SKILL.md "Batch Mode"), the current target was already resolved by On Activation step 4 from the next batch line and placed into the workflow context as `target`, with optional `language_hint` and `scope_hint` per-line modifiers. Skip the prompt below — emit `{"batch":<n>,"target":"<target>","status":"start"}` to stderr and proceed directly to §1b with the batch-supplied values.
+
+**Single-target mode** (default):
+
 "**Quick Skill — fastest path to a skill.**
 
 Provide a **GitHub URL** or **package name** and I'll resolve it to source and compile a best-effort SKILL.md.
