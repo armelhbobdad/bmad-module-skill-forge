@@ -47,8 +47,9 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | target (GitHub URL or package name) [required], language_hint [optional], scope_hint [optional] |
+| **Overrides** | `--description`, `--exports`, `--skip-snippet`, `--no-active-pointer` — see On Activation step 3 |
 | **Gates** | step-01: Input Gate [use args]; step-02: Choice Gate [P] (if match); step-04: Review Gate [C/E/S/Q] |
-| **Outputs** | SKILL.md, context-snippet.md, metadata.json, active pointer, result contract (timestamped + `-latest` copy) |
+| **Outputs** | SKILL.md, context-snippet.md, metadata.json, active pointer, result contract (timestamped + `-latest` copy). Snippet and active pointer can be skipped per overrides. |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 | **Exit codes** | See "Exit Codes" below |
 
@@ -110,4 +111,13 @@ so consumers that hardcode the `-latest.json` path see a deterministic file even
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `preferences.yaml`. Default: false.
 
-3. Load, read the full file, and then execute `./steps-c/step-01-resolve-target.md` to begin the workflow.
+3. **Parse CLI overrides** — capture optional override flags into the workflow context as `{overrides}`. Each override is opt-in; when omitted, the workflow runs as today.
+
+   | Flag | Effect |
+   | --- | --- |
+   | `--description "<string>"` | Override the LLM-derived description in step-04 §2 (used in SKILL.md frontmatter and metadata.json). Subject to the same agentskills.io length (1–1024 chars) and voice (third-person) checks as extracted descriptions. |
+   | `--exports "<name1,name2,...>"` | Override the extracted export list. Parse as comma-separated; trim whitespace per item; skip empty items. Used in step-04 §2 Key Exports and the count-derived metadata stats. |
+   | `--skip-snippet` | Skip context-snippet.md generation in step-04 §3 and its write in step-05 §2. Artifact omitted from `outputs`; step-05 §5 advisory snippet validation reports a "skipped" entry. |
+   | `--no-active-pointer` | Skip the active-pointer flip in step-06 §1. Deliverables still land in `{skill_package}` but `{skill_group}/active` is not updated. Useful for batch automators that flip pointers in a separate stage. |
+
+4. Load, read the full file, and then execute `./steps-c/step-01-resolve-target.md` to begin the workflow.

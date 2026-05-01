@@ -48,10 +48,10 @@ If `{skill_package}` already exists, confirm with user before overwriting:
 Write the three compiled artifacts to the skill package so that validation in sections 3–7 has files on disk to read:
 
 **File 1:** `{skill_package}/SKILL.md` — the compiled skill document
-**File 2:** `{skill_package}/context-snippet.md` — the compressed context snippet
+**File 2:** `{skill_package}/context-snippet.md` — the compressed context snippet. **Skip this write** if `{overrides.skip_snippet}` was set; the artifact is omitted from `outputs`.
 **File 3:** `{skill_package}/metadata.json` — the machine-readable metadata
 
-Confirm after each write: "Written: SKILL.md" / "Written: context-snippet.md" / "Written: metadata.json".
+Confirm after each write: "Written: SKILL.md" / "Written: context-snippet.md" / "Written: metadata.json". When `--skip-snippet` is active, log "Skipped: context-snippet.md (--skip-snippet)" instead of the snippet write confirmation.
 
 **If any write fails — HARD HALT (exit code 4, write-failure):** Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "write-and-validate"`, `error.code: "write-failure"`, `error.details: {failed_path: <path>, error: <details>}`, `skill_package` set, `outputs` listing any files that did write successfully before the failure).
 

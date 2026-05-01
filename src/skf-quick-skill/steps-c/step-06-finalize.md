@@ -23,6 +23,8 @@ To finalize the skill by creating the active-version pointer, displaying the com
 
 ### 1. Create Active Pointer (atomic flip, Windows-safe)
 
+**If `{overrides.no_active_pointer}` is true** — skip the helper invocation entirely. Log: "Active pointer: skipped per `--no-active-pointer` override." Do not update `{skill_group}/active`. Proceed to §2 with the active-pointer line omitted from the completion summary and the outputs payload.
+
 `{skill_group}` and `{skill_package}` were computed in step-05 §1 from `{skills_output_folder}`, `{repo_name}`, and `{version}`; `{version}` was resolved from the extraction inventory. Reuse the same values here — do not recompute.
 
 Create or update the `active` pointer at `{skill_group}/active` pointing to `{version}` using the shared atomic-flip helper. The helper acquires an `flock` on `{skill_group}/active.skf-lock`, refuses to replace a non-link at `{skill_group}/active` (protecting against accidental `rm -rf` of a real directory), and uses a rename-over-symlink pattern so the update is atomic from a concurrent reader's perspective. On Windows the helper automatically falls back to a directory junction (`mklink /J`) when `os.symlink` fails with `PRIVILEGE_NOT_HELD` / `ACCESS_DENIED` — junctions require no admin elevation and resolve identically for `skf-skill-inventory`'s consumers:
@@ -54,9 +56,9 @@ Confirm: "Active pointer: {skill_group}/active -> {version} ({kind})" where `{ki
 
 **Files written:**
 - `{skill_package}/SKILL.md`
-- `{skill_package}/context-snippet.md`
+- `{skill_package}/context-snippet.md` (omit this line when `--skip-snippet` was set)
 - `{skill_package}/metadata.json`
-- `{skill_group}/active` -> `{version}`
+- `{skill_group}/active` -> `{version}` (omit this line when `--no-active-pointer` was set)
 
 **Exports documented:** {count}
 **Validation:** {pass / N issues (advisory)}

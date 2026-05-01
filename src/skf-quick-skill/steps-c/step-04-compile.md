@@ -50,8 +50,8 @@ description: >
 
 **Required sections (after frontmatter):**
 - **Overview:** Package name, repository, language, source authority, generation date
-- **Description:** From extraction_inventory.description (README-derived)
-- **Key Exports:** From extraction_inventory.exports — list each with name, type, brief description
+- **Description:** From `{overrides.description}` if set (subject to the same length/voice checks as extracted descriptions); otherwise from extraction_inventory.description (README-derived)
+- **Key Exports:** From `{overrides.exports}` if set (comma-separated names parsed and trimmed; empty items skipped); otherwise from extraction_inventory.exports — list each with name, type, brief description
 - **Usage Patterns:** From extraction_inventory.usage_patterns (README examples)
 
 **Optional sections (include when data available):**
@@ -65,7 +65,9 @@ description: >
 
 ### 3. Generate Context Snippet
 
-Create context-snippet.md in Vercel-aligned indexed format (~80-120 tokens):
+**If `{overrides.skip_snippet}` is true** — skip generation and note in the §5 preview: "context-snippet.md skipped per `--skip-snippet` override." Step-05 §2 will skip the corresponding write; step-05 §5 advisory snippet validation will report a "skipped" entry.
+
+Otherwise, create context-snippet.md in Vercel-aligned indexed format (~80-120 tokens):
 
 ```
 [{skill_name} v{version}]|root: skills/{skill_name}/
