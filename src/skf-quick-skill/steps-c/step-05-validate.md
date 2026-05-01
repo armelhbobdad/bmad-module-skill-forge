@@ -1,10 +1,5 @@
 ---
 nextStepFile: './step-06-write.md'
-# Resolve `{frontmatterValidator}` by probing `{frontmatterValidatorProbeOrder}`
-# in order (installed SKF module path first, src/ dev-checkout fallback);
-# first existing path wins. Used in §4 fallback when `npx skill-check` is
-# unavailable so manual frontmatter validation matches the agentskills.io
-# spec deterministically instead of via an LLM-walked checklist.
 frontmatterValidatorProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py'
   - '{project-root}/src/shared/scripts/skf-validate-frontmatter.py'
@@ -26,8 +21,6 @@ To write the compiled SKILL.md, context-snippet.md, and metadata.json to the ver
 - Community-tier validation (lighter than official requirements)
 
 ## MANDATORY SEQUENCE
-
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
 
 ### 1. Create Output Directory
 

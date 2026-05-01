@@ -1,9 +1,5 @@
 ---
 nextStepFile: './step-07-health-check.md'
-# Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. HALT if neither resolves — the active-pointer flip below MUST go
-# through the atomic helper for concurrency safety and Windows junction fallback.
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
@@ -24,8 +20,6 @@ To finalize the skill by creating the active-version pointer, displaying the com
 - Result contract writing is mandatory (pipeline consumers depend on it)
 
 ## MANDATORY SEQUENCE
-
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
 
 ### 1. Create Active Pointer (atomic flip, Windows-safe)
 

@@ -18,8 +18,6 @@ To accept a GitHub URL or package name from the user, resolve it to a GitHub rep
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Accept User Input
 
 "**Quick Skill — fastest path to a skill.**

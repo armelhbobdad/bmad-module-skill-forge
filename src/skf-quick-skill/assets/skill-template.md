@@ -101,6 +101,10 @@ Indexed format targeting ~80-120 tokens per skill:
     "assets_count": 0
   },
   "dependencies": [],
-  "compatibility": "{semver-range}"
+  "compatibility": "{semver-range}",
+  "provenance": {
+    "language_hint": "{language_hint or null}",
+    "scope_hint": "{scope_hint or null}"
+  }
 }
 ```

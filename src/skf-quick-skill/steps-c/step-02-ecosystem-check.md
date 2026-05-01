@@ -18,8 +18,6 @@ To query the agentskills.io ecosystem for an existing official skill matching th
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Query Ecosystem
 
 Search for an existing official skill matching `{repo_name}` in the agentskills.io ecosystem.
