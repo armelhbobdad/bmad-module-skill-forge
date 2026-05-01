@@ -23,6 +23,12 @@ These rules apply to every step in this workflow:
 - Only load one step file at a time — never preload future steps
 - Always communicate in `{communication_language}`
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
+- If `{headless_mode}` is true, emit a single-line JSON progress event to **stderr** at each step's entry and exit so pipeline schedulers can stream live progress instead of post-mortem-parsing the result contract:
+  - entry: `{"step":N,"name":"<slug>","status":"start"}`
+  - exit (just before chaining to nextStepFile): `{"step":N,"name":"<slug>","status":"done"}`
+  - on HARD HALT: `{"step":N,"name":"<slug>","status":"halt","exit":<code>}` instead of "done"
+
+  `N` is the step number (1–7) and `<slug>` is the kebab portion of the filename after the number — `resolve-target`, `ecosystem-check`, `quick-extract`, `compile`, `write-and-validate`, `finalize`, `health-check`. One line per event; do not pretty-print.
 
 ## Stages
 
