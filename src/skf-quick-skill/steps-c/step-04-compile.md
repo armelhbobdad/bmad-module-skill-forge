@@ -84,17 +84,26 @@ Create context-snippet.md in Vercel-aligned indexed format (~80-120 tokens):
 
 Generate metadata.json following the **canonical schema in `{skillTemplateData}` § "metadata.json Format"** (loaded in §1). Use the template's exact field set, ordering, and types — do not duplicate the schema here. Apply these quick-skill-specific population rules on top of the template:
 
-- `confidence_tier`: `"Quick"` (constant)
-- `generated_by`: `"quick-skill"` (constant)
-- `source_authority`: `"community"` (constant)
-- `confidence_distribution.t1_low`: number of exports found — **integer, not string**. Other distribution buckets stay at `0`.
-- `tool_versions.skf`: resolved from `{project-root}/_bmad/skf/package.json` → npm require → `{project-root}/_bmad/skf/VERSION` → `"unknown"` (first hit wins)
-- `tool_versions.ast_grep` / `tool_versions.qmd`: `null` (Quick is tier-unaware)
-- `stats.exports_documented` / `exports_public_api` / `exports_total`: equal to the count of exports detected in step-03 (integers); `exports_internal: 0`; `public_api_coverage: 1.0`; `total_coverage: 1.0`; `scripts_count` / `assets_count`: `0` for Quick
-- `provenance.language_hint` / `provenance.scope_hint`: echo the user-supplied hints from step-01 (or `null` when omitted)
+**Constants (always these literal values for Quick):**
+
+| Field                                                                       | Value                          |
+| --------------------------------------------------------------------------- | ------------------------------ |
+| `confidence_tier`                                                           | `"Quick"`                      |
+| `generated_by`                                                              | `"quick-skill"`                |
+| `source_authority`                                                          | `"community"`                  |
+| `tool_versions.ast_grep`, `tool_versions.qmd`                               | `null` (Quick is tier-unaware) |
+| `stats.exports_internal`, `stats.scripts_count`, `stats.assets_count`       | `0`                            |
+| `stats.public_api_coverage`, `stats.total_coverage`                         | `1.0`                          |
+| Other `confidence_distribution.*` buckets (besides `t1_low`)                | `0`                            |
+
+**Input-derived rules:**
+
 - `version`: `extraction_inventory.version` or `"1.0.0"`
 - `generation_date`: current ISO 8601 UTC datetime
-- `exports[]`: list of detected export names from `extraction_inventory.exports`
+- `exports[]`: detected export names from `extraction_inventory.exports`
+- `confidence_distribution.t1_low` and `stats.exports_documented` / `exports_public_api` / `exports_total`: count of exports detected in step-03 (integers, not strings)
+- `provenance.language_hint` / `provenance.scope_hint`: echo the user-supplied hints from step-01 (or `null` when omitted)
+- `tool_versions.skf`: resolved from `{project-root}/_bmad/skf/package.json` → npm require → `{project-root}/_bmad/skf/VERSION` → `"unknown"` (first hit wins)
 
 If a field is added to the template's metadata.json schema in the future, it lands here automatically — these rules describe **how Quick populates** the template, not what fields exist.
 
