@@ -68,7 +68,7 @@ If you are describing a skill you want to **create from scratch** rather than co
 
 Otherwise, paste the package name or GitHub URL of the library you want to wrap, and quick-skill will resolve it."
 
-**GATE [default: HALT]** — In headless mode, emit the same redirect message and HALT with **exit code 3 (resolution-failure)** per the SKILL.md exit-code map. Do not attempt registry lookups against prose input; that wastes ~3-4 round trips and produces a less actionable error message than the redirect above.
+**GATE [default: HALT]** — In headless mode, emit the same redirect message and HALT with **exit code 3 (resolution-failure)** per the SKILL.md exit-code map. Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "resolve-target"`, `error.code: "resolution-failure"`, `skill_package: null`). Do not attempt registry lookups against prose input; that wastes ~3-4 round trips and produces a less actionable error message than the redirect above.
 
 ### 3. Registry Resolution
 
@@ -85,7 +85,7 @@ Check:
 
 **Provide the GitHub URL directly to continue.**"
 
-In interactive mode, wait for corrected input and loop back to step 2. In headless mode, exit 3.
+In interactive mode, wait for corrected input and loop back to step 2. In headless mode, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "resolve-target"`, `error.code: "resolution-failure"`, `skill_package: null`) and exit 3.
 
 ### 4. Detect Language
 

@@ -67,6 +67,41 @@ Every HARD HALT in this workflow exits with a stable, documented code so headles
 
 Reserved: `validator-missing` may be promoted from advisory log to fatal exit code in a future revision; consumers should not assume code 8+ is unused.
 
+## Result Contract on HARD HALT
+
+In addition to the success-variant result contract written by step-06 §3, every HARD HALT must surface an **error variant** so headless automators don't silently break when `quick-skill-result-latest.json` is missing on failed runs.
+
+**Always (every HARD HALT, regardless of phase)** — emit a single line on **stderr**:
+
+```
+SKF_QUICK_SKILL_RESULT_JSON: {"status":"error","exit_code":<N>,"phase":"<slug>","error":{"code":"<class>","message":"<short>"},"outputs":{},"summary":{},"skill_package":"<path-or-null>"}
+```
+
+One line, no pretty-print. Matches the prefix-and-envelope convention used by `skf-emit-result-envelope.py`.
+
+**Additionally, when `{skill_package}` is known** (HALT at step-05 §1 onward) — write the same JSON object (without the `SKF_QUICK_SKILL_RESULT_JSON: ` prefix) to disk:
+
+```
+{skill_package}/quick-skill-result-{YYYYMMDD-HHmmss}.json
+{skill_package}/quick-skill-result-latest.json   (copy, not symlink)
+```
+
+so consumers that hardcode the `-latest.json` path see a deterministic file even on failed runs. HALTs at step-01/02/03/04 cannot write to disk because `{skill_package}` is computed only in step-05 §1; for those, the stderr envelope plus exit code is the contract.
+
+**Schema:**
+
+| Field           | Type           | Notes                                                                                                       |
+| --------------- | -------------- | ----------------------------------------------------------------------------------------------------------- |
+| `status`        | string         | always `"error"` for HARD HALTs                                                                             |
+| `exit_code`     | integer        | matches the Exit Codes table                                                                                |
+| `phase`         | string         | step slug where the HALT occurred (e.g. `resolve-target`, `compile`)                                        |
+| `error.code`    | string         | one of: `resolution-failure`, `write-failure`, `overwrite-cancelled`, `compile-cancelled`, `finalize-blocked` |
+| `error.message` | string         | the user-facing message that was displayed                                                                  |
+| `error.details` | any            | optional — phase-specific context (e.g. the failed file path)                                               |
+| `outputs`       | object         | empty `{}` on early HALTs; partial when files were already written                                          |
+| `summary`       | object         | empty `{}` on early HALTs                                                                                   |
+| `skill_package` | string \| null | absolute path when known, `null` when HALT preceded step-05 §1                                              |
+
 ## On Activation
 
 1. Read `{project-root}/_bmad/skf/config.yaml` and `{forger_root}/preferences.yaml` in parallel (one batched tool-call message — they are independent files), then resolve:
