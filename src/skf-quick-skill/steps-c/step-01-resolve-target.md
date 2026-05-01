@@ -61,12 +61,12 @@ If no `@version` suffix is present, proceed as today — version will be auto-de
 
 Load {registryResolutionData} for resolution patterns.
 
-**Execute the fallback chain in order — stop at first success:**
+**Execute the fallback chain in order — stop at first success. Apply a 10s per-call timeout** so a single hung registry cannot stall the workflow under hostile network conditions; treat timeout as a soft failure and fall through to the next registry:
 
 1. **npm registry:** Fetch `https://registry.npmjs.org/{package_name}` — extract `repository.url`
 2. **PyPI registry:** Fetch `https://pypi.org/pypi/{package_name}/json` — extract `info.project_urls.Source` or `info.home_page`
 3. **crates.io registry:** Fetch `https://crates.io/api/v1/crates/{package_name}` — extract `crate.repository`
-4. **Web search fallback:** Search `"{package_name} github repository"` — look for GitHub URL
+4. **Web search fallback:** Search `"{package_name} github repository"` — look for GitHub URL (15s timeout)
 
 **If all methods fail — HARD HALT:**
 

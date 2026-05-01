@@ -47,10 +47,10 @@ These rules apply to every step in this workflow:
 
 ## On Activation
 
-1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
-   - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`
-   - `skills_output_folder`, `forge_data_folder`
+1. Read `{project-root}/_bmad/skf/config.yaml` and `{forger_root}/preferences.yaml` in parallel (one batched tool-call message — they are independent files), then resolve:
+   - From config: `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `skills_output_folder`, `forge_data_folder`
+   - From preferences: `headless_mode` (default false)
 
-2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
+2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `preferences.yaml`. Default: false.
 
 3. Load, read the full file, and then execute `./steps-c/step-01-resolve-target.md` to begin the workflow.

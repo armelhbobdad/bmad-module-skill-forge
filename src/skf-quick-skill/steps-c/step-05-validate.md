@@ -79,20 +79,21 @@ Run: `npx skill-check -h`
 
 ### 4. Validate SKILL.md via skill-check (if available)
 
-**If `npx skill-check` is available**, run automated validation with auto-fix against the skill package written in section 2:
+**If `npx skill-check` is available**, run automated validation + security scan in one invocation against the skill package written in section 2 (security scan is enabled by default when `--no-security-scan` is omitted, so the same call covers §8 and avoids paying the npx startup cost twice):
 
 ```bash
-npx skill-check check {skill_package} --fix --format json --no-security-scan
+npx skill-check check {skill_package} --fix --format json
 ```
 
-This validates frontmatter, description, body limits, links, and formatting — and auto-fixes deterministic issues (field ordering, slug format, required fields, trailing newlines).
+This validates frontmatter, description, body limits, links, and formatting; runs the security scan; and auto-fixes deterministic issues (field ordering, slug format, required fields, trailing newlines).
 
 **Parse JSON output** to extract:
 - `qualityScore` — overall score (0-100)
 - `diagnostics[]` — remaining issues after auto-fix
 - `fixed[]` — issues automatically corrected
+- `security[]` (when present) — security findings, recorded as advisory warnings (security issues do not block output)
 
-Record quality score and any remaining diagnostics as validation issues.
+Record quality score, remaining diagnostics, and security findings as validation issues.
 
 **If skill-check is NOT available**, run the shared frontmatter validator instead of an LLM-walked checklist. Resolve `{frontmatterValidator}` by probing `{frontmatterValidatorProbeOrder}` (installed `{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py` first, dev `{project-root}/src/shared/scripts/skf-validate-frontmatter.py` fallback); first existing path wins. If neither candidate exists, log a high-severity issue ("frontmatter validator unavailable — both `npx skill-check` and `skf-validate-frontmatter.py` missing") and skip frontmatter validation.
 
@@ -144,19 +145,9 @@ Check metadata.json has required fields:
 
 **For each missing or invalid field, log an issue.**
 
-### 8. Security Scan (if skill-check available)
+### 8. Security Scan (covered by §4)
 
-Run security scan on the compiled skill package:
-
-```bash
-npx skill-check check {skill_package} --format json
-```
-
-(Security scan is enabled by default when `--no-security-scan` is omitted.)
-
-Record any security findings as advisory warnings. Security issues do not block output.
-
-**If skill-check unavailable:** Skip with note in validation results.
+Security findings are already collected from the §4 invocation (no separate `npx` round trip needed — `skill-check check ... --fix --format json` runs the security scan by default). If skill-check was unavailable in §3, log "security scan skipped — skill-check unavailable" in validation results.
 
 ### 9. Report Validation Results
 
