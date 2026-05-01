@@ -1,6 +1,9 @@
 ---
 nextStepFile: './step-02-ecosystem-check.md'
 registryResolutionData: 'references/registry-resolution.md'
+packageResolverProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-package.py'
+  - '{project-root}/src/shared/scripts/skf-resolve-package.py'
 ---
 
 # Step 1: Resolve Target
@@ -72,7 +75,18 @@ Otherwise, paste the package name or GitHub URL of the library you want to wrap,
 
 ### 3. Registry Resolution
 
-Load {registryResolutionData} and execute its fallback chain in order — stop at first success. The reference is canonical for the chain order (npm → PyPI → crates.io → web search), the per-registry URL templates and response-field paths, the per-call timeouts (10s per registry, 15s for web search), and the timeout-as-soft-failure semantics.
+Run the shared resolver against the deterministic registries (npm → PyPI → crates.io). The resolver does the HTTP+JSON+GitHub-URL-extraction work; the LLM only handles the web-search fallback below when needed.
+
+**Resolve `{packageResolver}`** from `{packageResolverProbeOrder}`; first existing path wins. If no candidate exists, fall back to the LLM walk of {registryResolutionData} for the full chain.
+
+```bash
+python3 {packageResolver} {package_name} --timeout 10
+```
+
+The resolver emits JSON with `status` (`"ok"` or `"fallthrough"`), `resolved_url`, `repo_owner`, `repo_name`, `registry_used`, `registries_tried`, and a per-registry `registry_outcomes` map. Exit 0 means ok; exit 1 means fallthrough.
+
+- **On `status: "ok"`** — capture `resolved_url`, `repo_name`, and `registry_used` from the JSON. Proceed to §3a.
+- **On `status: "fallthrough"`** — the deterministic chain returned no GitHub URL (every registry replied with 404 / no-github-link / timeout). Fall back to the web-search step from {registryResolutionData} §4: search `"{package_name} github repository"` with a 15s timeout and look for a GitHub URL in the top results. If found, set `resolved_url` and proceed. If web search also returns nothing, HARD HALT below.
 
 **If all methods fail — HARD HALT (exit code 3, resolution-failure):**
 
