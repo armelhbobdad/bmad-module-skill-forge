@@ -91,7 +91,7 @@ This validates frontmatter, description, body limits, links, and formatting; run
 
 Record quality score, remaining diagnostics, and security findings as validation issues.
 
-**If skill-check is NOT available**, run the shared frontmatter validator instead of an LLM-walked checklist. Resolve `{frontmatterValidator}` by probing `{frontmatterValidatorProbeOrder}` (installed `{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py` first, dev `{project-root}/src/shared/scripts/skf-validate-frontmatter.py` fallback); first existing path wins. If neither candidate exists, log a high-severity issue ("frontmatter validator unavailable — both `npx skill-check` and `skf-validate-frontmatter.py` missing") and skip frontmatter validation.
+**If skill-check is NOT available**, run the shared frontmatter validator instead of an LLM-walked checklist. Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}`; first existing path wins. If no candidate exists, log a high-severity issue ("frontmatter validator unavailable — both `npx skill-check` and `skf-validate-frontmatter.py` missing") and skip frontmatter validation.
 
 ```bash
 python3 {frontmatterValidator} {skill_package}/SKILL.md --skill-dir-name {repo_name}
