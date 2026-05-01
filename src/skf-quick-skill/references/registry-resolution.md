@@ -13,6 +13,8 @@ When the user provides a package name instead of a GitHub URL, use this fallback
 
 Try each registry in order. Stop at first success.
 
+**Per-call timeout:** apply a 10s timeout to each registry HTTP call (15s for the web-search fallback) so a single hung registry cannot stall the workflow under hostile network conditions. Treat a timeout as a soft failure and fall through to the next entry in the chain.
+
 #### 1. npm Registry (JavaScript/TypeScript)
 
 ```
