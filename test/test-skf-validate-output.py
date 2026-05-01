@@ -148,3 +148,36 @@ class TestSkfValidateOutput:
         # Should parse successfully — no high-severity issues
         high_issues = [i for i in issues if i["severity"] == "high"]
         assert len(high_issues) == 0
+
+    def test_missing_description_section_flagged(self):
+        """SKILL.md without a Description section should log a medium body issue."""
+        content_no_desc = (
+            "---\nname: no-desc\ndescription: a skill missing its Description section\n---\n\n"
+            "## Overview\n\nTest\n\n## Key Exports\n\nNone\n\n## Usage\n\nNone\n"
+        )
+        body_issues = mod.validate_body_structure(content_no_desc)
+        desc_issues = [i for i in body_issues if "Description" in i.get("field", "")]
+        assert len(desc_issues) == 1
+        assert desc_issues[0]["severity"] == "medium"
+
+    def test_skip_frontmatter_omits_frontmatter_pass(self):
+        """--skip-frontmatter / skip_frontmatter=True must skip the frontmatter validator entirely."""
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = Path(tmp) / "skip-fm"
+            pkg.mkdir()
+            # Deliberately broken frontmatter — would normally produce a high-severity issue
+            (pkg / "SKILL.md").write_text(
+                "# No frontmatter at all\n\n## Overview\n\nT\n\n## Description\n\nT\n\n## Key Exports\n\nNone\n\n## Usage\n\nT\n",
+                encoding="utf-8",
+            )
+            (pkg / "context-snippet.md").write_text(VALID_SNIPPET.replace("test-skill", "skip-fm"), encoding="utf-8")
+            meta = dict(VALID_METADATA)
+            meta["name"] = "skip-fm"
+            (pkg / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
+
+            r = validate_skill_package(str(pkg), skip_frontmatter=True)
+            fm = r["validation"]["skill_md"]["frontmatter"]
+            assert isinstance(fm, dict) and "skipped" in fm, f"Expected skipped marker, got: {fm}"
+            # No high-severity issues should be raised when frontmatter is skipped on otherwise-valid body/snippet/metadata
+            assert r["summary"]["by_severity"]["high"] == 0
+            assert r["result"] == "PASS"
