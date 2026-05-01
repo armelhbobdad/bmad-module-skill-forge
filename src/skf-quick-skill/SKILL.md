@@ -46,8 +46,8 @@ These rules apply to every step in this workflow:
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | target (GitHub URL or package name) [required], language_hint [optional], scope_hint [optional] |
-| **Overrides** | `--description`, `--exports`, `--skip-snippet`, `--no-active-pointer` — see On Activation step 3 |
+| **Inputs** | target (GitHub URL or package name) [required for single-target mode], language_hint [optional], scope_hint [optional] |
+| **Overrides** | `--description`, `--exports`, `--skip-snippet`, `--no-active-pointer`, `--batch <file>`, `--fail-fast` — see On Activation step 3 |
 | **Gates** | step-01: Input Gate [use args]; step-02: Choice Gate [P] (if match); step-04: Review Gate [C/E/S/Q] |
 | **Outputs** | SKILL.md, context-snippet.md, metadata.json, active pointer, result contract (timestamped + `-latest` copy). Snippet and active pointer can be skipped per overrides. |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
@@ -119,5 +119,9 @@ so consumers that hardcode the `-latest.json` path see a deterministic file even
    | `--exports "<name1,name2,...>"` | Override the extracted export list. Parse as comma-separated; trim whitespace per item; skip empty items. Used in step-04 §2 Key Exports and the count-derived metadata stats. |
    | `--skip-snippet` | Skip context-snippet.md generation in step-04 §3 and its write in step-05 §2. Artifact omitted from `outputs`; step-05 §5 advisory snippet validation reports a "skipped" entry. |
    | `--no-active-pointer` | Skip the active-pointer flip in step-06 §1. Deliverables still land in `{skill_package}` but `{skill_group}/active` is not updated. Useful for batch automators that flip pointers in a separate stage. |
+   | `--batch <file>` | Run the workflow against a list of targets from a text file rather than a single argument. Implies `--headless` (gates cannot be human-driven across N targets). See "Batch Mode" below for input format and summary contract. Single-target overrides above apply globally to every target in the batch. |
+   | `--fail-fast` | Only meaningful with `--batch`. Abort the whole batch on the first per-target failure instead of recording the failure in the summary and proceeding to the next target. |
 
-4. Load, read the full file, and then execute `./steps-c/step-01-resolve-target.md` to begin the workflow.
+4. **If `--batch` is set**, force `{headless_mode} = true` (log "headless: coerced by --batch" if it was false), read the batch file, and parse the target list per "Batch Mode" below. Continue at step 5; the batch loop documented in "Batch Mode" wraps the step-01 → step-07 pipeline that follows.
+
+5. Load, read the full file, and then execute `./steps-c/step-01-resolve-target.md` to begin the workflow. (In batch mode, control returns here for each subsequent target after step-07 completes; see "Batch Mode" below.)
