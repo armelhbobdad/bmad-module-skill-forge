@@ -36,7 +36,7 @@ Attempt to load `{forgeTierFile}`:
 - Continue with `tier = "Quick"` and `tools = {}` — do not HALT. Record `tier_source: "fallback-corrupted-config"` for later diagnostics.
 
 **If not found:**
-- "**Cannot proceed.** forge-tier.yaml not found at `{forgeTierFile}`. Please run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
+- "**Cannot proceed.** forge-tier.yaml not found at `{forgeTierFile}`. Run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
 - HALT (exit code 3, `halt_reason: "forge-tier-missing"`) — do not proceed.
 
 ### 2. Welcome and Explain
@@ -60,6 +60,10 @@ Let's get started."
 
 ### 3. Gather Target Repository
 
+This section has three sub-flows. Execute exactly one branch — 3.2 *or* 3.3 — based on the user's response in 3.1, then end with the shared confirmation. Do not mix branches.
+
+#### 3.1 Collect target
+
 "**What repository or documentation do you want to create a skill for?**
 
 Provide one of:
@@ -69,29 +73,39 @@ Provide one of:
 
 **Target:**"
 
-Wait for user response.
+Wait for user response. Branch on the response:
 
-**If user provides documentation URLs (not a repo):**
+- Documentation URLs only (no source location) → §3.2
+- GitHub URL or local filesystem path → §3.3
+
+#### 3.2 Branch — Documentation URLs (docs-only)
+
 - Set `source_type: "docs-only"` in the brief data
 - Collect one or more doc URLs with optional labels
 - For each collected URL, perform a `HEAD` request (or `curl -sI`) to verify the URL resolves with a 2xx/3xx status:
   - On 2xx/3xx: silently accept.
   - On 4xx/5xx, DNS failure, or timeout: warn `"Could not reach {url} — {status or error}. Confirm the URL is correct, or proceed anyway."` Interactive: re-prompt for a corrected URL or `[K] Keep anyway`. Headless: keep the URL and log the warning — the brief still records it but the failure is now visible at brief-creation time instead of materializing hours later in skf-create-skill.
-- Note: `source_authority` will be forced to `community` (T3 external documentation)
+- Set `source_authority: "community"` (forced for docs-only — T3 external documentation; the §3.3 source-authority prompt is skipped)
 - Note: `source_repo` becomes optional (can be set to the main doc site URL for reference)
 
-**If user provides a GitHub URL or local path:**
+Skip §3.3 and continue at "Confirm the target" below.
+
+#### 3.3 Branch — Source (GitHub URL or local path)
+
 - Set `source_type: "source"` (default)
 - Optionally ask: "Are there any documentation URLs you'd like to include for supplemental context? (These will be fetched as T3 external references.)"
 - If yes: collect doc URLs into `doc_urls`
 
-**Source authority (for all source-type skills):**
+**Source authority (this branch only — docs-only forces `community` in §3.2):**
+
 "**Are you the maintainer of this library, or creating a community skill?**"
 - If maintainer: set `source_authority: "official"`
 - If community user: set `source_authority: "community"` (default)
 - If internal/proprietary: set `source_authority: "internal"`
 
-Default to `"community"` if user does not specify or skips. For `docs-only` skills, `source_authority` is always forced to `"community"`.
+Default to `"community"` if user does not specify or skips.
+
+---
 
 Confirm the target.
 
@@ -117,7 +131,7 @@ Wait for user response.
 "**You're targeting version {target_version}. Do these documentation URLs correspond to that version?** [Y/N]"
 
 - **If Y:** Proceed.
-- **If N:** "Please provide the correct documentation URLs for version {target_version}." Re-collect doc_urls.
+- **If N:** "Provide the correct documentation URLs for version {target_version}." Re-collect doc_urls.
 
 ### 4. Gather User Intent
 
@@ -210,7 +224,25 @@ Display: "**Select:** [C] Continue to Target Analysis"
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: use args]** — If `{headless_mode}`: consume pre-supplied arguments and auto-proceed. Required: `target_repo`, `skill_name`. Optional, applied to the matching brief field when present: `scope_hint`, `language_hint`, `target_version`, `source_authority` (default `community`), `source_type` (default `source`; if `docs-only`, `doc_urls` becomes required), `doc_urls` (list of `url` or `url,label`), `scope_type`, `include`, `exclude`, `scripts_intent` (default `detect`), `assets_intent` (default `detect`), `intent` (free-text used to derive `description`). If `target_repo` or `skill_name` is missing, HALT with exit code 2 (`halt_reason: "input-missing"`): "headless mode requires target_repo and skill_name arguments." If `source_type=docs-only` and no `doc_urls` supplied, same HALT with `halt_reason: "input-missing"`.
+- **GATE [default: use args]** — If `{headless_mode}`, consume pre-supplied arguments per the table below and auto-proceed. Any missing required arg → HALT with exit code 2, `halt_reason: "input-missing"`, message: `"headless mode requires target_repo and skill_name arguments."` (Same HALT applies when `source_type=docs-only` and `doc_urls` is empty.)
+
+  | Argument | Required | Default | Notes |
+  |----------|----------|---------|-------|
+  | `target_repo` | yes | — | HALT (exit 2) if absent |
+  | `skill_name` | yes | — | HALT (exit 2) if absent |
+  | `source_type` | no | `source` | If `docs-only`, `doc_urls` becomes required |
+  | `doc_urls` | conditional | — | Required when `source_type=docs-only`. List of `url` or `url,label` |
+  | `source_authority` | no | `community` | `official` / `community` / `internal`; forced to `community` when `source_type=docs-only` |
+  | `target_version` | no | — | Auto-detected in step-02 if absent |
+  | `scope_hint` | no | — | Free-text steering for §5 |
+  | `language_hint` | no | — | Overrides language detection in step-02/03 |
+  | `scope_type` | no | — | `full-library` / `specific-modules` / `public-api` / `component-library` / `reference-app` / `docs-only` |
+  | `include` | no | — | Comma-separated globs (used by step-03 §3) |
+  | `exclude` | no | — | Comma-separated globs (used by step-03 §3) |
+  | `scripts_intent` | no | `detect` | `detect` / `none` / free-text |
+  | `assets_intent` | no | `detect` | `detect` / `none` / free-text |
+  | `intent` | no | — | Free-text used to derive `description` in §7b |
+  | `force` | no | — | Overwrite existing brief without prompting (consumed in step-05 §2b) |
 - ONLY proceed to next step when user selects 'C'
 
 ## CRITICAL STEP COMPLETION NOTE

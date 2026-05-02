@@ -48,7 +48,7 @@ Distinguish the failure class before reporting:
 **For local paths:**
 - Verify the directory exists
 - List the directory tree
-- If path doesn't exist: **HALT** — "**Error:** Directory not found at {path}. Please verify the path is correct."
+- If path doesn't exist: **HALT** — "**Error:** Directory not found at {path}. Verify the path is correct."
 
 Display: "**Resolving target...**"
 
@@ -118,7 +118,9 @@ Identify the public API surface. **Delegate the parsing to `{extractPublicApiScr
 
 **Script-supported languages** (use the script): `js`, `ts`, `javascript`, `typescript`, `python`, `rust`, `go`, `java`, `kotlin`.
 
-**Procedure when supported:**
+This section runs exactly one of §4.1 (script path) or §4.2 (fallback path) based on the detected language, then always emits §4.3 (output format) and conditionally §4.4 (semantic signals).
+
+#### 4.1 Procedure — script-supported languages
 
 1. Read the relevant files into memory (no parsing yet — just collect content). For GitHub sources use `gh api repos/{owner}/{repo}/contents/{file}` with base64 decode; for local sources read directly.
 
@@ -148,17 +150,19 @@ Identify the public API surface. **Delegate the parsing to `{extractPublicApiScr
    echo '<payload-json>' | uv run {extractPublicApiScript} --language <lang> --mode quick
    ```
 
-   On a non-zero exit (codes 1 or 2 per the script's docstring), capture stderr, log it, and fall through to the prose-fallback path below — never HALT just because the script choked on an unusual manifest.
+   On a non-zero exit (codes 1 or 2 per the script's docstring), capture stderr, log it, and fall through to §4.2 (the prose-fallback path) — never HALT just because the script choked on an unusual manifest.
 
 4. Render the returned `package_name`, `exports` (each entry's `name`/`type`/`source_file`), `dependencies`, and any `warnings` to the user. The script also returns `version` — feed that into §4b instead of re-deriving.
 
 5. The script does not enumerate directories under `src/`. The LLM still lists those as "Top-Level Modules/Directories" so the user sees structural context (Maven and Gradle are the exception — for those, the script returns a `modules` array which IS the list).
 
-**Procedure when not supported** (Ruby / C# / Swift / etc.):
+#### 4.2 Procedure — fallback (not script-supported)
+
+Languages outside the script coverage (Ruby / C# / Swift / etc.) take this path. The §4.1 fall-through on script error also lands here.
 
 Fall back to ad-hoc inspection — `Gemfile` / `*.csproj` / `*.sln` / `Package.swift` / file extension frequency. List top-level source directories as potential modules and note any obvious entry points. Flag the limitation in the analysis summary so the user knows scoping is on coarser signals.
 
-**Output format (both paths):**
+#### 4.3 Output format (both paths)
 
 "**Top-Level Modules/Directories:**
 {numbered list of modules with brief description of each}
@@ -166,7 +170,7 @@ Fall back to ad-hoc inspection — `Gemfile` / `*.csproj` / `*.sln` / `Package.s
 **Detected Exports/Entry Points:**
 {numbered list of public-facing items found — from script output when available, ad-hoc inspection otherwise}"
 
-**Semantic Signals (Forge+ and Deep with ccc only):**
+#### 4.4 Semantic Signals (Forge+/Deep with ccc only)
 
 **Remote source guard:** If the target source was resolved via GitHub API (remote URL, not a local file path), skip this CCC subsection — CCC requires a local source index and cannot operate on remote-only sources. Note: "CCC semantic discovery skipped — target is remote. CCC discovery will run automatically during create-skill after the source is cloned."
 

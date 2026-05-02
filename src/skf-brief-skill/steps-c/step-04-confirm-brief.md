@@ -53,7 +53,7 @@ Compile all gathered data from steps 01-03 into the complete brief:
 
 Using the presentation format from the schema:
 
-"**Please review the complete skill brief before I write it.**
+"**Review the complete skill brief before I write it.**
 
 ---
 

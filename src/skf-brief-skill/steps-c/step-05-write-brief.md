@@ -129,7 +129,7 @@ source_authority: "{official|community|internal}"
 Write the generated YAML to `{forge_data_folder}/{skill-name}/skill-brief.yaml`.
 
 If write fails:
-- Interactive: **HALT** — "**Error:** Failed to write skill-brief.yaml. Please check that the directory is writable and try again."
+- Interactive: **HALT** — "**Error:** Failed to write skill-brief.yaml. Check that the directory is writable and try again."
 - Headless: emit the error-variant `SKF_BRIEF_RESULT_JSON` envelope (see §4b) on stderr with `halt_reason: "write-failed"`, exit code 4, and HALT.
 
 ### 4b. Headless Result Envelope
