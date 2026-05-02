@@ -60,6 +60,10 @@ Let's get started."
 
 ### 3. Gather Target Repository
 
+This section has three sub-flows. Execute exactly one branch — 3.2 *or* 3.3 — based on the user's response in 3.1, then end with the shared confirmation. Do not mix branches.
+
+#### 3.1 Collect target
+
 "**What repository or documentation do you want to create a skill for?**
 
 Provide one of:
@@ -69,29 +73,39 @@ Provide one of:
 
 **Target:**"
 
-Wait for user response.
+Wait for user response. Branch on the response:
 
-**If user provides documentation URLs (not a repo):**
+- Documentation URLs only (no source location) → §3.2
+- GitHub URL or local filesystem path → §3.3
+
+#### 3.2 Branch — Documentation URLs (docs-only)
+
 - Set `source_type: "docs-only"` in the brief data
 - Collect one or more doc URLs with optional labels
 - For each collected URL, perform a `HEAD` request (or `curl -sI`) to verify the URL resolves with a 2xx/3xx status:
   - On 2xx/3xx: silently accept.
   - On 4xx/5xx, DNS failure, or timeout: warn `"Could not reach {url} — {status or error}. Confirm the URL is correct, or proceed anyway."` Interactive: re-prompt for a corrected URL or `[K] Keep anyway`. Headless: keep the URL and log the warning — the brief still records it but the failure is now visible at brief-creation time instead of materializing hours later in skf-create-skill.
-- Note: `source_authority` will be forced to `community` (T3 external documentation)
+- Set `source_authority: "community"` (forced for docs-only — T3 external documentation; the §3.3 source-authority prompt is skipped)
 - Note: `source_repo` becomes optional (can be set to the main doc site URL for reference)
 
-**If user provides a GitHub URL or local path:**
+Skip §3.3 and continue at "Confirm the target" below.
+
+#### 3.3 Branch — Source (GitHub URL or local path)
+
 - Set `source_type: "source"` (default)
 - Optionally ask: "Are there any documentation URLs you'd like to include for supplemental context? (These will be fetched as T3 external references.)"
 - If yes: collect doc URLs into `doc_urls`
 
-**Source authority (for all source-type skills):**
+**Source authority (this branch only — docs-only forces `community` in §3.2):**
+
 "**Are you the maintainer of this library, or creating a community skill?**"
 - If maintainer: set `source_authority: "official"`
 - If community user: set `source_authority: "community"` (default)
 - If internal/proprietary: set `source_authority: "internal"`
 
-Default to `"community"` if user does not specify or skips. For `docs-only` skills, `source_authority` is always forced to `"community"`.
+Default to `"community"` if user does not specify or skips.
+
+---
 
 Confirm the target.
 
