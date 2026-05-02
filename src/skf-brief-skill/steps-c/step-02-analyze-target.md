@@ -24,8 +24,10 @@ To analyze the target repository by resolving its location, reading its structur
 ### 1. Resolve Target Location
 
 **For GitHub URLs:**
-- Use `gh api repos/{owner}/{repo}` to verify the repository exists
-- Use `gh api repos/{owner}/{repo}/git/trees/HEAD?recursive=1` to get the file tree
+- Issue both probes in **one message with two parallel Bash calls** — they are independent:
+  - `gh api repos/{owner}/{repo}` (verify repo exists)
+  - `gh api repos/{owner}/{repo}/git/trees/HEAD?recursive=1` (fetch file tree)
+- If the repo-existence probe fails, fall through to the failure-class triage below; the tree response from the parallel call is discarded in that case.
 
 **Truncation detection:** After receiving the tree response, check the `truncated` field in the JSON output. If `truncated: true`:
 - Display: "Note: GitHub API returned a truncated tree response ({count} items). Full analysis may require a local clone."
@@ -122,7 +124,7 @@ This section runs exactly one of §4.1 (script path) or §4.2 (fallback path) ba
 
 #### 4.1 Procedure — script-supported languages
 
-1. Read the relevant files into memory (no parsing yet — just collect content). For GitHub sources use `gh api repos/{owner}/{repo}/contents/{file}` with base64 decode; for local sources read directly.
+1. Read the relevant files into memory (no parsing yet — just collect content). For GitHub sources, issue **all N `gh api repos/{owner}/{repo}/contents/{file}` calls in a single message with N parallel Bash calls** (one per manifest + each entry point), then base64-decode the responses together — these are 2-4 independent fetches per typical run. For local sources read directly (also parallelisable, but local reads are fast enough that serial Read tool calls are acceptable).
 
    | Language | Manifest | Entry points (mode=quick) |
    |----------|----------|--------------------------|
@@ -194,11 +196,9 @@ If CCC is unavailable or returns no results: skip this subsection silently.
 
 ### 4b. Detect Source Version
 
-Load `{versionResolutionFile}` for the canonical precedence and invariant rules.
+**When the language was script-supported (§4 took the script path):** the `version` field returned by `{extractPublicApiScript}` IS the detected version — do not re-derive it and do not load `{versionResolutionFile}`. The script already implements the language-specific lookups documented in that reference, so loading the reference here only burns context.
 
-**When the language was script-supported (§4 took the script path):** the `version` field returned by `{extractPublicApiScript}` IS the detected version — do not re-derive it. The script already implements the language-specific lookups documented in `{versionResolutionFile}`.
-
-**When the language was not script-supported:** follow the prose Detection Algorithm in `{versionResolutionFile}` directly (Ruby / C# / Swift / etc. fall outside the script's coverage).
+**When the language was not script-supported:** load `{versionResolutionFile}` and follow the prose Detection Algorithm directly (Ruby / C# / Swift / etc. fall outside the script's coverage).
 
 Surface the result regardless of which path produced it:
 

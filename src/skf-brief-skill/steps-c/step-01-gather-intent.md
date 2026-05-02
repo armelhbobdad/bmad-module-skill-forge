@@ -84,7 +84,7 @@ Wait for user response. Branch on the response:
 
 - Set `source_type: "docs-only"` in the brief data
 - Collect one or more doc URLs with optional labels
-- For each collected URL, perform a `HEAD` request (or `curl -sI`) to verify the URL resolves with a 2xx/3xx status:
+- HEAD-check the collected URLs in parallel — do not loop sequentially. Issue all N `curl -sI {url}` (or equivalent) calls in a **single message with N parallel Bash calls**, then process the responses together. Each call must use a 5-second timeout (`curl -sI --max-time 5 {url}`) to bound worst-case wall-time on hung hosts. Per response:
   - On 2xx/3xx: silently accept.
   - On 4xx/5xx, DNS failure, or timeout: warn `"Could not reach {url} — {status or error}. Confirm the URL is correct, or proceed anyway."` Interactive: re-prompt for a corrected URL or `[K] Keep anyway`. Headless: keep the URL and log the warning — the brief still records it but the failure is now visible at brief-creation time instead of materializing hours later in skf-create-skill.
 - Set `source_authority: "community"` (forced for docs-only — T3 external documentation; the §3.3 source-authority prompt is skipped)

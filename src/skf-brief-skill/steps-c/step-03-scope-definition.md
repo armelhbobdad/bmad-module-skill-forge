@@ -67,7 +67,7 @@ Add, remove, or confirm these URLs."
 
 Wait for confirmation. Record any changes to `doc_urls`.
 
-For each URL in the final list (newly added or carried over), HEAD-check it (`curl -sI {url}` or equivalent). On a 4xx/5xx, DNS failure, or timeout, warn `"Could not reach {url} — {status or error}."` and offer the same correct/keep choice as step-01 §3. The check is best-effort — never HALT on a failed HEAD — but the failure must surface here so it is not discovered downstream during compilation.
+HEAD-check the URLs in parallel — issue all N `curl -sI --max-time 5 {url}` calls in a **single message with N parallel Bash calls**, then process the responses together. On a 4xx/5xx, DNS failure, or timeout per URL, warn `"Could not reach {url} — {status or error}."` and offer the same correct/keep choice as step-01 §3. The check is best-effort — never HALT on a failed HEAD — but the failure must surface here so it is not discovered downstream during compilation.
 
 **If no supplemental doc_urls were collected:** Skip this subsection.
 
