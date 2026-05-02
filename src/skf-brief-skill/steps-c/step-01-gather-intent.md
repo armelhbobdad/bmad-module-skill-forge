@@ -95,6 +95,10 @@ Skip §3.3 and continue at "Confirm the target" below.
 #### 3.3 Branch — Source (GitHub URL or local path)
 
 - Set `source_type: "source"` (default)
+- **Pre-validate the target before continuing — fail fast at point of capture, not 5+ minutes later in step-02.** Issue these probes in a single message with parallel Bash calls:
+  - **GitHub URL:** `curl -sI --max-time 5 {url}`. On a 4xx (typically 404 for a typo'd repo or org), warn `"GitHub returned {status} for {url} — confirm the URL is correct."` and re-prompt. On 2xx, accept. (The full `gh api repos/{owner}/{repo}` check still runs in step-02 §1 to catch private-repo access issues — this HEAD probe is just for typo catch.)
+  - **GitHub URL, in parallel with the above:** `gh auth status` — if it reports unauthenticated or the binary is missing, warn `"GitHub CLI not authenticated; step-02 will HALT when it tries to fetch the tree. Run 'gh auth login' before continuing, or supply a local clone path instead."` (Do not HALT here — let the user choose to fix or proceed; the canonical HALT still happens in step-02 §1's failure-class triage.)
+  - **Local path:** verify the directory exists (`test -d {path}`). If not, warn `"Local path {path} does not exist."` and re-prompt.
 - Optionally ask: "Are there any documentation URLs you'd like to include for supplemental context? (These will be fetched as T3 external references.)"
 - If yes: collect doc URLs into `doc_urls`
 
