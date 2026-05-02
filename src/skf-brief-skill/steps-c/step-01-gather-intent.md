@@ -166,11 +166,17 @@ Wait for user response.
 
 ### 4. Gather User Intent
 
-**First-timer rail (interactive only).** Before the intent prompt, check whether `{forge_data_folder}/` is empty (no subdirectories containing `skill-brief.yaml`). If it is — the user has never produced a brief before — ask:
+**First-timer rail (interactive only).** Before the intent prompt, check whether `{forge_data_folder}/` contains any prior briefs:
 
-"**Want to see an example brief first?** [Y/N] (Helpful if this is your first time — I'll show one of the description voices so you have an anchor for what 'good intent' produces.)"
+```bash
+find "{forge_data_folder}" -maxdepth 2 -name "skill-brief.yaml" -print -quit
+```
 
-On `[Y]`: load `{descriptionVoiceExamplesFile}` and present the five examples verbatim with a one-line preface (`"Each example shows a different voice — yours doesn't have to match any specific one."`). On `[N]` or empty: proceed silently. When `{forge_data_folder}` already contains briefs, skip this rail entirely — repeat users don't need the warm-up.
+If the command produces any output, skip this rail silently — repeat users don't need the warm-up. If it produces no output (the user has never produced a brief), ask:
+
+"**Want to see a few example descriptions first?** [Y/N] (Helpful if this is your first time — I'll show the voices we use so you have an anchor for what 'good intent' produces.)"
+
+On `[Y]`: load `{descriptionVoiceExamplesFile}` and present the five examples verbatim with a one-line preface (`"Each example shows a different voice — yours doesn't have to match any specific one."`). On `[N]` or empty: proceed silently.
 
 "**What's your intent for this skill?**
 
