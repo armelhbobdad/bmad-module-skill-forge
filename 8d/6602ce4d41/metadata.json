@@ -3,7 +3,7 @@
   "checkpoint_id": "8d6602ce4d41",
   "strategy": "manual-commit",
   "branch": "refactor/skf-brief-skill-prompt-craft-cleanups",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "src/skf-brief-skill/steps-c/step-01-gather-intent.md"
   ],
@@ -14,13 +14,20 @@
       "context": "/8d/6602ce4d41/0/context.md",
       "content_hash": "/8d/6602ce4d41/0/content_hash.txt",
       "prompt": "/8d/6602ce4d41/0/prompt.txt"
+    },
+    {
+      "metadata": "/8d/6602ce4d41/1/metadata.json",
+      "transcript": "/8d/6602ce4d41/1/full.jsonl",
+      "context": "/8d/6602ce4d41/1/context.md",
+      "content_hash": "/8d/6602ce4d41/1/content_hash.txt",
+      "prompt": "/8d/6602ce4d41/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 235,
-    "cache_creation_tokens": 410605,
-    "cache_read_tokens": 35680396,
-    "output_tokens": 172218,
-    "api_call_count": 156
+    "input_tokens": 526,
+    "cache_creation_tokens": 580797,
+    "cache_read_tokens": 40903344,
+    "output_tokens": 215905,
+    "api_call_count": 212
   }
 }
