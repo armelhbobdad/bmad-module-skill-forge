@@ -5,6 +5,7 @@
   "branch": "refactor/skf-brief-step01-lazy-refs",
   "checkpoints_count": 1,
   "files_touched": [
+    "src/skf-brief-skill/references/draft-checkpoint.md",
     "src/skf-brief-skill/steps-c/step-01-gather-intent.md"
   ],
   "sessions": [
@@ -17,10 +18,10 @@
     }
   ],
   "token_usage": {
-    "input_tokens": 243,
-    "cache_creation_tokens": 170548,
-    "cache_read_tokens": 8436547,
-    "output_tokens": 59401,
-    "api_call_count": 71
+    "input_tokens": 251,
+    "cache_creation_tokens": 183484,
+    "cache_read_tokens": 8998135,
+    "output_tokens": 61907,
+    "api_call_count": 74
   }
 }

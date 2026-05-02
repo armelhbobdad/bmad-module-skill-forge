@@ -3,28 +3,29 @@
   "checkpoint_id": "60f354d8c51c",
   "session_id": "8f18a472-e1c5-4c9c-8ce3-6e738423db8c",
   "strategy": "manual-commit",
-  "created_at": "2026-05-02T19:13:18.749039232Z",
+  "created_at": "2026-05-02T19:18:45.422133115Z",
   "branch": "refactor/skf-brief-step01-lazy-refs",
   "checkpoints_count": 1,
   "files_touched": [
+    "src/skf-brief-skill/references/draft-checkpoint.md",
     "src/skf-brief-skill/steps-c/step-01-gather-intent.md"
   ],
   "agent": "Claude Code",
   "turn_id": "370cba31f03c",
   "token_usage": {
-    "input_tokens": 243,
-    "cache_creation_tokens": 170548,
-    "cache_read_tokens": 8436547,
-    "output_tokens": 59401,
-    "api_call_count": 71
+    "input_tokens": 251,
+    "cache_creation_tokens": 183484,
+    "cache_read_tokens": 8998135,
+    "output_tokens": 61907,
+    "api_call_count": 74
   },
   "initial_attribution": {
-    "calculated_at": "2026-05-02T19:13:17.627878112Z",
+    "calculated_at": "2026-05-02T19:18:44.435210587Z",
     "agent_lines": 0,
-    "human_added": 39,
-    "human_modified": 10,
+    "human_added": 0,
+    "human_modified": 1,
     "human_removed": 0,
-    "total_committed": 39,
+    "total_committed": 0,
     "agent_percentage": 0
   }
 }
