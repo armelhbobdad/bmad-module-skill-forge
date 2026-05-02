@@ -2,6 +2,7 @@
 nextStepFile: './step-03-scope-definition.md'
 versionResolutionFile: 'references/version-resolution.md'
 extractPublicApiScript: '{project-root}/src/shared/scripts/skf-extract-public-api.py'
+detectWorkspacesScript: '{project-root}/src/shared/scripts/skf-detect-workspaces.py'
 ---
 
 # Step 2: Analyze Target
@@ -56,28 +57,35 @@ Display: "**Resolving target...**"
 
 ### 1b. Detect Monorepo / Workspace Layout
 
-Before listing the structure, check whether the root manifest declares a workspace layout:
+Delegate workspace detection to `{detectWorkspacesScript}` instead of reasoning through manifest rules in prose. Build a payload from the tree fetched in §1 plus the small set of root manifests the detector needs, then invoke the script:
 
-- **JavaScript/TypeScript:** root `package.json` has a `"workspaces"` array, OR a `pnpm-workspace.yaml` / `lerna.json` exists at the root.
-- **Rust:** root `Cargo.toml` has `[workspace]` with a `members = [...]` list.
-- **Python:** repo contains multiple `pyproject.toml` under `packages/*/` or `apps/*/`.
-- **Generic:** top-level `apps/`, `packages/`, `code/`, or `libs/` directory each containing manifests.
+```bash
+echo '{"tree": [<flat list of repo-relative file paths>], "manifests": {"package.json": "<raw text>", "Cargo.toml": "<raw text>", "pnpm-workspace.yaml": "<raw text>", "lerna.json": "<raw text>"}}' | \
+  uv run {detectWorkspacesScript}
+```
 
-If a workspace layout is detected, list the discovered workspaces and ask:
+- **`tree`** — pass the flat list of repo-relative file paths already fetched in §1 (for GitHub: the `path` values from the `gh api .../git/trees/HEAD?recursive=1` response; for local: the equivalent listing).
+- **`manifests`** — only the root manifests need contents; child-workspace manifests are looked up from the tree by the script. Include any of `package.json`, `Cargo.toml`, `pnpm-workspace.yaml`, `lerna.json` that appears at the repo root. Fetch them in **one message with N parallel Bash calls** (`gh api .../contents/{path}` for GitHub, file reads for local), then base64-decode together. Per-workspace manifest contents (e.g. `packages/foo/package.json`) are optional — including them populates the workspace `name` field with the manifest's declared package name; omitting them falls back to the directory basename.
+
+The script returns a JSON envelope: `{is_monorepo, manifest_kind, workspaces[], warnings[]}`. Apply the result deterministically — see `src/shared/scripts/schemas/workspace-detection.v1.json` for the full contract.
+
+**If `is_monorepo: false`** — skip this section silently and continue to §2.
+
+**If `is_monorepo: true`** — present the discovered workspaces and prompt:
 
 ```
-This looks like a monorepo with these workspaces:
-  1. {workspace_name} ({path})
-  2. {workspace_name} ({path})
+This looks like a monorepo ({manifest_kind}) with these workspaces:
+  1. {workspaces[0].name} ({workspaces[0].path})
+  2. {workspaces[1].name} ({workspaces[1].path})
   ...
 Which one should the skill cover? Pick a number, type 'all' to scope at the repo root, or 'list' to keep listing more.
 ```
 
 Interactive: wait for the user choice. On a numbered choice, store `monorepo_workspace: {path}` and rebase §2-§4b against that path. On `'all'`, leave `monorepo_workspace` unset and proceed at the repo root with a note in the analysis summary that scope is unfiltered.
 
-Headless: if the input contract supplied an `include` glob that begins with one of the workspace paths, auto-select that workspace (log `"headless: auto-selected workspace {name} from include glob"`). Otherwise default to repo root and log `"warn: monorepo detected but no workspace pre-selected — analyzing at repo root"`.
+Headless: if the input contract supplied an `include` glob that begins with one of the workspace paths, auto-select that workspace (log `"headless: auto-selected workspace {name} from include glob"`). Otherwise default to repo root and log `"warn: monorepo detected ({manifest_kind}) but no workspace pre-selected — analyzing at repo root"`.
 
-If no workspace layout is detected, skip this section silently.
+Surface any non-empty `warnings[]` from the script to the operator log so a malformed root manifest is debuggable; the workflow does not HALT — falling back to repo-root analysis is always safe.
 
 ### 2. Read Repository Structure
 
