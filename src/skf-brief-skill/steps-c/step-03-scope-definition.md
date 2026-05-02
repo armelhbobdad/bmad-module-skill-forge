@@ -77,11 +77,29 @@ For each URL in the final list (newly added or carried over), HEAD-check it (`cu
 
 Load `{scopeTemplatesFile}` for the scope type options ([F], [M], [P], [C], [R]) and their descriptions.
 
-Present: "**How broadly should this skill cover the library?**" followed by the scope type options from the loaded reference.
+**Recommend a scope type — don't present the five options as equal weight.** SKILL.md states this workflow "steers toward the smaller, sharper version when scope is unclear" — surface that opinion at decision time. Use the analysis from step-02 and the user's intent from step-01 to pick the best-fit recommendation, then present the menu with that option marked as the suggested default.
 
-Ask: "Which scope type fits your needs?"
+Heuristics for the recommendation (apply in order, pick the first that matches):
 
-Wait for user selection.
+- **Component registry detected** (file matching `registry.ts` / `components.ts` with 10+ entries, or `Component[]` type annotation) → **[C] Component Library**
+- **User intent mentions "wiring", "integration example", "starter", "lifecycle", "build config"** OR the analysis identified the source as an example/demo app → **[R] Reference App**
+- **Intent names specific module(s)** (e.g. "just the auth module", "only the streaming part") OR the analysis surfaced a large library (≥6 top-level modules with weakly-related concerns) → **[M] Specific Modules**
+- **Library has a clear, narrow public API** (≤8 named exports from the manifest, intent points at "the API" / "the SDK") → **[P] Public API Only**
+- **Otherwise** (small focused library, intent says "everything", or no strong signal either way) → **[F] Full Library**
+
+Present:
+
+"**Recommended scope type: [{letter}] {Name}** — {one-sentence rationale tying the recommendation to a specific signal from step-01/02, e.g. 'because the analysis found a 47-entry component registry under src/components/registry.ts'}.
+
+How broadly should this skill cover the library?
+
+{full menu from `{scopeTemplatesFile}` with the recommended letter marked, e.g. '[F] Full Library', '[M] Specific Modules', '[P] Public API Only ← recommended', '[C] Component Library', '[R] Reference App'}
+
+Press Enter to accept the recommendation, or pick a different letter."
+
+Wait for user selection. Empty input or just Enter accepts the recommendation; any of the five letters overrides.
+
+**Headless:** if `scope_type` was supplied, use it (consumed at the GATE in §6). If not supplied, the headless GATE auto-selects per the existing rule (`docs-only` → `docs-only`; `source` → `full-library`); the recommendation here is interactive-only.
 
 ### 3. Define Boundaries Based on Selection
 
