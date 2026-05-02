@@ -154,13 +154,14 @@ Record the response as `scripts_intent` and `assets_intent` in the brief. Defaul
 
 ### 6. Present MENU OPTIONS
 
-Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Continue to Brief Confirmation
+Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Continue to Brief Confirmation [X] Cancel and exit
 
 #### Menu Handling Logic:
 
 - IF A: Invoke {advancedElicitationSkill}, and when finished redisplay the menu
 - IF P: Invoke {partyModeSkill}, and when finished redisplay the menu
 - IF C: Load, read entire file, then execute {nextStepFile}
+- IF X: Treat as user-cancellation. Display `"Cancelled — no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). Cancellation here is non-destructive — no files have been written yet. `[X]` is interactive-only; the headless GATE never reaches this branch.
 - IF Any other comments or queries: help user respond then [Redisplay Menu Options](#6-present-menu-options)
 
 #### EXECUTION RULES:

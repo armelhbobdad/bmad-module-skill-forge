@@ -80,6 +80,7 @@ class TestAssemble:
             ("gh-auth-failed", 3),
             ("write-failed", 4),
             ("overwrite-cancelled", 5),
+            ("user-cancelled", 6),
         ],
     )
     def test_halt_reason_to_exit_code_mapping(self, halt, expected_exit):
@@ -206,6 +207,19 @@ class TestValidate:
             "halt_reason": "target-inaccessible",
         }
         mod.validate(env)
+
+    def test_exit_code_6_for_user_cancelled(self):
+        env = {
+            "status": "error",
+            "brief_path": None,
+            "skill_name": "foo",
+            "version": None,
+            "language": None,
+            "scope_type": None,
+            "exit_code": 6,
+            "halt_reason": "user-cancelled",
+        }
+        mod.validate(env)  # must not raise — user-cancelled→6 is canonical
 
 
 # --------------------------------------------------------------------------

@@ -4,6 +4,7 @@ forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 descriptionVoiceExamplesFile: 'assets/description-voice-examples.md'
 headlessArgsFile: 'references/headless-args.md'
 validateBriefInputsScript: '{project-root}/src/shared/scripts/skf-validate-brief-inputs.py'
+emitBriefEnvelopeScript: '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
 ---
 
 # Step 1: Gather Intent
@@ -24,6 +25,16 @@ To initialize the brief-skill workflow by discovering the forge tier configurati
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
 
 ### 1. Discover Forge Tier
+
+**Pre-flight write probe.** Before any conversational state accumulates, verify `{forge_data_folder}` is writable. A read-only mount, full disk, or permissions-denied path otherwise only surfaces at step-05's atomic write — by then the user has invested 5–15 minutes. Run a single-byte write-and-remove probe:
+
+```bash
+mkdir -p "{forge_data_folder}" && \
+  printf 'probe' > "{forge_data_folder}/.skf-write-probe" && \
+  rm "{forge_data_folder}/.skf-write-probe"
+```
+
+`mkdir -p` succeeds on a pre-existing read-only mount, but the `printf > file` redirect actually attempts a write — that catches read-only, disk-full, and permissions-denied uniformly. **On any non-zero exit:** HALT (exit code 4, `halt_reason: "write-failed"`) — `"**Error:** {forge_data_folder} is not writable: {captured stderr}. Verify the path exists, the mount is writable, and there is free disk space, then re-run."` In headless mode, invoke `{emitBriefEnvelopeScript} emit --target stderr` with envelope-context `{"status":"error","skill_name":"<name-or-pre-resolution-placeholder>","halt_reason":"write-failed"}` before exiting (matches the §8 GATE / step-05 emit pattern — never hand-assemble the envelope JSON). On success, continue silently to the forge-tier load below.
 
 Attempt to load `{forgeTierFile}`:
 
@@ -244,11 +255,12 @@ Wait for user confirmation or alternative. Store the accepted text as the brief'
 
 ### 8. Present MENU OPTIONS
 
-Display: "**Select:** [C] Continue to Target Analysis"
+Display: "**Select:** [C] Continue to Target Analysis · [X] Cancel and exit"
 
 #### Menu Handling Logic:
 
 - IF C: Load, read entire file, then execute {nextStepFile}
+- IF X: Treat as user-cancellation. Display `"Cancelled — no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). When `{headless_mode}` is true the GATE auto-proceeds and never reaches this branch — `[X]` is interactive-only. Cancellation here is non-destructive: no files have been written yet by step-01.
 - IF Any other: Help user, then [Redisplay Menu Options](#8-present-menu-options)
 
 #### EXECUTION RULES:
