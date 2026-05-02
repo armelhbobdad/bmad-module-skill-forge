@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "f7fd731cc72f",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-brief-cleanup-quick-wins",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-03-scope-definition.md",
+    "src/skf-brief-skill/steps-c/step-04-confirm-brief.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f7/fd731cc72f/0/metadata.json",
+      "transcript": "/f7/fd731cc72f/0/full.jsonl",
+      "context": "/f7/fd731cc72f/0/context.md",
+      "content_hash": "/f7/fd731cc72f/0/content_hash.txt",
+      "prompt": "/f7/fd731cc72f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 456,
+    "cache_creation_tokens": 407188,
+    "cache_read_tokens": 38454962,
+    "output_tokens": 182656,
+    "api_call_count": 176
+  }
+}
