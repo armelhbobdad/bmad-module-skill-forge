@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "5b4161e21a19",
+  "session_id": "8f18a472-e1c5-4c9c-8ce3-6e738423db8c",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-02T19:45:17.021522305Z",
+  "branch": "refactor/skf-brief-step01-ux-safety-rails",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-01-gather-intent.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "449805716b6b",
+  "token_usage": {
+    "input_tokens": 299,
+    "cache_creation_tokens": 252806,
+    "cache_read_tokens": 19092002,
+    "output_tokens": 94461,
+    "api_call_count": 117
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-02T19:45:15.288126025Z",
+    "agent_lines": 0,
+    "human_added": 6,
+    "human_modified": 3,
+    "human_removed": 0,
+    "total_committed": 6,
+    "agent_percentage": 0
+  }
+}
