@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "6be88190e127",
+  "strategy": "manual-commit",
+  "branch": "feat/skf-brief-skill-preset-draft-qmd-similarity",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-01-gather-intent.md",
+    "src/skf-brief-skill/steps-c/step-05-write-brief.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/6b/e88190e127/0/metadata.json",
+      "transcript": "/6b/e88190e127/0/full.jsonl",
+      "context": "/6b/e88190e127/0/context.md",
+      "content_hash": "/6b/e88190e127/0/content_hash.txt",
+      "prompt": "/6b/e88190e127/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 428,
+    "cache_creation_tokens": 376848,
+    "cache_read_tokens": 31692020,
+    "output_tokens": 166741,
+    "api_call_count": 158
+  }
+}
