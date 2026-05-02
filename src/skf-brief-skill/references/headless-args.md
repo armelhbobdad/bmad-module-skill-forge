@@ -8,11 +8,11 @@ Loaded by step-01 §8 only when `{headless_mode}` is true. Canonical operator-fa
 | `skill_name` | yes | — | HALT (exit 2, `halt_reason: "input-missing"`) if absent; HALT (exit 2, `halt_reason: "input-invalid"`) if non-kebab |
 | `source_type` | no | `source` | If `docs-only`, `doc_urls` becomes required |
 | `doc_urls` | conditional | — | Required when `source_type=docs-only` (HALT exit 2, `halt_reason: "input-missing"` if empty). List of `url` or `url,label` |
-| `source_authority` | no | `community` | `official` / `community` / `internal`; forced to `community` when `source_type=docs-only` |
+| `source_authority` | no | detected | `official` / `community` / `internal`. When absent and `target_repo` is a GitHub URL, step-01 §8 GATE probes `gh api user` and compares its login to the URL owner — match → `official`, otherwise → `community`. Local-path or `gh api user` failure → `community`. Forced to `community` when `source_type=docs-only` |
 | `target_version` | no | — | Auto-detected in step-02 if absent. Full X.Y.Z semver required (HALT exit 2, `halt_reason: "input-invalid"` on partial forms like `1`, `1.2`, `v2`) |
 | `scope_hint` | no | — | Free-text steering for §5 |
 | `language_hint` | no | — | Overrides language detection in step-02/03 |
-| `scope_type` | no | — | `full-library` / `specific-modules` / `public-api` / `component-library` / `reference-app` / `docs-only` |
+| `scope_type` | no | heuristic | `full-library` / `specific-modules` / `public-api` / `component-library` / `reference-app` / `docs-only`. When absent and `source_type=source`, step-03 §2c runs five signal-driven heuristics (component-registry presence, reference-app keywords, specific-module intent, narrow public API) and uses the first match; falls back to `full-library` only if no heuristic fires. `source_type=docs-only` always short-circuits to `docs-only` |
 | `include` | no | — | Comma-separated globs (used by step-03 §3) |
 | `exclude` | no | — | Comma-separated globs (used by step-03 §3) |
 | `scripts_intent` | no | `detect` | `detect` / `none` / free-text |

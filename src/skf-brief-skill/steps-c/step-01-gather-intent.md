@@ -106,6 +106,8 @@ Skip §3.3 and continue at "Confirm the target" below.
 
 **Source authority (this branch only — docs-only forces `community` in §3.2):**
 
+**Interactive only** — skip this prompt entirely when `{headless_mode}` is true; the GATE in §8 resolves source_authority headlessly via the detection branch documented there.
+
 "**Are you the maintainer of this library, or creating a community skill?**"
 - If maintainer: set `source_authority: "official"`
 - If community user: set `source_authority: "community"` (default)
@@ -235,7 +237,10 @@ This is what shows up when agents discover the skill. Edit it, replace it, or ac
 
 Wait for user confirmation or alternative. Store the accepted text as the brief's `description` field. The same field is re-presented in step-04 §3 for a final review pass — refinements there flow back to this value.
 
-**Headless:** if the `intent` argument was supplied, load `{descriptionVoiceExamplesFile}` and run the same synthesis against it, then store the result. If `intent` was not supplied, derive from `target_repo` + `skill_name` (`"Use the {skill_name} skill to work with code or content from {target_repo}."`) — the generic fallback does not need the asset — and log `"warn: description synthesized without intent — narrow registry text."`
+**Headless:** if the `intent` argument was supplied, load `{descriptionVoiceExamplesFile}` and run the same synthesis against it (in `{document_output_language}`), then store the result. If `intent` was not supplied, fall back in priority order:
+
+1. **GitHub repo description** — when `target_repo` is a GitHub URL, fetch `gh api repos/{owner}/{repo} --jq .description` (5-second timeout). If a non-empty description comes back, load `{descriptionVoiceExamplesFile}` and synthesize using the GitHub description as the seed in place of `intent`. Write the synthesized description in `{document_output_language}` regardless of the seed's language (the seed may be in any language; the output's language is dictated by the workflow's document-output configuration). Log `"info: description seeded from GitHub repo description"`. (The full `gh api repos` response is fetched again in step-02 §1; this lightweight `--jq .description` call only retrieves the one field.)
+2. **Generic stub** — when no GitHub description is available (local-path target, GitHub repo with empty description, or `gh api` fails): derive from `target_repo` + `skill_name` (`"Use the {skill_name} skill to work with code or content from {target_repo}."`) — the generic fallback does not need the asset — and log `"warn: description synthesized without intent or repo description — narrow registry text."`
 
 ### 8. Present MENU OPTIONS
 
@@ -263,6 +268,14 @@ Display: "**Select:** [C] Continue to Target Analysis"
   - **`valid: true`** — consume the `normalized` object as the source of truth (it has defaults applied per the table). Surface `warnings[]` to the operator log but do not HALT. Auto-proceed.
 
   The script's `KNOWN_FIELDS` set must stay in sync with the table in `{headlessArgsFile}`.
+
+  **Headless source-authority detection** — the validator intentionally leaves `source_authority` ABSENT from `normalized` when not supplied (so detection can run here). After consuming `normalized`, if `source_authority` is absent AND `source_type=source` AND `target_repo` is a GitHub URL, run signal-driven detection:
+
+  ```bash
+  gh api user --jq .login
+  ```
+
+  Compare the result to the `owner` segment of `target_repo` (URL pattern `https://github.com/<owner>/<repo>`) — **lower-case both values before comparing** (GitHub owner matching is case-insensitive but the API preserves case in responses). If they match, set `source_authority: "official"` — the operator is the repo's GitHub owner. Otherwise set `source_authority: "community"`. On any error from `gh api user` (unauthenticated, network failure, missing binary), log `"warn: source-authority detection skipped — gh api user failed"` and fall back to `"community"`. For local-path targets the comparison cannot apply; set `"community"` directly. (When `source_authority` was already supplied in `normalized`, the supplied value wins — no detection runs.)
 
 
 - ONLY proceed to next step when user selects 'C'

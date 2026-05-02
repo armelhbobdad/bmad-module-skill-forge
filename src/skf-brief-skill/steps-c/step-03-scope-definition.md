@@ -99,7 +99,11 @@ Press Enter to accept the recommendation, or pick a different letter."
 
 Wait for user selection. Empty input or just Enter accepts the recommendation; any of the five letters overrides.
 
-**Headless:** if `scope_type` was supplied, use it (consumed at the GATE in §6). If not supplied, the headless GATE auto-selects per the existing rule (`docs-only` → `docs-only`; `source` → `full-library`); the recommendation here is interactive-only.
+**Headless:** if `scope_type` was supplied, use it (consumed at the GATE in §6). If not supplied, run the same five heuristics above against the data already gathered (intent text + scope_hint from step-01, module count + exports + file paths from step-02) and use the first matching recommendation as the scope_type. Log `"headless: scope_type auto-selected as {value} from {heuristic-name}"` so the choice is debuggable.
+
+For the **component-registry** heuristic, the entry-count threshold (`10+ entries`) and `Component[]` type-annotation check require file *contents* — those are only available when step-02 §4.1 included `registry.ts` / `components.ts` as an entry point in the script payload (rare for the public-API mode), or when the target is a local path. In headless mode without that visibility, treat **the presence of `registry.ts` or `components.ts` anywhere in the file tree** as a sufficient match for the component-library recommendation — content inspection is interactive-only.
+
+The `docs-only` short-circuit still applies when `source_type=docs-only` (heuristic ranking is skipped — there is no source surface to scope). When no heuristic matches, fall back to `full-library` and log `"headless: scope_type defaulted to full-library — no signal matched"`.
 
 ### 3. Define Boundaries Based on Selection
 
@@ -164,7 +168,7 @@ Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Conti
 - ALWAYS halt and wait for user input after presenting menu
 - **GATE [default: C]** — If `{headless_mode}`: consume the headless inputs from step-01 in priority order:
   - If `scope_type` was supplied, use it (must match one of the six valid types) and skip the §2c template menu.
-  - Otherwise auto-select based on `source_type`: `docs-only` → `scope.type: "docs-only"`; `source` → `full-library` (default).
+  - Otherwise auto-select: `source_type=docs-only` → `scope.type: "docs-only"`; `source_type=source` → run the §2c heuristic-driven recommendation (component-registry / reference-app keywords / specific-modules / public-api / full-library) against the step-01/02 signals and use the first match. Falls back to `full-library` only when no heuristic matches.
   - If `include`/`exclude` were supplied, use them verbatim (split on comma) instead of running the boundary prompts in §3.
   - If `scripts_intent`/`assets_intent` were supplied, record them and skip §5b; otherwise default to `detect`.
   - Log: `"headless: scope_type={value} include={n} exclude={n} scripts_intent={value} assets_intent={value}"`.

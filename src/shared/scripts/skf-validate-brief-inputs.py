@@ -212,7 +212,12 @@ def validate(inp: dict[str, Any]) -> dict[str, Any]:
     # Build normalized payload
     normalized: dict[str, Any] = dict(inp)
     normalized.setdefault("source_type", "source")
-    normalized.setdefault("source_authority", "community")
+    # `source_authority` is intentionally NOT setdefault'd here for source-type targets:
+    # step-01 §3.3's headless detection branch runs `gh api user` and may resolve to
+    # `official` for repos owned by the authenticated user. Stamping a default at
+    # validator time would pre-empt the detection because step-01 §8 GATE treats the
+    # `normalized` object as the source of truth. Absence is the signal "run detection."
+    # The docs-only branch below still forces `community` since detection cannot apply.
     normalized.setdefault("scripts_intent", "detect")
     normalized.setdefault("assets_intent", "detect")
 

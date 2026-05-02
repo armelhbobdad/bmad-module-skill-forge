@@ -116,8 +116,21 @@ class TestEnums:
         assert any(e["field"] == "source_type" for e in out["errors"])
         assert out["halt_reason"] == "input-invalid"
 
-    def test_source_authority_default_community(self):
+    def test_source_authority_absent_when_not_supplied_for_source(self):
+        # source_authority is intentionally left absent so step-01 §3.3's headless
+        # detection branch (gh api user vs repo owner) can run.
         out = mod.validate({"target_repo": "/x", "skill_name": "foo"})
+        assert "source_authority" not in out["normalized"]
+
+    def test_source_authority_forced_community_for_docs_only_when_absent(self):
+        out = mod.validate(
+            {
+                "target_repo": "/x",
+                "skill_name": "foo",
+                "source_type": "docs-only",
+                "doc_urls": ["https://docs.example.com"],
+            }
+        )
         assert out["normalized"]["source_authority"] == "community"
 
     def test_source_authority_invalid(self):
@@ -284,7 +297,8 @@ class TestNormalization:
         out = mod.validate({"target_repo": "/x", "skill_name": "foo"})
         n = out["normalized"]
         assert n["source_type"] == "source"
-        assert n["source_authority"] == "community"
+        # source_authority is NOT defaulted here — see test_source_authority_absent_when_not_supplied_for_source
+        assert "source_authority" not in n
         assert n["scripts_intent"] == "detect"
         assert n["assets_intent"] == "detect"
 
