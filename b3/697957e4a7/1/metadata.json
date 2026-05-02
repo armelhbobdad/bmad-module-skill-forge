@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "b3697957e4a7",
+  "session_id": "d8a08ef8-84e7-4797-8b13-657571e0f7a8",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-02T17:05:26.92964797Z",
+  "branch": "refactor/skf-brief-skill-extract-references",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-01-gather-intent.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "ea016ec81285",
+  "token_usage": {
+    "input_tokens": 320,
+    "cache_creation_tokens": 212635,
+    "cache_read_tokens": 8479225,
+    "output_tokens": 64999,
+    "api_call_count": 75
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-02T17:05:26.363622494Z",
+    "agent_lines": 0,
+    "human_added": 4,
+    "human_modified": 20,
+    "human_removed": 0,
+    "total_committed": 4,
+    "agent_percentage": 0
+  }
+}
