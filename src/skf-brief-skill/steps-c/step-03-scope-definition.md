@@ -99,7 +99,11 @@ Press Enter to accept the recommendation, or pick a different letter."
 
 Wait for user selection. Empty input or just Enter accepts the recommendation; any of the five letters overrides.
 
-**Headless:** if `scope_type` was supplied, use it (consumed at the GATE in §6). If not supplied, run the same five heuristics above against the data already gathered (intent text + scope_hint from step-01, module count + file patterns from step-02) and use the first matching recommendation as the scope_type. Log `"headless: scope_type auto-selected as {value} from {heuristic-name}"` so the choice is debuggable. The `docs-only` short-circuit still applies when `source_type=docs-only` (heuristic ranking is skipped — there is no source surface to scope). When no heuristic matches, fall back to `full-library` and log `"headless: scope_type defaulted to full-library — no signal matched"`.
+**Headless:** if `scope_type` was supplied, use it (consumed at the GATE in §6). If not supplied, run the same five heuristics above against the data already gathered (intent text + scope_hint from step-01, module count + exports + file paths from step-02) and use the first matching recommendation as the scope_type. Log `"headless: scope_type auto-selected as {value} from {heuristic-name}"` so the choice is debuggable.
+
+For the **component-registry** heuristic, the entry-count threshold (`10+ entries`) and `Component[]` type-annotation check require file *contents* — those are only available when step-02 §4.1 included `registry.ts` / `components.ts` as an entry point in the script payload (rare for the public-API mode), or when the target is a local path. In headless mode without that visibility, treat **the presence of `registry.ts` or `components.ts` anywhere in the file tree** as a sufficient match for the component-library recommendation — content inspection is interactive-only.
+
+The `docs-only` short-circuit still applies when `source_type=docs-only` (heuristic ranking is skipped — there is no source surface to scope). When no heuristic matches, fall back to `full-library` and log `"headless: scope_type defaulted to full-library — no signal matched"`.
 
 ### 3. Define Boundaries Based on Selection
 
