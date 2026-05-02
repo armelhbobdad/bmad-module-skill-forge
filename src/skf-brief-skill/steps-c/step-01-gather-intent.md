@@ -52,9 +52,11 @@ We'll work through this together:
 4. **Finally:** Confirm and write the brief
 
 {If tier override was applied:}
-**Your forge tier:** {override tier} (overridden from {original tier}) — this determines what compilation capabilities are available.
+**Your forge tier:** {override tier} (overridden from {original tier}) — {tier_gloss}
 {Else:}
-**Your forge tier:** {detected tier} — this determines what compilation capabilities are available.
+**Your forge tier:** {detected tier} — {tier_gloss}
+
+(Substitute `{tier_gloss}` with the matching one-liner so the user knows what the tier label means: `Quick` → "text-only extraction"; `Forge` → "AST-grep on, semantic discovery off"; `Forge+` → "AST-grep + ccc semantic discovery"; `Deep` → "full pipeline — AST + ccc + qmd portfolio search + LLM re-ranking". The tier sets the ceiling for what the downstream create-skill workflow can do; you can re-run setup later to change it.)
 
 Let's get started."
 
