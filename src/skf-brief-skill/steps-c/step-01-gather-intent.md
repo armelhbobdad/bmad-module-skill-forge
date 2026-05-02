@@ -175,19 +175,19 @@ Wait for confirmation or alternative.
 
 **Collision check (interactive and headless):** before locking the name, check whether `{forge_data_folder}/{name}/skill-brief.yaml` already exists. If it does:
 
-- Interactive: generate 2–3 non-colliding candidate alternates by scanning sibling directories under `{forge_data_folder}/`. Apply each rule that fires; skip rules whose precondition isn't met:
+- Interactive: generate 1–3 non-colliding candidate alternates by scanning sibling directories under `{forge_data_folder}/`. Apply each rule that fires; skip rules whose precondition isn't met:
   1. `{name}-v{N}` where `N` is the smallest positive integer that doesn't collide (e.g. `{name}-v2`, `{name}-v3`) — always applies
   2. `{name}-{target_version}` if `target_version` is set and the suffix wouldn't collide (e.g. `marked-1.2.3`)
   3. `{name}-{source_authority}` if `source_authority` is not `community` (e.g. `marked-internal` for an internal fork)
 
-  Number the surviving alternates `[1] [2] [3]…` in the order produced (typically 2 alternates for community-authority briefs, 3 otherwise). Then present:
+  Number the surviving alternates `[1] [2] [3]…` in the order produced (1 alternate for a community-authority brief with no `target_version`; 2–3 otherwise). Then present:
 
   ```
   **Heads up — a brief for `{name}` already exists at `{path}`.**
 
   Suggested alternates (none collide):
     [1] {alternate-1}
-    [2] {alternate-2}
+    {if a second alternate was produced:} [2] {alternate-2}
     {if a third alternate was produced:} [3] {alternate-3}
 
   Pick a number to use that name, type a different name, or press Enter to keep `{name}` and let step-05 §2b handle the overwrite prompt.
