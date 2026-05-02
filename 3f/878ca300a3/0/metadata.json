@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "3f878ca300a3",
+  "session_id": "59fb4a37-a44f-47c7-aee7-05cbf47536c3",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-02T21:02:08.585773188Z",
+  "branch": "docs/workflows-headless-brief-skill",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/workflows.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "e043b7846c6e",
+  "token_usage": {
+    "input_tokens": 45,
+    "cache_creation_tokens": 99511,
+    "cache_read_tokens": 2732531,
+    "output_tokens": 10461,
+    "api_call_count": 30
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-02T21:02:08.293693985Z",
+    "agent_lines": 34,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 34,
+    "agent_percentage": 100
+  }
+}
