@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "60d5e9a9fe7a",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-brief-step01-lazy-refs",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-01-gather-intent.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/60/d5e9a9fe7a/0/metadata.json",
+      "transcript": "/60/d5e9a9fe7a/0/full.jsonl",
+      "context": "/60/d5e9a9fe7a/0/context.md",
+      "content_hash": "/60/d5e9a9fe7a/0/content_hash.txt",
+      "prompt": "/60/d5e9a9fe7a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 238,
+    "cache_creation_tokens": 162968,
+    "cache_read_tokens": 7526437,
+    "output_tokens": 54929,
+    "api_call_count": 66
+  }
+}
