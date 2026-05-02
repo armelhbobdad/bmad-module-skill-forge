@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "3292a433ad62",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-brief-step01-ux-safety-rails",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-04-confirm-brief.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/32/92a433ad62/0/metadata.json",
+      "transcript": "/32/92a433ad62/0/full.jsonl",
+      "context": "/32/92a433ad62/0/context.md",
+      "content_hash": "/32/92a433ad62/0/content_hash.txt",
+      "prompt": "/32/92a433ad62/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 276,
+    "cache_creation_tokens": 220999,
+    "cache_read_tokens": 13376508,
+    "output_tokens": 78108,
+    "api_call_count": 94
+  }
+}
