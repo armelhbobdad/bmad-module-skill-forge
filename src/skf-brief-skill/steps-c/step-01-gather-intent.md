@@ -224,7 +224,25 @@ Display: "**Select:** [C] Continue to Target Analysis"
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: use args]** — If `{headless_mode}`: consume pre-supplied arguments and auto-proceed. Required: `target_repo`, `skill_name`. Optional, applied to the matching brief field when present: `scope_hint`, `language_hint`, `target_version`, `source_authority` (default `community`), `source_type` (default `source`; if `docs-only`, `doc_urls` becomes required), `doc_urls` (list of `url` or `url,label`), `scope_type`, `include`, `exclude`, `scripts_intent` (default `detect`), `assets_intent` (default `detect`), `intent` (free-text used to derive `description`). If `target_repo` or `skill_name` is missing, HALT with exit code 2 (`halt_reason: "input-missing"`): "headless mode requires target_repo and skill_name arguments." If `source_type=docs-only` and no `doc_urls` supplied, same HALT with `halt_reason: "input-missing"`.
+- **GATE [default: use args]** — If `{headless_mode}`, consume pre-supplied arguments per the table below and auto-proceed. Any missing required arg → HALT with exit code 2, `halt_reason: "input-missing"`, message: `"headless mode requires target_repo and skill_name arguments."` (Same HALT applies when `source_type=docs-only` and `doc_urls` is empty.)
+
+  | Argument | Required | Default | Notes |
+  |----------|----------|---------|-------|
+  | `target_repo` | yes | — | HALT (exit 2) if absent |
+  | `skill_name` | yes | — | HALT (exit 2) if absent |
+  | `source_type` | no | `source` | If `docs-only`, `doc_urls` becomes required |
+  | `doc_urls` | conditional | — | Required when `source_type=docs-only`. List of `url` or `url,label` |
+  | `source_authority` | no | `community` | `official` / `community` / `internal`; forced to `community` when `source_type=docs-only` |
+  | `target_version` | no | — | Auto-detected in step-02 if absent |
+  | `scope_hint` | no | — | Free-text steering for §5 |
+  | `language_hint` | no | — | Overrides language detection in step-02/03 |
+  | `scope_type` | no | — | `full-library` / `specific-modules` / `public-api` / `component-library` / `reference-app` / `docs-only` |
+  | `include` | no | — | Comma-separated globs (used by step-03 §3) |
+  | `exclude` | no | — | Comma-separated globs (used by step-03 §3) |
+  | `scripts_intent` | no | `detect` | `detect` / `none` / free-text |
+  | `assets_intent` | no | `detect` | `detect` / `none` / free-text |
+  | `intent` | no | — | Free-text used to derive `description` in §7b |
+  | `force` | no | — | Overwrite existing brief without prompting (consumed in step-05 §2b) |
 - ONLY proceed to next step when user selects 'C'
 
 ## CRITICAL STEP COMPLETION NOTE
