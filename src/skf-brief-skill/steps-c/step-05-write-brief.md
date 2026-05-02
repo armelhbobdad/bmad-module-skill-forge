@@ -100,7 +100,7 @@ echo '<context-json>' | uv run {writeSkillBriefScript} write --target {resolved-
 
 The script:
 - Validates the context against `src/shared/scripts/schemas/skill-brief.v1.json`
-- Applies the version-precedence rule from `{versionResolutionFile}` (target_version > detected_version > 1.0.0)
+- Applies the version-precedence rule from `{versionResolutionFile}`
 - Enforces the `target_version == version` invariant (refuses to write a brief that violates it)
 - Renders YAML in canonical key order (byte-stable across runs)
 - Atomically writes the file via temp + fsync + rename (no half-written file ever visible)
