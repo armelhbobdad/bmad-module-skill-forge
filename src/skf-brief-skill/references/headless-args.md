@@ -19,3 +19,4 @@ Loaded by step-01 §8 only when `{headless_mode}` is true. Canonical operator-fa
 | `assets_intent` | no | `detect` | `detect` / `none` / free-text |
 | `intent` | no | — | Free-text used to derive `description` in §7b |
 | `force` | no | — | Overwrite existing brief without prompting (consumed in step-05 §2b) |
+| `preset` | no | — | Name of a preset YAML file at `{sidecar_path}/brief-presets/{preset}.yaml`. Loaded at step-01 §8 GATE and merged as defaults; explicit args override preset values. Useful for repeated patterns (e.g. briefing 5 SaaS API SDKs with the same `source_authority`/`scope_type`/`scripts_intent`). The preset file is YAML containing any subset of the headless args above; unknown fields are ignored with a warning |

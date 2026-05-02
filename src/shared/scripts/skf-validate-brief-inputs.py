@@ -76,6 +76,7 @@ KNOWN_FIELDS = {
     "include",
     "exclude",
     "force",
+    "preset",
 }
 
 VALID_SOURCE_TYPES = {"source", "docs-only"}

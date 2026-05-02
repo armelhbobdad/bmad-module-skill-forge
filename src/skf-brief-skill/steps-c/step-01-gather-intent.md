@@ -268,6 +268,8 @@ Display: "**Select:** [C] Continue to Target Analysis · [X] Cancel and exit"
 - ALWAYS halt and wait for user input after presenting menu
 - **GATE [default: use args]** — If `{headless_mode}`, consume pre-supplied arguments and auto-proceed. The full argument set (required/optional, defaults, halt codes, enum values) is documented in `{headlessArgsFile}` — load it now if you need to look up a specific argument. Validation is delegated to `{validateBriefInputsScript}`; the table is the canonical operator-facing documentation, the script enforces it.
 
+  **Preset merge (before validation).** If the headless args include a `preset` field, load `{sidecar_path}/brief-presets/{preset}.yaml` and merge its contents as defaults — explicit args override preset values, key by key. The preset file is YAML; if it does not exist, log `"warn: preset '{name}' not found at {path} — proceeding without preset"` and continue (do not HALT). If it parses but contains unknown fields, log per-field warnings and pass through unchanged (the validator's KNOWN_FIELDS check will catch any that survive). Drop the `preset` key itself from the merged dict before passing to the validator (it is consumed at this level and is not a brief field).
+
   **Delegate validation to `{validateBriefInputsScript}`** instead of reasoning through the table rules in prose:
 
   ```bash
