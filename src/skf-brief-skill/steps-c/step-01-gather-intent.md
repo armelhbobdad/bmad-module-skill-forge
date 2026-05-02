@@ -91,12 +91,16 @@ Provide one of:
 - A **local path** (e.g., `/path/to/project`)
 - **Documentation URLs** for a docs-only skill (e.g., `https://docs.stripe.com/api`) — use this when no source code is available (SaaS, closed-source)
 
+Or type `cancel` / `exit` / `[X]` to leave without writing anything.
+
 **Target:**"
 
 Wait for user response. Branch on the response:
 
+- Empty input, `cancel`, `exit`, `[X]`, `q`, or `:q` → Display `"Cancelled — no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). Cancellation here is non-destructive — no files have been written yet by step-01. Headless mode never reaches this branch (the GATE in §8 short-circuits the interactive sub-flows).
 - Documentation URLs only (no source location) → §3.2
 - GitHub URL or local filesystem path → §3.3
+- Any other free-form question (e.g. "what is this?", "show me an example", "how does SKF work?") → answer briefly, re-display the prompt
 
 #### 3.2 Branch — Documentation URLs (docs-only)
 
