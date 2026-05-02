@@ -415,6 +415,26 @@ def _select_manifest_parser(language: str, manifest_path: str) -> ManifestParser
     return LANGUAGE_DISPATCH[language][0]
 
 
+# Release-time placeholder versions that appear in committed manifests but
+# resolve to a real version only at publish time. Briefs that silently inherit
+# these as the resolved version produce skills tagged with garbage version
+# strings; surface them at brief-creation instead.
+_PLACEHOLDER_VERSION_PREFIXES = ("workspace:",)
+_PLACEHOLDER_VERSION_EXACTS = frozenset({"0.0.0-development", "0.0.0-semantically-released"})
+
+
+def _detect_placeholder_version(version: str | None) -> str | None:
+    """Return the original placeholder string if `version` is a known release-time sentinel, else None."""
+    if not version or not isinstance(version, str):
+        return None
+    v = version.strip().lower()
+    if v in _PLACEHOLDER_VERSION_EXACTS:
+        return version
+    if any(v.startswith(prefix) for prefix in _PLACEHOLDER_VERSION_PREFIXES):
+        return version
+    return None
+
+
 def extract(payload: dict) -> dict:
     """Orchestrate manifest parse + export scan for one logical package."""
     warnings: list[str] = []
@@ -435,6 +455,15 @@ def extract(payload: dict) -> dict:
         if "_parse_error" in parsed:
             warnings.append(parsed["_parse_error"])
             parsed = {}
+
+    placeholder = _detect_placeholder_version(parsed.get("version"))
+    if placeholder is not None:
+        warnings.append(
+            f"manifest version {placeholder!r} is a release-time placeholder "
+            f"(workspace protocol or semantic-release sentinel) and is not a real version; "
+            f"the brief will fall back to user-supplied target_version or the default"
+        )
+        parsed["version"] = None
 
     _, scanner = LANGUAGE_DISPATCH[language]
     exports: list[dict] = []
