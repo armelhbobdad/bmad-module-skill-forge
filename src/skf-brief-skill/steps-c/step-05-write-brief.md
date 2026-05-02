@@ -65,7 +65,7 @@ If the file does not exist, proceed normally.
 
 ### 3. Write the Brief
 
-Assemble the brief context as a JSON object containing the approved field values from steps 01-04:
+Assemble the brief context as a **flat** JSON object — every approved value is a top-level key, scope is split across four `scope_*` keys instead of nested, and every optional field is passed as `null` when not set rather than conditionally omitted. This eliminates the "decide what to omit" cognitive load that previously made this the most expensive HALT-typo site in the workflow:
 
 ```json
 {
@@ -79,24 +79,24 @@ Assemble the brief context as a JSON object containing the approved field values
   "forge_tier":       "{Quick|Forge|Forge+|Deep}",
   "created":          "{current ISO date YYYY-MM-DD}",
   "created_by":       "{user_name}",
-  "scope": {
-    "type":    "{approved scope type}",
-    "include": ["{approved include patterns}"],
-    "exclude": ["{approved exclude patterns}"],
-    "notes":   "{approved scope notes or empty string}"
-  },
-  "doc_urls":         [{"url": "...", "label": "..."}],   // omit when not applicable
-  "scripts_intent":   "{detect|none|free-text}",          // omit if "detect"
-  "assets_intent":    "{detect|none|free-text}",          // omit if "detect"
-  "source_authority": "{official|community|internal}"     // optional; defaults to "community" and is forced to "community" when source_type=docs-only
+  "scope_type":       "{approved scope type}",
+  "scope_include":    ["{approved include patterns}"],
+  "scope_exclude":    ["{approved exclude patterns}"],
+  "scope_notes":      "{approved scope notes or empty string}",
+  "doc_urls":         null | [{"url": "...", "label": "..."}],
+  "scripts_intent":   null | "{detect|none|free-text}",
+  "assets_intent":    null | "{detect|none|free-text}",
+  "source_authority": null | "{official|community|internal}"
 }
 ```
 
-Pipe it into the writer script:
+Pipe it into the writer script with the `--from-flat` flag:
 
 ```bash
-echo '<context-json>' | uv run {writeSkillBriefScript} write --target {resolved-target-path}
+echo '<context-json>' | uv run {writeSkillBriefScript} write --target {resolved-target-path} --from-flat
 ```
+
+The script translates flat → nested internally, drops the null optional fields, and runs the same schema validation and atomic write as before — pass every key always, the writer decides what reaches the YAML.
 
 The script:
 - Validates the context against `src/shared/scripts/schemas/skill-brief.v1.json`

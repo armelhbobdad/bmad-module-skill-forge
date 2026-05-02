@@ -65,6 +65,35 @@ When target_version is set, the rendered YAML includes a `target_version`
 field whose value MUST match `version` (the script enforces this
 invariant before write — refuses to emit a brief that violates it).
 
+Flat input form (`--from-flat`):
+
+  Identical semantics, friendlier shape for prose-driven callers — scope
+  is split across four top-level keys instead of nested, and every
+  optional field can be passed as `null` without the caller deciding
+  what to omit. The script translates flat → nested and runs the same
+  validator + writer pipeline.
+
+  {
+    "name":             "marked",
+    "target_version":   "1.2.3" | null,
+    "detected_version": "1.2.3" | null,
+    "source_type":      "source",
+    "source_repo":      "https://github.com/...",
+    "language":         "javascript",
+    "description":      "...",
+    "forge_tier":       "Quick",
+    "created":          "2026-05-02",
+    "created_by":       "armel",
+    "scope_type":       "full-library",
+    "scope_include":    ["src/**/*.ts"],
+    "scope_exclude":    ["**/*.test.*"],
+    "scope_notes":      "",
+    "doc_urls":         null | [...],
+    "scripts_intent":   null | "detect" | "none" | "...",
+    "assets_intent":    null | "detect" | "none" | "...",
+    "source_authority": null | "official" | "community" | "internal"
+  }
+
 Output (success):
 
   {
@@ -356,7 +385,63 @@ def atomic_write(target: Path, content: str) -> int:
     return len(encoded)
 
 
-def cmd_write(target: Path) -> int:
+# Top-level keys that get folded into the nested `scope` sub-object — every
+# other top-level key passes through unchanged so future additions to the
+# schema don't require a translator update.
+_FLAT_SCOPE_KEYS = ("scope_type", "scope_include", "scope_exclude", "scope_notes")
+
+
+def flat_to_nested(flat: dict[str, Any]) -> dict[str, Any]:
+    """Translate the flat brief-context shape into the nested shape consumed by validate_context.
+
+    Flat shape: scope is split across four top-level keys (`scope_type`,
+    `scope_include`, `scope_exclude`, `scope_notes`) instead of nested
+    under a `scope` object. Optional top-level fields (`doc_urls`,
+    `scripts_intent`, `assets_intent`, `source_authority`,
+    `target_version`, `detected_version`) may be absent or null —
+    they are simply dropped from the nested output, which matches the
+    existing validator's `ctx.get(...) is None` semantics.
+
+    Any unknown top-level keys are passed through unchanged so future
+    additions don't require a translator update.
+    """
+    if not isinstance(flat, dict):
+        _die("write --from-flat: payload must be a JSON object")
+
+    nested: dict[str, Any] = {}
+
+    # Pass through every top-level key that isn't part of the flat-scope
+    # split. Drop None values so optional fields behave as "absent" in
+    # the nested form (validate_context uses `is not None` checks).
+    for key, value in flat.items():
+        if key in _FLAT_SCOPE_KEYS:
+            continue
+        if value is None:
+            continue
+        nested[key] = value
+
+    # Build the nested scope object. All four scope_* keys (type, include,
+    # exclude, notes) are required at the schema level — null is
+    # intentionally treated as "absent" here (same as omitting the key)
+    # so validate_context surfaces `scope.<field> is required` rather
+    # than e.g. `scope.notes must be a string`. The `""` valid minimum
+    # for scope_notes must therefore be passed as the literal empty
+    # string, not null.
+    if any(k in flat for k in _FLAT_SCOPE_KEYS):
+        scope: dict[str, Any] = {}
+        if "scope_type" in flat and flat["scope_type"] is not None:
+            scope["type"] = flat["scope_type"]
+        if "scope_include" in flat and flat["scope_include"] is not None:
+            scope["include"] = flat["scope_include"]
+        if "scope_exclude" in flat and flat["scope_exclude"] is not None:
+            scope["exclude"] = flat["scope_exclude"]
+        if "scope_notes" in flat and flat["scope_notes"] is not None:
+            scope["notes"] = flat["scope_notes"]
+        nested["scope"] = scope
+    return nested
+
+
+def cmd_write(target: Path, from_flat: bool = False) -> int:
     raw = sys.stdin.read()
     if not raw or not raw.strip():
         _die("write: empty stdin (expected JSON brief context)")
@@ -366,6 +451,9 @@ def cmd_write(target: Path) -> int:
         _die(f"write: invalid JSON on stdin: {e}")
     if not isinstance(ctx, dict):
         _die("write: context payload must be a JSON object")
+
+    if from_flat:
+        ctx = flat_to_nested(ctx)
 
     warnings = validate_context(ctx)
     resolved_version = resolve_version(ctx)
@@ -399,10 +487,21 @@ def main() -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     p_write = sub.add_parser("write", help="Read brief context JSON on stdin, validate, render YAML, atomic write")
     p_write.add_argument("--target", type=Path, required=True, help="Absolute path to skill-brief.yaml")
+    p_write.add_argument(
+        "--from-flat",
+        action="store_true",
+        help=(
+            "Accept the flat brief-context shape (scope split across "
+            "scope_type/scope_include/scope_exclude/scope_notes top-level keys, "
+            "optional fields nullable) instead of the nested shape. Eliminates "
+            "the conditional-omit logic the LLM currently walks at the §3 "
+            "assembly site in step-05."
+        ),
+    )
 
     args = parser.parse_args()
     if args.cmd == "write":
-        return cmd_write(args.target)
+        return cmd_write(args.target, from_flat=args.from_flat)
     return 2
 
 

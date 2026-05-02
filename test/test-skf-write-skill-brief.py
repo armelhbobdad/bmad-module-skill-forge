@@ -402,3 +402,172 @@ class TestCLIWrite:
         assert first_content != second_content
         # No leftover .skf-tmp file
         assert not tmp_target.with_name(tmp_target.name + ".skf-tmp").exists()
+
+
+# --------------------------------------------------------------------------
+# Flat input form (--from-flat)
+# --------------------------------------------------------------------------
+
+
+def _baseline_flat() -> dict:
+    """Mirror of _baseline_ctx() but in the flat shape that --from-flat consumes."""
+    return {
+        "name": "marked",
+        "source_repo": "https://github.com/markedjs/marked",
+        "language": "javascript",
+        "description": "Render Markdown to HTML using the marked library.",
+        "forge_tier": "Quick",
+        "created": "2026-05-02",
+        "created_by": "armel",
+        "scope_type": "full-library",
+        "scope_include": ["src/**/*.ts"],
+        "scope_exclude": ["**/*.test.*"],
+        "scope_notes": "",
+    }
+
+
+class TestFlatTranslation:
+    """Pure-function tests for flat_to_nested — no subprocess."""
+
+    def test_translates_baseline_flat_to_nested(self):
+        nested = mod.flat_to_nested(_baseline_flat())
+        assert nested["name"] == "marked"
+        assert nested["scope"] == {
+            "type": "full-library",
+            "include": ["src/**/*.ts"],
+            "exclude": ["**/*.test.*"],
+            "notes": "",
+        }
+        # Top-level scope_* keys do not survive into the nested form
+        assert "scope_type" not in nested
+        assert "scope_include" not in nested
+
+    def test_drops_null_optionals(self):
+        flat = _baseline_flat()
+        flat["target_version"] = None
+        flat["detected_version"] = None
+        flat["doc_urls"] = None
+        flat["scripts_intent"] = None
+        flat["assets_intent"] = None
+        flat["source_authority"] = None
+        nested = mod.flat_to_nested(flat)
+        for key in ("target_version", "detected_version", "doc_urls",
+                    "scripts_intent", "assets_intent", "source_authority"):
+            assert key not in nested, f"{key} should be dropped when null"
+
+    def test_preserves_non_null_optionals(self):
+        flat = _baseline_flat()
+        flat["target_version"] = "1.2.3"
+        flat["doc_urls"] = [{"url": "https://x", "label": "x"}]
+        flat["source_authority"] = "official"
+        flat["scripts_intent"] = "none"
+        nested = mod.flat_to_nested(flat)
+        assert nested["target_version"] == "1.2.3"
+        assert nested["doc_urls"] == [{"url": "https://x", "label": "x"}]
+        assert nested["source_authority"] == "official"
+        assert nested["scripts_intent"] == "none"
+
+    def test_passes_through_unknown_keys(self):
+        flat = _baseline_flat()
+        flat["future_field"] = "preserved"
+        nested = mod.flat_to_nested(flat)
+        assert nested["future_field"] == "preserved"
+
+    def test_rejects_non_dict_payload(self):
+        with pytest.raises(SystemExit) as exc_info:
+            mod.flat_to_nested(["not", "a", "dict"])
+        assert exc_info.value.code == 1
+
+
+class TestCLIWriteFlat:
+    """End-to-end CLI tests for --from-flat — same coverage as the nested write."""
+
+    def _write_flat(self, target: Path, flat: dict) -> tuple[int, dict, str]:
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "write", "--target", str(target), "--from-flat"],
+            input=json.dumps(flat),
+            capture_output=True,
+            text=True,
+        )
+        out = json.loads(proc.stdout) if proc.stdout.strip() else {}
+        return proc.returncode, out, proc.stderr
+
+    def test_flat_write_produces_identical_yaml_to_nested_write(self, tmp_path):
+        nested_target = tmp_path / "nested.yaml"
+        flat_target = tmp_path / "flat.yaml"
+
+        # Nested write
+        proc_nested = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "write", "--target", str(nested_target)],
+            input=json.dumps(_baseline_ctx()),
+            capture_output=True,
+            text=True,
+        )
+        assert proc_nested.returncode == 0, proc_nested.stderr
+
+        # Flat write — same data via the flat shape
+        proc_flat = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "write", "--target", str(flat_target), "--from-flat"],
+            input=json.dumps(_baseline_flat()),
+            capture_output=True,
+            text=True,
+        )
+        assert proc_flat.returncode == 0, proc_flat.stderr
+
+        # Byte-identical YAML output
+        assert nested_target.read_text() == flat_target.read_text()
+
+    def test_flat_write_with_all_optionals_null(self, tmp_target):
+        flat = _baseline_flat()
+        flat["target_version"] = None
+        flat["doc_urls"] = None
+        flat["scripts_intent"] = None
+        flat["assets_intent"] = None
+        flat["source_authority"] = None
+        code, response, stderr = self._write_flat(tmp_target, flat)
+        assert code == 0, stderr
+        assert response["status"] == "ok"
+        # YAML should not contain the null-omitted optionals
+        body = tmp_target.read_text()
+        assert "target_version:" not in body
+        assert "doc_urls:" not in body
+        assert "source_authority:" not in body
+        assert "scripts_intent:" not in body
+
+    def test_flat_write_validates_same_rules_as_nested(self, tmp_target):
+        flat = _baseline_flat()
+        flat["forge_tier"] = "Bogus"  # invalid enum
+        code, _, stderr = self._write_flat(tmp_target, flat)
+        assert code == 1
+        err = json.loads(stderr.strip())
+        assert err["field"] == "forge_tier"
+
+    def test_flat_write_rejects_missing_scope_type(self, tmp_target):
+        flat = _baseline_flat()
+        del flat["scope_type"]
+        code, _, stderr = self._write_flat(tmp_target, flat)
+        assert code == 1
+        err = json.loads(stderr.strip())
+        assert err["field"] == "scope.type"
+
+    def test_flat_write_rejects_target_version_invariant(self, tmp_target):
+        flat = _baseline_flat()
+        flat["target_version"] = "9.9.9"
+        flat["detected_version"] = "1.0.0"  # version resolves to 9.9.9 → matches
+        # Force a mismatch by overriding via version_resolved
+        flat["version_resolved"] = "1.0.0"
+        code, _, stderr = self._write_flat(tmp_target, flat)
+        assert code == 1
+        err = json.loads(stderr.strip())
+        assert err["field"] == "target_version"
+        assert "invariant" in err["message"]
+
+    def test_flat_write_handles_docs_only_with_doc_urls(self, tmp_target):
+        flat = _baseline_flat()
+        flat["source_type"] = "docs-only"
+        flat["doc_urls"] = [{"url": "https://docs.example.com", "label": "Main"}]
+        code, response, stderr = self._write_flat(tmp_target, flat)
+        assert code == 0, stderr
+        body = tmp_target.read_text()
+        assert "doc_urls:" in body
+        assert "https://docs.example.com" in body
