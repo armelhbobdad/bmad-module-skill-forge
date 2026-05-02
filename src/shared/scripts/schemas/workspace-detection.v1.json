@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://armelhbobdad.github.io/bmad-module-skill-forge/schemas/workspace-detection.v1.json",
+  "title": "Workspace Detection Result (v1)",
+  "description": "Result envelope returned by skf-detect-workspaces.py. Reports whether the inspected target is a monorepo, which manifest kind drives it, and the list of resolved workspaces.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["is_monorepo", "manifest_kind", "workspaces", "warnings"],
+  "properties": {
+    "is_monorepo": {
+      "type": "boolean",
+      "description": "True if any detector matched at least one workspace."
+    },
+    "manifest_kind": {
+      "description": "Which detector produced the result. null when is_monorepo is false.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["npm-workspaces", "pnpm-workspaces", "lerna", "cargo-workspace", "python-multi-package", "generic-folders"]
+        },
+        { "type": "null" }
+      ]
+    },
+    "workspaces": {
+      "type": "array",
+      "description": "Resolved workspaces. Empty when is_monorepo is false. Each entry has a name, a repository-relative path, and the path to its recognised manifest.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "path", "manifest"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "minLength": 1 },
+          "manifest": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "description": "Non-fatal parse warnings encountered during detection (e.g. malformed manifests that the detector skipped).",
+      "items": { "type": "string" }
+    }
+  }
+}
