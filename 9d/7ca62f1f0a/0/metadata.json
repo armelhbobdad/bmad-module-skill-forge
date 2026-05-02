@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "9d7ca62f1f0a",
+  "session_id": "8f18a472-e1c5-4c9c-8ce3-6e738423db8c",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-02T20:28:18.178107182Z",
+  "branch": "refactor/skf-brief-detect-language-script",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "package.json"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "3f156076c1ab",
+  "token_usage": {
+    "input_tokens": 384,
+    "cache_creation_tokens": 373598,
+    "cache_read_tokens": 40673620,
+    "output_tokens": 164565,
+    "api_call_count": 182
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-02T20:28:15.870954297Z",
+    "agent_lines": 1,
+    "human_added": 567,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 568,
+    "agent_percentage": 0.17605633802816903
+  }
+}
