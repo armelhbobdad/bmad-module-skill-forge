@@ -56,7 +56,7 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 | Code | Meaning              | Raised by                                                                                  |
 | ---- | -------------------- | ------------------------------------------------------------------------------------------ |
 | 0    | success              | step-06 (terminal)                                                                         |
-| 2    | input-missing / input-invalid | step-01 GATE — required headless arg absent (`target_repo`, `skill_name`, or `doc_urls` when `source_type=docs-only`) → `input-missing`; enum violation, malformed semver `target_version`, or non-kebab `skill_name` → `input-invalid` |
+| 2    | input-missing / input-invalid | step-01 GATE — required headless arg absent (`target_repo`, `skill_name`, or `doc_urls` when `source_type=docs-only`) → `input-missing`; enum violation, malformed semver, non-kebab `skill_name`, or step-05 brief-context schema validation failure → `input-invalid` |
 | 3    | resolution-failure   | step-01 §1 (`forge-tier.yaml` missing); step-02 §1 (target inaccessible / `gh auth` fails) |
 | 4    | write-failure        | step-05 §4 (write to `{forge_data_folder}/{skill-name}/skill-brief.yaml` failed)           |
 | 5    | overwrite-cancelled  | step-05 §2 (existing brief, `force` not supplied)                                          |

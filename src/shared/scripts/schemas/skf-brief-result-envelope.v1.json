@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-brief-result-envelope.v1.json",
+  "title": "SKF_BRIEF_RESULT_JSON envelope (v1)",
+  "description": "Single-line JSON document emitted by skf-brief-skill step-05 §4b when {headless_mode} is true, prefixed with the literal 'SKF_BRIEF_RESULT_JSON: '. Pipelines grep one line out of the workflow log to branch on the brief outcome without parsing prose. Schema mirrors the contract in src/skf-brief-skill/SKILL.md Result Contract section.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "brief_path", "skill_name", "version", "language", "scope_type", "exit_code", "halt_reason"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["success", "error"],
+      "description": "'success' on the terminal happy path (after step-05 wrote the brief and step-06 returned). 'error' on any HARD HALT."
+    },
+    "brief_path": {
+      "type": ["string", "null"],
+      "description": "Absolute path to the written skill-brief.yaml on success. Null when the run errored before any file was written (or when overwrite-cancelled aborted before write)."
+    },
+    "skill_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Brief's skill_name field — present in every envelope (success and error) since it is captured at step-01 §6 before any of the other failure branches."
+    },
+    "version": {
+      "type": ["string", "null"],
+      "description": "Resolved brief version (target_version if set, else auto-detected, else '1.0.0'). Null when the run errored before step-05's version-resolution ran."
+    },
+    "language": {
+      "type": ["string", "null"],
+      "description": "Detected or user-confirmed primary language. Null when the run errored before step-02's language-detection ran."
+    },
+    "scope_type": {
+      "type": ["string", "null"],
+      "enum": ["full-library", "specific-modules", "public-api", "component-library", "reference-app", "docs-only", null],
+      "description": "Confirmed scope.type from step-03. Null when the run errored before scope was confirmed."
+    },
+    "exit_code": {
+      "type": "integer",
+      "enum": [0, 2, 3, 4, 5],
+      "description": "Process exit code matching the SKILL.md Exit Codes table. Derived deterministically from halt_reason: null→0, input-missing/input-invalid→2, forge-tier-missing/target-inaccessible/gh-auth-failed→3, write-failed→4, overwrite-cancelled→5."
+    },
+    "halt_reason": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "input-missing",
+        "input-invalid",
+        "forge-tier-missing",
+        "target-inaccessible",
+        "gh-auth-failed",
+        "write-failed",
+        "overwrite-cancelled"
+      ],
+      "description": "Null on success. One of the documented HALT classes on error. Pipelines branch on this to surface the right operator message without grepping the prose error."
+    }
+  }
+}

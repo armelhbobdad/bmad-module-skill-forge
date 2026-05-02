@@ -2,6 +2,10 @@
 briefSchemaFile: 'assets/skill-brief-schema.md'
 versionResolutionFile: 'references/version-resolution.md'
 nextStepFile: './step-06-health-check.md'
+writeSkillBriefScript: '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
+emitBriefEnvelopeScript: '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
+forgeTierRwScript: '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
+forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 ---
 
 # Step 5: Write Brief
@@ -17,26 +21,27 @@ To generate the complete skill-brief.yaml from the approved brief data and write
 - Create the output directory if it doesn't exist
 - Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing success summary is NOT the terminal step
 - All user-facing output in `{communication_language}`; written artifact (`description`, `notes`) in `{document_output_language}`
+- **Determinism delegation:** YAML rendering, version-precedence, atomic write, the headless result envelope, and the QMD-collection registry mutation are all delegated to shared SKF scripts. The LLM's job in this step is to assemble inputs, branch on script results, and surface user-facing prose — not to render YAML, JSON envelopes, or YAML-mutation diffs in the model.
 
 ## MANDATORY SEQUENCE
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
 
-### 1. Load Schema Template
+### 1. Reference the Schema (LLM context only)
 
-Load `{briefSchemaFile}` to reference the YAML template structure.
+`{briefSchemaFile}` and `{versionResolutionFile}` document the brief contract for human readers. The deterministic enforcement of that contract lives in `{writeSkillBriefScript}` and its JSON Schema artifact at `src/shared/scripts/schemas/skill-brief.v1.json`. Load `{briefSchemaFile}` only if you need to explain a specific field to the user during inline adjustments — otherwise skip the read; the script is the source of truth.
 
-### 2. Create Output Directory
+### 2. Resolve Output Path
 
-Create the directory `{forge_data_folder}/{skill-name}/` if it doesn't already exist.
+Resolve the target write path:
+- Primary: `{forge_data_folder}/{skill-name}/skill-brief.yaml`
+- Fallback (when `{forge_data_folder}` is not set or doesn't exist): `{output_folder}/forge-data/{skill-name}/skill-brief.yaml` and inform user "**Note:** forge_data_folder not configured. Writing to {output_folder}/forge-data/{skill-name}/ instead."
 
-If `{forge_data_folder}` is not set or doesn't exist:
-- Fall back to `{output_folder}/forge-data/{skill-name}/`
-- Inform user: "**Note:** forge_data_folder not configured. Writing to {output_folder}/forge-data/{skill-name}/ instead."
+The script's atomic-write helper creates parent directories as needed (`mkdir -p`) — no separate mkdir call required.
 
 ### 2b. Existing Brief — Overwrite Policy
 
-Before writing, check whether `{forge_data_folder}/{skill-name}/skill-brief.yaml` already exists.
+Before writing, check whether the resolved target path already exists.
 
 **Interactive (`{headless_mode}` is false):**
 
@@ -53,94 +58,75 @@ Overwrite it with the brief you just approved? [Y/N]"
 If the file exists:
 
 - If `force` was supplied as a headless argument: log `"headless: force-overwriting existing brief at {path}"` and proceed to §3.
-- Otherwise: emit the error-variant `SKF_BRIEF_RESULT_JSON` envelope (see §4b) on stderr with `halt_reason: "overwrite-cancelled"`, exit code 5, and HALT.
+- Otherwise: invoke `{emitBriefEnvelopeScript}` to emit the error-variant envelope on stderr (see §4b) with `halt_reason: "overwrite-cancelled"`, then HALT with exit code 5.
 
 If the file does not exist, proceed normally.
 
-### 3. Generate skill-brief.yaml
+### 3. Write the Brief
 
-**Resolve the `version` field per `{versionResolutionFile}` precedence:**
+Assemble the brief context as a JSON object containing the approved field values from steps 01-04:
 
-- `target_version` (set in step 01) wins outright when present.
-- Otherwise: auto-detected version from step 02.
-- Otherwise: `"1.0.0"`.
-
-The reference's invariant section is binding: when `target_version` is set, the written brief MUST satisfy `brief.target_version == brief.version`. Set both fields to the identical string. Different values are a contract violation.
-
-Generate the YAML file using the approved field values and the schema template:
-
-```yaml
----
-name: "{approved skill name}"
-version: "{resolved version — target_version if set, else detected source version, else 1.0.0}"
-source_type: "{source or docs-only}"
-source_repo: "{approved source repo or doc site URL}"
-language: "{approved language}"
-description: "{approved description}"
-forge_tier: "{approved forge tier}"
-created: "{current date}"
-created_by: "{user_name}"
-scope:
-  type: "{approved scope type}"
-  include:
-    - "{approved include patterns}"
-  exclude:
-    - "{approved exclude patterns}"
-  notes: "{approved scope notes or empty string}"
----
+```json
+{
+  "name":             "{approved skill name}",
+  "target_version":   "{target_version from step 01, or null}",
+  "detected_version": "{auto-detected version from step 02, or null}",
+  "source_type":      "{source or docs-only}",
+  "source_repo":      "{approved source repo or doc site URL}",
+  "language":         "{approved language}",
+  "description":      "{approved description}",
+  "forge_tier":       "{Quick|Forge|Forge+|Deep}",
+  "created":          "{current ISO date YYYY-MM-DD}",
+  "created_by":       "{user_name}",
+  "scope": {
+    "type":    "{approved scope type}",
+    "include": ["{approved include patterns}"],
+    "exclude": ["{approved exclude patterns}"],
+    "notes":   "{approved scope notes or empty string}"
+  },
+  "doc_urls":         [{"url": "...", "label": "..."}],   // omit when not applicable
+  "scripts_intent":   "{detect|none|free-text}",          // omit if "detect"
+  "assets_intent":    "{detect|none|free-text}",          // omit if "detect"
+  "source_authority": "{official|community|internal}"     // optional; defaults to "community" and is forced to "community" when source_type=docs-only
+}
 ```
 
-**Conditional optional field inclusion:**
+Pipe it into the writer script:
 
-**If `target_version` was set in step 01:**
-Include the `target_version` field in the generated YAML — its value MUST be identical to the `version` field above:
-```yaml
-target_version: "{target_version — same value as version}"
+```bash
+echo '<context-json>' | uv run {writeSkillBriefScript} write --target {resolved-target-path}
 ```
 
-**If `source_type: "docs-only"` OR supplemental `doc_urls` were collected:**
-Include the `doc_urls` array (uncommented) in the generated YAML:
-```yaml
-doc_urls:
-  - url: "{documentation URL}"
-    label: "{page label}"
-```
-When `source_type: "docs-only"`: `doc_urls` is required (at least one entry), `source_repo` may be set to the doc site URL for reference or omitted.
+The script:
+- Validates the context against `src/shared/scripts/schemas/skill-brief.v1.json`
+- Applies the version-precedence rule from `{versionResolutionFile}` (target_version > detected_version > 1.0.0)
+- Enforces the `target_version == version` invariant (refuses to write a brief that violates it)
+- Renders YAML in canonical key order (byte-stable across runs)
+- Atomically writes the file via temp + fsync + rename (no half-written file ever visible)
+- Emits a JSON success envelope on stdout: `{"status":"ok","brief_path":"…","version":"…","bytes":…,"warnings":[…]}`
 
-**If `scripts_intent` was collected and is not the default `"detect"`:**
-Include the `scripts_intent` field (uncommented):
-```yaml
-scripts_intent: "{none or description}"
-```
+**On script failure (non-zero exit):**
+- Exit 1 (validation/invariant): The error JSON on stderr names the offending field. This indicates a context-assembly bug, not a user error — surface the message to the user, log it, then HALT.
+  - Interactive: **HALT** — display the error JSON's `message` field.
+  - Headless: invoke `{emitBriefEnvelopeScript} emit --target stderr` with envelope-context `halt_reason: "input-invalid"` (the script derives `exit_code: 2` automatically — do NOT pass `exit_code` in the JSON payload), then `exit 2`.
+- Exit 2 (I/O failure): The atomic write failed (target unwritable, disk full, etc.).
+  - Interactive: **HALT** — "**Error:** Failed to write skill-brief.yaml. Check that the directory is writable and try again."
+  - Headless: invoke `{emitBriefEnvelopeScript} emit --target stderr` with envelope-context `halt_reason: "write-failed"` (script derives `exit_code: 4` automatically), then `exit 4`.
 
-**If `assets_intent` was collected and is not the default `"detect"`:**
-Include the `assets_intent` field (uncommented):
-```yaml
-assets_intent: "{none or description}"
-```
-
-**Always include** `source_authority` (default: `"community"`, forced to `"community"` when `source_type: "docs-only"`):
-```yaml
-source_authority: "{official|community|internal}"
-```
-
-### 4. Write the File
-
-Write the generated YAML to `{forge_data_folder}/{skill-name}/skill-brief.yaml`.
-
-If write fails:
-- Interactive: **HALT** — "**Error:** Failed to write skill-brief.yaml. Check that the directory is writable and try again."
-- Headless: emit the error-variant `SKF_BRIEF_RESULT_JSON` envelope (see §4b) on stderr with `halt_reason: "write-failed"`, exit code 4, and HALT.
+**On success:** capture `brief_path` and `version` from the response envelope — both are needed for §4b and §6.
 
 ### 4b. Headless Result Envelope
 
-If `{headless_mode}` is true, emit a single-line JSON envelope on **stdout** immediately after the successful write (before §5 / §6 / §7) so pipeline schedulers can parse the outcome without grepping the prose summary:
+If `{headless_mode}` is true, emit the success envelope on **stdout** immediately after the write (before §5 / §6 / §7):
 
-```
-SKF_BRIEF_RESULT_JSON: {"status":"success","brief_path":"{abs_path}","skill_name":"{name}","version":"{resolved version}","language":"{language}","scope_type":"{scope.type}","exit_code":0,"halt_reason":null}
+```bash
+echo '{"status":"success","brief_path":"<from §3 response>","skill_name":"<name>","version":"<from §3 response>","language":"<language>","scope_type":"<scope.type>","halt_reason":null}' | \
+  uv run {emitBriefEnvelopeScript} emit
 ```
 
-The envelope shape on HARD HALT (any phase, written to **stderr**) uses the same keys with `status: "error"`, `brief_path: null` when no file was written, the matching `exit_code` from the table in `SKILL.md`, and `halt_reason` set to one of: `"input-missing"`, `"input-invalid"`, `"forge-tier-missing"`, `"target-inaccessible"`, `"gh-auth-failed"`, `"write-failed"`, `"overwrite-cancelled"`.
+The script derives `exit_code` deterministically from `halt_reason` (the canonical mapping is null→0, input-missing/input-invalid→2, forge-tier-missing/target-inaccessible/gh-auth-failed→3, write-failed→4, overwrite-cancelled→5), validates against `src/shared/scripts/schemas/skf-brief-result-envelope.v1.json`, and prints the prefixed `SKF_BRIEF_RESULT_JSON: {…}` line.
+
+The envelope shape on HARD HALT (any phase) is the same call with `--target stderr`, `status: "error"`, and the matching `halt_reason` (one of `"input-missing"`, `"input-invalid"`, `"forge-tier-missing"`, `"target-inaccessible"`, `"gh-auth-failed"`, `"write-failed"`, `"overwrite-cancelled"`) — see the §3, §2b, §5 (no-halt) branches above and the §1/§2 HALTs in step-01/step-02 for invocation sites. The script enforces the success/error halt_reason invariant (success requires null halt_reason; error requires non-null).
 
 When `{headless_mode}` is false, skip this section silently — no envelope is emitted.
 
@@ -148,7 +134,7 @@ When `{headless_mode}` is false, skip this section silently — no envelope is e
 
 **IF forge tier is Deep AND QMD tool is available:**
 
-Index the skill brief into a QMD collection so that portfolio-level searches can find existing briefs and avoid duplicate skill creation across large monorepos.
+Index the skill brief into a QMD collection so portfolio-level searches can find existing briefs and avoid duplicate skill creation across large monorepos.
 
 **Collection creation:**
 
@@ -169,29 +155,29 @@ qmd embed
 
 After `qmd embed` completes, verify the collection was embedded:
 - Run `qmd status` or `qmd collection list` and confirm `{skill-name}-brief` shows document count > 0
-- If verification succeeds: proceed to registry update normally
-- If verification fails: log warning "QMD embed verification failed for {skill-name}-brief — collection may not be searchable yet", still proceed to registry update but add `status: "pending"` field to the registry entry
+- If verification succeeds: proceed to registry update with no `status` field
+- If verification fails: log warning "QMD embed verification failed for {skill-name}-brief — collection may not be searchable yet", proceed to registry update but include `status: "pending"` in the entry
 
-**Registry update:**
+**Registry update (delegated to script):**
 
-Read `{sidecar_path}/forge-tier.yaml` and update the `qmd_collections` array.
+Build the entry JSON and pipe it to the `register-qmd-collection` subcommand:
 
-If an entry with `name: "{skill-name}-brief"` already exists, replace it. Otherwise, append:
-
-```yaml
-  - name: "{skill-name}-brief"
-    type: "brief"
-    source_workflow: "brief-skill"
-    skill_name: "{skill-name}"
-    created_at: "{current ISO date}"
-    # status: "pending"    # Added only when embed verification fails
+```bash
+echo '{
+  "name": "{skill-name}-brief",
+  "type": "brief",
+  "source_workflow": "brief-skill",
+  "skill_name": "{skill-name}",
+  "created_at": "{current ISO date}"
+  // include "status": "pending" only when embed verification failed
+}' | uv run {forgeTierRwScript} register-qmd-collection --target {forgeTierFile}
 ```
 
-Write the updated forge-tier.yaml.
+The script handles the upsert deterministically (replace existing entry with same `name`, else append) and preserves all other forge-tier state (tools, tier, ccc_index, ccc_index_registry, other qmd_collections entries) — no need to reason about YAML re-rendering or section comments.
 
 **Error handling:**
-- If QMD collection creation fails: log the error. Do NOT fail the workflow — the brief file was already written successfully.
-- If forge-tier.yaml update fails: log the error, continue.
+- If `qmd embed` or `qmd collection add` fails: log the error. Do NOT fail the workflow — the brief file was already written successfully.
+- If the `register-qmd-collection` script call fails: log the error JSON, continue. The brief is the user-visible artifact; the registry entry is a portfolio-search optimisation.
 
 **IF forge tier is NOT Deep:** Skip this section silently. No messaging.
 
@@ -201,7 +187,7 @@ Write the updated forge-tier.yaml.
 
 ---
 
-**File:** `{forge_data_folder}/{skill-name}/skill-brief.yaml`
+**File:** `{brief_path from §3 response}`
 **Skill:** {name}
 **Language:** {language}
 **Scope:** {scope type}
@@ -230,4 +216,3 @@ ONLY WHEN the brief file has been written and the success summary displayed will
 ## CRITICAL STEP COMPLETION NOTE
 
 This step chains to the local health-check step (`{nextStepFile}`), which in turn delegates to `shared/health-check.md`. After the health check completes, the brief-skill workflow is fully done.
-
