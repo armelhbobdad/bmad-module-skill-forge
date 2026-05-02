@@ -130,13 +130,21 @@ def _die(message: str, field: str | None = None, code: int = 1) -> None:
 
 
 def resolve_version(ctx: dict[str, Any]) -> str:
-    """Apply the version-precedence rule. Returns the resolved version string."""
-    if ctx.get("version_resolved"):
-        return ctx["version_resolved"]
-    if ctx.get("target_version"):
-        return ctx["target_version"]
-    if ctx.get("detected_version"):
-        return ctx["detected_version"]
+    """Apply the version-precedence rule. Returns the resolved version string.
+
+    Uses `is not None` checks (not truthiness) so an explicitly-supplied
+    empty string surfaces as a SEMVER_RE validation failure downstream
+    rather than silently falling through to the next precedence level.
+    """
+    vr = ctx.get("version_resolved")
+    if vr is not None:
+        return vr
+    tv = ctx.get("target_version")
+    if tv is not None:
+        return tv
+    dv = ctx.get("detected_version")
+    if dv is not None:
+        return dv
     return "1.0.0"
 
 
@@ -295,8 +303,13 @@ def assemble_brief(ctx: dict[str, Any], resolved_version: str) -> dict[str, Any]
         if v is not None and v != "detect":
             brief[intent_field] = v
 
-    # Always include source_authority
-    brief["source_authority"] = source_authority
+    # Emit source_authority only when non-default — schema lists it as Optional
+    # in src/skf-brief-skill/assets/skill-brief-schema.md, and unconditional
+    # emission would inject the field into round-tripped briefs that previously
+    # omitted it (false-drift signal for diff tooling). Consumers default to
+    # "community" when the field is absent.
+    if source_authority != "community":
+        brief["source_authority"] = source_authority
 
     return brief
 

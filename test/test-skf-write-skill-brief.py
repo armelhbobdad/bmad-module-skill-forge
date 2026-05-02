@@ -223,8 +223,16 @@ class TestAssembleBrief:
             "name", "version", "source_type", "source_repo", "language",
             "description", "forge_tier", "created", "created_by", "scope",
         ]
-        # source_authority always at the end
-        assert keys[-1] == "source_authority"
+        # source_authority is omitted when it equals the default "community"
+        assert "source_authority" not in brief
+
+    def test_source_authority_emitted_when_non_default(self):
+        ctx = _baseline_ctx()
+        ctx["source_authority"] = "official"
+        brief = mod.assemble_brief(ctx, "1.0.0")
+        assert brief["source_authority"] == "official"
+        # Appears after all the other fields
+        assert list(brief.keys())[-1] == "source_authority"
 
     def test_target_version_appears_when_set(self):
         ctx = _baseline_ctx()
@@ -263,17 +271,21 @@ class TestAssembleBrief:
         assert brief["scripts_intent"] == "none"
         assert brief["assets_intent"] == "JSON schemas in schemas/"
 
-    def test_docs_only_forces_community_authority(self):
+    def test_default_source_authority_omitted_from_brief(self):
+        # Consumers default to "community" when absent; emitting the default
+        # value is round-trip noise.
+        brief = mod.assemble_brief(_baseline_ctx(), "1.0.0")
+        assert "source_authority" not in brief
+
+    def test_docs_only_force_community_omits_field(self):
+        # docs-only forces source_authority to "community", which is the
+        # default — so the field still doesn't appear in the rendered brief.
         ctx = _baseline_ctx()
         ctx["source_type"] = "docs-only"
         ctx["doc_urls"] = [{"url": "https://docs.x.com"}]
-        ctx["source_authority"] = "official"  # will be overridden
+        ctx["source_authority"] = "official"  # will be force-overridden
         brief = mod.assemble_brief(ctx, "1.0.0")
-        assert brief["source_authority"] == "community"
-
-    def test_default_source_authority_is_community(self):
-        brief = mod.assemble_brief(_baseline_ctx(), "1.0.0")
-        assert brief["source_authority"] == "community"
+        assert "source_authority" not in brief
 
 
 # --------------------------------------------------------------------------

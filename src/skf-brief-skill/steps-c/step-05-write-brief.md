@@ -108,10 +108,10 @@ The script:
 **On script failure (non-zero exit):**
 - Exit 1 (validation/invariant): The error JSON on stderr names the offending field. This indicates a context-assembly bug, not a user error — surface the message to the user, log it, then HALT.
   - Interactive: **HALT** — display the error JSON's `message` field.
-  - Headless: invoke `{emitBriefEnvelopeScript}` with `halt_reason: "input-invalid"`, exit code 2.
+  - Headless: invoke `{emitBriefEnvelopeScript} emit --target stderr` with envelope-context `halt_reason: "input-invalid"` (the script derives `exit_code: 2` automatically — do NOT pass `exit_code` in the JSON payload), then `exit 2`.
 - Exit 2 (I/O failure): The atomic write failed (target unwritable, disk full, etc.).
   - Interactive: **HALT** — "**Error:** Failed to write skill-brief.yaml. Check that the directory is writable and try again."
-  - Headless: invoke `{emitBriefEnvelopeScript}` with `halt_reason: "write-failed"`, exit code 4.
+  - Headless: invoke `{emitBriefEnvelopeScript} emit --target stderr` with envelope-context `halt_reason: "write-failed"` (script derives `exit_code: 4` automatically), then `exit 4`.
 
 **On success:** capture `brief_path` and `version` from the response envelope — both are needed for §4b and §6.
 

@@ -316,6 +316,12 @@ def cmd_init_prefs(target: Path) -> None:
 
 
 def cmd_register_qmd_collection(target: Path) -> None:
+    # Note: render_forge_tier_yaml() emits exactly the six known top-level
+    # sections (tools, tier, tier_detected_at, ccc_index, ccc_index_registry,
+    # qmd_collections). If a future schema revision adds a new top-level key,
+    # this subcommand will silently drop it — same limitation that already
+    # affects cmd_write_tools and cmd_clean_stale. Update render_forge_tier_yaml()
+    # AND those three subcommands together when the schema grows.
     raw = sys.stdin.read()
     if not raw.strip():
         _die(1, "register-qmd-collection: empty stdin (expected JSON entry)")
