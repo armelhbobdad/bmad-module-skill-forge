@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "8b91bcb365dc",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-brief-cleanup-quick-wins",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-01-gather-intent.md",
+    "src/skf-brief-skill/steps-c/step-05-write-brief.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/8b/91bcb365dc/0/metadata.json",
+      "transcript": "/8b/91bcb365dc/0/full.jsonl",
+      "context": "/8b/91bcb365dc/0/context.md",
+      "content_hash": "/8b/91bcb365dc/0/content_hash.txt",
+      "prompt": "/8b/91bcb365dc/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 456,
+    "cache_creation_tokens": 407188,
+    "cache_read_tokens": 38454962,
+    "output_tokens": 182656,
+    "api_call_count": 176
+  }
+}
