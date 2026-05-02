@@ -34,7 +34,7 @@ mkdir -p "{forge_data_folder}" && \
   rm "{forge_data_folder}/.skf-write-probe"
 ```
 
-`mkdir -p` succeeds on a pre-existing read-only mount, but the `printf > file` redirect actually attempts a write — that catches read-only, disk-full, and permissions-denied uniformly. **On any non-zero exit:** HALT (exit code 4, `halt_reason: "write-failed"`) — `"**Error:** {forge_data_folder} is not writable: {captured stderr}. Verify the path exists, the mount is writable, and there is free disk space, then re-run."` In headless mode, invoke `{emitBriefEnvelopeScript} emit --target stderr` with envelope-context `{"status":"error","skill_name":"<name-or-pre-resolution-placeholder>","halt_reason":"write-failed"}` before exiting (matches the §8 GATE / step-05 emit pattern — never hand-assemble the envelope JSON). On success, continue silently to the forge-tier load below.
+`mkdir -p` succeeds on a pre-existing read-only mount, but the `printf > file` redirect actually attempts a write — that catches read-only, disk-full, and permissions-denied uniformly. **On any non-zero exit:** HALT (exit code 4, `halt_reason: "write-failed"`) — `"**Error:** {forge_data_folder} is not writable: {captured stderr}. Verify the path exists, the mount is writable, and there is free disk space, then re-run."` In headless mode, emit the error envelope per **step-05 §4b** with `halt_reason: "write-failed"` (skill_name is not yet resolved here — use the placeholder convention documented in §4b). On success, continue silently to the forge-tier load below.
 
 Attempt to load `{forgeTierFile}`:
 
@@ -312,7 +312,7 @@ Display: "**Select:** [C] Continue to Target Analysis · [X] Cancel and exit"
 
   The script returns a JSON envelope: `{valid, errors[], warnings[], normalized, halt_reason}`. Apply the result deterministically:
 
-  - **`valid: false`** — emit the error-variant `SKF_BRIEF_RESULT_JSON` envelope on stderr with `exit_code: 2` and the script's `halt_reason` (`"input-missing"` for absent required args / docs-only without doc_urls; `"input-invalid"` for enum violations, malformed semver, malformed kebab-case skill_name). Surface `errors[]` to the operator log so the failure is debuggable. HALT.
+  - **`valid: false`** — emit the error envelope per **step-05 §4b** with the script's `halt_reason` (`"input-missing"` for absent required args / docs-only without doc_urls; `"input-invalid"` for enum violations, malformed semver, malformed kebab-case skill_name). Surface `errors[]` to the operator log so the failure is debuggable. HALT.
   - **`valid: true`** — consume the `normalized` object as the source of truth (it has defaults applied per the table). Surface `warnings[]` to the operator log but do not HALT. Auto-proceed.
 
   The script's `KNOWN_FIELDS` set must stay in sync with the table in `{headlessArgsFile}`.
