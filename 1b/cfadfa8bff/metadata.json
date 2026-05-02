@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "1bcfadfa8bff",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-brief-skill-prompt-craft-cleanups",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-05-write-brief.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/1b/cfadfa8bff/0/metadata.json",
+      "transcript": "/1b/cfadfa8bff/0/full.jsonl",
+      "context": "/1b/cfadfa8bff/0/context.md",
+      "content_hash": "/1b/cfadfa8bff/0/content_hash.txt",
+      "prompt": "/1b/cfadfa8bff/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 235,
+    "cache_creation_tokens": 410605,
+    "cache_read_tokens": 35680396,
+    "output_tokens": 172218,
+    "api_call_count": 156
+  }
+}
