@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "799903558a84",
+  "session_id": "d8a08ef8-84e7-4797-8b13-657571e0f7a8",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-02T16:54:59.276203761Z",
+  "branch": "refactor/skf-brief-skill-prompt-craft-cleanups",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-01-gather-intent.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "8cac394699c9",
+  "token_usage": {
+    "input_tokens": 300,
+    "cache_creation_tokens": 179484,
+    "cache_read_tokens": 5844501,
+    "output_tokens": 48531,
+    "api_call_count": 60
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-02T16:54:58.757083411Z",
+    "agent_lines": 0,
+    "human_added": 0,
+    "human_modified": 3,
+    "human_removed": 0,
+    "total_committed": 0,
+    "agent_percentage": 0
+  }
+}
