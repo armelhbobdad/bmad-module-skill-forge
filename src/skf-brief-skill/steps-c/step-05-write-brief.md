@@ -33,6 +33,29 @@ If `{forge_data_folder}` is not set or doesn't exist:
 - Fall back to `{output_folder}/forge-data/{skill-name}/`
 - Inform user: "**Note:** forge_data_folder not configured. Writing to {output_folder}/forge-data/{skill-name}/ instead."
 
+### 2b. Existing Brief — Overwrite Policy
+
+Before writing, check whether `{forge_data_folder}/{skill-name}/skill-brief.yaml` already exists.
+
+**Interactive (`{headless_mode}` is false):**
+
+If the file exists, present:
+
+"**An existing brief was found at `{path}`.**
+Overwrite it with the brief you just approved? [Y/N]"
+
+- **[Y]** Overwrite — proceed to §3.
+- **[N]** Cancel — emit a single-line stderr log `brief-skill: overwrite-cancelled at {path}` and HALT with exit code 5 (do not chain to step-06; the run produced no new artifact).
+
+**Headless (`{headless_mode}` is true):**
+
+If the file exists:
+
+- If `force` was supplied as a headless argument: log `"headless: force-overwriting existing brief at {path}"` and proceed to §3.
+- Otherwise: emit the error-variant `SKF_BRIEF_RESULT_JSON` envelope (see §4b) on stderr with `halt_reason: "overwrite-cancelled"`, exit code 5, and HALT.
+
+If the file does not exist, proceed normally.
+
 ### 3. Generate skill-brief.yaml
 
 **Resolve the `version` field before generating the YAML:**
@@ -103,7 +126,21 @@ source_authority: "{official|community|internal}"
 
 Write the generated YAML to `{forge_data_folder}/{skill-name}/skill-brief.yaml`.
 
-If write fails: **HALT** — "**Error:** Failed to write skill-brief.yaml. Please check that the directory is writable and try again."
+If write fails:
+- Interactive: **HALT** — "**Error:** Failed to write skill-brief.yaml. Please check that the directory is writable and try again."
+- Headless: emit the error-variant `SKF_BRIEF_RESULT_JSON` envelope (see §4b) on stderr with `halt_reason: "write-failed"`, exit code 4, and HALT.
+
+### 4b. Headless Result Envelope
+
+If `{headless_mode}` is true, emit a single-line JSON envelope on **stdout** immediately after the successful write (before §5 / §6 / §7) so pipeline schedulers can parse the outcome without grepping the prose summary:
+
+```
+SKF_BRIEF_RESULT_JSON: {"status":"success","brief_path":"{abs_path}","skill_name":"{name}","version":"{resolved version}","language":"{language}","scope_type":"{scope.type}","exit_code":0,"halt_reason":null}
+```
+
+The envelope shape on HARD HALT (any phase, written to **stderr**) uses the same keys with `status: "error"`, `brief_path: null` when no file was written, the matching `exit_code` from the table in `SKILL.md`, and `halt_reason` set to one of: `"input-missing"`, `"forge-tier-missing"`, `"target-inaccessible"`, `"gh-auth-failed"`, `"write-failed"`, `"overwrite-cancelled"`.
+
+When `{headless_mode}` is false, skip this section silently — no envelope is emitted.
 
 ### 5. QMD Collection Registration (Deep Tier Only)
 

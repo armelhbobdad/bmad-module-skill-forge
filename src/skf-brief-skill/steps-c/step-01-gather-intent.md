@@ -89,6 +89,8 @@ Confirm the target.
 
 ### 3b. Gather Target Version
 
+**Headless:** if `target_version` was supplied as an argument, store it and skip the interactive prompt below. If `doc_urls` were also supplied, treat the version-vs-doc-URL confirmation prompt as auto-confirmed (Y).
+
 "**Are you targeting a specific version of this library?**
 (Leave blank to auto-detect from source)"
 
@@ -171,7 +173,7 @@ Display: "**Select:** [C] Continue to Target Analysis"
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: use args]** — If `{headless_mode}`: consume pre-supplied arguments (target_repo, skill_name, scope_hint, language_hint) and auto-proceed. If required args missing, HALT: "headless mode requires target_repo and skill_name arguments."
+- **GATE [default: use args]** — If `{headless_mode}`: consume pre-supplied arguments and auto-proceed. Required: `target_repo`, `skill_name`. Optional, applied to the matching brief field when present: `scope_hint`, `language_hint`, `target_version`, `source_authority` (default `community`), `source_type` (default `source`; if `docs-only`, `doc_urls` becomes required), `doc_urls` (list of `url` or `url,label`), `scope_type`, `include`, `exclude`, `scripts_intent` (default `detect`), `assets_intent` (default `detect`), `intent` (free-text used to derive `description`). If `target_repo` or `skill_name` is missing, HALT with exit code 2 (`halt_reason: "input-missing"`): "headless mode requires target_repo and skill_name arguments." If `source_type=docs-only` and no `doc_urls` supplied, same HALT with `halt_reason: "input-missing"`.
 - ONLY proceed to next step when user selects 'C'
 
 ## CRITICAL STEP COMPLETION NOTE

@@ -141,7 +141,12 @@ Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Conti
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: C]** — If `{headless_mode}`: accept auto-detected scope (full-repo or manifest-based) and auto-proceed, log: "headless: using auto-detected scope"
+- **GATE [default: C]** — If `{headless_mode}`: consume the headless inputs from step-01 in priority order:
+  - If `scope_type` was supplied, use it (must match one of the six valid types) and skip the §2c template menu.
+  - Otherwise auto-select based on `source_type`: `docs-only` → `scope.type: "docs-only"`; `source` → `full-library` (default).
+  - If `include`/`exclude` were supplied, use them verbatim (split on comma) instead of running the boundary prompts in §3.
+  - If `scripts_intent`/`assets_intent` were supplied, record them and skip §5b; otherwise default to `detect`.
+  - Log: `"headless: scope_type={value} include={n} exclude={n} scripts_intent={value} assets_intent={value}"`.
 - ONLY proceed to next step when user selects 'C'
 - After other menu items execution, return to this menu
 - User can chat or ask questions — always respond and then redisplay menu
