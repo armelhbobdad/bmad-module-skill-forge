@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "06746639852f",
+  "session_id": "d8a08ef8-84e7-4797-8b13-657571e0f7a8",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-02T17:40:42.321722685Z",
+  "branch": "feat/skf-brief-skill-headless-heuristics",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/SKILL.md",
+    "src/skf-brief-skill/references/headless-args.md",
+    "src/skf-brief-skill/steps-c/step-01-gather-intent.md",
+    "src/skf-brief-skill/steps-c/step-03-scope-definition.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "89b1df60443a",
+  "token_usage": {
+    "input_tokens": 374,
+    "cache_creation_tokens": 308292,
+    "cache_read_tokens": 19039475,
+    "output_tokens": 124284,
+    "api_call_count": 119
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-02T17:40:41.375955577Z",
+    "agent_lines": 0,
+    "human_added": 28,
+    "human_modified": 14,
+    "human_removed": 0,
+    "total_committed": 30,
+    "agent_percentage": 0
+  }
+}
