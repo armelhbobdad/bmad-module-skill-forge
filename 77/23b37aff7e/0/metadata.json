@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "7723b37aff7e",
+  "session_id": "d8a08ef8-84e7-4797-8b13-657571e0f7a8",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-02T17:57:21.798496361Z",
+  "branch": "feat/skf-brief-skill-cancel-and-write-probe",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/skf-emit-brief-result-envelope.py",
+    "src/skf-brief-skill/SKILL.md",
+    "src/skf-brief-skill/steps-c/step-01-gather-intent.md",
+    "src/skf-brief-skill/steps-c/step-05-write-brief.md",
+    "test/test-skf-emit-brief-result-envelope.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "0371f99a987c",
+  "token_usage": {
+    "input_tokens": 411,
+    "cache_creation_tokens": 359846,
+    "cache_read_tokens": 27498503,
+    "output_tokens": 155566,
+    "api_call_count": 146
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-02T17:57:20.697819183Z",
+    "agent_lines": 0,
+    "human_added": 14,
+    "human_modified": 5,
+    "human_removed": 0,
+    "total_committed": 14,
+    "agent_percentage": 0
+  }
+}

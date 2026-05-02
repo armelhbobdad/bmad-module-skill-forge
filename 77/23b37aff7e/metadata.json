@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "7723b37aff7e",
+  "strategy": "manual-commit",
+  "branch": "feat/skf-brief-skill-cancel-and-write-probe",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/skf-emit-brief-result-envelope.py",
+    "src/skf-brief-skill/SKILL.md",
+    "src/skf-brief-skill/steps-c/step-01-gather-intent.md",
+    "src/skf-brief-skill/steps-c/step-05-write-brief.md",
+    "test/test-skf-emit-brief-result-envelope.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/77/23b37aff7e/0/metadata.json",
+      "transcript": "/77/23b37aff7e/0/full.jsonl",
+      "context": "/77/23b37aff7e/0/context.md",
+      "content_hash": "/77/23b37aff7e/0/content_hash.txt",
+      "prompt": "/77/23b37aff7e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 411,
+    "cache_creation_tokens": 359846,
+    "cache_read_tokens": 27498503,
+    "output_tokens": 155566,
+    "api_call_count": 146
+  }
+}
