@@ -268,7 +268,15 @@ Present:
 
 This is the text agents read when deciding whether to route to your skill — it sits in the registry row alongside dozens of other skills. Specific triggers ('use when…', 'reach for this when…') help agents match real user requests; generic descriptions blend in and get skipped. Edit, replace, or accept as-is."
 
-Wait for user confirmation or alternative. Store the accepted text as the brief's `description` field. The same field is re-presented in step-04 §3 for a final review pass — refinements there flow back to this value.
+Wait for user confirmation or alternative.
+
+**Soft sentence-count check (interactive only).** Before storing the accepted text, count terminal sentence punctuation (`.`, `!`, `?` followed by whitespace or end-of-string) — abbreviations like `e.g.` will inflate the count slightly but the check is a soft nudge, not a HALT. If the count exceeds 3, present:
+
+"**Heads up — that description reads as ~{N} sentences.** The conventional norm is 1-3 (it surfaces in registry rows alongside other skills, where length crowds out the trigger phrase). Tighten now, or accept as-is?"
+
+On `tighten` or a fresh edit: re-prompt for the description. On `accept` or any non-edit response: store the accepted text and proceed. Counts of 1-3 store silently.
+
+Store the accepted text as the brief's `description` field. The same field is re-presented in step-04 §3 for a final review pass — refinements there flow back to this value.
 
 **Headless:** if the `intent` argument was supplied, load `{descriptionVoiceExamplesFile}` and run the same synthesis against it (in `{document_output_language}`), then store the result. If `intent` was not supplied, fall back in priority order:
 
