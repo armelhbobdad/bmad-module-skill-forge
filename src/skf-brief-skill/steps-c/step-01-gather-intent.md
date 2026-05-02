@@ -25,6 +25,16 @@ To initialize the brief-skill workflow by discovering the forge tier configurati
 
 ### 1. Discover Forge Tier
 
+**Pre-flight write probe.** Before any conversational state accumulates, verify `{forge_data_folder}` is writable. A read-only mount, full disk, or permissions-denied path otherwise only surfaces at step-05's atomic write — by then the user has invested 5–15 minutes. Run a single-byte write-and-remove probe:
+
+```bash
+mkdir -p "{forge_data_folder}" && \
+  printf 'probe' > "{forge_data_folder}/.skf-write-probe" && \
+  rm "{forge_data_folder}/.skf-write-probe"
+```
+
+`mkdir -p` succeeds on a pre-existing read-only mount, but the `printf > file` redirect actually attempts a write — that catches read-only, disk-full, and permissions-denied uniformly. **On any non-zero exit:** HALT (exit code 4, `halt_reason: "write-failed"`) — `"**Error:** {forge_data_folder} is not writable: {captured stderr}. Verify the path exists, the mount is writable, and there is free disk space, then re-run."` In headless mode, emit the error-variant `SKF_BRIEF_RESULT_JSON` envelope on stderr with `halt_reason: "write-failed"` (per the SKILL.md Result Contract) before exiting. On success, continue silently to the forge-tier load below.
+
 Attempt to load `{forgeTierFile}`:
 
 **If found:**
