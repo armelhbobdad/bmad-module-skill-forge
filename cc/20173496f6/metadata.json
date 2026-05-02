@@ -3,7 +3,7 @@
   "checkpoint_id": "cc20173496f6",
   "strategy": "manual-commit",
   "branch": "refactor/skf-brief-skill-step-05-scripts",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "src/shared/scripts/skf-forge-tier-rw.py",
     "src/shared/scripts/skf-write-skill-brief.py",
@@ -18,13 +18,20 @@
       "context": "/cc/20173496f6/0/context.md",
       "content_hash": "/cc/20173496f6/0/content_hash.txt",
       "prompt": "/cc/20173496f6/0/prompt.txt"
+    },
+    {
+      "metadata": "/cc/20173496f6/1/metadata.json",
+      "transcript": "/cc/20173496f6/1/full.jsonl",
+      "context": "/cc/20173496f6/1/context.md",
+      "content_hash": "/cc/20173496f6/1/content_hash.txt",
+      "prompt": "/cc/20173496f6/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 165,
-    "cache_creation_tokens": 355116,
-    "cache_read_tokens": 19231573,
-    "output_tokens": 150263,
-    "api_call_count": 111
+    "input_tokens": 366,
+    "cache_creation_tokens": 581539,
+    "cache_read_tokens": 31491333,
+    "output_tokens": 223362,
+    "api_call_count": 213
   }
 }
