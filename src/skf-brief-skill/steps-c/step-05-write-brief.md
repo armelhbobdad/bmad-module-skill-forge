@@ -1,5 +1,6 @@
 ---
 briefSchemaFile: 'assets/skill-brief-schema.md'
+versionResolutionFile: '../references/version-resolution.md'
 nextStepFile: './step-06-health-check.md'
 ---
 
@@ -58,12 +59,13 @@ If the file does not exist, proceed normally.
 
 ### 3. Generate skill-brief.yaml
 
-**Resolve the `version` field before generating the YAML:**
+**Resolve the `version` field per `{versionResolutionFile}` precedence:**
 
-- If `target_version` was set in step 01 (the user explicitly asked for a specific version), use `target_version` as the value of the `version` field. This is the authoritative version for create-skill.
-- Otherwise, use the auto-detected source version from step 02, or `1.0.0` if none was detected.
+- `target_version` (set in step 01) wins outright when present.
+- Otherwise: auto-detected version from step 02.
+- Otherwise: `"1.0.0"`.
 
-`target_version` and `version` must never carry different values in the written brief. When the user provided a `target_version`, also include it as a separate `target_version` field so downstream tooling can distinguish "user-requested" from "auto-detected" without re-deriving the provenance — but its value must be identical to `version`.
+The reference's invariant section is binding: when `target_version` is set, the written brief MUST satisfy `brief.target_version == brief.version`. Set both fields to the identical string. Different values are a contract violation.
 
 Generate the YAML file using the approved field values and the schema template:
 

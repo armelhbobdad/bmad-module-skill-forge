@@ -1,6 +1,7 @@
 ---
 nextStepFile: './step-02-analyze-target.md'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
+versionResolutionFile: '../references/version-resolution.md'
 ---
 
 # Step 1: Gather Intent
@@ -95,6 +96,8 @@ Default to `"community"` if user does not specify or skips. For `docs-only` skil
 Confirm the target.
 
 ### 3b. Gather Target Version
+
+Load `{versionResolutionFile}` for the canonical precedence and invariant rules — this step only collects `target_version`; auto-detection runs in step 02 and resolution lands in step 05.
 
 **Headless:** if `target_version` was supplied as an argument, store it and skip the interactive prompt below. If `doc_urls` were also supplied, treat the version-vs-doc-URL confirmation prompt as auto-confirmed (Y).
 

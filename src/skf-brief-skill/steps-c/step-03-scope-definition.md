@@ -17,6 +17,7 @@ To collaboratively define the skill's inclusion and exclusion boundaries using t
 - Do not make scope decisions unilaterally — user drives all scope choices
 - Produce: scope type, include patterns, exclude patterns
 - All user-facing output in `{communication_language}`
+- **Re-entry from step-04 [R] revise:** prior selections (`scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scripts_intent`, `assets_intent`, supplemental `doc_urls`) are preserved as the current state. Re-present them at each section as the existing answer; the user only re-confirms or overrides. Do not reset to the §2c template menu unless the user explicitly asks to start scope over.
 
 ## MANDATORY SEQUENCE
 

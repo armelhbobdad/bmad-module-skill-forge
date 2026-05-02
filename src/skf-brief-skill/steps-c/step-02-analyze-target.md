@@ -1,5 +1,6 @@
 ---
 nextStepFile: './step-03-scope-definition.md'
+versionResolutionFile: '../references/version-resolution.md'
 ---
 
 # Step 2: Analyze Target
@@ -161,29 +162,18 @@ If CCC is unavailable or returns no results: skip this subsection silently.
 
 ### 4b. Detect Source Version
 
+Load `{versionResolutionFile}` and follow its "Detection Algorithm" section for the language detected in §3. Run the detection regardless of whether `target_version` is set — when `target_version` is present, the precedence rules in the reference make `target_version` win, but the detected value is still surfaced to the user as informational context.
+
 **If `target_version` was provided in step 01:**
 - Display: "**Target version:** {target_version} (user-specified)"
-- Still run auto-detection below for informational purposes.
-
-Attempt to auto-detect the source version using the rules from the skill-brief-schema.md Version Detection section:
-
-**For Python:** Check `pyproject.toml` `[project] version` (static) → if `dynamic = ["version"]`, check `__init__.py` for `__version__` → `_version.py` if exists → `setup.py` `version=` → `git describe --tags --abbrev=0`
-**For JavaScript/TypeScript:** Check root `package.json` `"version"` field → if root has `"private": true` with a `"workspaces"` array or lacks a `"version"` field, fall back to a primary workspace package's `package.json` (e.g., `code/core/package.json`, or the first matching `packages/*/package.json`). For GitHub sources, prefer `gh api repos/{owner}/{repo}/releases/latest` → `tag_name` when a non-pre-release tag exists, over a default-branch pre-release. Treat a version containing `-alpha`, `-beta`, `-rc`, `-next`, or `-canary` as a pre-release.
-**For Rust:** Check `Cargo.toml` `[package] version` (static) → if `version = { workspace = true }`, resolve from workspace root `Cargo.toml` → `git describe --tags --abbrev=0`
-**For Go:** Check `go.mod` or `git describe --tags --abbrev=0`
-
-**For GitHub repos:** Use `gh api repos/{owner}/{repo}/contents/{file}` to read version files (decode base64 content).
-**For local repos:** Read the file directly.
+- Still run the detection algorithm below for informational purposes.
 
 Display: "**Detected version:** {version or 'Not detected — will default to 1.0.0'}"
 
 {If target_version was provided AND auto-detected version differs:}
-"**Note:** Detected version ({detected_version}) differs from your target version ({target_version}). Using target version."
+"**Note:** Detected version ({detected_version}) differs from your target version ({target_version}). Using target version (per `references/version-resolution.md` precedence rules)."
 
-{If target_version was provided:}
-Store `target_version` as the brief's `version` field (overrides auto-detection).
-
-If detection fails or returns a non-semver value: note that version will default to `"1.0.0"` and the user can override in step 04.
+If detection fails or returns a non-semver value: note that version will default to `"1.0.0"` and the user can override in step 04. The actual write happens in step 05.
 
 ### 5. Report Analysis Summary
 
