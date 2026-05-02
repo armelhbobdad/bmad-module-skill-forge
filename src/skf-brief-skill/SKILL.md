@@ -24,6 +24,7 @@ These rules apply to every step in this workflow:
 - Read each step file completely before taking any action
 - Follow the mandatory sequence in each step exactly — do not skip, reorder, or optimize
 - Only load one step file at a time — never preload future steps
+- **Lazy-load references and assets:** `references/*.md` and `assets/*.md` files are loaded inside the section that needs them, not at step entry. If a section is skipped (e.g. `version-resolution.md` when `{extractPublicApiScript}` already returned a version, `scope-templates.md` for the `docs-only` branch that bypasses §2c), do not load that file. Each unnecessary load costs context (~5-10 KB per reference) and biases the LLM toward consulting material the current path does not need.
 - Always communicate in `{communication_language}`
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
 

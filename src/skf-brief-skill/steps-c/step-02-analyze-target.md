@@ -192,11 +192,9 @@ If CCC is unavailable or returns no results: skip this subsection silently.
 
 ### 4b. Detect Source Version
 
-Load `{versionResolutionFile}` for the canonical precedence and invariant rules.
+**When the language was script-supported (§4 took the script path):** the `version` field returned by `{extractPublicApiScript}` IS the detected version — do not re-derive it and do not load `{versionResolutionFile}`. The script already implements the language-specific lookups documented in that reference, so loading the reference here only burns context.
 
-**When the language was script-supported (§4 took the script path):** the `version` field returned by `{extractPublicApiScript}` IS the detected version — do not re-derive it. The script already implements the language-specific lookups documented in `{versionResolutionFile}`.
-
-**When the language was not script-supported:** follow the prose Detection Algorithm in `{versionResolutionFile}` directly (Ruby / C# / Swift / etc. fall outside the script's coverage).
+**When the language was not script-supported:** load `{versionResolutionFile}` and follow the prose Detection Algorithm directly (Ruby / C# / Swift / etc. fall outside the script's coverage).
 
 Surface the result regardless of which path produced it:
 
