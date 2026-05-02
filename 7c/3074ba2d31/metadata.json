@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "7c3074ba2d31",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-brief-skill-cosmetic-polish",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-06-health-check.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7c/3074ba2d31/0/metadata.json",
+      "transcript": "/7c/3074ba2d31/0/full.jsonl",
+      "context": "/7c/3074ba2d31/0/context.md",
+      "content_hash": "/7c/3074ba2d31/0/content_hash.txt",
+      "prompt": "/7c/3074ba2d31/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 201,
+    "cache_creation_tokens": 226423,
+    "cache_read_tokens": 12259760,
+    "output_tokens": 73099,
+    "api_call_count": 102
+  }
+}
