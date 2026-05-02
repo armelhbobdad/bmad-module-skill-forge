@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "ed8d89669a72",
+  "strategy": "manual-commit",
+  "branch": "feat/skf-brief-skill-surface-defaults",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-03-scope-definition.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ed/8d89669a72/0/metadata.json",
+      "transcript": "/ed/8d89669a72/0/full.jsonl",
+      "context": "/ed/8d89669a72/0/context.md",
+      "content_hash": "/ed/8d89669a72/0/content_hash.txt",
+      "prompt": "/ed/8d89669a72/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 201,
+    "cache_creation_tokens": 226423,
+    "cache_read_tokens": 12259760,
+    "output_tokens": 73099,
+    "api_call_count": 102
+  }
+}
