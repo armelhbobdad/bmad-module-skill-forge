@@ -3,6 +3,7 @@ nextStepFile: './step-03-scope-definition.md'
 versionResolutionFile: 'references/version-resolution.md'
 extractPublicApiScript: '{project-root}/src/shared/scripts/skf-extract-public-api.py'
 detectWorkspacesScript: '{project-root}/src/shared/scripts/skf-detect-workspaces.py'
+detectLanguageScript: '{project-root}/src/shared/scripts/skf-detect-language.py'
 ---
 
 # Step 2: Analyze Target
@@ -103,24 +104,19 @@ List the top-level directory structure:
 
 ### 3. Detect Primary Language
 
-Examine file extensions and configuration files to detect the primary language:
+Delegate the rule walk to `{detectLanguageScript}` instead of evaluating manifest presence and extension frequency in prose:
 
-**Detection signals (check in order):**
-1. `package.json` → JavaScript/TypeScript
-2. `tsconfig.json` → TypeScript
-3. `Cargo.toml` → Rust
-4. `pyproject.toml` or `setup.py` or `setup.cfg` → Python
-5. `go.mod` → Go
-6. `pom.xml` or `build.gradle` → Java
-7. `*.csproj` or `*.sln` → C#
-8. `Gemfile` → Ruby
-9. File extension frequency analysis as fallback
+```bash
+echo '{"tree": [<flat list of repo-relative file paths from §1>]}' | uv run {detectLanguageScript}
+```
+
+The script returns `{language, confidence, detection_source, fallback_to_extension_frequency}` after walking the documented rule table (manifest presence first — package.json with tsconfig.json disambiguation, Cargo.toml, pyproject.toml/setup.py/setup.cfg, go.mod, pom.xml, build.gradle.kts, build.gradle Groovy with Java/Kotlin disambiguation, *.csproj/*.sln, Gemfile — then extension-frequency fallback over recognized source extensions). Use the returned values directly:
 
 "**Detected language:** {language}
-**Confidence:** {high/medium/low}
-**Detection source:** {what config file or pattern confirmed it}"
+**Confidence:** {confidence}
+**Detection source:** {detection_source}"
 
-If confidence is low or ambiguous: flag for user override in step 03.
+If `confidence` is `low` (or `unknown` is returned for `language`): flag for user override in step 03 §4.
 
 ### 4. List Top-Level Modules and Exports
 
