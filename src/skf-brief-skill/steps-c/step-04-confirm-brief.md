@@ -24,6 +24,8 @@ To present the complete skill brief in human-readable format, highlighting all f
 
 ### 1. Assemble Complete Brief
 
+Use the values already accepted in steps 01-03 directly — do not re-load `{briefSchemaFile}` here. The 18 fields below are all in conversation; the schema is only consulted in §4 if an inline adjustment needs a specific field's validation rule cited.
+
 Compile all gathered data from steps 01-03 into the complete brief:
 
 - **name:** {skill name from step 01}
