@@ -30,6 +30,18 @@ Subcommands:
                 does not exist. Idempotent — refuses to overwrite an
                 existing file (preserves user customization).
 
+  register-qmd-collection
+                Append-or-replace a single entry in the `qmd_collections`
+                array. Reads the entry as JSON on stdin (must include
+                `name`; `name` is the upsert key — existing entry with
+                the same `name` is replaced, otherwise appended). All
+                other forge-tier state (tools / tier / ccc_index /
+                ccc_index_registry / other qmd_collections entries) is
+                preserved verbatim. Used by skf-brief-skill step-05 §5
+                and skf-create-skill to register Deep-tier QMD
+                collections without re-rendering the whole file in
+                prose.
+
   clean-stale   Two cleanup operations gated by flags:
                   --qmd-live-names a,b,c — remove qmd_collections
                     entries whose `name` is not in the comma-separated
@@ -303,6 +315,55 @@ def cmd_init_prefs(target: Path) -> None:
     _ok({"exists": True, "wrote": True, "path": str(target), "first_run": True})
 
 
+def cmd_register_qmd_collection(target: Path) -> None:
+    raw = sys.stdin.read()
+    if not raw.strip():
+        _die(1, "register-qmd-collection: empty stdin (expected JSON entry)")
+    try:
+        entry = json.loads(raw)
+    except json.JSONDecodeError as e:
+        _die(1, f"register-qmd-collection: invalid JSON on stdin: {e}")
+
+    if not isinstance(entry, dict):
+        _die(1, "register-qmd-collection: entry must be a JSON object")
+    name = entry.get("name")
+    if not name or not isinstance(name, str):
+        _die(1, "register-qmd-collection: entry must include a non-empty 'name' string")
+
+    data = _read_yaml(target)
+    if data is None:
+        _die(1, f"register-qmd-collection: target does not exist: {target}. "
+                f"Run setup workflow first to create forge-tier.yaml.")
+
+    collections = list(data.get("qmd_collections") or [])
+    replaced = False
+    for i, existing in enumerate(collections):
+        if isinstance(existing, dict) and existing.get("name") == name:
+            collections[i] = entry
+            replaced = True
+            break
+    if not replaced:
+        collections.append(entry)
+
+    payload = {
+        "tools": data.get("tools", {}),
+        "tier": data.get("tier", "Quick"),
+        "tier_detected_at": data.get("tier_detected_at",
+                                     datetime.now(timezone.utc).isoformat()),
+        "ccc_index": data.get("ccc_index", {}),
+        "ccc_index_registry": data.get("ccc_index_registry", []),
+        "qmd_collections": collections,
+    }
+    rendered = render_forge_tier_yaml(payload)
+    _atomic_write(target, rendered)
+    _ok({
+        "name": name,
+        "action": "replaced" if replaced else "appended",
+        "qmd_collections_count": len(collections),
+        "wrote": str(target),
+    })
+
+
 def cmd_clean_stale(target: Path, qmd_live_names: list[str] | None,
                     prune_missing_ccc_paths: bool) -> None:
     data = _read_yaml(target)
@@ -394,6 +455,10 @@ def main() -> None:
     p_clean.add_argument("--prune-missing-ccc-paths", action="store_true",
                          help="Remove ccc_index_registry entries whose path no longer exists.")
 
+    p_register = sub.add_parser("register-qmd-collection",
+                                help="Append-or-replace a single qmd_collections entry by name")
+    p_register.add_argument("--target", type=Path, required=True)
+
     args = parser.parse_args()
 
     if args.cmd == "read":
@@ -407,6 +472,8 @@ def main() -> None:
         if args.qmd_live_names is not None:
             live = [n.strip() for n in args.qmd_live_names.split(",") if n.strip()]
         cmd_clean_stale(args.target, live, args.prune_missing_ccc_paths)
+    elif args.cmd == "register-qmd-collection":
+        cmd_register_qmd_collection(args.target)
 
 
 if __name__ == "__main__":

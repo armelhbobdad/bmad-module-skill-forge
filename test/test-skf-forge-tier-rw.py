@@ -438,3 +438,127 @@ def test_clean_stale_missing_target_is_user_error(tmp_target):
         capture_output=True, text=True, timeout=10,
     )
     assert result.returncode == 1
+
+
+# ─── End-to-end: register-qmd-collection subcommand via subprocess ──────────
+
+
+def _register_qmd(target: Path, entry: dict) -> tuple[int, dict, str]:
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "register-qmd-collection",
+         "--target", str(target)],
+        input=json.dumps(entry),
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    payload = json.loads(result.stdout) if result.stdout.strip() else {}
+    return result.returncode, payload, result.stderr
+
+
+def test_register_qmd_appends_when_name_is_new(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    code, response, _ = _register_qmd(tmp_target, {
+        "name": "marked-brief",
+        "type": "brief",
+        "source_workflow": "brief-skill",
+        "skill_name": "marked",
+        "created_at": "2026-05-02T00:00:00Z",
+    })
+    assert code == 0
+    assert response["action"] == "appended"
+    assert response["qmd_collections_count"] == 1
+
+    persisted = _read_yaml_file(tmp_target)
+    names = [e["name"] for e in persisted["qmd_collections"]]
+    assert names == ["marked-brief"]
+
+
+def test_register_qmd_replaces_when_name_collides(tmp_target):
+    payload = _baseline_payload()
+    payload["qmd_collections"] = [
+        {"name": "marked-brief", "skill_name": "marked", "type": "brief", "created_at": "2025-01-01"},
+        {"name": "stripe-extraction", "skill_name": "stripe", "type": "extraction"},
+    ]
+    _write_tools(tmp_target, payload)
+
+    code, response, _ = _register_qmd(tmp_target, {
+        "name": "marked-brief",
+        "type": "brief",
+        "skill_name": "marked",
+        "created_at": "2026-05-02T00:00:00Z",
+        "status": "pending",
+    })
+    assert code == 0
+    assert response["action"] == "replaced"
+    assert response["qmd_collections_count"] == 2  # other entry preserved
+
+    persisted = _read_yaml_file(tmp_target)
+    by_name = {e["name"]: e for e in persisted["qmd_collections"]}
+    assert by_name["marked-brief"]["created_at"] == "2026-05-02T00:00:00Z"
+    assert by_name["marked-brief"]["status"] == "pending"
+    assert by_name["stripe-extraction"]["skill_name"] == "stripe"  # untouched
+
+
+def test_register_qmd_preserves_unrelated_state(tmp_target):
+    payload = _baseline_payload()
+    payload["ccc_index_registry"] = [{"path": "/some/abs/path", "indexed_at": "2025-01-01"}]
+    payload["ccc_index"]["staleness_threshold_hours"] = 99
+    _write_tools(tmp_target, payload)
+
+    _register_qmd(tmp_target, {"name": "new-collection", "skill_name": "x", "type": "brief"})
+
+    persisted = _read_yaml_file(tmp_target)
+    assert persisted["ccc_index_registry"] == [{"path": "/some/abs/path", "indexed_at": "2025-01-01"}]
+    assert persisted["ccc_index"]["staleness_threshold_hours"] == 99
+    assert persisted["tier"] == payload["tier"]
+
+
+def test_register_qmd_rejects_missing_name(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    code, _, stderr = _register_qmd(tmp_target, {"skill_name": "x", "type": "brief"})
+    assert code == 1
+    assert "name" in stderr
+
+
+def test_register_qmd_rejects_empty_stdin(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "register-qmd-collection",
+         "--target", str(tmp_target)],
+        input="",
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 1
+    assert "empty stdin" in result.stderr
+
+
+def test_register_qmd_rejects_invalid_json(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "register-qmd-collection",
+         "--target", str(tmp_target)],
+        input="not-json",
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 1
+    assert "invalid JSON" in result.stderr
+
+
+def test_register_qmd_rejects_non_object_entry(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "register-qmd-collection",
+         "--target", str(tmp_target)],
+        input='["array", "not", "object"]',
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 1
+    assert "JSON object" in result.stderr
+
+
+def test_register_qmd_missing_target_is_user_error(tmp_target):
+    # tmp_target has not been written yet
+    code, _, stderr = _register_qmd(tmp_target, {"name": "foo", "type": "brief"})
+    assert code == 1
+    assert "does not exist" in stderr
