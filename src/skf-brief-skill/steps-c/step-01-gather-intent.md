@@ -212,6 +212,38 @@ Wait for confirmation or alternative.
 
 - Headless: log `"warn: skill name '{name}' collides with existing brief at {path}"` and proceed; the existing-brief overwrite policy in step-05 §2b is the canonical gate (HALT with `overwrite-cancelled` unless `force` was supplied).
 
+**Portfolio-similarity check (Deep tier with QMD only, interactive only).** When the forge tier is `Deep` AND `tools.qmd` is true in `forge-tier.yaml`, the brief portfolio is already indexed in QMD collections (one `{skill-name}-brief` collection per existing brief, registered by step-05 §5 of every prior Deep-tier run). Run a similarity search against that portfolio so near-duplicates are caught before the user invests scope-definition time. The qmd CLI does not support glob-style collection selection, so enumerate first then query per collection in **a single message with N parallel Bash calls**:
+
+```bash
+# 1. Enumerate brief collections (one per existing brief)
+qmd collection list | awk '/-brief$/{print $1}'
+
+# 2. For each collection, query the proposed name + intent text:
+qmd query "{name} {synthesized-or-intent-text}" -c {collection-name} -n 1 --min-score 0.6
+```
+
+Aggregate the top hits across all `-brief` collections; keep the 3 highest-scoring across the union. If any results come back, surface them as a heads-up — *not* a HALT. Exact-name collision is already handled above; this check catches semantic near-duplicates that exact-match misses (e.g. `markdown-renderer` proposed when `marked` already exists, or `auth-gateway` when `auth-middleware` already exists). Present:
+
+```
+**Heads up — these existing briefs look semantically close to `{name}`:**
+  1. {existing-name} (similarity: {score})  — {existing-description}
+  2. {existing-name} (similarity: {score})  — {existing-description}
+
+Continue with `{name}`, or pick a different name?
+```
+
+On any QMD failure (binary missing, collection list empty, any per-collection query times out): log `"warn: portfolio-similarity check skipped — qmd query failed: {error}"` and continue silently — never HALT. Quick / Forge / Forge+ tiers do not run this check (qmd is Deep-tier-only per the canonical tier definition: `Deep = + ast-grep + gh + QMD` in `skf-forge-tier-rw.py`). Headless does not run this check either — it would either need to HALT on duplicates (over-aggressive for an automator) or silently log (no operator to act on it); leaving it interactive-only keeps the headless path side-effect-free against the QMD index.
+
+**Draft-resume check (interactive only).** After the name is confirmed, also check for an in-progress draft at `{forge_data_folder}/{name}/.brief-draft.json` (a step-01 §7 checkpoint from a previous run that did not reach step-05). If the file exists AND no `skill-brief.yaml` sits beside it (a finished brief uses the same dir), present:
+
+```
+**An in-progress draft for `{name}` was found** (last updated: {mtime}).
+  [Y] Resume from the saved draft (jump to §8 with prior answers restored)
+  [N] Start fresh (delete the draft and re-gather)
+```
+
+On `[Y]`: load the JSON, restore the captured fields (target_repo, source_type, source_authority, target_version, doc_urls, intent, scope_hint, description), and jump directly to §8 — **skip the rest of §6, §7, and §7b**. The restored `description` is authoritative and does not need re-synthesis (re-running §7b would overwrite the user's previously accepted description with a fresh candidate). The user can still revise any field at step-04. On `[N]`: delete `.brief-draft.json` and continue with §6 normally. In headless mode this check is skipped — drafts are an interactive-only convenience and the headless path runs to completion in a single invocation.
+
 ### 7. Summarize Gathered Intent
 
 "**Here's what I've captured:**
@@ -229,6 +261,8 @@ Wait for confirmation or alternative.
 - **Forge tier:** {tier}
 
 Ready to analyze the target repository?"
+
+**Draft checkpoint (interactive only).** After the user confirms the summary, persist the captured state to `{forge_data_folder}/{skill-name}/.brief-draft.json` so a session interruption between here and step-05 doesn't force a full re-gather. Write a single JSON object with the captured fields (target_repo, source_type, source_authority, target_version, doc_urls, intent, scope_hint, description-after-§7b, the inferred forge_tier and tier_source) atomically (write to `.brief-draft.json.tmp` then rename). The file is removed by step-05 §4 after the final brief writes successfully (a draft only exists while the workflow is in flight). In headless mode skip this checkpoint — the run completes in a single invocation, no resume is meaningful.
 
 ### 7b. Synthesize Skill Description
 
@@ -267,6 +301,8 @@ Display: "**Select:** [C] Continue to Target Analysis · [X] Cancel and exit"
 
 - ALWAYS halt and wait for user input after presenting menu
 - **GATE [default: use args]** — If `{headless_mode}`, consume pre-supplied arguments and auto-proceed. The full argument set (required/optional, defaults, halt codes, enum values) is documented in `{headlessArgsFile}` — load it now if you need to look up a specific argument. Validation is delegated to `{validateBriefInputsScript}`; the table is the canonical operator-facing documentation, the script enforces it.
+
+  **Preset merge (before validation).** If the headless args include a `preset` field, load `{sidecar_path}/brief-presets/{preset}.yaml` and merge its contents as defaults — explicit args override preset values, key by key. The preset file is YAML; if it does not exist, log `"warn: preset '{name}' not found at {path} — proceeding without preset"` and continue (do not HALT). If it parses but contains unknown fields, log per-field warnings and pass through unchanged (the validator's KNOWN_FIELDS check will catch any that survive). Drop the `preset` key itself from the merged dict before passing to the validator (it is consumed at this level and is not a brief field).
 
   **Delegate validation to `{validateBriefInputsScript}`** instead of reasoning through the table rules in prose:
 
