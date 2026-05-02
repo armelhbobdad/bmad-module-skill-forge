@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "171410fd8654",
+  "strategy": "manual-commit",
+  "branch": "feat/skf-brief-skill-fail-fast-validation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-01-gather-intent.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/17/1410fd8654/0/metadata.json",
+      "transcript": "/17/1410fd8654/0/full.jsonl",
+      "context": "/17/1410fd8654/0/context.md",
+      "content_hash": "/17/1410fd8654/0/content_hash.txt",
+      "prompt": "/17/1410fd8654/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 201,
+    "cache_creation_tokens": 226423,
+    "cache_read_tokens": 12259760,
+    "output_tokens": 73099,
+    "api_call_count": 102
+  }
+}
