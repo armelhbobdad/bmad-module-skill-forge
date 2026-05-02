@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "2aee54512725",
+  "strategy": "manual-commit",
+  "branch": "feat/skf-detect-workspaces",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-02-analyze-target.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2a/ee54512725/0/metadata.json",
+      "transcript": "/2a/ee54512725/0/full.jsonl",
+      "context": "/2a/ee54512725/0/context.md",
+      "content_hash": "/2a/ee54512725/0/content_hash.txt",
+      "prompt": "/2a/ee54512725/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 235,
+    "cache_creation_tokens": 410605,
+    "cache_read_tokens": 35680396,
+    "output_tokens": 172218,
+    "api_call_count": 156
+  }
+}

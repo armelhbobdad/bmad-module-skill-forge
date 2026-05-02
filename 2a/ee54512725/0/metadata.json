@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "2aee54512725",
+  "session_id": "c182181b-3026-49d1-a80c-d52fb69e7d88",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-02T17:21:00.775246622Z",
+  "branch": "feat/skf-detect-workspaces",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-02-analyze-target.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "39b12d775d6a",
+  "token_usage": {
+    "input_tokens": 235,
+    "cache_creation_tokens": 410605,
+    "cache_read_tokens": 35680396,
+    "output_tokens": 172218,
+    "api_call_count": 156
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-02T17:20:59.479024998Z",
+    "agent_lines": 0,
+    "human_added": 8,
+    "human_modified": 11,
+    "human_removed": 0,
+    "total_committed": 8,
+    "agent_percentage": 0
+  }
+}
