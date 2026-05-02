@@ -5,6 +5,7 @@ descriptionVoiceExamplesFile: 'assets/description-voice-examples.md'
 headlessArgsFile: 'references/headless-args.md'
 headlessSourceAuthorityDetectionFile: 'references/headless-source-authority-detection.md'
 portfolioSimilarityCheckFile: 'references/portfolio-similarity-check.md'
+draftCheckpointFile: 'references/draft-checkpoint.md'
 validateBriefInputsScript: '{project-root}/src/shared/scripts/skf-validate-brief-inputs.py'
 emitBriefEnvelopeScript: '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
 ---
@@ -216,15 +217,7 @@ Wait for confirmation or alternative.
 
 **Portfolio-similarity check.** When the flow is interactive AND forge tier is `Deep` AND `tools.qmd` is true in `forge-tier.yaml`, load `{portfolioSimilarityCheckFile}` and follow the procedure there to catch semantic near-duplicates that exact-name collision misses. Otherwise (headless, or tier below Deep, or qmd unavailable) skip the load — the check does not run.
 
-**Draft-resume check (interactive only).** After the name is confirmed, also check for an in-progress draft at `{forge_data_folder}/{name}/.brief-draft.json` (a step-01 §7 checkpoint from a previous run that did not reach step-05). If the file exists AND no `skill-brief.yaml` sits beside it (a finished brief uses the same dir), present:
-
-```
-**An in-progress draft for `{name}` was found** (last updated: {mtime}).
-  [Y] Resume from the saved draft (jump to §8 with prior answers restored)
-  [N] Start fresh (delete the draft and re-gather)
-```
-
-On `[Y]`: load the JSON, restore the captured fields (target_repo, source_type, source_authority, target_version, doc_urls, intent, scope_hint, description), and jump directly to §8 — **skip the rest of §6, §7, and §7b**. The restored `description` is authoritative and does not need re-synthesis (re-running §7b would overwrite the user's previously accepted description with a fresh candidate). The user can still revise any field at step-04. On `[N]`: delete `.brief-draft.json` and continue with §6 normally. In headless mode this check is skipped — drafts are an interactive-only convenience and the headless path runs to completion in a single invocation.
+**Draft-resume check.** When the flow is interactive AND `{forge_data_folder}/{name}/.brief-draft.json` exists AND no `skill-brief.yaml` sits beside it, load `{draftCheckpointFile}` and follow Half 1 (Resume Check). On `[Y]` resume, the procedure jumps directly to §8 with prior answers restored — **the rest of §6, all of §7, and all of §7b are skipped**. Otherwise (headless, or no draft file, or a finished brief sits beside the draft) skip the load and continue with §6 normally.
 
 ### 7. Summarize Gathered Intent
 
@@ -244,7 +237,7 @@ On `[Y]`: load the JSON, restore the captured fields (target_repo, source_type, 
 
 Ready to analyze the target repository?"
 
-**Draft checkpoint (interactive only).** After the user confirms the summary, persist the captured state to `{forge_data_folder}/{skill-name}/.brief-draft.json` so a session interruption between here and step-05 doesn't force a full re-gather. Write a single JSON object with the captured fields (target_repo, source_type, source_authority, target_version, doc_urls, intent, scope_hint, description-after-§7b, the inferred forge_tier and tier_source) atomically (write to `.brief-draft.json.tmp` then rename). The file is removed by step-05 §4 after the final brief writes successfully (a draft only exists while the workflow is in flight). In headless mode skip this checkpoint — the run completes in a single invocation, no resume is meaningful.
+**Draft checkpoint.** When the flow is interactive, load `{draftCheckpointFile}` (or reuse it if already loaded for the §6 resume check) and follow Half 2 (Checkpoint Write) to persist the captured state atomically. Headless mode skips this — the run completes in a single invocation, no resume is meaningful.
 
 ### 7b. Synthesize Skill Description
 
