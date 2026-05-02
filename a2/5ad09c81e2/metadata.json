@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "a25ad09c81e2",
+  "strategy": "manual-commit",
+  "branch": "feat/skf-brief-skill-quality-fixes",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-01-gather-intent.md",
+    "src/skf-brief-skill/steps-c/step-02-analyze-target.md",
+    "src/skf-brief-skill/steps-c/step-05-write-brief.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a2/5ad09c81e2/0/metadata.json",
+      "transcript": "/a2/5ad09c81e2/0/full.jsonl",
+      "context": "/a2/5ad09c81e2/0/context.md",
+      "content_hash": "/a2/5ad09c81e2/0/content_hash.txt",
+      "prompt": "/a2/5ad09c81e2/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 183,
+    "cache_creation_tokens": 219495,
+    "cache_read_tokens": 10762648,
+    "output_tokens": 68474,
+    "api_call_count": 94
+  }
+}
