@@ -7,26 +7,31 @@ Present these options to the user for selection:
 **[F] Full Library** — Include everything. Best for smaller, focused libraries.
 - All public exports, all modules
 - Exclude only tests, build artifacts, and internal utilities
+- *Looks like:* `marked` (single-purpose Markdown→HTML); `nanoid` (id generator); `zod` (validation library)
 
 **[M] Specific Modules** — Select which modules to include. Best for large libraries where only some parts are relevant.
 - You choose which modules/directories
 - Fine-grained control over what's in and out
+- *Looks like:* `lodash` skill scoped to just `lodash/array` and `lodash/string`; `aws-sdk` skill scoped to just S3 and DynamoDB
 
 **[P] Public API Only** — Include only the public-facing API surface. Best for libraries with a clear public/private boundary.
 - Entry points and exported interfaces only
 - Internal implementation excluded
+- *Looks like:* `stripe` (payment intents, subscriptions, webhooks — not internal HTTP plumbing); `redis` client (connection + commands, not protocol parsers)
 
 **[C] Component Library** — Optimized for UI component libraries with registries, props-based APIs, and design system variants.
 - Component registry as primary API surface (not individual exports)
 - Props interfaces as API contracts (not function signatures)
 - Auto-exclude demo/example/story files (with user confirmation)
 - Variant consolidation across design systems
+- *Looks like:* `shadcn-ui` (Button, Dialog, Form... 50+ components); Material-UI; Carbon Design System
 
 **[R] Reference App** — Whole-app pattern-reference skill. Use when the source is a working example app and the skill's value is **wiring patterns** (lifecycle, IPC, build-config, distribution) rather than a public library API.
 - Pattern surface as primary API slot (not individual exports)
 - Adoption Steps as primary workflow format (not API-call chains)
 - Tier 2 organized as `references/pattern-*.md` groupings (not per-function)
 - Export-count stats are pattern-surface proxies, not library exports
+- *Looks like:* a Tauri starter app (window setup + IPC bridge + build config); a Next.js auth example (route handlers + middleware + session storage wiring)
 
 ## Boundary Definitions by Scope Type
 
