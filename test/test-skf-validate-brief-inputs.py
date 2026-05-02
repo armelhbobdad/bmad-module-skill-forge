@@ -58,6 +58,16 @@ class TestRequiredFields:
         fields = {e["field"] for e in out["errors"]}
         assert {"target_repo", "skill_name"}.issubset(fields)
 
+    def test_both_missing_halt_reason_is_input_missing(self):
+        out = mod.validate({})
+        assert out["halt_reason"] == "input-missing"
+
+    def test_missing_required_plus_invalid_enum_prefers_input_missing(self):
+        # target_repo absent + scope_type invalid — "missing" should dominate
+        out = mod.validate({"skill_name": "foo", "scope_type": "not-real"})
+        assert out["valid"] is False
+        assert out["halt_reason"] == "input-missing"
+
 
 # --------------------------------------------------------------------------
 # skill_name format

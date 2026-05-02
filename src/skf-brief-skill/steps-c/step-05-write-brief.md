@@ -140,7 +140,7 @@ If `{headless_mode}` is true, emit a single-line JSON envelope on **stdout** imm
 SKF_BRIEF_RESULT_JSON: {"status":"success","brief_path":"{abs_path}","skill_name":"{name}","version":"{resolved version}","language":"{language}","scope_type":"{scope.type}","exit_code":0,"halt_reason":null}
 ```
 
-The envelope shape on HARD HALT (any phase, written to **stderr**) uses the same keys with `status: "error"`, `brief_path: null` when no file was written, the matching `exit_code` from the table in `SKILL.md`, and `halt_reason` set to one of: `"input-missing"`, `"forge-tier-missing"`, `"target-inaccessible"`, `"gh-auth-failed"`, `"write-failed"`, `"overwrite-cancelled"`.
+The envelope shape on HARD HALT (any phase, written to **stderr**) uses the same keys with `status: "error"`, `brief_path: null` when no file was written, the matching `exit_code` from the table in `SKILL.md`, and `halt_reason` set to one of: `"input-missing"`, `"input-invalid"`, `"forge-tier-missing"`, `"target-inaccessible"`, `"gh-auth-failed"`, `"write-failed"`, `"overwrite-cancelled"`.
 
 When `{headless_mode}` is false, skip this section silently — no envelope is emitted.
 
