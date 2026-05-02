@@ -243,7 +243,10 @@ This is what shows up when agents discover the skill. Edit it, replace it, or ac
 
 Wait for user confirmation or alternative. Store the accepted text as the brief's `description` field. The same field is re-presented in step-04 §3 for a final review pass — refinements there flow back to this value.
 
-**Headless:** if the `intent` argument was supplied, load `{descriptionVoiceExamplesFile}` and run the same synthesis against it, then store the result. If `intent` was not supplied, derive from `target_repo` + `skill_name` (`"Use the {skill_name} skill to work with code or content from {target_repo}."`) — the generic fallback does not need the asset — and log `"warn: description synthesized without intent — narrow registry text."`
+**Headless:** if the `intent` argument was supplied, load `{descriptionVoiceExamplesFile}` and run the same synthesis against it, then store the result. If `intent` was not supplied, fall back in priority order:
+
+1. **GitHub repo description** — when `target_repo` is a GitHub URL, fetch `gh api repos/{owner}/{repo} --jq .description` (5-second timeout). If a non-empty description comes back, load `{descriptionVoiceExamplesFile}` and synthesize using the GitHub description as the seed in place of `intent`. Log `"info: description seeded from GitHub repo description"`. (The full `gh api repos` response is fetched again in step-02 §1; this lightweight `--jq .description` call only retrieves the one field.)
+2. **Generic stub** — when no GitHub description is available (local-path target, GitHub repo with empty description, or `gh api` fails): derive from `target_repo` + `skill_name` (`"Use the {skill_name} skill to work with code or content from {target_repo}."`) — the generic fallback does not need the asset — and log `"warn: description synthesized without intent or repo description — narrow registry text."`
 
 ### 8. Present MENU OPTIONS
 
