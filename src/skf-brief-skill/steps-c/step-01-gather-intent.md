@@ -1,6 +1,8 @@
 ---
 nextStepFile: './step-02-analyze-target.md'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
+descriptionVoiceExamplesFile: 'assets/description-voice-examples.md'
+headlessArgsFile: 'references/headless-args.md'
 validateBriefInputsScript: '{project-root}/src/shared/scripts/skf-validate-brief-inputs.py'
 ---
 
@@ -221,19 +223,7 @@ The schema's `description` field is 1-3 sentences and surfaces in skill registri
 
 Compose a candidate 1-3 sentence description from the gathered material. **Write like a human library maintainer would** — what does an agent get from this skill, and when should it route here? Two facts must come through (what the skill is, when to use it); everything else is voice. Resist filling in the same skeleton every time.
 
-Examples of the range — note that voice, structure, lead, and emphasis all vary:
-
-> Render Markdown to HTML using the marked library. Use when the user pastes raw Markdown and wants formatted output, or asks how to convert MD files in a build pipeline.
-
-> Stripe API client for Node.js — payment intents, subscriptions, customer portal, webhooks. Triggers on tasks involving Stripe-managed payments, subscription billing, or webhook event handling.
-
-> Charts and visualizations powered by D3.js. Reach for this when the user asks to plot data, build interactive graphs, or wants bare D3 control instead of a React-charts abstraction.
-
-> Lint Python code with Ruff. Use when the user wants to add or configure Ruff in a Python project, debug rule selectors, or understand why a specific check fired.
-
-> Date and time arithmetic via Luxon — parsing, formatting, time zones, durations, intervals. Use when working with dates in ways that exceed `Date.toISOString()` but you don't want a full Moment.js footprint.
-
-Notice how each one leads differently (verb / noun / "Charts and..." / verb / noun-phrase) and how the trigger ("Use when...", "Triggers on...", "Reach for this when...") is matched to the voice rather than copy-pasted. Compose in that spirit using the gathered material — the target repo, the user's intent, the version if set, and any scope hints — but do not template-stamp.
+Load `{descriptionVoiceExamplesFile}` for the five voice examples (range of acceptable leads, structures, and trigger phrasings) and the "do not template-stamp" guidance, then compose in that spirit. The asset documents what "in that spirit" means; the gathered material to draw on is the target repo, the user's intent, the version if set, and any scope hints.
 
 Present:
 
@@ -245,7 +235,7 @@ This is what shows up when agents discover the skill. Edit it, replace it, or ac
 
 Wait for user confirmation or alternative. Store the accepted text as the brief's `description` field. The same field is re-presented in step-04 §3 for a final review pass — refinements there flow back to this value.
 
-**Headless:** if the `intent` argument was supplied, run the same synthesis against it and store the result. If `intent` was not supplied, derive from `target_repo` + `skill_name` (`"Use the {skill_name} skill to work with code or content from {target_repo}."`) and log `"warn: description synthesized without intent — narrow registry text."`
+**Headless:** if the `intent` argument was supplied, load `{descriptionVoiceExamplesFile}` and run the same synthesis against it, then store the result. If `intent` was not supplied, derive from `target_repo` + `skill_name` (`"Use the {skill_name} skill to work with code or content from {target_repo}."`) — the generic fallback does not need the asset — and log `"warn: description synthesized without intent — narrow registry text."`
 
 ### 8. Present MENU OPTIONS
 
@@ -259,25 +249,7 @@ Display: "**Select:** [C] Continue to Target Analysis"
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: use args]** — If `{headless_mode}`, consume pre-supplied arguments per the table below and auto-proceed. Validation is delegated to `{validateBriefInputsScript}` (described after the table) — the table is the canonical operator-facing documentation; the script enforces it.
-
-  | Argument | Required | Default | Notes |
-  |----------|----------|---------|-------|
-  | `target_repo` | yes | — | HALT (exit 2, `halt_reason: "input-missing"`) if absent |
-  | `skill_name` | yes | — | HALT (exit 2, `halt_reason: "input-missing"`) if absent; HALT (exit 2, `halt_reason: "input-invalid"`) if non-kebab |
-  | `source_type` | no | `source` | If `docs-only`, `doc_urls` becomes required |
-  | `doc_urls` | conditional | — | Required when `source_type=docs-only` (HALT exit 2, `halt_reason: "input-missing"` if empty). List of `url` or `url,label` |
-  | `source_authority` | no | `community` | `official` / `community` / `internal`; forced to `community` when `source_type=docs-only` |
-  | `target_version` | no | — | Auto-detected in step-02 if absent. Full X.Y.Z semver required (HALT exit 2, `halt_reason: "input-invalid"` on partial forms like `1`, `1.2`, `v2`) |
-  | `scope_hint` | no | — | Free-text steering for §5 |
-  | `language_hint` | no | — | Overrides language detection in step-02/03 |
-  | `scope_type` | no | — | `full-library` / `specific-modules` / `public-api` / `component-library` / `reference-app` / `docs-only` |
-  | `include` | no | — | Comma-separated globs (used by step-03 §3) |
-  | `exclude` | no | — | Comma-separated globs (used by step-03 §3) |
-  | `scripts_intent` | no | `detect` | `detect` / `none` / free-text |
-  | `assets_intent` | no | `detect` | `detect` / `none` / free-text |
-  | `intent` | no | — | Free-text used to derive `description` in §7b |
-  | `force` | no | — | Overwrite existing brief without prompting (consumed in step-05 §2b) |
+- **GATE [default: use args]** — If `{headless_mode}`, consume pre-supplied arguments and auto-proceed. The full argument set (required/optional, defaults, halt codes, enum values) is documented in `{headlessArgsFile}` — load it now if you need to look up a specific argument. Validation is delegated to `{validateBriefInputsScript}`; the table is the canonical operator-facing documentation, the script enforces it.
 
   **Delegate validation to `{validateBriefInputsScript}`** instead of reasoning through the table rules in prose:
 
@@ -290,7 +262,7 @@ Display: "**Select:** [C] Continue to Target Analysis"
   - **`valid: false`** — emit the error-variant `SKF_BRIEF_RESULT_JSON` envelope on stderr with `exit_code: 2` and the script's `halt_reason` (`"input-missing"` for absent required args / docs-only without doc_urls; `"input-invalid"` for enum violations, malformed semver, malformed kebab-case skill_name). Surface `errors[]` to the operator log so the failure is debuggable. HALT.
   - **`valid: true`** — consume the `normalized` object as the source of truth (it has defaults applied per the table). Surface `warnings[]` to the operator log but do not HALT. Auto-proceed.
 
-  The script's `KNOWN_FIELDS` set must stay in sync with the table above.
+  The script's `KNOWN_FIELDS` set must stay in sync with the table in `{headlessArgsFile}`.
 
 
 - ONLY proceed to next step when user selects 'C'
