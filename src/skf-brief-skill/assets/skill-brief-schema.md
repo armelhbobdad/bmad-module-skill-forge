@@ -171,46 +171,7 @@ scope:
 
 ## Human-Readable Presentation Format
 
-When presenting the brief for confirmation (brief-skill step 04 only — not applicable to analyze-source batch generation), display as:
-
-```
-Skill Brief: {name}
-====================
-
-Target:      {source_repo}
-Language:    {language}
-Forge Tier:  {forge_tier}
-Description: {description}
-
-Scope: {scope.type}
-  Include: {scope.include patterns, one per line}
-  Exclude: {scope.exclude patterns, one per line}
-  Notes:   {scope.notes}
-
-{If source_type is "docs-only":}
-Source Type: docs-only
-Doc URLs:
-  {doc_urls, one per line with labels}
-
-{If source_type is "source" AND supplemental doc_urls collected:}
-Supplemental Docs:
-  {doc_urls, one per line with labels}
-
-{If scripts_intent or assets_intent was explicitly set (not default "detect"):}
-Scripts:    {scripts_intent}
-Assets:     {assets_intent}
-
-Source Authority: {source_authority}
-
-{If target_version is set:}
-Target Version:   {target_version} (user-specified)
-Detected Version: {detected_version or "N/A"}
-{Else:}
-Version:    {version}
-{End if}
-Created:    {created}
-Created by: {created_by}
-```
+The runtime template lives in `steps-c/step-04-confirm-brief.md` §2 — that is the single source of truth for how the brief is rendered for user confirmation (brief-skill step-04 only; analyze-source batch generation does not render). If the rendering format needs to change, edit the step file. This asset documents the data contract; the step owns the presentation.
 
 ## Validation Rules
 
