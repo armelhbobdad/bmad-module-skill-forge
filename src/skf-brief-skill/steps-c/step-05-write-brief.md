@@ -59,7 +59,7 @@ Overwrite it with the brief you just approved? [Y/N]"
 If the file exists:
 
 - If `force` was supplied as a headless argument: log `"headless: force-overwriting existing brief at {path}"` and proceed to §3.
-- Otherwise: invoke `{emitBriefEnvelopeScript}` to emit the error-variant envelope on stderr (see §4b) with `halt_reason: "overwrite-cancelled"`, then HALT with exit code 5.
+- Otherwise: emit the error envelope per §4b with `halt_reason: "overwrite-cancelled"`, then HALT with exit code 5.
 
 If the file does not exist, proceed normally.
 
@@ -109,27 +109,40 @@ The script:
 **On script failure (non-zero exit):**
 - Exit 1 (validation/invariant): The error JSON on stderr names the offending field. This indicates a context-assembly bug, not a user error — surface the message to the user, log it, then HALT.
   - Interactive: **HALT** — display the error JSON's `message` field.
-  - Headless: invoke `{emitBriefEnvelopeScript} emit --target stderr` with envelope-context `halt_reason: "input-invalid"` (the script derives `exit_code: 2` automatically — do NOT pass `exit_code` in the JSON payload), then `exit 2`.
+  - Headless: emit the error envelope per §4b with `halt_reason: "input-invalid"`, then `exit 2`.
 - Exit 2 (I/O failure): The atomic write failed (target unwritable, disk full, etc.).
   - Interactive: **HALT** — "**Error:** Failed to write skill-brief.yaml. Check that the directory is writable and try again."
-  - Headless: invoke `{emitBriefEnvelopeScript} emit --target stderr` with envelope-context `halt_reason: "write-failed"` (script derives `exit_code: 4` automatically), then `exit 4`.
+  - Headless: emit the error envelope per §4b with `halt_reason: "write-failed"`, then `exit 4`.
 
 **On success:** capture `brief_path` and `version` from the response envelope — both are needed for §4b and §6.
 
 **Draft cleanup.** After a successful write, remove `{forge_data_folder}/{skill-name}/.brief-draft.json` if it exists (`rm -f` — silent on absent). The draft was a step-01 §7 checkpoint covering the in-flight workflow window; once the brief is written it is no longer meaningful. In headless mode this rm is a no-op (drafts are only written interactively).
 
-### 4b. Headless Result Envelope
+### 4b. Headless Result Envelope (Canonical)
 
-If `{headless_mode}` is true, emit the success envelope on **stdout** immediately after the write (before §5 / §6 / §7):
+This section is the canonical envelope-emission reference for the workflow. Every headless emission — the success terminal here and every HARD HALT in step-01/02/05 — uses this contract. Remote sites point here instead of restating it.
+
+**Success (this call site only — emitted from §3 directly):**
 
 ```bash
 echo '{"status":"success","brief_path":"<from §3 response>","skill_name":"<name>","version":"<from §3 response>","language":"<language>","scope_type":"<scope.type>","halt_reason":null}' | \
   uv run {emitBriefEnvelopeScript} emit
 ```
 
-The script derives `exit_code` deterministically from `halt_reason` (the canonical mapping is null→0, input-missing/input-invalid→2, forge-tier-missing/target-inaccessible/gh-auth-failed→3, write-failed→4, overwrite-cancelled→5, user-cancelled→6 [interactive-only — headless never raises this]), validates against `src/shared/scripts/schemas/skf-brief-result-envelope.v1.json`, and prints the prefixed `SKF_BRIEF_RESULT_JSON: {…}` line.
+**Error (used by every HARD HALT site):**
 
-The envelope shape on HARD HALT (any phase) is the same call with `--target stderr`, `status: "error"`, and the matching `halt_reason` (one of `"input-missing"`, `"input-invalid"`, `"forge-tier-missing"`, `"target-inaccessible"`, `"gh-auth-failed"`, `"write-failed"`, `"overwrite-cancelled"`) — see the §3, §2b, §5 (no-halt) branches above and the §1/§2 HALTs in step-01/step-02 for invocation sites. The script enforces the success/error halt_reason invariant (success requires null halt_reason; error requires non-null). The `user-cancelled` halt_reason is also accepted by the script for completeness (interactive `[X]` Cancel sites in step-01/03/04 use it) but never appears on the headless code path.
+```bash
+echo '{"status":"error","skill_name":"<name>","halt_reason":"<reason>"}' | \
+  uv run {emitBriefEnvelopeScript} emit --target stderr
+```
+
+When the HALT fires before `skill_name` has been resolved (step-01 §1 pre-flight write probe, step-01 §8 input-missing on a malformed args bundle), pass the partially-gathered value or the literal `"unknown"` — the script accepts any non-empty string at this position.
+
+The script derives `exit_code` deterministically from `halt_reason` (null→0, input-missing/input-invalid→2, forge-tier-missing/target-inaccessible/gh-auth-failed→3, write-failed→4, overwrite-cancelled→5, user-cancelled→6 [interactive-only — headless never raises this]), validates against `src/shared/scripts/schemas/skf-brief-result-envelope.v1.json`, and prints the prefixed `SKF_BRIEF_RESULT_JSON: {…}` line.
+
+The script enforces the success/error halt_reason invariant (success requires null halt_reason; error requires non-null). The `user-cancelled` halt_reason is accepted for completeness (interactive `[X]` Cancel sites in step-01/03/04) but never appears on the headless code path.
+
+Invocation sites (each pointed at this block, not duplicated): step-01 §1 (write-failed pre-resolution), step-01 §8 (input-missing/input-invalid GATE), step-05 §2b (overwrite-cancelled), step-05 §3 (input-invalid/write-failed from script). Step-01 §1 forge-tier-missing and step-02 §1 (target-inaccessible/gh-auth-failed) currently HALT without emitting an envelope — pre-existing gaps tracked separately, not addressed by this canonicalization.
 
 When `{headless_mode}` is false, skip this section silently — no envelope is emitted.
 
