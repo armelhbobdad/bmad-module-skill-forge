@@ -3,7 +3,7 @@
   "checkpoint_id": "6964fe10c5ec",
   "strategy": "manual-commit",
   "branch": "refactor/skf-brief-cleanup-quick-wins",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "src/skf-brief-skill/steps-c/step-01-gather-intent.md",
     "src/skf-brief-skill/steps-c/step-05-write-brief.md"
@@ -15,13 +15,20 @@
       "context": "/69/64fe10c5ec/0/context.md",
       "content_hash": "/69/64fe10c5ec/0/content_hash.txt",
       "prompt": "/69/64fe10c5ec/0/prompt.txt"
+    },
+    {
+      "metadata": "/69/64fe10c5ec/1/metadata.json",
+      "transcript": "/69/64fe10c5ec/1/full.jsonl",
+      "context": "/69/64fe10c5ec/1/context.md",
+      "content_hash": "/69/64fe10c5ec/1/content_hash.txt",
+      "prompt": "/69/64fe10c5ec/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 212,
-    "cache_creation_tokens": 134559,
-    "cache_read_tokens": 4079256,
-    "output_tokens": 42120,
-    "api_call_count": 45
+    "input_tokens": 668,
+    "cache_creation_tokens": 541747,
+    "cache_read_tokens": 42534218,
+    "output_tokens": 224776,
+    "api_call_count": 221
   }
 }
