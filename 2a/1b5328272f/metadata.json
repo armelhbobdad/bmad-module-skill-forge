@@ -3,7 +3,7 @@
   "checkpoint_id": "2a1b5328272f",
   "strategy": "manual-commit",
   "branch": "refactor/skf-brief-skill-extract-references",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "src/skf-brief-skill/steps-c/step-01-gather-intent.md"
   ],
@@ -14,13 +14,20 @@
       "context": "/2a/1b5328272f/0/context.md",
       "content_hash": "/2a/1b5328272f/0/content_hash.txt",
       "prompt": "/2a/1b5328272f/0/prompt.txt"
+    },
+    {
+      "metadata": "/2a/1b5328272f/1/metadata.json",
+      "transcript": "/2a/1b5328272f/1/full.jsonl",
+      "context": "/2a/1b5328272f/1/context.md",
+      "content_hash": "/2a/1b5328272f/1/content_hash.txt",
+      "prompt": "/2a/1b5328272f/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 235,
-    "cache_creation_tokens": 410605,
-    "cache_read_tokens": 35680396,
-    "output_tokens": 172218,
-    "api_call_count": 156
+    "input_tokens": 553,
+    "cache_creation_tokens": 618705,
+    "cache_read_tokens": 43777200,
+    "output_tokens": 233743,
+    "api_call_count": 229
   }
 }
