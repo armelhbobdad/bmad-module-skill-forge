@@ -84,7 +84,9 @@ Load `{scopeTemplatesFile}` for the scope type options ([F], [M], [P], [C], [R])
 
 **Delegate the recommendation to `{recommendScopeTypeScript}`** instead of walking the heuristic ladder in prose. The script is the single source of truth for the five-rule ladder (component-registry → reference-app keywords → specific-modules naming/count → narrow-public-api → default full-library) plus the docs-only short-circuit. Both the interactive recommendation and the §6 headless GATE invoke the same script — same inputs, same outputs, no drift.
 
-Build a payload from the data gathered in step-01/02 and invoke:
+**Fetch registry-file contents before building the payload.** Step-02 §4.1 fetches `package.json` plus the entry-point files but does not fetch `registry.ts` / `components.ts` — the deep-match branch of the component-registry rule needs those contents. Scan the tree for any of `registry.ts` / `registry.tsx` / `components.ts` / `components.tsx` (any depth). For each match, fetch its contents in **one message with N parallel Bash calls** (`gh api repos/{owner}/{repo}/contents/{path}` for GitHub, file reads for local), then base64-decode the responses together. Skip the fetch if the tree contains no registry files.
+
+Build the payload and invoke:
 
 ```bash
 echo '{
@@ -92,13 +94,13 @@ echo '{
   "module_count": <count from step-02 §4.3>,
   "export_count": <count from step-02 §4.3>,
   "tree": [<flat list of repo-relative file paths from step-02 §1>],
-  "entry_files": [{"path": "<path>", "content": "<contents>"}, ...],
+  "entry_files": [{"path": "<registry path>", "content": "<contents>"}, ...],
   "source_type": "source",
   "mode": "interactive"
 }' | uv run {recommendScopeTypeScript}
 ```
 
-`entry_files` is optional — supply the contents of any `registry.ts` / `components.ts` already fetched in step-02 so the script can inspect them; omit otherwise. `mode: "interactive"` activates the content-inspection branch of the component-registry rule (10+ entries or `Component[]` annotation); the headless GATE in §6 uses `mode: "headless"` which falls back to presence-only matching. `source_type: "docs-only"` short-circuits to `docs-only` regardless of the other signals.
+`entry_files` carries the registry contents fetched above; omit when no registry files exist in the tree. `mode: "interactive"` activates the content-inspection branch of the component-registry rule (10+ entries or `Component[]` annotation); the headless GATE in §6 uses `mode: "headless"` which falls back to presence-only matching. `source_type: "docs-only"` short-circuits to `docs-only` regardless of the other signals.
 
 The script returns `{scope_type, matched_heuristic, signals, rationale}`. Use `rationale` directly — it already names the specific signals that fired.
 
