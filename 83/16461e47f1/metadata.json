@@ -5,6 +5,7 @@
   "branch": "refactor/skf-brief-writer-flat-input",
   "checkpoints_count": 1,
   "files_touched": [
+    "src/shared/scripts/skf-write-skill-brief.py",
     "src/skf-brief-skill/steps-c/step-05-write-brief.md"
   ],
   "sessions": [
@@ -17,10 +18,10 @@
     }
   ],
   "token_usage": {
-    "input_tokens": 360,
-    "cache_creation_tokens": 344832,
-    "cache_read_tokens": 33594013,
-    "output_tokens": 144229,
-    "api_call_count": 163
+    "input_tokens": 364,
+    "cache_creation_tokens": 354171,
+    "cache_read_tokens": 35044864,
+    "output_tokens": 148823,
+    "api_call_count": 167
   }
 }
