@@ -76,8 +76,12 @@ KNOWN_FIELDS = {
     "include",
     "exclude",
     "force",
-    "preset",
 }
+# `preset` is intentionally NOT in KNOWN_FIELDS — it is consumed at the step-01 §8 GATE
+# (the LLM merges the named preset YAML into the args dict and drops the `preset` key
+# before calling the validator). If the key leaks through, the validator's existing
+# unknown-field handling emits `"unrecognized field 'preset' — passed through unchanged"`
+# in `warnings[]` so the missed drop is debuggable rather than silent.
 
 VALID_SOURCE_TYPES = {"source", "docs-only"}
 VALID_SOURCE_AUTHORITIES = {"official", "community", "internal"}

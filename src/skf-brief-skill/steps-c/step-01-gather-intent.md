@@ -212,13 +212,17 @@ Wait for confirmation or alternative.
 
 - Headless: log `"warn: skill name '{name}' collides with existing brief at {path}"` and proceed; the existing-brief overwrite policy in step-05 §2b is the canonical gate (HALT with `overwrite-cancelled` unless `force` was supplied).
 
-**Portfolio-similarity check (Forge+/Deep with QMD only, interactive only).** When the forge tier is `Forge+` or `Deep` AND `tools.qmd` is true in `forge-tier.yaml`, the brief portfolio is already indexed in QMD collections (one `{skill-name}-brief` collection per existing brief, registered by step-05 §5 of every prior Deep-tier run). Run a similarity search against that portfolio so near-duplicates are caught before the user invests scope-definition time:
+**Portfolio-similarity check (Deep tier with QMD only, interactive only).** When the forge tier is `Deep` AND `tools.qmd` is true in `forge-tier.yaml`, the brief portfolio is already indexed in QMD collections (one `{skill-name}-brief` collection per existing brief, registered by step-05 §5 of every prior Deep-tier run). Run a similarity search against that portfolio so near-duplicates are caught before the user invests scope-definition time. The qmd CLI does not support glob-style collection selection, so enumerate first then query per collection in **a single message with N parallel Bash calls**:
 
 ```bash
-qmd query --query "{name} {synthesized-or-intent-text}" --collections "*-brief" --top 3 --min-score 0.6
+# 1. Enumerate brief collections (one per existing brief)
+qmd collection list | awk '/-brief$/{print $1}'
+
+# 2. For each collection, query the proposed name + intent text:
+qmd query "{name} {synthesized-or-intent-text}" -c {collection-name} -n 1 --min-score 0.6
 ```
 
-If results come back, surface them as a heads-up — *not* a HALT. Exact-name collision is already handled above; this check catches semantic near-duplicates that exact-match misses (e.g. `markdown-renderer` proposed when `marked` already exists, or `auth-gateway` when `auth-middleware` already exists). Present:
+Aggregate the top hits across all `-brief` collections; keep the 3 highest-scoring across the union. If any results come back, surface them as a heads-up — *not* a HALT. Exact-name collision is already handled above; this check catches semantic near-duplicates that exact-match misses (e.g. `markdown-renderer` proposed when `marked` already exists, or `auth-gateway` when `auth-middleware` already exists). Present:
 
 ```
 **Heads up — these existing briefs look semantically close to `{name}`:**
@@ -228,7 +232,7 @@ If results come back, surface them as a heads-up — *not* a HALT. Exact-name co
 Continue with `{name}`, or pick a different name?
 ```
 
-On any QMD failure (binary missing, collection list empty, query times out): log `"warn: portfolio-similarity check skipped — qmd query failed: {error}"` and continue silently — never HALT. Quick / Forge tiers do not run this check (qmd is not part of their tool set). Headless does not run this check either — it would either need to HALT on duplicates (over-aggressive for an automator) or silently log (no operator to act on it); leaving it interactive-only keeps the headless path side-effect-free against the QMD index.
+On any QMD failure (binary missing, collection list empty, any per-collection query times out): log `"warn: portfolio-similarity check skipped — qmd query failed: {error}"` and continue silently — never HALT. Quick / Forge / Forge+ tiers do not run this check (qmd is Deep-tier-only per the canonical tier definition: `Deep = + ast-grep + gh + QMD` in `skf-forge-tier-rw.py`). Headless does not run this check either — it would either need to HALT on duplicates (over-aggressive for an automator) or silently log (no operator to act on it); leaving it interactive-only keeps the headless path side-effect-free against the QMD index.
 
 **Draft-resume check (interactive only).** After the name is confirmed, also check for an in-progress draft at `{forge_data_folder}/{name}/.brief-draft.json` (a step-01 §7 checkpoint from a previous run that did not reach step-05). If the file exists AND no `skill-brief.yaml` sits beside it (a finished brief uses the same dir), present:
 
@@ -238,7 +242,7 @@ On any QMD failure (binary missing, collection list empty, query times out): log
   [N] Start fresh (delete the draft and re-gather)
 ```
 
-On `[Y]`: load the JSON, restore the captured fields (target_repo, source_type, source_authority, target_version, doc_urls, intent, scope_hint, description), and jump directly to §8 — the user can still revise at step-04. On `[N]`: delete `.brief-draft.json` and continue with §6 normally. In headless mode this check is skipped — drafts are an interactive-only convenience and the headless path runs to completion in a single invocation.
+On `[Y]`: load the JSON, restore the captured fields (target_repo, source_type, source_authority, target_version, doc_urls, intent, scope_hint, description), and jump directly to §8 — **skip the rest of §6, §7, and §7b**. The restored `description` is authoritative and does not need re-synthesis (re-running §7b would overwrite the user's previously accepted description with a fresh candidate). The user can still revise any field at step-04. On `[N]`: delete `.brief-draft.json` and continue with §6 normally. In headless mode this check is skipped — drafts are an interactive-only convenience and the headless path runs to completion in a single invocation.
 
 ### 7. Summarize Gathered Intent
 
