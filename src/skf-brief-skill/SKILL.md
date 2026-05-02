@@ -28,6 +28,15 @@ These rules apply to every step in this workflow:
 - Always communicate in `{communication_language}` (the language for user-facing prose). Written artifact text — the `description`, `notes`, and other free-form fields persisted into `skill-brief.yaml` — is in `{document_output_language}`; per-step rules call this out where it applies (see step-05). The two values may be the same.
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
 
+## On Activation
+
+1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
+   - `project_name`, `output_folder`, `user_name`, `communication_language`, `forge_data_folder`, `sidecar_path`
+
+2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
+
+3. Load, read the full file, and execute `./steps-c/step-01-gather-intent.md`.
+
 ## Stages
 
 | # | Step | File | Auto-proceed |
@@ -71,12 +80,3 @@ SKF_BRIEF_RESULT_JSON: {"status":"success|error","brief_path":"…|null","skill_
 ```
 
 `status` is `"success"` on the terminal happy path, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"forge-tier-missing"`, `"target-inaccessible"`, `"gh-auth-failed"`, `"write-failed"`, `"overwrite-cancelled"`, `"user-cancelled"`. `exit_code` matches the table above.
-
-## On Activation
-
-1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
-   - `project_name`, `output_folder`, `user_name`, `communication_language`, `forge_data_folder`, `sidecar_path`
-
-2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
-
-3. Load, read the full file, and then execute `./steps-c/step-01-gather-intent.md` to begin the workflow.
