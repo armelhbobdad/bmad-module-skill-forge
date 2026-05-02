@@ -16,6 +16,7 @@ To present the complete skill brief in human-readable format, highlighting all f
 
 - Focus only on presenting and confirming — do not write files yet (Step 05)
 - Do not proceed without explicit user approval (P2 confirmation gate)
+- All user-facing output in `{communication_language}`
 
 ## MANDATORY SEQUENCE
 

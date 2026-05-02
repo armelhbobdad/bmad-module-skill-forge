@@ -14,6 +14,7 @@ To initialize the brief-skill workflow by discovering the forge tier configurati
 - Focus only on gathering intent — do not analyze the repo yet (Step 02)
 - Do not examine source code or list exports in this step
 - Open-ended discovery facilitation — collect target repo, user intent, scope hints, skill name
+- All user-facing output in `{communication_language}`
 
 ## MANDATORY SEQUENCE
 

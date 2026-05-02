@@ -13,6 +13,7 @@ To analyze the target repository by resolving its location, reading its structur
 - Focus only on analysis — do not define scope yet (Step 03)
 - Do not make scoping decisions or recommendations
 - Do not hallucinate or guess about repository contents
+- All user-facing output in `{communication_language}`
 
 ## MANDATORY SEQUENCE
 

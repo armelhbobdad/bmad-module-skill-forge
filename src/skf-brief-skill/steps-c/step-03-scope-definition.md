@@ -16,6 +16,7 @@ To collaboratively define the skill's inclusion and exclusion boundaries using t
 - Focus only on defining scope boundaries — do not write the brief yet (Step 05)
 - Do not make scope decisions unilaterally — user drives all scope choices
 - Produce: scope type, include patterns, exclude patterns
+- All user-facing output in `{communication_language}`
 
 ## MANDATORY SEQUENCE
 

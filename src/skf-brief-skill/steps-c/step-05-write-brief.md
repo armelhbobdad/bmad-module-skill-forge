@@ -15,6 +15,7 @@ To generate the complete skill-brief.yaml from the approved brief data and write
 - Do not change any field values without user request — the brief was already approved
 - Create the output directory if it doesn't exist
 - Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing success summary is NOT the terminal step
+- All user-facing output in `{communication_language}`; written artifact (`description`, `notes`) in `{document_output_language}`
 
 ## MANDATORY SEQUENCE
 
