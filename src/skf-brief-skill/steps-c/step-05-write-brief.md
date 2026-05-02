@@ -125,9 +125,9 @@ echo '{"status":"success","brief_path":"<from §3 response>","skill_name":"<name
   uv run {emitBriefEnvelopeScript} emit
 ```
 
-The script derives `exit_code` deterministically from `halt_reason` (the canonical mapping is null→0, input-missing/input-invalid→2, forge-tier-missing/target-inaccessible/gh-auth-failed→3, write-failed→4, overwrite-cancelled→5), validates against `src/shared/scripts/schemas/skf-brief-result-envelope.v1.json`, and prints the prefixed `SKF_BRIEF_RESULT_JSON: {…}` line.
+The script derives `exit_code` deterministically from `halt_reason` (the canonical mapping is null→0, input-missing/input-invalid→2, forge-tier-missing/target-inaccessible/gh-auth-failed→3, write-failed→4, overwrite-cancelled→5, user-cancelled→6 [interactive-only — headless never raises this]), validates against `src/shared/scripts/schemas/skf-brief-result-envelope.v1.json`, and prints the prefixed `SKF_BRIEF_RESULT_JSON: {…}` line.
 
-The envelope shape on HARD HALT (any phase) is the same call with `--target stderr`, `status: "error"`, and the matching `halt_reason` (one of `"input-missing"`, `"input-invalid"`, `"forge-tier-missing"`, `"target-inaccessible"`, `"gh-auth-failed"`, `"write-failed"`, `"overwrite-cancelled"`) — see the §3, §2b, §5 (no-halt) branches above and the §1/§2 HALTs in step-01/step-02 for invocation sites. The script enforces the success/error halt_reason invariant (success requires null halt_reason; error requires non-null).
+The envelope shape on HARD HALT (any phase) is the same call with `--target stderr`, `status: "error"`, and the matching `halt_reason` (one of `"input-missing"`, `"input-invalid"`, `"forge-tier-missing"`, `"target-inaccessible"`, `"gh-auth-failed"`, `"write-failed"`, `"overwrite-cancelled"`) — see the §3, §2b, §5 (no-halt) branches above and the §1/§2 HALTs in step-01/step-02 for invocation sites. The script enforces the success/error halt_reason invariant (success requires null halt_reason; error requires non-null). The `user-cancelled` halt_reason is also accepted by the script for completeness (interactive `[X]` Cancel sites in step-01/03/04 use it) but never appears on the headless code path.
 
 When `{headless_mode}` is false, skip this section silently — no envelope is emitted.
 

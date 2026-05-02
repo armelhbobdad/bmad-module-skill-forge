@@ -4,6 +4,7 @@ forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 descriptionVoiceExamplesFile: 'assets/description-voice-examples.md'
 headlessArgsFile: 'references/headless-args.md'
 validateBriefInputsScript: '{project-root}/src/shared/scripts/skf-validate-brief-inputs.py'
+emitBriefEnvelopeScript: '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
 ---
 
 # Step 1: Gather Intent
@@ -33,7 +34,7 @@ mkdir -p "{forge_data_folder}" && \
   rm "{forge_data_folder}/.skf-write-probe"
 ```
 
-`mkdir -p` succeeds on a pre-existing read-only mount, but the `printf > file` redirect actually attempts a write — that catches read-only, disk-full, and permissions-denied uniformly. **On any non-zero exit:** HALT (exit code 4, `halt_reason: "write-failed"`) — `"**Error:** {forge_data_folder} is not writable: {captured stderr}. Verify the path exists, the mount is writable, and there is free disk space, then re-run."` In headless mode, emit the error-variant `SKF_BRIEF_RESULT_JSON` envelope on stderr with `halt_reason: "write-failed"` (per the SKILL.md Result Contract) before exiting. On success, continue silently to the forge-tier load below.
+`mkdir -p` succeeds on a pre-existing read-only mount, but the `printf > file` redirect actually attempts a write — that catches read-only, disk-full, and permissions-denied uniformly. **On any non-zero exit:** HALT (exit code 4, `halt_reason: "write-failed"`) — `"**Error:** {forge_data_folder} is not writable: {captured stderr}. Verify the path exists, the mount is writable, and there is free disk space, then re-run."` In headless mode, invoke `{emitBriefEnvelopeScript} emit --target stderr` with envelope-context `{"status":"error","skill_name":"<name-or-pre-resolution-placeholder>","halt_reason":"write-failed"}` before exiting (matches the §8 GATE / step-05 emit pattern — never hand-assemble the envelope JSON). On success, continue silently to the forge-tier load below.
 
 Attempt to load `{forgeTierFile}`:
 

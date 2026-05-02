@@ -181,7 +181,7 @@ def validate(envelope: dict[str, Any]) -> None:
         _die(f"halt_reason invalid: {envelope.get('halt_reason')!r}")
     if envelope.get("scope_type") not in VALID_SCOPE_TYPES:
         _die(f"scope_type invalid: {envelope.get('scope_type')!r}")
-    if envelope.get("exit_code") not in {0, 2, 3, 4, 5}:
+    if envelope.get("exit_code") not in {0, 2, 3, 4, 5, 6}:
         _die(f"exit_code invalid: {envelope.get('exit_code')!r}")
     expected_exit = HALT_TO_EXIT[envelope.get("halt_reason")]
     if envelope.get("exit_code") != expected_exit:
