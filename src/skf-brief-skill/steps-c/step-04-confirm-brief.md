@@ -22,11 +22,7 @@ To present the complete skill brief in human-readable format, highlighting all f
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
 
-### 1. Load Schema
-
-Load `{briefSchemaFile}` to reference required fields and the human-readable presentation format.
-
-### 2. Assemble Complete Brief
+### 1. Assemble Complete Brief
 
 Compile all gathered data from steps 01-03 into the complete brief:
 
@@ -49,9 +45,9 @@ Compile all gathered data from steps 01-03 into the complete brief:
 - **assets_intent:** {detect/none/description from step 03, or "detect" if not explicitly set}
 - **source_authority:** {official/community/internal from step 01 — default "community"}
 
-### 3. Present Brief for Review
+### 2. Present Brief for Review
 
-Using the presentation format from the schema:
+Using the format below:
 
 "**Review the complete skill brief before I write it.**
 
@@ -112,7 +108,7 @@ Glosses (substitute the matching one-liner for `{tier_gloss}`, `{scripts_gloss}`
 
 (For `docs-only` and `public-api` scope types the scripts/assets prompt is skipped in step-03 §5b — the values default to `detect` but the create-skill detection pass also no-ops for these scope types, so the gloss just clarifies that the recorded value will not actually fire any scan.)"
 
-### 4. Highlight Items Needing Attention
+### 3. Highlight Items Needing Attention
 
 Flag any fields that may need review:
 
@@ -137,14 +133,15 @@ You can:
 - Revise scope boundaries by selecting [R]
 - Proceed to write by selecting [C]"
 
-### 5. Handle Inline Adjustments
+### 4. Handle Inline Adjustments
 
 If the user requests changes to specific fields (name, description, version, etc.):
+- If the adjustment requires explaining a field's validation rule or allowed values, load `{briefSchemaFile}` now (otherwise skip the read — the common path does not need it)
 - Make the adjustment
 - Re-present the updated brief
 - Return to the menu
 
-### 6. Present MENU OPTIONS
+### 5. Present MENU OPTIONS
 
 Display: **Select an Option:** [R] Revise Scope [A] Advanced Elicitation [P] Party Mode [C] Approve and Write
 
@@ -154,7 +151,7 @@ Display: **Select an Option:** [R] Revise Scope [A] Advanced Elicitation [P] Par
 - IF A: Invoke {advancedElicitationSkill}, and when finished redisplay the menu
 - IF P: Invoke {partyModeSkill}, and when finished redisplay the menu
 - IF C: Load, read entire file, then execute {nextStepFile}
-- IF Any other comments or queries: help user respond, apply any field adjustments, re-present brief if changed, then [Redisplay Menu Options](#6-present-menu-options)
+- IF Any other comments or queries: help user respond, apply any field adjustments, re-present brief if changed, then [Redisplay Menu Options](#5-present-menu-options)
 
 #### EXECUTION RULES:
 
