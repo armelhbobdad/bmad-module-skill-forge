@@ -116,6 +116,8 @@ The script:
 
 **On success:** capture `brief_path` and `version` from the response envelope — both are needed for §4b and §6.
 
+**Draft cleanup.** After a successful write, remove `{forge_data_folder}/{skill-name}/.brief-draft.json` if it exists (`rm -f` — silent on absent). The draft was a step-01 §7 checkpoint covering the in-flight workflow window; once the brief is written it is no longer meaningful. In headless mode this rm is a no-op (drafts are only written interactively).
+
 ### 4b. Headless Result Envelope
 
 If `{headless_mode}` is true, emit the success envelope on **stdout** immediately after the write (before §5 / §6 / §7):

@@ -212,6 +212,16 @@ Wait for confirmation or alternative.
 
 - Headless: log `"warn: skill name '{name}' collides with existing brief at {path}"` and proceed; the existing-brief overwrite policy in step-05 §2b is the canonical gate (HALT with `overwrite-cancelled` unless `force` was supplied).
 
+**Draft-resume check (interactive only).** After the name is confirmed, also check for an in-progress draft at `{forge_data_folder}/{name}/.brief-draft.json` (a step-01 §7 checkpoint from a previous run that did not reach step-05). If the file exists AND no `skill-brief.yaml` sits beside it (a finished brief uses the same dir), present:
+
+```
+**An in-progress draft for `{name}` was found** (last updated: {mtime}).
+  [Y] Resume from the saved draft (jump to §8 with prior answers restored)
+  [N] Start fresh (delete the draft and re-gather)
+```
+
+On `[Y]`: load the JSON, restore the captured fields (target_repo, source_type, source_authority, target_version, doc_urls, intent, scope_hint, description), and jump directly to §8 — the user can still revise at step-04. On `[N]`: delete `.brief-draft.json` and continue with §6 normally. In headless mode this check is skipped — drafts are an interactive-only convenience and the headless path runs to completion in a single invocation.
+
 ### 7. Summarize Gathered Intent
 
 "**Here's what I've captured:**
@@ -229,6 +239,8 @@ Wait for confirmation or alternative.
 - **Forge tier:** {tier}
 
 Ready to analyze the target repository?"
+
+**Draft checkpoint (interactive only).** After the user confirms the summary, persist the captured state to `{forge_data_folder}/{skill-name}/.brief-draft.json` so a session interruption between here and step-05 doesn't force a full re-gather. Write a single JSON object with the captured fields (target_repo, source_type, source_authority, target_version, doc_urls, intent, scope_hint, description-after-§7b, the inferred forge_tier and tier_source) atomically (write to `.brief-draft.json.tmp` then rename). The file is removed by step-05 §4 after the final brief writes successfully (a draft only exists while the workflow is in flight). In headless mode skip this checkpoint — the run completes in a single invocation, no resume is meaningful.
 
 ### 7b. Synthesize Skill Description
 
