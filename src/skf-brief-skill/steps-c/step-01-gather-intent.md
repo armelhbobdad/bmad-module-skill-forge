@@ -129,7 +129,7 @@ Load `{versionResolutionFile}` for the canonical precedence and invariant rules 
 
 Wait for user response.
 
-**If user provides a version:** Store as `target_version`. Set `version` to this value.
+**If user provides a version:** Validate the shape against `^v?\d+\.\d+\.\d+([.\-+][0-9A-Za-z][0-9A-Za-z.\-+]*)?$` (full X.Y.Z form, with optional `v` prefix and pre-release / build suffix; CalVer like `2024.04.01` accepted; partial forms like `1`, `1.2`, `v2`, `latest` rejected). On a match, store as `target_version` and set `version` to this value. On a non-match, warn `"'{value}' doesn't look like semver — write the explicit triple (e.g. 1.0.0). Fix it now or skip auto-detection?"` and re-prompt for a corrected value or blank to fall through to step-02 auto-detection. Catching this here prevents the step-05 invariant check (`brief.target_version == brief.version` per `references/version-resolution.md`) from blowing up after the user has already approved the brief.
 **If blank:** Proceed without `target_version` — version will be auto-detected in step 02.
 
 {If target_version was set AND doc_urls are being collected (either docs-only primary or supplemental):}
