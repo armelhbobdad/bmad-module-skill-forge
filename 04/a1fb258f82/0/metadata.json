@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "04a1fb258f82",
+  "session_id": "d8a08ef8-84e7-4797-8b13-657571e0f7a8",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-02T17:51:33.584008201Z",
+  "branch": "feat/skf-brief-skill-cancel-and-write-probe",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-01-gather-intent.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "0371f99a987c",
+  "token_usage": {
+    "input_tokens": 399,
+    "cache_creation_tokens": 343613,
+    "cache_read_tokens": 25170690,
+    "output_tokens": 147738,
+    "api_call_count": 139
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-02T17:51:32.533243157Z",
+    "agent_lines": 0,
+    "human_added": 10,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 10,
+    "agent_percentage": 0
+  }
+}
