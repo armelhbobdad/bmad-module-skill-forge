@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "029c55e4a470",
+  "session_id": "d8a08ef8-84e7-4797-8b13-657571e0f7a8",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-02T18:04:50.402238799Z",
+  "branch": "feat/skf-brief-skill-preset-draft-qmd-similarity",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-01-gather-intent.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "43aa9b5364db",
+  "token_usage": {
+    "input_tokens": 430,
+    "cache_creation_tokens": 379817,
+    "cache_read_tokens": 32412870,
+    "output_tokens": 168597,
+    "api_call_count": 160
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-02T18:04:49.152465537Z",
+    "agent_lines": 0,
+    "human_added": 18,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 18,
+    "agent_percentage": 0
+  }
+}
