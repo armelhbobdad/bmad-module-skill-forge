@@ -20,3 +20,7 @@ Chain to the shared workflow self-improvement health check at `{nextStepFile}`. 
 ## MANDATORY SEQUENCE
 
 Load `{nextStepFile}`, read it fully, then execute it.
+
+## CRITICAL STEP COMPLETION NOTE
+
+Step 06 is the terminal stage of brief-skill. After `{nextStepFile}` returns control, the brief-skill workflow is fully complete — do not re-enter step-05 or step-06, do not load any further step file, and do not loop back into the workflow.
