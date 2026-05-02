@@ -26,7 +26,7 @@
 # Enforced two ways: (1) release.yaml bumps this line in the same commit
 # as package.json + marketplace.json on every release; (2) validate-docs-drift.js
 # cross-checks this value against package.json.version and fails on mismatch.
-skf_version: "1.3.0"
+skf_version: "1.4.0"
 
 # Path to the oh-my-skills repo, resolved relative to this repo's root.
 # Override at runtime with the OMS environment variable if oh-my-skills

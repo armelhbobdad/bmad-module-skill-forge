@@ -4,6 +4,66 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [1.4.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.3.0...v1.4.0) (2026-05-02)
+
+### Features
+
+* **extract-public-api:** detect release-time placeholder versions and surface as warning ([50d9c5c](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/50d9c5c3e62d1bd9ffcdfcffcf5e9c24707eafc5))
+* **shared/scripts:** add register-qmd-collection subcommand to skf-forge-tier-rw ([83b7d94](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/83b7d9488b48c3648895cb91c95c3f43fae48c1b))
+* **shared/scripts:** add skf-detect-language.py — deterministic primary-language detection ([dae7b10](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/dae7b102f649d07800f7e99304d76a0763ecfe4e))
+* **shared/scripts:** add skf-detect-workspaces.py with JSON Schema and 35 tests ([014c135](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/014c1359da8b19f5170121d72aa21a6ddb5aa2ac))
+* **shared/scripts:** add skf-emit-brief-result-envelope.py with JSON Schema ([3bcbc0d](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/3bcbc0dbf275ac43b723cea26ee1513ba6c16122))
+* **shared/scripts:** add skf-recommend-scope-type.py — single source of truth for the 5-rule heuristic ladder ([13e0996](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/13e0996cd9e05319eee18d7e08b32c3361361766))
+* **shared/scripts:** add skf-validate-brief-inputs.py with full test coverage ([377ebb0](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/377ebb0e58b41027280f5b26bf8766072b5010e3))
+* **shared/scripts:** add skf-write-skill-brief.py with JSON Schema and 63 tests ([6142327](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/6142327a577de1754e1c55c1390cdaf5173715b5))
+* **skf-brief-skill:** accept cancel/exit at §3.1 target prompt ([121adfb](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/121adfb76a1cfff9400286e9173f5b10039c82b7))
+* **skf-brief-skill:** add --preset headless arg for repeated-pattern briefs ([30ed499](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/30ed4997a711703efd79bf5487c5c959bde0765c))
+* **skf-brief-skill:** add 'looks like' concrete examples to each scope-type entry ([62b5a0c](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/62b5a0c96005133e55904dcf68f1693041245074))
+* **skf-brief-skill:** add 'wanted something different?' disambiguation rail to welcome banner ([2bc6d3b](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/2bc6d3b243fa53ece7986f550f6e1ec19b87d5b2))
+* **skf-brief-skill:** add [X] Cancel and exit affordance with stable exit code 6 ([c44cc55](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/c44cc55d461a194699e4512a3cc74b520f22eeea))
+* **skf-brief-skill:** add 50ms pre-flight write probe at step-01 §1 ([caaab46](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/caaab468196d59b986633ae2f086f52fc6facd21))
+* **skf-brief-skill:** add explicit description synthesis with confirmation ([0d49598](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/0d495986e3821582c6c30988449cba4e1ccce523)), closes [#1](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/1)
+* **skf-brief-skill:** add gh api repos access probe to §3.3 parallel pre-flight batch ([d1dd5de](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/d1dd5de9cb4746618c44c2fe9622902edd9df042))
+* **skf-brief-skill:** add QMD portfolio-similarity check at step-01 §6 (Forge+/Deep) ([a081037](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/a0810378939c4ffbfe230257309c31f607f7027d))
+* **skf-brief-skill:** add routing-purpose microcopy at description synthesis and review sites ([d1941bf](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/d1941bf80ea077456b78c7840971528f15108559))
+* **skf-brief-skill:** add soft sentence-count check on synthesized description in §7b ([145caaa](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/145caaa066f348af056406c577b0f757ee55f6b6))
+* **skf-brief-skill:** always show scripts/assets/forge-tier with one-line glosses in step-04 ([a7f67f9](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/a7f67f930c44c3ff9e7629178ee13f81062eac1d))
+* **skf-brief-skill:** auto-suggest alternates on brief-name collision in step-01 §6 ([7b44c19](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/7b44c19ba7fd63ad56aeabfbb81d8ed567c8eed2))
+* **skf-brief-skill:** detect headless source_authority from gh api user vs repo owner ([530162e](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/530162e98112d8a0d648048684906c1ca14217d8))
+* **skf-brief-skill:** diagnostic-on-failure at HITL gates ([45797cc](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/45797cc69e8203f2261a32895a7ea9701f149431))
+* **skf-brief-skill:** expand headless contract — args, JSON result, overwrite policy ([840ee8b](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/840ee8bd73bc678c8d1f8f58a5cbf2f0b81061e6))
+* **skf-brief-skill:** gloss the forge tier in step-01 welcome banner ([0478acb](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/0478acb8850729e910363363fce3590734a55694))
+* **skf-brief-skill:** offer 'show me an example brief?' rail before §4 intent prompt for first-timers ([f130da9](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/f130da96c593572abc24b83bda1c0a57df14ac4b))
+* **skf-brief-skill:** persist .brief-draft.json checkpoint and offer Resume? on re-entry ([942eba5](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/942eba5134fcd0f9aafb5ca243b19293ae33da91))
+* **skf-brief-skill:** pin language directive in every step's Rules block ([4068ba3](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/4068ba39fd81a33e80de1b6d11ebfb52a7d8e0b4))
+* **skf-brief-skill:** pre-validate repo URLs and gh auth at point of capture ([0b0e6c5](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/0b0e6c597a9f2c7492d7972106d14fa242d4a72c))
+* **skf-brief-skill:** recommend a scope-type instead of presenting five equal options ([29071d3](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/29071d3fe568594941d9dae1acb0608aacdd1a31))
+* **skf-brief-skill:** regex-validate target_version semver at point of capture ([7ea24f0](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/7ea24f04ee131b4380ef83c6ce6fe2a11c472f8c))
+* **skf-brief-skill:** replace step-01 §7b description template with voice-varied examples ([abe459d](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/abe459d97058201a76be9304b17d17e96417213e))
+* **skf-brief-skill:** run scope-type recommendation in headless instead of stamping full-library ([9d54230](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/9d54230e8222b1c7429f32f905f1df182604659e))
+* **skf-brief-skill:** seed headless §7b description from GitHub repo description when intent is missing ([0b5397f](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/0b5397f38607bdb3d9f98859a342d6df5422604f))
+* **write-skill-brief:** add --from-flat input mode for prose-driven callers ([bddd035](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/bddd03587369f2a622deee368c60edd5a672d977))
+
+### Bug Fixes
+
+* **skf-brief-skill:** add explicit Completion criteria to terminal step-06 ([d56586e](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/d56586efac94db358429badadcaeec2a183c19ed))
+* **skf-brief-skill:** address in-PR code review findings ([bfa9495](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/bfa9495e71536aaf04d472259b0a0aa9963b7f86)), closes [#275](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/275)
+* **skf-brief-skill:** close contract gaps for [X] cancel and write probe ([6fb5df2](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/6fb5df2018e0851ff26ca305f27a949b84085fe2))
+* **skf-brief-skill:** correct QMD CLI surface, tier guard, resume-jump skip, preset KNOWN_FIELDS ([df788e9](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/df788e9c045bcf248f13a35912b692bc1448dd9b))
+* **skf-brief-skill:** first-timer rail — concrete find command + match prompt to actual content ([a638b98](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/a638b988a7efebdfe6f560c5435731d86e96d144))
+* **skf-brief-skill:** mark step-06 as terminal with completion sentinel ([60846c2](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/60846c2909c12704de951f44ad54194073072fa2))
+* **skf-brief-skill:** prefix bare _bmad/ path with {project-root} ([e9ea448](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/e9ea448f3fff3c6d84ccd7fe74e5ce8c7333dfaf))
+* **skf-brief-skill:** propagate input-invalid halt_reason and add priority test ([f36eea3](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/f36eea35f8722b495c928a5b1f4d8919537dc829))
+* **skf-brief-skill:** remove parent-dir frontmatter paths and home-dir reference ([753a748](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/753a748444fec7c30839768d20fe8ab0cdda1119))
+* **skf-brief-skill:** unblock headless heuristics — validator default, GATE placement, contract docs ([e931d05](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/e931d054b433c278e633ea3a6dda1afc0a9e08e4))
+* **skf-brief-skill:** wire new test file into test:python + instruct LLM to fetch registry contents at §2c ([771e3d0](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/771e3d0d5b4958a36d95accb2b999a27782cdbc8))
+* **skf-detect-workspaces:** correct lerna default, generic-folder accumulation, python libs layout ([7d1d23c](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/7d1d23c7511992dad061301720decb602a0aa53a))
+
+### Performance Improvements
+
+* **skf-brief-skill:** batch doc_urls HEAD checks in parallel with timeout ([cb57d16](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/cb57d162ef75a3ea46f838c95257dfc26c1351d1))
+* **skf-brief-skill:** batch gh api calls in parallel in step-02 ([1f38474](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/1f3847421fe28123e0c6639ea02f6a8c6a5d168a))
+* **skf-brief-skill:** codify lazy reference loading and tighten version-resolution load ([f9c88a2](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/f9c88a2bb168fbb6afa4c8957ad1acfdfd59498e))
 ## [1.3.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.2.0...v1.3.0) (2026-05-01)
 
 ### Features
