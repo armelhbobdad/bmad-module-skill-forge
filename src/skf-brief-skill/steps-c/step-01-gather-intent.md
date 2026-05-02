@@ -1,7 +1,6 @@
 ---
 nextStepFile: './step-02-analyze-target.md'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
-versionResolutionFile: 'references/version-resolution.md'
 validateBriefInputsScript: '{project-root}/src/shared/scripts/skf-validate-brief-inputs.py'
 ---
 
@@ -118,7 +117,7 @@ Confirm the target.
 
 ### 3b. Gather Target Version
 
-Load `{versionResolutionFile}` for the canonical precedence and invariant rules — this step only collects `target_version`; auto-detection runs in step 02 and resolution lands in step 05.
+This step only collects `target_version` and validates its shape with the regex below — auto-detection runs in step-02 and precedence/invariant resolution lands in step-05's writer script. The canonical precedence rules live in `references/version-resolution.md`; load it from step-02 / step-05 only when the relevant section needs it.
 
 **Headless:** if `target_version` was supplied as an argument, store it and skip the interactive prompt below. If `doc_urls` were also supplied, treat the version-vs-doc-URL confirmation prompt as auto-confirmed (Y).
 
@@ -244,7 +243,7 @@ Present:
 
 This is what shows up when agents discover the skill. Edit it, replace it, or accept as-is."
 
-Wait for user confirmation or alternative. Store the accepted text as the brief's `description` field. The same field is re-presented in step-04 §4 for a final review pass — refinements there flow back to this value.
+Wait for user confirmation or alternative. Store the accepted text as the brief's `description` field. The same field is re-presented in step-04 §3 for a final review pass — refinements there flow back to this value.
 
 **Headless:** if the `intent` argument was supplied, run the same synthesis against it and store the result. If `intent` was not supplied, derive from `target_repo` + `skill_name` (`"Use the {skill_name} skill to work with code or content from {target_repo}."`) and log `"warn: description synthesized without intent — narrow registry text."`
 

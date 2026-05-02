@@ -1,6 +1,6 @@
 # Version Resolution
 
-Single source of truth for how brief-skill resolves the `version` field of `skill-brief.yaml`. Loaded by steps 01 (gather), 02 (auto-detect), and 05 (resolve & write) so that all three operate on the same precedence rules and invariant.
+Single source of truth for how brief-skill resolves the `version` field of `skill-brief.yaml`. Loaded by step-02 §4b (auto-detect, fallback path only when the language is not script-supported) and step-05 §3 (resolve & write) so both operate on the same precedence rules and invariant. Step-01 §3b references this file in prose for human-readable rationale but does not load it — that step only collects `target_version` and validates its shape with an inline regex.
 
 **Aligned with** `assets/skill-brief-schema.md` "Version Detection" section. If you change one, change the other.
 
