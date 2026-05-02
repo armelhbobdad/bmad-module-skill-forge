@@ -74,6 +74,8 @@ We'll work through this together:
 
 (Substitute `{tier_gloss}` with the matching one-liner so the user knows what the tier label means: `Quick` → "text-only extraction"; `Forge` → "AST-grep on, semantic discovery off"; `Forge+` → "AST-grep + ccc semantic discovery"; `Deep` → "full pipeline — AST + ccc + qmd portfolio search + LLM re-ranking". The tier sets the ceiling for what the downstream create-skill workflow can do; you can re-run setup later to change it.)
 
+**Wanted something different?** This workflow *creates* a new brief — a YAML scoping document for a skill that doesn't yet exist. If you meant to compile an existing brief into a skill (`/skf-create-skill`), package one for distribution (`/skf-export-skill`), or just ask SKF a question, type `cancel` at any prompt and run that workflow instead.
+
 Let's get started."
 
 ### 3. Gather Target Repository
@@ -89,12 +91,16 @@ Provide one of:
 - A **local path** (e.g., `/path/to/project`)
 - **Documentation URLs** for a docs-only skill (e.g., `https://docs.stripe.com/api`) — use this when no source code is available (SaaS, closed-source)
 
+Or type `cancel` / `exit` / `[X]` to leave without writing anything.
+
 **Target:**"
 
 Wait for user response. Branch on the response:
 
+- Empty input, `cancel`, `exit`, `[X]`, `q`, or `:q` → Display `"Cancelled — no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). Cancellation here is non-destructive — no files have been written yet by step-01. Headless mode never reaches this branch (the GATE in §8 short-circuits the interactive sub-flows).
 - Documentation URLs only (no source location) → §3.2
 - GitHub URL or local filesystem path → §3.3
+- Any other free-form question (e.g. "what is this?", "show me an example", "how does SKF work?") → answer briefly, re-display the prompt
 
 #### 3.2 Branch — Documentation URLs (docs-only)
 
@@ -112,8 +118,9 @@ Skip §3.3 and continue at "Confirm the target" below.
 
 - Set `source_type: "source"` (default)
 - **Pre-validate the target before continuing.** Issue these probes in a single message with parallel Bash calls:
-  - **GitHub URL:** `curl -sI --max-time 5 {url}`. On a 4xx (typically 404 for a typo'd repo or org), warn `"GitHub returned {status} for {url} — confirm the URL is correct."` and re-prompt. On 2xx, accept. (The full `gh api repos/{owner}/{repo}` check still runs in step-02 §1 to catch private-repo access issues — this HEAD probe is just for typo catch.)
-  - **GitHub URL, in parallel with the above:** `gh auth status` — if it reports unauthenticated or the binary is missing, warn `"GitHub CLI not authenticated; step-02 will HALT when it tries to fetch the tree. Run 'gh auth login' before continuing, or supply a local clone path instead."` (Do not HALT here — let the user choose to fix or proceed; the canonical HALT still happens in step-02 §1's failure-class triage.)
+  - **GitHub URL:** `curl -sI --max-time 5 {url}`. On a 4xx (typically 404 for a typo'd repo or org), warn `"GitHub returned {status} for {url} — confirm the URL is correct."` and re-prompt. On 2xx, accept.
+  - **GitHub URL, in parallel:** `gh api repos/{owner}/{repo} --jq .name` (5-second timeout via `gh api --hostname github.com --method GET ... ` or just rely on default). On 403/404, warn `"GitHub API returned {status} for {owner}/{repo} — the repo may be private or your token may not have access. Step-02 will HALT here if this is not resolved. Continue anyway, or fix and re-prompt?"` and offer `[K] Keep anyway` / re-prompt for a corrected URL. Do not HALT — the canonical HALT still happens in step-02 §1, but surfacing access failures at URL-entry time prevents 5+ minutes of intent investment getting lost. On any other error (network failure, missing binary), log silently and let `gh auth status` below catch it. On 2xx, accept silently.
+  - **GitHub URL, in parallel:** `gh auth status` — if it reports unauthenticated or the binary is missing, warn `"GitHub CLI not authenticated; step-02 will HALT when it tries to fetch the tree. Run 'gh auth login' before continuing, or supply a local clone path instead."` (Do not HALT here — let the user choose to fix or proceed; the canonical HALT still happens in step-02 §1's failure-class triage.)
   - **Local path:** verify the directory exists (`test -d {path}`). If not, warn `"Local path {path} does not exist."` and re-prompt.
 - Optionally ask: "Are there any documentation URLs you'd like to include for supplemental context? (These will be fetched as T3 external references.)"
 - If yes: collect doc URLs into `doc_urls`
@@ -158,6 +165,18 @@ Wait for user response.
 - **If N:** "Provide the correct documentation URLs for version {target_version}." Re-collect doc_urls.
 
 ### 4. Gather User Intent
+
+**First-timer rail (interactive only).** Before the intent prompt, check whether `{forge_data_folder}/` contains any prior briefs:
+
+```bash
+find "{forge_data_folder}" -maxdepth 2 -name "skill-brief.yaml" -print -quit
+```
+
+If the command produces any output, skip this rail silently — repeat users don't need the warm-up. If it produces no output (the user has never produced a brief), ask:
+
+"**Want to see a few example descriptions first?** [Y/N] (Helpful if this is your first time — I'll show the voices we use so you have an anchor for what 'good intent' produces.)"
+
+On `[Y]`: load `{descriptionVoiceExamplesFile}` and present the five examples verbatim with a one-line preface (`"Each example shows a different voice — yours doesn't have to match any specific one."`). On `[N]` or empty: proceed silently.
 
 "**What's your intent for this skill?**
 
@@ -253,9 +272,17 @@ Present:
 
 > {synthesized description}
 
-This is what shows up when agents discover the skill. Edit it, replace it, or accept as-is."
+This is the text agents read when deciding whether to route to your skill — it sits in the registry row alongside dozens of other skills. Specific triggers ('use when…', 'reach for this when…') help agents match real user requests; generic descriptions blend in and get skipped. Edit, replace, or accept as-is."
 
-Wait for user confirmation or alternative. Store the accepted text as the brief's `description` field. The same field is re-presented in step-04 §3 for a final review pass — refinements there flow back to this value.
+Wait for user confirmation or alternative.
+
+**Soft sentence-count check (interactive only).** Before storing the accepted text, count terminal sentence punctuation (`.`, `!`, `?` followed by whitespace or end-of-string) — abbreviations like `e.g.` will inflate the count slightly but the check is a soft nudge, not a HALT. If the count exceeds 3, present:
+
+"**Heads up — that description reads as ~{N} sentences.** The conventional norm is 1-3 (it surfaces in registry rows alongside other skills, where length crowds out the trigger phrase). Tighten now, or accept as-is?"
+
+On `tighten` or a fresh edit: re-prompt for the description. On `accept` or any non-edit response: store the accepted text and proceed. Counts of 1-3 store silently.
+
+Store the accepted text as the brief's `description` field. The same field is re-presented in step-04 §3 for a final review pass — refinements there flow back to this value.
 
 **Headless:** if the `intent` argument was supplied, load `{descriptionVoiceExamplesFile}` and run the same synthesis against it (in `{document_output_language}`), then store the result. If `intent` was not supplied, fall back in priority order:
 

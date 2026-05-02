@@ -117,7 +117,7 @@ Flag any fields that may need review:
 {If language was overridden or low confidence:}
 "**Note:** Language was {auto-detected / manually overridden}."
 
-"**Description:** synthesized and confirmed in step-01 §7b. Refine here if you want to tighten it now that the full brief is visible."
+"**Description:** synthesized and confirmed in step-01 §7b. This is the text agents read when deciding whether to route to your skill — refine here if you want to tighten it now that the full brief is visible."
 
 {If forge tier was defaulted:}
 "**Note:** Forge tier defaulted to Quick (no forge-tier.yaml found)."

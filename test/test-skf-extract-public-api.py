@@ -355,6 +355,62 @@ class TestExtract:
             {"name": "public_fn", "type": "def", "source_file": "foo/__init__.py"}
         ]
 
+    def test_workspace_placeholder_version_warns_and_nulls(self):
+        result = mod.extract(
+            {
+                "language": "js",
+                "manifest": {
+                    "path": "package.json",
+                    "content": '{"name":"foo","version":"workspace:*"}',
+                },
+                "entries": [],
+            }
+        )
+        assert result["version"] is None
+        assert any("placeholder" in w and "workspace:*" in w for w in result["warnings"])
+
+    def test_development_sentinel_warns_and_nulls(self):
+        result = mod.extract(
+            {
+                "language": "js",
+                "manifest": {
+                    "path": "package.json",
+                    "content": '{"name":"foo","version":"0.0.0-development"}',
+                },
+                "entries": [],
+            }
+        )
+        assert result["version"] is None
+        assert any("placeholder" in w and "0.0.0-development" in w for w in result["warnings"])
+
+    def test_semantic_release_sentinel_warns_and_nulls(self):
+        result = mod.extract(
+            {
+                "language": "js",
+                "manifest": {
+                    "path": "package.json",
+                    "content": '{"name":"foo","version":"0.0.0-semantically-released"}',
+                },
+                "entries": [],
+            }
+        )
+        assert result["version"] is None
+        assert any("placeholder" in w and "0.0.0-semantically-released" in w for w in result["warnings"])
+
+    def test_real_version_passes_through_unmolested(self):
+        result = mod.extract(
+            {
+                "language": "js",
+                "manifest": {
+                    "path": "package.json",
+                    "content": '{"name":"foo","version":"1.2.3"}',
+                },
+                "entries": [],
+            }
+        )
+        assert result["version"] == "1.2.3"
+        assert all("placeholder" not in w for w in result["warnings"])
+
     def test_scanner_failure_recorded_as_warning(self, monkeypatch):
         def boom(content, source_file):
             raise RuntimeError("scanner exploded")
