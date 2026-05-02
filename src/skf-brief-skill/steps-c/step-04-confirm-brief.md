@@ -63,7 +63,7 @@ Skill Brief: {name}
 
 Target:      {source_repo}
 Language:    {language}
-Forge Tier:  {forge_tier}
+Forge Tier:  {forge_tier} — {tier_gloss}
 Description: {description}
 
 Scope: {scope.type}
@@ -80,9 +80,8 @@ Doc URLs:
 Supplemental Docs:
   {doc_urls, one per line with labels}
 
-{If scripts_intent or assets_intent was explicitly set (not default "detect"):}
-Scripts:    {scripts_intent}
-Assets:     {assets_intent}
+Scripts:    {scripts_intent} — {scripts_gloss}
+Assets:     {assets_intent} — {assets_gloss}
 
 Source Authority: {source_authority}
 
@@ -96,7 +95,22 @@ Created:    {created}
 Created by: {created_by}
 ```
 
----"
+---
+
+Glosses (substitute the matching one-liner for `{tier_gloss}`, `{scripts_gloss}`, `{assets_gloss}` above so the user can decode each value at a glance):
+
+- **Forge tier glosses** —
+  - `Quick`: text-only extraction; AST and semantic discovery off
+  - `Forge`: AST-grep on; semantic and re-ranking off
+  - `Forge+`: AST-grep + ccc semantic discovery; re-ranking off
+  - `Deep`: full pipeline — AST + ccc + qmd portfolio search + LLM re-ranking
+
+- **`scripts_intent` / `assets_intent` glosses** —
+  - `detect`: SKF will scan source for the standard `scripts/`/`bin/`/`tools/`/`cli/` (or `assets/`/`templates/`/`schemas/`/`configs/`) directories during create-skill and decide automatically
+  - `none`: no script/asset packaging — create-skill will skip the detection pass
+  - free-text (anything else): a description of what to package; create-skill treats it as the user's spec
+
+(For `docs-only` and `public-api` scope types the scripts/assets prompt is skipped in step-03 §5b — the values default to `detect` but the create-skill detection pass also no-ops for these scope types, so the gloss just clarifies that the recorded value will not actually fire any scan.)"
 
 ### 4. Highlight Items Needing Attention
 
