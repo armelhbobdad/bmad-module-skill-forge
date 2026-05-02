@@ -30,9 +30,13 @@ Attempt to load `{forgeTierFile}`:
 
 **Apply tier override:** Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, Forge+, or Deep), use it instead of the detected tier.
 
+**If found but the YAML cannot be parsed (corrupted or truncated):**
+- Display: "**Cannot read forge-tier.yaml** at `{forgeTierFile}` — the file exists but failed to parse: `{parser error message}`. The setup workflow can rewrite it cleanly. Until then, the brief workflow falls back to **Quick** tier (no extra tools assumed)."
+- Continue with `tier = "Quick"` and `tools = {}` — do not HALT. Record `tier_source: "fallback-corrupted-config"` for later diagnostics.
+
 **If not found:**
 - "**Cannot proceed.** forge-tier.yaml not found at `{forgeTierFile}`. Please run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
-- HALT — do not proceed.
+- HALT (exit code 3, `halt_reason: "forge-tier-missing"`) — do not proceed.
 
 ### 2. Welcome and Explain
 
@@ -69,6 +73,9 @@ Wait for user response.
 **If user provides documentation URLs (not a repo):**
 - Set `source_type: "docs-only"` in the brief data
 - Collect one or more doc URLs with optional labels
+- For each collected URL, perform a `HEAD` request (or `curl -sI`) to verify the URL resolves with a 2xx/3xx status:
+  - On 2xx/3xx: silently accept.
+  - On 4xx/5xx, DNS failure, or timeout: warn `"Could not reach {url} — {status or error}. Confirm the URL is correct, or proceed anyway."` Interactive: re-prompt for a corrected URL or `[K] Keep anyway`. Headless: keep the URL and log the warning — the brief still records it but the failure is now visible at brief-creation time instead of materializing hours later in skf-create-skill.
 - Note: `source_authority` will be forced to `community` (T3 external documentation)
 - Note: `source_repo` becomes optional (can be set to the main doc site URL for reference)
 
@@ -142,6 +149,11 @@ Based on the target repo and intent, propose a skill name:
 This will be used for the output directory and file naming. Want to use this name or suggest something different?"
 
 Wait for confirmation or alternative.
+
+**Collision check (interactive and headless):** before locking the name, check whether `{forge_data_folder}/{name}/skill-brief.yaml` or `~/.claude/skills/{name}/SKILL.md` already exists. If either does:
+
+- Interactive: "**Heads up — a skill named `{name}` already exists at `{path(s)}`.** Pick a different name to keep the new brief separate, or confirm to continue (the existing brief's overwrite prompt fires in step 05)."
+- Headless: log `"warn: skill name '{name}' collides with existing artifact at {path}"` and proceed; the existing-brief overwrite policy in step-05 §2b is the canonical gate (HALT with `overwrite-cancelled` unless `force` was supplied).
 
 ### 7. Summarize Gathered Intent
 

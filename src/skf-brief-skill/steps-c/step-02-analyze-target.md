@@ -28,9 +28,20 @@ To analyze the target repository by resolving its location, reading its structur
 **Truncation detection:** After receiving the tree response, check the `truncated` field in the JSON output. If `truncated: true`:
 - Display: "Note: GitHub API returned a truncated tree response ({count} items). Full analysis may require a local clone."
 - Record in analysis summary: "Tree listing is partial — some files may not appear in the analysis."
-- For very large repos (>1000 files in tree response): suggest local clone for complete analysis.
+- For very large repos (>1000 files in tree response): offer a recovery path instead of just warning. Interactive — present:
+  ```
+  Tree is truncated. How would you like to proceed?
+    [L] Clone locally and re-analyze (slower but complete)
+    [P] Proceed with the partial tree (faster, may miss exports under deeper paths)
+  ```
+  On `[L]`: shallow-clone (`git clone --depth 1 {url} {tmp_dir}`), restart this section against the local path, and remove `{tmp_dir}` after the analysis summary in §5. On `[P]` (or under headless): record `tree_truncated: true` in the analysis summary and continue without HALT.
 
-- If inaccessible: **HALT** — "**Error:** Cannot access repository at {url}. Please verify the URL is correct and you have access. If private, ensure `gh auth` is configured."
+**On API failure (non-200 from `gh api`):**
+
+Distinguish the failure class before reporting:
+- Auto-run `gh auth status` and capture its output. If it reports an unauthenticated state or expired token: HALT (exit code 3, `halt_reason: "gh-auth-failed"`) — "**Error:** GitHub CLI is not authenticated. `gh auth status` says: `{captured output}`. Run `gh auth login` and retry."
+- If `gh auth status` reports authenticated but the call still failed (404/403): HALT (exit code 3, `halt_reason: "target-inaccessible"`) — "**Error:** Cannot access repository at `{url}`. The CLI is authenticated but the API returned `{status}`. Check the URL and that the account has access to private repositories if applicable."
+- If `gh auth status` itself fails to run (binary missing): HALT (exit code 3, `halt_reason: "gh-auth-failed"`) — "**Error:** `gh` CLI not found on PATH. Install it from <https://cli.github.com> and re-run."
 
 **For local paths:**
 - Verify the directory exists
@@ -38,6 +49,31 @@ To analyze the target repository by resolving its location, reading its structur
 - If path doesn't exist: **HALT** — "**Error:** Directory not found at {path}. Please verify the path is correct."
 
 Display: "**Resolving target...**"
+
+### 1b. Detect Monorepo / Workspace Layout
+
+Before listing the structure, check whether the root manifest declares a workspace layout:
+
+- **JavaScript/TypeScript:** root `package.json` has a `"workspaces"` array, OR a `pnpm-workspace.yaml` / `lerna.json` exists at the root.
+- **Rust:** root `Cargo.toml` has `[workspace]` with a `members = [...]` list.
+- **Python:** repo contains multiple `pyproject.toml` under `packages/*/` or `apps/*/`.
+- **Generic:** top-level `apps/`, `packages/`, `code/`, or `libs/` directory each containing manifests.
+
+If a workspace layout is detected, list the discovered workspaces and ask:
+
+```
+This looks like a monorepo with these workspaces:
+  1. {workspace_name} ({path})
+  2. {workspace_name} ({path})
+  ...
+Which one should the skill cover? Pick a number, type 'all' to scope at the repo root, or 'list' to keep listing more.
+```
+
+Interactive: wait for the user choice. On a numbered choice, store `monorepo_workspace: {path}` and rebase §2-§4b against that path. On `'all'`, leave `monorepo_workspace` unset and proceed at the repo root with a note in the analysis summary that scope is unfiltered.
+
+Headless: if the input contract supplied an `include` glob that begins with one of the workspace paths, auto-select that workspace (log `"headless: auto-selected workspace {name} from include glob"`). Otherwise default to repo root and log `"warn: monorepo detected but no workspace pre-selected — analyzing at repo root"`.
+
+If no workspace layout is detected, skip this section silently.
 
 ### 2. Read Repository Structure
 

@@ -66,6 +66,8 @@ Add, remove, or confirm these URLs."
 
 Wait for confirmation. Record any changes to `doc_urls`.
 
+For each URL in the final list (newly added or carried over), HEAD-check it (`curl -sI {url}` or equivalent). On a 4xx/5xx, DNS failure, or timeout, warn `"Could not reach {url} — {status or error}."` and offer the same correct/keep choice as step-01 §3. The check is best-effort — never HALT on a failed HEAD — but the failure must surface here so it is not discovered downstream during compilation.
+
 **If no supplemental doc_urls were collected:** Skip this subsection.
 
 **Scope guidance for first-time users:** A well-scoped skill covers one cohesive capability with 3-8 primary functions. If the scope includes unrelated concerns (e.g., authentication AND data visualization), suggest splitting into separate briefs. If the scope is too narrow (single utility function), suggest expanding to the surrounding capability surface.
