@@ -223,7 +223,7 @@ The schema's `description` field is 1-3 sentences and surfaces in skill registri
 
 Compose a candidate 1-3 sentence description from the gathered material. **Write like a human library maintainer would** — what does an agent get from this skill, and when should it route here? Two facts must come through (what the skill is, when to use it); everything else is voice. Resist filling in the same skeleton every time.
 
-Load `{descriptionVoiceExamplesFile}` for the five voice examples (range of acceptable leads, structures, and trigger phrasings) and the "do not template-stamp" guidance. Compose in that spirit using the gathered material — the target repo, the user's intent, the version if set, and any scope hints.
+Load `{descriptionVoiceExamplesFile}` for the five voice examples (range of acceptable leads, structures, and trigger phrasings) and the "do not template-stamp" guidance, then compose in that spirit. The asset documents what "in that spirit" means; the gathered material to draw on is the target repo, the user's intent, the version if set, and any scope hints.
 
 Present:
 
@@ -235,7 +235,7 @@ This is what shows up when agents discover the skill. Edit it, replace it, or ac
 
 Wait for user confirmation or alternative. Store the accepted text as the brief's `description` field. The same field is re-presented in step-04 §3 for a final review pass — refinements there flow back to this value.
 
-**Headless:** if the `intent` argument was supplied, run the same synthesis against it and store the result. If `intent` was not supplied, derive from `target_repo` + `skill_name` (`"Use the {skill_name} skill to work with code or content from {target_repo}."`) and log `"warn: description synthesized without intent — narrow registry text."`
+**Headless:** if the `intent` argument was supplied, load `{descriptionVoiceExamplesFile}` and run the same synthesis against it, then store the result. If `intent` was not supplied, derive from `target_repo` + `skill_name` (`"Use the {skill_name} skill to work with code or content from {target_repo}."`) — the generic fallback does not need the asset — and log `"warn: description synthesized without intent — narrow registry text."`
 
 ### 8. Present MENU OPTIONS
 
