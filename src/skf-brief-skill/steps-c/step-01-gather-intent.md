@@ -266,7 +266,7 @@ Present:
 
 > {synthesized description}
 
-This is what shows up when agents discover the skill. Edit it, replace it, or accept as-is."
+This is the text agents read when deciding whether to route to your skill — it sits in the registry row alongside dozens of other skills. Specific triggers ('use when…', 'reach for this when…') help agents match real user requests; generic descriptions blend in and get skipped. Edit, replace, or accept as-is."
 
 Wait for user confirmation or alternative. Store the accepted text as the brief's `description` field. The same field is re-presented in step-04 §3 for a final review pass — refinements there flow back to this value.
 
