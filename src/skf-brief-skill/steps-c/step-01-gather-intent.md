@@ -165,6 +165,12 @@ Wait for user response.
 
 ### 4. Gather User Intent
 
+**First-timer rail (interactive only).** Before the intent prompt, check whether `{forge_data_folder}/` is empty (no subdirectories containing `skill-brief.yaml`). If it is — the user has never produced a brief before — ask:
+
+"**Want to see an example brief first?** [Y/N] (Helpful if this is your first time — I'll show one of the description voices so you have an anchor for what 'good intent' produces.)"
+
+On `[Y]`: load `{descriptionVoiceExamplesFile}` and present the five examples verbatim with a one-line preface (`"Each example shows a different voice — yours doesn't have to match any specific one."`). On `[N]` or empty: proceed silently. When `{forge_data_folder}` already contains briefs, skip this rail entirely — repeat users don't need the warm-up.
+
 "**What's your intent for this skill?**
 
 Help me understand:
