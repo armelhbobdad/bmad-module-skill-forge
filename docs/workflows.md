@@ -286,15 +286,15 @@ flowchart TD
 
 ## Workflow Categories
 
-| Category | Workflows | Description |
-|----------|-----------|-------------|
-| Core | SF, BS, CS, US | Setup, brief, create, and update skills |
-| Feature | QS, SS, AN | Quick skill, stack skill, and analyze source |
-| Quality | AS, TS | Detect skill drift (AS) and verify skill completeness (TS) |
-| Architecture Verification | VS, RA | Pre-code architecture feasibility and refinement |
-| Management | RS, DS | Rename and drop skill versions with transactional safety |
-| Utility | EX | Package and export for consumption |
-| In-Agent | WS, KI | WS: show lifecycle position, active briefs, and forge tier; KI: list knowledge fragments (both in-agent, no file-based workflow) |
+| Category                  | Workflows      | Description                                                                                                                      |
+| ------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Core                      | SF, BS, CS, US | Setup, brief, create, and update skills                                                                                          |
+| Feature                   | QS, SS, AN     | Quick skill, stack skill, and analyze source                                                                                     |
+| Quality                   | AS, TS         | Detect skill drift (AS) and verify skill completeness (TS)                                                                       |
+| Architecture Verification | VS, RA         | Pre-code architecture feasibility and refinement                                                                                 |
+| Management                | RS, DS         | Rename and drop skill versions with transactional safety                                                                         |
+| Utility                   | EX             | Package and export for consumption                                                                                               |
+| In-Agent                  | WS, KI         | WS: show lifecycle position, active briefs, and forge tier; KI: list knowledge fragments (both in-agent, no file-based workflow) |
 
 ---
 
@@ -313,12 +313,12 @@ Instead of running one workflow per session, you can chain multiple workflows in
 
 ### Pipeline Aliases
 
-| Alias | Expands To | First Workflow | Required Target |
-|-------|-----------|----------------|-----------------|
-| `forge` | `BS CS TS EX` | BS | GitHub URL or local path **+** skill name |
-| `forge-quick` | `QS TS EX` | QS | GitHub URL **or** package name |
-| `onboard` | `AN CS TS EX` | AN | Project path (defaults to current directory) |
-| `maintain` | `AS US TS EX` | AS | Existing skill name |
+| Alias         | Expands To    | First Workflow | Required Target                              |
+| ------------- | ------------- | -------------- | -------------------------------------------- |
+| `forge`       | `BS CS TS EX` | BS             | GitHub URL or local path **+** skill name    |
+| `forge-quick` | `QS TS EX`    | QS             | GitHub URL **or** package name               |
+| `onboard`     | `AN CS TS EX` | AN             | Project path (defaults to current directory) |
+| `maintain`    | `AS US TS EX` | AS             | Existing skill name                          |
 
 **The first workflow's input contract defines what arguments the pipeline needs.** A bare package name works for `forge-quick` (QS resolves packages via the registry) but **not** for `forge` — BS requires both an unambiguous target (URL or path) and a skill name.
 
@@ -389,6 +389,25 @@ Parent skills and CI pipelines `grep` one line out of the workflow log to learn 
 3. **Error-variant result contract on every HARD HALT.** A `SKF_QUICK_SKILL_RESULT_JSON: {…}` envelope is emitted on `stderr` (always) and copied to `{skill_package}/quick-skill-result-latest.json` when the skill package is known (HALTs at step-05 §1 onward). The schema and full population rules live in [`src/skf-quick-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-quick-skill/SKILL.md) § "Result Contract on HARD HALT".
 
 **Batch mode (`--batch <file>`).** Drives N targets through the full pipeline (steps 1–7 each) in sequence. Input format: one target per line, `#` comments and blank lines ignored, optional per-line modifiers `language=<lang>` and `scope=<path>`. Per-target output lands in `{skill_package}/` as today; an aggregated summary writes to `{skills_output_folder}/_batch/quick-skill-batch-{ts}.json` (with `quick-skill-batch-latest.json` copy). Per-target boundary events (`{"batch":N,"target":"…","status":"start|done|fail",…}`) and a final `{"batch_summary":true,…}` event extend the per-step event stream above. Full input grammar, summary schema, and exit-code semantics in [`src/skf-quick-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-quick-skill/SKILL.md) § "Batch Mode".
+
+**Exception — `/skf-brief-skill` headless emits a final result envelope and supports presets.** Headless `/skf-brief-skill` is a first-class building block for scripted brief generation (e.g. seeding briefs for N SaaS SDKs that share scope/authority defaults). Three operational contracts beyond per-gate auto-proceed:
+
+1. **Pre-supplied inputs replace prompts.** Headless args are consumed at step-01's GATE in place of the interactive menus: `target_repo`, `skill_name`, `target_version`, `language`, `source_type`, `source_authority`, `doc_urls`, `scope_type`, `scripts_intent`, `force`, `preset`. Required-arg shape depends on `source_type` (`target_repo` + `skill_name` for source-backed; `doc_urls` + `skill_name` for `docs-only`). Absent `source_authority` and `scope_type` are NOT guessed — they're resolved by signal-driven detection (`gh api user` vs. repo owner for authority; the 5-rule heuristic ladder for scope). Full grammar in [`src/skf-brief-skill/references/headless-args.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-brief-skill/references/headless-args.md).
+
+2. **Structured exit-code map.** Every HARD HALT exits with a stable code so pipelines branch on the failure class without grepping message text:
+
+   | Code | Meaning                       |
+   | ---- | ----------------------------- |
+   | 0    | success                       |
+   | 2    | input-missing / input-invalid |
+   | 3    | resolution-failure            |
+   | 4    | write-failure                 |
+   | 5    | overwrite-cancelled           |
+   | 6    | user-cancelled                |
+
+3. **Final result envelope on every terminal exit.** Step-05 emits a single-line `SKF_BRIEF_RESULT_JSON: {…}` envelope on **stdout** before chaining to step-06 on success; every HARD HALT emits the same envelope shape on **stderr** with `status: "error"` and a typed `halt_reason` (`input-missing`, `input-invalid`, `forge-tier-missing`, `target-inaccessible`, `gh-auth-failed`, `write-failed`, `overwrite-cancelled`, `user-cancelled`). Full envelope schema and population rules in [`src/skf-brief-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-brief-skill/SKILL.md) § "Result Contract (Headless)".
+
+**Presets (`--preset <name>`).** Loads `{sidecar_path}/brief-presets/{name}.yaml` and merges its keys as defaults at step-01 §8; explicit headless args override preset values. The preset file is YAML containing any subset of the headless args above; unknown fields are ignored with a warning. Useful for repeated patterns — e.g. briefing 5 SaaS SDKs that all share `source_authority=community`, `scope_type=full-library`, `scripts_intent=skip`.
 
 ---
 
