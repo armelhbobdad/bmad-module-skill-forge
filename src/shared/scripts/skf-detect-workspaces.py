@@ -277,8 +277,10 @@ def detect_lerna(
         return None
     if not isinstance(data, dict):
         return None
-    pkgs = data.get("packages", ["packages/*"])
-    if not isinstance(pkgs, list):
+    pkgs = data.get("packages")
+    if pkgs is None:
+        return None
+    if not isinstance(pkgs, list) or not pkgs:
         return None
     dirs = _match_globs(tree, pkgs)
     return _build_workspaces(dirs, tree, manifests)
@@ -315,8 +317,8 @@ def detect_python_multi_package(
         if not path.endswith("/pyproject.toml"):
             continue
         parent = path[: -len("/pyproject.toml")]
-        # match `packages/<x>/pyproject.toml` or `apps/<x>/pyproject.toml`
-        if re.match(r"^(packages|apps)/[^/]+$", parent):
+        # match `packages/<x>/pyproject.toml`, `apps/<x>/pyproject.toml`, or `libs/<x>/pyproject.toml`
+        if re.match(r"^(packages|apps|libs)/[^/]+$", parent):
             candidates.append(parent)
     if len(candidates) < 2:
         return None
@@ -326,7 +328,12 @@ def detect_python_multi_package(
 def detect_generic_folders(
     tree: set[str], manifests: dict[str, str], warnings: list[str]
 ) -> Optional[list[dict]]:
-    """Last-resort: a top-level apps/ or packages/ or libs/ or code/ with subdirs."""
+    """Last-resort: ≥2 manifested subdirs under any combination of apps/, packages/, libs/, code/.
+
+    Accumulates across all GENERIC_PARENTS — a repo with one manifested child under apps/
+    and one under packages/ counts as a 2-workspace monorepo. Earlier detectors (npm, pnpm,
+    cargo) take priority for repos with a root workspace manifest.
+    """
     discovered: list[str] = []
     for parent in GENERIC_PARENTS:
         children: set[str] = set()
@@ -340,10 +347,6 @@ def detect_generic_folders(
         for child in children:
             if _find_workspace_manifest(child, tree) is not None:
                 discovered.append(child)
-        if len(discovered) >= 2:
-            # Stick with the first parent that yields ≥2 manifested children
-            break
-        discovered = []
     if len(discovered) < 2:
         return None
     return _build_workspaces(sorted(set(discovered)), tree, manifests)

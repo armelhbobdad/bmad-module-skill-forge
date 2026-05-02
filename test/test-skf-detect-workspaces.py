@@ -321,7 +321,30 @@ class TestLerna:
         assert out["manifest_kind"] == "lerna"
         assert len(out["workspaces"]) == 2
 
-    def test_default_packages_glob_when_field_absent(self):
+    def test_absent_packages_field_falls_through_to_npm_detector(self):
+        # lerna v5+ delegates to package-manager workspaces when `packages` is absent.
+        # The lerna detector must NOT inject a default and silently claim monorepo on
+        # any repo that happens to have a packages/ dir — npm/pnpm should win first.
+        out = mod.detect(
+            {
+                "tree": [
+                    "lerna.json",
+                    "package.json",
+                    "packages/foo/package.json",
+                ],
+                "manifests": {
+                    "lerna.json": json.dumps({"version": "5.0.0"}),  # no packages field
+                    "package.json": json.dumps({"workspaces": ["packages/*"]}),
+                    "packages/foo/package.json": json.dumps({"name": "foo"}),
+                },
+            }
+        )
+        assert out["is_monorepo"] is True
+        assert out["manifest_kind"] == "npm-workspaces"
+
+    def test_absent_packages_field_no_npm_workspaces_falls_through(self):
+        # Pure Nx-managed lerna v5+ repo: no packages field, no npm workspaces. The lerna
+        # detector must fall through; downstream falls to generic-folders if the layout warrants.
         out = mod.detect(
             {
                 "tree": [
@@ -329,13 +352,14 @@ class TestLerna:
                     "packages/foo/package.json",
                 ],
                 "manifests": {
-                    "lerna.json": json.dumps({"version": "1.0.0"}),
+                    "lerna.json": json.dumps({"version": "5.0.0"}),
                     "packages/foo/package.json": json.dumps({"name": "foo"}),
                 },
             }
         )
-        assert out["is_monorepo"] is True
-        assert out["manifest_kind"] == "lerna"
+        # Only one packages/* child means generic-folders also falls through; result is single-package
+        assert out["is_monorepo"] is False
+        assert out["manifest_kind"] is None
 
 
 # --------------------------------------------------------------------------
@@ -452,6 +476,39 @@ class TestPythonMultiPackage:
         assert out["is_monorepo"] is True
         assert out["manifest_kind"] == "python-multi-package"
 
+    def test_libs_layout(self):
+        out = mod.detect(
+            {
+                "tree": [
+                    "libs/core/pyproject.toml",
+                    "libs/utils/pyproject.toml",
+                ],
+                "manifests": {
+                    "libs/core/pyproject.toml": '[project]\nname = "core"\n',
+                    "libs/utils/pyproject.toml": '[project]\nname = "utils"\n',
+                },
+            }
+        )
+        assert out["is_monorepo"] is True
+        assert out["manifest_kind"] == "python-multi-package"
+
+    def test_cross_prefix_layout_one_packages_one_apps(self):
+        # 1 under packages/ + 1 under apps/ should still detect as python-multi-package
+        out = mod.detect(
+            {
+                "tree": [
+                    "packages/lib/pyproject.toml",
+                    "apps/cli/pyproject.toml",
+                ],
+                "manifests": {
+                    "packages/lib/pyproject.toml": '[project]\nname = "lib"\n',
+                    "apps/cli/pyproject.toml": '[project]\nname = "cli"\n',
+                },
+            }
+        )
+        assert out["is_monorepo"] is True
+        assert out["manifest_kind"] == "python-multi-package"
+
     def test_single_subpackage_falls_through(self):
         out = mod.detect(
             {
@@ -516,6 +573,24 @@ class TestGenericFolders:
             }
         )
         assert out["is_monorepo"] is False
+
+    def test_cross_parent_accumulation_one_apps_one_packages(self):
+        # 1 manifested child under apps/ + 1 under packages/ → generic-folders fires
+        out = mod.detect(
+            {
+                "tree": [
+                    "apps/web/package.json",
+                    "packages/lib/package.json",
+                ],
+                "manifests": {
+                    "apps/web/package.json": json.dumps({"name": "web"}),
+                    "packages/lib/package.json": json.dumps({"name": "lib"}),
+                },
+            }
+        )
+        assert out["is_monorepo"] is True
+        assert out["manifest_kind"] == "generic-folders"
+        assert {ws["path"] for ws in out["workspaces"]} == {"apps/web", "packages/lib"}
 
     def test_npm_workspaces_take_priority_over_generic(self):
         out = mod.detect(
