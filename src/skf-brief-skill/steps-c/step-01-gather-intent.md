@@ -36,7 +36,7 @@ Attempt to load `{forgeTierFile}`:
 - Continue with `tier = "Quick"` and `tools = {}` — do not HALT. Record `tier_source: "fallback-corrupted-config"` for later diagnostics.
 
 **If not found:**
-- "**Cannot proceed.** forge-tier.yaml not found at `{forgeTierFile}`. Please run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
+- "**Cannot proceed.** forge-tier.yaml not found at `{forgeTierFile}`. Run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
 - HALT (exit code 3, `halt_reason: "forge-tier-missing"`) — do not proceed.
 
 ### 2. Welcome and Explain
@@ -117,7 +117,7 @@ Wait for user response.
 "**You're targeting version {target_version}. Do these documentation URLs correspond to that version?** [Y/N]"
 
 - **If Y:** Proceed.
-- **If N:** "Please provide the correct documentation URLs for version {target_version}." Re-collect doc_urls.
+- **If N:** "Provide the correct documentation URLs for version {target_version}." Re-collect doc_urls.
 
 ### 4. Gather User Intent
 

@@ -48,7 +48,7 @@ Distinguish the failure class before reporting:
 **For local paths:**
 - Verify the directory exists
 - List the directory tree
-- If path doesn't exist: **HALT** — "**Error:** Directory not found at {path}. Please verify the path is correct."
+- If path doesn't exist: **HALT** — "**Error:** Directory not found at {path}. Verify the path is correct."
 
 Display: "**Resolving target...**"
 
