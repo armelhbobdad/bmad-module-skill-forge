@@ -113,6 +113,14 @@ Skip §3.3 and continue at "Confirm the target" below.
 
 Default to `"community"` if user does not specify or skips.
 
+**Headless source-authority detection** — when `{headless_mode}` is true AND `source_authority` was not supplied as an argument AND `target_repo` is a GitHub URL, prefer signal-driven detection over the blanket `community` default:
+
+```bash
+gh api user --jq .login
+```
+
+Compare the result to the `owner` segment of `target_repo` (the URL pattern is `https://github.com/<owner>/<repo>`). If they match (case-insensitive), set `source_authority: "official"` — the operator is the repo's GitHub owner, so the brief is for their own library. Otherwise leave the default `community`. Run this probe in parallel with the existing pre-validate probes above (single message with parallel Bash calls). On any error from `gh api user` (unauthenticated, network failure), log `"warn: source-authority detection skipped — gh api user failed"` and fall back to `community`. For local-path targets the comparison cannot apply; default `community` stands.
+
 ---
 
 Confirm the target.
