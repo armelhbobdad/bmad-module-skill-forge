@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "79f9f3835d4b",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-brief-detect-language-script",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-02-analyze-target.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/79/f9f3835d4b/0/metadata.json",
+      "transcript": "/79/f9f3835d4b/0/full.jsonl",
+      "context": "/79/f9f3835d4b/0/context.md",
+      "content_hash": "/79/f9f3835d4b/0/content_hash.txt",
+      "prompt": "/79/f9f3835d4b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 392,
+    "cache_creation_tokens": 386348,
+    "cache_read_tokens": 43836792,
+    "output_tokens": 170636,
+    "api_call_count": 190
+  }
+}
