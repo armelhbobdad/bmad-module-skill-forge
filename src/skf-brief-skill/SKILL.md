@@ -7,7 +7,11 @@ description: Design a skill scope through guided discovery. Use when the user re
 
 ## Overview
 
-Helps the user define what to skill — target repo, scope, language, inclusion/exclusion patterns — and produces a skill-brief.yaml that drives create-skill. This is the first step in the skill creation pipeline. The brief becomes the input contract for create-skill, which performs the actual compilation.
+Helps the user define what to skill — target repo, scope, language, inclusion/exclusion patterns — and produces a `skill-brief.yaml` that drives create-skill. This is the first step in the skill creation pipeline; the brief is the input contract for create-skill, which performs the actual compilation.
+
+A good skill brief sets a tight, cohesive boundary: one capability with 3-8 primary functions, an unambiguous public API surface, and a description short enough to fit in a registry row. Briefs that try to cover several unrelated concerns (e.g. authentication *and* data visualization) compile into skills that no agent can route to confidently — a brief covering too much is a worse failure mode than a brief covering too little, and this workflow steers toward the smaller, sharper version when scope is unclear.
+
+Brief-skill is split from create-skill so the scoping conversation runs *once*, on cheap signals (manifests, top-level exports, intent), without paying for AST extraction. Compilation is expensive; scoping decisions are cheap to revise. Keeping them in separate workflows lets a user iterate on the brief, share it for review, and re-run create-skill against the same brief whenever the upstream version moves.
 
 ## Role
 
