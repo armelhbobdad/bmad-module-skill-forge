@@ -1,6 +1,7 @@
 ---
 nextStepFile: './step-04-confirm-brief.md'
 scopeTemplatesFile: 'assets/scope-templates.md'
+recommendScopeTypeScript: '{project-root}/src/shared/scripts/skf-recommend-scope-type.py'
 advancedElicitationSkill: '/bmad-advanced-elicitation'
 partyModeSkill: '/bmad-party-mode'
 ---
@@ -81,17 +82,31 @@ Load `{scopeTemplatesFile}` for the scope type options ([F], [M], [P], [C], [R])
 
 **Recommend a scope type — don't present the five options as equal weight.** SKILL.md states this workflow "steers toward the smaller, sharper version when scope is unclear" — surface that opinion at decision time. Use the analysis from step-02 and the user's intent from step-01 to pick the best-fit recommendation, then present the menu with that option marked as the suggested default.
 
-Heuristics for the recommendation (apply in order, pick the first that matches):
+**Delegate the recommendation to `{recommendScopeTypeScript}`** instead of walking the heuristic ladder in prose. The script is the single source of truth for the five-rule ladder (component-registry → reference-app keywords → specific-modules naming/count → narrow-public-api → default full-library) plus the docs-only short-circuit. Both the interactive recommendation and the §6 headless GATE invoke the same script — same inputs, same outputs, no drift.
 
-- **Component registry detected** (file matching `registry.ts` / `components.ts` with 10+ entries, or `Component[]` type annotation) → **[C] Component Library**
-- **User intent mentions "wiring", "integration example", "starter", "lifecycle", "build config"** OR the analysis identified the source as an example/demo app → **[R] Reference App**
-- **Intent names specific module(s)** (e.g. "just the auth module", "only the streaming part") OR the analysis surfaced a large library (≥6 top-level modules with weakly-related concerns) → **[M] Specific Modules**
-- **Library has a clear, narrow public API** (≤8 named exports from the manifest, intent points at "the API" / "the SDK") → **[P] Public API Only**
-- **Otherwise** (small focused library, intent says "everything", or no strong signal either way) → **[F] Full Library**
+**Fetch registry-file contents before building the payload.** Step-02 §4.1 fetches `package.json` plus the entry-point files but does not fetch `registry.ts` / `components.ts` — the deep-match branch of the component-registry rule needs those contents. Scan the tree for any of `registry.ts` / `registry.tsx` / `components.ts` / `components.tsx` (any depth). For each match, fetch its contents in **one message with N parallel Bash calls** (`gh api repos/{owner}/{repo}/contents/{path}` for GitHub, file reads for local), then base64-decode the responses together. Skip the fetch if the tree contains no registry files.
+
+Build the payload and invoke:
+
+```bash
+echo '{
+  "intent": "<combined intent + scope_hint text from step-01>",
+  "module_count": <count from step-02 §4.3>,
+  "export_count": <count from step-02 §4.3>,
+  "tree": [<flat list of repo-relative file paths from step-02 §1>],
+  "entry_files": [{"path": "<registry path>", "content": "<contents>"}, ...],
+  "source_type": "source",
+  "mode": "interactive"
+}' | uv run {recommendScopeTypeScript}
+```
+
+`entry_files` carries the registry contents fetched above; omit when no registry files exist in the tree. `mode: "interactive"` activates the content-inspection branch of the component-registry rule (10+ entries or `Component[]` annotation); the headless GATE in §6 uses `mode: "headless"` which falls back to presence-only matching. `source_type: "docs-only"` short-circuits to `docs-only` regardless of the other signals.
+
+The script returns `{scope_type, matched_heuristic, signals, rationale}`. Use `rationale` directly — it already names the specific signals that fired.
 
 Present:
 
-"**Recommended scope type: [{letter}] {Name}** — {one-sentence rationale tying the recommendation to a specific signal from step-01/02, e.g. 'because the analysis found a 47-entry component registry under src/components/registry.ts'}.
+"**Recommended scope type: [{letter}] {Name}** — {rationale from the script}.
 
 How broadly should this skill cover the library?
 
@@ -100,12 +115,6 @@ How broadly should this skill cover the library?
 Press Enter to accept the recommendation, or pick a different letter."
 
 Wait for user selection. Empty input or just Enter accepts the recommendation; any of the five letters overrides.
-
-**Headless:** if `scope_type` was supplied, use it (consumed at the GATE in §6). If not supplied, run the same five heuristics above against the data already gathered (intent text + scope_hint from step-01, module count + exports + file paths from step-02) and use the first matching recommendation as the scope_type. Log `"headless: scope_type auto-selected as {value} from {heuristic-name}"` so the choice is debuggable.
-
-For the **component-registry** heuristic, the entry-count threshold (`10+ entries`) and `Component[]` type-annotation check require file *contents* — those are only available when step-02 §4.1 included `registry.ts` / `components.ts` as an entry point in the script payload (rare for the public-API mode), or when the target is a local path. In headless mode without that visibility, treat **the presence of `registry.ts` or `components.ts` anywhere in the file tree** as a sufficient match for the component-library recommendation — content inspection is interactive-only.
-
-The `docs-only` short-circuit still applies when `source_type=docs-only` (heuristic ranking is skipped — there is no source surface to scope). When no heuristic matches, fall back to `full-library` and log `"headless: scope_type defaulted to full-library — no signal matched"`.
 
 ### 3. Define Boundaries Based on Selection
 
@@ -171,7 +180,7 @@ Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Conti
 - ALWAYS halt and wait for user input after presenting menu
 - **GATE [default: C]** — If `{headless_mode}`: consume the headless inputs from step-01 in priority order:
   - If `scope_type` was supplied, use it (must match one of the six valid types) and skip the §2c template menu.
-  - Otherwise auto-select: `source_type=docs-only` → `scope.type: "docs-only"`; `source_type=source` → run the §2c heuristic-driven recommendation (component-registry / reference-app keywords / specific-modules / public-api / full-library) against the step-01/02 signals and use the first match. Falls back to `full-library` only when no heuristic matches.
+  - Otherwise auto-select via `{recommendScopeTypeScript}` — invoke the script with the **same payload shape** documented in §2c but with `mode: "headless"` (presence-only matching for the component-registry rule, since `entry_files` may not be available without an interactive context). Use the returned `scope_type` and log `"headless: scope_type={value} from heuristic={matched_heuristic}"`. The script's docs-only short-circuit handles `source_type=docs-only` automatically.
   - If `include`/`exclude` were supplied, use them verbatim (split on comma) instead of running the boundary prompts in §3.
   - If `scripts_intent`/`assets_intent` were supplied, record them and skip §5b; otherwise default to `detect`.
   - Log: `"headless: scope_type={value} include={n} exclude={n} scripts_intent={value} assets_intent={value}"`.
