@@ -1,6 +1,7 @@
 ---
 nextStepFile: './step-02-analyze-target.md'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
+versionResolutionFile: 'references/version-resolution.md'
 ---
 
 # Step 1: Gather Intent
@@ -14,6 +15,7 @@ To initialize the brief-skill workflow by discovering the forge tier configurati
 - Focus only on gathering intent — do not analyze the repo yet (Step 02)
 - Do not examine source code or list exports in this step
 - Open-ended discovery facilitation — collect target repo, user intent, scope hints, skill name
+- All user-facing output in `{communication_language}`
 
 ## MANDATORY SEQUENCE
 
@@ -29,9 +31,13 @@ Attempt to load `{forgeTierFile}`:
 
 **Apply tier override:** Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, Forge+, or Deep), use it instead of the detected tier.
 
+**If found but the YAML cannot be parsed (corrupted or truncated):**
+- Display: "**Cannot read forge-tier.yaml** at `{forgeTierFile}` — the file exists but failed to parse: `{parser error message}`. The setup workflow can rewrite it cleanly. Until then, the brief workflow falls back to **Quick** tier (no extra tools assumed)."
+- Continue with `tier = "Quick"` and `tools = {}` — do not HALT. Record `tier_source: "fallback-corrupted-config"` for later diagnostics.
+
 **If not found:**
 - "**Cannot proceed.** forge-tier.yaml not found at `{forgeTierFile}`. Please run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
-- HALT — do not proceed.
+- HALT (exit code 3, `halt_reason: "forge-tier-missing"`) — do not proceed.
 
 ### 2. Welcome and Explain
 
@@ -68,6 +74,9 @@ Wait for user response.
 **If user provides documentation URLs (not a repo):**
 - Set `source_type: "docs-only"` in the brief data
 - Collect one or more doc URLs with optional labels
+- For each collected URL, perform a `HEAD` request (or `curl -sI`) to verify the URL resolves with a 2xx/3xx status:
+  - On 2xx/3xx: silently accept.
+  - On 4xx/5xx, DNS failure, or timeout: warn `"Could not reach {url} — {status or error}. Confirm the URL is correct, or proceed anyway."` Interactive: re-prompt for a corrected URL or `[K] Keep anyway`. Headless: keep the URL and log the warning — the brief still records it but the failure is now visible at brief-creation time instead of materializing hours later in skf-create-skill.
 - Note: `source_authority` will be forced to `community` (T3 external documentation)
 - Note: `source_repo` becomes optional (can be set to the main doc site URL for reference)
 
@@ -87,6 +96,10 @@ Default to `"community"` if user does not specify or skips. For `docs-only` skil
 Confirm the target.
 
 ### 3b. Gather Target Version
+
+Load `{versionResolutionFile}` for the canonical precedence and invariant rules — this step only collects `target_version`; auto-detection runs in step 02 and resolution lands in step 05.
+
+**Headless:** if `target_version` was supplied as an argument, store it and skip the interactive prompt below. If `doc_urls` were also supplied, treat the version-vs-doc-URL confirmation prompt as auto-confirmed (Y).
 
 "**Are you targeting a specific version of this library?**
 (Leave blank to auto-detect from source)"
@@ -140,6 +153,11 @@ This will be used for the output directory and file naming. Want to use this nam
 
 Wait for confirmation or alternative.
 
+**Collision check (interactive and headless):** before locking the name, check whether `{forge_data_folder}/{name}/skill-brief.yaml` already exists. If it does:
+
+- Interactive: "**Heads up — a brief for `{name}` already exists at `{path}`.** Pick a different name to keep the new brief separate, or confirm to continue (the existing brief's overwrite prompt fires in step 05)."
+- Headless: log `"warn: skill name '{name}' collides with existing brief at {path}"` and proceed; the existing-brief overwrite policy in step-05 §2b is the canonical gate (HALT with `overwrite-cancelled` unless `force` was supplied).
+
 ### 7. Summarize Gathered Intent
 
 "**Here's what I've captured:**
@@ -158,6 +176,28 @@ Wait for confirmation or alternative.
 
 Ready to analyze the target repository?"
 
+### 7b. Synthesize Skill Description
+
+The schema's `description` field is 1-3 sentences and surfaces in skill registries — it must exist by the time step-04 presents the brief. Synthesize it explicitly here, while the user's intent is fresh, instead of letting it fall out implicitly later.
+
+Compose a candidate 1-3 sentence description from the gathered material. Pattern (adjust naturally — do not template-stamp):
+
+```
+{What the skill enables an agent to do, in active voice}, drawn from {target}{ at version {target_version}, if set}{ for {scope hint summary}, if any scope hints were captured}. Use when {one-sentence trigger condition derived from intent — what task or question routes to this skill}.
+```
+
+Present:
+
+"**Proposed skill description:**
+
+> {synthesized description}
+
+This is what shows up when agents discover the skill. Edit it, replace it, or accept as-is."
+
+Wait for user confirmation or alternative. Store the accepted text as the brief's `description` field. The same field is re-presented in step-04 §4 for a final review pass — refinements there flow back to this value.
+
+**Headless:** if the `intent` argument was supplied, run the same synthesis against it and store the result. If `intent` was not supplied, derive from `target_repo` + `skill_name` (`"Use the {skill_name} skill to work with code or content from {target_repo}."`) and log `"warn: description synthesized without intent — narrow registry text."`
+
 ### 8. Present MENU OPTIONS
 
 Display: "**Select:** [C] Continue to Target Analysis"
@@ -170,7 +210,7 @@ Display: "**Select:** [C] Continue to Target Analysis"
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: use args]** — If `{headless_mode}`: consume pre-supplied arguments (target_repo, skill_name, scope_hint, language_hint) and auto-proceed. If required args missing, HALT: "headless mode requires target_repo and skill_name arguments."
+- **GATE [default: use args]** — If `{headless_mode}`: consume pre-supplied arguments and auto-proceed. Required: `target_repo`, `skill_name`. Optional, applied to the matching brief field when present: `scope_hint`, `language_hint`, `target_version`, `source_authority` (default `community`), `source_type` (default `source`; if `docs-only`, `doc_urls` becomes required), `doc_urls` (list of `url` or `url,label`), `scope_type`, `include`, `exclude`, `scripts_intent` (default `detect`), `assets_intent` (default `detect`), `intent` (free-text used to derive `description`). If `target_repo` or `skill_name` is missing, HALT with exit code 2 (`halt_reason: "input-missing"`): "headless mode requires target_repo and skill_name arguments." If `source_type=docs-only` and no `doc_urls` supplied, same HALT with `halt_reason: "input-missing"`.
 - ONLY proceed to next step when user selects 'C'
 
 ## CRITICAL STEP COMPLETION NOTE

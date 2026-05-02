@@ -1,5 +1,7 @@
 ---
 nextStepFile: './step-03-scope-definition.md'
+versionResolutionFile: 'references/version-resolution.md'
+extractPublicApiScript: '{project-root}/src/shared/scripts/skf-extract-public-api.py'
 ---
 
 # Step 2: Analyze Target
@@ -13,6 +15,7 @@ To analyze the target repository by resolving its location, reading its structur
 - Focus only on analysis — do not define scope yet (Step 03)
 - Do not make scoping decisions or recommendations
 - Do not hallucinate or guess about repository contents
+- All user-facing output in `{communication_language}`
 
 ## MANDATORY SEQUENCE
 
@@ -27,9 +30,20 @@ To analyze the target repository by resolving its location, reading its structur
 **Truncation detection:** After receiving the tree response, check the `truncated` field in the JSON output. If `truncated: true`:
 - Display: "Note: GitHub API returned a truncated tree response ({count} items). Full analysis may require a local clone."
 - Record in analysis summary: "Tree listing is partial — some files may not appear in the analysis."
-- For very large repos (>1000 files in tree response): suggest local clone for complete analysis.
+- For very large repos (>1000 files in tree response): offer a recovery path instead of just warning. Interactive — present:
+  ```
+  Tree is truncated. How would you like to proceed?
+    [L] Clone locally and re-analyze (slower but complete)
+    [P] Proceed with the partial tree (faster, may miss exports under deeper paths)
+  ```
+  On `[L]`: shallow-clone (`git clone --depth 1 {url} {tmp_dir}`), restart this section against the local path, and remove `{tmp_dir}` after the analysis summary in §5. On `[P]` (or under headless): record `tree_truncated: true` in the analysis summary and continue without HALT.
 
-- If inaccessible: **HALT** — "**Error:** Cannot access repository at {url}. Please verify the URL is correct and you have access. If private, ensure `gh auth` is configured."
+**On API failure (non-200 from `gh api`):**
+
+Distinguish the failure class before reporting:
+- Auto-run `gh auth status` and capture its output. If it reports an unauthenticated state or expired token: HALT (exit code 3, `halt_reason: "gh-auth-failed"`) — "**Error:** GitHub CLI is not authenticated. `gh auth status` says: `{captured output}`. Run `gh auth login` and retry."
+- If `gh auth status` reports authenticated but the call still failed (404/403): HALT (exit code 3, `halt_reason: "target-inaccessible"`) — "**Error:** Cannot access repository at `{url}`. The CLI is authenticated but the API returned `{status}`. Check the URL and that the account has access to private repositories if applicable."
+- If `gh auth status` itself fails to run (binary missing): HALT (exit code 3, `halt_reason: "gh-auth-failed"`) — "**Error:** `gh` CLI not found on PATH. Install it from <https://cli.github.com> and re-run."
 
 **For local paths:**
 - Verify the directory exists
@@ -37,6 +51,31 @@ To analyze the target repository by resolving its location, reading its structur
 - If path doesn't exist: **HALT** — "**Error:** Directory not found at {path}. Please verify the path is correct."
 
 Display: "**Resolving target...**"
+
+### 1b. Detect Monorepo / Workspace Layout
+
+Before listing the structure, check whether the root manifest declares a workspace layout:
+
+- **JavaScript/TypeScript:** root `package.json` has a `"workspaces"` array, OR a `pnpm-workspace.yaml` / `lerna.json` exists at the root.
+- **Rust:** root `Cargo.toml` has `[workspace]` with a `members = [...]` list.
+- **Python:** repo contains multiple `pyproject.toml` under `packages/*/` or `apps/*/`.
+- **Generic:** top-level `apps/`, `packages/`, `code/`, or `libs/` directory each containing manifests.
+
+If a workspace layout is detected, list the discovered workspaces and ask:
+
+```
+This looks like a monorepo with these workspaces:
+  1. {workspace_name} ({path})
+  2. {workspace_name} ({path})
+  ...
+Which one should the skill cover? Pick a number, type 'all' to scope at the repo root, or 'list' to keep listing more.
+```
+
+Interactive: wait for the user choice. On a numbered choice, store `monorepo_workspace: {path}` and rebase §2-§4b against that path. On `'all'`, leave `monorepo_workspace` unset and proceed at the repo root with a note in the analysis summary that scope is unfiltered.
+
+Headless: if the input contract supplied an `include` glob that begins with one of the workspace paths, auto-select that workspace (log `"headless: auto-selected workspace {name} from include glob"`). Otherwise default to repo root and log `"warn: monorepo detected but no workspace pre-selected — analyzing at repo root"`.
+
+If no workspace layout is detected, skip this section silently.
 
 ### 2. Read Repository Structure
 
@@ -75,30 +114,57 @@ If confidence is low or ambiguous: flag for user override in step 03.
 
 ### 4. List Top-Level Modules and Exports
 
-Based on detected language, identify public API surface:
+Identify the public API surface. **Delegate the parsing to `{extractPublicApiScript}` whenever the detected language is supported** — the script is the single source of truth for manifest parsing, export discovery, and version detection across the whole SKF pipeline. Hand-rolling these in prose creates drift seams the LLM cannot fully close.
 
-**For JavaScript/TypeScript:**
-- Check `package.json` for `main`, `exports`, `module` fields
-- Look for `index.ts`/`index.js` in `src/`
-- List directories under `src/` as potential modules
+**Script-supported languages** (use the script): `js`, `ts`, `javascript`, `typescript`, `python`, `rust`, `go`, `java`, `kotlin`.
 
-**For Python:**
-- Check `__init__.py` files for public exports
-- List top-level packages under the source directory
+**Procedure when supported:**
 
-**For Rust:**
-- Check `lib.rs` for `pub mod` declarations
-- List modules from `src/` directory
+1. Read the relevant files into memory (no parsing yet — just collect content). For GitHub sources use `gh api repos/{owner}/{repo}/contents/{file}` with base64 decode; for local sources read directly.
 
-**For other languages:**
-- List top-level source directories as potential modules
-- Note any obvious entry points
+   | Language | Manifest | Entry points (mode=quick) |
+   |----------|----------|--------------------------|
+   | js / ts / javascript / typescript | `package.json` (root, or primary workspace package per `references/version-resolution.md`) | `index.{ts,js}` and/or `src/index.{ts,js}` if present |
+   | python | `pyproject.toml` (or `setup.py` / `setup.cfg` if no `pyproject.toml`) | top-level `__init__.py` of the package, plus `_version.py` if present |
+   | rust | `Cargo.toml` (`[package]` — workspace root if `version = { workspace = true }`) | `src/lib.rs` |
+   | go | `go.mod` | top-level `*.go` exporting the package surface |
+   | java | `pom.xml` | (manifest alone is sufficient for the modules listing) |
+   | kotlin | `build.gradle` / `build.gradle.kts` | (manifest alone) |
+
+2. Build a JSON payload matching the script contract:
+
+   ```json
+   {
+     "language": "<one of the supported values>",
+     "manifest": {"path": "<relative path>", "content": "<file contents>"},
+     "entries":  [{"path": "<relative path>", "content": "<file contents>"}, ...],
+     "mode":     "quick"
+   }
+   ```
+
+3. Invoke the script and parse its JSON stdout:
+
+   ```bash
+   echo '<payload-json>' | uv run {extractPublicApiScript} --language <lang> --mode quick
+   ```
+
+   On a non-zero exit (codes 1 or 2 per the script's docstring), capture stderr, log it, and fall through to the prose-fallback path below — never HALT just because the script choked on an unusual manifest.
+
+4. Render the returned `package_name`, `exports` (each entry's `name`/`type`/`source_file`), `dependencies`, and any `warnings` to the user. The script also returns `version` — feed that into §4b instead of re-deriving.
+
+5. The script does not enumerate directories under `src/`. The LLM still lists those as "Top-Level Modules/Directories" so the user sees structural context (Maven and Gradle are the exception — for those, the script returns a `modules` array which IS the list).
+
+**Procedure when not supported** (Ruby / C# / Swift / etc.):
+
+Fall back to ad-hoc inspection — `Gemfile` / `*.csproj` / `*.sln` / `Package.swift` / file extension frequency. List top-level source directories as potential modules and note any obvious entry points. Flag the limitation in the analysis summary so the user knows scoping is on coarser signals.
+
+**Output format (both paths):**
 
 "**Top-Level Modules/Directories:**
 {numbered list of modules with brief description of each}
 
 **Detected Exports/Entry Points:**
-{numbered list of public-facing items found}"
+{numbered list of public-facing items found — from script output when available, ad-hoc inspection otherwise}"
 
 **Semantic Signals (Forge+ and Deep with ccc only):**
 
@@ -124,29 +190,23 @@ If CCC is unavailable or returns no results: skip this subsection silently.
 
 ### 4b. Detect Source Version
 
+Load `{versionResolutionFile}` for the canonical precedence and invariant rules.
+
+**When the language was script-supported (§4 took the script path):** the `version` field returned by `{extractPublicApiScript}` IS the detected version — do not re-derive it. The script already implements the language-specific lookups documented in `{versionResolutionFile}`.
+
+**When the language was not script-supported:** follow the prose Detection Algorithm in `{versionResolutionFile}` directly (Ruby / C# / Swift / etc. fall outside the script's coverage).
+
+Surface the result regardless of which path produced it:
+
 **If `target_version` was provided in step 01:**
 - Display: "**Target version:** {target_version} (user-specified)"
-- Still run auto-detection below for informational purposes.
-
-Attempt to auto-detect the source version using the rules from the skill-brief-schema.md Version Detection section:
-
-**For Python:** Check `pyproject.toml` `[project] version` (static) → if `dynamic = ["version"]`, check `__init__.py` for `__version__` → `_version.py` if exists → `setup.py` `version=` → `git describe --tags --abbrev=0`
-**For JavaScript/TypeScript:** Check root `package.json` `"version"` field → if root has `"private": true` with a `"workspaces"` array or lacks a `"version"` field, fall back to a primary workspace package's `package.json` (e.g., `code/core/package.json`, or the first matching `packages/*/package.json`). For GitHub sources, prefer `gh api repos/{owner}/{repo}/releases/latest` → `tag_name` when a non-pre-release tag exists, over a default-branch pre-release. Treat a version containing `-alpha`, `-beta`, `-rc`, `-next`, or `-canary` as a pre-release.
-**For Rust:** Check `Cargo.toml` `[package] version` (static) → if `version = { workspace = true }`, resolve from workspace root `Cargo.toml` → `git describe --tags --abbrev=0`
-**For Go:** Check `go.mod` or `git describe --tags --abbrev=0`
-
-**For GitHub repos:** Use `gh api repos/{owner}/{repo}/contents/{file}` to read version files (decode base64 content).
-**For local repos:** Read the file directly.
 
 Display: "**Detected version:** {version or 'Not detected — will default to 1.0.0'}"
 
 {If target_version was provided AND auto-detected version differs:}
-"**Note:** Detected version ({detected_version}) differs from your target version ({target_version}). Using target version."
+"**Note:** Detected version ({detected_version}) differs from your target version ({target_version}). Using target version (per `references/version-resolution.md` precedence rules)."
 
-{If target_version was provided:}
-Store `target_version` as the brief's `version` field (overrides auto-detection).
-
-If detection fails or returns a non-semver value: note that version will default to `"1.0.0"` and the user can override in step 04.
+If detection fails or returns a non-semver value: note that version will default to `"1.0.0"` and the user can override in step 04. The actual write happens in step 05.
 
 ### 5. Report Analysis Summary
 

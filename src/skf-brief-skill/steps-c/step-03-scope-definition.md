@@ -16,6 +16,8 @@ To collaboratively define the skill's inclusion and exclusion boundaries using t
 - Focus only on defining scope boundaries — do not write the brief yet (Step 05)
 - Do not make scope decisions unilaterally — user drives all scope choices
 - Produce: scope type, include patterns, exclude patterns
+- All user-facing output in `{communication_language}`
+- **Re-entry from step-04 [R] revise:** prior selections (`scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scripts_intent`, `assets_intent`, supplemental `doc_urls`) are preserved as the current state. Re-present them at each section as the existing answer; the user only re-confirms or overrides. Do not reset to the §2c template menu unless the user explicitly asks to start scope over.
 
 ## MANDATORY SEQUENCE
 
@@ -64,6 +66,8 @@ These will be included as T3 external references in the skill brief.
 Add, remove, or confirm these URLs."
 
 Wait for confirmation. Record any changes to `doc_urls`.
+
+For each URL in the final list (newly added or carried over), HEAD-check it (`curl -sI {url}` or equivalent). On a 4xx/5xx, DNS failure, or timeout, warn `"Could not reach {url} — {status or error}."` and offer the same correct/keep choice as step-01 §3. The check is best-effort — never HALT on a failed HEAD — but the failure must surface here so it is not discovered downstream during compilation.
 
 **If no supplemental doc_urls were collected:** Skip this subsection.
 
@@ -140,7 +144,12 @@ Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Conti
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: C]** — If `{headless_mode}`: accept auto-detected scope (full-repo or manifest-based) and auto-proceed, log: "headless: using auto-detected scope"
+- **GATE [default: C]** — If `{headless_mode}`: consume the headless inputs from step-01 in priority order:
+  - If `scope_type` was supplied, use it (must match one of the six valid types) and skip the §2c template menu.
+  - Otherwise auto-select based on `source_type`: `docs-only` → `scope.type: "docs-only"`; `source` → `full-library` (default).
+  - If `include`/`exclude` were supplied, use them verbatim (split on comma) instead of running the boundary prompts in §3.
+  - If `scripts_intent`/`assets_intent` were supplied, record them and skip §5b; otherwise default to `detect`.
+  - Log: `"headless: scope_type={value} include={n} exclude={n} scripts_intent={value} assets_intent={value}"`.
 - ONLY proceed to next step when user selects 'C'
 - After other menu items execution, return to this menu
 - User can chat or ask questions — always respond and then redisplay menu

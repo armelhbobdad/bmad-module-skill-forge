@@ -16,6 +16,7 @@ To present the complete skill brief in human-readable format, highlighting all f
 
 - Focus only on presenting and confirming — do not write files yet (Step 05)
 - Do not proceed without explicit user approval (P2 confirmation gate)
+- All user-facing output in `{communication_language}`
 
 ## MANDATORY SEQUENCE
 
@@ -104,8 +105,7 @@ Flag any fields that may need review:
 {If language was overridden or low confidence:}
 "**Note:** Language was {auto-detected / manually overridden}."
 
-{If description was derived (not stated by user):}
-"**Note:** Description was derived from your stated intent. Adjust if needed."
+"**Description:** synthesized and confirmed in step-01 §7b. Refine here if you want to tighten it now that the full brief is visible."
 
 {If forge tier was defaulted:}
 "**Note:** Forge tier defaulted to Quick (no forge-tier.yaml found)."
