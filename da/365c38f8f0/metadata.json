@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "da365c38f8f0",
+  "strategy": "manual-commit",
+  "branch": "perf/skf-brief-skill-parallel-batching",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/SKILL.md",
+    "src/skf-brief-skill/steps-c/step-02-analyze-target.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/da/365c38f8f0/0/metadata.json",
+      "transcript": "/da/365c38f8f0/0/full.jsonl",
+      "context": "/da/365c38f8f0/0/context.md",
+      "content_hash": "/da/365c38f8f0/0/content_hash.txt",
+      "prompt": "/da/365c38f8f0/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 201,
+    "cache_creation_tokens": 226423,
+    "cache_read_tokens": 12259760,
+    "output_tokens": 73099,
+    "api_call_count": 102
+  }
+}
