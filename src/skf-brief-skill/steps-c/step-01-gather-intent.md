@@ -4,6 +4,7 @@ forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 descriptionVoiceExamplesFile: 'assets/description-voice-examples.md'
 headlessArgsFile: 'references/headless-args.md'
 headlessSourceAuthorityDetectionFile: 'references/headless-source-authority-detection.md'
+portfolioSimilarityCheckFile: 'references/portfolio-similarity-check.md'
 validateBriefInputsScript: '{project-root}/src/shared/scripts/skf-validate-brief-inputs.py'
 emitBriefEnvelopeScript: '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
 ---
@@ -213,27 +214,7 @@ Wait for confirmation or alternative.
 
 - Headless: log `"warn: skill name '{name}' collides with existing brief at {path}"` and proceed; the existing-brief overwrite policy in step-05 §2b is the canonical gate (HALT with `overwrite-cancelled` unless `force` was supplied).
 
-**Portfolio-similarity check (Deep tier with QMD only, interactive only).** When the forge tier is `Deep` AND `tools.qmd` is true in `forge-tier.yaml`, the brief portfolio is already indexed in QMD collections (one `{skill-name}-brief` collection per existing brief, registered by step-05 §5 of every prior Deep-tier run). Run a similarity search against that portfolio so near-duplicates are caught before the user invests scope-definition time. The qmd CLI does not support glob-style collection selection, so enumerate first then query per collection in **a single message with N parallel Bash calls**:
-
-```bash
-# 1. Enumerate brief collections (one per existing brief)
-qmd collection list | awk '/-brief$/{print $1}'
-
-# 2. For each collection, query the proposed name + intent text:
-qmd query "{name} {synthesized-or-intent-text}" -c {collection-name} -n 1 --min-score 0.6
-```
-
-Aggregate the top hits across all `-brief` collections; keep the 3 highest-scoring across the union. If any results come back, surface them as a heads-up — *not* a HALT. Exact-name collision is already handled above; this check catches semantic near-duplicates that exact-match misses (e.g. `markdown-renderer` proposed when `marked` already exists, or `auth-gateway` when `auth-middleware` already exists). Present:
-
-```
-**Heads up — these existing briefs look semantically close to `{name}`:**
-  1. {existing-name} (similarity: {score})  — {existing-description}
-  2. {existing-name} (similarity: {score})  — {existing-description}
-
-Continue with `{name}`, or pick a different name?
-```
-
-On any QMD failure (binary missing, collection list empty, any per-collection query times out): log `"warn: portfolio-similarity check skipped — qmd query failed: {error}"` and continue silently — never HALT. Quick / Forge / Forge+ tiers do not run this check (qmd is Deep-tier-only per the canonical tier definition: `Deep = + ast-grep + gh + QMD` in `skf-forge-tier-rw.py`). Headless does not run this check either — it would either need to HALT on duplicates (over-aggressive for an automator) or silently log (no operator to act on it); leaving it interactive-only keeps the headless path side-effect-free against the QMD index.
+**Portfolio-similarity check.** When the flow is interactive AND forge tier is `Deep` AND `tools.qmd` is true in `forge-tier.yaml`, load `{portfolioSimilarityCheckFile}` and follow the procedure there to catch semantic near-duplicates that exact-name collision misses. Otherwise (headless, or tier below Deep, or qmd unavailable) skip the load — the check does not run.
 
 **Draft-resume check (interactive only).** After the name is confirmed, also check for an in-progress draft at `{forge_data_folder}/{name}/.brief-draft.json` (a step-01 §7 checkpoint from a previous run that did not reach step-05). If the file exists AND no `skill-brief.yaml` sits beside it (a finished brief uses the same dir), present:
 
