@@ -2,6 +2,7 @@
 nextStepFile: './step-02-analyze-target.md'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 versionResolutionFile: 'references/version-resolution.md'
+validateBriefInputsScript: '{project-root}/src/shared/scripts/skf-validate-brief-inputs.py'
 ---
 
 # Step 1: Gather Intent
@@ -259,16 +260,16 @@ Display: "**Select:** [C] Continue to Target Analysis"
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: use args]** — If `{headless_mode}`, consume pre-supplied arguments per the table below and auto-proceed. Any missing required arg → HALT with exit code 2, `halt_reason: "input-missing"`, message: `"headless mode requires target_repo and skill_name arguments."` (Same HALT applies when `source_type=docs-only` and `doc_urls` is empty.)
+- **GATE [default: use args]** — If `{headless_mode}`, consume pre-supplied arguments per the table below and auto-proceed. Validation is delegated to `{validateBriefInputsScript}` (described after the table) — the table is the canonical operator-facing documentation; the script enforces it.
 
   | Argument | Required | Default | Notes |
   |----------|----------|---------|-------|
-  | `target_repo` | yes | — | HALT (exit 2) if absent |
-  | `skill_name` | yes | — | HALT (exit 2) if absent |
+  | `target_repo` | yes | — | HALT (exit 2, `halt_reason: "input-missing"`) if absent |
+  | `skill_name` | yes | — | HALT (exit 2, `halt_reason: "input-missing"`) if absent; HALT (exit 2, `halt_reason: "input-invalid"`) if non-kebab |
   | `source_type` | no | `source` | If `docs-only`, `doc_urls` becomes required |
-  | `doc_urls` | conditional | — | Required when `source_type=docs-only`. List of `url` or `url,label` |
+  | `doc_urls` | conditional | — | Required when `source_type=docs-only` (HALT exit 2, `halt_reason: "input-missing"` if empty). List of `url` or `url,label` |
   | `source_authority` | no | `community` | `official` / `community` / `internal`; forced to `community` when `source_type=docs-only` |
-  | `target_version` | no | — | Auto-detected in step-02 if absent |
+  | `target_version` | no | — | Auto-detected in step-02 if absent. Full X.Y.Z semver required (HALT exit 2, `halt_reason: "input-invalid"` on partial forms like `1`, `1.2`, `v2`) |
   | `scope_hint` | no | — | Free-text steering for §5 |
   | `language_hint` | no | — | Overrides language detection in step-02/03 |
   | `scope_type` | no | — | `full-library` / `specific-modules` / `public-api` / `component-library` / `reference-app` / `docs-only` |
@@ -278,6 +279,21 @@ Display: "**Select:** [C] Continue to Target Analysis"
   | `assets_intent` | no | `detect` | `detect` / `none` / free-text |
   | `intent` | no | — | Free-text used to derive `description` in §7b |
   | `force` | no | — | Overwrite existing brief without prompting (consumed in step-05 §2b) |
+
+  **Delegate validation to `{validateBriefInputsScript}`** instead of reasoning through the table rules in prose:
+
+  ```bash
+  echo '<headless-args-as-json>' | uv run {validateBriefInputsScript}
+  ```
+
+  The script returns a JSON envelope: `{valid, errors[], warnings[], normalized, halt_reason}`. Apply the result deterministically:
+
+  - **`valid: false`** — emit the error-variant `SKF_BRIEF_RESULT_JSON` envelope on stderr with `exit_code: 2` and the script's `halt_reason` (`"input-missing"` for absent required args / docs-only without doc_urls; `"input-invalid"` for enum violations, malformed semver, malformed kebab-case skill_name). Surface `errors[]` to the operator log so the failure is debuggable. HALT.
+  - **`valid: true`** — consume the `normalized` object as the source of truth (it has defaults applied per the table). Surface `warnings[]` to the operator log but do not HALT. Auto-proceed.
+
+  The script's `KNOWN_FIELDS` set must stay in sync with the table above.
+
+
 - ONLY proceed to next step when user selects 'C'
 
 ## CRITICAL STEP COMPLETION NOTE
