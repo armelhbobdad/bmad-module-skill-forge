@@ -1,6 +1,6 @@
 ---
 name: skf-brief-skill
-description: Design a skill scope through guided discovery. Use when the user requests to "create a skill brief" or "brief a skill."
+description: Design a skill scope through guided discovery. Use when the user requests to "create a skill brief" or "brief a skill".
 ---
 
 # Brief Skill
@@ -36,7 +36,7 @@ These rules apply to every step in this workflow:
 | 3 | Scope Definition | steps-c/step-03-scope-definition.md | No (interactive) |
 | 4 | Confirm Brief | steps-c/step-04-confirm-brief.md | No (confirm) |
 | 5 | Write Brief | steps-c/step-05-write-brief.md | Yes |
-| 6 | Workflow Health Check (terminal — chains to `shared/health-check.md`) | steps-c/step-06-health-check.md | Yes |
+| 6 | Workflow Health Check (terminal) | steps-c/step-06-health-check.md | Yes |
 
 ## Invocation Contract
 
