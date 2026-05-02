@@ -175,7 +175,26 @@ Wait for confirmation or alternative.
 
 **Collision check (interactive and headless):** before locking the name, check whether `{forge_data_folder}/{name}/skill-brief.yaml` already exists. If it does:
 
-- Interactive: "**Heads up — a brief for `{name}` already exists at `{path}`.** Pick a different name to keep the new brief separate, or confirm to continue (the existing brief's overwrite prompt fires in step 05)."
+- Interactive: generate three candidate alternates by scanning sibling directories under `{forge_data_folder}/`:
+  1. `{name}-v{N}` where `N` is the smallest positive integer that doesn't collide (e.g. `{name}-v2`, `{name}-v3`)
+  2. `{name}-{target_version}` if `target_version` is set and the suffix wouldn't collide (e.g. `marked-1.2.3`)
+  3. `{name}-{source_authority}` if not `community` (e.g. `marked-internal` for an internal fork)
+
+  Then present:
+
+  ```
+  **Heads up — a brief for `{name}` already exists at `{path}`.**
+
+  Suggested alternates (none collide):
+    [1] {alternate-1}
+    [2] {alternate-2}
+    [3] {alternate-3}
+
+  Pick a number to use that name, type a different name, or press Enter to keep `{name}` and let step-05 §2b handle the overwrite prompt.
+  ```
+
+  On a numbered choice, replace `{name}` with the chosen alternate. On Enter, fall through to step-05's overwrite gate. On any other input, treat as a new candidate name and re-run the collision check against it.
+
 - Headless: log `"warn: skill name '{name}' collides with existing brief at {path}"` and proceed; the existing-brief overwrite policy in step-05 §2b is the canonical gate (HALT with `overwrite-cancelled` unless `force` was supplied).
 
 ### 7. Summarize Gathered Intent
