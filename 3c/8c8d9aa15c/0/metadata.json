@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "3c8c8d9aa15c",
+  "session_id": "c182181b-3026-49d1-a80c-d52fb69e7d88",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-02T15:27:46.960368581Z",
+  "branch": "feat/skf-brief-skill-fail-fast-validation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/steps-c/step-05-write-brief.md",
+    "test/test-skf-validate-brief-inputs.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "c2819b191fa1",
+  "token_usage": {
+    "input_tokens": 132,
+    "cache_creation_tokens": 255694,
+    "cache_read_tokens": 9865237,
+    "output_tokens": 93688,
+    "api_call_count": 78
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-02T15:27:46.259108593Z",
+    "agent_lines": 362,
+    "human_added": 335,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 698,
+    "agent_percentage": 51.862464183381086
+  }
+}
