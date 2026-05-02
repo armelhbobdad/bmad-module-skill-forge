@@ -95,7 +95,7 @@ Skip §3.3 and continue at "Confirm the target" below.
 #### 3.3 Branch — Source (GitHub URL or local path)
 
 - Set `source_type: "source"` (default)
-- **Pre-validate the target before continuing — fail fast at point of capture, not 5+ minutes later in step-02.** Issue these probes in a single message with parallel Bash calls:
+- **Pre-validate the target before continuing.** Issue these probes in a single message with parallel Bash calls:
   - **GitHub URL:** `curl -sI --max-time 5 {url}`. On a 4xx (typically 404 for a typo'd repo or org), warn `"GitHub returned {status} for {url} — confirm the URL is correct."` and re-prompt. On 2xx, accept. (The full `gh api repos/{owner}/{repo}` check still runs in step-02 §1 to catch private-repo access issues — this HEAD probe is just for typo catch.)
   - **GitHub URL, in parallel with the above:** `gh auth status` — if it reports unauthenticated or the binary is missing, warn `"GitHub CLI not authenticated; step-02 will HALT when it tries to fetch the tree. Run 'gh auth login' before continuing, or supply a local clone path instead."` (Do not HALT here — let the user choose to fix or proceed; the canonical HALT still happens in step-02 §1's failure-class triage.)
   - **Local path:** verify the directory exists (`test -d {path}`). If not, warn `"Local path {path} does not exist."` and re-prompt.
@@ -129,7 +129,7 @@ This step only collects `target_version` and validates its shape with the regex 
 
 Wait for user response.
 
-**If user provides a version:** Validate the shape against `^v?\d+\.\d+\.\d+([.\-+][0-9A-Za-z][0-9A-Za-z.\-+]*)?$` (full X.Y.Z form, with optional `v` prefix and pre-release / build suffix; CalVer like `2024.04.01` accepted; partial forms like `1`, `1.2`, `v2`, `latest` rejected). On a match, store as `target_version` and set `version` to this value. On a non-match, warn `"'{value}' doesn't look like semver — write the explicit triple (e.g. 1.0.0). Fix it now or skip auto-detection?"` and re-prompt for a corrected value or blank to fall through to step-02 auto-detection. Catching this here prevents the step-05 invariant check (`brief.target_version == brief.version` per `references/version-resolution.md`) from blowing up after the user has already approved the brief.
+**If user provides a version:** Validate the shape against `^v?\d+\.\d+\.\d+([.\-+][0-9A-Za-z][0-9A-Za-z.\-+]*)?$` (full X.Y.Z form, with optional `v` prefix and pre-release / build suffix; CalVer like `2024.04.01` accepted; partial forms like `1`, `1.2`, `v2`, `latest` rejected). On a match, store as `target_version` and set `version` to this value. On a non-match, warn `"'{value}' doesn't look like semver — write the explicit triple (e.g. 1.0.0). Fix it now or skip auto-detection?"` and re-prompt for a corrected value or blank to fall through to step-02 auto-detection.
 **If blank:** Proceed without `target_version` — version will be auto-detected in step 02.
 
 {If target_version was set AND doc_urls are being collected (either docs-only primary or supplemental):}
@@ -175,20 +175,20 @@ Wait for confirmation or alternative.
 
 **Collision check (interactive and headless):** before locking the name, check whether `{forge_data_folder}/{name}/skill-brief.yaml` already exists. If it does:
 
-- Interactive: generate three candidate alternates by scanning sibling directories under `{forge_data_folder}/`:
-  1. `{name}-v{N}` where `N` is the smallest positive integer that doesn't collide (e.g. `{name}-v2`, `{name}-v3`)
+- Interactive: generate 1–3 non-colliding candidate alternates by scanning sibling directories under `{forge_data_folder}/`. Apply each rule that fires; skip rules whose precondition isn't met:
+  1. `{name}-v{N}` where `N` is the smallest positive integer that doesn't collide (e.g. `{name}-v2`, `{name}-v3`) — always applies
   2. `{name}-{target_version}` if `target_version` is set and the suffix wouldn't collide (e.g. `marked-1.2.3`)
-  3. `{name}-{source_authority}` if not `community` (e.g. `marked-internal` for an internal fork)
+  3. `{name}-{source_authority}` if `source_authority` is not `community` (e.g. `marked-internal` for an internal fork)
 
-  Then present:
+  Number the surviving alternates `[1] [2] [3]…` in the order produced (1 alternate for a community-authority brief with no `target_version`; 2–3 otherwise). Then present:
 
   ```
   **Heads up — a brief for `{name}` already exists at `{path}`.**
 
   Suggested alternates (none collide):
     [1] {alternate-1}
-    [2] {alternate-2}
-    [3] {alternate-3}
+    {if a second alternate was produced:} [2] {alternate-2}
+    {if a third alternate was produced:} [3] {alternate-3}
 
   Pick a number to use that name, type a different name, or press Enter to keep `{name}` and let step-05 §2b handle the overwrite prompt.
   ```
