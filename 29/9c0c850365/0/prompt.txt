@@ -1,0 +1,183 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-workflow-builder
+
+# Workflow & Skill Builder
+
+## Overview
+
+This skill helps you build AI workflows and skills that are **outcome-driven** — describing what to achieve, not micromanaging how to get there. LLMs are powerful reasoners. Great skills give them mission context and desired outcomes; poor skills drown them in mechanical procedures they'd figure out naturally. Your job is to help users articulate the outcomes they want, then build the leanest possible skill that delivers them.
+
+Act as an architect guide — walk users through conversational discovery to understand their vision, then craft skill structures that trust the executing LLM's judgment. The best skill is the one where every instruction carries its weight and nothing tells the LLM how to do what it already knows.
+
+**Args:** Accepts `--headless` / `-H` for non-interactive execution, `--convert <path-or-url>` to convert an existing skill into a lean equivalent with before/after HTML comparison report, an initial description for create, or a path to an existing skill with keywords like analyze, edit, or rebuild.
+
+**Your output:** A skill structure ready to integrate into a module or use standalone — from simple composable utilities to complex multi-stage workflows.
+
+## On Activation
+
+1. Detect user's intent. If `--headless` or `-H` is passed, or intent is clearly non-interactive, set `{headless_mode}=true` for all sub-prompts.
+
+2. Load available config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml` (root and bmb section). If neither exists, fall back to `{project-root}/_bmad/bmb/config.yaml` (legacy per-module format). If still missing, and the `bmad-builder-setup` skill is available, let the user know they can run it at any time to configure. Resolve and apply throughout the session (defaults in parens):
+   - `{user_name}` (default: null) — address the user by name
+   - `{communication_language}` (default: user or system intent) — use for all communications
+   - `{document_output_language}` (default: user or system intent) — use for generated document content
+   - `{bmad_builder_output_folder}` (default: `{project-root}/skills`) — save built agents here
+   - `{bmad_builder_reports}` (default: `{project-root}/skills/reports`) — save reports (quality, eval, planning) here
+
+3. Route by intent — see Quick Reference below.
+
+## Build Process
+
+The core creative path — where workflow and skill ideas become reality. Through conversational discovery, you guide users from a rough vision to a complete, outcome-driven skill structure. This covers building new skills from scratch, converting non-compliant formats, editing existing ones, and rebuilding from intent.
+
+Load `references/build-process.md` to begin.
+
+## Quality Analysis
+
+Comprehensive quality analysis toward outcome-driven design. Analyzes existing skills for over-specification, structural issues, execution efficiency, and enhancement opportunities. Uses deterministic lint scripts and parallel LLM scanner subagents. Produces a synthesized report with themes and actionable opportunities.
+
+Load `references/quality-analysis.md` to begin.
+
+## Convert
+
+One-command conversion of any existing skill into a BMad-compliant, outcome-driven equivalent. Whether the input is bloated, poorly structured, or just doesn't follow BMad best practices, this path reads or fetches the original, rebuilds from intent (always headless), and generates an HTML comparison report showing the before/after — metrics, what changed and why, what survived and why it earned its place.
+
+`--convert` implies headless mode. Accepts a local path or URL. The original skill provides all context needed — no interactive discovery.
+
+Load `references/convert-process.md` to begin.
+
+---
+
+## Skill Intent Routing Reference
+
+| Intent                      | Trigger Phrases                                       | Route                                           |
+| --------------------------- | ----------------------------------------------------- | ------------------------------------------------ |
+| **Build new**               | "build/create/design a workflow/skill/tool"           | Load `references/build-process.md`               |
+| **Convert**                 | `--convert path-or-url`                               | Load `references/convert-process.md`             |
+| **Existing skill provided** | Path to existing skill, or "edit/fix/analyze"         | Ask the 3-way question below, then route         |
+| **Quality analyze**         | "quality check", "validate", "review workflow/skill"  | Load `references/quality-analysis.md`            |
+| **Unclear**                 | —                                                     | Present options and ask                          |
+
+### When given an existing skill, ask:
+
+- **Analyze** — Run quality analysis: identify opportunities, prune over-specification, get an actionable report
+- **Edit** — Modify specific behavior while keeping the current approach
+- **Rebuild** — Rethink from core outcomes using this as reference material, full discovery process
+
+Analyze routes to `references/quality-analysis.md`. Edit and Rebuild both route to `references/build-process.md` with the chosen intent.
+
+Regardless of path, respect headless mode if requested.
+
+---
+
+Analyze skf-brief-skill
+
+---
+
+<task-notification>
+<task-id>a2c2d896a73decdcc</task-id>
+<tool-use-id>toolu_0184Sm613xcioQwF6Nr46NFm</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c182181b-3026-49d1-a80c-d52fb69e7d88/tasks/a2c2d896a73decdcc.output</output-file>
+<status>completed</status>
+<summary>Agent "L1 workflow integrity scan" completed</summary>
+<result>`workflow-integrity-analysis.md`
+
+Summary of findings for `skf-brief-skill`:
+
+- **Overall:** structurally sound complex workflow — all 6 stages present and matched, sequential numbering, config headers everywhere, rich Invocation/Exit-Codes/Result contracts.
+- **1 High:** `step-06-health-check.md` lacks progression-keyword vocabulary the prepass scans for. It is genuinely terminal (chains to `shared/health-check.md`) and the CRITICAL STEP COMPLETION NOTE describes that, but adding one explicit "Completion criteria" line would silence the warning at zero behavioral cost.
+- **5 Low:** five `please` phrases in user-facing strings across steps 01, 02, 04, 05 — convert to direct imperatives.
+- **1 Low (cosmetic):** `SKILL.md:3` has a trailing period inside the second quoted trigger phrase (`"brief a skill."`); should be `"brief a skill".` to match the first phrase.
+- **No critical/medium issues.** No missing stage files, no orphans, no template artifacts, no `## On Exit` section, no over-specification of LLM capabilities.</result>
+<usage><total_tokens>37899</total_tokens><tool_uses>12</tool_uses><duration_ms>81003</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a3b48f7cc6a5cb978</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c182181b-3026-49d1-a80c-d52fb69e7d88/tasks/a3b48f7cc6a5cb978.output</output-file>
+<status>completed</status>
+<summary>Agent "L3 execution efficiency scan" completed</summary>
+<result>execution-efficiency-analysis.md
+
+Analysis written. Headlines: pre-pass clean (no critical/high deps issues). The skill is interactive-by-design so parallelization upside is narrow. Six findings logged — three Medium (sequential HEAD checks across `doc_urls`, eager reference/asset loading, sequential `gh api` calls in step-02), four Low (reactive `gh auth`, parent-reads-then-pipes-to-script, full brief re-render on micro-edits, interleaved doc-URL collect+verify). Three structural opportunities (fetch-bundle helper, lazy-load rule in SKILL.md, description-synthesis sharing). Strong existing patterns: clean dependency graph, parsing delegated to `skf-extract-public-api.py`, fail-fast ordering, headless gate collapse, [R]-revise state preservation, Deep-tier-only QMD indexing.</result>
+<usage><total_tokens>59327</total_tokens><tool_uses>14</tool_uses><duration_ms>119993</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a08dc352f9984851e</task-id>
+<tool-use-id>toolu_01CkXhU54heQg7emQrRio7eR</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c182181b-3026-49d1-a80c-d52fb69e7d88/tasks/a08dc352f9984851e.output</output-file>
+<status>completed</status>
+<summary>Agent "L2 prompt craft scan" completed</summary>
+<result>`prompt-craft-analysis.md`
+
+Summary of findings:
+
+- **Skill is well-crafted overall.** Overview is appropriately rich (mission + domain + design rationale + failure-mode asymmetry); progressive disclosure is exemplary (SKILL.md ~1610 tokens, steps in `steps-c/`, templates in `assets/`, shared rules in `references/`); 7/7 prompts have config headers and explicit progression conditions and are self-contained.
+- **No critical or high-severity issues.**
+- **Medium findings:**
+  1. `step-02-analyze-target.md:180` references `knowledge/tool-resolution.md` which does not exist in this skill — dangling reference.
+  2. `step-05-write-brief.md` §3 inlines the YAML template (likely duplicating `assets/skill-brief-schema.md`) and §5 inlines a 50-line Deep-tier-only QMD block on every activation.
+  3. `step-01-gather-intent.md` §3 nests source-type / authority / version branching in one section — restructure into 3a/3b/3c.
+- **Low findings:** §8 GATE paragraph in step-01 is a 280-word run-on (table/bullets would be clearer); cosmetic table-formatting in SKILL.md stage 6; re-entry rule in step-03 is buried in the Rules block.
+- **Notable strengths:** end-to-end headless contract (exit codes + halt-reasons + JSON envelope), correct intelligence placement (script does parsing, prompt does judgment), shared `version-resolution.md` reference with documented step-level responsibilities, explicit description-synthesis in step-01 §7b with operator-visible warn log.
+- **Pre-pass gap noted:** the prepass JSON only enumerated `SKILL.md` (`prompts: 0`) — the 6 step files in `steps-c/` were not scanned, likely because the script looks at root-level `*.md`. Worth fixing in the prepass scanner.</result>
+<usage><total_tokens>63435</total_tokens><tool_uses>13</tool_uses><duration_ms>130553</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a61a798f7dbf22596</task-id>
+<tool-use-id>toolu_01R79RAtmxr7KVo1U8WSJpUa</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c182181b-3026-49d1-a80c-d52fb69e7d88/tasks/a61a798f7dbf22596.output</output-file>
+<status>completed</status>
+<summary>Agent "L6 script opportunities scan" completed</summary>
+<result>script-opportunities-analysis.md
+
+**Summary of findings:**
+
+- **Skill has no own `scripts/` dir** but uses shared `skf-extract-public-api.py` (recently migrated in commit 12eb1dc4 for step-02 export discovery).
+- **10 script opportunities identified**, total estimated savings **~1,950–2,800 tokens per invocation** (headless + Deep tier).
+- **Two High-severity findings, both in step-05:**
+  1. Result envelope (`SKF_BRIEF_RESULT_JSON`) assembled in prose — should mirror the existing `skf-emit-result-envelope.py` pattern (~300–450 token tax)
+  2. YAML emission of skill-brief.yaml hand-templated in prose with conditional optional fields and version-precedence reasoning (~500–800 token tax) — biggest single win
+- **Adoption-only wins:** `skf-atomic-write.py` exists but isn't used for the brief write; `skf-forge-tier-rw.py` could absorb the qmd_collections registry mutation as a new subcommand.
+- **Pre-pass opportunities:** language detection and monorepo detection (steps-02 §1b/§3) should be folded into `skf-extract-public-api.py` as modes rather than separate scripts, collapsing three LLM-mediated handoffs into one deterministic pipeline.
+- **Headless input validation** (~16 input fields enumerated in SKILL.md) is a textbook pre-pass candidate.
+
+Output written to `/home/armel/Projects/OSS/bmad-module-skill-forge/skills/reports/skf-brief-skill/quality-analysis/20260502-183504/script-opportunities-analysis.md`.</result>
+<usage><total_tokens>77424</total_tokens><tool_uses>21</tool_uses><duration_ms>196726</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a1c502a4cc8afec86</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c182181b-3026-49d1-a80c-d52fb69e7d88/tasks/a1c502a4cc8afec86.output</output-file>
+<status>completed</status>
+<summary>Agent "L4 skill cohesion scan" completed</summary>
+<result>skill-cohesion-analysis.md</result>
+<usage><total_tokens>71437</total_tokens><tool_uses>16</tool_uses><duration_ms>213646</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ad737f89231fe77b9</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c182181b-3026-49d1-a80c-d52fb69e7d88/tasks/ad737f89231fe77b9.output</output-file>
+<status>completed</status>
+<summary>Agent "L5 enhancement opportunities scan" completed</summary>
+<result>enhancement-opportunities-analysis.md</result>
+<usage><total_tokens>71896</total_tokens><tool_uses>15</tool_uses><duration_ms>256353</duration_ms></usage>
+</task-notification>
+
+---
+
+@CONTRIBUTING.md fix all the 5. Organize the commits and the PRs the smartest way (e.g: one commit per finding if applicable). Review all the changes for any breaking changes, or missing impacts/bugs/regressions and ect... DO NOT HALLUCINATE. Activate party mode and/or advanced elicitation only if it is necessary.
