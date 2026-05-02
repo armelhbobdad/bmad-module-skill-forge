@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "a0e002c957e1",
+  "strategy": "manual-commit",
+  "branch": "feat/skf-brief-skill-preset-draft-qmd-similarity",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/skf-validate-brief-inputs.py",
+    "src/skf-brief-skill/steps-c/step-01-gather-intent.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a0/e002c957e1/0/metadata.json",
+      "transcript": "/a0/e002c957e1/0/full.jsonl",
+      "context": "/a0/e002c957e1/0/context.md",
+      "content_hash": "/a0/e002c957e1/0/content_hash.txt",
+      "prompt": "/a0/e002c957e1/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 436,
+    "cache_creation_tokens": 394926,
+    "cache_read_tokens": 34624040,
+    "output_tokens": 176746,
+    "api_call_count": 166
+  }
+}
