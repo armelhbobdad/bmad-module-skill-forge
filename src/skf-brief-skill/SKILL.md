@@ -60,6 +60,7 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 | 3    | resolution-failure   | step-01 §1 (`forge-tier.yaml` missing); step-02 §1 (target inaccessible / `gh auth` fails) |
 | 4    | write-failure        | step-05 §4 (write to `{forge_data_folder}/{skill-name}/skill-brief.yaml` failed)           |
 | 5    | overwrite-cancelled  | step-05 §2 (existing brief, `force` not supplied)                                          |
+| 6    | user-cancelled       | any interactive menu in step-01/03/04 (user selected `[X]` Cancel and exit)                |
 
 ## Result Contract (Headless)
 
@@ -69,7 +70,7 @@ When `{headless_mode}` is true, step-05 emits a single-line JSON envelope on **s
 SKF_BRIEF_RESULT_JSON: {"status":"success|error","brief_path":"…|null","skill_name":"…","version":"…|null","language":"…|null","scope_type":"…|null","exit_code":0,"halt_reason":null}
 ```
 
-`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"forge-tier-missing"`, `"target-inaccessible"`, `"gh-auth-failed"`, `"write-failed"`, `"overwrite-cancelled"`. `exit_code` matches the table above.
+`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"forge-tier-missing"`, `"target-inaccessible"`, `"gh-auth-failed"`, `"write-failed"`, `"overwrite-cancelled"`, `"user-cancelled"`. `exit_code` matches the table above.
 
 ## On Activation
 

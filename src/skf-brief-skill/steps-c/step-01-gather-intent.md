@@ -244,11 +244,12 @@ Wait for user confirmation or alternative. Store the accepted text as the brief'
 
 ### 8. Present MENU OPTIONS
 
-Display: "**Select:** [C] Continue to Target Analysis"
+Display: "**Select:** [C] Continue to Target Analysis · [X] Cancel and exit"
 
 #### Menu Handling Logic:
 
 - IF C: Load, read entire file, then execute {nextStepFile}
+- IF X: Treat as user-cancellation. Display `"Cancelled — no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). When `{headless_mode}` is true the GATE auto-proceeds and never reaches this branch — `[X]` is interactive-only. Cancellation here is non-destructive: no files have been written yet by step-01.
 - IF Any other: Help user, then [Redisplay Menu Options](#8-present-menu-options)
 
 #### EXECUTION RULES:

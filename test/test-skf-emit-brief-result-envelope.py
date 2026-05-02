@@ -80,6 +80,7 @@ class TestAssemble:
             ("gh-auth-failed", 3),
             ("write-failed", 4),
             ("overwrite-cancelled", 5),
+            ("user-cancelled", 6),
         ],
     )
     def test_halt_reason_to_exit_code_mapping(self, halt, expected_exit):

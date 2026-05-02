@@ -36,8 +36,8 @@
     },
     "exit_code": {
       "type": "integer",
-      "enum": [0, 2, 3, 4, 5],
-      "description": "Process exit code matching the SKILL.md Exit Codes table. Derived deterministically from halt_reason: null→0, input-missing/input-invalid→2, forge-tier-missing/target-inaccessible/gh-auth-failed→3, write-failed→4, overwrite-cancelled→5."
+      "enum": [0, 2, 3, 4, 5, 6],
+      "description": "Process exit code matching the SKILL.md Exit Codes table. Derived deterministically from halt_reason: null→0, input-missing/input-invalid→2, forge-tier-missing/target-inaccessible/gh-auth-failed→3, write-failed→4, overwrite-cancelled→5, user-cancelled→6."
     },
     "halt_reason": {
       "type": ["string", "null"],
@@ -49,7 +49,8 @@
         "target-inaccessible",
         "gh-auth-failed",
         "write-failed",
-        "overwrite-cancelled"
+        "overwrite-cancelled",
+        "user-cancelled"
       ],
       "description": "Null on success. One of the documented HALT classes on error. Pipelines branch on this to surface the right operator message without grepping the prose error."
     }

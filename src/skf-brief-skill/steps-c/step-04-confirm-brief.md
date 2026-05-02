@@ -143,7 +143,7 @@ If the user requests changes to specific fields (name, description, version, etc
 
 ### 5. Present MENU OPTIONS
 
-Display: **Select an Option:** [R] Revise Scope [A] Advanced Elicitation [P] Party Mode [C] Approve and Write
+Display: **Select an Option:** [R] Revise Scope [A] Advanced Elicitation [P] Party Mode [C] Approve and Write [X] Cancel and exit
 
 #### Menu Handling Logic:
 
@@ -151,6 +151,7 @@ Display: **Select an Option:** [R] Revise Scope [A] Advanced Elicitation [P] Par
 - IF A: Invoke {advancedElicitationSkill}, and when finished redisplay the menu
 - IF P: Invoke {partyModeSkill}, and when finished redisplay the menu
 - IF C: Load, read entire file, then execute {nextStepFile}
+- IF X: Treat as user-cancellation. Display `"Cancelled — no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). Cancellation here is non-destructive — step-05 has not run, no skill-brief.yaml file exists yet. `[X]` is interactive-only; the headless GATE never reaches this branch.
 - IF Any other comments or queries: help user respond, apply any field adjustments, re-present brief if changed, then [Redisplay Menu Options](#5-present-menu-options)
 
 #### EXECUTION RULES:

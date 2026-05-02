@@ -44,13 +44,13 @@ Context payload shape (consumed by `emit`):
     "halt_reason": null | "input-missing" | "input-invalid" |
                    "forge-tier-missing" | "target-inaccessible" |
                    "gh-auth-failed" | "write-failed" |
-                   "overwrite-cancelled"
+                   "overwrite-cancelled" | "user-cancelled"
   }
 
 The caller does NOT supply exit_code — the script derives it from
 halt_reason via the canonical mapping (null→0; input-*→2;
 forge-tier-missing/target-inaccessible/gh-auth-failed→3;
-write-failed→4; overwrite-cancelled→5).
+write-failed→4; overwrite-cancelled→5; user-cancelled→6).
 
 Cross-platform: pure stdlib, no third-party deps.
 
@@ -80,6 +80,7 @@ VALID_HALT_REASONS = {
     "gh-auth-failed",
     "write-failed",
     "overwrite-cancelled",
+    "user-cancelled",
 }
 VALID_SCOPE_TYPES = {
     None,
@@ -101,6 +102,7 @@ HALT_TO_EXIT = {
     "gh-auth-failed": 3,
     "write-failed": 4,
     "overwrite-cancelled": 5,
+    "user-cancelled": 6,
 }
 
 # Envelope key order — fixed so byte-stable diffs are possible.
