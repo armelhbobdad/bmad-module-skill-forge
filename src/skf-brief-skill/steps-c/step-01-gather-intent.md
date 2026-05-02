@@ -1,7 +1,7 @@
 ---
 nextStepFile: './step-02-analyze-target.md'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
-versionResolutionFile: '../references/version-resolution.md'
+versionResolutionFile: 'references/version-resolution.md'
 ---
 
 # Step 1: Gather Intent
@@ -153,10 +153,10 @@ This will be used for the output directory and file naming. Want to use this nam
 
 Wait for confirmation or alternative.
 
-**Collision check (interactive and headless):** before locking the name, check whether `{forge_data_folder}/{name}/skill-brief.yaml` or `~/.claude/skills/{name}/SKILL.md` already exists. If either does:
+**Collision check (interactive and headless):** before locking the name, check whether `{forge_data_folder}/{name}/skill-brief.yaml` already exists. If it does:
 
-- Interactive: "**Heads up — a skill named `{name}` already exists at `{path(s)}`.** Pick a different name to keep the new brief separate, or confirm to continue (the existing brief's overwrite prompt fires in step 05)."
-- Headless: log `"warn: skill name '{name}' collides with existing artifact at {path}"` and proceed; the existing-brief overwrite policy in step-05 §2b is the canonical gate (HALT with `overwrite-cancelled` unless `force` was supplied).
+- Interactive: "**Heads up — a brief for `{name}` already exists at `{path}`.** Pick a different name to keep the new brief separate, or confirm to continue (the existing brief's overwrite prompt fires in step 05)."
+- Headless: log `"warn: skill name '{name}' collides with existing brief at {path}"` and proceed; the existing-brief overwrite policy in step-05 §2b is the canonical gate (HALT with `overwrite-cancelled` unless `force` was supplied).
 
 ### 7. Summarize Gathered Intent
 

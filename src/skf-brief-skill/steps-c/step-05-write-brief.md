@@ -1,6 +1,6 @@
 ---
 briefSchemaFile: 'assets/skill-brief-schema.md'
-versionResolutionFile: '../references/version-resolution.md'
+versionResolutionFile: 'references/version-resolution.md'
 nextStepFile: './step-06-health-check.md'
 ---
 

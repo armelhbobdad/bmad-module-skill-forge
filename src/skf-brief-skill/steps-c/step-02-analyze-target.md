@@ -1,6 +1,6 @@
 ---
 nextStepFile: './step-03-scope-definition.md'
-versionResolutionFile: '../references/version-resolution.md'
+versionResolutionFile: 'references/version-resolution.md'
 extractPublicApiScript: '{project-root}/src/shared/scripts/skf-extract-public-api.py'
 ---
 
