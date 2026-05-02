@@ -105,8 +105,7 @@ Flag any fields that may need review:
 {If language was overridden or low confidence:}
 "**Note:** Language was {auto-detected / manually overridden}."
 
-{If description was derived (not stated by user):}
-"**Note:** Description was derived from your stated intent. Adjust if needed."
+"**Description:** synthesized and confirmed in step-01 §7b. Refine here if you want to tighten it now that the full brief is visible."
 
 {If forge tier was defaulted:}
 "**Note:** Forge tier defaulted to Quick (no forge-tier.yaml found)."

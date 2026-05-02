@@ -176,6 +176,28 @@ Wait for confirmation or alternative.
 
 Ready to analyze the target repository?"
 
+### 7b. Synthesize Skill Description
+
+The schema's `description` field is 1-3 sentences and surfaces in skill registries — it must exist by the time step-04 presents the brief. Synthesize it explicitly here, while the user's intent is fresh, instead of letting it fall out implicitly later.
+
+Compose a candidate 1-3 sentence description from the gathered material. Pattern (adjust naturally — do not template-stamp):
+
+```
+{What the skill enables an agent to do, in active voice}, drawn from {target}{ at version {target_version}, if set}{ for {scope hint summary}, if any scope hints were captured}. Use when {one-sentence trigger condition derived from intent — what task or question routes to this skill}.
+```
+
+Present:
+
+"**Proposed skill description:**
+
+> {synthesized description}
+
+This is what shows up when agents discover the skill. Edit it, replace it, or accept as-is."
+
+Wait for user confirmation or alternative. Store the accepted text as the brief's `description` field. The same field is re-presented in step-04 §4 for a final review pass — refinements there flow back to this value.
+
+**Headless:** if the `intent` argument was supplied, run the same synthesis against it and store the result. If `intent` was not supplied, derive from `target_repo` + `skill_name` (`"Use the {skill_name} skill to work with code or content from {target_repo}."`) and log `"warn: description synthesized without intent — narrow registry text."`
+
 ### 8. Present MENU OPTIONS
 
 Display: "**Select:** [C] Continue to Target Analysis"
