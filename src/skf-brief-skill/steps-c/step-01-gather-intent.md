@@ -3,6 +3,7 @@ nextStepFile: './step-02-analyze-target.md'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 descriptionVoiceExamplesFile: 'assets/description-voice-examples.md'
 headlessArgsFile: 'references/headless-args.md'
+headlessSourceAuthorityDetectionFile: 'references/headless-source-authority-detection.md'
 validateBriefInputsScript: '{project-root}/src/shared/scripts/skf-validate-brief-inputs.py'
 emitBriefEnvelopeScript: '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
 ---
@@ -317,14 +318,7 @@ Display: "**Select:** [C] Continue to Target Analysis · [X] Cancel and exit"
 
   The script's `KNOWN_FIELDS` set must stay in sync with the table in `{headlessArgsFile}`.
 
-  **Headless source-authority detection** — the validator intentionally leaves `source_authority` ABSENT from `normalized` when not supplied (so detection can run here). After consuming `normalized`, if `source_authority` is absent AND `source_type=source` AND `target_repo` is a GitHub URL, run signal-driven detection:
-
-  ```bash
-  gh api user --jq .login
-  ```
-
-  Compare the result to the `owner` segment of `target_repo` (URL pattern `https://github.com/<owner>/<repo>`) — **lower-case both values before comparing** (GitHub owner matching is case-insensitive but the API preserves case in responses). If they match, set `source_authority: "official"` — the operator is the repo's GitHub owner. Otherwise set `source_authority: "community"`. On any error from `gh api user` (unauthenticated, network failure, missing binary), log `"warn: source-authority detection skipped — gh api user failed"` and fall back to `"community"`. For local-path targets the comparison cannot apply; set `"community"` directly. (When `source_authority` was already supplied in `normalized`, the supplied value wins — no detection runs.)
-
+  **Headless source-authority detection.** After consuming `normalized`, if `source_authority` is absent AND `source_type=source` AND `target_repo` is a GitHub URL, load `{headlessSourceAuthorityDetectionFile}` and follow the procedure there. Otherwise (precondition unmet, value already supplied, docs-only, or local-path) skip the load — `community` is the implicit default for the unmet branches.
 
 - ONLY proceed to next step when user selects 'C'
 
