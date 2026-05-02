@@ -182,11 +182,21 @@ Ready to analyze the target repository?"
 
 The schema's `description` field is 1-3 sentences and surfaces in skill registries — it must exist by the time step-04 presents the brief. Synthesize it explicitly here, while the user's intent is fresh, instead of letting it fall out implicitly later.
 
-Compose a candidate 1-3 sentence description from the gathered material. Pattern (adjust naturally — do not template-stamp):
+Compose a candidate 1-3 sentence description from the gathered material. **Write like a human library maintainer would** — what does an agent get from this skill, and when should it route here? Two facts must come through (what the skill is, when to use it); everything else is voice. Resist filling in the same skeleton every time.
 
-```
-{What the skill enables an agent to do, in active voice}, drawn from {target}{ at version {target_version}, if set}{ for {scope hint summary}, if any scope hints were captured}. Use when {one-sentence trigger condition derived from intent — what task or question routes to this skill}.
-```
+Examples of the range — note that voice, structure, lead, and emphasis all vary:
+
+> Render Markdown to HTML using the marked library. Use when the user pastes raw Markdown and wants formatted output, or asks how to convert MD files in a build pipeline.
+
+> Stripe API client for Node.js — payment intents, subscriptions, customer portal, webhooks. Triggers on tasks involving Stripe-managed payments, subscription billing, or webhook event handling.
+
+> Charts and visualizations powered by D3.js. Reach for this when the user asks to plot data, build interactive graphs, or wants bare D3 control instead of a React-charts abstraction.
+
+> Lint Python code with Ruff. Use when the user wants to add or configure Ruff in a Python project, debug rule selectors, or understand why a specific check fired.
+
+> Date and time arithmetic via Luxon — parsing, formatting, time zones, durations, intervals. Use when working with dates in ways that exceed `Date.toISOString()` but you don't want a full Moment.js footprint.
+
+Notice how each one leads differently (verb / noun / "Charts and..." / verb / noun-phrase) and how the trigger ("Use when...", "Triggers on...", "Reach for this when...") is matched to the voice rather than copy-pasted. Compose in that spirit using the gathered material — the target repo, the user's intent, the version if set, and any scope hints — but do not template-stamp.
 
 Present:
 
