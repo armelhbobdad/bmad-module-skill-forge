@@ -3,28 +3,30 @@
   "checkpoint_id": "9d7ca62f1f0a",
   "session_id": "8f18a472-e1c5-4c9c-8ce3-6e738423db8c",
   "strategy": "manual-commit",
-  "created_at": "2026-05-02T20:28:18.178107182Z",
+  "created_at": "2026-05-02T20:34:00.226144775Z",
   "branch": "refactor/skf-brief-detect-language-script",
   "checkpoints_count": 1,
   "files_touched": [
-    "package.json"
+    "package.json",
+    "src/shared/scripts/skf-detect-language.py",
+    "test/test-skf-detect-language.py"
   ],
   "agent": "Claude Code",
   "turn_id": "3f156076c1ab",
   "token_usage": {
-    "input_tokens": 384,
-    "cache_creation_tokens": 373598,
-    "cache_read_tokens": 40673620,
-    "output_tokens": 164565,
-    "api_call_count": 182
+    "input_tokens": 392,
+    "cache_creation_tokens": 386348,
+    "cache_read_tokens": 43836792,
+    "output_tokens": 170636,
+    "api_call_count": 190
   },
   "initial_attribution": {
-    "calculated_at": "2026-05-02T20:28:15.870954297Z",
-    "agent_lines": 1,
-    "human_added": 567,
-    "human_modified": 0,
+    "calculated_at": "2026-05-02T20:33:57.793722586Z",
+    "agent_lines": 0,
+    "human_added": 7,
+    "human_modified": 8,
     "human_removed": 0,
-    "total_committed": 568,
-    "agent_percentage": 0.17605633802816903
+    "total_committed": 7,
+    "agent_percentage": 0
   }
 }
