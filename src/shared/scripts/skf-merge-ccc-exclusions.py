@@ -33,6 +33,11 @@ Validation rules for the 2 conditional values (PR #248):
     → produces `**//abs/path`, `**/~/x`, or `**/./rel` — malformed glob
   - REJECT values containing glob meta-characters (`*`, `?`, `[`)
     → interpolation collides with the surrounding pattern syntax
+  - REJECT values containing unresolved `{project-root}`-style placeholders
+    (any `{` or `}` character) — produces `**/{project-root}/x`, which
+    cocoindex accepts as a literal-segment glob and silently never matches.
+    This is the bug from issue #293: the step file was passing template
+    strings straight through.
 
 Rejected values are SKIPPED (the pattern is not added) and a warning
 is appended to the output. The 4 always-include patterns are applied
@@ -96,6 +101,7 @@ ALWAYS_INCLUDE = (
     "**/_skf-learn",
 )
 GLOB_META_CHARS = set("*?[")
+PLACEHOLDER_CHARS = set("{}")
 
 
 def _die(code: int, message: str) -> None:
@@ -161,6 +167,14 @@ def validate_config_value(key: str, raw_value: str) -> tuple[str | None, str | N
             f"{key} contains glob meta-character (*, ?, [); refused for ccc "
             f"exclusion because interpolation collides with the surrounding "
             f"pattern syntax — fix the value in {{project-root}}/_bmad/skf/config.yaml"
+        )
+
+    if any(ch in PLACEHOLDER_CHARS for ch in value):
+        return None, (
+            f"{key} contains an unresolved template placeholder ({{ or }}); "
+            f"refused for ccc exclusion because the step file is supposed to "
+            f"substitute {{project-root}} and reduce to a basename before "
+            f"invoking the helper — see step-01b §3 in src/skf-setup/steps-c/"
         )
 
     return value, None
