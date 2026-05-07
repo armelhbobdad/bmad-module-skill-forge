@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [1.4.1](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.4.0...v1.4.1) (2026-05-07)
+
+### Bug Fixes
+
+* **skf-audit-skill:** gate manifest-vs-symlink drift in step-01 §1 ([41854df](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/41854dfe96beb10655480696f043583b1a960ca7)), closes [#296](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/296)
+* **skf-audit-skill:** handle dirty worktree in step-01 §5b checkout handler ([1f4529e](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/1f4529e84a24333b8d38f8d412ea6c984df30d92)), closes [#295](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/295)
+* **skf-audit-skill:** normalize sha256: prefix in step-03 §4b hash comparison ([cbae8aa](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/cbae8aa2a98a376f44d5b360fd22aaab93e67f8f)), closes [#294](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/294)
+* **skf-create-skill:** allow empty references/ when Tier-2 is inline ([b503f5e](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/b503f5e5e8f9916b7c38e644bc138ac9bbf04b7b)), closes [#292](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/292)
+* **skf-export-skill:** document deviations[] on result contract for §4c.1 ([3a37829](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/3a378299ab3c85928fd2a988dc7edbac1d747d5e))
+* **skf-export-skill:** glob timestamped test reports in step-01 §4b ([f218522](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/f2185222f46cff345a7c051d0b23209cf4d234f9)), closes [#299](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/299)
+* **skf-export-skill:** handle manifest-orphan managed rows in step-04 §4c ([c6666c3](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/c6666c387ff18b039457ee0531793ecd849e20a9)), closes [#297](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/297)
+* **skf-export-skill:** treat first-export gotchas as fresh in step-03 §3.5 ([c804264](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/c80426426a8231fba1829b3da00337ac3fb5c3a6)), closes [#298](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/298)
+* **skf-setup:** reject {project-root} placeholders in ccc-exclusions merge ([b418dca](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/b418dca8c61bd8c45772c4e3881acd4169d23fef)), closes [#293](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/293)
 ## [1.4.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.3.0...v1.4.0) (2026-05-02)
 
 ### Features
