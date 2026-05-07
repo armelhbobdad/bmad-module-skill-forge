@@ -29,10 +29,31 @@ Which skill would you like to audit? Please provide the skill name or path."
 
 **If user provides skill name (not full path) — version-aware path resolution (see `knowledge/version-paths.md`):**
 1. Read `{skills_output_folder}/.export-manifest.json` and look up the skill name in `exports` to get `active_version`
-2. If found: resolve to `{skill_package}` = `{skills_output_folder}/{skill_name}/{active_version}/{skill_name}/`
+2. If found: tentatively resolve `{skill_package}` = `{skills_output_folder}/{skill_name}/{active_version}/{skill_name}/`. **Manifest-vs-symlink drift gate:** before committing, also read the `active` symlink at `{skills_output_folder}/{skill_name}/active`. When the symlink target disagrees with `active_version`, the manifest lags behind on-disk state — typical sequence is `update-skill` flipped the symlink but `export-skill` has not yet rewritten the manifest. Auditing the older manifest version would re-audit a skill the user no longer cares about (or has already audited). Decide which version to audit:
+   - Read `forge_data_folder/{skill_name}/{active_version}/provenance-map.json` (manifest version) and `forge_data_folder/{skill_name}/{symlink_target}/provenance-map.json` (symlink target). Compare their `generated_at` timestamps (or `mtime` if the field is absent).
+   - If both versions exist and the symlink target's provenance is **fresher** than the manifest's `last_exported`, present a gate:
+
+     "**Manifest lags behind active symlink.**
+
+     | | Manifest | Symlink |
+     |---|---|---|
+     | Version | `{active_version}` | `{symlink_target}` |
+     | Exported / forged | `{manifest.last_exported}` | `{symlink_provenance_generated_at}` |
+
+     The manifest's `active_version` was set by an earlier export-skill run; the symlink was flipped later (typically by update-skill). Auditing the manifest version will re-audit a skill the user no longer treats as active. Options:
+
+     - **[N] Audit symlink target ({symlink_target})** — recommended. The drift report describes the version the skill currently resolves to.
+     - **[M] Audit manifest version ({active_version})** — only useful when investigating the older version specifically.
+     - **[X] Abort** — halt without producing a report. Run `[EX] Export Skill` to reconcile the manifest before re-running audit-skill."
+
+     Default is **[N]**. Headless mode auto-selects **[N]** with a loud log line: `"headless: manifest active_version ({active_version}) is older than symlink target ({symlink_target}); auditing symlink target. Run export-skill to reconcile."` This mirrors §5b's upstream-drift handling — when the manifest and the working tree disagree, the working tree is the more honest signal under automation.
+
+   - When the symlink target's provenance is **older** than (or equal to) the manifest's `last_exported`, the symlink predates the export — this is the normal post-export shape, no gate needed. Resolve to the manifest's `active_version`.
+   - When only one of the two versions has a provenance map, resolve to the version that has one (the other is inert — auditing it would degrade to text-diff). Log the choice.
+
 3. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill_name}/active` — resolve to `{skill_group}/active/{skill_name}/`
 4. If neither: fall back to flat path `{skills_output_folder}/{skill_name}/`. If SKILL.md exists at the flat path, auto-migrate per `knowledge/version-paths.md` migration rules
-5. Store the resolved path as `{resolved_skill_package}`
+5. Store the resolved path as `{resolved_skill_package}`. Also store `audit_target_version` = the version that was actually selected (manifest, symlink, or flat) for step-06 Provenance to surface. When the gate above fired, also record the rejected version under `manifest_symlink_drift = {manifest: {active_version}, symlink: {symlink_target}, audited: {audit_target_version}, reason: {fresher-provenance|operator-choice|headless-default}}` so reviewers can audit the choice.
 
 **If user provides full path:**
 - Use as provided
@@ -161,7 +182,32 @@ When skipping, log the reason, then set the audit-ref context variables to basel
    **Select:** [C] / [S] / [X]"
 
    **Gate handling:**
-   - **[C]:** Acquire an exclusive lock on `{source_root}/.skf-workspace.lock` (`flock -x` or `fcntl.flock(LOCK_EX)`) before mutating the working tree — matches the concurrency discipline in `src/skf-create-skill/references/source-resolution-protocols.md` and avoids racing with a concurrent create-skill / test-skill run against the same workspace clone. If `flock` is unavailable, emit a warning and proceed. Then `git -C {source_root} checkout {chosen_ref}` (prefer `latest_tag` when present, else `remote_head`). Set `audit_ref = {chosen_ref}`, `audit_ref_source = "checkout-latest"`, `audit_commit = git rev-parse HEAD`. Hold the lock through step-02 re-extraction and release only after the extraction snapshot is complete.
+   - **[C]:** Acquire an exclusive lock on `{source_root}/.skf-workspace.lock` (`flock -x` or `fcntl.flock(LOCK_EX)`) before mutating the working tree — matches the concurrency discipline in `src/skf-create-skill/references/source-resolution-protocols.md` and avoids racing with a concurrent create-skill / test-skill run against the same workspace clone. If `flock` is unavailable, emit a warning and proceed.
+
+     **Dirty-worktree probe (mandatory before checkout).** Run `git -C {source_root} status --porcelain` after acquiring the lock and before the checkout. If the output is non-empty, the working tree has uncommitted changes — `git checkout {chosen_ref}` will abort with `error: Your local changes to the following files would be overwritten by checkout`, halting the workflow mid-step. The most common benign cause is a tooling-generated edit (e.g. the CCC daemon appending a `.cocoindex_code/` line to `.gitignore` after `setup-forge` pointed it at this clone), but the changes could also be the operator's in-progress work. Surface a sub-gate before mutating:
+
+     "**Working tree has uncommitted changes.** `git status --porcelain` returned:
+
+     ```
+     {first 20 lines of porcelain output, ellipsis if more}
+     ```
+
+     A `git checkout` would abort. Options:
+     - **[T] Transient stash** — `git stash push -m 'skf-audit: pre-checkout' --include-untracked`, perform the checkout, and pop the stash on the way out. Recommended when the changes look tooling-generated (e.g. a `.gitignore` line referencing `.cocoindex_code/`, lockfile churn from an indexer).
+     - **[A] Abort** — halt the workflow and let the operator commit, stash, or discard manually before retrying.
+     - **[F] Force checkout** — `git checkout --force` discards uncommitted changes irrecoverably. Only choose this after confirming the changes are safe to lose."
+
+     **Gate handling:**
+     - **[T]:** Run `git -C {source_root} stash push -m 'skf-audit-skill: pre-checkout {chosen_ref}' --include-untracked`. Capture the stash ref from the command output (e.g. `stash@{0}`) and store as `pre_checkout_stash_ref` in workflow context for step-06 Provenance to surface. Proceed to the checkout. (After audit completes, the operator restores the stash with `git stash pop` — step-06 puts the literal command in the report as a workflow-level convention rather than per-author ad-hoc prose.)
+     - **[A]:** HALT the workflow. Do not write a drift report — the audit was never started.
+     - **[F]:** Run `git -C {source_root} checkout --force {chosen_ref}` instead of the plain checkout. Record `pre_checkout_force_discard: true` in workflow context for step-06 to surface as a loud warning. Skip the stash path.
+     - **Other input:** help user, redisplay the sub-gate.
+
+     **Headless default** (when `{headless_mode}`): auto-select **[A] Abort** rather than silently mutating the working tree. Emit a loud log line: `"headless: dirty worktree detected at {source_root}; refusing to checkout {chosen_ref} or stash. Re-run interactively to choose [T]/[A]/[F]."` Stashing under automation could lose work if the operator never returns to pop; force-checkout under automation could destroy uncommitted work outright. Abort is the only safe non-interactive default.
+
+     If `git status --porcelain` is empty, skip the sub-gate and proceed directly to the checkout.
+
+     Then `git -C {source_root} checkout {chosen_ref}` (prefer `latest_tag` when present, else `remote_head`). Set `audit_ref = {chosen_ref}`, `audit_ref_source = "checkout-latest"`, `audit_commit = git rev-parse HEAD`. Hold the lock through step-02 re-extraction and release only after the extraction snapshot is complete.
    - **[S]:** Keep baseline. Set `audit_ref = baseline_ref`, `audit_ref_source = "baseline"`, `audit_commit = baseline_commit`.
    - **[X]:** HALT workflow — do not create drift report.
    - **Other input:** help user, redisplay gate.

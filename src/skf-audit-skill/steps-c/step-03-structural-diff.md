@@ -89,11 +89,12 @@ For each changed export, record:
 
 For each entry in `file_entries`:
 1. Locate the source file at the original `source_file` path
-2. Compute current SHA-256 content hash
-3. Compare against stored `content_hash`
-- CHANGED: hash mismatch → record as script/asset content drift
-- MISSING: source file no longer exists → record as removed
-- NEW: source contains files matching script/asset patterns not in `file_entries` → record as added
+2. Compute current SHA-256 content hash (bare hex — `hashlib.sha256(...).hexdigest()`, `sha256sum`, and `openssl dgst` all produce this form)
+3. **Normalize the stored hash before comparison.** `skf-create-skill` writes `content_hash` with a leading algorithm-name prefix (`"sha256:879bfcc2…"`). A bare-hex hash from `hashlib` will never equal the prefixed value byte-for-byte, so without normalization every `file_entry` flags as CHANGED on every audit. Strip the algorithm prefix before comparing — accept any leading lowercase-alphanumeric prefix terminated by `:` (e.g. `sha256:`, `sha1:`, `md5:`); if no prefix is present, leave the value unchanged. The reader-side normalization is unconditionally safe — applying it to bare-hex values produced by a fixed writer is a no-op.
+4. Compare the normalized stored hash against the freshly computed hash:
+   - CHANGED: hash mismatch → record as script/asset content drift
+   - MISSING: source file no longer exists → record as removed
+   - NEW: source contains files matching script/asset patterns not in `file_entries` → record as added
 
 Append results to the Structural Drift section as "### Script/Asset Drift ({count})".
 
