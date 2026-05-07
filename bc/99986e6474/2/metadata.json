@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "bc99986e6474",
+  "session_id": "ccb17ef9-5f72-4b8e-b4ed-bbcf7e7229d6",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-07T08:27:37.712040373Z",
+  "branch": "fix/skf-audit-skill-step-fixes",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-audit-skill/steps-c/step-03-structural-diff.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "5f3bbe6ad052",
+  "token_usage": {
+    "input_tokens": 203,
+    "cache_creation_tokens": 483301,
+    "cache_read_tokens": 18591244,
+    "output_tokens": 86986,
+    "api_call_count": 119
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-07T08:27:36.993599787Z",
+    "agent_lines": 0,
+    "human_added": 13287,
+    "human_modified": 5,
+    "human_removed": 0,
+    "total_committed": 13287,
+    "agent_percentage": 0
+  }
+}

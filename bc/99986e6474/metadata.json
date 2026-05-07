@@ -3,7 +3,7 @@
   "checkpoint_id": "bc99986e6474",
   "strategy": "manual-commit",
   "branch": "fix/skf-audit-skill-step-fixes",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "src/skf-audit-skill/steps-c/step-03-structural-diff.md"
   ],
@@ -21,13 +21,20 @@
       "context": "/bc/99986e6474/1/context.md",
       "content_hash": "/bc/99986e6474/1/content_hash.txt",
       "prompt": "/bc/99986e6474/1/prompt.txt"
+    },
+    {
+      "metadata": "/bc/99986e6474/2/metadata.json",
+      "transcript": "/bc/99986e6474/2/full.jsonl",
+      "context": "/bc/99986e6474/2/context.md",
+      "content_hash": "/bc/99986e6474/2/content_hash.txt",
+      "prompt": "/bc/99986e6474/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 73,
-    "cache_creation_tokens": 154530,
-    "cache_read_tokens": 4910676,
-    "output_tokens": 40273,
-    "api_call_count": 54
+    "input_tokens": 276,
+    "cache_creation_tokens": 637831,
+    "cache_read_tokens": 23501920,
+    "output_tokens": 127259,
+    "api_call_count": 173
   }
 }
