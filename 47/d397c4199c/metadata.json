@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "47d397c4199c",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-create-skill-tier2-inline-exception",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-create-skill/steps-c/step-07-generate-artifacts.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/47/d397c4199c/0/metadata.json",
+      "transcript": "/47/d397c4199c/0/full.jsonl",
+      "context": "/47/d397c4199c/0/context.md",
+      "content_hash": "/47/d397c4199c/0/content_hash.txt",
+      "prompt": "/47/d397c4199c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 61,
+    "cache_creation_tokens": 162230,
+    "cache_read_tokens": 3501636,
+    "output_tokens": 15672,
+    "api_call_count": 42
+  }
+}

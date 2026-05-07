@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "47d397c4199c",
+  "session_id": "30999a7f-2c92-4056-b760-a8560933b26c",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-07T08:21:58.297622321Z",
+  "branch": "fix/skf-create-skill-tier2-inline-exception",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-create-skill/steps-c/step-07-generate-artifacts.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "34db2c559e0a",
+  "token_usage": {
+    "input_tokens": 61,
+    "cache_creation_tokens": 162230,
+    "cache_read_tokens": 3501636,
+    "output_tokens": 15672,
+    "api_call_count": 42
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-07T08:21:57.623625427Z",
+    "agent_lines": 9,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 9,
+    "agent_percentage": 100
+  }
+}
