@@ -156,6 +156,35 @@ Instead of globbing `{skills_output_folder}/*/context-snippet.md`, resolve snipp
 
 **If no snippets pass the filter:** Generate managed section with zero skills — header only, no skill entries.
 
+#### 4c.1 Detect Orphaned Managed-Section Rows (manifest-absent skills)
+
+A managed-section row becomes orphaned when a `[skill-name v...]` entry already exists in the prior managed section but the skill is not in the exported skill set built in 4b — typically an externally-installed skill that was authored in a different repo and dropped into the user's `{skills_output_folder}` without going through export-skill. Strict ADR-K would silently drop such rows, but the user's managed section is load-bearing — silent removal of an installed skill is a regression an attentive operator caught manually in this run, recording a `deviations[].kind = "preserve_external_skills"` ad-hoc.
+
+Detect this case before §5 assembly so the operator (or `{headless_mode}`) makes an explicit choice:
+
+1. Read the prior managed section from the **first target context file** (`target_context_files[0].context_file`). Parse the `[skill-name v...]` rows between `<!-- SKF:BEGIN -->` and `<!-- SKF:END -->` into `prior_section_rows` — a list of `{skill_name, version}` pairs. If the file does not exist or has no managed section, set `prior_section_rows = []` and skip to §5.
+2. Build `orphan_managed_rows` — every entry in `prior_section_rows` whose `skill_name` is NOT in the exported skill set built in 4b (manifest entries plus current-export targets). For each orphan, capture the original snippet line(s) verbatim from the prior section.
+3. **If `orphan_managed_rows` is non-empty**, present a halt-gate:
+
+   "**Managed-section rows present but absent from manifest:**
+
+   {list each as `- {skill_name} v{version}`}
+
+   These skills appear in the existing managed section in `{first-context-file}` but no entry exists in `.export-manifest.json` and no source draft exists under `{skills_output_folder}/{skill_name}/`. They were likely installed from a different repo and never run through export-skill in this project. Options:
+
+   - **(a) Drop** — remove these rows from the rebuilt managed section (strict ADR-K behavior). The skills' on-disk files are not touched, but they will no longer appear in any context file's managed index.
+   - **(b) Preserve verbatim** — copy each orphan's existing snippet line(s) into the rebuilt managed section unchanged. Records `deviations[].kind = \"preserve_external_skills\"` with the affected skill names and versions in the result contract for audit.
+   - **(c) Cancel** — abort export. Run export-skill against each external skill (or remove the orphan rows from the context file manually) before re-running."
+
+4. **Gate handling:**
+   - **(a) Drop:** Do not include any orphan rows in the rebuilt section. Record `orphans_dropped = [{skill_name, version}, …]` in workflow context for the §6 result contract.
+   - **(b) Preserve verbatim:** Append each captured snippet to the assembled section after the manifest-driven entries, preserving alphabetical order in the merged list. Append `{kind: "preserve_external_skills", skills: [{name, version}, …], rationale: "managed-section row exists but no manifest entry / no source draft"}` to the `deviations[]` array in the §6 result contract. The same orphans are written to **every** target context file in the loop (so all configured IDEs end up with consistent managed sections).
+   - **(c) Cancel:** HALT the workflow. Do not rewrite any context file. Do not update the manifest. Do not produce a result contract.
+
+5. **Headless default** (when `{headless_mode}`): auto-select **(b) Preserve verbatim**, with the same `deviations[]` entry. Emit a loud log line: `"headless: {N} managed-section rows had no manifest entry; preserving verbatim with deviations[].kind = preserve_external_skills. Run export-skill against each to migrate them into the manifest."` Silent drop under automation would regress the user's managed section without consent; cancel under automation would block the whole export over an externally-installed skill the user did not author. Preservation matches the prior-attentive-operator convention captured in `skills/export-skill-result-latest.json` deviations.
+
+This detection runs once per export run (not per target context file) — orphan rows are inherent to the prior state of the first context file and the choice is global.
+
 #### 4d. Rewrite Root Paths for Target Context File
 
 The context-snippet.md files on disk contain root paths for the IDE they were originally exported to. When assembling the managed section for the current target context file, rewrite root paths if they differ from the target's `skill_root`.
