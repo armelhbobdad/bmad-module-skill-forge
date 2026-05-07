@@ -161,7 +161,32 @@ When skipping, log the reason, then set the audit-ref context variables to basel
    **Select:** [C] / [S] / [X]"
 
    **Gate handling:**
-   - **[C]:** Acquire an exclusive lock on `{source_root}/.skf-workspace.lock` (`flock -x` or `fcntl.flock(LOCK_EX)`) before mutating the working tree — matches the concurrency discipline in `src/skf-create-skill/references/source-resolution-protocols.md` and avoids racing with a concurrent create-skill / test-skill run against the same workspace clone. If `flock` is unavailable, emit a warning and proceed. Then `git -C {source_root} checkout {chosen_ref}` (prefer `latest_tag` when present, else `remote_head`). Set `audit_ref = {chosen_ref}`, `audit_ref_source = "checkout-latest"`, `audit_commit = git rev-parse HEAD`. Hold the lock through step-02 re-extraction and release only after the extraction snapshot is complete.
+   - **[C]:** Acquire an exclusive lock on `{source_root}/.skf-workspace.lock` (`flock -x` or `fcntl.flock(LOCK_EX)`) before mutating the working tree — matches the concurrency discipline in `src/skf-create-skill/references/source-resolution-protocols.md` and avoids racing with a concurrent create-skill / test-skill run against the same workspace clone. If `flock` is unavailable, emit a warning and proceed.
+
+     **Dirty-worktree probe (mandatory before checkout).** Run `git -C {source_root} status --porcelain` after acquiring the lock and before the checkout. If the output is non-empty, the working tree has uncommitted changes — `git checkout {chosen_ref}` will abort with `error: Your local changes to the following files would be overwritten by checkout`, halting the workflow mid-step. The most common benign cause is a tooling-generated edit (e.g. the CCC daemon appending a `.cocoindex_code/` line to `.gitignore` after `setup-forge` pointed it at this clone), but the changes could also be the operator's in-progress work. Surface a sub-gate before mutating:
+
+     "**Working tree has uncommitted changes.** `git status --porcelain` returned:
+
+     ```
+     {first 20 lines of porcelain output, ellipsis if more}
+     ```
+
+     A `git checkout` would abort. Options:
+     - **[T] Transient stash** — `git stash push -m 'skf-audit: pre-checkout' --include-untracked`, perform the checkout, and pop the stash on the way out. Recommended when the changes look tooling-generated (e.g. a `.gitignore` line referencing `.cocoindex_code/`, lockfile churn from an indexer).
+     - **[A] Abort** — halt the workflow and let the operator commit, stash, or discard manually before retrying.
+     - **[F] Force checkout** — `git checkout --force` discards uncommitted changes irrecoverably. Only choose this after confirming the changes are safe to lose."
+
+     **Gate handling:**
+     - **[T]:** Run `git -C {source_root} stash push -m 'skf-audit-skill: pre-checkout {chosen_ref}' --include-untracked`. Capture the stash ref from the command output (e.g. `stash@{0}`) and store as `pre_checkout_stash_ref` in workflow context for step-06 Provenance to surface. Proceed to the checkout. (After audit completes, the operator restores the stash with `git stash pop` — step-06 puts the literal command in the report as a workflow-level convention rather than per-author ad-hoc prose.)
+     - **[A]:** HALT the workflow. Do not write a drift report — the audit was never started.
+     - **[F]:** Run `git -C {source_root} checkout --force {chosen_ref}` instead of the plain checkout. Record `pre_checkout_force_discard: true` in workflow context for step-06 to surface as a loud warning. Skip the stash path.
+     - **Other input:** help user, redisplay the sub-gate.
+
+     **Headless default** (when `{headless_mode}`): auto-select **[A] Abort** rather than silently mutating the working tree. Emit a loud log line: `"headless: dirty worktree detected at {source_root}; refusing to checkout {chosen_ref} or stash. Re-run interactively to choose [T]/[A]/[F]."` Stashing under automation could lose work if the operator never returns to pop; force-checkout under automation could destroy uncommitted work outright. Abort is the only safe non-interactive default.
+
+     If `git status --porcelain` is empty, skip the sub-gate and proceed directly to the checkout.
+
+     Then `git -C {source_root} checkout {chosen_ref}` (prefer `latest_tag` when present, else `remote_head`). Set `audit_ref = {chosen_ref}`, `audit_ref_source = "checkout-latest"`, `audit_commit = git rev-parse HEAD`. Hold the lock through step-02 re-extraction and release only after the extraction snapshot is complete.
    - **[S]:** Keep baseline. Set `audit_ref = baseline_ref`, `audit_ref_source = "baseline"`, `audit_commit = baseline_commit`.
    - **[X]:** HALT workflow — do not create drift report.
    - **Other input:** help user, redisplay gate.
