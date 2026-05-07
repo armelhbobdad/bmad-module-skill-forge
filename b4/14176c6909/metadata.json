@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "b414176c6909",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-setup-ccc-exclusions-placeholder",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/shared/scripts/skf-merge-ccc-exclusions.py",
+    "src/skf-setup/steps-c/step-01b-ccc-index.md",
+    "test/test-skf-merge-ccc-exclusions.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b4/14176c6909/0/metadata.json",
+      "transcript": "/b4/14176c6909/0/full.jsonl",
+      "context": "/b4/14176c6909/0/context.md",
+      "content_hash": "/b4/14176c6909/0/content_hash.txt",
+      "prompt": "/b4/14176c6909/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 20,
+    "cache_creation_tokens": 20743,
+    "cache_read_tokens": 2816607,
+    "output_tokens": 9032,
+    "api_call_count": 20
+  }
+}

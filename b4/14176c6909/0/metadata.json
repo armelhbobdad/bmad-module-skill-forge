@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "b414176c6909",
+  "session_id": "30999a7f-2c92-4056-b760-a8560933b26c",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-07T08:25:33.816171524Z",
+  "branch": "fix/skf-setup-ccc-exclusions-placeholder",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-setup/steps-c/step-01b-ccc-index.md",
+    "src/shared/scripts/skf-merge-ccc-exclusions.py",
+    "test/test-skf-merge-ccc-exclusions.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "34db2c559e0a",
+  "checkpoint_transcript_start": 220,
+  "transcript_lines_at_start": 220,
+  "token_usage": {
+    "input_tokens": 20,
+    "cache_creation_tokens": 20743,
+    "cache_read_tokens": 2816607,
+    "output_tokens": 9032,
+    "api_call_count": 20
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-07T08:25:33.351592606Z",
+    "agent_lines": 58,
+    "human_added": 1,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 59,
+    "agent_percentage": 98.30508474576271
+  }
+}
