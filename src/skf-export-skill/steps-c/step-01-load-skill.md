@@ -165,14 +165,22 @@ Load `{sidecar_path}/preferences.yaml` (if exists):
 
 ### 4b. Check Test Report (Quality Gate)
 
-Search for a test report at `{forge_data_folder}/{skill_name}/{active_version}/test-report-{skill_name}.md` (i.e., `{forge_version}/test-report-{skill_name}.md`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/test-report-{skill_name}.md`:
+`skf-test-skill` writes timestamped test-report filenames (`test-report-{skill_name}-{ISO-TIMESTAMP}-{HASH}.md`) — there is no exact-name `test-report-{skill_name}.md` on disk. Locate the most recent report by glob, not by exact filename:
 
-**If test report found:**
+1. Glob `{forge_data_folder}/{skill_name}/{active_version}/test-report-{skill_name}-*.md` (i.e. `{forge_version}/test-report-{skill_name}-*.md`). Sort matches descending by the parsed ISO-timestamp segment in the filename (`YYYYMMDDTHHMMSSZ` between the skill name and the hash — `sort -r` on the filename works because the timestamp is the first variable component). Take the first match.
+2. If the versioned glob returns nothing, fall back to the same glob at the flat path `{forge_data_folder}/{skill_name}/test-report-{skill_name}-*.md`. Pick the newest by parsed timestamp.
+3. If neither glob returns anything, look for the stable companion `skf-test-skill-result-latest.json` in the same two directories (versioned first, then flat). Read the report path from `outputs[]` per the canonical contract documented at `shared/references/output-contract-schema.md` (resolved by skf-test-skill step-06 §4c) and load that file.
+4. If all three lookups fail, the skill has no test report.
+
+**If a test report is found:**
+
 - Read frontmatter `testResult` and `score`
 - If `testResult: fail`: warn: "**Warning:** This skill failed its last test (score: {score}%). Consider running `@Ferris TS` and addressing gaps before export."
 - If `testResult: pass`: note: "Last test: **PASS** ({score}%)"
+- Always surface the actual file picked in the message (e.g. `test-report-my-base-ui-20260507T050917Z-487606-9b2f.md`) — not the no-longer-existent `test-report-{skill_name}.md` — so an operator can navigate to the report from the log.
 
-**If no test report found:**
+**If no test report found** (all three lookups returned nothing):
+
 - Warn: "**Note:** No test report found for this skill. Consider running `@Ferris TS` before export to verify completeness."
 
 Continue to step 5 regardless — this is advisory, not blocking.
