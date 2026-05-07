@@ -106,10 +106,18 @@ The helper returns non-zero (exit 2) if `{skill_group}/active` already exists as
 ### 5. Verify Write Completion
 
 After all files are written, verify:
-- All 4 deliverable artifact types exist (SKILL.md, context-snippet.md, metadata.json, at least one file in references/), all 3 workspace artifacts exist (provenance-map.json, evidence-report.md, extraction-rules.yaml), plus scripts/ and assets/ files when inventories are non-empty
+- All 4 deliverable artifact types exist (SKILL.md, context-snippet.md, metadata.json, **and** either at least one file in `references/` **or** `references/` is empty AND Tier-2 content is inline in SKILL.md — see "Empty `references/` exception" below), all 3 workspace artifacts exist (provenance-map.json, evidence-report.md, extraction-rules.yaml), plus scripts/ and assets/ files when inventories are non-empty
 - The `active` symlink at `{skill_group}/active` resolves to `{version}`
 - Store `ref_count` = count of files written to `references/` for use in step-08 report
 - List each file with its path and size
+
+**Empty `references/` exception (Tier-2 inline):** `ref_count == 0` is a valid completion state when step-06 kept Tier-2 content inline in SKILL.md — e.g., the body was already under the size limit, or `skill-check` was unavailable and the manual fallback (step-06 §3) skipped the split. In that case, append a single line to `{forge_version}/evidence-report.md` recording the inline state so downstream tooling and audits can distinguish "inline by design" from "split-body skipped due to error":
+
+```
+ref_count: 0  # Tier-2 kept inline in SKILL.md (no split performed in step-06)
+```
+
+When `ref_count > 0` is expected (because step-06 ran a split) but no files were written, halt with: "Split-body produced zero reference files. Investigate step-06 output before retrying — empty `references/` after a split is never a valid state."
 
 **If any write failed:**
 Halt with: "Artifact generation failed: could not write `{file_path}`. Check permissions and disk space."
