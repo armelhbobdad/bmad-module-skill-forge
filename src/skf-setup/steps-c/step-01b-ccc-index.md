@@ -60,13 +60,20 @@ Check the `ccc_index` section:
 
 SKF infrastructure and output directories must be excluded from the CCC index — they contain workflow instructions, build artifacts, and generated skills that pollute semantic search results with zero extraction value.
 
-Run the merge helper, forwarding the resolved config values from the workflow activation context. Invoke via `uv run` so PEP 723 inline metadata resolves the script's PyYAML dependency automatically (per `docs/getting-started.md`'s prereq list — uv exists for this exact purpose). Bare `python3` will fail on a fresh Python with `ModuleNotFoundError: No module named 'yaml'`.
+**Pre-process the config values before invocation.** `skills_output_folder` and `forge_data_folder` come from `{project-root}/_bmad/skf/config.yaml` as template strings literally containing `{project-root}` (e.g. `'{project-root}/skills'`, `'{project-root}/forge-data'`). The merge helper interpolates each value into a `**/{value}` glob, so passing the raw template produces the malformed pattern `**/{project-root}/skills`. Before invoking the helper:
+
+1. Substitute `{project-root}` in each value with the resolved absolute project root.
+2. Reduce the substituted value to its last path segment (basename) — `**/skills`, `**/forge-data` are the patterns the script is designed to emit. Sub-paths under `{project-root}` (e.g. `_bmad-output/forge-data`) keep the segments below `{project-root}` (`_bmad-output/forge-data`), not the full absolute path.
+
+Concretely: given `skills_output_folder: '{project-root}/skills'`, pass `skills`. Given `forge_data_folder: '{project-root}/_bmad-output/forge-data'`, pass `_bmad-output/forge-data`. The script's PR #248 validator rejects unresolved placeholders (`{`, `}`) and absolute paths (`/abs/...`) as a backstop, but the step is responsible for delivering values the script can interpolate cleanly — surfacing a warning and silently dropping the pattern is worse than getting the pre-processing right here.
+
+Run the merge helper, forwarding the **resolved** config values. Invoke via `uv run` so PEP 723 inline metadata resolves the script's PyYAML dependency automatically (per `docs/getting-started.md`'s prereq list — uv exists for this exact purpose). Bare `python3` will fail on a fresh Python with `ModuleNotFoundError: No module named 'yaml'`.
 
 ```bash
 uv run {mergeCccExclusionsHelper} \
     --project-root "{project-root}" \
-    --skills-output-folder "{skills_output_folder}" \
-    --forge-data-folder "{forge_data_folder}"
+    --skills-output-folder "{resolved_skills_basename}" \
+    --forge-data-folder "{resolved_forge_data_path}"
 ```
 
 The script (see `src/shared/scripts/skf-merge-ccc-exclusions.py` docstring for the full schema) builds the SKF exclusion list (4 always-include hardcoded patterns + 2 conditional from validated config), applies the PR #248 validation rules to reject empty / absolute / glob-meta config values with actionable warnings, and performs an idempotent set-union merge into `{project-root}/.cocoindex_code/settings.yml`. User customizations are preserved. When the file does not exist yet (first-time setup before `ccc init`) the script creates it; when nothing new needs adding the script skips the write entirely (mtime preserved).
