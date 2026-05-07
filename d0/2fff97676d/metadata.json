@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d02fff97676d",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-audit-skill-step-fixes",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-audit-skill/steps-c/step-01-init.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d0/2fff97676d/0/metadata.json",
+      "transcript": "/d0/2fff97676d/0/full.jsonl",
+      "context": "/d0/2fff97676d/0/context.md",
+      "content_hash": "/d0/2fff97676d/0/content_hash.txt",
+      "prompt": "/d0/2fff97676d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 102,
+    "cache_creation_tokens": 204226,
+    "cache_read_tokens": 9754893,
+    "output_tokens": 33593,
+    "api_call_count": 83
+  }
+}

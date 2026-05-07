@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d02fff97676d",
+  "session_id": "30999a7f-2c92-4056-b760-a8560933b26c",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-07T08:30:46.232284559Z",
+  "branch": "fix/skf-audit-skill-step-fixes",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-audit-skill/steps-c/step-01-init.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "34db2c559e0a",
+  "token_usage": {
+    "input_tokens": 102,
+    "cache_creation_tokens": 204226,
+    "cache_read_tokens": 9754893,
+    "output_tokens": 33593,
+    "api_call_count": 83
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-07T08:30:45.573841072Z",
+    "agent_lines": 0,
+    "human_added": 21,
+    "human_modified": 2,
+    "human_removed": 0,
+    "total_committed": 21,
+    "agent_percentage": 0
+  }
+}
