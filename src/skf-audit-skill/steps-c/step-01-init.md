@@ -29,10 +29,31 @@ Which skill would you like to audit? Please provide the skill name or path."
 
 **If user provides skill name (not full path) — version-aware path resolution (see `knowledge/version-paths.md`):**
 1. Read `{skills_output_folder}/.export-manifest.json` and look up the skill name in `exports` to get `active_version`
-2. If found: resolve to `{skill_package}` = `{skills_output_folder}/{skill_name}/{active_version}/{skill_name}/`
+2. If found: tentatively resolve `{skill_package}` = `{skills_output_folder}/{skill_name}/{active_version}/{skill_name}/`. **Manifest-vs-symlink drift gate:** before committing, also read the `active` symlink at `{skills_output_folder}/{skill_name}/active`. When the symlink target disagrees with `active_version`, the manifest lags behind on-disk state — typical sequence is `update-skill` flipped the symlink but `export-skill` has not yet rewritten the manifest. Auditing the older manifest version would re-audit a skill the user no longer cares about (or has already audited). Decide which version to audit:
+   - Read `forge_data_folder/{skill_name}/{active_version}/provenance-map.json` (manifest version) and `forge_data_folder/{skill_name}/{symlink_target}/provenance-map.json` (symlink target). Compare their `generated_at` timestamps (or `mtime` if the field is absent).
+   - If both versions exist and the symlink target's provenance is **fresher** than the manifest's `last_exported`, present a gate:
+
+     "**Manifest lags behind active symlink.**
+
+     | | Manifest | Symlink |
+     |---|---|---|
+     | Version | `{active_version}` | `{symlink_target}` |
+     | Exported / forged | `{manifest.last_exported}` | `{symlink_provenance_generated_at}` |
+
+     The manifest's `active_version` was set by an earlier export-skill run; the symlink was flipped later (typically by update-skill). Auditing the manifest version will re-audit a skill the user no longer treats as active. Options:
+
+     - **[N] Audit symlink target ({symlink_target})** — recommended. The drift report describes the version the skill currently resolves to.
+     - **[M] Audit manifest version ({active_version})** — only useful when investigating the older version specifically.
+     - **[X] Abort** — halt without producing a report. Run `[EX] Export Skill` to reconcile the manifest before re-running audit-skill."
+
+     Default is **[N]**. Headless mode auto-selects **[N]** with a loud log line: `"headless: manifest active_version ({active_version}) is older than symlink target ({symlink_target}); auditing symlink target. Run export-skill to reconcile."` This mirrors §5b's upstream-drift handling — when the manifest and the working tree disagree, the working tree is the more honest signal under automation.
+
+   - When the symlink target's provenance is **older** than (or equal to) the manifest's `last_exported`, the symlink predates the export — this is the normal post-export shape, no gate needed. Resolve to the manifest's `active_version`.
+   - When only one of the two versions has a provenance map, resolve to the version that has one (the other is inert — auditing it would degrade to text-diff). Log the choice.
+
 3. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill_name}/active` — resolve to `{skill_group}/active/{skill_name}/`
 4. If neither: fall back to flat path `{skills_output_folder}/{skill_name}/`. If SKILL.md exists at the flat path, auto-migrate per `knowledge/version-paths.md` migration rules
-5. Store the resolved path as `{resolved_skill_package}`
+5. Store the resolved path as `{resolved_skill_package}`. Also store `audit_target_version` = the version that was actually selected (manifest, symlink, or flat) for step-06 Provenance to surface. When the gate above fired, also record the rejected version under `manifest_symlink_drift = {manifest: {active_version}, symlink: {symlink_target}, audited: {audit_target_version}, reason: {fresher-provenance|operator-choice|headless-default}}` so reviewers can audit the choice.
 
 **If user provides full path:**
 - Use as provided
