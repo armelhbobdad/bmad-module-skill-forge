@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "95a10c179a96",
+  "session_id": "77cec88c-2dbf-4083-aaff-c91f09616c0d",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-15T20:55:41.443630982Z",
+  "branch": "feat/skf-feature-scripts",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "src/shared/scripts/skf-pair-intersect.py",
+    "src/shared/scripts/skf-scan-manifests.py",
+    "src/shared/scripts/skf-scan-skill-md-structure.py",
+    "src/skf-analyze-source/references/scan-project.md",
+    "src/skf-create-stack-skill/references/detect-integrations.md",
+    "src/skf-test-skill/references/coverage-check.md",
+    "src/skf-test-skill/references/score.md",
+    "src/skf-test-skill/scripts/compute-score.py",
+    "test/test-skf-compare-file-hashes.py",
+    "test/test-skf-pair-intersect.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "4b22f927ebd8",
+  "token_usage": {
+    "input_tokens": 236,
+    "cache_creation_tokens": 393599,
+    "cache_read_tokens": 32628200,
+    "output_tokens": 163792,
+    "api_call_count": 136
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-15T20:55:40.141143102Z",
+    "agent_lines": 2144,
+    "human_added": 4485,
+    "human_modified": 77,
+    "human_removed": 0,
+    "total_committed": 6704,
+    "agent_percentage": 31.980906921241047
+  }
+}

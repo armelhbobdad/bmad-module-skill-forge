@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "95a10c179a96",
+  "strategy": "manual-commit",
+  "branch": "feat/skf-feature-scripts",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "src/shared/scripts/skf-pair-intersect.py",
+    "src/shared/scripts/skf-scan-manifests.py",
+    "src/shared/scripts/skf-scan-skill-md-structure.py",
+    "src/skf-analyze-source/references/scan-project.md",
+    "src/skf-create-stack-skill/references/detect-integrations.md",
+    "src/skf-test-skill/references/coverage-check.md",
+    "src/skf-test-skill/references/score.md",
+    "src/skf-test-skill/scripts/compute-score.py",
+    "test/test-skf-compare-file-hashes.py",
+    "test/test-skf-pair-intersect.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/95/a10c179a96/0/metadata.json",
+      "transcript": "/95/a10c179a96/0/full.jsonl",
+      "context": "/95/a10c179a96/0/context.md",
+      "content_hash": "/95/a10c179a96/0/content_hash.txt",
+      "prompt": "/95/a10c179a96/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 236,
+    "cache_creation_tokens": 393599,
+    "cache_read_tokens": 32628200,
+    "output_tokens": 163792,
+    "api_call_count": 136
+  }
+}
