@@ -26,7 +26,7 @@ To present the complete skill brief in human-readable format, highlighting all f
 
 ### 1. Assemble Complete Brief
 
-Use the values already accepted in steps 01-03 directly — do not re-load `{briefSchemaFile}` here. The 18 fields below are all in conversation; the schema is only consulted in §4 if an inline adjustment needs a specific field's validation rule cited.
+Use the values already accepted in steps 01-03 directly — do not re-load `{briefSchemaPath}` here. The 18 fields below are all in conversation; the schema is only consulted in §4 if an inline adjustment needs a specific field's validation rule cited.
 
 Compile all gathered data from steps 01-03 into the complete brief:
 
@@ -140,7 +140,7 @@ You can:
 ### 4. Handle Inline Adjustments
 
 If the user requests changes to specific fields (name, description, version, etc.):
-- If the adjustment requires explaining a field's validation rule or allowed values, load `{briefSchemaFile}` now (otherwise skip the read — the common path does not need it)
+- If the adjustment requires explaining a field's validation rule or allowed values, load `{briefSchemaPath}` now (otherwise skip the read — the common path does not need it)
 - Make the adjustment
 - Re-present the updated brief
 - Return to the menu
