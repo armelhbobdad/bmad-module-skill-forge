@@ -1,3 +1,7 @@
+---
+type: static-reference
+---
+
 # Merge Conflict Rules
 
 ## Change Categories

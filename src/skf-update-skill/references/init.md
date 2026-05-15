@@ -177,7 +177,7 @@ Load {manualSectionRulesFile} to understand [MANUAL] detection patterns.
 
 "**Source path from provenance map is invalid:** `{source_root}`
 
-Please provide the current source code path:
+Provide the current source code path:
 **Path:** {user provides path}"
 
 ### 7. Present Baseline Summary

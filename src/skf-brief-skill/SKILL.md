@@ -87,6 +87,7 @@ These rules apply to every step in this workflow:
 | **Gates** | step 1: Input Gate [use args] | step 3: Confirm Gate [C] | step 4: Confirm Gate [C] |
 | **Outputs** | `skill-brief.yaml` at `{forge_data_folder}/{skill-name}/skill-brief.yaml`; final `SKF_BRIEF_RESULT_JSON` line on stdout when `{headless_mode}` is true |
 | **Headless** | All gates auto-resolve with heuristic-driven or default action when `{headless_mode}` is true; pre-supplied inputs consumed at the gates that would otherwise prompt; absent `source_authority` and `scope_type` are resolved by signal-driven detection (see `references/headless-args.md`); existing briefs are preserved unless `--force` was supplied (HALT with `overwrite-cancelled` otherwise) |
+| **Transient-failure retry** | This workflow does **not** auto-retry network or subprocess failures. A failed `gh` fetch (analyze-target.md §1, portfolio-similarity-check.md), QMD probe, or extraction script is logged and surfaced in the final result envelope as a warning, but the workflow continues with whatever signal it has. Headless pipelines that want retry semantics should wrap the invocation at their orchestrator level (e.g. CI re-runner on non-zero exit). Rationale: brief-skill is read-mostly with one terminal write (the YAML at step 5); a partial-signal retry has more failure modes than just re-running the whole workflow, which is cheap. |
 | **Exit codes** | See "Exit Codes" below |
 
 ## Exit Codes
