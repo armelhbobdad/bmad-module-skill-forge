@@ -13,6 +13,8 @@ atomicWriteProbeOrder:
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 3: Extract
 
 ## STEP GOAL:

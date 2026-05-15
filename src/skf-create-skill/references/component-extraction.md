@@ -3,6 +3,8 @@ returnToStep: 'extract.md'
 extractionPatternsData: 'references/extraction-patterns.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 3d: Component Library Extraction
 
 ## STEP GOAL:

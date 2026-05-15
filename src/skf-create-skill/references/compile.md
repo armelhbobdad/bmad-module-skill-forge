@@ -4,6 +4,8 @@ skillSectionsData: 'assets/skill-sections.md'
 assemblyRulesData: 'assets/compile-assembly-rules.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 5: Compile
 
 ## STEP GOAL:

@@ -3,6 +3,8 @@ nextStepFile: 'detect-changes.md'
 manualSectionRulesFile: 'references/manual-section-rules.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 1: Initialize Update
 
 ## STEP GOAL:

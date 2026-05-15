@@ -16,6 +16,7 @@ Surgically updates existing skills when source code changes, preserving all [MAN
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
+- **Cross-skill data coupling:** stages in this workflow load four shared assets from `skf-create-skill` to keep extraction semantics aligned between create and update — `re-extract.md` pulls `extraction-patterns.md`, `extraction-patterns-tracing.md`, and `tier-degradation-rules.md` from `skf-create-skill/references/`; `remote-source-resolution.md` references `source-resolution-protocols.md`; `write.md` reads `skill-sections.md` from `skf-create-skill/assets/`. Update-skill assumes these files are present at install time and that their semantics are stable across the two skills' versions.
 
 ## Role
 

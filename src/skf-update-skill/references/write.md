@@ -2,6 +2,8 @@
 nextStepFile: 'report.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 6: Write Updated Files
 
 ## STEP GOAL:

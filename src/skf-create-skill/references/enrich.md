@@ -2,6 +2,8 @@
 nextStepFile: 'compile.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 4: Enrich
 
 ## STEP GOAL:

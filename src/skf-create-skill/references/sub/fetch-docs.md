@@ -8,6 +8,8 @@ atomicWriteProbeOrder:
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 3c: Fetch Remote Documentation
 
 ## STEP GOAL:

@@ -4,6 +4,8 @@ forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 preferencesFile: '{sidecar_path}/preferences.yaml'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 1: Load Brief
 
 ## STEP GOAL:

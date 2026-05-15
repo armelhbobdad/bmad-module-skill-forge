@@ -9,6 +9,8 @@ forgeTierRwScript: '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 5: Write Brief
 
 ## STEP GOAL:
