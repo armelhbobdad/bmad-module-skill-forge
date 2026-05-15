@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "9d14926e86e9",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-feature-elevation-tightening",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/skf-analyze-source/references/map-and-detect.md",
+    "src/skf-analyze-source/references/scan-project.md",
+    "src/skf-create-stack-skill/SKILL.md",
+    "src/skf-create-stack-skill/assets/stack-skill-template.md",
+    "src/skf-create-stack-skill/references/compile-stack.md",
+    "src/skf-quick-skill/SKILL.md",
+    "src/skf-quick-skill/references/ecosystem-check.md",
+    "src/skf-test-skill/references/coherence-check.md",
+    "src/skf-test-skill/references/coverage-check.md",
+    "src/skf-test-skill/references/detect-mode.md",
+    "src/skf-test-skill/references/external-validators.md",
+    "src/skf-test-skill/references/init.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9d/14926e86e9/0/metadata.json",
+      "transcript": "/9d/14926e86e9/0/full.jsonl",
+      "context": "/9d/14926e86e9/0/context.md",
+      "content_hash": "/9d/14926e86e9/0/content_hash.txt",
+      "prompt": "/9d/14926e86e9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 151,
+    "cache_creation_tokens": 318018,
+    "cache_read_tokens": 17496474,
+    "output_tokens": 120839,
+    "api_call_count": 91
+  }
+}
