@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "44cb3556719c",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-stages-rename",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-setup/SKILL.md",
+    "src/skf-setup/customize.toml",
+    "src/skf-setup/references/auto-index.md",
+    "src/skf-setup/references/ccc-index.md",
+    "src/skf-setup/references/detect-and-tier.md",
+    "src/skf-setup/references/report.md",
+    "src/skf-setup/references/write-config.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/44/cb3556719c/0/metadata.json",
+      "transcript": "/44/cb3556719c/0/full.jsonl",
+      "context": "/44/cb3556719c/0/context.md",
+      "content_hash": "/44/cb3556719c/0/content_hash.txt",
+      "prompt": "/44/cb3556719c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1195,
+    "cache_creation_tokens": 568912,
+    "cache_read_tokens": 73280810,
+    "output_tokens": 233389,
+    "api_call_count": 278
+  }
+}
