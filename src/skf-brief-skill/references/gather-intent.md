@@ -178,7 +178,7 @@ If the command produces any output, skip this rail silently — repeat users don
 
 "**Want to see a few example descriptions first?** [Y/N] (Helpful if this is your first time — I'll show the voices we use so you have an anchor for what 'good intent' produces.)"
 
-On `[Y]`: load `{descriptionVoiceExamplesFile}` and present the five examples verbatim with a one-line preface (`"Each example shows a different voice — yours doesn't have to match any specific one."`). On `[N]` or empty: proceed silently.
+On `[Y]`: load `{descriptionVoiceExamplesPath}` and present the five examples verbatim with a one-line preface (`"Each example shows a different voice — yours doesn't have to match any specific one."`). On `[N]` or empty: proceed silently.
 
 "**What's your intent for this skill?**
 
@@ -266,7 +266,7 @@ The schema's `description` field is 1-3 sentences and surfaces in skill registri
 
 Compose a candidate 1-3 sentence description from the gathered material. **Write like a human library maintainer would** — what does an agent get from this skill, and when should it route here? Two facts must come through (what the skill is, when to use it); everything else is voice. Resist filling in the same skeleton every time.
 
-Load `{descriptionVoiceExamplesFile}` for the five voice examples (range of acceptable leads, structures, and trigger phrasings) and the "do not template-stamp" guidance, then compose in that spirit. The asset documents what "in that spirit" means; the gathered material to draw on is the target repo, the user's intent, the version if set, and any scope hints.
+Load `{descriptionVoiceExamplesPath}` for the five voice examples (range of acceptable leads, structures, and trigger phrasings) and the "do not template-stamp" guidance, then compose in that spirit. The asset documents what "in that spirit" means; the gathered material to draw on is the target repo, the user's intent, the version if set, and any scope hints.
 
 Present:
 
@@ -286,9 +286,9 @@ On `tighten` or a fresh edit: re-prompt for the description. On `accept` or any 
 
 Store the accepted text as the brief's `description` field. The same field is re-presented in step 4 §3 for a final review pass — refinements there flow back to this value.
 
-**Headless:** if the `intent` argument was supplied, load `{descriptionVoiceExamplesFile}` and run the same synthesis against it (in `{document_output_language}`), then store the result. If `intent` was not supplied, fall back in priority order:
+**Headless:** if the `intent` argument was supplied, load `{descriptionVoiceExamplesPath}` and run the same synthesis against it (in `{document_output_language}`), then store the result. If `intent` was not supplied, fall back in priority order:
 
-1. **GitHub repo description** — when `target_repo` is a GitHub URL, fetch `gh api repos/{owner}/{repo} --jq .description` (5-second timeout). If a non-empty description comes back, load `{descriptionVoiceExamplesFile}` and synthesize using the GitHub description as the seed in place of `intent`. Write the synthesized description in `{document_output_language}` regardless of the seed's language (the seed may be in any language; the output's language is dictated by the workflow's document-output configuration). Log `"info: description seeded from GitHub repo description"`. (The full `gh api repos` response is fetched again in step 2 §1; this lightweight `--jq .description` call only retrieves the one field.)
+1. **GitHub repo description** — when `target_repo` is a GitHub URL, fetch `gh api repos/{owner}/{repo} --jq .description` (5-second timeout). If a non-empty description comes back, load `{descriptionVoiceExamplesPath}` and synthesize using the GitHub description as the seed in place of `intent`. Write the synthesized description in `{document_output_language}` regardless of the seed's language (the seed may be in any language; the output's language is dictated by the workflow's document-output configuration). Log `"info: description seeded from GitHub repo description"`. (The full `gh api repos` response is fetched again in step 2 §1; this lightweight `--jq .description` call only retrieves the one field.)
 2. **Generic stub** — when no GitHub description is available (local-path target, GitHub repo with empty description, or `gh api` fails): derive from `target_repo` + `skill_name` (`"Use the {skill_name} skill to work with code or content from {target_repo}."`) — the generic fallback does not need the asset — and log `"warn: description synthesized without intent or repo description — narrow registry text."`
 
 ### 8. Present MENU OPTIONS

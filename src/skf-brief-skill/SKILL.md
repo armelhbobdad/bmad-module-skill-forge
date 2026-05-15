@@ -43,7 +43,30 @@ These rules apply to every step in this workflow:
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 
-3. Load, read the full file, and execute `references/gather-intent.md`.
+3. **Resolve workflow customization.** Run:
+
+   ```bash
+   python3 {project-root}/_bmad/scripts/resolve_customization.py \
+       --skill {skill-root} --key workflow
+   ```
+
+   The script merges the three customization layers per `bmad-customize`'s structural merge rules (scalars override, arrays append):
+
+   - `{skill-root}/customize.toml` — bundled defaults
+   - `_bmad/custom/<skill-name>.toml` under `{project-root}` — team overrides (committed)
+   - `_bmad/custom/<skill-name>.user.toml` under `{project-root}` — personal overrides (gitignored)
+
+   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each path scalar.
+
+   Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each of the three scalars, if the merged value is empty or absent, use the bundled default:
+
+   - `{descriptionVoiceExamplesPath}` ← `workflow.description_voice_examples_path` if non-empty, else `assets/description-voice-examples.md`
+   - `{scopeTemplatesPath}` ← `workflow.scope_templates_path` if non-empty, else `assets/scope-templates.md`
+   - `{briefSchemaPath}` ← `workflow.brief_schema_path` if non-empty, else `assets/skill-brief-schema.md`
+
+   Stash all three as workflow-context variables. Stage files reference `{descriptionVoiceExamplesPath}` / `{scopeTemplatesPath}` / `{briefSchemaPath}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies without forking the skill.
+
+4. Load, read the full file, and execute `references/gather-intent.md`.
 
 ## Stages
 

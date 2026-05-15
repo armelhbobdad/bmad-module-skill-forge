@@ -32,7 +32,7 @@ To generate the complete skill-brief.yaml from the approved brief data and write
 
 ### 1. Reference the Schema (LLM context only)
 
-`{briefSchemaFile}` and `{versionResolutionFile}` document the brief contract for human readers. The deterministic enforcement of that contract lives in `{writeSkillBriefScript}` and its JSON Schema artifact at `src/shared/scripts/schemas/skill-brief.v1.json`. Load `{briefSchemaFile}` only if you need to explain a specific field to the user during inline adjustments — otherwise skip the read; the script is the source of truth.
+`{briefSchemaPath}` and `{versionResolutionFile}` document the brief contract for human readers. The deterministic enforcement of that contract lives in `{writeSkillBriefScript}` and its JSON Schema artifact at `src/shared/scripts/schemas/skill-brief.v1.json`. Load `{briefSchemaPath}` only if you need to explain a specific field to the user during inline adjustments — otherwise skip the read; the script is the source of truth.
 
 ### 2. Resolve Output Path
 

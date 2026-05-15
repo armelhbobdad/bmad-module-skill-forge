@@ -80,7 +80,7 @@ HEAD-check the URLs in parallel — issue all N `curl -sI --max-time 5 {url}` ca
 
 ### 2c. Offer Scope Templates
 
-Load `{scopeTemplatesFile}` for the scope type options ([F], [M], [P], [C], [R]) and their descriptions.
+Load `{scopeTemplatesPath}` for the scope type options ([F], [M], [P], [C], [R]) and their descriptions.
 
 **Recommend a scope type — don't present the five options as equal weight.** SKILL.md states this workflow "steers toward the smaller, sharper version when scope is unclear" — surface that opinion at decision time. Use the analysis from step 2 and the user's intent from step 1 to pick the best-fit recommendation, then present the menu with that option marked as the suggested default.
 
@@ -112,7 +112,7 @@ Present:
 
 How broadly should this skill cover the library?
 
-{full menu from `{scopeTemplatesFile}` with the recommended letter marked, e.g. '[F] Full Library', '[M] Specific Modules', '[P] Public API Only ← recommended', '[C] Component Library', '[R] Reference App'}
+{full menu from `{scopeTemplatesPath}` with the recommended letter marked, e.g. '[F] Full Library', '[M] Specific Modules', '[P] Public API Only ← recommended', '[C] Component Library', '[R] Reference App'}
 
 Press Enter to accept the recommendation, or pick a different letter."
 
@@ -120,7 +120,7 @@ Wait for user selection. Empty input or just Enter accepts the recommendation; a
 
 ### 3. Define Boundaries Based on Selection
 
-Using the boundary definitions from `{scopeTemplatesFile}`, present the appropriate flow for the user's selected scope type ([F], [M], [P], [C], or [R]). Follow each type's prompts and wait for user input at each phase before proceeding.
+Using the boundary definitions from `{scopeTemplatesPath}`, present the appropriate flow for the user's selected scope type ([F], [M], [P], [C], or [R]). Follow each type's prompts and wait for user input at each phase before proceeding.
 
 ### 4. Handle Language Override
 
