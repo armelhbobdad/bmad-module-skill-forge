@@ -15,7 +15,7 @@ Chain to the shared workflow self-improvement health check at `{nextStepFile}`. 
 
 ## Rules
 
-- No user-facing reports, file writes, or result contracts in this step — those belong in step-04
+- No user-facing reports, file writes, or result contracts in this step — those belong in step 4
 - Delegate directly to `{nextStepFile}` with no additional commentary
 - Do not attempt any other action between loading this step and executing `{nextStepFile}`
 

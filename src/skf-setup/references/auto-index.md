@@ -1,5 +1,5 @@
 ---
-nextStepFile: './step-04-report.md'
+nextStepFile: 'report.md'
 # Resolve `{qmdClassifyHelper}` and `{forgeTierRwHelper}` by probing the
 # corresponding `*ProbeOrder` arrays (installed SKF module path first, src/
 # dev-checkout fallback); first existing path wins. HALT if neither resolves
@@ -35,7 +35,7 @@ For Quick and Forge tiers, skip silently and proceed (QMD is not available; ccc 
 
 ### 1. Check Tier
 
-Read `{calculated_tier}` and `{ccc}` from context (set by step-01).
+Read `{calculated_tier}` and `{ccc}` from context (set by step 1).
 
 **If `{calculated_tier}` is Quick or Forge AND `{ccc}` is false:** No registry hygiene needed. Set `{hygiene_result: "skipped", hygiene_healthy: 0, hygiene_orphaned_removed: 0, hygiene_orphaned_kept: 0, hygiene_stale_cleaned: 0, ccc_registry_stale_cleaned: 0, ccc_registry_stale_removed_paths: []}`. Proceed directly to section 5 (Auto-Proceed) — no output, no messaging.
 
@@ -47,31 +47,23 @@ Read `{calculated_tier}` and `{ccc}` from context (set by step-01).
 
 ### 2. Classify Live QMD Collections vs Registry
 
-List live QMD collections:
-
-```bash
-qmd collection list
-```
-
-Parse the output into a comma-separated string of collection names and store as `{live_collections}` (raw — including any foreign collections owned by other tools sharing the QMD daemon; the classifier filters them out).
-
-**Error handling:** If `qmd collection list` fails (daemon down, daemon errors), set `{hygiene_result: "qmd_unavailable", hygiene_healthy: 0, hygiene_orphaned_removed: 0, hygiene_orphaned_kept: 0, hygiene_stale_cleaned: 0}`, log the error, and skip directly to section 4 (which will still run the ccc-prune branch if `{ccc}` is true).
-
-Run the classifier. Invoke via `uv run` so the script's PEP 723 PyYAML dependency resolves automatically (`docs/getting-started.md` documents uv as the runtime prereq for exactly this); bare `python3` would `ModuleNotFoundError` on a fresh interpreter.
+Run the classifier — it owns the `qmd collection list` invocation and stdout parsing. Invoke via `uv run`:
 
 ```bash
 uv run {qmdClassifyHelper} \
-    --live-names "{live_collections}" \
     --registry-from-yaml "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"
 ```
 
-The script (see `src/shared/scripts/skf-qmd-classify-collections.py` docstring for the full schema) applies the forge-namespace suffix filter (`-brief | -temporal | -docs | -extraction`) to `{live_collections}` before classifying — collections owned by unrelated tools are silently excluded from the orphan / healthy / stale sets and counted under `foreign_filtered_count` for telemetry only. This is the PR #244 incident protection: collections like Hindsight memory banks that happen to live in the same QMD daemon never enter any classification that could lead to data loss.
+The script (see `src/shared/scripts/skf-qmd-classify-collections.py` docstring for the full schema) invokes `qmd collection list` itself, applies the forge-namespace suffix filter (`-brief | -temporal | -docs | -extraction`) before classifying, and exits non-zero with an error message on stderr if the daemon is down. Collections owned by unrelated tools are silently excluded from the orphan / healthy / stale sets and counted under `foreign_filtered_count` for telemetry only. This is the PR #244 incident protection: foreign collections never enter any classification that could lead to data loss.
+
+**Error handling:** If the script exits non-zero, set `{hygiene_result: "qmd_unavailable", hygiene_healthy: 0, hygiene_orphaned_removed: 0, hygiene_orphaned_kept: 0, hygiene_stale_cleaned: 0}` and skip directly to section 4 (which will still run the ccc-prune branch if `{ccc}` is true).
 
 **Parse the JSON output and set context flags:**
 
 - `{hygiene_healthy}` ← `len(healthy)`
 - `{orphaned_collections}` ← `orphaned` (the list — used in section 3)
 - `{stale_collections}` ← `stale` (the list — used in section 4)
+- `{live_collections}` ← comma-join of `live_names` (used in §4's clean-stale invocation; the script owns the raw set, the prompt only forwards it)
 - `{foreign_filtered_count}` ← `foreign_filtered_count`
 
 Set `{hygiene_result: "completed"}`.
@@ -80,7 +72,7 @@ Set `{hygiene_result: "completed"}`.
 
 **If `{orphaned_collections}` is empty:** Set `{hygiene_orphaned_removed: 0, hygiene_orphaned_kept: 0}` and skip to section 4.
 
-**Headless gate.** If `{headless_mode}` is true, auto-resolve to the default action **Keep** without prompting: log `"Auto-decision (headless): kept {len(orphaned_collections)} orphaned forge collection(s)"`, set `{hygiene_orphaned_removed: 0, hygiene_orphaned_kept: len(orphaned_collections)}`, and skip to section 4. This matches the workflow contract (`Headless: All gates auto-resolve with default action when {headless_mode} is true`) declared in the Invocation Contract.
+**Non-interactive resolution.** If `{orphan_action}` is non-null, resolve the gate without prompting using that value: log `"Auto-decision (--orphan-action={value}): kept|removed {len(orphaned_collections)} orphaned forge collection(s)"`. If `{orphan_action}` is `"keep"`, set `{hygiene_orphaned_removed: 0, hygiene_orphaned_kept: len(orphaned_collections)}` and skip to section 4. If `"remove"`, fall through to the removal block below (still no user prompt). Independently, if `{headless_mode}` is true and `{orphan_action}` is null, auto-resolve to the default **Keep** with the equivalent log line and skip to section 4. The two paths compose: `--orphan-action` overrides the headless default; `--headless` without `--orphan-action` keeps backward-compatible behavior.
 
 **If `{headless_mode}` is false**, display to the user:
 
@@ -118,11 +110,11 @@ uv run {forgeTierRwHelper} clean-stale \
 
 The script reads the registry, computes set-difference operations (qmd: registry − live; ccc: filter where `path` does not exist on disk), and atomically rewrites forge-tier.yaml only when something actually changed (mtime preserved on idempotent re-runs). The CI ephemeral-mount caveat for ccc-registry pruning is logged in the script's WARNING message (per PR #248).
 
-**Parse the JSON output and set context flags for step-04:**
+**Parse the JSON output and set context flags for step 4:**
 
 - `{hygiene_stale_cleaned}` ← `len(qmd_removed)`
 - `{ccc_registry_stale_cleaned}` ← `len(ccc_removed)`
-- `{ccc_registry_stale_removed_paths}` ← `ccc_removed` (the list — step-04 folds individual paths into envelope warnings)
+- `{ccc_registry_stale_removed_paths}` ← `ccc_removed` (the list — step 4 folds individual paths into envelope warnings)
 
 If `{hygiene_stale_cleaned}` > 0, display: "**Cleaned {hygiene_stale_cleaned} stale QMD registry entry/entries** (collection no longer exists in QMD)."
 

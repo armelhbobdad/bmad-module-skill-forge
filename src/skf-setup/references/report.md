@@ -1,6 +1,6 @@
 ---
 tierRulesData: 'references/tier-rules.md'
-nextStepFile: './step-05-health-check.md'
+nextStepFile: 'health-check.md'
 # Resolve `{emitEnvelopeHelper}` by probing `{emitEnvelopeProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
 # path wins. HALT if neither resolves when the headless envelope must be emitted
@@ -31,9 +31,9 @@ Display the forge status report with positive capability framing, surface tier c
 
 ## Headless Mode Display Rule
 
-When `{headless_mode}` is `true`, sections 2 (the human-readable banner) and 3 (the REQUIRED TIER NOT MET human prose block) are **skipped entirely**. The single line of stdout in headless mode is the `SKF_SETUP_RESULT_JSON: {…}` envelope from section 4 — every signal the human banner would have surfaced is already in the envelope (`tier`, `previous_tier`, `tier_changed`, `tools`, `tools_added`, `tools_removed`, `files_written`, `tier_override_*`, `require_tier_satisfied`, `warnings`, `error`). Parent skills and CI pipelines consume one parseable line; they should not be forced to scroll past 30 lines of ASCII-art they cannot use.
+When `{headless_mode}` is `true` OR `{quiet_mode}` is `true`, sections 2 (the human-readable banner) and 3 (the REQUIRED TIER NOT MET human prose block) are **skipped entirely**. The single line of stdout in those modes is the `SKF_SETUP_RESULT_JSON: {…}` envelope from section 4 — every signal the human banner would have surfaced is already in the envelope (`tier`, `previous_tier`, `tier_changed`, `tools`, `tools_added`, `tools_removed`, `files_written`, `tier_override_*`, `require_tier_satisfied`, `warnings`, `error`). Parent skills, CI pipelines, and expert re-runners consume the envelope alone; they should not be forced to scroll past 30 lines of ASCII-art they cannot use.
 
-When `{headless_mode}` is `false`, sections 2 and 3 display normally and section 4 is skipped (interactive runs read the human banner; envelope emission would just be log noise).
+When both `{headless_mode}` and `{quiet_mode}` are `false`, sections 2 and 3 display normally and section 4 is skipped (interactive runs read the human banner; envelope emission would just be log noise).
 
 ## MANDATORY SEQUENCE
 
@@ -41,7 +41,7 @@ When `{headless_mode}` is `false`, sections 2 and 3 display normally and section
 
 Load and read {tierRulesData} for the tier capability descriptions and re-run messages. Needed by section 2; safe to load unconditionally — the data load itself is silent.
 
-### 2. Display Forge Status Report (skip when `{headless_mode}` is true)
+### 2. Display Forge Status Report (skip when `{headless_mode}` or `{quiet_mode}` is true)
 
 **Format the report as follows:**
 
@@ -80,7 +80,11 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
   {end if}
 
   {if hygiene_result is "completed" and hygiene_healthy is 0:}
-  QMD Registry: empty — collections are created automatically when you run [CS] Create Skill.
+  QMD Registry: empty — collections are created automatically when you run /skf-create-skill.
+  {end if}
+
+  {if hygiene_result is "qmd_unavailable":}
+  QMD Registry: skipped (daemon error — retry after `qmd start`).
   {end if}
 
   {if tools.ccc is true:}
@@ -95,9 +99,7 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
   {if preferences_yaml_created is true:}
   - preferences.yaml — {project-root}/_bmad/_memory/forger-sidecar/preferences.yaml (first-run defaults)
   {end if}
-  {if forge_data_dir_created is true:}
-  - {forge_data_folder}/ (directory created)
-  {end if}
+  - {forge_data_folder}/ (directory ensured)
   {if settings_yml_written is true:}
   - .cocoindex_code/settings.yml — {project-root}/.cocoindex_code/settings.yml ({settings_yml_patterns_added} SKF exclusion pattern(s) merged)
   {end if}
@@ -119,13 +121,13 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
            rely on the missing tool(s) will fail at runtime. Install the missing tool(s) or remove
            the override from preferences.yaml.
 
-{if re-run with tier change:}
+{if {tier_changed} is true:}
   {appropriate upgrade/downgrade message from tier-rules.md}
 
-{if re-run with same tier and {tools_added} is empty and {tools_removed} is empty:}
+{if {tier_changed} is false and {tools_added} is empty and {tools_removed} is empty and {previous_tier} is non-null:}
   {same-tier message from tier-rules.md}
 
-{if re-run with same tier and ({tools_added} or {tools_removed} is non-empty):}
+{if {tier_changed} is false and ({tools_added} or {tools_removed} is non-empty):}
   Tier unchanged: {calculated_tier}.
   {if {tools_added} non-empty:} Newly detected: {comma-separated tool names from tools_added}{if ccc was added and tier is Deep: " — ccc enhances Deep tier transparently."}
   {if {tools_removed} non-empty:} No longer detected: {comma-separated tool names from tools_removed} — re-install to restore those capabilities.
@@ -135,10 +137,10 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 ═══════════════════════════════════════
 
 {if {headless_mode} is false:}
-  Next: try [BS] Brief Skill to scope your first compilation target, or [QS] Quick Skill for a fast template-driven path. Already have a skill? [AS] Audit Skill drift-checks an existing skill against current sources.
+  Next: try `/skf-brief-skill` to scope your first compilation target, or `/skf-quick-skill` for a fast template-driven path. Already have a skill? `/skf-audit-skill` drift-checks an existing skill against current sources.
 ```
 
-The same-tier-with-tool-deltas branch reads `{tools_added}` and `{tools_removed}` directly from step-01's context (set from `skf-detect-tools.py` output relative to `{previous_tools}`). No LLM-side recomputation.
+All re-run-delta context flags (`{tools_added}`, `{tools_removed}`, `{tier_changed}`) come from the detector's `deltas` block bound in stage 1 — no LLM-side recomputation, no set arithmetic in prose.
 
 **Tool display rules:**
 
@@ -146,9 +148,9 @@ The same-tier-with-tool-deltas branch reads `{tools_added}` and `{tools_removed}
 - Do NOT list unavailable tools
 - Do NOT show a "missing" column or section
 
-### 3. Display Required-Tier Failure Block (when applicable; skip when `{headless_mode}` is true)
+### 3. Display Required-Tier Failure Block (when applicable; skip when `{headless_mode}` or `{quiet_mode}` is true)
 
-If `{require_tier_satisfied}` is `false` AND `{headless_mode}` is `false`, display this block immediately after the status report. In headless mode the failure surfaces via the envelope's `require_tier_satisfied: false` and the synthesized `warnings` entry — the human prose block would be log noise that pipelines have to scroll past.
+If `{require_tier_satisfied}` is `false` AND both `{headless_mode}` and `{quiet_mode}` are `false`, display this block immediately after the status report. In headless or quiet modes the failure surfaces via the envelope's `require_tier_satisfied: false` and the synthesized `warnings` entry — the human prose block would be log noise.
 
 When the block does fire (interactive run with require-tier failure):
 
@@ -170,7 +172,7 @@ This block exists to make pipeline failures visible without the operator parsing
 
 ### 4. Emit Headless JSON Envelope
 
-When `{headless_mode}` is `true`, build the context payload from this step's accumulated flags and forward it to `{emitEnvelopeHelper}` on stdin. Invoke via `uv run` so the script's PEP 723 dependency declarations are honored (the canonical runtime invocation per `docs/getting-started.md`'s uv prereq — bare `python3` skips the metadata block and breaks on a fresh interpreter). The script computes derived fields (`tools_added`, `tools_removed`, `tier_changed`, `warnings`), validates the assembled envelope against the JSON Schema at `src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`, and emits the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` on stdout.
+When `{headless_mode}` is `true` OR `{quiet_mode}` is `true`, build the context payload from this step's accumulated flags and forward it to `{emitEnvelopeHelper}` on stdin. Invoke via `uv run` so the script's PEP 723 dependency declarations are honored (the canonical runtime invocation per `docs/getting-started.md`'s uv prereq — bare `python3` skips the metadata block and breaks on a fresh interpreter). The script computes derived fields (`tools_added`, `tools_removed`, `tier_changed`, `warnings`), validates the assembled envelope against the JSON Schema at `src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`, and emits the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` on stdout.
 
 ```bash
 echo '{
@@ -205,12 +207,12 @@ echo '{
 }' | uv run {emitEnvelopeHelper} emit
 ```
 
-The script's documented context-payload shape (see `src/shared/scripts/skf-emit-result-envelope.py` docstring) tolerates two `tools` shapes — bare booleans OR `skf-detect-tools.py`'s `{key: {available: bool, ...}}` output — so either step-01's normalized booleans OR the raw detect-tools output forwarded as-is will produce the correct envelope.
+The script's documented context-payload shape (see `src/shared/scripts/skf-emit-result-envelope.py` docstring) tolerates two `tools` shapes — bare booleans OR `skf-detect-tools.py`'s `{key: {available: bool, ...}}` output — so either step 1's normalized booleans OR the raw detect-tools output forwarded as-is will produce the correct envelope.
 
 **If the script exits non-zero:** the assembled envelope failed schema validation, which means a context flag from an earlier step is malformed. Surface the error to stderr and continue (the human-readable banner is already displayed; missing JSON envelope on a headless run is a degraded but non-fatal state — the pipeline observer will see no envelope and treat that as "agent did not complete cleanly").
 
-**When `{headless_mode}` is `false`, do NOT invoke the script** — interactive runs read the human-readable banner.
+**When both `{headless_mode}` and `{quiet_mode}` are `false`, do NOT invoke the script** — interactive runs read the human-readable banner.
 
 ### 5. Chain to Health Check
 
-After the forge status report (and any failure block + JSON envelope) has been displayed, load `{nextStepFile}`, read it fully, and execute it — UNLESS `{require_tier_satisfied}` is `false`, in which case halt the workflow here without chaining to step-05. The health-check step is the true terminal step on success — do not stop after the report on a passing run even though it reads as final. step-05 in turn delegates to `shared/health-check.md`; after that returns, the setup workflow is fully done.
+After the forge status report (and any failure block + JSON envelope) has been displayed, load `{nextStepFile}`, read it fully, and execute it — UNLESS `{require_tier_satisfied}` is `false`, in which case halt the workflow here without chaining to step 5. The health-check step is the true terminal step on success — do not stop after the report on a passing run even though it reads as final. step 5 in turn delegates to `shared/health-check.md`; after that returns, the setup workflow is fully done.

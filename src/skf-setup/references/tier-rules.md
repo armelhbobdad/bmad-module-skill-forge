@@ -7,7 +7,7 @@
 | ast-grep | `ast-grep --version` | Returns version string without error |
 | gh | `gh --version` | Returns version string without error |
 | qmd | `qmd status` | Returns status indicating initialized and operational |
-| ccc | Step A: `ccc --help` Step B: `ccc doctor` | Step A: exits 0 AND help output identifies the binary as cocoindex-code. Step B: daemon healthy. See `steps-c/step-01-detect-and-tier.md` §7 for the full identity-marker procedure. |
+| ccc | Step A: `ccc --help` Step B: `ccc doctor` | Step A: exits 0 AND help output identifies the binary as cocoindex-code. Step B: daemon healthy. See `references/detect-and-tier.md` §7 for the full identity-marker procedure. |
 
 **Important:** Use verification commands, not existence checks (`which`, `command -v`). A tool must be functional, not just present on PATH. For daemon-based tools (ccc), verify both binary identity and daemon health — a binary with the right name but the wrong implementation is a false positive, not a tool.
 
