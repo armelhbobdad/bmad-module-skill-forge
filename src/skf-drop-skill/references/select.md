@@ -226,6 +226,8 @@ Proceed? [Y/N]
 
 Wait for explicit user response.
 
+**If `--dry-run` was passed**: skip the Y/N prompt entirely. Display "**[DRY RUN] No changes were made — preview above shows what would be dropped.**" and emit the success envelope per SKILL.md "Result Contract (Headless)" with `status: "dry-run"`, the resolved `skill`, `drop_mode`, and `versions_affected`, then HALT (exit code 0). The manifest, filesystem, and context files are untouched.
+
 - **If `Y`** → proceed to section 11
 - **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → "**Cancelled.** No changes were made." HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with the resolved `skill`, `drop_mode`, and `versions_affected`.
 - **Any other input** → re-display the confirmation and ask again

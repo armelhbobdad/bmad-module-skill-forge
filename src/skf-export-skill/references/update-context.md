@@ -105,55 +105,19 @@ This cleanup only runs during interactive export. Drop-skill and rename-skill op
 
 #### 4a. Read Export Manifest (v2 — version-aware)
 
-Read `{skills_output_folder}/.export-manifest.json` — see `knowledge/version-paths.md` for the full v2 schema:
+Read the manifest via `{manifestOpsHelper}` (resolved at §9 from `{manifestOpsProbeOrder}` — see frontmatter):
 
-**If the file exists:** Parse JSON. Check for `schema_version` field:
-
-**v2 manifest** (`schema_version: "2"`):
-```json
-{
-  "schema_version": "2",
-  "exports": {
-    "skill-name": {
-      "active_version": "0.6.0",
-      "versions": {
-        "0.1.0": {
-          "ides": ["claude-code"],
-          "last_exported": "2026-01-15",
-          "status": "deprecated"
-        },
-        "0.5.0": {
-          "ides": ["claude-code"],
-          "last_exported": "2026-03-15",
-          "status": "archived"
-        },
-        "0.6.0": {
-          "ides": ["claude-code", "github-copilot"],
-          "last_exported": "2026-04-04",
-          "status": "active"
-        }
-      }
-    }
-  }
-}
+```bash
+python3 {manifestOpsHelper} {skills_output_folder} read
 ```
 
-**Status values:**
-- `"active"` — currently exported; snippet appears in managed sections
-- `"archived"` — previously exported, not active; files retained for rollback
-- `"deprecated"` — dropped via drop-skill workflow; excluded from all exports (files may or may not exist on disk)
-- `"draft"` — created but never exported
+The helper handles v2-schema enforcement, v1→v2 migration, and the `platforms`→`ides` rename internally. The returned JSON is always in canonical v2 shape regardless of on-disk state.
 
-**Legacy `platforms` → `ides` rename:** Pre-rename v2 manifests used a `platforms` array at the version level. If a version entry contains `platforms` instead of (or in addition to) `ides`, treat `platforms` as `ides` and rewrite it to `ides` on the next manifest write. This is a silent in-place upgrade — no user prompt, no v3 bump.
+**Schema reference:** `references/manifest-rebuild.md` documents the v2 shape, the status enum (`active`/`archived`/`deprecated`/`draft`), the v1 migration path, and the `active_version` integrity invariant. Load that file only when an inline schema reminder is needed — the helper enforces the shape so the in-prompt prose is not load-bearing.
 
-**v1 manifest** (no `schema_version` field — migrate in-place to v2):
-1. For each entry in `exports`, read its `last_exported` (v1 had no per-version IDE list)
-2. Resolve the skill's current version from `{resolved_skill_package}/metadata.json`
-3. Wrap in v2 structure: set `active_version` to the resolved version, create a single entry in `versions` with `status: "active"`, `ides: []` (unknown — will be filled on next successful export), and `last_exported`
-4. Set `schema_version: "2"` at root
-5. Hold the migrated structure in context (it will be written in section 9b)
+**Integrity guard:** if the helper returns an entry where `active_version` does not resolve to a key in `versions`, the manifest is inconsistent. Skip the affected skill and log: "**Manifest integrity warning:** `{skill-name}.active_version = v{active_version}` has no matching entry under `versions`. Skipping. Re-run `[EX] Export Skill` on `{skill-name}` to repair the manifest entry."
 
-**If the file does not exist** (first export or migration): Treat as empty — only the current export target will appear in the rebuilt index.
+**If the manifest does not exist** (first export or fresh forge): the helper returns `{"schema_version": "2", "exports": {}}`. Only the current export target will appear in the rebuilt index.
 
 #### 4b. Build Exported Skill Set (version-aware)
 

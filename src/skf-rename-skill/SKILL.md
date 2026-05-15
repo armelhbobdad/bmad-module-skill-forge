@@ -16,6 +16,8 @@ Renames a skill across all its versions with transactional safety — copy to th
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
+- **Module-level path exception:** paths starting with `knowledge/` or `shared/` resolve from the SKF module root, not the skill root — install layout puts both at `{project-root}/_bmad/skf/`. The `versionPathsKnowledge: 'knowledge/version-paths.md'` frontmatter scalar in stage files uses this convention; same for `shared/health-check.md` chained from the terminal step.
+- **Cross-skill data coupling:** `references/execute.md` reads `skf-export-skill/assets/managed-section-format.md` for the IDE→context-file mapping table and the skill-index rebuild rules when re-keying context files post-rename. Rename-skill assumes that asset is present at install time and that its semantics are stable across the two skills' versions.
 
 ## Role
 
@@ -50,7 +52,7 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | old_name [required], new_name [required] |
-| **Flags** | `--headless` / `-H` (auto-resolve all gates) |
+| **Flags** | `--headless` / `-H` (auto-resolve all gates); `--dry-run` (run selection + validation + display the §8 confirmation block, then exit with `status="dry-run"` — no copy, no manifest re-key, no delete). Useful for verifying the rename plan before the irreversible §8 (delete old) section. |
 | **Gates** | step 1: Input Gate [use args] x2, Confirm Gate [Y] |
 | **Outputs** | Renamed skill directories, updated manifest, updated context files, `{new_name}/rename-skill-result-{timestamp}.json` and `{new_name}/rename-skill-result-latest.json` |
 | **Concurrency** | Two simultaneous rename runs against the same `old_name` would corrupt state mid-copy. select.md §4b acquires a PID-file lock at `{forge_data_folder}/{old_name}/.skf-rename.lock` once `old_name` is resolved; live-PID collisions HALT with `halt_reason: "halted-for-concurrent-run"`. Stale locks (dead PID) are cleared silently with a warning. The lock is released by the terminal health-check step (step 4) and by every documented halt path. |
@@ -75,10 +77,10 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 When `{headless_mode}` is true, step 3 emits a single-line JSON envelope on **stdout** before chaining to step 4, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
 
 ```
-SKF_RENAME_SKILL_RESULT_JSON: {"status":"success|error","old_name":"…|null","new_name":"…|null","versions_renamed":[],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":0,"halt_reason":null}
+SKF_RENAME_SKILL_RESULT_JSON: {"status":"success|error|dry-run","old_name":"…|null","new_name":"…|null","versions_renamed":[],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":0,"halt_reason":null}
 ```
 
-`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"manifest-corrupt"`, `"nothing-to-rename"`, `"name-collision"`, `"source-authority-blocked"`, `"halted-for-concurrent-run"`, `"copy-failed"`, `"verify-failed"`, `"manifest-write-failed"`, `"context-rebuild-failed"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above.
+`status` is `"success"` on the terminal happy path, `"dry-run"` when `--dry-run` was set and the workflow exited before §9 stores decisions, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"manifest-corrupt"`, `"nothing-to-rename"`, `"name-collision"`, `"source-authority-blocked"`, `"halted-for-concurrent-run"`, `"copy-failed"`, `"verify-failed"`, `"manifest-write-failed"`, `"context-rebuild-failed"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above.
 
 ## On Activation
 

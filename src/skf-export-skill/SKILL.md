@@ -16,6 +16,7 @@ Packages a completed skill as an agentskills.io-compliant package, generates con
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
+- **Cross-skill data coupling (export-skill is a hub):** `assets/managed-section-format.md` is loaded by `skf-drop-skill/references/execute.md` and `skf-rename-skill/references/execute.md` (IDE→context-file mapping table and four-case logic). `references/update-context.md` §4a manifest-schema documentation is the source of truth for the v2 schema enforced by `skf-manifest-ops.py`. Other skills depend on these files at install time — schema-breaking changes here require coordinated updates across at least three skills.
 
 ## Role
 
