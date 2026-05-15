@@ -334,12 +334,14 @@ Extraction Results:
 
 ### 6. Present MENU OPTIONS
 
-Display: "**Proceeding to merge...**"
-
-- After extraction results are compiled, immediately load, read entire file, then execute {nextStepFile}
-- This is an auto-proceed step with no user choices
+- **If `dry_run_mode` is true:** display "**Dry-run mode — skipping merge/validate/write.** Loading report..." and load `report.md` (NOT `{nextStepFile}`). The report emits the dry-run envelope describing what merge+write WOULD have done.
+- Else, display "**Proceeding to merge...**" and after extraction results are compiled, immediately load, read entire file, then execute `{nextStepFile}`.
+- This is an auto-proceed step with no user choices.
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY WHEN all changed files have been extracted and results compiled will you load {nextStepFile} to begin the merge operation.
+ONLY WHEN all changed files have been extracted and results compiled will you load the next file:
+
+- `dry_run_mode == true` → load `report.md`. Report emits status `dry-run`. No artifact is modified on disk by this run.
+- Otherwise → load `{nextStepFile}` (merge.md) to begin the merge operation.
 
