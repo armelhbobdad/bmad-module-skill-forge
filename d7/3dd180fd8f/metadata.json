@@ -1,0 +1,56 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d73dd180fd8f",
+  "strategy": "manual-commit",
+  "branch": "refactor/elevate-skf-core-skills",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-brief-skill/customize.toml",
+    "src/skf-brief-skill/references/analyze-target.md",
+    "src/skf-brief-skill/references/confirm-brief.md",
+    "src/skf-brief-skill/references/gather-intent.md",
+    "src/skf-brief-skill/references/health-check.md",
+    "src/skf-brief-skill/references/scope-definition.md",
+    "src/skf-brief-skill/references/write-brief.md",
+    "src/skf-create-skill/customize.toml",
+    "src/skf-create-skill/references/compile.md",
+    "src/skf-create-skill/references/component-extraction.md",
+    "src/skf-create-skill/references/ecosystem-check.md",
+    "src/skf-create-skill/references/enrich.md",
+    "src/skf-create-skill/references/extract.md",
+    "src/skf-create-skill/references/generate-artifacts.md",
+    "src/skf-create-skill/references/health-check.md",
+    "src/skf-create-skill/references/load-brief.md",
+    "src/skf-create-skill/references/report.md",
+    "src/skf-create-skill/references/sub/ccc-discover.md",
+    "src/skf-create-skill/references/sub/fetch-docs.md",
+    "src/skf-create-skill/references/sub/fetch-temporal.md",
+    "src/skf-create-skill/references/validate.md",
+    "src/skf-update-skill/SKILL.md",
+    "src/skf-update-skill/customize.toml",
+    "src/skf-update-skill/references/detect-changes.md",
+    "src/skf-update-skill/references/health-check.md",
+    "src/skf-update-skill/references/init.md",
+    "src/skf-update-skill/references/merge.md",
+    "src/skf-update-skill/references/re-extract.md",
+    "src/skf-update-skill/references/report.md",
+    "src/skf-update-skill/references/validate.md",
+    "src/skf-update-skill/references/write.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d7/3dd180fd8f/0/metadata.json",
+      "transcript": "/d7/3dd180fd8f/0/full.jsonl",
+      "context": "/d7/3dd180fd8f/0/context.md",
+      "content_hash": "/d7/3dd180fd8f/0/content_hash.txt",
+      "prompt": "/d7/3dd180fd8f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 78,
+    "cache_creation_tokens": 177353,
+    "cache_read_tokens": 5107585,
+    "output_tokens": 63505,
+    "api_call_count": 53
+  }
+}
