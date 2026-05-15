@@ -5,7 +5,7 @@
 """SKF Recommend Scope Type — deterministic 5-rule heuristic ladder.
 
 Single source of truth for the scope-type recommendation logic that
-skf-brief-skill step-03 §2c applies. Both the interactive recommendation
+skf-brief-skill step 3 §2c applies. Both the interactive recommendation
 and the headless auto-selection paths invoke this script with the same
 inputs to eliminate the drift seam between them.
 
@@ -36,7 +36,7 @@ CLI:
 
 Input (JSON object on stdin or via --json):
   intent          — string (combined intent + scope_hint), default ""
-  module_count    — integer (top-level modules from step-02), default 0
+  module_count    — integer (top-level modules from step 2), default 0
   export_count    — integer (named exports from manifest), default 0
   tree            — list of repo-relative file paths, default []
   entry_files     — optional [{path, content}], default null

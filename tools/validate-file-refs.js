@@ -6,13 +6,13 @@
  *
  * What it checks:
  * - {project-root}/_bmad/ references in YAML and markdown resolve to real src/ files
- * - Relative path references (./file.md, ../data/file.csv) point to existing files
+ * - Relative path references (file.md, ../data/file.csv) point to existing files
  * - exec="..." and <invoke-task> targets exist
  * - Step metadata (thisStepFile, nextStepFile) references are valid
  * - Workflow-data frontmatter keys (<name>Data: 'assets/...' or 'references/...')
- *   resolved relative to the workflow root (parent of steps-c/) — e.g.
+ *   resolved relative to the workflow root (parent of references/) — e.g.
  *   assemblyRulesData, skillSectionsData, tesslDismissalData, extractionPatternsData
- * - Load directives (Load: `./file.md`) target existing files
+ * - Load directives (Load: `file.md`) target existing files
  * - No absolute paths (/Users/, /home/, C:\) leak into source files
  *
  * What it does NOT check (deferred):
@@ -70,7 +70,7 @@ const STEP_META = /(?:thisStepFile|nextStepFile|continueStepFile|skipToStepFile|
 // Pattern: workflow-data frontmatter keys
 // Matches any `<name>Data:` frontmatter key with a bare relative path value
 // (no leading ./ or ../). These paths resolve relative to the workflow root
-// (parent of steps-c/), not the step file's directory. Used by step files to
+// (parent of references/), not the step file's directory. Used by step files to
 // reference shared assets like assets/compile-assembly-rules.md or
 // references/extraction-patterns.md.
 const WORKFLOW_DATA_REF = /(\w+Data):\s*['"]([^'"./][^'"]*\.(?:md|yaml|yml|json))['"]/g;

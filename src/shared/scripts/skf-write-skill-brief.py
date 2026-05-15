@@ -6,7 +6,7 @@
 
 Replaces the prose-driven YAML emission, version-precedence resolution,
 conditional optional-field rendering, and non-atomic file write currently
-inlined in `src/skf-brief-skill/steps-c/step-05-write-brief.md` §3-§4.
+inlined in `src/skf-brief-skill/references/write-brief.md` §3-§4.
 
 Each of those operations is purely deterministic: there is no LLM
 judgement required to render the YAML, decide which optional fields
@@ -56,7 +56,7 @@ Context payload shape (consumed by `write`):
 
 Version precedence (resolved into the rendered YAML's `version` field):
   1. version_resolved if explicitly supplied (caller already ran the
-     precedence rule). Used by step-05 when it has confirmed values.
+     precedence rule). Used by step 5 when it has confirmed values.
   2. Otherwise: target_version if non-null.
   3. Otherwise: detected_version if non-null.
   4. Otherwise: "1.0.0".
@@ -346,7 +346,7 @@ def assemble_brief(ctx: dict[str, Any], resolved_version: str) -> dict[str, Any]
 def render_yaml(brief: dict[str, Any]) -> str:
     """Dump the brief dict as YAML in canonical key order with a leading document marker.
 
-    The step-05 §3 template shows leading and trailing `---` markers, but those were
+    The step 5 §3 template shows leading and trailing `---` markers, but those were
     wrapping the example YAML for documentation purposes — actual on-disk YAML uses
     only the leading `---` (or none). A trailing `---` would start a second empty
     document and break callers that use `yaml.safe_load` (which expects a single
@@ -495,7 +495,7 @@ def main() -> int:
             "scope_type/scope_include/scope_exclude/scope_notes top-level keys, "
             "optional fields nullable) instead of the nested shape. Eliminates "
             "the conditional-omit logic the LLM currently walks at the §3 "
-            "assembly site in step-05."
+            "assembly site in step 5."
         ),
     )
 

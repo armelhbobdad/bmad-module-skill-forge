@@ -49,13 +49,13 @@ deltaUnchanged: null
 
 ## Coverage Analysis
 
-<!-- Appended by step-02-coverage -->
+<!-- Appended by coverage -->
 
 ---
 
 ## Integration Verdicts
 
-<!-- Appended by step-03-integrations.
+<!-- Appended by integrations.
 Consumers grep for the `## Integration Verdicts` heading to locate the pair table.
 The table header is fixed and MUST be emitted exactly as shown below: -->
 
@@ -66,11 +66,11 @@ The table header is fixed and MUST be emitted exactly as shown below: -->
 
 ## Recommendations
 
-<!-- Appended by step-05-synthesize -->
+<!-- Appended by synthesize -->
 
 ---
 
 ## Evidence Sources
 
-<!-- Appended by step-05-synthesize — cite each skill's SKILL.md path, metadata_schema_version,
+<!-- Appended by synthesize — cite each skill's SKILL.md path, metadata_schema_version,
      confidence_tier, stack manifest (if any), and architecture/PRD doc paths -->

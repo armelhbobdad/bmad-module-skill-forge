@@ -1,6 +1,6 @@
 # Migration & Deprecation Section Rules (§2b / §5b)
 
-> **Single source of truth.** Both `step-04-coherence-check.md` §2b (naive path)
+> **Single source of truth.** Both `coherence-check.md` §2b (naive path)
 > and §5b (contextual path) apply the rules in this file verbatim. Update this
 > file — not the step file sections — when the rule set changes.
 
@@ -62,7 +62,7 @@ awk '/^---$/{c++;next} c==1 && /^t2_future_count:/{print $2; exit}' \
 - **`t2_future_count` parsed** → use its integer value for the Case Rules
   below.
 
-The pinned field is emitted by `skf-create-skill/steps-c/step-05-compile.md`
+The pinned field is emitted by `skf-create-skill/references/compile.md`
 §7 (frontmatter-pinned fields), which ALWAYS writes `t2_future_count: N`
 (including 0). Legacy skills whose `evidence-report.md` predates the pinned
 field land in Case 4.

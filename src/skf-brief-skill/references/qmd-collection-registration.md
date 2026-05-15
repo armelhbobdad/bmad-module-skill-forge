@@ -1,6 +1,6 @@
 # QMD Collection Registration (Deep Tier)
 
-Loaded by step-05 §5 only when forge tier is Deep AND QMD is available. Skipped silently otherwise.
+Loaded by step 5 §5 only when forge tier is Deep AND QMD is available. Skipped silently otherwise.
 
 Index the skill brief into a QMD collection so portfolio-level searches can find existing briefs and avoid duplicate skill creation across large monorepos.
 

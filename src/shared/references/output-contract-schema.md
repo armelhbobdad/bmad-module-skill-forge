@@ -42,4 +42,4 @@ There is no generic helper that writes the schema above; each skill assembles th
 
 A generalised emitter (matching this document's schema) is a reasonable future helper when a second consumer materialises with the same shape. For now, skills that write this contract assemble the JSON in their terminal step — the work is small (5–8 fields) and skill-specific summary content benefits from being expressed inline alongside the rest of the step's logic.
 
-skf-quick-skill writes both the success-variant contract (`step-06-finalize.md` §3) and the error-variant contract on every HARD HALT (per `SKILL.md` § "Result Contract on HARD HALT") in this hand-assembled style.
+skf-quick-skill writes both the success-variant contract (`finalize.md` §3) and the error-variant contract on every HARD HALT (per `SKILL.md` § "Result Contract on HARD HALT") in this hand-assembled style.

@@ -9,6 +9,14 @@ description: Consolidated project stack skill with integration patterns — code
 
 Produces a consolidated stack skill documenting how libraries connect. **Code-mode** analyzes dependency manifests and co-import patterns from actual source code. **Compose-mode** synthesizes from pre-generated individual skills and architecture documents when no codebase exists yet. Every finding must trace to actual code with file:line citations; in compose-mode, inferred integrations are permitted but must be labeled `[inferred from shared domain]`.
 
+## Conventions
+
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
+- `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
+- `{project-root}`-prefixed paths resolve from the project working directory.
+- `{skill-name}` resolves to the skill directory's basename.
+
 ## Role
 
 You are a dependency analyst and integration architect operating in Ferris Architect mode. You bring expertise in dependency analysis, cross-library integration patterns, and compositional architecture, while the user brings their project knowledge and scope preferences.
@@ -24,29 +32,29 @@ These rules apply to every step in this workflow:
 - If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread
 - Always communicate in `{communication_language}`
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
-- **Workflow state contract — `workflow_warnings[]` accumulator (M4):** every step that emits a warning ("log a warning", "record in workflow state for the evidence report", "Warning: ...", etc.) MUST append a structured entry to a single in-memory list named `workflow_warnings[]`. Each entry has the shape `{step: "step-NN", severity: "info|warn|error", code: "<short-slug>", message: "<human text>", context: {<optional fields>}}`. Step-07 surfaces these in `evidence-report.md`; step-08 may add validation findings; step-09 §5 reads the accumulated list and renders the user-facing "Warnings" section. Do not invent a per-step warning channel — there is exactly one accumulator for the whole workflow.
+- **Workflow state contract — `workflow_warnings[]` accumulator (M4):** every step that emits a warning ("log a warning", "record in workflow state for the evidence report", "Warning: ...", etc.) MUST append a structured entry to a single in-memory list named `workflow_warnings[]`. Each entry has the shape `{step: "step-NN", severity: "info|warn|error", code: "<short-slug>", message: "<human text>", context: {<optional fields>}}`. Step-07 surfaces these in `evidence-report.md`; step 8 may add validation findings; step 9 §5 reads the accumulated list and renders the user-facing "Warnings" section. Do not invent a per-step warning channel — there is exactly one accumulator for the whole workflow.
 
 ## Stages
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
-| 1 | Initialize & Mode Detection | steps-c/step-01-init.md | No (confirm) |
-| 2 | Detect Manifests | steps-c/step-02-detect-manifests.md | Yes |
-| 3 | Rank & Confirm Libraries | steps-c/step-03-rank-and-confirm.md | No (confirm) |
-| 4 | Parallel Extract | steps-c/step-04-parallel-extract.md | Yes |
-| 5 | Detect Integrations | steps-c/step-05-detect-integrations.md | Yes |
-| 6 | Compile Stack | steps-c/step-06-compile-stack.md | No (review) |
-| 7 | Generate Output | steps-c/step-07-generate-output.md | Yes |
-| 8 | Validate | steps-c/step-08-validate.md | Yes |
-| 9 | Report | steps-c/step-09-report.md | Yes |
-| 10 | Workflow Health Check | steps-c/step-10-health-check.md | Yes |
+| 1 | Initialize & Mode Detection | references/init.md | No (confirm) |
+| 2 | Detect Manifests | references/detect-manifests.md | Yes |
+| 3 | Rank & Confirm Libraries | references/rank-and-confirm.md | No (confirm) |
+| 4 | Parallel Extract | references/parallel-extract.md | Yes |
+| 5 | Detect Integrations | references/detect-integrations.md | Yes |
+| 6 | Compile Stack | references/compile-stack.md | No (review) |
+| 7 | Generate Output | references/generate-output.md | Yes |
+| 8 | Validate | references/validate.md | Yes |
+| 9 | Report | references/report.md | Yes |
+| 10 | Workflow Health Check | references/health-check.md | Yes |
 
 ## Invocation Contract
 
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | project_path [required], mode (code/compose) [auto-detected] |
-| **Gates** | step-03: Confirm Gate [C] | step-06: Review Gate [C] |
+| **Gates** | step 3: Confirm Gate [C] | step 6: Review Gate [C] |
 | **Outputs** | SKILL.md (stack), context-snippet.md, metadata.json |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 
@@ -61,4 +69,4 @@ These rules apply to every step in this workflow:
    3. **Preferences fallback.** Otherwise, read `headless_mode` from `{sidecar_path}/preferences.yaml` (`true` or `false`).
    4. **Default:** `false`.
 
-3. Load, read the full file, and then execute `./steps-c/step-01-init.md` to begin the workflow.
+3. Load, read the full file, and then execute `references/init.md` to begin the workflow.

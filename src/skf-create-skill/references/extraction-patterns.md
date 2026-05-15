@@ -30,7 +30,7 @@ Structural extraction via ast-grep — verified exports with line-level citation
 
 > **Note:** `ast_bridge.*`, `qmd_bridge.*`, and `ccc_bridge.*` references below are **conceptual interfaces**, not callable functions. Resolve them as follows:
 > - `ast_bridge.*` → ast-grep MCP tools (`mcp__ast-grep__find_code`, `mcp__ast-grep__find_code_by_rule`) or `ast-grep` CLI
-> - `qmd_bridge.*` → QMD MCP `query` tool (`mcp__plugin_qmd-plugin_qmd__query`) taking `searches=[{type:'lex'|'vec'|'hyde', query, intent}]`, or `qmd` CLI (`qmd search` / `qmd vector-search`). The legacy `vector_search` MCP tool has been removed; if a client surfaces a tool-not-found error, degrade gracefully per the QMD step-04 tool-probe note — do not retry the stale name.
+> - `qmd_bridge.*` → QMD MCP `query` tool (`mcp__plugin_qmd-plugin_qmd__query`) taking `searches=[{type:'lex'|'vec'|'hyde', query, intent}]`, or `qmd` CLI (`qmd search` / `qmd vector-search`). The legacy `vector_search` MCP tool has been removed; if a client surfaces a tool-not-found error, degrade gracefully per the QMD step 4 tool-probe note — do not retry the stale name.
 > - `ccc_bridge.*` → `/ccc` skill (Claude Code), ccc MCP server (Cursor), or `ccc` CLI
 > - `gh_bridge.*` → `gh api` commands or direct file I/O for local sources
 >
@@ -64,10 +64,10 @@ Identical extraction to Forge tier. CCC adds an upstream semantic discovery step
 
 ### When CCC Pre-Discovery Applies
 
-CCC pre-discovery runs in step-02b-ccc-discover (before this extraction step) when ALL of the following are true:
+CCC pre-discovery runs in ccc-discover (before this extraction step) when ALL of the following are true:
 - Tier is Forge+ or Deep
 - `tools.ccc: true` in forge-tier.yaml
-- `ccc_index.status` is `"fresh"`, `"stale"`, `"created"`, or `"none"`/`"failed"` (step-02b attempts lazy indexing for the latter two)
+- `ccc_index.status` is `"fresh"`, `"stale"`, `"created"`, or `"none"`/`"failed"` (step 2b attempts lazy indexing for the latter two)
 
 The discovery step stores `{ccc_discovery: [{file, score, snippet}]}` in context. This extraction step consumes those results to pre-rank the file list.
 
@@ -96,16 +96,16 @@ CCC pre-discovery failures (ccc unavailable, command error, empty results) alway
 
 ## Deep Tier (AST + QMD)
 
-Same extraction as Forge tier. Deep tier adds enrichment in step-04, not extraction.
+Same extraction as Forge tier. Deep tier adds enrichment in step 4, not extraction.
 
 ### Strategy
 - Identical to Forge tier extraction
-- QMD enrichment happens in the next step (step-04-enrich)
+- QMD enrichment happens in the next step (enrich)
 - Extraction results carry forward unchanged
 
 ### Confidence
 - Extraction: same as Forge (T1)
-- Enrichment annotations added in step-04: T2
+- Enrichment annotations added in step 4: T2
 
 ---
 
@@ -113,7 +113,7 @@ Same extraction as Forge tier. Deep tier adds enrichment in step-04, not extract
 
 When AST tools are available (Forge/Deep tier), follow this deterministic protocol to prevent output overflow on large codebases.
 
-**"Files in scope"** = files remaining after applying `include_patterns` and `exclude_patterns` from the brief, filtered by the target language extension. This is NOT the total repository file count from step-01's tree listing. Use the filtered count from step-03 section 2 as the decision tree input.
+**"Files in scope"** = files remaining after applying `include_patterns` and `exclude_patterns` from the brief, filtered by the target language extension. This is NOT the total repository file count from step 1's tree listing. Use the filtered count from step 3 section 2 as the decision tree input.
 
 ### Decision Tree
 
@@ -320,7 +320,7 @@ constraints:
 
 ### Component Library YAML Rule Recipes
 
-These patterns are used by `step-03d-component-extraction.md` when `scope.type: "component-library"`. They prioritize Props interfaces and PascalCase component exports.
+These patterns are used by `component-extraction.md` when `scope.type: "component-library"`. They prioritize Props interfaces and PascalCase component exports.
 
 **React/TypeScript — Props interfaces (primary API contracts):**
 

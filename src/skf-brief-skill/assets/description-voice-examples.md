@@ -1,6 +1,6 @@
 # Description Voice Examples
 
-Loaded by step-01 §7b only. The five examples below show the *range* of acceptable voices for the `description` field — they vary in lead, structure, and trigger phrasing on purpose. The point is to anchor the LLM to "two facts must come through (what the skill is, when to use it); everything else is voice — do not template-stamp."
+Loaded by step 1 §7b only. The five examples below show the *range* of acceptable voices for the `description` field — they vary in lead, structure, and trigger phrasing on purpose. The point is to anchor the LLM to "two facts must come through (what the skill is, when to use it); everything else is voice — do not template-stamp."
 
 ## Examples
 

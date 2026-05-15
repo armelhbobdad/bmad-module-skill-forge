@@ -76,7 +76,7 @@ When `scope.type: "component-library"`, these section formats replace their stan
 **Total components:** {unique_count} | **With {variant1}:** {count1} | **With {variant2}:** {count2}
 ```
 
-- Source: `component_catalog[]` from step-03d extraction
+- Source: `component_catalog[]` from step 3d extraction
 - Group by `category` field from registry
 - Show top 3-5 component names per category
 - Cite registry file: `[SRC:{registry_file}:L1]`
@@ -224,7 +224,7 @@ Indexed pipe-delimited format for CLAUDE.md managed section (~80-120 tokens per 
     "total_coverage": 0.0,
     "scripts_count": 0,
     "assets_count": 0
-    // "effective_denominator": 0  // optional — emitted for stratified-scope monorepo packages; test-skill uses this as the coverage denominator when present. See step-05-compile.md §4 emit rules.
+    // "effective_denominator": 0  // optional — emitted for stratified-scope monorepo packages; test-skill uses this as the coverage denominator when present. See compile.md §4 emit rules.
   },
   // scripts[] and assets[] — include ONLY when inventories are non-empty; omit entirely otherwise
   // "scripts": [{ "file": "scripts/{name}", "purpose": "{description}", "source_file": "{source-path}", "confidence": "T1-low" }],
@@ -329,12 +329,12 @@ Each reference file includes:
 |---|---|---|---|---|
 | `"script"` | `scripts_inventory` | yes → `scripts/` | `"file-copy"` | Runnable scripts (CLI tools, validation scripts, etc.) bundled into the skill for execution. |
 | `"asset"` | `assets_inventory` | yes → `assets/` | `"file-copy"` | Data files (templates, JSON schemas, config fixtures) bundled for reference. |
-| `"doc"` | `promoted_docs` (from step-03 §2a) | **no** | `"promoted-authoritative"` | Authoritative AI documentation files (`llms.txt`, `AGENTS.md`, etc.) promoted into scope by the Discovered Authoritative Files Protocol. The source file is tracked for drift detection but not bundled into the skill — its content influences compile-time decisions (description, Quick Start) and is watched for upstream changes. |
+| `"doc"` | `promoted_docs` (from step 3 §2a) | **no** | `"promoted-authoritative"` | Authoritative AI documentation files (`llms.txt`, `AGENTS.md`, etc.) promoted into scope by the Discovered Authoritative Files Protocol. The source file is tracked for drift detection but not bundled into the skill — its content influences compile-time decisions (description, Quick Start) and is watched for upstream changes. |
 
 When `file_type: "doc"`:
 
 - `source_file` is the relative path from the source root to the authoritative doc.
-- `content_hash` is computed at promotion time (step-03 §2a) and persisted here so update-skill Category D can detect drift via hash comparison.
+- `content_hash` is computed at promotion time (step 3 §2a) and persisted here so update-skill Category D can detect drift via hash comparison.
 - `file_name` convention: use the source-relative path prefixed with `docs/authoritative/` to namespace doc entries away from script/asset filenames in tools that iterate `file_entries[]` by `file_name`. Example: `docs/authoritative/apps/docs/public/llms.txt`. Step-07 does not write this path — it is a synthetic namespace used only within the provenance map.
 - `confidence` is `"T1-low"` (the promotion decision is source-level but the content was not AST-parsed).
 
@@ -392,4 +392,4 @@ t2_future_count: {N}
 
 **Frontmatter — pinned detection contract:** the `t2_future_count` field is the authoritative forward-looking-annotation count for downstream gate checks (e.g. skf-test-skill §2b migration-section rule). Emit **always**, even when 0 — omission is indistinguishable from "no T2-future data" and silently flips the gate into Case 2/3 for a Case-1 skill. `generated` and `forge_tier` mirror the narrative header for consumers that read only the frontmatter. Downstream gate rules MUST parse `t2_future_count` from frontmatter, not grep prose — prose drift (heading renames, alternate phrasings like "forward-looking annotations") silently breaks the detection.
 
-**Description Guard slot:** populated by step-06 §0 (create-skill) and §0 (update-skill) when the guard protocol fires. `Restored: true` indicates that an external tool (typically `skill-check --fix` or `split-body`) rewrote the frontmatter `description` and the guard restored the pre-tool value. When `Restored: false`, leave `Triggering tool`, `Original description preserved`, and `Notes` as `—`. When `Restored: true`, fill all four fields: tool name, whether the original was successfully written back, and a one-sentence note describing what the tool had changed (e.g., "replaced with generic summary", "truncated at 80 chars", "angle-bracket tokens re-introduced"). Downstream test-skill assertions can grep for `Restored: true` to detect unintended tool rewrites without parsing free-form warning prose.
+**Description Guard slot:** populated by step 6 §0 (create-skill) and §0 (update-skill) when the guard protocol fires. `Restored: true` indicates that an external tool (typically `skill-check --fix` or `split-body`) rewrote the frontmatter `description` and the guard restored the pre-tool value. When `Restored: false`, leave `Triggering tool`, `Original description preserved`, and `Notes` as `—`. When `Restored: true`, fill all four fields: tool name, whether the original was successfully written back, and a one-sentence note describing what the tool had changed (e.g., "replaced with generic summary", "truncated at 80 chars", "angle-bracket tokens re-introduced"). Downstream test-skill assertions can grep for `Restored: true` to detect unintended tool rewrites without parsing free-form warning prose.

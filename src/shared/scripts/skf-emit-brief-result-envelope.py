@@ -4,8 +4,8 @@
 # ///
 """SKF Emit Brief Result Envelope — Schema-locked headless output for skf-brief-skill.
 
-Replaces the prose-driven envelope assembly in `src/skf-brief-skill/steps-c/
-step-05-write-brief.md` §4b with one Python invocation. The envelope contract
+Replaces the prose-driven envelope assembly in `src/skf-brief-skill/references/
+write-brief.md` §4b with one Python invocation. The envelope contract
 (SKF_BRIEF_RESULT_JSON) is documented in src/skf-brief-skill/SKILL.md Result
 Contract section.
 
@@ -239,7 +239,7 @@ def main() -> int:
         "--target",
         choices=["stdout", "stderr"],
         default="stdout",
-        help="Output stream for the prefixed envelope line. step-05 §4b uses stdout on success and stderr on HARD HALT.",
+        help="Output stream for the prefixed envelope line. step 5 §4b uses stdout on success and stderr on HARD HALT.",
     )
 
     sub.add_parser("validate", help="Read envelope JSON on stdin, exit 0 if schema-valid")

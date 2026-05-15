@@ -4,9 +4,9 @@
 
 The snippet `root:` path must reflect the IDE's actual skill directory — its `skill_root` from the IDE → Context File Mapping table in `managed-section-format.md`. Each IDE has its own skill directory (e.g., `.claude/skills/`, `.windsurf/skills/`, `.github/skills/`).
 
-The root path in context-snippet.md on disk uses the **`skill_root` of the first entry in `target_context_files`** (resolved in step-01 from config.yaml IDE mapping). When assembling managed sections for other context files, step-04 rewrites root paths to match the target context file's skill root.
+The root path in context-snippet.md on disk uses the **`skill_root` of the first entry in `target_context_files`** (resolved in step 1 from config.yaml IDE mapping). When assembling managed sections for other context files, step 4 rewrites root paths to match the target context file's skill root.
 
-**Authoring-repo override:** If `snippet_skill_root_override` is set in `config.yaml`, it replaces the IDE-mapped value for snippet generation and freezes matching prefixes against step-04 rewrites. See the "Resolution rules" section in `managed-section-format.md` for the full semantics.
+**Authoring-repo override:** If `snippet_skill_root_override` is set in `config.yaml`, it replaces the IDE-mapped value for snippet generation and freezes matching prefixes against step 4 rewrites. See the "Resolution rules" section in `managed-section-format.md` for the full semantics.
 
 ## Format Rules
 

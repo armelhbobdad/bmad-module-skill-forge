@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skill-brief.v1.json",
   "title": "skill-brief.yaml (v1)",
-  "description": "Canonical schema for the skill-brief.yaml artifact written by skf-brief-skill step-05 and consumed by skf-create-skill, skf-update-skill, skf-audit-skill. Mirrors src/skf-brief-skill/assets/skill-brief-schema.md.",
+  "description": "Canonical schema for the skill-brief.yaml artifact written by skf-brief-skill step 5 and consumed by skf-create-skill, skf-update-skill, skf-audit-skill. Mirrors src/skf-brief-skill/assets/skill-brief-schema.md.",
   "type": "object",
   "required": ["name", "version", "source_repo", "language", "description", "forge_tier", "created", "created_by", "scope"],
   "properties": {

@@ -86,7 +86,7 @@ SKF supports the Node.js major versions declared in `package.json` `engines.node
 The following surfaces are explicitly excluded from the v1.0.0 contract. Changes to any of these may land in any release — patch, minor, or major — without constituting a "breaking change" from a SemVer perspective. Downstream consumers SHOULD NOT pin against these surfaces.
 
 - **`tools/cli/lib/*` internal helper modules** — implementation detail of the CLI; not a library. Any refactor that preserves the observable CLI surface and install layout above is allowed.
-- **Internal structure of workflow step files under `src/skf-*/steps-c/`** — the workflow authoring format is an SKF-internal authoring surface; step numbering, file names, and prose can change.
+- **Internal structure of workflow step files under `src/skf-*/references/`** — the workflow authoring format is an SKF-internal authoring surface; step numbering, file names, and prose can change.
 - **`_bmad/_memory/forger-sidecar/*.yaml` file schemas** — Ferris sidecar state. Stable as a runtime contract between SKF versions during one install's lifetime (so `skf update` works), but not a downstream-consumable schema.
 - **Ferris agent persona prose and menu wording** — the in-product agent persona can be rephrased or restructured at any time.
 - **Exact chalk styling / ANSI color choices in command output** — stylistic; see the output-format bucket above for what IS committed.

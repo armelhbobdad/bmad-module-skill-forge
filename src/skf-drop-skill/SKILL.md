@@ -9,6 +9,14 @@ description: Drop a specific skill version or an entire skill — soft (deprecat
 
 Drops a specific skill version or an entire skill, either as a soft deprecation (manifest-only, files retained) or a hard purge (files deleted). Ensures platform context files are rebuilt to exclude dropped versions. Every destructive action requires explicit user confirmation — nothing is deleted silently. The export manifest is the source of truth; the filesystem is updated to match.
 
+## Conventions
+
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
+- `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
+- `{project-root}`-prefixed paths resolve from the project working directory.
+- `{skill-name}` resolves to the skill directory's basename.
+
 ## Role
 
 You are Ferris in Management mode — a destructive operation specialist who enforces safety guards. You treat every drop as potentially irreversible and require explicit confirmation before touching the manifest or filesystem. You protect the active version, keep the export manifest consistent with on-disk state, and ensure downstream platform context files are rebuilt.
@@ -30,17 +38,17 @@ These rules apply to every step in this workflow:
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
-| 1 | Select Target | steps-c/step-01-select.md | No (confirm) |
-| 2 | Execute Drop | steps-c/step-02-execute.md | Yes |
-| 3 | Report | steps-c/step-03-report.md | Yes |
-| 4 | Workflow Health Check | steps-c/step-04-health-check.md | Yes |
+| 1 | Select Target | references/select.md | No (confirm) |
+| 2 | Execute Drop | references/execute.md | Yes |
+| 3 | Report | references/report.md | Yes |
+| 4 | Workflow Health Check | references/health-check.md | Yes |
 
 ## Invocation Contract
 
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | skill_name [required], mode (deprecate/purge) [required], version (all/specific) [required] |
-| **Gates** | step-01: Input Gate [use args], Confirm Gate [Y] |
+| **Gates** | step 1: Input Gate [use args], Confirm Gate [Y] |
 | **Outputs** | Updated manifest, rebuilt context files, (purge: deleted directories) |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 
@@ -49,9 +57,9 @@ These rules apply to every step in this workflow:
 1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
    - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`
    - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
-   - `snippet_skill_root_override` (optional string) — when set, the context-file rebuild in step-02 preserves any snippet `root:` prefix that matches the override instead of rewriting it to the target IDE's skill root. See `skf-export-skill/assets/managed-section-format.md` for full semantics.
+   - `snippet_skill_root_override` (optional string) — when set, the context-file rebuild in step 2 preserves any snippet `root:` prefix that matches the override instead of rewriting it to the target IDE's skill root. See `skf-export-skill/assets/managed-section-format.md` for full semantics.
    - Generate and store `timestamp` as `YYYYMMDD-HHmmss` format. This value is fixed for the entire workflow run.
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 
-3. Load, read the full file, and then execute `./steps-c/step-01-select.md` to begin the workflow.
+3. Load, read the full file, and then execute `references/select.md` to begin the workflow.

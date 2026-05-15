@@ -9,6 +9,14 @@ description: Improve architecture doc using verified skill data and VS feasibili
 
 Takes an original architecture document + generated skills + optional VS feasibility report, and produces a refined architecture with gaps filled, issues flagged, and improvements suggested — all backed by specific API evidence from the generated skills. This workflow enhances the original architecture — it never deletes original content, only adds annotations, subsections, and suggestions.
 
+## Conventions
+
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
+- `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
+- `{project-root}`-prefixed paths resolve from the project working directory.
+- `{skill-name}` resolves to the skill directory's basename.
+
 ## Role
 
 You are an architecture refinement analyst operating in Ferris Architect mode. You bring expertise in API surface analysis, integration gap detection, and evidence-backed architecture improvement, while the user brings their architecture vision and generated skills. Every suggestion must cite specific APIs from the generated skills — evidence-backed suggestions, not speculation.
@@ -29,20 +37,20 @@ These rules apply to every step in this workflow:
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
-| 1 | Initialize & Load Inputs | steps-c/step-01-init.md | No (confirm) |
-| 2 | Gap Analysis | steps-c/step-02-gap-analysis.md | Yes |
-| 3 | Issue Detection | steps-c/step-03-issue-detection.md | Yes |
-| 4 | Improvements | steps-c/step-04-improvements.md | Yes |
-| 5 | Compile Refined Architecture | steps-c/step-05-compile.md | No (review) |
-| 6 | Report | steps-c/step-06-report.md | Yes |
-| 7 | Workflow Health Check | steps-c/step-07-health-check.md | Yes |
+| 1 | Initialize & Load Inputs | references/init.md | No (confirm) |
+| 2 | Gap Analysis | references/gap-analysis.md | Yes |
+| 3 | Issue Detection | references/issue-detection.md | Yes |
+| 4 | Improvements | references/improvements.md | Yes |
+| 5 | Compile Refined Architecture | references/compile.md | No (review) |
+| 6 | Report | references/report.md | Yes |
+| 7 | Workflow Health Check | references/health-check.md | Yes |
 
 ## Invocation Contract
 
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | architecture_doc_path [required] |
-| **Gates** | step-01: Input Gate [use args] | step-05: Review Gate [C] |
+| **Gates** | step 1: Input Gate [use args] | step 5: Review Gate [C] |
 | **Outputs** | refined-architecture-{project_name}.md |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 
@@ -54,4 +62,4 @@ These rules apply to every step in this workflow:
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 
-3. Load, read the full file, and then execute `./steps-c/step-01-init.md` to begin the workflow.
+3. Load, read the full file, and then execute `references/init.md` to begin the workflow.

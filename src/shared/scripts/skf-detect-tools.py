@@ -1,19 +1,19 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = []
+# dependencies = ["pyyaml"]
 # ///
 """SKF Detect Tools — Parallel tool detection + tier calculation for skf-setup.
 
-Replaces the prose-driven tool-detection sequence in `src/skf-setup/steps-c/
-step-01-detect-and-tier.md` §3-§8b with one Python invocation. Probes ast-grep,
+Replaces the prose-driven tool-detection sequence in `src/skf-setup/references/
+detect-and-tier.md` §3-§8b with one Python invocation. Probes ast-grep,
 gh, qmd, and ccc concurrently, applies the 4-rule tier decision table (see
 `src/skf-setup/references/tier-rules.md`), evaluates --tier-override (with
 sanity check) and --require-tier (with tool-prerequisite check independent of
 the tier name), and emits one JSON document on stdout.
 
 Schema documented in DETECT_OUTPUT_SCHEMA at the bottom of this docstring.
-The output is consumed by step-01 prose, step-02 (forge-tier.yaml writer),
-and step-04 (status report + envelope).
+The output is consumed by step 1 prose, step 2 (forge-tier.yaml writer),
+and step 4 (status report + envelope).
 
 Tier rules (first match wins):
   Deep   = ast-grep + gh-cli + qmd (all healthy)
@@ -21,12 +21,12 @@ Tier rules (first match wins):
   Forge  = ast-grep
   Quick  = otherwise
 
-CCC verification is two-step (matches step-01 §7):
+CCC verification is two-step (matches step 1 §7):
   Step A: `ccc --help` exits 0 AND output contains "CocoIndex Code" marker.
           Rejects code2prompt-aliased-as-ccc and similar PATH shadowing.
   Step B: `ccc doctor` succeeds (daemon healthy).
 
-QMD verification is two-step (matches step-01 §5 post-PR-#248):
+QMD verification is two-step (matches step 1 §5 post-PR-#248):
   Step A: `qmd --version` exits 0 (binary identity, falls back to --help).
   Step B: `qmd status` succeeds (daemon healthy).
   qmd_status: "absent" | "daemon_stopped" | "healthy" — affects climb hint.
@@ -251,6 +251,50 @@ def tier_prerequisites_met(tier: str, tools: dict) -> tuple[bool, list[str]]:
     return (len(missing) == 0, missing)
 
 
+def read_prior_state(prior_state_path) -> dict:
+    """Read forge-tier.yaml from a previous run, return prior tier / tools / detection_date.
+
+    Returns a flat dict (always present, keys always set) so callers don't
+    branch on missing-file vs empty-file vs malformed-file — the script owns
+    that classification. On any read failure or absent file, returns the
+    "first-run" shape (everything null/empty). The CCC freshness fields are
+    surfaced separately so the caller doesn't reparse YAML in prose.
+    """
+    empty = {
+        "previous_tier": None,
+        "previous_detection_date": None,
+        "previous_tools": {},
+        "previous_ccc_index_status": None,
+        "previous_ccc_indexed_path": None,
+        "previous_ccc_last_indexed": None,
+        "previous_ccc_staleness_threshold_hours": None,
+    }
+    if not prior_state_path:
+        return empty
+    try:
+        import yaml  # local import — only needed when --prior-state-from is used
+        from pathlib import Path as _P
+        p = _P(prior_state_path)
+        if not p.exists():
+            return empty
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return empty
+
+    tools_map = data.get("tools") if isinstance(data.get("tools"), dict) else {}
+    ccc_index = data.get("ccc_index") if isinstance(data.get("ccc_index"), dict) else {}
+
+    return {
+        "previous_tier": data.get("tier") if data.get("tier") in VALID_TIERS else None,
+        "previous_detection_date": data.get("tier_detected_at"),
+        "previous_tools": tools_map,
+        "previous_ccc_index_status": ccc_index.get("status"),
+        "previous_ccc_indexed_path": ccc_index.get("indexed_path"),
+        "previous_ccc_last_indexed": ccc_index.get("last_indexed"),
+        "previous_ccc_staleness_threshold_hours": ccc_index.get("staleness_threshold_hours"),
+    }
+
+
 def detect(args: argparse.Namespace) -> dict:
     tools: dict = {}
     with ThreadPoolExecutor(max_workers=4) as ex:
@@ -302,6 +346,9 @@ def detect(args: argparse.Namespace) -> dict:
     else:
         require_satisfied = None
 
+    prior = read_prior_state(getattr(args, "prior_state_from", None))
+    deltas = compute_deltas(tools, prior, calculated)
+
     return {
         "tools": tools,
         "tier": {
@@ -320,6 +367,38 @@ def detect(args: argparse.Namespace) -> dict:
             "satisfied": require_satisfied,
             "missing_tools": require_missing,
         },
+        "prior": prior,
+        "deltas": deltas,
+    }
+
+
+def compute_deltas(current_tools: dict, prior: dict, calculated_tier: str) -> dict:
+    """Compute re-run deltas (tools added/removed, tier_changed, ccc_index_is_fresh).
+
+    Removes ~80 tokens of LLM-side set arithmetic + string compare from the
+    interactive banner branch in references/report.md. First-run convention
+    (prior.previous_tier is null): tools_added = currently-available tools,
+    tools_removed = [], tier_changed = false.
+    """
+    tool_keys = ("ast_grep", "gh_cli", "qmd", "ccc")
+    cur_avail = {k: bool((current_tools.get(k) or {}).get("available")) for k in tool_keys}
+
+    prev_tools_raw = prior.get("previous_tools") or {}
+    if prev_tools_raw:
+        prev_avail = {k: bool(prev_tools_raw.get(k, False)) for k in tool_keys}
+        tools_added = sorted(k for k in tool_keys if cur_avail[k] and not prev_avail[k])
+        tools_removed = sorted(k for k in tool_keys if prev_avail[k] and not cur_avail[k])
+    else:
+        tools_added = sorted(k for k in tool_keys if cur_avail[k])
+        tools_removed = []
+
+    prior_tier = prior.get("previous_tier")
+    tier_changed = bool(prior_tier and prior_tier != calculated_tier)
+
+    return {
+        "tools_added": tools_added,
+        "tools_removed": tools_removed,
+        "tier_changed": tier_changed,
     }
 
 
@@ -332,7 +411,7 @@ def main() -> None:
         "--tier-override",
         default=None,
         help="Force a specific tier (must be one of Quick, Forge, Forge+, Deep — case-sensitive)."
-             " Invalid values are flagged in the output rather than rejected, so step-04 can"
+             " Invalid values are flagged in the output rather than rejected, so step 4 can"
              " surface the warning to the user.",
     )
     parser.add_argument(
@@ -348,6 +427,16 @@ def main() -> None:
         default="SNYK_TOKEN",
         help="Environment variable name to check for security-scan availability"
              " (informational only — does NOT affect tier). Default: SNYK_TOKEN.",
+    )
+    parser.add_argument(
+        "--prior-state-from",
+        default=None,
+        help="Optional path to a previous-run forge-tier.yaml. When provided,"
+             " the script reads it and surfaces previous_tier, previous_tools,"
+             " previous_detection_date, and previous_ccc_* fields under the 'prior'"
+             " key — removing YAML-parse responsibility from the step prompt."
+             " Missing file or unreadable YAML returns the first-run shape (all"
+             " null/empty) without erroring.",
     )
     args = parser.parse_args()
 

@@ -117,7 +117,7 @@ class TestEnums:
         assert out["halt_reason"] == "input-invalid"
 
     def test_source_authority_absent_when_not_supplied_for_source(self):
-        # source_authority is intentionally left absent so step-01 §3.3's headless
+        # source_authority is intentionally left absent so step 1 §3.3's headless
         # detection branch (gh api user vs repo owner) can run.
         out = mod.validate({"target_repo": "/x", "skill_name": "foo"})
         assert "source_authority" not in out["normalized"]

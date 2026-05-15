@@ -90,7 +90,7 @@ For each genuine finding, present it in this format:
 |-------|-------|
 | **Severity** | `bug` / `friction` / `gap` |
 | **Workflow** | {workflow name} |
-| **Step File** | `src/skf-{workflow}/steps-c/{step-file-path}` |
+| **Step File** | `src/skf-{workflow}/references/{step-file-path}` |
 | **Section** | {the specific section or instruction number — use a stable section heading slug, not line numbers} |
 | **Fingerprint** | `fp-{7-hex}` — first 7 hex chars of `sha1("{severity}|{workflow}|{step_file}|{section-slug}")` |
 
@@ -223,7 +223,7 @@ After the issue is created, write the fingerprint → issue-url mapping to the s
 {workflow name, e.g. `skf-create-skill`}
 
 ## Step File
-`src/skf-{workflow}/steps-c/step-NN-name.md`
+`src/skf-{workflow}/references/step-NN-name.md`
 
 ## Severity
 `{bug | friction | gap}`
@@ -246,7 +246,7 @@ After the issue is created, write the fingerprint → issue-url mapping to the s
 
 ## Actual
 <!-- ONE sentence. What did you observe instead? -->
-{e.g. No staging path specified, so artifacts were written to `skills/{name}/` and step-07 had to reorganize them.}
+{e.g. No staging path specified, so artifacts were written to `skills/{name}/` and step 7 had to reorganize them.}
 
 ## Evidence
 <!-- Bulleted `file:line` citations. 2-5 bullets. No narrative prose. -->
@@ -255,11 +255,11 @@ After the issue is created, write the fingerprint → issue-url mapping to the s
 
 ## Impact
 <!-- ONE sentence. What did this cost in THIS session? -->
-{e.g. 50KB of artifacts written to the wrong path; step-07 required a file-move pass.}
+{e.g. 50KB of artifacts written to the wrong path; step 7 required a file-move pass.}
 
 ## Suggested Fix
 <!-- ONE recommended change. 1-3 sentences. Do NOT list multiple options here. -->
-{e.g. Add a rule to step-05 naming `_bmad-output/{skill-name}/` as the staging directory used by step-06 validation.}
+{e.g. Add a rule to step 5 naming `_bmad-output/{skill-name}/` as the staging directory used by step 6 validation.}
 
 <details>
 <summary>Alternatives considered (optional)</summary>

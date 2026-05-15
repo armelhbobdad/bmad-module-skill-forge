@@ -1,6 +1,6 @@
 # Version Resolution
 
-Single source of truth for how brief-skill resolves the `version` field of `skill-brief.yaml`. Loaded by step-02 §4b (auto-detect, fallback path only when the language is not script-supported) and step-05 §3 (resolve & write) so both operate on the same precedence rules and invariant. Step-01 §3b references this file in prose for human-readable rationale but does not load it — that step only collects `target_version` and validates its shape with an inline regex.
+Single source of truth for how brief-skill resolves the `version` field of `skill-brief.yaml`. Loaded by step 2 §4b (auto-detect, fallback path only when the language is not script-supported) and step 5 §3 (resolve & write) so both operate on the same precedence rules and invariant. Step-01 §3b references this file in prose for human-readable rationale but does not load it — that step only collects `target_version` and validates its shape with an inline regex.
 
 **Aligned with** `assets/skill-brief-schema.md` "Version Detection" section. If you change one, change the other.
 
@@ -23,7 +23,7 @@ If every step fails or returns a non-semver value, the detected version is `null
 
 The brief's `version` field is resolved from three candidate sources, in priority order:
 
-1. **`target_version`** — collected interactively in step-01 §3b or supplied as a headless argument. When present, this value wins outright. The auto-detection above still runs for informational purposes (the user sees both "Target version" and "Detected version" side-by-side at the analysis summary), but the brief's `version` field is set from `target_version`.
+1. **`target_version`** — collected interactively in step 1 §3b or supplied as a headless argument. When present, this value wins outright. The auto-detection above still runs for informational purposes (the user sees both "Target version" and "Detected version" side-by-side at the analysis summary), but the brief's `version` field is set from `target_version`.
 2. **Auto-detected version** — from §"Detection Algorithm" above. Used when `target_version` is absent.
 3. **Default** — `"1.0.0"` when both of the above fail or yield a non-semver value.
 

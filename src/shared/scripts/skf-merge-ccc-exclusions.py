@@ -5,7 +5,7 @@
 """SKF Merge CCC Exclusions — Set-union merge of SKF exclusion patterns.
 
 Replaces the prose-driven validation + merge logic in `src/skf-setup/
-steps-c/step-01b-ccc-index.md` §2b with one Python invocation. Reads
+references/ccc-index.md` §2b with one Python invocation. Reads
 `.cocoindex_code/settings.yml`, applies PR #248's config-value
 validation rules to reject inputs that would silently produce a
 malformed glob (the empty-value-becomes-`**/`-matches-everything bug
@@ -139,6 +139,29 @@ def _atomic_write(target: Path, content: str) -> None:
 # ─── Config-value validation (PR #248 rules) ────────────────────────────────
 
 
+def resolve_repo_relative(raw_value: str, project_root: Path) -> str:
+    """Normalize a config value like '{project-root}/skills' to 'skills'.
+
+    Accepts:
+      - `{project-root}/<segments>` → returns `<segments>` (verbatim, no globs)
+      - `<segments>` (already relative) → returns as-is, stripped
+      - Other input → returns the stripped value (validate_config_value
+        will catch absolute paths, placeholders, glob-meta).
+
+    Owning the substitution here removes ~150 tokens of "substitute and
+    basename-or-keep-tail" reasoning from every step prompt that invokes
+    this helper.
+    """
+    if raw_value is None:
+        return ""
+    value = str(raw_value).strip()
+    if value.startswith("{project-root}/"):
+        value = value[len("{project-root}/"):]
+    elif value == "{project-root}":
+        value = ""
+    return value
+
+
 def validate_config_value(key: str, raw_value: str) -> tuple[str | None, str | None]:
     """Validate a config value used to interpolate `**/{value}`.
 
@@ -172,9 +195,8 @@ def validate_config_value(key: str, raw_value: str) -> tuple[str | None, str | N
     if any(ch in PLACEHOLDER_CHARS for ch in value):
         return None, (
             f"{key} contains an unresolved template placeholder ({{ or }}); "
-            f"refused for ccc exclusion because the step file is supposed to "
-            f"substitute {{project-root}} and reduce to a basename before "
-            f"invoking the helper — see step-01b §3 in src/skf-setup/steps-c/"
+            f"refused for ccc exclusion because the step is supposed to forward "
+            f"the raw config value and let this script resolve {{project-root}}"
         )
 
     return value, None
@@ -266,6 +288,12 @@ def render_settings_yml(data: dict, original_text: str | None) -> str:
 def cmd_merge(project_root: Path, skills_output_folder: str, forge_data_folder: str) -> None:
     target = project_root / ".cocoindex_code" / "settings.yml"
 
+    # Resolve `{project-root}/...` template strings here so callers can
+    # forward raw config values verbatim. This removes the "substitute and
+    # basename" reasoning from step prose — the script owns the contract.
+    skills_output_folder = resolve_repo_relative(skills_output_folder, project_root)
+    forge_data_folder = resolve_repo_relative(forge_data_folder, project_root)
+
     patterns_to_add, warnings = assemble_patterns(skills_output_folder, forge_data_folder)
     data, existed = read_settings_yml(target)
 
@@ -288,6 +316,7 @@ def cmd_merge(project_root: Path, skills_output_folder: str, forge_data_folder: 
             "patterns_added":           0,
             "patterns_added_list":      [],
             "patterns_already_present": patterns_already_present,
+            "effective_patterns":       sorted(set(patterns_to_add)),
             "written":                  False,
             "warnings":                 warnings,
         })
@@ -303,6 +332,7 @@ def cmd_merge(project_root: Path, skills_output_folder: str, forge_data_folder: 
         "patterns_added":           len(newly_added),
         "patterns_added_list":      newly_added,
         "patterns_already_present": patterns_already_present,
+        "effective_patterns":       sorted(set(patterns_to_add)),
         "written":                  True,
         "warnings":                 warnings,
     })

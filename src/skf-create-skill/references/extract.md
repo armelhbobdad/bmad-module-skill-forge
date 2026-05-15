@@ -1,0 +1,379 @@
+---
+nextStepFile: 'sub/fetch-temporal.md'
+componentExtractionStepFile: 'component-extraction.md'
+extractionPatternsData: 'references/extraction-patterns.md'
+extractionPatternsTracingData: 'references/extraction-patterns-tracing.md'
+tierDegradationRulesData: 'references/tier-degradation-rules.md'
+sourceResolutionData: 'references/source-resolution-protocols.md'
+# Probe installed SKF module path first, src/ dev-checkout fallback. At first
+# use below, resolve `{atomicWriteHelper}` to the first existing path; HALT if
+# neither candidate exists — losing atomic-write guarantees is not an option.
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+---
+
+# Step 3: Extract
+
+## STEP GOAL:
+
+To extract all public exports, function signatures, type definitions, and co-import patterns from the source code using tier-appropriate tools, building a complete extraction inventory with confidence-tiered provenance citations.
+
+## Rules
+
+- Focus only on extracting exports, signatures, types from source code — do not compile SKILL.md
+- Do not write any output files — extraction stays in context
+- Every extracted item must have a provenance citation: `[AST:{file}:L{line}]` or `[SRC:{file}:L{line}]`
+
+## MANDATORY SEQUENCE
+
+**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
+
+### 1. Load Extraction Patterns
+
+Load `{extractionPatternsData}` completely. Identify the strategy for the current forge tier.
+
+### 2. Apply Scope Filters
+
+From the brief, apply scope and pattern filters:
+
+- `scope.type` — determines what to extract (e.g., `full-library`, `specific-modules`, `public-api`, `component-library`, `reference-app`, `docs-only`). Use `reference-app` when the source is a whole app and the skill's value is wiring patterns rather than public exports (embedded-sidecar reference apps, CLI-demo repos, integration-pattern demonstrators). `reference-app` triggers the compile-assembly overrides in `{compileAssemblyRules}` that replace "Key API Summary" with a "Pattern Surface" section and make `stats.exports_documented` semantics pattern-oriented. Do NOT pick `full-library` for reference apps — downstream assembly will remap wiring onto export slots, producing fuzzy counts and an awkward SKILL.md.
+- `scope.include` — file globs to include
+- `scope.exclude` — file globs to exclude
+
+Build the filtered file list from the source tree resolved in step 1. Record the result: "**Filtered file count: {N} files in scope**" — this count is the input to the AST Extraction Protocol decision tree in the extraction patterns data file.
+
+### 2a. Discovered Authoritative Files Protocol
+
+**Skip this section entirely if `source_type: "docs-only"`** — there is no source tree to scan.
+
+Before resolving source access for extraction, scan the source tree for **authoritative AI documentation files** that the brief's scope filters excluded. Project authors increasingly add files specifically written to steer AI assistants (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.), and these files often contain the **canonical** install command, quick-start, or architecture summary — information that nowhere else in the source tree provides. A brief authored from a scan of `src/**` will frequently exclude these files without the author realizing they exist.
+
+This protocol detects such files, prompts the user, and records the decision in the brief so future runs (re-create, update, audit) honor it.
+
+**Heuristic scan list (case-insensitive basename match, any directory depth):**
+
+- `llms.txt`, `llms-full.txt`
+- `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `COPILOT.md`
+- `.cursorrules`, `.windsurfrules`, `.clinerules`
+
+**Procedure:**
+
+1. **Walk the source tree** resolved in step 1 (NOT the filtered file list from §2 — we want files the brief excluded too). Match file basenames against the heuristic list case-insensitively.
+
+2. **Diff against filtered list.** For each match, check whether the path is already present in §2's filtered file list:
+   - **Already in scope (matched by `scope.include`):** **remove the path from the filtered file list** and add it directly to `promoted_docs[]` with `{path, heuristic, size_bytes, line_count, content_hash}`. No prompt — the user or a prior amendment already said it belongs in scope, but authoritative docs must never reach §4 code extraction. This is both the "already promoted from a prior run" case and the "user manually added to scope.include" case.
+   - **Excluded by brief patterns:** this is a **candidate** for the prompt at step 5.
+
+3. **Check existing amendments.** Before prompting, consult `brief.scope.amendments[]` (see `src/skf-brief-skill/assets/skill-brief-schema.md` for the schema). If any amendment entry has `path == candidate.path`, the decision is already recorded:
+   - `action: "promoted"` → the file should already be in `scope.include` (amendments are write-through). No prompt. **Still populate `promoted_docs[]`** for this path — compute its content hash and add a `{path, heuristic, size_bytes, line_count, content_hash}` entry so step 5 §6 writes the `file_entries[]` row. This is the deterministic replay path for re-runs.
+   - `action: "skipped"` → user previously declined. No prompt. Do not add to `promoted_docs[]`. Move on.
+
+4. **Load preview.** For each unresolved candidate, read the first 20 lines of the file. Record the line count and file size in bytes.
+
+5. **Prompt.** Present each candidate to the user:
+
+   ```
+   **Discovered authoritative file excluded by brief scope**
+
+   Path: {relative_path_from_source_root}
+   Size: {line_count} lines, {bytes} bytes
+   Matched heuristic: {basename}
+   Excluded by pattern: {matching_exclude_pattern or "not matched by any scope.include"}
+
+   First 20 lines:
+   {inline preview}
+
+   This file is typically authored for AI assistants and may contain canonical usage information not present elsewhere in the source. How should extraction handle it?
+
+   [P] Promote — include in this extraction run AND amend brief for future runs
+   [S] Skip    — honor the brief exclusion AND record skip in amendments (no re-prompt)
+   [U] Update  — halt this run and return to skf-brief-skill to refine scope
+   ```
+
+6. **Headless mode (`{headless_mode}` is true):** auto-select `[S] Skip` for every candidate. Record amendment entries with `action: "skipped"` and `reason: "headless: no user to prompt"`. A non-interactive run must never silently promote files into scope — the decision requires a human.
+
+7. **Apply decision:**
+
+   - **[P] Promote:**
+     1. **Do NOT add the path to the filtered file list from §2.** Authoritative documentation files are not code — they must not go through the AST extraction pipeline in §4, which would silently produce no exports (ghost entries). Instead, add the path to a new in-context list `promoted_docs[]` with `{path, heuristic, size_bytes, line_count, content_hash}`. Compute the SHA-256 content hash of the file now.
+     2. Append to `brief.scope.include`: add the exact `candidate.path` as a literal glob (no wildcards — the amendment targets this specific file). This write ensures that a re-run of `skf-create-skill` against the amended brief sees the path in scope and skips re-prompting.
+     3. Append to `brief.scope.amendments[]` a new entry with `action: "promoted"`, `path: candidate.path`, `reason: {user-provided one-sentence reason or auto-generated "authoritative AI docs — matched heuristic {basename}"}`, `heuristic: {basename}`, `date: {today ISO}`, `workflow: "skf-create-skill"`.
+     4. **Write the amended brief back to disk immediately** at `{forge_data_folder}/{skill_name}/skill-brief.yaml`. Immediate write (not deferred to step 7) ensures a crashed run still leaves the amendment recorded. Preserve all other brief fields and formatting. **Use atomic write + backup:** before writing, copy the original brief to `{forge_data_folder}/{skill_name}/skill-brief.yaml.bak` (overwriting any prior `.bak` — the most recent pre-amendment snapshot is the useful one). Then pipe the amended YAML through the shared atomic writer so a crash mid-write cannot corrupt the brief:
+
+        ```bash
+        # 1. Backup
+        cp {forge_data_folder}/{skill_name}/skill-brief.yaml \
+           {forge_data_folder}/{skill_name}/skill-brief.yaml.bak
+
+        # 2. Atomic write (stdin → tmp → fsync → rename)
+        cat <<'AMENDED_YAML' | python3 {atomicWriteHelper} write \
+            --target {forge_data_folder}/{skill_name}/skill-brief.yaml
+        {amended brief YAML}
+        AMENDED_YAML
+        ```
+
+        The helper stages into `{brief}.skf-tmp`, fsyncs, then `os.replace()`s — readers never see a half-written brief.
+     5. Display: "**Promoted `{path}`** — tracked as documentation file, amendment recorded."
+
+   - **[S] Skip:**
+     1. Do NOT modify `scope.include` or `scope.exclude`.
+     2. Append to `brief.scope.amendments[]` a new entry with `action: "skipped"`, `path: candidate.path`, `reason: {user-provided reason or auto-generated "user declined promotion at create-skill §2a"}`, `heuristic: {basename}`, `date: {today ISO}`, `workflow: "skf-create-skill"`.
+     3. **Write the amended brief back to disk** so future runs do not re-prompt. Use the same backup-then-atomic-write pattern as the [P] Promote path (copy to `skill-brief.yaml.bak` first, then pipe through `skf-atomic-write.py write --target {brief_path}`).
+     4. Display: "**Skipped `{path}`** — decision recorded in amendments."
+
+   - **[U] Update:**
+     1. Halt the workflow immediately.
+     2. Display: "**Halting create-skill.** Re-run `skf-brief-skill` to refine the scope filters for `{skill_name}`, then re-run `skf-create-skill`. Decisions for previously prompted candidates were already persisted to the brief; the current candidate was not written."
+     3. Exit with status `halted-for-brief-refinement`.
+
+8. **Summary.** After all candidates are resolved (or none were found), display a one-line summary:
+
+   - `"Authoritative files scan: {N} candidates, {P} promoted, {S} skipped, {A} pre-decided from amendments."`
+   - If N = 0: `"Authoritative files scan: no candidates."`
+
+**Record for evidence report:** `authoritative_files_scan: {candidates: N, promoted: P, skipped: S, pre_decided: A, decisions: [{path, action, heuristic, reason}]}` — step 7 includes this in `evidence-report.md`.
+
+**How promoted docs reach the provenance map:**
+
+Promoted docs do NOT flow through §4 code extraction. Instead:
+
+1. §2a populates the in-context `promoted_docs[]` list with content hashes.
+2. **Step-05 §6** (provenance-map assembly) reads `promoted_docs[]` and emits one `file_entries[]` entry per promoted doc with `file_type: "doc"`, `extraction_method: "promoted-authoritative"`, `confidence: "T1-low"`, and the pre-computed `content_hash`.
+3. **Step-07 §2** does NOT copy doc files into the skill package (unlike scripts and assets). The source file remains at its original path; only the provenance map tracks it. Future audit and update workflows compare against this tracking entry via content hash — no file copy is required because the intent is drift detection on the *source*, not bundling documentation into the skill output.
+
+**Re-running `skf-create-skill`** reads the amended brief. Files with `action: "promoted"` amendments already appear in `scope.include`, but §2a still runs — it detects the file is in scope AND has an existing amendment, and takes the "pre-decided" silent path. The `promoted_docs[]` list is rebuilt on each run by scanning amendments with `action: "promoted"` (this is the deterministic replay path).
+
+**Downstream workflow consumption** (zero code changes required):
+
+- **`skf-update-skill`** reads `provenance-map.json`. Promoted docs appear as `file_entries[]` entries. Update-skill Category D (script/asset file changes) iterates `file_entries` and compares content hashes — this works identically for `file_type: "doc"` entries, giving drift detection for free.
+- **`skf-audit-skill`** (after the bounded re-index fix) scans files from `provenance-map.json`. The re-index builds its list from `entries[].source_file ∪ file_entries[].source_file`, so promoted doc paths are naturally included in the audit scan.
+
+The brief is the single source of truth for authored scope intent. The provenance map is the single source of truth for extracted state. `scope.amendments[]` is the bridge that records when those two intentionally diverged. `promoted_docs[]` is the in-memory handoff from §2a to step 5 §6; it is not persisted — the persisted form is the `file_entries[]` list in provenance-map.json.
+
+### 2b. Resolve Source Access
+
+**If `source_type: "docs-only"`:** skip §2b entirely — there is no source to resolve. Proceed directly to §2c (component library delegation, which is itself skipped for docs-only) and then §3 (Check for Docs-Only Mode). Tag resolution, remote/workspace cloning, source-commit capture, version reconciliation, and deferred CCC discovery all require a source tree and have nothing to do in docs-only mode.
+
+Load `{sourceResolutionData}` completely. Follow these protocols in order:
+1. **Tag Resolution** — run the explicit variant when `brief.target_version` is set, or the implicit variant when only `brief.version` is set (Forge/Deep remote sources only). This sets `source_ref` before any clone happens. Quick tier remote sources skip this.
+2. **Remote Source Resolution** — workspace or ephemeral clone, cleanup (Forge/Deep tiers).
+3. **Source Commit Capture** — all tiers.
+4. **Version Reconciliation** — all tiers.
+
+This ensures source code is accessible regardless of which extraction path is taken below (standard, component-library, or docs-only).
+
+**Deferred CCC Discovery (Forge+ and Deep — remote sources only):**
+
+If ALL of these conditions are true:
+- `tools.ccc` is true in forge-tier.yaml
+- `{ccc_discovery}` is empty (step 2b deferred because source was remote)
+- `remote_clone_path` is set (source resolution succeeded for a remote URL)
+- Tier is Forge+ or Deep
+
+Then run CCC indexing and discovery on the resolved clone (workspace or ephemeral):
+
+1. **Check existing index:** If `{remote_clone_path}/.cocoindex_code/` already exists (workspace repo with a persisted CCC index), skip steps 2-3 and proceed directly to step 4 using `ccc search --refresh` instead of plain `ccc search`. The `--refresh` flag tells CCC to re-index if files have changed since the last index, then search. This is the fast path for workspace repos that have been indexed before. **Note:** If `--refresh` is not supported by the installed ccc version, omit the flag — ccc will use the existing index.
+
+2. **Initialize index (first time only):** Run `cd {remote_clone_path} && ccc init`. If init fails, set `{ccc_discovery: []}` and continue — this is not an error.
+
+   **Apply standard exclusions:** After `ccc init`, apply generic build/dependency exclusions to `{remote_clone_path}/.cocoindex_code/settings.yml`. These are standard artifact patterns, NOT SKF-specific paths (the workspace checkout is a source repo, not an SKF project):
+
+   ```
+   node_modules/, dist/, build/, .git/, vendor/, __pycache__/, .cache/, .next/, .nuxt/, target/, out/, .venv/, .tox/
+   ```
+
+   Read `settings.yml`, append any patterns not already present to the `exclude_patterns` array, write back. **Reuse check:** if an existing `.cocoindex_code/settings.yml` was already present (workspace hit), read its `exclude_patterns` first and diff against the standard-exclusion list above. If ANY standard entry is missing from the existing list, append only the missing entries (preserving any user-added patterns) AND force a re-index by running `ccc index --force` (or the equivalent rebuild flag). If every standard entry is already present, skip the write and skip the forced re-index — the existing index is valid. Record `ccc_exclusions_augmented: {count}` in context for the evidence report.
+
+   **Note:** Brief-specific `include_patterns` and `exclude_patterns` are NOT written to `settings.yml`. The CCC index is general-purpose — it indexes everything (minus standard artifacts). Brief-specific filtering happens at search result time, not index time. This allows a single workspace CCC index to serve multiple briefs with different scope filters.
+
+3. **Index the clone:** Run `cd {remote_clone_path} && ccc index` with an extended timeout or in background mode. Indexing can take several minutes on large codebases (1000+ files). Use `ccc status` to verify completion — check that `Chunks` and `Files` counts are non-zero. If indexing fails, set `{ccc_discovery: []}` and continue — this is not an error.
+
+4. **Construct semantic query:** Build from brief data: `"{brief.name} {brief.scope}"`. Truncate to 80 characters — keep the full skill name and trim `brief.scope` from the end. If `brief.scope` is very short (< 10 chars), append terms from `brief.description` to fill the remaining space.
+
+5. **Execute search:** Run `ccc_bridge.search(query, remote_clone_path, top_k=20)`:
+   - **If existing index was found (step 1):** Use `cd {remote_clone_path} && ccc search --refresh --limit 20 "{query}"` — this re-indexes if files changed, then searches. If `--refresh` is not supported by the installed ccc version, omit the flag — ccc will use the existing index.
+   - **Otherwise:** Use `cd {remote_clone_path} && ccc search --limit 20 "{query}"` after indexing in step 3.
+   - **Tool resolution:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or CLI. Note: `ccc search` operates on the index in the current working directory. See `knowledge/tool-resolution.md`.
+
+6. **Store results:** If search succeeds, store as `{ccc_discovery: [{file, score, snippet}]}`. Display: "**CCC semantic discovery: {N} relevant regions identified across {M} unique files.**"
+
+   If `remote_clone_type == "workspace"` and an existing index was reused, append: "(reused workspace index)"
+
+7. **On failure:** Set `{ccc_discovery: []}`. Display: "CCC discovery unavailable — proceeding with standard extraction." Do NOT halt.
+
+**CCC Discovery Integration (Forge+ and Deep with ccc only):**
+
+If `{ccc_discovery}` is in context and non-empty (populated by step 2b or deferred discovery above):
+- Sort the filtered file list by CCC relevance score: files appearing in `{ccc_discovery}` results move to the front of the extraction queue, sorted by their relevance score descending
+- Files NOT in CCC results remain in the queue after ranked files — they are not excluded, only deprioritized
+- Display: "**CCC discovery: {N} files pre-ranked by semantic relevance** — extraction will prioritize these first."
+
+If `{ccc_discovery}` is empty or not in context: proceed with existing file ordering (no change to current behavior).
+
+### 2c. Component Library Delegation
+
+**Skip this section if `source_type` is `"docs-only"` — docs-only skills do not use component extraction.**
+
+**If `scope.type: "component-library"` in the brief:**
+
+"**Component library detected.** Delegating to specialized extraction strategy for registry-first, props-focused extraction."
+
+Load and execute `{componentExtractionStepFile}` completely. When that step completes, it returns control here. Resume at section 5 (Build Extraction Inventory) with the enriched extraction data and `component_catalog[]` from the component extraction step.
+
+**Otherwise:** Continue with standard extraction below.
+
+### 3. Check for Docs-Only Mode
+
+**If `source_type: "docs-only"` in the brief data:**
+
+"**Docs-only mode:** No source code to extract. Documentation content will be fetched from `doc_urls` in step 3c."
+
+Build an empty extraction inventory with zero exports. **Set `top_exports = []` explicitly in context** — downstream steps (notably §3b targeted searches and step 4 enrichment fan-out) must see an empty list rather than an undefined/missing field so they can short-circuit deterministically. Set `extraction_mode: "docs-only"` in context. Auto-proceed through Gate 2 (section 6) — display the empty inventory and note that T3 content will be produced by the doc-fetcher step.
+
+**If `source_type: "source"` (default):** Continue with extraction below.
+
+### 4. Execute Tier-Dependent Extraction
+
+Source resolution, version reconciliation, and CCC discovery were completed in section 2b. Proceed with the tier-specific extraction strategy below.
+
+**Quick Tier (No AST tools):**
+
+1. Use `gh_bridge.list_tree(owner, repo, branch)` to map source structure (if remote)
+2. Identify entry points: index files, main exports, public modules
+3. Use `gh_bridge.read_file(owner, repo, path)` to read each entry point
+4. Extract from source text: exported function names, parameter lists, return types
+5. Infer types from JSDoc, docstrings, type annotations
+6. Confidence: All results T1-low — `[SRC:{file}:L{line}]`
+
+**Tool resolution for gh_bridge:** Use `gh api repos/{owner}/{repo}/git/trees/{branch}?recursive=1` for list_tree, `gh api repos/{owner}/{repo}/contents/{path}` for read_file. If source is local, use direct file listing/reading instead. See `knowledge/tool-resolution.md`.
+
+**Forge/Forge+/Deep Tier (AST available):**
+
+⚠️ **CRITICAL:** Before executing AST extraction, load the **AST Extraction Protocol** section from `{extractionPatternsData}`. Follow the decision tree based on the file count from step 1's file tree. This determines whether to use the MCP tool, scoped YAML rules, or CLI streaming. Never use `ast-grep --json` (without `=stream`) — it loads the entire result set into memory and will fail on large codebases. Always use the explicit `run` subcommand with streaming: `ast-grep run -p '{pattern}' --json=stream`.
+
+1. Detect language from brief or file extensions
+2. Follow the AST Extraction Protocol decision tree from `{extractionPatternsData}`:
+   - ≤100 files: use `find_code()` MCP tool with `max_results` and `output_format="text"`
+   - ≤500 files: use `find_code_by_rule()` MCP tool with scoped YAML rules
+   - >500 files: use CLI `--json=stream` with line-by-line streaming Python — **CRITICAL:** inject the brief's `scope.exclude` patterns into the Python filter's `EXCLUDES` list (use `[]` if absent) so excluded files are discarded before consuming `head -N` slots (see template in extraction patterns data)
+3. For each export: extract function name, full signature, parameter types, return type, line number
+4. Use `ast_bridge.detect_co_imports(path, libraries[])` to find integration points
+5. Build extraction rules YAML data for reproducibility
+6. Confidence: All results T1 — `[AST:{file}:L{line}]`
+
+**Tool resolution for ast_bridge:** Use ast-grep MCP tools (`mcp__ast-grep__find_code`, `mcp__ast-grep__find_code_by_rule`) as specified in the AST Extraction Protocol above, or `ast-grep` CLI. For `detect_co_imports`, use `find_code_by_rule` with a co-import YAML rule scoped to the libraries list. See `knowledge/tool-resolution.md`.
+
+**If AST tool is unavailable at Forge/Deep tier** (see `{tierDegradationRulesData}` for full rules):
+
+⚠️ **Warn the user explicitly:** "AST tools are unavailable — extraction will use source reading (T1-low). Run [SF] Setup Forge to detect and configure AST tools for T1 confidence."
+
+Degrade to Quick tier extraction. Note the degradation reason in context for the evidence report.
+
+**For each file — handle failures gracefully:**
+
+- If a file cannot be read: log warning, skip file, continue with remaining files
+- If AST parsing fails on a file: fall back to source reading for that file, continue
+
+**Re-export tracing (Forge/Deep only):** After the initial AST scan, check for unresolved public exports from entry points (`__init__.py`, `index.ts`, `lib.rs`). Follow the **Re-Export Tracing** protocol in `{extractionPatternsTracingData}` to resolve them to their definition files.
+
+### 4b. Validate Exports Against Package Entry Point
+
+After extraction, validate the collected exports against the package's actual public API surface:
+
+- **Python:** Read `{source_root}/__init__.py` — extract imports to build the public export list. Compare against AST results:
+  - In AST but not entry point → mark as internal (exclude from `metadata.json` exports)
+  - In entry point but not AST → flag as extraction gap (trace via re-export protocol)
+- **TypeScript/JS:** Read `index.ts`/`index.js` — same comparison logic.
+- **Rust:** Read `lib.rs` — extract `pub use` items. Same logic. **Go:** Scan for exported (capitalized) identifiers.
+
+Use the entry point as the authoritative source for `metadata.json`'s `exports[]` array.
+
+**If entry point is missing or unreadable:** Skip validation with a warning.
+
+### 4c. Detect and Inventory Scripts/Assets
+
+**Default resolution:** If `scripts_intent` is absent from the brief, treat as `"detect"` (auto-detection). If `assets_intent` is absent, treat as `"detect"`. Only an explicit `"none"` value disables detection.
+
+**If `scripts_intent` is `"none"` AND `assets_intent` is `"none"`:** Skip this section entirely. **If only one is `"none"`:** Skip that category only, proceed with the other.
+
+After export extraction, scan the source for scripts and assets using the detection patterns in `{extractionPatternsTracingData}`:
+
+1. Scan source tree for directories/files matching detection heuristics (scripts/, bin/, tools/, cli/ for scripts; assets/, templates/, schemas/, configs/, examples/ for assets)
+2. For each candidate: verify existence, check size (flag >500 lines), exclude binaries, compute SHA-256 hash
+3. Extract purpose from header comments, shebang, README references, or schema fields. Record: file_path, purpose, source_path, language/type, content_hash, confidence (T1-low)
+
+Add results to `scripts_inventory[]` and `assets_inventory[]` alongside the existing export inventory.
+
+### 5. Build Extraction Inventory
+
+Compile all extracted data into a structured inventory:
+
+**Per-export entry:**
+- Function/type name
+- Full signature with types
+- Parameters (name, type, required/optional)
+- Return type
+- Source file and line number
+- Provenance citation (`[AST:...]` or `[SRC:...]`)
+- Confidence tier (T1 or T1-low)
+
+**Aggregate counts:**
+- Total files scanned
+- Total exports found
+- Exports by type (functions, types/interfaces, constants)
+- Confidence breakdown (T1 count, T1-low count)
+- `top_exports[]` — sorted list of the top 10-20 public API function names by prominence (import frequency or documentation position). This named field is consumed by step 3b for targeted temporal fetching and cache fingerprinting.
+
+**Script/asset counts (when detected):**
+- `scripts_found`: count of scripts detected
+- `assets_found`: count of assets detected
+
+**Co-import patterns (Forge/Deep only):**
+- Libraries commonly imported alongside extracted exports
+- Integration point suggestions
+
+### 6. Present Extraction Summary (Gate 2)
+
+**Docs-only note:** If `docs_only_mode` is active (`extraction_mode: "docs-only"`), display a brief note explaining that T3 content will be added by the doc-fetcher step (step 3c), then auto-proceed past this gate. Example: "Docs-only mode: extraction inventory is empty. Documentation content will be fetched from `doc_urls` in step 3c. Auto-proceeding."
+
+Display the extraction findings for user confirmation:
+
+"**Extraction complete.**
+
+**Files scanned:** {file_count}
+**Exports found:** {export_count} ({function_count} functions, {type_count} types, {constant_count} constants)
+**Confidence:** {t1_count} T1 (AST-verified), {t1_low_count} T1-low (source reading)
+**Tier used:** {tier}
+**Co-import patterns:** {pattern_count} detected
+{if scripts_found > 0: **Scripts detected:** {scripts_found}}
+{if assets_found > 0: **Assets detected:** {assets_found}}
+
+**Top exports:**
+{list top 10 exports with signatures}
+
+{warnings if any files skipped or degraded}
+
+Review the extraction summary above. Select an option to continue."
+
+### 7. Present MENU OPTIONS
+
+Display: "**Extraction Summary — Select an Option:** [C] Continue to compilation"
+
+#### EXECUTION RULES:
+
+- IF docs-only mode (`extraction_mode: "docs-only"`): Auto-proceed immediately to `{nextStepFile}` — no user interaction required
+- OTHERWISE: ALWAYS halt and wait for user input after presenting the extraction summary
+- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-approve extraction summary"
+- This is Gate 2 — user must confirm before compilation proceeds (except docs-only mode)
+- User may ask questions about the extraction results before continuing
+
+#### Menu Handling Logic:
+
+- IF C: Confirm extraction inventory is complete. Immediately load, read entire file, then execute `{nextStepFile}`
+- IF Any other comments or queries: answer questions about the extraction results, then redisplay the menu
+
+## CRITICAL STEP COMPLETION NOTE
+
+ONLY WHEN the extraction inventory is built with provenance citations and the user has confirmed the extraction summary will you proceed to load `{nextStepFile}` for temporal context fetching.
+

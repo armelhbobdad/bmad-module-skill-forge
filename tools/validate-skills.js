@@ -474,7 +474,7 @@ function validateSkill(skillDir) {
   // --- STEP-01: step filename format ---
   // --- STEP-06: step frontmatter no name/description ---
   // --- STEP-07: step count ---
-  // Check steps/ or steps-c/ directory
+  // Check steps/ or references/ directory
   if (fs.existsSync(stepsDir) && fs.statSync(stepsDir).isDirectory()) {
     const stepDirName = path.basename(stepsDir);
     const stepFiles = fs.readdirSync(stepsDir).filter((f) => f.endsWith('.md'));

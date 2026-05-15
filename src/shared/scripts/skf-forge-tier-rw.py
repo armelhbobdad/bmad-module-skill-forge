@@ -4,11 +4,11 @@
 # ///
 """SKF Forge Tier RW — Read/write primitives for forger-sidecar YAML files.
 
-Replaces the prose-driven YAML emission in `src/skf-setup/steps-c/
-step-02-write-config.md` §1-§3 (and the prose-driven cleanup logic in
-step-03 §5/§5b) with one Python invocation. The script is the source
+Replaces the prose-driven YAML emission in `src/skf-setup/references/
+write-config.md` §1-§3 (and the prose-driven cleanup logic in
+step 3 §5/§5b) with one Python invocation. The script is the source
 of truth for the on-disk forge-tier.yaml schema (matching the
-canonical template at step-02-write-config.md:24-58) and guarantees
+canonical template at write-config.md:24-58) and guarantees
 that registry arrays are PRESERVED across rewrites — losing
 `qmd_collections` or `ccc_index_registry` would break every
 downstream skill (skf-create-skill, skf-audit-skill, skf-update-skill,
@@ -37,7 +37,7 @@ Subcommands:
                 the same `name` is replaced, otherwise appended). All
                 other forge-tier state (tools / tier / ccc_index /
                 ccc_index_registry / other qmd_collections entries) is
-                preserved verbatim. Used by skf-brief-skill step-05 §5
+                preserved verbatim. Used by skf-brief-skill step 5 §5
                 and skf-create-skill to register Deep-tier QMD
                 collections without re-rendering the whole file in
                 prose.
@@ -61,7 +61,7 @@ exit non-zero (1 for user error, 2 for I/O failure).
 
 Cross-platform: pure stdlib + PyYAML. Atomic writes via temp + rename
 mirror skf-atomic-write.py's pattern. Concurrent access requires
-external `flock` coordination — see step-07 of skf-create-skill for
+external `flock` coordination — see step 7 of skf-create-skill for
 the precedent.
 
 CLI — invoke via `uv run` so the PEP 723 PyYAML dependency declared
@@ -177,7 +177,7 @@ def render_forge_tier_yaml(payload: dict) -> str:
     """Render the canonical forge-tier.yaml from a context payload.
 
     Preserves the human-readable section comments from the template at
-    step-02-write-config.md:24-58. Sections are emitted in a fixed order
+    write-config.md:24-58. Sections are emitted in a fixed order
     so re-runs against unchanged inputs produce byte-identical output.
     """
     tools = payload["tools"]
@@ -187,7 +187,7 @@ def render_forge_tier_yaml(payload: dict) -> str:
     ccc_index_registry = payload.get("ccc_index_registry", [])
     qmd_collections = payload.get("qmd_collections", [])
 
-    # Render `tools` block in the canonical key order (matches step-02 template).
+    # Render `tools` block in the canonical key order (matches step 2 template).
     tools_ordered = {
         "ast_grep": tools["ast_grep"],
         "gh_cli": tools["gh_cli"],
@@ -219,7 +219,7 @@ def render_forge_tier_yaml(payload: dict) -> str:
         f"tier: {tier}",
         f"tier_detected_at: {_yaml_scalar(tier_detected_at)}",
         "",
-        "# CCC semantic index state (managed by setup step-01b and extraction workflows)",
+        "# CCC semantic index state (managed by setup step 1b and extraction workflows)",
         _yaml_block({"ccc_index": ccc_ordered}),
         "",
         "# CCC index registry (tracks which source paths have been indexed for skill workflows)",
@@ -242,13 +242,13 @@ def _yaml_scalar(value) -> str:
 def _merge_preserved_fields(payload: dict, existing: dict | None) -> dict:
     """Inject preserved fields from the existing file into the new payload.
 
-    Three preservation rules (per step-02 §1 "Note on re-runs"):
+    Three preservation rules (per step 2 §1 "Note on re-runs"):
     - `qmd_collections` array — preserved entirely from existing.
     - `ccc_index_registry` array — preserved entirely from existing.
     - `ccc_index.staleness_threshold_hours` scalar — preserved if user set
       a non-default value; else uses payload value or DEFAULT.
     Note: `ccc_index.exclude_patterns` is NOT preserved (rewritten fresh
-    by step-01b on every run, per the explicit step-02 contract).
+    by step 1b on every run, per the explicit step 2 contract).
     """
     if existing is None:
         return payload
