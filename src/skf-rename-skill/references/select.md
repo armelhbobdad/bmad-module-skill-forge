@@ -231,6 +231,8 @@ Proceed? [Y/N]
 
 Wait for explicit user response.
 
+**If `--dry-run` was passed**: skip the Y/N prompt entirely. Release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`), display "**[DRY RUN] No changes were made — preview above shows what would be renamed.**", and emit the success envelope per SKILL.md "Result Contract (Headless)" with `status: "dry-run"`, the resolved `old_name`, `new_name`, and `versions_renamed: {affected_versions}`, then HALT (exit code 0). No copy, no manifest re-key, no delete.
+
 - **If `Y`** → proceed to section 9
 - **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`), display "**Cancelled.** No changes were made.", HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with the resolved `old_name` and `new_name`.
 - **Any other input** → re-display the confirmation and ask again

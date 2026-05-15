@@ -16,6 +16,8 @@ Drops a specific skill version or an entire skill, either as a soft deprecation 
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
+- **Module-level path exception:** paths starting with `knowledge/` or `shared/` resolve from the SKF module root, not the skill root — install layout puts both at `{project-root}/_bmad/skf/`. The `versionPathsKnowledge: 'knowledge/version-paths.md'` frontmatter scalar in stage files uses this convention; same for `shared/health-check.md` chained from the terminal step.
+- **Cross-skill data coupling:** `references/execute.md` reads `skf-export-skill/assets/managed-section-format.md` for the IDE→context-file mapping table and the four-case (Create / Append / Regenerate / Malformed) logic when rebuilding context files. Drop-skill assumes that asset is present at install time and that its semantics are stable across the two skills' versions.
 
 ## Role
 
@@ -49,7 +51,7 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | skill_name [required], mode (deprecate/purge) [required], version (all/specific) [required] |
-| **Flags** | `--headless` / `-H` (auto-resolve all gates) |
+| **Flags** | `--headless` / `-H` (auto-resolve all gates); `--dry-run` (run selection + display the §10 confirmation block, then exit with `status="dry-run"` — no manifest mutation, no file deletion). Useful for "show me what this would touch before I commit." |
 | **Gates** | step 1: Input Gate [use args], Confirm Gate [Y] |
 | **Outputs** | Updated manifest, rebuilt context files, (purge: deleted directories), `drop-skill-result-{timestamp}.json` and `drop-skill-result-latest.json` |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. When `forbid_purge_in_headless` is `"true"` in `customize.toml` AND `drop_mode = "purge"`, On-Activation §4 HALTs with exit code 6 (`halt_reason: "headless-purge-forbidden"`) before any work begins. |
@@ -73,10 +75,10 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 When `{headless_mode}` is true, step 3 emits a single-line JSON envelope on **stdout** before chaining to step 4, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
 
 ```
-SKF_DROP_SKILL_RESULT_JSON: {"status":"success|error","skill":"…|null","drop_mode":"…|null","versions_affected":[],"files_deleted":[],"manifest_updated":false,"exit_code":0,"halt_reason":null}
+SKF_DROP_SKILL_RESULT_JSON: {"status":"success|error|dry-run","skill":"…|null","drop_mode":"…|null","versions_affected":[],"files_deleted":[],"manifest_updated":false,"exit_code":0,"halt_reason":null}
 ```
 
-`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"manifest-corrupt"`, `"nothing-to-drop"`, `"active-version-guard-refused"`, `"headless-purge-forbidden"`, `"manifest-write-failed"`, `"context-rebuild-failed"`, `"delete-failed"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above.
+`status` is `"success"` on the terminal happy path, `"dry-run"` when `--dry-run` was set and the workflow exited before §11 stores decisions, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"manifest-corrupt"`, `"nothing-to-drop"`, `"active-version-guard-refused"`, `"headless-purge-forbidden"`, `"manifest-write-failed"`, `"context-rebuild-failed"`, `"delete-failed"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above.
 
 ## On Activation
 

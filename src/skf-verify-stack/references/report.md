@@ -68,35 +68,7 @@ Verify all expected sections are present in order per `{feasibilitySchemaRef}`: 
 
 ### 3. Present Detailed Findings
 
-Walk through each section briefly, focusing on items that need attention:
-
-"**Coverage Highlights:**
-{IF 100% coverage:}
-- All referenced technologies have a matching skill
-
-{IF any missing:}
-- **Missing:** {list of missing technology names}
-
-**Integration Verdicts:**
-{IF all Verified/Plausible:}
-- All integration pairs verified or plausible — no blockers
-
-{IF any Risky:}
-- **Risky:** {list of risky pairs with brief concern}
-
-{IF any Blocked:}
-- **Blocked:** {list of blocked pairs with brief incompatibility}
-
-{IF requirements pass completed:}
-**Requirements Gaps:**
-{IF all Fulfilled:}
-- All stated requirements addressed by the stack
-
-{IF any Partially Fulfilled:}
-- **Partially Fulfilled:** {list of partially covered requirements with gap description}
-
-{IF any Not Addressed:}
-- **Not Addressed:** {list of unaddressed requirements}"
+Walk through the highlights — coverage gaps, risky/blocked integrations, and partial/unaddressed requirements (when a PRD pass ran). Cite specific items by name; cap at the top ~5 per category to keep the summary scannable. The full detail is in `{outputFile}` for the user to inspect via the [R] Review menu (§5).
 
 ### 4. Present Next Steps
 
@@ -164,7 +136,4 @@ Re-run **[VS] Verify Stack** anytime after making changes to your skills or arch
 - R may be selected multiple times — always walk through the full report
 - X triggers the health check, which is the true workflow exit
 
-## CRITICAL STEP COMPLETION NOTE
-
-When the user selects X, this step chains to the local health-check step (`{nextStepFile}`), which in turn delegates to `shared/health-check.md`. After the health check completes, the verify-stack workflow is fully done. The feasibility report at `{outputFile}` (and its stable `-latest.md` copy) contains the full analysis under the fixed headings: Executive Summary, Coverage Analysis, Integration Verdicts, Recommendations, Evidence Sources.
 
