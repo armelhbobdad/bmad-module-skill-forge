@@ -121,8 +121,9 @@ class TestHeuristicScan:
         _write(tmp_path / "dist" / "AGENTS.md", "x")
         _write(tmp_path / "src" / "llms.txt", "x")
         found = list(mod.iter_auth_doc_files(tmp_path))
-        # only the src/ one is kept
-        names = {str(p.relative_to(tmp_path)) for p, _ in found}
+        # only the src/ one is kept; as_posix() so the assertion holds
+        # on Windows where str(Path) uses backslash separators
+        names = {p.relative_to(tmp_path).as_posix() for p, _ in found}
         assert names == {"src/llms.txt"}
 
 
