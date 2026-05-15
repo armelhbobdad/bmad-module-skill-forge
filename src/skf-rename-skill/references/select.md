@@ -3,6 +3,8 @@ nextStepFile: 'execute.md'
 versionPathsKnowledge: 'knowledge/version-paths.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 1: Select Rename Target
 
 ## STEP GOAL:
@@ -40,7 +42,7 @@ Load `{skills_output_folder}/.export-manifest.json` if it exists.
 
 **If the file exists with entries:** Parse JSON and verify `schema_version` is `"2"`. If the manifest is v1 (no `schema_version` field), note this but continue — treat every entry as having a single active version derived from its current state. Store `manifest_exists = true`.
 
-**Hard halt condition:** If the file exists but is malformed (not valid JSON), halt with: "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json` — fix or remove the file before renaming."
+**Hard halt condition:** If the file exists but is malformed (not valid JSON), halt with: "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json` — fix or remove the file before renaming." HALT (exit code 3, `halt_reason: "manifest-corrupt"`). In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with `old_name: null`, `new_name: null`.
 
 ### 3. List Available Skills
 
@@ -54,7 +56,7 @@ For each skill in the manifest's `exports` (if `manifest_exists` and entries exi
 
 Also scan `{skills_output_folder}/` for any top-level directories that are NOT present in the manifest's `exports` object. Record these as "(not in manifest)" — they represent draft or orphaned skills that the rename workflow can also handle. When the manifest is missing or empty, every on-disk skill appears in this category.
 
-**If the combined list is empty** (no manifest entries AND no on-disk skill directories): halt with "**Rename Skill — nothing to rename.** No skills found in `{skills_output_folder}/`. Run `[CS] Create Skill` first."
+**If the combined list is empty** (no manifest entries AND no on-disk skill directories): halt with "**Rename Skill — nothing to rename.** No skills found in `{skills_output_folder}/`. Run `[CS] Create Skill` first." HALT (exit code 3, `halt_reason: "nothing-to-rename"`). In headless mode, emit the error envelope with `old_name: null`, `new_name: null`.
 
 Display the combined list:
 
@@ -70,20 +72,55 @@ Available skills:
 ### 4. Ask Which Skill
 
 "**Which skill would you like to rename?**
-Enter the skill name or its number from the list above."
+Enter the skill name or its number from the list above, or `cancel` / `exit` / `:q` to abort."
 
-Wait for user input. Accept either the numeric index or the skill name (exact match). **GATE [default: use args]** — If `{headless_mode}` and old skill name was provided as argument: select that skill and auto-proceed. If not provided, HALT: "headless mode requires old_name argument."
+Wait for user input. Accept either the numeric index or the skill name (exact match). **GATE [default: use args]** — If `{headless_mode}` and old skill name was provided as argument: select that skill and auto-proceed. If not provided, HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode requires old_name argument." In headless, emit the error envelope.
 
-**If the user's input does not match any listed skill:** Re-display the list and ask again.
+- If the user enters `cancel`, `exit`, `[X]`, `q`, or `:q`: Display "Cancelled — no changes were made." and HALT (exit code 6, `halt_reason: "user-cancelled"`).
+- **If the user's input does not match any listed skill:** Re-display the list and ask again.
 
 Store the selection as `old_name`.
+
+### 4b. Concurrency Guard
+
+Two concurrent rename runs against the same `old_name` would corrupt state mid-copy: one would `rm -rf` the other's freshly-staged new directories, or both would race on the manifest re-key. The lock below catches the common accidental-double-invoke case. It is a **best-effort PID-file guard**, not a held flock — the LLM-driven workflow spans many turn boundaries and no single bash invocation can hold flock across them.
+
+**Mirror this exactly so the guard works the same way every run:**
+
+```bash
+LOCK={forge_data_folder}/{old_name}/.skf-rename.lock
+mkdir -p "$(dirname "$LOCK")"
+
+if [ -f "$LOCK" ]; then
+  HELD_PID=$(head -n1 "$LOCK" 2>/dev/null | awk '{print $1}')
+  if [ -n "$HELD_PID" ] && kill -0 "$HELD_PID" 2>/dev/null; then
+    echo "skf-rename-skill: another rename is in progress (pid=$HELD_PID, started $(awk 'NR==2' "$LOCK" 2>/dev/null))"
+    exit 1
+  fi
+  echo "skf-rename-skill: clearing stale lock from pid=$HELD_PID"
+fi
+
+printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK"
+```
+
+**Halt protocol on live-PID collision:**
+
+- Display: `"**Another rename is in progress.** The skill {old_name} is locked by pid={HELD_PID} (started {timestamp from line 2 of the lock file}). Wait for that run to finish, or — if you know that pid is no longer running — delete {LOCK} manually and re-run."`
+- HALT (exit code 5, `halt_reason: "halted-for-concurrent-run"`). In `{headless_mode}`, emit the error envelope per SKILL.md "Result Contract (Headless)" with `old_name: "{old_name}"`, `new_name: null`. **No `headless_decisions[]` entry** — this is a hard halt before any gate fires.
+
+**Release contract:**
+
+- The terminal health-check step (step 4) deletes the lock as its final action.
+- **Every halted-for-\* path in this workflow must delete the lock before exiting** — otherwise the next attempt would see a stale lock from this run. The lock-release is a single `rm -f "$LOCK"` per halt site.
 
 ### 5. Ask for New Name
 
 "**What is the new name for this skill?**
-The new name must be kebab-case: lowercase alphanumeric with hyphens, 1-64 characters, matching the regex `^[a-z][a-z0-9-]*[a-z0-9]$` (single-character names may be a single lowercase letter or digit)."
+The new name must be kebab-case: lowercase alphanumeric with hyphens, 1-64 characters, matching the regex `^[a-z][a-z0-9-]*[a-z0-9]$` (single-character names may be a single lowercase letter or digit). Or type `cancel` / `exit` / `:q` to abort."
 
-Wait for user input. Trim whitespace. **GATE [default: use args]** — If `{headless_mode}` and new_name was provided as argument: use it and auto-proceed through validation. If not provided, HALT: "headless mode requires new_name argument."
+Wait for user input. Trim whitespace. **GATE [default: use args]** — If `{headless_mode}` and new_name was provided as argument: use it and auto-proceed through validation. If not provided, release the lock and HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode requires new_name argument." In headless, emit the error envelope.
+
+- If the user enters `cancel`, `exit`, `[X]`, `q`, or `:q`: release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`), display "Cancelled — no changes were made.", and HALT (exit code 6, `halt_reason: "user-cancelled"`).
 
 Apply the following validations in order:
 
@@ -106,7 +143,7 @@ Apply the following validations in order:
 
    If any collision is detected:
    "**Name collision.** `{new-name}` already exists at: {list the colliding locations}. Pick a different name."
-   Re-ask.
+   Re-ask. In headless mode, instead of re-asking, release the lock and HALT (exit code 5, `halt_reason: "name-collision"`) and emit the error envelope.
 
 Only after all four validations pass, store the input as `new_name`.
 
@@ -129,11 +166,13 @@ registry will still get the original name. Rename is a LOCAL operation only — 
 does not rename anything at the registry.
 ```
 
-Ask: "**Continue anyway?** [Y/N]"
+Ask: "**Continue anyway?** [Y/N] (or `cancel` / `exit` / `:q` to abort)"
 
 Wait for response.
-- **If `N`** or anything other than `Y` → "**Cancelled.** No changes were made." HALT the workflow.
-- **If `Y`** → proceed.
+- **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`), display "**Cancelled.** No changes were made.", HALT (exit code 6, `halt_reason: "user-cancelled"`).
+- **If `Y`** → proceed. Set `source_authority_override = true`.
+
+**Headless behavior:** If `{headless_mode}` is true AND `{forceSourceAuthorityInHeadless}` is `"true"`, auto-proceed and record `{gate: "source-authority", default_action: "halt", taken_action: "proceed", reason: "force_source_authority_in_headless override"}` in `headless_decisions[]`. Otherwise, release the lock and HALT (exit code 5, `halt_reason: "source-authority-blocked"`) and emit the error envelope — the safe default protects against silent registry-divergence on `published`-tagged skills.
 
 **If `source_authority` is absent, or any value other than `"official"`:** skip the warning and proceed.
 
@@ -193,7 +232,7 @@ Proceed? [Y/N]
 Wait for explicit user response.
 
 - **If `Y`** → proceed to section 9
-- **If `N`** → "**Cancelled.** No changes were made." HALT the workflow
+- **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`), display "**Cancelled.** No changes were made.", HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with the resolved `old_name` and `new_name`.
 - **Any other input** → re-display the confirmation and ask again
 
 ### 9. Store Decisions in Context

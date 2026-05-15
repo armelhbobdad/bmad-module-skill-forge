@@ -2,7 +2,36 @@
 nextStepFile: 'report.md'
 versionPathsKnowledge: 'knowledge/version-paths.md'
 managedSectionLogic: 'skf-export-skill/assets/managed-section-format.md'
+# Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in
+# order (installed SKF module path first, src/ dev-checkout fallback);
+# first existing path wins. §3 + §6 use it for crash-safe file rewrites
+# (stage to .skf-tmp, fsync, rename) — letting the LLM write directly
+# risks half-written artifacts on process kill or disk-full mid-write.
+# HALT if neither candidate exists.
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# Resolve `{updateActiveSymlinkHelper}` similarly. §4 uses it to
+# atomically repair the `active` symlink with `flock` and the Windows
+# junction fallback — `rm + ln -s` would race against concurrent readers
+# and silently break on Windows.
+updateActiveSymlinkProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-update-active-symlink.py'
+  - '{project-root}/src/shared/scripts/skf-update-active-symlink.py'
+# Resolve `{manifestOpsHelper}` similarly. §6 uses the `rename` action
+# for atomic re-key (preserves `active_version`, `versions` map, all
+# fields, then writes via temp + rename).
+manifestOpsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
+  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
+# Resolve `{rebuildManagedSectionsHelper}` similarly. §7.7 uses the
+# `replace` action for the surgical between-marker rewrite.
+rebuildManagedSectionsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
+  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
 ---
+
+<!-- Config: communicate in {communication_language}. -->
 
 # Step 2: Execute Rename (Transactional)
 
@@ -22,9 +51,20 @@ Execute the rename decisions recorded in step 1 as a transaction. Copy the old `
 
 **CRITICAL:** This is transactional. After section 1 (copy), the old skill is untouched. If any section between 2 and 7 fails, delete `{new_skill_group}` and `{new_forge_group}`, report the failure, and halt — the old skill remains intact. Only section 8 (delete old) makes the operation irreversible. Do not skip, reorder, or improvise.
 
-### 0. Re-read Version-Paths Knowledge
+### 0. Re-read Version-Paths Knowledge + Resolve Helpers
 
 Read `{versionPathsKnowledge}` again and confirm the templates (`{skill_package}`, `{skill_group}`, `{forge_version}`, `{forge_group}`) and the Rename section. Also read `{managedSectionLogic}` for the managed-section format template and the skill index rebuild rules that will be reused in section 7.
+
+**Resolve helpers** in parallel — these are independent file-existence checks that batch into one tool-call message:
+
+- `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` (used in §3, §6 for crash-safe writes)
+- `{updateActiveSymlinkHelper}` ← first existing path in `{updateActiveSymlinkProbeOrder}` (used in §4 for atomic symlink repair)
+- `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}` (used in §6 for the manifest re-key)
+- `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}` (used in §7.7 for between-marker swap)
+
+If any helper has no existing candidate, release the lock and HALT (exit code 4, `halt_reason: "write-failed"`) — the rename's safety guarantees depend on these helpers and a fall-through to LLM-driven writes would silently regress atomicity.
+
+**Lock release contract:** every halt path in this step ends with `rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"` before exiting. The terminal health-check (step 4) is the success-path release.
 
 ### 1. Copy skill_group and forge_group
 
@@ -64,17 +104,24 @@ Report: "**Renamed {count} inner directories** to `{new_name}/`."
 
 For each version `v` in `affected_versions`, operate on the files inside `{new_skill_group}/{v}/{new_name}/` (the freshly renamed inner directory) and `{new_forge_group}/{v}/`:
 
+**Write semantics (apply to 3a / 3b / 3c / 3d):** Compute the new file content in memory (LLM judgment work), then pipe it to `{atomicWriteHelper} write <target>` so the rewrite is staged in `<target>.skf-tmp`, fsync'd, and atomically renamed into place. A process kill or disk-full event mid-rewrite leaves the original file intact — no half-written artifacts.
+
+```bash
+echo "{new_content}" | python3 {atomicWriteHelper} write "{target_path}"
+```
+
 **3a. SKILL.md frontmatter:**
 
 - Path: `{new_skill_group}/{v}/{new_name}/SKILL.md`
 - In the YAML frontmatter (between the leading `---` markers), replace the `name:` field value from `{old_name}` to `{new_name}`
 - Only replace within the frontmatter block — do not substitute matches inside the body text
+- Pipe via `{atomicWriteHelper} write` per the write semantics above
 - If the file is missing, record it in `section3_warnings` and continue
 
 **3b. metadata.json:**
 
 - Path: `{new_skill_group}/{v}/{new_name}/metadata.json`
-- Parse the JSON, set `name` = `{new_name}`, write back preserving formatting
+- Parse the JSON, set `name` = `{new_name}`, write back preserving formatting via `{atomicWriteHelper} write`
 - If the file is missing, record it in `section3_warnings` and continue
 
 **3c. context-snippet.md:**
@@ -85,36 +132,43 @@ For each version `v` in `affected_versions`, operate on the files inside `{new_s
   - Example: `root: .windsurf/skills/{old_name}/` → `root: .windsurf/skills/{new_name}/`
   - Example: `root: skills/{old_name}/` → `root: skills/{new_name}/`
   - Legacy pre-fix form `root: skills/{old_name}/active/{old_name}/` → `root: skills/{new_name}/` (normalize to flat form during rename)
+- Pipe via `{atomicWriteHelper} write` per the write semantics above
 - If the file is missing, record it in `section3_warnings` and continue
 
 **3d. provenance-map.json:**
 
 - Path: `{new_forge_group}/{v}/provenance-map.json`
-- Parse JSON, set `skill_name` = `{new_name}`, write back preserving formatting
+- Parse JSON, set `skill_name` = `{new_name}`, write back via `{atomicWriteHelper} write`
 - If the file is missing (some versions may not have a provenance map), record it in `section3_warnings` and continue
 
 **Rollback on any update failure (not just a missing file):**
 
 - `rm -rf {new_skill_group}` and `rm -rf {new_forge_group}`
-- Halt with: "**File update failed** at `{path}`: {error}. Rolled back both new directories. Old skill is intact."
+- Release the lock: `rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`
+- Halt with: "**File update failed** at `{path}`: {error}. Rolled back both new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`). In headless, emit the error envelope.
 
 Report: "**Updated file contents** across {affected_versions_count} version(s): SKILL.md, metadata.json, context-snippet.md, provenance-map.json."
 
 ### 4. Fix the `active` Symlink in the New Location
 
-Recreate or repair the `active` symlink in `{new_skill_group}`:
+Recreate or repair the `active` symlink in `{new_skill_group}` via `{updateActiveSymlinkHelper}` — the helper holds an `flock` on `{new_skill_group}/active.lock`, surfaces a clear error on Windows non-dev-mode (no silent fallback), and uses the `ln -sfn tmp && mv -Tf tmp link` pattern to make the flip atomic against concurrent readers.
 
-1. Inspect `{old_skill_group}/active` to determine the target version (the value the symlink points to — typically just the version string, not an absolute path)
-2. Check `{new_skill_group}/active`:
-   - If the copy in section 1 preserved it correctly and it points to the same version string → leave it as-is
-   - If it exists but points somewhere invalid (e.g., an absolute path back into the old location) → remove and recreate it
-   - If it is missing (some copy tools do not preserve symlinks) → create it
-3. The symlink target should be a relative path: the version string alone (e.g., `0.6.0`), so that `{new_skill_group}/active/{new_name}/` resolves correctly
+1. Inspect `{old_skill_group}/active` to determine the target version (the value the symlink points to — typically just the version string, not an absolute path). If `{old_skill_group}/active` does not exist, skip this section — there is no symlink to repair.
+2. Invoke:
 
-**Rollback on failure:**
+   ```bash
+   python3 {updateActiveSymlinkHelper} flip-link \
+     --link {new_skill_group}/active \
+     --target {target_version}
+   ```
+
+3. The helper handles all four cases (missing, present-and-correct, present-and-stale, present-and-invalid) uniformly via atomic replace.
+
+**Rollback on helper non-zero exit:**
 
 - `rm -rf {new_skill_group}` and `rm -rf {new_forge_group}`
-- Halt with: "**Failed to repair `active` symlink** in `{new_skill_group}`: {error}. Rolled back both new directories. Old skill is intact."
+- Release the lock: `rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`
+- Halt with: "**Failed to repair `active` symlink** in `{new_skill_group}`: {captured stderr}. Rolled back both new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`). In headless, emit the error envelope.
 
 ### 5. Verify — No Trace of `{old_name}` Inside the New Location
 
@@ -136,7 +190,8 @@ Also check the directory listing itself:
 **On hard failure (any structural reference to `{old_name}` remains):**
 
 - `rm -rf {new_skill_group}` and `rm -rf {new_forge_group}`
-- Halt with: "**Verification failed.** `{old_name}` still appears in: {list of paths}. Rolled back both new directories. Old skill is intact."
+- Release the lock: `rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`
+- Halt with: "**Verification failed.** `{old_name}` still appears in: {list of paths}. Rolled back both new directories. Old skill is intact." HALT (exit code 5, `halt_reason: "verify-failed"`). In headless, emit the error envelope.
 
 Report: "**Verified** — no structural references to `{old_name}` remain inside the new location across {affected_versions_count} version(s). {if verification_warnings is non-empty: 'Informational body-text mentions retained in SKILL.md: {list}.'}"
 
@@ -150,19 +205,21 @@ Report: "**Manifest update skipped** — no `.export-manifest.json` on disk. The
 
 **If `manifest_exists = true`:**
 
-1. Load `{skills_output_folder}/.export-manifest.json`
-2. **Hold a deep copy in memory** as `manifest_backup` — required for rollback in this section and section 7 on failure
-3. If the manifest contains `exports.{old_name}`:
-   - Set `exports.{new_name}` = deep copy of `exports.{old_name}` (preserving `active_version`, `versions` map, and all fields)
-   - Delete `exports.{old_name}`
-4. If the manifest does NOT contain `exports.{old_name}` (the skill was on disk but never exported), skip the re-key — the manifest has nothing to change for this skill
-5. Write the updated manifest back to `{skills_output_folder}/.export-manifest.json`
+1. **Hold a deep copy in memory** as `manifest_backup` — required for rollback in this section and section 7 on failure. Read `{skills_output_folder}/.export-manifest.json` once and stash the parsed object.
+2. **Re-key via the helper.** If the manifest contains `exports.{old_name}`, invoke:
 
-**Rollback on write failure:**
+   ```bash
+   python3 {manifestOpsHelper} {skills_output_folder} rename {old_name} {new_name}
+   ```
 
-- Restore the manifest from `manifest_backup` (write it back to disk)
+   The helper preserves `active_version`, `versions` map, and all fields, then writes the manifest atomically via temp + rename. If the manifest does NOT contain `exports.{old_name}` (the skill was on disk but never exported), skip the invocation — the manifest has nothing to change.
+
+**Rollback on helper non-zero exit:**
+
+- Restore the manifest from `manifest_backup` via `{atomicWriteHelper} write {skills_output_folder}/.export-manifest.json` (re-pipe the JSON-serialized backup)
 - `rm -rf {new_skill_group}` and `rm -rf {new_forge_group}`
-- Halt with: "**Manifest update failed:** {error}. Restored manifest from backup and rolled back new directories. Old skill is intact."
+- Release the lock: `rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`
+- Halt with: "**Manifest update failed:** {captured stderr}. Restored manifest from backup and rolled back new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "manifest-write-failed"`). In headless, emit the error envelope.
 
 Set context flag `manifest_updated = true`.
 
@@ -219,18 +276,15 @@ For each entry in `target_context_files`:
    <!-- SKF:END -->
    ```
 
-7. **Surgical replacement — Regenerate case only:**
-   - Locate the `<!-- SKF:BEGIN` line — preserve everything before it
-   - Locate the `<!-- SKF:END -->` line — preserve everything after it
-   - Replace everything between the markers (inclusive) with the new managed section
-   - Write the file back
+7. **Surgical replacement — atomic, deterministic.** Invoke `{rebuildManagedSectionsHelper}` for the surgical between-marker swap:
 
-8. **Verify:**
-   - Re-read the written file
-   - Confirm both markers are present
-   - Confirm `{old_name}` no longer appears between the markers
-   - Confirm `{new_name}` appears between the markers (if this skill's active version is not deprecated)
-   - Confirm content outside the markers is byte-identical to what was preserved
+   ```bash
+   python3 {rebuildManagedSectionsHelper} {context_file} replace --content "{new_managed_section_text}"
+   ```
+
+   The helper handles marker location, between-marker swap, atomic temp-file + rename, and post-write verification (markers preserved, content outside markers byte-identical). It exits non-zero on any failure with a clear `stderr` reason.
+
+8. **Verify (deferred to helper).** The `replace` action above performs verification internally. Treat any non-zero exit code as a per-file failure (next bullet).
 
 9. **On per-file failure:** record the error against that context file and continue to the next entry. Do not halt the rename on a recoverable per-context-file error — the manifest and filesystem are already consistent; context files can be re-rebuilt later via `[EX] Export Skill`.
 

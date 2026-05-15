@@ -1,7 +1,12 @@
 ---
-outputFile: '{output_folder}/refined-architecture-{project_name}.md'
+# {outputFile} resolves from the activation-stored {outputFolderPath}
+# variable (set in SKILL.md On Activation §4 from output_folder config +
+# customize override).
+outputFile: '{outputFolderPath}/refined-architecture-{project_name}.md'
 nextStepFile: 'health-check.md'
 ---
+
+<!-- Config: communicate in {communication_language}. Render the user-facing summary in {document_output_language}. -->
 
 # Step 6: Present Report
 
@@ -81,7 +86,13 @@ Re-run **[RA] Refine Architecture** anytime after updating your skills or archit
 
   ### Result Contract
 
-  Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{output_folder}/refine-architecture-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{output_folder}/refine-architecture-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include the refined architecture doc path in `outputs`; include `gap_count`, `issue_count`, and `improvement_count` in `summary`.
+  Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{outputFolderPath}/refine-architecture-result-{timestamp}.json` (reuse the activation-stored `{timestamp}`, resolution to seconds) and a copy at `{outputFolderPath}/refine-architecture-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include the refined architecture doc path in `outputs`; include `gap_count`, `issue_count`, and `improvement_count` in `summary`. On any write failure: HALT (exit code 4, `halt_reason: "write-failed"`) and emit the error envelope.
+
+  When `{headless_mode}` is true, also emit the single-line envelope on **stdout** before chaining to step 7 (matches the SKILL.md "Result Contract (Headless)" shape):
+
+  ```
+  SKF_REFINE_ARCHITECTURE_RESULT_JSON: {"status":"success","refined_path":"{outputFile}","gap_count":{gap_count},"issue_count":{issue_count},"improvement_count":{improvement_count},"exit_code":0,"halt_reason":null}
+  ```
 
   Then load, read the full file, and execute `{nextStepFile}` — the health-check step is the true terminal step of this workflow.
 

@@ -1,3 +1,5 @@
+<!-- Static reference loaded by gap-analysis.md, issue-detection.md, and improvements.md. -->
+
 # Architecture Refinement Rules
 
 ## Purpose

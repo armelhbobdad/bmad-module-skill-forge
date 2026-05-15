@@ -1,7 +1,18 @@
 ---
 nextStepFile: 'gap-analysis.md'
-refinementRulesData: 'references/refinement-rules.md'
+refinementRulesData: '{refinementRulesPath}'
+# Resolve `{enumerateStackSkillsHelper}` by probing
+# `{enumerateStackSkillsProbeOrder}` in order (installed SKF module path
+# first, src/ dev-checkout fallback); first existing path wins. §2 calls
+# it for the deterministic skill inventory (cascade-resolved exports,
+# metadata-hash, confidence-tier mapping) — replacing a hand-rolled
+# subagent fan-out that re-derived the same data on every run.
+enumerateStackSkillsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
+  - '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
 ---
+
+<!-- Config: communicate in {communication_language}. -->
 
 # Step 1: Initialize Refinement
 
@@ -20,68 +31,65 @@ Load the architecture document (required), scan the skills folder to build a ski
 
 ### 1. Accept Input Documents
 
-"**Refine Architecture — Evidence-Backed Refinement**
+"**Refine Architecture — Evidence-Backed Refinement** (additive — never deletes original content).
 
-Please provide the following:
+If you wanted to *verify* the stack first, type `cancel` and run `[VS] Verify Stack`; if no skills exist yet, run `[CS] Create Skill`. Otherwise, please provide the following:
 1. **Architecture document path** (REQUIRED) — your project's architecture doc to refine
-2. **VS feasibility report path** (OPTIONAL) — from a previous [VS] Verify Stack run, for additional context"
+2. **VS feasibility report path** (OPTIONAL) — from a previous [VS] Verify Stack run, for additional context
 
-Wait for user input. Store the validated architecture document path as `architecture_doc`. **GATE [default: use args]** — If `{headless_mode}` and architecture doc path was provided as argument: use that path and auto-proceed, log: "headless: using provided architecture path".
+Or type `cancel` / `exit` / `:q` at any prompt to abort cleanly."
+
+Wait for user input. Store the validated architecture document path as `architecture_doc`. **GATE [default: use args]** — If `{headless_mode}` and `--architecture-doc` was provided: use that path and auto-proceed, log: "headless: using provided architecture path". If `--vs-report-path` was provided, consume it at the VS validation below. If `--architecture-doc` is absent in headless: HALT (exit code 2, `halt_reason: "input-missing"`) and emit the error envelope.
+
+- If the user enters `cancel`, `exit`, `[X]`, `q`, or `:q` at any sub-prompt: Display "Cancelled — no refinement was performed." and HALT (exit code 6, `halt_reason: "user-cancelled"`).
 
 **Validate architecture document:**
 - Confirm the file exists and is readable
 - If missing or unreadable: "Architecture document not found at `{path}`. Provide a valid path."
-- HALT until a valid architecture document is provided
+- HALT (exit code 2, `halt_reason: "input-invalid"`) if the user cannot provide a valid path. In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" immediately.
 
-**Validate VS report (if provided):**
+**Validate VS report (if provided via `--vs-report-path` or interactive input):**
 - Confirm the file exists and is readable
 - If missing at user-provided path: attempt auto-probe (below) before giving up
 - Store VS report availability as `vs_report_available: true|false` and `vs_report_path`
 
 ### 2. Scan Skills Folder
 
-Read the `{skills_output_folder}` directory. Skills use a version-nested directory structure (see `knowledge/version-paths.md`).
+**Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins.
 
-**Version-aware skill discovery:**
-1. Read `{skills_output_folder}/.export-manifest.json` if it exists. For each skill in `exports`, use `active_version` to resolve `{skill_package}` = `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/`
-2. For any subdirectory not covered by the manifest, check for an `active` symlink at `{skills_output_folder}/{dir_name}/active` — resolve to `{skill_group}/active/{dir_name}/`
-3. Fall back to flat path `{skills_output_folder}/{dir_name}/` for unmigrated skills
+**Primary path — deterministic enumeration via shared helper:**
 
-For each resolved skill package, check for the presence of `SKILL.md` and `metadata.json`.
+```bash
+python3 {enumerateStackSkillsHelper} enumerate {skills_output_folder}
+```
 
-**For each valid skill directory, extract from metadata.json:**
-- `name` — skill name
-- `language` — primary language
-- `confidence_tier` — Quick, Forge, Forge+, or Deep
-- `exports_documented` — read from `stats.exports_documented` in metadata.json (count of documented exports)
-- `source_repo` or `source_root` — original source repository
+The helper walks `{skills_output_folder}`, reads each `metadata.json`, applies the version-aware resolution (export-manifest → `active` symlink → flat fallback), captures the exports cascade (metadata → references → SKILL.md), maps `confidence_tier`, and emits structured JSON with one entry per skill plus a top-level `warnings[]` array. Cache the result as `skill_inventory`.
 
-**Build a skill inventory** as an internal list of all loaded skills with the fields above.
+Each helper-emitted entry includes: `skill_name`, `version`, `language`, `confidence_tier`, `exports_documented`, `source_repo`, `source_root`, and a `metadata_hash` for change-detection across runs. The helper's `warnings[]` carries per-skill skip reasons (missing SKILL.md/metadata.json, non-symlink `active`, orphan-versions, schema-version violations).
 
-**If a resolved skill package lacks SKILL.md or metadata.json:**
-- Log: "Skipping `{dir_name}` — missing SKILL.md or metadata.json"
-- Do not include in inventory
+**Failure-budget guard:** If `len(warnings) / (len(skill_inventory) + len(warnings)) > 0.20`, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) with: "Inventory scan unreliable — {len(warnings)}/{total} skills returned skip warnings. Re-run [RA] after skills stabilize." In headless, emit the error envelope.
+
+**Fallback path — graceful degradation when the helper is unavailable:** If `{enumerateStackSkillsHelper}` has no existing candidate, fall through to the LLM-driven inventory: walk `{skills_output_folder}` and for each `{skill_package}` read `metadata.json` and extract `name`, `language`, `confidence_tier`, `stats.exports_documented`, `source_repo`/`source_root`. Skip packages missing SKILL.md or metadata.json with a logged warning. Same 20% failure budget applies.
 
 ### 3. Validate Minimum Requirements
 
 **Check skill count:**
 - At least 1 valid skill must exist
 - If no skills found: "**Cannot proceed.** No skills found in `{skills_output_folder}`. Generate skills with [CS] Create Skill or [QS] Quick Skill, then re-run [RA]."
-- HALT workflow
+- HALT (exit code 5, `halt_reason: "insufficient-skills"`). In headless, emit the error envelope.
 - If exactly 1 valid skill found: "⚠️ Proceeding with 1 skill. Note: gap analysis will find no gaps — pairwise analysis requires at least 2 skills. Step 02 will still execute and issue an appropriate notice. Issue detection and improvement detection will proceed normally."
 
-**Check output_folder:**
-- Verify `output_folder` was resolved from config.yaml and is non-empty
+**Check `{outputFolderPath}`** (resolved at activation from `output_folder` config + customize override):
+- Verify the path is non-empty
 - If undefined or empty: "**Cannot proceed.** `output_folder` is not configured in config.yaml. Add an `output_folder` path and re-run [RA]."
-- HALT workflow
-- Verify the `output_folder` directory exists. If it does not exist, create it. HALT with error if creation fails.
+- HALT (exit code 3, `halt_reason: "output-folder-unconfigured"`). In headless, emit the error envelope.
+- The directory existence + writability was probed at On-Activation §5 — if it failed there, this section never runs.
 
 **Check forge_data_folder:**
 - Verify `forge_data_folder` was resolved from config.yaml and is non-empty
 - If undefined or empty: "**Cannot proceed.** `forge_data_folder` is not configured in config.yaml. Add a `forge_data_folder` path to your config.yaml and re-run [RA]."
-- HALT workflow
-- Verify the `forge_data_folder` directory exists. If it does not exist, attempt to create it. If creation fails: "**Cannot proceed.** `forge_data_folder` at `{forge_data_folder}` does not exist and could not be created. Create the directory manually and re-run [RA]."
-- HALT workflow on creation failure
+- HALT (exit code 3, `halt_reason: "forge-folder-unconfigured"`). In headless, emit the error envelope.
+- The directory existence + writability was probed at On-Activation §5.
 
 **Check architecture document:**
 - Confirm it was loaded successfully in section 1
@@ -105,6 +113,8 @@ Create (or overwrite) `{forge_data_folder}/ra-state-{project_name}.md` with a fr
 ```
 
 This ensures steps 02-04 append to a clean slate and context recovery in step 5 never loads stale findings from a prior run.
+
+On any write failure (read-only mount, disk full, permissions denied): HALT (exit code 4, `halt_reason: "write-failed"`) with the captured error and emit the error envelope. The On-Activation §5 probe should have caught this earlier — if it surfaces here, the filesystem state changed mid-workflow.
 
 ### 4. Load Refinement Rules
 

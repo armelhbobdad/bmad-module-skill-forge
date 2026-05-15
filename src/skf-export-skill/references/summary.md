@@ -2,6 +2,8 @@
 nextStepFile: 'health-check.md'
 ---
 
+<!-- Config: communicate in {communication_language}. Render the user-facing summary in {document_output_language}. -->
+
 # Step 6: Summary
 
 ## STEP GOAL:
@@ -130,7 +132,15 @@ No files were written. To run the export for real:
 
 ### 6. Result Contract
 
-Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/export-skill-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{skills_output_folder}/export-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all context files and target managed-section files in `outputs`; include total always-on and on-trigger token counts in `summary`.
+Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/export-skill-result-{timestamp}.json` (reuse the activation-stored `{timestamp}`, resolution to seconds) and a copy at `{skills_output_folder}/export-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all context files and target managed-section files in `outputs`; include total always-on and on-trigger token counts in `summary`.
+
+When `{headless_mode}` is true, also emit the single-line envelope on **stdout** before chaining to step 7 (matches the SKILL.md "Result Contract (Headless)" shape):
+
+```
+SKF_EXPORT_RESULT_JSON: {"status":"success","skills":{skill_batch_names},"context_files_updated":{context_files_updated},"manifest_path":"{skills_output_folder}/.export-manifest.json","headless_decisions":{headless_decisions},"exit_code":0,"halt_reason":null}
+```
+
+Substitute `{skill_batch_names}`, `{context_files_updated}`, and `{headless_decisions}` as JSON arrays. When `--dry-run` was set, emit `"status":"dry-run"` instead and report what *would* have been written without performing the writes.
 
 **`deviations[]` field (export-skill-specific extension):** when step 4 §4c.1 detected manifest-orphan managed rows and the operator (or `{headless_mode}`) chose **(b) Preserve verbatim**, also include a `deviations[]` array in the contract. Each entry has the shape:
 

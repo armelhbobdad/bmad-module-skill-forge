@@ -3,6 +3,8 @@ nextStepFile: 'execute.md'
 versionPathsKnowledge: 'knowledge/version-paths.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 1: Select Drop Target
 
 ## STEP GOAL:
@@ -38,7 +40,7 @@ Load `{skills_output_folder}/.export-manifest.json` if it exists.
 
 **If the file exists with entries:** Parse JSON and verify `schema_version` is `"2"`. If the manifest is v1 (no `schema_version` field), note this but continue — treat every entry as having a single active version derived from its current state. Store `manifest_exists = true`.
 
-**Hard halt condition:** If the file exists but is malformed (not valid JSON), halt with: "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json` — fix or remove the file before dropping."
+**Hard halt condition:** If the file exists but is malformed (not valid JSON), halt with: "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json` — fix or remove the file before dropping." HALT (exit code 3, `halt_reason: "manifest-corrupt"`). In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with `skill: null`, `drop_mode: null`, `versions_affected: []`.
 
 ### 3. List Available Skills
 
@@ -53,7 +55,7 @@ For each skill in the manifest's `exports` (only if `manifest_exists = true` and
 
 Also scan `{skills_output_folder}/` for any top-level directories that are NOT present in the manifest's `exports` object. Record these as "(not in manifest)" — they represent draft or orphaned skills eligible for purge mode only. When the manifest is missing or empty, every on-disk skill appears in this category.
 
-**If the combined list is empty** (no manifest entries AND no on-disk skill directories): halt with "**Drop Skill — nothing to drop.** No skills found in `{skills_output_folder}/` and no entries in `.export-manifest.json`. Run `[CS] Create Skill` first."
+**If the combined list is empty** (no manifest entries AND no on-disk skill directories): halt with "**Drop Skill — nothing to drop.** No skills found in `{skills_output_folder}/` and no entries in `.export-manifest.json`. Run `[CS] Create Skill` first." HALT (exit code 3, `halt_reason: "nothing-to-drop"`). In headless mode, emit the error envelope with `skill: null`, `drop_mode: null`, `versions_affected: []`.
 
 Display the combined list:
 
@@ -73,11 +75,12 @@ Available skills:
 ### 4. Ask Which Skill
 
 "**Which skill would you like to drop?**
-Enter the skill name or its number from the list above."
+Enter the skill name or its number from the list above, or `cancel` / `exit` / `:q` to abort."
 
-Wait for user input. Accept either the numeric index or the skill name (exact match). **GATE [default: use args]** — If `{headless_mode}` and skill name was provided as argument: select that skill and auto-proceed. If not provided, HALT: "headless mode requires skill name argument."
+Wait for user input. Accept either the numeric index or the skill name (exact match). **GATE [default: use args]** — If `{headless_mode}` and skill name was provided as argument: select that skill and auto-proceed. If not provided, HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode requires skill name argument." In headless mode, emit the error envelope with `skill: null`, `drop_mode: null`.
 
-**If the user's input does not match any listed skill:** Re-display the list and ask again.
+- If the user enters `cancel`, `exit`, `[X]`, `q`, or `:q`: Display "Cancelled — no changes were made." and HALT (exit code 6, `halt_reason: "user-cancelled"`).
+- **If the user's input does not match any listed skill:** Re-display the list and ask again.
 
 Store the selection as `target_skill`. Also store `target_in_manifest = true` if the selected skill has an entry in the manifest, `false` otherwise — subsequent sections use this flag to restrict the available drop options.
 
@@ -114,9 +117,12 @@ Store the selection as `target_skill`. Also store `target_in_manifest = true` if
 "**Drop which version(s)?**
 
 - **[N]** Specific version — soft deprecate or hard purge a single version
-- **[A]** All versions — drops the entire skill (skill-level operation)"
+- **[A]** All versions — drops the entire skill (skill-level operation)
+- **[X]** Cancel and exit (or type `cancel` / `exit` / `:q`)"
 
 Wait for user selection.
+
+- If the user enters `cancel`, `exit`, `[X]`, `q`, or `:q`: Display "Cancelled — no changes were made." and HALT (exit code 6, `halt_reason: "user-cancelled"`).
 
 **If [N] Specific version:**
 
@@ -149,7 +155,7 @@ Set `target_versions = "all"` and `is_skill_level = true`.
 
       **(b)** Use the `[A] All versions` option to drop every version of `{target_skill}` at once."
 
-      HALT the workflow. Do not proceed.
+      HALT (exit code 5, `halt_reason: "active-version-guard-refused"`). In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with `skill: "{target_skill}"`, `drop_mode: null`, `versions_affected: ["{version}"]`. Do not proceed.
 
    c. If the count is `0` → the active version is the ONLY version; allow the drop to continue (it is functionally equivalent to a skill-level drop on a single-version skill)
 
@@ -159,12 +165,19 @@ Set `target_versions = "all"` and `is_skill_level = true`.
 
 **If `target_in_manifest = true`:**
 
+**If `{defaultMode}` is non-empty (`"deprecate"` or `"purge"`)**: skip the prompt, set `drop_mode = "{defaultMode}"`, and log the override source for the headless decision trail (`"customize.toml.workflow.default_mode"`).
+
+**Otherwise:**
+
 "**How should this be dropped?**
 
 - **[D]** Deprecate (soft) — Mark the version as `deprecated` in the manifest. Files remain on disk. Export-skill will exclude it from all platform context files. Reversible by editing the manifest.
-- **[P]** Purge (hard) — Deprecate AND delete files from disk (`{skill_package}` and `{forge_version}`, or full `{skill_group}` and `{forge_group}` for a skill-level drop). **Irreversible.**"
+- **[P]** Purge (hard) — Deprecate AND delete files from disk (`{skill_package}` and `{forge_version}`, or full `{skill_group}` and `{forge_group}` for a skill-level drop). **Irreversible.**
+- **[X]** Cancel and exit (or type `cancel` / `exit` / `:q`)"
 
 Wait for user selection.
+
+- If the user enters `cancel`, `exit`, `[X]`, `q`, or `:q`: Display "Cancelled — no changes were made." and HALT (exit code 6, `halt_reason: "user-cancelled"`).
 
 Set `drop_mode` to `"deprecate"` (on D) or `"purge"` (on P).
 
@@ -214,7 +227,7 @@ Proceed? [Y/N]
 Wait for explicit user response.
 
 - **If `Y`** → proceed to section 11
-- **If `N`** → "**Cancelled.** No changes were made." HALT the workflow
+- **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → "**Cancelled.** No changes were made." HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with the resolved `skill`, `drop_mode`, and `versions_affected`.
 - **Any other input** → re-display the confirmation and ask again
 
 ### 11. Store Decisions in Context

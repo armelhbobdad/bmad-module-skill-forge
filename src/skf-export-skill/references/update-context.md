@@ -1,7 +1,31 @@
 ---
 nextStepFile: 'token-report.md'
-managedSectionData: 'assets/managed-section-format.md'
+managedSectionData: '{managedSectionFormatPath}'
+# Resolve `{rebuildManagedSectionsHelper}` by probing
+# `{rebuildManagedSectionsProbeOrder}` in order (installed SKF module path
+# first, src/ dev-checkout fallback); first existing path wins. §9 uses
+# the `replace` action for the surgical between-marker swap with
+# atomic temp-file + rename, marker preservation, and post-write verify.
+# HALT if no candidate exists — the in-prompt prose path silently regresses
+# the Case 4 (malformed markers) HARD HALT guarantee.
+rebuildManagedSectionsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
+  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
+# Resolve `{manifestOpsHelper}` similarly. §9b uses `read` / `set` for
+# atomic v2-schema-aware manifest mutation (handles v1→v2 migration and
+# `platforms`→`ides` rename internally).
+manifestOpsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
+  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
+# Resolve `{atomicWriteHelper}` similarly. §6 Case 1 (Create) and §6
+# Case 2 (Append) use it via `write` for safe artifact emission — the
+# in-prompt write would risk half-written files on process kill.
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 ---
+
+<!-- Config: communicate in {communication_language}. Render the change preview and managed section in {document_output_language}. -->
 
 # Step 4: Update Context
 
@@ -246,8 +270,9 @@ Assemble the complete managed section:
 - Preserved: ALL content before `<!-- SKF:BEGIN` and after `<!-- SKF:END -->`
 
 **Case 4: Malformed markers (file contains `<!-- SKF:BEGIN` but no `<!-- SKF:END -->`)**
-- Action: HALT with warning: "Malformed SKF markers detected in `{target-file}` — `<!-- SKF:BEGIN` found but `<!-- SKF:END -->` is missing. Please restore the end marker manually before running export."
-- Do NOT attempt to write or append — the file is in an inconsistent state
+- Action: HALT (exit code 5, `halt_reason: "malformed-markers"`) with warning: "Malformed SKF markers detected in `{target-file}` — `<!-- SKF:BEGIN` found but `<!-- SKF:END -->` is missing. Please restore the end marker manually before running export."
+- Do NOT attempt to write or append — the file is in an inconsistent state.
+- In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with `manifest_path: null`, `context_files_updated: []`.
 
 ### 7. Present Change Preview
 
@@ -280,18 +305,19 @@ Auto-proceed to {nextStepFile}.
 
 **If NOT dry-run:**
 
-Display: "**Select:** [C] Continue — write changes to {target-file}"
+Display: "**Select:** [C] Continue — write changes to {target-file} | [X] Cancel and exit (or type `cancel` / `exit` / `:q`)"
 
 **Multi-target behavior:** When processing multiple context files, present all previews together before asking for a single confirmation. After confirmation, write all target files sequentially, verifying each one.
 
 "**Targets:** {list all context-file → target-file pairs}
 **Ready to write changes to all targets?**"
 
-Display: "**Select:** [C] Continue — write changes to all targets"
+Display: "**Select:** [C] Continue — write changes to all targets | [X] Cancel and exit"
 
 #### Menu Handling Logic:
 
 - IF C: Write the changes to all target files (or single target), verify each write succeeded, then load, read entire file, then execute {nextStepFile}
+- IF X (or `cancel` / `exit` / `:q`): Display "Cancelled — no context files were written." and HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with the resolved `skills`, `context_files_updated: []`, and `manifest_path: null`.
 - IF Any other: help user respond, then [Redisplay Menu Options](#8-present-menu-options)
 
 #### EXECUTION RULES:
@@ -303,16 +329,49 @@ Display: "**Select:** [C] Continue — write changes to all targets"
 
 ### 9. Write and Verify (Non-Dry-Run Only)
 
-After user confirms with 'C':
+After user confirms with 'C', resolve the helpers in parallel — these are independent file-existence checks that batch into one tool-call message:
 
-1. Write the file using the appropriate case logic
-2. Re-read the written file
-3. Verify `<!-- SKF:BEGIN` and `<!-- SKF:END -->` markers are present
-4. Verify content outside markers is unchanged (for Cases 2 and 3)
-5. Report: "**{target-file} updated successfully.** Verified: markers present, external content preserved."
+- `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}` (used for Cases 2 and 3)
+- `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` (used for Case 1)
+- `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}` (used in §9b)
 
-**If verification fails:**
-"**WARNING: Write verification failed.** {describe issue}. File may need manual review."
+If any helper has no existing candidate, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) and emit the error envelope per SKILL.md "Result Contract (Headless)" — the rewrite's safety guarantees depend on these helpers and a fall-through to LLM-driven writes would silently regress atomicity, marker preservation, and the Case 4 malformed-marker HARD HALT contract.
+
+For each target context file, dispatch by case:
+
+**Case 1 (Create — file does not exist):**
+
+```bash
+echo "{new_managed_section_text}" | python3 {atomicWriteHelper} write "{target-file}"
+```
+
+The helper stages the content into `<target>.skf-tmp`, fsyncs, and atomically renames into place.
+
+**Case 2 (Append — file exists, no `<!-- SKF:BEGIN` marker):**
+
+```bash
+python3 {rebuildManagedSectionsHelper} {target-file} insert --content "{new_managed_section_text}"
+```
+
+The helper appends the managed section to the end of the file via the same atomic temp-file + rename pattern.
+
+**Case 3 (Regenerate — file contains `<!-- SKF:BEGIN` and `<!-- SKF:END -->`):**
+
+```bash
+python3 {rebuildManagedSectionsHelper} {target-file} replace --content "{new_managed_section_text}"
+```
+
+The helper performs the surgical between-marker swap with post-write verification (markers present, content outside markers byte-identical).
+
+**Case 4 (malformed markers — already HALTed in §6):** never reaches here.
+
+**Verification (deferred to helpers):** the `replace`/`insert`/`write` actions above each perform their own verification. Treat any non-zero exit as a write failure:
+
+- HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) and report `{target-file}: {captured stderr}`.
+- In headless mode, emit the error envelope.
+- Continue to the next target file only on success — partial-batch writes are acceptable in single-skill mode but the overall envelope reports per-target outcomes.
+
+On success per file, report: "**{target-file} updated successfully.** Verified by `{rebuildManagedSectionsHelper}` (or `{atomicWriteHelper}` for Case 1)."
 
 ### 9b. Update Export Manifest (Non-Dry-Run Only)
 
@@ -342,11 +401,17 @@ After user confirms with 'C':
      - If the version already exists in `versions`, union its existing `ides` with `ides_written` (deduplicate, keep sorted), refresh `last_exported`, and set `status: "active"`
      - If this is a new version, add it to `versions` with `status: "active"` and set any previously-active version's status to `"archived"`
      - Preserve all other version entries in `versions` (do not delete archived versions)
-5. Write the updated manifest once to `{skills_output_folder}/.export-manifest.json` after all skills in the batch have been applied
+5. Write the updated manifest atomically via `{manifestOpsHelper}` after all skills in the batch have been applied. For each skill / version pair, invoke:
+
+   ```bash
+   python3 {manifestOpsHelper} {skills_output_folder} set {skill-name} {version}
+   ```
+
+   The helper handles v2-schema validation, v1→v2 migration, and `platforms`→`ides` rename internally — no in-prompt JSON manipulation needed. Each `set` invocation merges the per-version `ides` and `last_exported` fields into the existing entry. After all skills have been set, re-read the manifest via `{manifestOpsHelper} {skills_output_folder} read` to confirm the final state matches expectations.
 
 **Dry-run mode:** Do NOT update the manifest. Display: "**[DRY RUN] Export manifest would be updated for {skill-name-list} — ides: {ides_written}.**" (list every skill in `skill_batch`)
 
-**Error handling:** If manifest write fails, warn but do not fail the workflow — the managed section was already written successfully.
+**Error handling:** If `{manifestOpsHelper}` exits non-zero, HALT (exit code 4, `halt_reason: "manifest-write-failed"`) with the captured `stderr`. The managed section was already written successfully; the operator's recovery path is to manually reconcile the on-disk managed section with the manifest, then re-run `[EX] Export Skill --all` to refresh the manifest. In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with `manifest_path: null` and the partial `context_files_updated` list.
 
 ## CRITICAL STEP COMPLETION NOTE
 

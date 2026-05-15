@@ -1,11 +1,27 @@
 ---
 nextStepFile: 'coverage.md'
-reportTemplate: 'assets/feasibility-report-template.md'
 feasibilitySchemaRef: 'src/shared/references/feasibility-report-schema.md'
 atomicWriteScript: '{project-root}/src/shared/scripts/skf-atomic-write.py'
-outputFile: '{forge_data_folder}/feasibility-report-{project_slug}-{timestamp}.md'
-outputFileLatest: '{forge_data_folder}/feasibility-report-{project_slug}-latest.md'
+# {outputFile} and {outputFileLatest} resolve from the activation-stored
+# {project_slug}, {timestamp}, and {outputFolderPath} variables (set in
+# SKILL.md On Activation §2 + §4). The activation-stored values are
+# fixed for the entire run, so every later reference sees the same
+# filename — no order-of-operations bug.
+outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
+outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.md'
+# Resolve `{enumerateStackSkillsHelper}` by probing
+# `{enumerateStackSkillsProbeOrder}` in order (installed SKF module path
+# first, src/ dev-checkout fallback); first existing path wins. §2 calls
+# it for the deterministic skills inventory (cascade-resolved exports,
+# metadata-hash for change-detection, confidence-tier mapping). HALT if
+# neither candidate exists — falls through to LLM-driven subagent fan-out
+# only as graceful degradation, see §2.
+enumerateStackSkillsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
+  - '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
 ---
+
+<!-- Config: communicate in {communication_language}. Initialize the feasibility report skeleton in {document_output_language}. -->
 
 # Step 1: Initialize Verification
 
@@ -24,19 +40,23 @@ Load all generated skills from the skills output folder, accept the architecture
 
 ### 1. Accept Input Documents
 
-"**Verify Stack — Feasibility Analysis**
+"**Verify Stack — Feasibility Analysis** (read-only — never modifies your skills, architecture doc, or PRD).
 
-Please provide the following:
+If you meant to *generate* skills first, type `cancel` and run `[CS] Create Skill` or `[QS] Quick Skill`. Otherwise, please provide the following:
 1. **Architecture document path** (REQUIRED) — your project's architecture doc
 2. **PRD or vision document path** (OPTIONAL) — for requirements coverage analysis
-3. **Previous feasibility report path** (OPTIONAL) — for delta comparison with a prior run (provide a backup copy)"
+3. **Previous feasibility report path** (OPTIONAL) — for delta comparison with a prior run (provide a backup copy)
 
-Wait for user input. **GATE [default: use args]** — If `{headless_mode}` and architecture doc path was provided as argument: use that path and auto-proceed, log: "headless: using provided architecture path".
+Or type `cancel` / `exit` / `:q` at any prompt to abort cleanly."
+
+Wait for user input. **GATE [default: use args]** — If `{headless_mode}` and `--architecture-doc` was provided: use that path and auto-proceed, log: "headless: using provided architecture path". If `--prd` and/or `--previous-report` were provided, consume them at the corresponding sub-validations below. If `--architecture-doc` is absent in headless: HALT (exit code 2, `halt_reason: "input-missing"`) and emit the error envelope.
+
+- If the user enters `cancel`, `exit`, `[X]`, `q`, or `:q` at any sub-prompt below: Display "Cancelled — no analysis was performed." and HALT (exit code 6, `halt_reason: "user-cancelled"`).
 
 **Validate architecture document:**
 - Confirm the file exists and is readable
 - If missing or unreadable → "Architecture document not found at `{path}`. Provide a valid path."
-- HALT until a valid architecture document is provided
+- HALT (exit code 2, `halt_reason: "input-invalid"`) if the user cannot provide a valid path. In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" immediately.
 
 **Validate PRD document (if provided):**
 - Confirm the file exists and is readable
@@ -45,77 +65,45 @@ Wait for user input. **GATE [default: use args]** — If `{headless_mode}` and a
 
 **Validate previous report (if provided):**
 - Confirm the file exists and is readable
-- **Collision check:** Compare both the provided path and `{outputFile}` via `(st_dev, st_ino)` tuples obtained from `stat(2)` on each path (do not rely on absolute-path string equality — symlinks, bind mounts, and case-insensitive filesystems can defeat string comparison; the `(st_dev, st_ino)` comparison is the canonical kernel-level equivalent of `os.path.realpath`-based equality and is strictly stronger because it also catches hardlinks). If `{outputFile}` does not yet exist, resolve its parent via `realpath`, stat that directory, and combine `(st_dev, parent_ino, basename)` for comparison. If the two paths resolve to the same inode, warn: "The previous report path points to the same inode as the new report. This file will be overwritten during this run. Provide a path to a backup copy, or leave empty to skip delta comparison." HALT until resolved.
+- **Collision check:** Resolve `{outputFile}` from the activation-stored `{outputFolderPath}`, `{project_slug}`, and `{timestamp}` (all three computed in SKILL.md On Activation §2 + §4 — they are fixed for the entire run). Then compare both the provided path and `{outputFile}` via `(st_dev, st_ino)` tuples obtained from `stat(2)` on each path (do not rely on absolute-path string equality — symlinks, bind mounts, and case-insensitive filesystems can defeat string comparison; the `(st_dev, st_ino)` comparison is the canonical kernel-level equivalent of `os.path.realpath`-based equality and is strictly stronger because it also catches hardlinks). If `{outputFile}` does not yet exist, resolve its parent via `realpath`, stat that directory, and combine `(st_dev, parent_ino, basename)` for comparison. If the two paths resolve to the same inode, warn: "The previous report path points to the same inode as the new report. This file will be overwritten during this run. Provide a path to a backup copy, or leave empty to skip delta comparison." HALT (exit code 5, `halt_reason: "previous-report-collision"`) until resolved. In headless, emit the error envelope.
 - If missing → "Previous report not found at `{path}`. Proceeding without delta comparison."
 - Store as `previousReport: {path}` (or empty string if not provided)
 
 ### 2. Scan Skills Folder
 
 **Pre-flight — skills folder existence:**
-- If `{skills_output_folder}` does not exist on disk: HALT with "**Cannot proceed.** `{skills_output_folder}` does not exist — run **[SF] Setup Forge** to initialize the forge, then generate skills with [CS] or [QS]."
-- If `{skills_output_folder}` exists but is empty (no subdirectories at all): HALT with "**Cannot proceed.** `{skills_output_folder}` contains 0 skills. Generate skills with [CS] Create Skill or [QS] Quick Skill, then re-run [VS]."
+- If `{skills_output_folder}` does not exist on disk: HALT (exit code 3, `halt_reason: "skills-folder-missing"`) with "**Cannot proceed.** `{skills_output_folder}` does not exist — run **[SF] Setup Forge** to initialize the forge, then generate skills with [CS] or [QS]." In headless, emit the error envelope.
+- If `{skills_output_folder}` exists but is empty (no subdirectories at all): HALT (exit code 3, `halt_reason: "skills-folder-missing"`) with "**Cannot proceed.** `{skills_output_folder}` contains 0 skills. Generate skills with [CS] Create Skill or [QS] Quick Skill, then re-run [VS]." In headless, emit the error envelope.
 
-Read the `{skills_output_folder}` directory. Skills use a version-nested directory structure (see `knowledge/version-paths.md`).
+**Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins.
 
-**Version-aware skill discovery:**
-1. Read `{skills_output_folder}/.export-manifest.json` if it exists. For each skill in `exports`, use `active_version` to resolve `{skill_package}` = `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/`
-2. For any subdirectory not covered by the manifest, check for an `active` symlink at `{skills_output_folder}/{dir_name}/active` — resolve to `{skill_group}/active/{dir_name}/`
-3. Fall back to flat path `{skills_output_folder}/{dir_name}/` for unmigrated skills
+**Primary path — deterministic enumeration via shared helper:**
 
-For each resolved skill package, check for the presence of `SKILL.md`, `metadata.json`, and `bmad-skill-manifest.yaml`. If `bmad-skill-manifest.yaml` is missing in the resolved package, log "Skipping `{dir_name}` — missing bmad-skill-manifest.yaml" and exclude from inventory (do not spawn a subagent).
-
-**Non-symlink `active` check:** When resolving via the `active` symlink pattern (case 2 above), perform an explicit `is_symlink` check on `{skills_output_folder}/{dir_name}/active`. If the path exists but is NOT a symlink, log "Skipping `{dir_name}` — `active` is not a symlink (repair with [SKF-update-skill])" and treat as missing.
-
-**Orphan-versions detection:** For any `{skills_output_folder}/{dir_name}/` that contains subdirectories matching semver (`^\d+\.\d+\.\d+`) but has no `active` symlink at all, emit: "**Error:** Skill `{dir_name}` has versions `{list_of_version_dirs}` but no `active` symlink — run [SKF-update-skill] to repair before re-running [VS]." Exclude the skill from inventory; count it toward the failure budget for the run summary.
-
-<!-- Subagent delegation: read metadata.json files in parallel, return compact JSON -->
-
-**Read all metadata.json files in parallel using subagents.** Launch up to **8 subagents concurrently** (batch larger inventories in rounds of 8 — the 8-way cap keeps the aggregate token window for the parent manageable while still parallelizing most typical stack sizes; tune in a future minor if inventories routinely exceed ~40 skills). Each subagent receives one resolved skill package path and MUST:
-1. Read `{skill_package}/metadata.json`
-2. ONLY return this compact JSON — no prose, no extra commentary:
-
-```json
-{
-  "skill_name": "...",
-  "language": "...",
-  "confidence_tier": "...",
-  "exports_documented": 0,
-  "source_repo": "...",
-  "source_root": "..."
-}
+```bash
+python3 {enumerateStackSkillsHelper} enumerate {skills_output_folder}
 ```
 
-Parent collects all subagent JSON summaries. Fields map directly from metadata.json:
-- `skill_name` ← `name`
-- `language` ← `language`
-- `confidence_tier` ← `confidence_tier`
-- `exports_documented` ← `stats.exports_documented`
-- `source_repo` ← `source_repo` (or empty string if absent)
-- `source_root` ← `source_root` (or empty string if absent)
+The helper walks `{skills_output_folder}`, reads each `metadata.json`, applies the exports cascade (metadata → references/ → SKILL.md prose), maps `confidence_tier` (T1/T2/T1-low), captures stack-skill cycles via `composes:`, and emits structured JSON with one entry per skill plus a top-level `warnings[]` array. Cache the result as `skill_inventory` (used by §3, §4, §5, and the integrations + coverage stages).
 
-**Subagent JSON schema validation:** For each subagent response, require keys `skill_name`, `language`, and an integer `exports_documented`. Wrap each JSON parse in try/catch. On parse failure or missing required key, log "Skipping `{dir_name}` — metadata.json unparseable (skill may be under active modification)" and exclude from the inventory. If more than **20%** (the failure-budget threshold — chosen so a single malformed skill in a small 3-5 skill inventory does not trip the halt, while larger inventories still halt before evidence quality collapses) of subagent calls fail schema validation, HALT the workflow with: "Inventory scan unreliable — {failed_count}/{total_count} skills returned malformed metadata. Re-run [VS] after skills stabilize."
+Each helper-emitted entry includes: `skill_name`, `version`, `language`, `confidence_tier`, `exports` (cascade-resolved), `source_repo`, `source_root`, plus a `metadata_hash` for change-detection across runs. The helper's `warnings[]` carries per-skill skip reasons (missing manifest, malformed JSON, non-symlink `active`, orphan-versions, schema-version violations).
 
-**Capture mtime:** For each accepted skill, also record `metadata.json`'s mtime (via `stat`) into the inventory as `metadata_mtime`. Step-03 will re-verify this to detect mid-run modifications.
+**Failure-budget guard:** If `len(warnings) / len(skill_inventory) + len(warnings) > 0.20` (the same 20% threshold chosen so a single malformed skill in a small 3-5 skill inventory does not trip the halt), HALT (exit code 7, `halt_reason: "inventory-unreliable"`) with: "Inventory scan unreliable — {len(warnings)}/{total} skills returned malformed metadata or skip warnings. Re-run [VS] after skills stabilize." In headless, emit the error envelope.
 
-**metadata_schema_version check:** For each accepted skill, read `metadata_schema_version` from `metadata.json`. If missing or below minimum (`1.0`), log "Skipping `{dir_name}` — metadata_schema_version `{value}` below minimum `1.0`. Re-run [SKF-update-skill] to migrate." and exclude from the inventory.
+**Capture mtime:** For each accepted skill in `skill_inventory`, also record `metadata.json`'s mtime via `stat` into the entry as `metadata_mtime`. Step-03 will re-verify this to detect mid-run modifications.
 
-**Build a skill inventory** as an internal list of all loaded skills with the fields above.
-
-**If a resolved skill package lacks SKILL.md or metadata.json:**
-- Log: "Skipping `{dir_name}` — missing SKILL.md or metadata.json"
-- Do not include in inventory
+**Fallback path — graceful degradation when the helper is unavailable:** If `{enumerateStackSkillsHelper}` has no existing candidate (e.g. partial installation), fall through to the LLM-driven subagent fan-out: launch up to **8 subagents concurrently**, each reading one resolved skill package's `metadata.json` and returning the same JSON shape the helper would emit. Apply the same 20% failure-budget guard. This path exists so verify-stack survives a missing helper, but the deterministic helper is preferred — it has a tested cascade resolver, captures the metadata-hash, and surfaces every skip reason in `warnings[]` consistently.
 
 ### 3. Validate Minimum Requirements
 
 **Check skill count:**
 - At least 2 valid skills must exist (a stack requires multiple libraries)
 - If fewer than 2 → "**Cannot proceed.** Only {count} skill(s) found in `{skills_output_folder}`. A stack requires at least 2 skills. Generate more skills with [CS] Create Skill or [QS] Quick Skill, then re-run [VS]."
-- HALT workflow
+- HALT (exit code 5, `halt_reason: "insufficient-skills"`). In headless, emit the error envelope.
 
 **Check forge_data_folder:**
 - Verify `forge_data_folder` was resolved from config.yaml and is non-empty
 - If undefined or empty → "**Cannot proceed.** `forge_data_folder` is not configured in config.yaml. Re-run [SF] Setup Forge to initialize."
-- HALT workflow
+- HALT (exit code 3, `halt_reason: "forge-folder-unconfigured"`). In headless, emit the error envelope.
 
 **Check architecture document:**
 - Confirm it was loaded successfully in section 1
@@ -125,13 +113,13 @@ Parent collects all subagent JSON summaries. Fields map directly from metadata.j
 
 This skill is the PRODUCER of the feasibility report schema defined in `{feasibilitySchemaRef}`. All outputs MUST conform to that schema — in particular: `schemaVersion: "1.0"`, the defined verdict token set (`Verified|Plausible|Risky|Blocked`; overall `FEASIBLE|CONDITIONALLY_FEASIBLE|NOT_FEASIBLE`), the filename pattern, and the section-heading order.
 
-**Compute filename variables:**
-- `project_slug`: slugify `project_name` (lowercase, hyphens only, no unicode, no whitespace)
-- `timestamp`: UTC `YYYYMMDD-HHmmss` captured at step 1 start
-- `outputFile` resolves to `{forge_data_folder}/feasibility-report-{project_slug}-{timestamp}.md`
-- `outputFileLatest` resolves to `{forge_data_folder}/feasibility-report-{project_slug}-latest.md` (a copy, not a symlink — per schema)
+**Filename variables** (already computed at activation — do not re-derive):
+- `project_slug`: set in SKILL.md On Activation §2 from `project_name`
+- `timestamp`: set in SKILL.md On Activation §2 (UTC `YYYYMMDD-HHmmss`, fixed for the run)
+- `outputFile` resolves to `{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md` per the stage frontmatter template
+- `outputFileLatest` resolves to `{outputFolderPath}/feasibility-report-{project_slug}-latest.md` (a copy, not a symlink — per schema)
 
-**Load** `{reportTemplate}` and stage the initial content.
+**Load** `{reportTemplatePath}` (the customize-aware template path resolved in SKILL.md On Activation §4) and stage the initial content.
 
 **Populate frontmatter (per shared schema — required keys):**
 - `schemaVersion: "1.0"`
@@ -152,6 +140,8 @@ This skill is the PRODUCER of the feasibility report schema defined in `{feasibi
 - `stepsCompleted: ['init']`
 
 **Atomic write:** Pipe the staged content through `python3 {atomicWriteScript} write --target {outputFile}` and then again with `--target {outputFileLatest}`. Both writes use the same staged content. Do NOT use `rm`+rewrite; do NOT create a symlink for the `-latest` copy.
+
+On any non-zero exit from either write: HALT (exit code 4, `halt_reason: "write-failed"`) and emit the error envelope per SKILL.md "Result Contract (Headless)" with `report_path: null`, `report_latest_path: null`, `overall_verdict: null`.
 
 ### 5. Display Initialization Summary
 

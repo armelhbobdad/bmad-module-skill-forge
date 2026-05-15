@@ -1,0 +1,50 @@
+# DO NOT EDIT -- overwritten on every update.
+#
+# Workflow customization surface for skf-verify-stack.
+
+[workflow]
+
+# --- Configurable below. Overrides merge per BMad structural rules: ---
+#   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
+#   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
+
+# Steps to run before the standard activation (uv probe, config load).
+# Overrides append. Use for org-wide pre-flight checks (auth, network,
+# compliance) that must precede any verification work.
+
+activation_steps_prepend = []
+
+# Steps to run after activation but before the first stage executes.
+# Overrides append. Use for context loads or banner customization that
+# should run once activation completes successfully.
+
+activation_steps_append = []
+
+# Persistent facts the workflow keeps in mind for the whole run
+# (verification standards, evidence-citation rules, house-style verdict
+# language). Overrides append.
+#
+# Each entry is either:
+#   - a literal sentence, e.g. "Verdict citations must include file:line spans."
+#   - a file reference prefixed with `file:`, e.g.
+#     "file:{project-root}/docs/verify-policy.md" (globs supported; file
+#     contents are loaded and treated as facts).
+
+persistent_facts = [
+  "file:{project-root}/**/project-context.md",
+]
+
+# --- Optional asset overrides ---
+#
+# Lift the canonical asset paths so orgs can substitute house-style copies
+# without forking the skill. Empty string = use the bundled default.
+
+report_template_path = ""
+integration_rules_path = ""
+coverage_patterns_path = ""
+
+# Override the destination directory for the feasibility report. Empty =
+# use {forge_data_folder} from config.yaml. Useful for orgs that want
+# verification artifacts to land outside the per-skill forge tree.
+
+output_folder_path = ""

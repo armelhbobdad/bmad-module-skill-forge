@@ -1,7 +1,9 @@
 ---
 nextStepFile: 'improvements.md'
-refinementRulesData: 'references/refinement-rules.md'
+refinementRulesData: '{refinementRulesPath}'
 ---
+
+<!-- Config: communicate in {communication_language}. Append issue-detection findings to the RA state file in {document_output_language}. -->
 
 # Step 3: Issue Detection
 
