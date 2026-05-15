@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "b55c928d89e4",
+  "session_id": "068bf5f6-e22a-4387-8972-7f6e4026ace5",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-15T10:01:37.704107087Z",
+  "branch": "refactor/skf-stages-rename",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/skf-setup/customize.toml"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "2fc1c0eb0045",
+  "token_usage": {
+    "input_tokens": 552,
+    "cache_creation_tokens": 373113,
+    "cache_read_tokens": 24161325,
+    "output_tokens": 125342,
+    "api_call_count": 147
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-15T10:01:36.813132511Z",
+    "agent_lines": 39,
+    "human_added": 17015,
+    "human_modified": 11,
+    "human_removed": 0,
+    "total_committed": 17065,
+    "agent_percentage": 0.2285379431585116
+  }
+}
