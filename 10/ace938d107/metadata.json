@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "10ace938d107",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-issue-331-carves",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-export-skill/references/load-skill.md",
+    "src/skf-export-skill/references/multi-skill-mode.md",
+    "src/skf-export-skill/references/preflight-snippet-root-probe.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/10/ace938d107/0/metadata.json",
+      "transcript": "/10/ace938d107/0/full.jsonl",
+      "context": "/10/ace938d107/0/context.md",
+      "content_hash": "/10/ace938d107/0/content_hash.txt",
+      "prompt": "/10/ace938d107/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6,
+    "cache_creation_tokens": 17611,
+    "cache_read_tokens": 628383,
+    "output_tokens": 7961,
+    "api_call_count": 6
+  }
+}

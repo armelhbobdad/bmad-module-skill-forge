@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "10ace938d107",
+  "session_id": "def485c5-8947-4895-82cd-d38870ac62a3",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-15T23:44:50.628335408Z",
+  "branch": "refactor/skf-issue-331-carves",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-export-skill/references/preflight-snippet-root-probe.md",
+    "src/skf-export-skill/references/multi-skill-mode.md",
+    "src/skf-export-skill/references/load-skill.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "9c888e523b69",
+  "checkpoint_transcript_start": 157,
+  "transcript_lines_at_start": 157,
+  "token_usage": {
+    "input_tokens": 6,
+    "cache_creation_tokens": 17611,
+    "cache_read_tokens": 628383,
+    "output_tokens": 7961,
+    "api_call_count": 6
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-15T23:44:50.320885836Z",
+    "agent_lines": 116,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 116,
+    "agent_percentage": 100
+  }
+}
