@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "fdae620fad0c",
+  "strategy": "manual-commit",
+  "branch": "feat/skf-brief-customize-scalars",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/references/gather-intent.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fd/ae620fad0c/0/metadata.json",
+      "transcript": "/fd/ae620fad0c/0/full.jsonl",
+      "context": "/fd/ae620fad0c/0/context.md",
+      "content_hash": "/fd/ae620fad0c/0/content_hash.txt",
+      "prompt": "/fd/ae620fad0c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 565,
+    "cache_creation_tokens": 1204904,
+    "cache_read_tokens": 155569213,
+    "output_tokens": 415755,
+    "api_call_count": 410
+  }
+}
