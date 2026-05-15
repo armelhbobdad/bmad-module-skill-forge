@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "7d1dd8a86167",
+  "strategy": "manual-commit",
+  "branch": "feat/skf-drop-skill-blast-radius-summary",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-drop-skill/references/select.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7d/1dd8a86167/0/metadata.json",
+      "transcript": "/7d/1dd8a86167/0/full.jsonl",
+      "context": "/7d/1dd8a86167/0/context.md",
+      "content_hash": "/7d/1dd8a86167/0/content_hash.txt",
+      "prompt": "/7d/1dd8a86167/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 24127,
+    "cache_read_tokens": 1640915,
+    "output_tokens": 7689,
+    "api_call_count": 10
+  }
+}
