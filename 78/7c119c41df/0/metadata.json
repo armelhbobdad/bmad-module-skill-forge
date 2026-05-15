@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "787c119c41df",
+  "session_id": "bea58142-752f-49eb-92a3-83ac2514f5b2",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-15T19:21:20.854511633Z",
+  "branch": "refactor/skf-core-quality-tightening",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/SKILL.md",
+    "src/skf-brief-skill/customize.toml",
+    "src/skf-create-skill/customize.toml",
+    "src/skf-create-skill/references/sub/fetch-temporal.md",
+    "src/skf-update-skill/customize.toml",
+    "src/skf-update-skill/references/init.md",
+    "src/skf-update-skill/references/report.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "e9dc8ecfbace",
+  "token_usage": {
+    "input_tokens": 645,
+    "cache_creation_tokens": 1253868,
+    "cache_read_tokens": 183588431,
+    "output_tokens": 447348,
+    "api_call_count": 450
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-15T19:21:15.481100866Z",
+    "agent_lines": 0,
+    "human_added": 32,
+    "human_modified": 7,
+    "human_removed": 0,
+    "total_committed": 32,
+    "agent_percentage": 0
+  }
+}

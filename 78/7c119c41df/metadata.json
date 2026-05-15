@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "787c119c41df",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-core-quality-tightening",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/SKILL.md",
+    "src/skf-brief-skill/customize.toml",
+    "src/skf-create-skill/customize.toml",
+    "src/skf-create-skill/references/sub/fetch-temporal.md",
+    "src/skf-update-skill/customize.toml",
+    "src/skf-update-skill/references/init.md",
+    "src/skf-update-skill/references/report.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/78/7c119c41df/0/metadata.json",
+      "transcript": "/78/7c119c41df/0/full.jsonl",
+      "context": "/78/7c119c41df/0/context.md",
+      "content_hash": "/78/7c119c41df/0/content_hash.txt",
+      "prompt": "/78/7c119c41df/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 645,
+    "cache_creation_tokens": 1253868,
+    "cache_read_tokens": 183588431,
+    "output_tokens": 447348,
+    "api_call_count": 450
+  }
+}
