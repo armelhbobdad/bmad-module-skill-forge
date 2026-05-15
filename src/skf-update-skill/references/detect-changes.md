@@ -126,7 +126,7 @@ Read the source directory at `{source_root}` and build a current file inventory:
    [U] Update  — halt this run and return to skf-brief-skill to refine scope
    ```
 
-5. **Headless mode (`{headless_mode}` is true):** auto-select `[S] Skip` for every candidate — record `action: "skipped"`, `reason: "headless: no user to prompt"`, `workflow: "skf-update-skill"`. A non-interactive update run must never silently add files to scope.
+5. **Headless mode (`{headless_mode}` is true):** auto-select `[S] Skip` for every candidate — record `action: "skipped"`, `reason: "headless: no user to prompt"`, `workflow: "skf-update-skill"`. A non-interactive update run must never silently add files to scope. **Also append one entry per candidate to in-context `headless_decisions[]`** (surfaced via `SKF_UPDATE_RESULT_JSON` by step 7): `{gate: "detect-changes.promoted-doc-prompt", default_action: "S", taken_action: "S", reason: "headless: no user to prompt", evidence: {path: "<candidate.path>"}}`.
 
 6. **Apply decision:**
 
@@ -229,7 +229,7 @@ Read the source directory at `{source_root}` and build a current file inventory:
    [U] Update  — halt this run and return to skf-brief-skill to refine scope
    ```
 
-4. **Headless mode (`{headless_mode}` is true):** auto-select `[S] Skip` for every candidate — record `action: "skipped"`, `category: "scope-expansion"`, `reason: "headless: no user to prompt"`, `workflow: "skf-update-skill"`. A non-interactive update run must never silently expand scope.
+4. **Headless mode (`{headless_mode}` is true):** auto-select `[S] Skip` for every candidate — record `action: "skipped"`, `category: "scope-expansion"`, `reason: "headless: no user to prompt"`, `workflow: "skf-update-skill"`. A non-interactive update run must never silently expand scope. **Also append one entry per candidate to in-context `headless_decisions[]`** (surfaced via `SKF_UPDATE_RESULT_JSON` by step 7): `{gate: "detect-changes.scope-expansion", default_action: "S", taken_action: "S", reason: "headless: no user to prompt", evidence: {path: "<candidate.path>"}}`.
 
 5. **Apply decision:**
 
@@ -380,7 +380,7 @@ The upstream surface appears to have been substantially replaced. The brief's
 [A] Audit    — halt and run skf-audit-skill to map the new surface, then re-run update-skill
 ```
 
-**Headless mode (`{headless_mode}` is true):** auto-select `[C] Continue`, log a WARN-level entry to the evidence report (`scope_reconciliation_post: {trigger: "deletion-ratio", ratio: X, decision: "headless-continue"}`), and surface the warning in step 7's report. A non-interactive run must not silently halt, but the user must be able to see the signal post-hoc.
+**Headless mode (`{headless_mode}` is true):** auto-select `[C] Continue`, log a WARN-level entry to the evidence report (`scope_reconciliation_post: {trigger: "deletion-ratio", ratio: X, decision: "headless-continue"}`), and surface the warning in step 7's report. A non-interactive run must not silently halt, but the user must be able to see the signal post-hoc. **Also append to in-context `headless_decisions[]`** (surfaced via `SKF_UPDATE_RESULT_JSON` by step 7): `{gate: "detect-changes.deletion-ratio", default_action: "C", taken_action: "C", reason: "headless: deletion-ratio threshold exceeded but no user to halt", evidence: {deletion_ratio: <ratio>, deleted_export_count: <N>, total_provenance_exports: <T>}}`.
 
 **Apply decision:**
 

@@ -168,7 +168,7 @@ Display: "**Select:** [C] Continue to Change Detection"
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past update confirmation"
+- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past update confirmation". **Also append to in-context `headless_decisions[]`** (step 7 surfaces this list in `SKF_UPDATE_RESULT_JSON`): `{gate: "init.update-confirmation", default_action: "C", taken_action: "C", reason: "headless: no user to prompt"}`. The headless_decisions[] array is the structured audit trail for non-interactive runs — see `src/shared/scripts/schemas/skf-update-result-envelope.v1.json` for the entry shape.
 - ONLY proceed to next step when user selects 'C'
 
 ## CRITICAL STEP COMPLETION NOTE
