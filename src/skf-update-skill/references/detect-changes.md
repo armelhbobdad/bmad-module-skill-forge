@@ -1,6 +1,14 @@
 ---
 nextStepFile: 're-extract.md'
 noChangeReportFile: 'report.md'
+# Resolve `{hashContentHelper}` to the first existing path; HALT if neither
+# candidate exists — §1b and §Category D rely on the helper for deterministic
+# SHA-256 hashing (file-read + size + line-count) and provenance comparison
+# (UNCHANGED / MODIFIED_FILE / DELETED_FILE classification). Falling back to
+# prose-driven hashing would lose hash stability across runs.
+hashContentProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
+  - '{project-root}/src/shared/scripts/skf-hash-content.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -110,7 +118,7 @@ Read the source directory at `{source_root}` and build a current file inventory:
      1. Append `candidate.path` to `brief.scope.include` as a literal glob.
      2. Append a `brief.scope.amendments[]` entry: `action: "promoted"`, `path: candidate.path`, `reason: {user-provided or auto: "discovered post-creation — matched heuristic {basename}"}`, `heuristic: {basename}`, `date: {today ISO}`, `workflow: "skf-update-skill"`.
      3. **Write the amended brief back to disk immediately** at `{forge_data_folder}/{skill_name}/skill-brief.yaml`. Preserve all other fields.
-     4. **Compute SHA-256 content hash** of `candidate.path` and add an entry to the in-context `promoted_docs_new[]` list: `{path, heuristic, size_bytes, line_count, content_hash}`. This list is consumed by §4 merge Priority 7 to write new `file_entries[]` rows — promoted docs do NOT go through §3 code re-extraction, which would produce ghost entries on non-code files.
+     4. **Hash the candidate** via `uv run {hashContentHelper} hash {candidate.path}` — emits `{content_hash, size_bytes, line_count}` as JSON. Combine with the existing context fields and append to the in-context `promoted_docs_new[]` list: `{path, heuristic, size_bytes, line_count, content_hash}`. This list is consumed by §4 merge Priority 7 to write new `file_entries[]` rows — promoted docs do NOT go through §3 code re-extraction, which would produce ghost entries on non-code files.
      5. Display: `"Promoted {path} — brief amended, scheduled as new file_entries row for file_type doc."`
 
    - **[S] Skip:**
@@ -245,12 +253,35 @@ Launch subprocesses in parallel that compare source state against provenance map
 - If content similarity > 80%: classify as RENAMED instead of deleted+added. **Similarity mechanism by tier:** Quick: compare file size ratio (within 20%) and export name overlap (>70% of exports match by name). Forge and above: use ast-grep to compare export signatures between the deleted and added files. Forge+/Deep: use CCC semantic similarity when available
 
 **Category D — Script/asset file changes:**
-- Compare `file_entries` from provenance-map.json against current source files
-- For each file_entry: compute current SHA-256 content hash, compare against stored hash
-- Files with changed hashes → MODIFIED_FILE
-- Files in provenance but missing from source → DELETED_FILE
-- Files in source matching detection patterns (scripts/, bin/, assets/, templates/) but not in provenance → NEW_FILE
-- Files in `scripts/[MANUAL]/` or `assets/[MANUAL]/` → SKIP (user-authored, preserved)
+
+Run the bulk comparison once via:
+
+```bash
+uv run {hashContentHelper} compare <source-root> \
+    --provenance-map <provenance-map-path>
+```
+
+The helper emits:
+
+```json
+{
+  "comparisons": [
+    {"source_file": "...", "classification": "UNCHANGED|MODIFIED_FILE|DELETED_FILE",
+     "stored_hash": "sha256:...", "current_hash": "sha256:..."|null,
+     "current_size_bytes": N|null}, ...
+  ],
+  "stats": {"total": N, "unchanged": U, "modified": M, "deleted": D}
+}
+```
+
+Translate the helper's output into the change manifest:
+- `MODIFIED_FILE` rows → add to manifest as MODIFIED_FILE
+- `DELETED_FILE` rows → add to manifest as DELETED_FILE
+- `UNCHANGED` rows → omit from the manifest (no action needed)
+
+The helper does NOT detect NEW_FILE — its job is provenance comparison only. Detect new files via `skf-detect-scripts-assets.py` from create-skill step 3 §4c against the current source tree, then subtract the paths already present in `provenance.file_entries[].source_file`. Remaining files matching detection patterns (`scripts/`, `bin/`, `assets/`, `templates/`) and NOT under `scripts/[MANUAL]/` or `assets/[MANUAL]/` are NEW_FILE.
+
+Files in `scripts/[MANUAL]/` or `assets/[MANUAL]/` → SKIP (user-authored, preserved).
 
 Aggregate all subprocess results into a unified change manifest.
 
