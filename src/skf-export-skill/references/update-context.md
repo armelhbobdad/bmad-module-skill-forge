@@ -126,17 +126,21 @@ Instead of globbing `{skills_output_folder}/*/context-snippet.md`, resolve snipp
 
 A managed-section row becomes orphaned when a `[skill-name v...]` entry already exists in the prior managed section but the skill is not in the exported skill set built in 4b — typically an externally-installed skill authored in a different repo and dropped into `{skills_output_folder}` without going through export-skill. Strict ADR-K would silently drop such rows, but the user's managed section is load-bearing — silent removal is a regression.
 
-**Cheap pre-check (always run before §5 assembly):**
+**Cheap pre-check (always run before §5 assembly).** Scan **every** target context file (not just the first), deduplicate by `(skill_name, version)`, and present one consolidated gate. Asymmetric orphans — a row present in `.cursorrules` but absent from `CLAUDE.md`, or vice versa — must be detected; otherwise the §4 rebuild loop silently overwrites the orphan-bearing file's content (ADR-J violation: silent loss of user content).
 
-1. Read the prior managed section from the first target context file (`target_context_files[0].context_file`). If the file does not exist or has no `<!-- SKF:BEGIN -->` marker, set `orphan_managed_rows = []` and skip to §4d.
-2. Parse the `[skill-name v...]` rows between `<!-- SKF:BEGIN -->` and `<!-- SKF:END -->` into `prior_section_rows` — a list of `{skill_name, version, snippet_text}` triples (capture the original snippet line(s) verbatim so they can be re-emitted unchanged if (b) is chosen).
-3. Build `orphan_managed_rows` — every entry in `prior_section_rows` whose `skill_name` is NOT in the exported skill set built in 4b (manifest entries plus current-export targets).
+1. Initialize `orphan_managed_rows = []` (a list of `{skill_name, version, snippet_text, source_files: []}` entries — `source_files` carries provenance for the gate display and the audit `deviations[]` entry).
+2. **Iterate every entry in `target_context_files`:**
+   a. Read the prior managed section from `{entry.context_file}`. If the file does not exist or has no `<!-- SKF:BEGIN -->` marker, skip this entry — it has no orphans by definition.
+   b. Parse the `[skill-name v...]` rows between `<!-- SKF:BEGIN -->` and `<!-- SKF:END -->` into `file_rows` — a list of `{skill_name, version, snippet_text}` triples (capture the original snippet line(s) verbatim so they can be re-emitted unchanged if (b) is chosen).
+   c. For each `row` in `file_rows`:
+      - If `row.skill_name` is in the exported skill set built in 4b (manifest entries plus current-export targets), skip — not an orphan.
+      - Otherwise look up `(row.skill_name, row.version)` in `orphan_managed_rows`:
+        - If already present, append `entry.context_file` to that row's `source_files` list (deduplicated). Keep the first-encountered `snippet_text` — divergent snippets across files for the same `(skill, version)` are themselves a user-content asymmetry but the `(b) Preserve verbatim` semantic writes one canonical row to every target file, so picking the first is deterministic and avoids silently choosing.
+        - If new, append `{skill_name: row.skill_name, version: row.version, snippet_text: row.snippet_text, source_files: [entry.context_file]}`.
 
-**If `orphan_managed_rows` is non-empty:** load `references/orphan-row-detection.md` and follow its (a) Drop / (b) Preserve verbatim / (c) Cancel gate protocol. The reference handles user prompting, headless default (Preserve verbatim), `deviations[]` recording, and §6 result-contract integration.
+**If `orphan_managed_rows` is non-empty:** load `references/orphan-row-detection.md` and follow its (a) Drop / (b) Preserve verbatim / (c) Cancel gate protocol. The reference handles user prompting (with per-orphan `source_files` provenance), headless default (Preserve verbatim), `deviations[]` recording (including `source_files` per orphan for audit), and §6 result-contract integration.
 
 **If `orphan_managed_rows` is empty:** proceed to §4d.
-
-**Scope note:** the pre-check above reads only `target_context_files[0]` — asymmetric orphans (a row present in `.cursorrules` but not in `CLAUDE.md`, when the first target is `CLAUDE.md`) are not detected. Tracked as Workstream B1 in issue #331 for a multi-file iteration with deduplication by `(skill_name, version)`.
 
 #### 4d. Rewrite Root Paths for Target Context File
 

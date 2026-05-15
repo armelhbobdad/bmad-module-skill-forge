@@ -147,10 +147,14 @@ Substitute `{skill_batch_names}`, `{context_files_updated}`, and `{headless_deci
 ```json
 {
   "kind": "preserve_external_skills",
-  "skills": [{"name": "skill-name", "version": "1.0.0"}, …],
+  "skills": [
+    {"name": "skill-name", "version": "1.0.0", "source_files": ["CLAUDE.md", ".cursorrules"]}
+  ],
   "rationale": "managed-section row exists but no manifest entry / no source draft"
 }
 ```
+
+`source_files` per skill records the prior context files the orphan was found in (the §4c.1 multi-file scan deduplicates by `(skill, version)` and tracks which target context files originally carried the row — useful when an operator later debugs which IDE's managed section first introduced the external skill).
 
 Other workflow choices that diverge from the strict spec path may add their own entries with a distinct `kind` value — auditors then have one place to look for "what did this run choose to do differently from the canonical flow." Omit the field when there are no deviations rather than writing an empty array, so the absence is readable as "ran the canonical path."
 

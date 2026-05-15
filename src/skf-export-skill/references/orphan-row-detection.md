@@ -21,23 +21,23 @@ Strict ADR-K would silently drop such rows, but the user's managed section is lo
 
 ## Inputs
 
-- `orphan_managed_rows` — list of `{skill_name, version, snippet_text}` entries built by §4c.1's pre-check (each `snippet_text` is the original snippet line(s) captured verbatim from the prior section, so they can be re-emitted unchanged if (b) is chosen)
-- `target_context_files[0].context_file` — the file the orphans were detected in (used in the gate prompt for traceability)
+- `orphan_managed_rows` — list of `{skill_name, version, snippet_text, source_files: []}` entries built by §4c.1's pre-check across **every** target context file, deduplicated by `(skill_name, version)`. `source_files` carries the file paths the orphan appeared in (one entry per file in which the row was found). `snippet_text` is the original snippet line(s) captured verbatim from the first encountered occurrence, used for re-emission if (b) is chosen.
+- `target_context_files` — the full IDE → context-file list (referenced in the gate's framing copy so the user understands the consolidation scope)
 - `{headless_mode}` — boolean flag from workflow context
 
 ## Gate Protocol
 
 Emit the gate:
 
-> **Managed-section rows present but absent from manifest:**
+> **Managed-section rows present but absent from manifest** (consolidated across {len(target_context_files)} target context file(s)):
 >
-> {list each as `- {skill_name} v{version}`}
+> {list each as `- {skill_name} v{version} (in: {comma-separated source_files})`}
 >
-> These skills appear in the existing managed section in `{first-context-file}` but no entry exists in `.export-manifest.json` and no source draft exists under `{skills_output_folder}/{skill_name}/`. They were likely installed from a different repo and never run through export-skill in this project. Options:
+> These skills appear in one or more existing managed sections but no entry exists in `.export-manifest.json` and no source draft exists under `{skills_output_folder}/{skill_name}/`. They were likely installed from a different repo and never run through export-skill in this project. Options:
 >
-> - **(a) Drop** — remove these rows from the rebuilt managed section (strict ADR-K behavior). The skills' on-disk files are not touched, but they will no longer appear in any context file's managed index.
-> - **(b) Preserve verbatim** — copy each orphan's existing snippet line(s) into the rebuilt managed section unchanged. Records `deviations[].kind = "preserve_external_skills"` with the affected skill names and versions in the result contract for audit.
-> - **(c) Cancel** — abort export. Run export-skill against each external skill (or remove the orphan rows from the context file manually) before re-running.
+> - **(a) Drop** — remove these rows from the rebuilt managed section across **all** target context files (strict ADR-K behavior). The skills' on-disk files are not touched, but they will no longer appear in any context file's managed index.
+> - **(b) Preserve verbatim** — copy each orphan's existing snippet line(s) into the rebuilt managed section across **all** target context files unchanged (one canonical row per `(skill, version)` written everywhere — orphans become symmetric across IDEs as a side effect, which is the correct outcome since the user's intent is "these external skills should appear in my managed index"). Records `deviations[].kind = "preserve_external_skills"` with the affected skill names, versions, and `source_files` in the result contract for audit.
+> - **(c) Cancel** — abort export. Run export-skill against each external skill (or remove the orphan rows from the context files manually) before re-running.
 
 Wait for user choice.
 
@@ -61,19 +61,23 @@ in workflow context for the §6 result contract.
 
 ### (b) Preserve verbatim
 
-Append each captured `snippet_text` to the assembled section after the manifest-driven entries, preserving alphabetical order in the merged list (sort the combined set of `manifest-driven` + `orphan` snippets by `skill_name`).
+Append each captured `snippet_text` to the assembled section after the manifest-driven entries, preserving alphabetical order in the merged list (sort the combined set of `manifest-driven` + `orphan` snippets by `skill_name`). Each `(skill, version)` is written **once** per rebuilt managed section — the deduplication done by §4c.1 means there is no per-file divergence to reconcile here.
 
 Append the following entry to the `deviations[]` array in the §6 result contract:
 
 ```json
 {
   "kind": "preserve_external_skills",
-  "skills": [{"name": "...", "version": "..."}, …],
+  "skills": [
+    {"name": "...", "version": "...", "source_files": ["..."]}
+  ],
   "rationale": "managed-section row exists but no manifest entry / no source draft"
 }
 ```
 
-The same orphans are written to **every** target context file in the §4–§9a loop, so all configured IDEs end up with consistent managed sections.
+`source_files` per skill records the prior context files the orphan was found in (asymmetric provenance preserved for audit) — useful when an operator later debugs which IDE's managed section originally carried the row.
+
+The same orphans are written to **every** target context file in the §4–§9a loop, so all configured IDEs end up with consistent managed sections (asymmetric prior orphans become symmetric — the correct outcome for the "preserve external skills" intent).
 
 ### (c) Cancel
 
@@ -95,4 +99,4 @@ After this protocol completes, §4c.1 returns control to §4d with these workflo
 
 ## Scope note
 
-This detection runs once per export run (not per target context file) — orphan rows are inherent to the prior state of the first context file and the choice is global. The §B1 multi-file fix (issue #331 — Workstream B1) tracks expanding this to iterate over every entry in `target_context_files`; until then, asymmetric orphans (a row present in `.cursorrules` but not in `CLAUDE.md`, when `target_context_files[0]` is `CLAUDE.md`) are not detected by this protocol.
+This detection runs once per export run (not per target context file) — the §4c.1 pre-check iterates **every** entry in `target_context_files` and deduplicates by `(skill_name, version)` before invoking this protocol, so the gate's choice applies globally and asymmetric orphans (a row present in `.cursorrules` but not in `CLAUDE.md`, or vice versa) are detected and surfaced with `source_files` provenance.
