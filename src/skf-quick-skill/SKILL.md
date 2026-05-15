@@ -26,10 +26,8 @@ You are a rapid skill compiler collaborating with a developer. You bring source 
 These rules apply to every step in this workflow:
 
 - Never fabricate content — all data must come from source extraction or user input
-- Read each step file completely before taking any action
-- Follow the mandatory sequence in each step exactly — do not skip, reorder, or optimize
-- Only load one step file at a time — never preload future steps
 - Always communicate in `{communication_language}`
+- **Universal cancel-line affordance** — at any interactive prompt the user may type `cancel`, `exit`, `:q`, or select the `[X] Cancel and exit` menu option (where surfaced) to leave cleanly. HARD HALT with **exit code 6 (user-cancelled)** and emit the error result contract per "Result Contract on HARD HALT" with `error.code: "user-cancelled"`. In step 4 §6 the equivalent affordance is `[Q] Quit without writing` — same exit code, same envelope contract.
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
 - If `{headless_mode}` is true, emit a single-line JSON progress event to **stderr** at each step's entry and exit so pipeline schedulers can stream live progress instead of post-mortem-parsing the result contract:
   - entry: `{"step":N,"name":"<slug>","status":"start"}`
@@ -55,7 +53,7 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | target (GitHub URL or package name) [required for single-target mode], language_hint [optional], scope_hint [optional] |
-| **Overrides** | `--description`, `--exports`, `--skip-snippet`, `--no-active-pointer`, `--batch <file>`, `--fail-fast` — see On Activation step 3 |
+| **Overrides** | `--description`, `--exports`, `--skip-snippet`, `--no-active-pointer`, `--batch <file>`, `--fail-fast` — see On Activation step 4 |
 | **Gates** | step 1: Input Gate [use args]; step 2: Choice Gate [P] (if match); step 4: Review Gate [C/E/S/Q] |
 | **Outputs** | SKILL.md, context-snippet.md, metadata.json, active pointer, result contract (timestamped + `-latest` copy). Snippet and active pointer can be skipped per overrides. |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
@@ -71,7 +69,7 @@ Every HARD HALT in this workflow exits with a stable, documented code so headles
 | 3    | resolution-failure     | step 1 §2c (prose input), step 1 §3 (registry chain failed) |
 | 4    | write-failure          | step 5 §2 (deliverable write failed)                       |
 | 5    | overwrite-cancelled    | step 5 §1 (user selected [N])                              |
-| 6    | compile-cancelled      | step 4 §6 (user selected [Q])                              |
+| 6    | user-cancelled         | step 1 §1 ([X] Cancel and exit, or cancel-line affordance); step 4 §6 (user selected [Q]) — originally `compile-cancelled`, generalised to cover any interactive gate |
 | 7    | finalize-blocked       | step 6 §1 (active-pointer flip refused — non-link in place) |
 
 Reserved: `validator-missing` may be promoted from advisory log to fatal exit code in a future revision; consumers should not assume code 8+ is unused.
@@ -104,7 +102,7 @@ so consumers that hardcode the `-latest.json` path see a deterministic file even
 | `status`        | string         | always `"error"` for HARD HALTs                                                                             |
 | `exit_code`     | integer        | matches the Exit Codes table                                                                                |
 | `phase`         | string         | step slug where the HALT occurred (e.g. `resolve-target`, `compile`)                                        |
-| `error.code`    | string         | one of: `resolution-failure`, `write-failure`, `overwrite-cancelled`, `compile-cancelled`, `finalize-blocked` |
+| `error.code`    | string         | one of: `resolution-failure`, `write-failure`, `overwrite-cancelled`, `user-cancelled` (formerly `compile-cancelled`), `finalize-blocked` |
 | `error.message` | string         | the user-facing message that was displayed                                                                  |
 | `error.details` | any            | optional — phase-specific context (e.g. the failed file path)                                               |
 | `outputs`       | object         | empty `{}` on early HALTs; partial when files were already written                                          |
@@ -113,13 +111,36 @@ so consumers that hardcode the `-latest.json` path see a deterministic file even
 
 ## On Activation
 
-1. Read `{project-root}/_bmad/skf/config.yaml` and `{forger_root}/preferences.yaml` in parallel (one batched tool-call message — they are independent files), then resolve:
-   - From config: `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `skills_output_folder`, `forge_data_folder`
+1. Read `{project-root}/_bmad/skf/config.yaml` and `{sidecar_path}/preferences.yaml` in parallel (one batched tool-call message — they are independent files), then resolve:
+   - From config: `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `skills_output_folder`, `forge_data_folder`, `sidecar_path`
    - From preferences: `headless_mode` (default false)
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `preferences.yaml`. Default: false.
 
-3. **Parse CLI overrides** — capture optional override flags into the workflow context as `{overrides}`. Each override is opt-in; when omitted, the workflow runs as today.
+3. **Resolve workflow customization.** Run:
+
+   ```bash
+   python3 {project-root}/_bmad/scripts/resolve_customization.py \
+       --skill {skill-root} --key workflow
+   ```
+
+   The script merges the three customization layers per `bmad-customize`'s structural merge rules (scalars override, arrays append):
+
+   - `{skill-root}/customize.toml` — bundled defaults
+   - `_bmad/custom/<skill-name>.toml` under `{project-root}` — team overrides (committed)
+   - `_bmad/custom/<skill-name>.user.toml` under `{project-root}` — personal overrides (gitignored)
+
+   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each path scalar.
+
+   Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each of the three scalars, if the merged value is empty or absent, use the bundled default:
+
+   - `{skillTemplatePath}` ← `workflow.skill_template_path` if non-empty, else `assets/skill-template.md`
+   - `{registryResolutionPath}` ← `workflow.registry_resolution_path` if non-empty, else `references/registry-resolution.md`
+   - `{batchOutputPath}` ← `workflow.batch_output_path` if non-empty, else `{skills_output_folder}/_batch/`
+
+   Stash all three as workflow-context variables. Stage files reference `{skillTemplatePath}` / `{registryResolutionPath}` / `{batchOutputPath}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies without forking the skill.
+
+4. **Parse CLI overrides** — capture optional override flags into the workflow context as `{overrides}`. Each override is opt-in; when omitted, the workflow runs as today.
 
    | Flag | Effect |
    | --- | --- |
@@ -130,9 +151,9 @@ so consumers that hardcode the `-latest.json` path see a deterministic file even
    | `--batch <file>` | Run the workflow against a list of targets from a text file rather than a single argument. Implies `--headless` (gates cannot be human-driven across N targets). See "Batch Mode" below for input format and summary contract. Single-target overrides above apply globally to every target in the batch. |
    | `--fail-fast` | Only meaningful with `--batch`. Abort the whole batch on the first per-target failure instead of recording the failure in the summary and proceeding to the next target. |
 
-4. **If `--batch` is set**, force `{headless_mode} = true` (log "headless: coerced by --batch" if it was false), read the batch file, and parse the target list per "Batch Mode" below. Continue at step 5; the batch loop documented in "Batch Mode" wraps the step 1 → step 7 pipeline that follows.
+5. **If `--batch` is set**, force `{headless_mode} = true` (log "headless: coerced by --batch" if it was false), read the batch file, and parse the target list per "Batch Mode" below. Continue at step 6; the batch loop documented in "Batch Mode" wraps the step 1 → step 7 pipeline that follows.
 
-5. Load, read the full file, and then execute `references/resolve-target.md` to begin the workflow. (In batch mode, control returns here for each subsequent target after step 7 completes; see "Batch Mode" below.)
+6. Load, read the full file, and then execute `references/resolve-target.md` to begin the workflow. (In batch mode, control returns here for each subsequent target after step 7 completes; see "Batch Mode" below.)
 
 ## Batch Mode
 

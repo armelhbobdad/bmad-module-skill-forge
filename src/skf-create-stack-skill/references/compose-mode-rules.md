@@ -1,3 +1,5 @@
+<!-- Config: communicate in {communication_language}. -->
+
 # Compose Mode Rules
 
 Rules for synthesizing a stack skill from pre-generated individual skills and an architecture document, without requiring a codebase.

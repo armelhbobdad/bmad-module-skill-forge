@@ -4,6 +4,8 @@ integrationPatterns: 'references/integration-patterns.md'
 composeModeRules: 'references/compose-mode-rules.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 5: Detect Integrations
 
 ## STEP GOAL:

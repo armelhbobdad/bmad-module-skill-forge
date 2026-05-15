@@ -3,6 +3,8 @@ nextStepFile: 'structural-diff.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 2: Re-Index Source
 
 ## STEP GOAL:

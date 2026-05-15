@@ -1,3 +1,5 @@
+<!-- Config: communicate in {communication_language}. -->
+
 # Scoring Rules
 
 ## Default Threshold

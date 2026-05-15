@@ -6,6 +6,8 @@ sourceAccessProtocol: 'references/source-access-protocol.md'
 scoringScript: 'scripts/compute-score.py'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 5: Score
 
 ## STEP GOAL:

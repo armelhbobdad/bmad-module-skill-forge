@@ -5,6 +5,8 @@ outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 templateFile: 'templates/analysis-report-template.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 1: Initialize Analysis
 
 ## STEP GOAL:

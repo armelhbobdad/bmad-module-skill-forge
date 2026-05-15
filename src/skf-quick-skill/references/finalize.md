@@ -5,9 +5,9 @@ atomicWriteProbeOrder:
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 ---
 
-# Step 6: Finalize
+<!-- Config: communicate in {communication_language}. Generated SKILL.md text in {document_output_language}. -->
 
-Communicate with the user in `{communication_language}`. Render the user-facing completion summary content in `{document_output_language}`.
+# Step 6: Finalize
 
 ## STEP GOAL:
 

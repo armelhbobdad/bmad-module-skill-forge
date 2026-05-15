@@ -28,9 +28,7 @@ These rules apply to every step in this workflow:
 - Read each step file completely before taking any action
 - Follow the mandatory sequence in each step exactly — do not skip, reorder, or optimize
 - Only load one step file at a time — never preload future steps
-- Update `stepsCompleted` in output file frontmatter before loading next step
-- If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread
-- Always communicate in `{communication_language}`
+- Always communicate in `{communication_language}` (the language for user-facing prose). Written artifact text — the per-unit recommendation `description` and `scope.notes` persisted into `skill-brief.yaml` — is in `{document_output_language}`; per-step rules call this out where it applies. The two values may be the same.
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
 
 ## Stages
@@ -52,8 +50,31 @@ These rules apply to every step in this workflow:
 |--------|--------|
 | **Inputs** | project_path [required], scope_hint [optional] |
 | **Gates** | step 2: Confirm Gate [C] | step 3: Confirm Gate [C] | step 5: Confirm Gate [C] |
-| **Outputs** | analysis-report.md, skill-brief.yaml files (one per recommended unit) |
+| **Outputs** | analysis-report.md, skill-brief.yaml files (one per recommended unit); final `SKF_ANALYZE_RESULT_JSON` line on stdout when `{headless_mode}` is true |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
+| **Exit codes** | See "Exit Codes" below |
+
+## Exit Codes
+
+Every HARD HALT in this workflow exits with a stable code so headless automators can branch on the failure class without grepping message text:
+
+| Code | Meaning              | Raised by                                                                                  |
+| ---- | -------------------- | ------------------------------------------------------------------------------------------ |
+| 0    | success              | step 7 (terminal — health check completion)                                               |
+| 2    | input-missing        | step 1 §2-3 — required config absent (config.yaml not loadable, project path empty/invalid in headless mode) |
+| 3    | resolution-failure   | step 1 §2 (`forge-tier.yaml` missing at `{sidecar_path}/forge-tier.yaml`); step 1 §3 (project path does not exist or remote URL inaccessible) |
+| 4    | write-failure        | step 1 §6 (analysis report write failed); step 6 §5 (skill-brief.yaml write failed); step 6 §9 (result contract write failed) |
+| 6    | user-cancelled       | any interactive menu in steps 2/3/5/6 (user selected `[X]` Cancel and exit)               |
+
+## Result Contract (Headless)
+
+When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **stdout** before chaining to step 7, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
+
+```
+SKF_ANALYZE_RESULT_JSON: {"status":"success|error","report_path":"…|null","brief_paths":["…"],"unit_counts":{"confirmed":N,"skipped":N,"maybe":N},"exit_code":0,"halt_reason":null}
+```
+
+`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"forge-tier-missing"`, `"path-invalid"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above. `brief_paths` is an array of absolute paths to every generated `skill-brief.yaml` (empty array if none were generated). `unit_counts` reports confirmed/skipped/maybe counts from step 5's user decisions.
 
 ## On Activation
 
@@ -62,4 +83,27 @@ These rules apply to every step in this workflow:
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 
-3. Load, read the full file, and then execute `references/init.md` to begin the workflow.
+3. **Resolve workflow customization.** Run:
+
+   ```bash
+   python3 {project-root}/_bmad/scripts/resolve_customization.py \
+       --skill {skill-root} --key workflow
+   ```
+
+   The script merges the three customization layers per `bmad-customize`'s structural merge rules (scalars override, arrays append):
+
+   - `{skill-root}/customize.toml` — bundled defaults
+   - `_bmad/custom/<skill-name>.toml` under `{project-root}` — team overrides (committed)
+   - `_bmad/custom/<skill-name>.user.toml` under `{project-root}` — personal overrides (gitignored)
+
+   If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each path scalar.
+
+   Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each of the three scalars, if the merged value is empty or absent, use the bundled default:
+
+   - `{unitDetectionHeuristicsPath}` ← `workflow.unit_detection_heuristics_path` if non-empty, else `references/unit-detection-heuristics.md`
+   - `{briefSchemaPath}` ← `workflow.brief_schema_path` if non-empty, else `assets/skill-brief-schema.md`
+   - `{analysisReportTemplatePath}` ← `workflow.analysis_report_template_path` if non-empty, else `templates/analysis-report-template.md`
+
+   Stash all three as workflow-context variables. Stage files reference `{unitDetectionHeuristicsPath}` / `{briefSchemaPath}` / `{analysisReportTemplatePath}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies without forking the skill.
+
+4. Load, read the full file, and then execute `references/init.md` to begin the workflow.

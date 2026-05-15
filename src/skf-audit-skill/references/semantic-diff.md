@@ -3,6 +3,8 @@ nextStepFile: 'severity-classify.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 4: Semantic Diff
 
 ## STEP GOAL:

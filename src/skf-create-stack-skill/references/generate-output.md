@@ -10,6 +10,8 @@ atomicWriteProbeOrder:
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 ---
 
+<!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
+
 # Step 7: Generate Output Files
 
 ## STEP GOAL:

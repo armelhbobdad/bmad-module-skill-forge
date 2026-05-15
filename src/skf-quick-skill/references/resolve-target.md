@@ -6,9 +6,9 @@ packageResolverProbeOrder:
   - '{project-root}/src/shared/scripts/skf-resolve-package.py'
 ---
 
-# Step 1: Resolve Target
+<!-- Config: communicate in {communication_language}. -->
 
-Communicate with the user in `{communication_language}`.
+# Step 1: Resolve Target
 
 ## STEP GOAL:
 
@@ -23,7 +23,7 @@ To accept a GitHub URL or package name from the user, resolve it to a GitHub rep
 
 ### 1. Accept User Input
 
-**Batch mode:** if `--batch` is active (see SKILL.md "Batch Mode"), the current target was already resolved by On Activation step 4 from the next batch line and placed into the workflow context as `target`, with optional `language_hint` and `scope_hint` per-line modifiers. Skip the prompt below — emit `{"batch":<n>,"target":"<target>","status":"start"}` to stderr and proceed directly to §1b with the batch-supplied values.
+**Batch mode:** if `--batch` is active (see SKILL.md "Batch Mode"), the current target was already resolved by On Activation step 5 from the next batch line and placed into the workflow context as `target`, with optional `language_hint` and `scope_hint` per-line modifiers. Skip the prompt below — emit `{"batch":<n>,"target":"<target>","status":"start"}` to stderr and proceed directly to §1b with the batch-supplied values.
 
 **Single-target mode** (default):
 
@@ -37,9 +37,13 @@ Examples: `cocoindex`, `@tanstack/query`, `https://github.com/tursodatabase/limb
 
 **Optional:**
 - **Language hint:** (if the repo is multi-language)
-- **Scope hint:** (specific directories to focus on)"
+- **Scope hint:** (specific directories to focus on)
 
-Wait for user input. **GATE [default: use args]** — If `{headless_mode}` and a target (URL or package name) was provided as argument: use it as the target input and auto-proceed, log: "headless: using provided target". If no target provided in headless mode, HALT with: "headless mode requires a target argument."
+Or type `cancel` / `exit` / `:q` / `[X]` to leave without writing anything."
+
+Wait for user input. **Cancel branch** — if the user types `cancel`, `exit`, `:q`, `[X]`, or selects `[X] Cancel and exit`, display `"Cancelled — no files were written."` and HARD HALT with **exit code 6 (user-cancelled)** per the SKILL.md exit-code map. Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "resolve-target"`, `error.code: "user-cancelled"`, `skill_package: null`). Cancellation here is non-destructive — no files have been written yet.
+
+**GATE [default: use args]** — If `{headless_mode}` and a target (URL or package name) was provided as argument: use it as the target input and auto-proceed, log: "headless: using provided target". If no target provided in headless mode, HALT with: "headless mode requires a target argument."
 
 ### 1b. Parse Version Targeting
 

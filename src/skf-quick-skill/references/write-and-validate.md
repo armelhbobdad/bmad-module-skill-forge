@@ -8,9 +8,9 @@ outputValidatorProbeOrder:
   - '{project-root}/src/shared/scripts/skf-validate-output.py'
 ---
 
-# Step 5: Write & Validate
+<!-- Config: communicate in {communication_language}. Generated SKILL.md text in {document_output_language}. -->
 
-Communicate with the user in `{communication_language}`. Validation reports are user-facing — render their narrative content in `{document_output_language}`.
+# Step 5: Write & Validate
 
 ## STEP GOAL:
 

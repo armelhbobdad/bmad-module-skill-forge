@@ -6,9 +6,9 @@ quickMetadataRendererProbeOrder:
   - '{project-root}/src/shared/scripts/skf-render-quick-metadata.py'
 ---
 
-# Step 4: Compile
+<!-- Config: communicate in {communication_language}. Generated SKILL.md text in {document_output_language}. -->
 
-Communicate with the user in `{communication_language}`. Compile generated content (descriptions, usage notes, summaries) in `{document_output_language}`.
+# Step 4: Compile
 
 ## STEP GOAL:
 
@@ -154,7 +154,7 @@ Display: **Select:** [C] Continue to Validation · [E] Edit description · [S] A
 - **IF C** — Load, read entire file, then execute {nextStepFile}.
 - **IF E** — Ask the user for a replacement description ("New description (1–1024 chars):"). Update SKILL.md frontmatter `description` and `metadata.json.description` in the in-memory compiled output, then re-render the §5 preview and redisplay this menu. Do not re-run extraction.
 - **IF S** — Ask the user for an adjusted `scope_hint` ("New scope (e.g. `src/server/`, `packages/core/`):") and optionally a `language_hint`. Update the extraction context with the new hints, then load `quick-extract.md` to re-extract. The new extraction returns to §1 of this step on completion. Discards the prior compiled output.
-- **IF Q** — HARD HALT with **exit code 6 (compile-cancelled)** per the SKILL.md exit-code map: "Compilation cancelled. No files written." Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "compile"`, `error.code: "compile-cancelled"`, `skill_package: null`). Do not proceed to validation; do not write any artifacts.
+- **IF Q** — HARD HALT with **exit code 6 (user-cancelled)** per the SKILL.md exit-code map: "Compilation cancelled. No files written." Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "compile"`, `error.code: "user-cancelled"`, `skill_package: null`). Do not proceed to validation; do not write any artifacts.
 - **IF Any other** — Help the user adjust the compiled output (treated as a free-form revision request), then redisplay the menu.
 
 #### EXECUTION RULES:

@@ -1,3 +1,5 @@
+<!-- Config: communicate in {communication_language}. -->
+
 # Migration & Deprecation Section Rules (§2b / §5b)
 
 > **Single source of truth.** Both `coherence-check.md` §2b (naive path)

@@ -5,9 +5,9 @@
 nextStepFile: 'shared/health-check.md'
 ---
 
-# Step 7: Workflow Health Check
+<!-- Config: communicate in {communication_language}. -->
 
-Communicate with the user in `{communication_language}`.
+# Step 7: Workflow Health Check
 
 ## STEP GOAL:
 

@@ -1,0 +1,44 @@
+# DO NOT EDIT -- overwritten on every update.
+#
+# Workflow customization surface for skf-analyze-source.
+
+[workflow]
+
+# --- Configurable below. Overrides merge per BMad structural rules: ---
+#   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
+#   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
+
+# Steps to run before the standard activation (uv probe, config load).
+# Overrides append. Use for org-wide pre-flight checks (auth, network,
+# compliance) that must precede any source-analysis work.
+
+activation_steps_prepend = []
+
+# Steps to run after activation but before the first stage executes.
+# Overrides append. Use for context loads or banner customization that
+# should run once activation completes successfully.
+
+activation_steps_append = []
+
+# Persistent facts the workflow keeps in mind for the whole run
+# (house style, naming conventions, scope guardrails).
+# Overrides append.
+#
+# Each entry is either:
+#   - a literal sentence, e.g. "Recommended skills must align with our agent stack."
+#   - a file reference prefixed with `file:`, e.g.
+#     "file:{project-root}/docs/analysis-style.md" (globs supported; file
+#     contents are loaded and treated as facts).
+
+persistent_facts = [
+  "file:{project-root}/**/project-context.md",
+]
+
+# --- Optional asset overrides ---
+#
+# Lift the canonical asset paths so orgs can substitute house-style copies
+# without forking the skill. Empty string = use the bundled default.
+
+unit_detection_heuristics_path = ""
+brief_schema_path = ""
+analysis_report_template_path = ""

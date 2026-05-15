@@ -2,9 +2,9 @@
 nextStepFile: 'quick-extract.md'
 ---
 
-# Step 2: Ecosystem Check
+<!-- Config: communicate in {communication_language}. -->
 
-Communicate with the user in `{communication_language}`.
+# Step 2: Ecosystem Check
 
 ## STEP GOAL:
 

@@ -6,6 +6,8 @@ scoringRulesFile: 'references/scoring-rules.md'
 migrationSectionRules: 'references/migration-section-rules.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 4: Coherence Check
 
 ## STEP GOAL:

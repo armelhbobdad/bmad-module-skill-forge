@@ -5,6 +5,8 @@ scoringRulesFile: 'references/scoring-rules.md'
 sourceAccessProtocol: 'references/source-access-protocol.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 3: Coverage Check
 
 ## STEP GOAL:

@@ -4,6 +4,8 @@ outputFile: '{forge_version}/drift-report-{timestamp}.md'
 templateFile: 'assets/drift-report-template.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 1: Initialize Audit
 
 ## STEP GOAL:

@@ -4,6 +4,8 @@ outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 heuristicsFile: 'references/unit-detection-heuristics.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 4: Map Exports and Detect Integrations
 
 ## STEP GOAL:

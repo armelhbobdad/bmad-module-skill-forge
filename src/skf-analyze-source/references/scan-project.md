@@ -4,6 +4,8 @@ outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 heuristicsFile: 'references/unit-detection-heuristics.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 2: Scan Project
 
 ## STEP GOAL:
@@ -136,11 +138,12 @@ lastStep: 'scan-project'
 
 ### 7. Present MENU OPTIONS
 
-Display: "**Select:** [C] Continue to Unit Identification"
+Display: "**Select:** [C] Continue to Unit Identification | [X] Cancel and exit"
 
 #### Menu Handling Logic:
 
 - IF C: Save scan results to {outputFile}, update frontmatter, then load, read entire file, then execute {nextStepFile}
+- IF X: HARD HALT with exit code 6 (`user-cancelled`). Emit the `SKF_ANALYZE_RESULT_JSON` envelope on stderr with `status: "error"`, `halt_reason: "user-cancelled"`, and counts/paths reflecting state at cancellation
 - IF Any other: help user, then [Redisplay Menu Options](#7-present-menu-options)
 
 #### EXECUTION RULES:

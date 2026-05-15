@@ -46,7 +46,7 @@ const STRICT = process.argv.includes('--strict');
 const SCAN_EXTENSIONS = new Set(['.yaml', '.yml', '.md', '.xml', '.csv']);
 
 // Skip directories
-const SKIP_DIRS = new Set(['node_modules', '.git']);
+const SKIP_DIRS = new Set(['node_modules', '.git', '.analysis']);
 
 // Pattern: {project-root}/_bmad/ references
 const PROJECT_ROOT_REF = /\{project-root\}\/_bmad\/([^\s'"<>})\]`]+)/g;
@@ -91,8 +91,11 @@ function escapeTableCell(str) {
   return String(str).replaceAll('|', String.raw`\|`);
 }
 
-// Path prefixes/patterns that only exist in installed structure, not in source
-const INSTALL_ONLY_PATHS = ['_config/', '_memory/'];
+// Path prefixes/patterns that only exist in installed structure, not in source.
+// `agents/` is where bmad-method core agents land under `_bmad/`; referenced by
+// some workflows (e.g. test-skill's --discovery-catalog=all escape hatch) but
+// never sourced from this repo.
+const INSTALL_ONLY_PATHS = ['_config/', '_memory/', 'agents/'];
 
 // Files that are generated at install time and don't exist in the source tree
 const INSTALL_GENERATED_FILES = ['config.yaml', 'config.user.yaml', 'VERSION', 'package.json'];

@@ -5,9 +5,9 @@ publicApiExtractorProbeOrder:
   - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
 ---
 
-# Step 3: Quick Extract
+<!-- Config: communicate in {communication_language}. -->
 
-Communicate with the user in `{communication_language}`.
+# Step 3: Quick Extract
 
 ## STEP GOAL:
 
