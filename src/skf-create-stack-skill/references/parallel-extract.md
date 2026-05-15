@@ -1,5 +1,6 @@
 ---
 nextStepFile: 'detect-integrations.md'
+enumerateStackSkillsScript: '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -32,18 +33,40 @@ For each confirmed skill, load SKILL.md from the version-aware path resolved in 
 
 Use `skill_package_path` (stored in step 2 and optionally refreshed above) directly — this already points to the resolved `{skill_package}` or `{active_skill}` directory containing the skill's artifacts. If `skill_package_path` is not available, resolve via the `{active_skill}` template: `{skills_output_folder}/{skill_dir}/active/{skill_dir}/SKILL.md` (see `knowledge/version-paths.md`).
 
-**Exports resolution order (H1):** For each confirmed skill, populate the `exports` field using the first source that returns a non-empty list:
+**Exports resolution order (H1) — script-driven:** Do NOT walk per-skill `metadata.json` → `references/` → SKILL.md by hand. Invoke the helper once at step entry to compute the full inventory for every confirmed skill in one deterministic call:
 
-1. **Primary — `metadata.json.exports[]`:** Read the skill's `metadata.json` and use the `exports[]` array directly. This is the most structured and trustworthy source.
-2. **Fallback — `references/`:** If `metadata.json.exports[]` is empty or missing, scan the `references/` subdirectory of the skill package for per-export files and reconstruct the export list from filenames/headers. Log a warning: `"{skill_name}: metadata.json.exports[] empty — reconstructed from references/"` and record the warning in workflow state for the evidence report.
-3. **Last resort — SKILL.md prose parsing:** If both prior sources are unavailable, parse the SKILL.md "Exports" / "API" section prose. Log a stronger warning: `"{skill_name}: falling back to SKILL.md prose parsing — exports may be incomplete"` and record it in workflow state.
+```bash
+uv run {enumerateStackSkillsScript} enumerate {skills_output_folder}
+```
 
-Build a `per_library_extractions[]` entry for each skill with the following fields:
-- `library`: skill name from metadata.json
-- `exports`: exports list resolved via the order above
-- `exports_source`: one of `metadata|references|prose` — capture which resolution path was used (so step 7 provenance can record it)
-- `usage_patterns`: usage patterns from the SKILL.md usage section
-- `confidence`: the skill's existing confidence tier (one of `T1|T1-low|T2|T3` per `confidence-tiers.md`) — inherited directly. Do not silently drop T3 evidence; carry whatever tier the source skill declared.
+The script emits JSON of the form:
+
+```json
+{
+  "skills": [
+    {
+      "name": "<skill-name>",
+      "path": "<rel-to-skills-root, forward-slash>",
+      "exports": ["..."],
+      "exports_source": "metadata|references|skill-md|unknown",
+      "confidence": "T1|T2|T1-low",
+      "metadata_hash": "sha256:..." | null
+    }
+  ],
+  "cycles": ["<skill-name>"],
+  "warnings": ["<text>"]
+}
+```
+
+Cache this result as `stack_skill_inventory` in workflow state — the per-skill subagent fan-out at §1+ MUST read from this cache rather than re-reading each skill's `SKILL.md` / `metadata.json` / `references/` to determine exports. Append every entry in `warnings[]` to workflow state for the evidence report (the script already labels them per-skill, e.g. `"<skill-name>: no exports found via any resolution path"`). For every entry in `cycles[]`, halt with a structured-error contract on stderr — a composes-cycle makes the stack unbuildable.
+
+Build a `per_library_extractions[]` entry for each skill by reading from the cached inventory:
+- `library`: `inventory.skills[i].name`
+- `exports`: `inventory.skills[i].exports`
+- `exports_source`: `inventory.skills[i].exports_source` (one of `metadata|references|skill-md|unknown` — capture for step 7 provenance)
+- `confidence`: `inventory.skills[i].confidence` (one of `T1|T2|T1-low`; `unknown` source ⇒ `T1-low`). Do not silently drop T3 evidence; carry whatever tier the source skill declared if §1+ subagent analysis upgrades the value.
+- `metadata_hash`: `inventory.skills[i].metadata_hash` — record for step 7 provenance (null when exports came from references/ or SKILL.md prose).
+- `usage_patterns`: populated by the §1+ per-skill subagent fan-out, NOT by this script. The script provides the inventory + exports; the subagent does the per-skill usage analysis. They're complementary.
 
 Display an extraction summary:
 

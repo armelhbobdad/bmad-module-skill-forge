@@ -1,6 +1,8 @@
 ---
 nextStepFile: 'semantic-diff.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
+loadProvenanceScript: '{project-root}/src/shared/scripts/skf-load-provenance.py'
+compareFileHashesScript: '{project-root}/src/shared/scripts/skf-compare-file-hashes.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -35,7 +37,7 @@ Load both datasets:
 
 - **Quote style on string defaults.** Normalize string-literal defaults in signatures to a single style — e.g., `kind: str = "Hnsw"` ↔ `kind: str = 'Hnsw'`. Pick one canonical form and apply to both sides.
 - **Module qualification of stdlib helpers.** Strip module prefixes on well-known stdlib helpers when the unqualified form is importable at the call site: `dataclasses.field(...)` → `field(...)`, `typing.Optional[...]` → `Optional[...]`, `typing.List[...]` → `List[...]`. Do not collapse user-defined namespaces.
-- **Public-API re-export resolution.** When `{source_root}/**/__init__.py` re-exports an internal symbol under a different public name (`from .internal import _Impl as Public`, or via `__all__`), resolve both sides to the public name before key-matching — otherwise a renamed re-export in the current scan shows up as "Removed `_Impl`" + "Added `Public`" instead of matching the baseline entry. Build the re-export map once per package by walking `__init__.py` files.
+- **Public-API re-export resolution.** When `{source_root}/**/__init__.py` re-exports an internal symbol under a different public name (`from .internal import _Impl as Public`, or via `__all__`), resolve both sides to the public name before key-matching — otherwise a renamed re-export in the current scan shows up as "Removed `_Impl`" + "Added `Public`" instead of matching the baseline entry. The re-export map is already in workflow context as `{reexport_map}` (produced by `skf-load-provenance.py normalize` in step 1 §4). Apply it directly without re-walking `__init__.py` files.
 
 Record the set of transforms actually applied in workflow context — step 6 surfaces them in the Provenance section so a reviewer can tell which differences the diff collapsed and which were real.
 
@@ -89,16 +91,26 @@ For each changed export, record:
 
 **Only execute if provenance-map.json contains `file_entries`.**
 
-For each entry in `file_entries`:
-1. Locate the source file at the original `source_file` path
-2. Compute current SHA-256 content hash (bare hex — `hashlib.sha256(...).hexdigest()`, `sha256sum`, and `openssl dgst` all produce this form)
-3. **Normalize the stored hash before comparison.** `skf-create-skill` writes `content_hash` with a leading algorithm-name prefix (`"sha256:879bfcc2…"`). A bare-hex hash from `hashlib` will never equal the prefixed value byte-for-byte, so without normalization every `file_entry` flags as CHANGED on every audit. Strip the algorithm prefix before comparing — accept any leading lowercase-alphanumeric prefix terminated by `:` (e.g. `sha256:`, `sha1:`, `md5:`); if no prefix is present, leave the value unchanged. The reader-side normalization is unconditionally safe — applying it to bare-hex values produced by a fixed writer is a no-op.
-4. Compare the normalized stored hash against the freshly computed hash:
-   - CHANGED: hash mismatch → record as script/asset content drift
-   - MISSING: source file no longer exists → record as removed
-   - NEW: source contains files matching script/asset patterns not in `file_entries` → record as added
+Run one deterministic comparison subprocess — it walks tracked file_entries[] AND the inverse direction (source-tree → candidate set in standard script/asset/doc directories) so the LLM does not orchestrate per-file hashing:
 
-Append results to the Structural Drift section as "### Script/Asset Drift ({count})".
+```bash
+uv run {compareFileHashesScript} compare {provenanceMap} {sourceRoot}
+```
+
+Parse the emitted JSON:
+
+```
+{
+  "added":   ["<rel-path>", ...],   // present on disk in tracked dirs, NOT in file_entries
+  "removed": ["<rel-path>", ...],   // in file_entries, missing on disk
+  "changed": [{"path": "...", "stored_hash": "sha256:...", "current_hash": "sha256:..."}],
+  "stats":   {"added": N, "removed": N, "changed": N, "unchanged": N}
+}
+```
+
+Hash-prefix normalization (writer-vs-reader compatibility — `skf-create-skill` writes `content_hash` with a `"sha256:"` prefix, a bare-hex hash from `hashlib` would otherwise never match) is handled inside the script. Downstream consumers read `added`/`removed`/`changed` directly with no further normalization.
+
+Append the three lists into the Structural Drift section as "### Script/Asset Drift ({stats.added + stats.removed + stats.changed})".
 
 ### Stack-Specific Structural Diff
 

@@ -4,6 +4,7 @@ outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
 outputFormatsFile: 'assets/output-section-formats.md'
 scoringRulesFile: 'references/scoring-rules.md'
 migrationSectionRules: 'references/migration-section-rules.md'
+scanSkillMdStructureScript: '{project-root}/src/shared/scripts/skf-scan-skill-md-structure.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -23,36 +24,28 @@ Read `testMode` from `{outputFile}` frontmatter.
 
 ### 2. Naive Mode: Concrete Structural Validation
 
-Perform the following explicit checks (no hand-waving — each recipe is a shell recipe or a literal pattern). Severity assignments are binding; do not relax them.
+Perform the following explicit checks (no hand-waving — most use a single deterministic script; severity assignments are binding; do not relax them).
 
-**2.1 Required sections present.** For each required top-level H2, run `grep -n "^## {section}" SKILL.md`. A required section is satisfied if **any** synonym in its set matches:
-- Description: `## Description` OR frontmatter `description` field — either satisfies
-- Usage: `## Usage` OR `## Examples` OR `## Quick Start` OR `## Common Workflows`
-- API surface: `## Exports` OR `## Key API Summary` OR `## API`
-- **Zero matches across an entire synonym set → High severity** finding: `naive-coherence — missing required section: {section-set-name}`
+**2.0 Run the structural scan.** Invoke `{scanSkillMdStructureScript}` twice and parse the JSON outputs. These results back §§2.1, 2.2, 2.3, and 2.6 — do not re-implement those checks with grep/sed/awk loops.
 
-Note: SKF-template skills ship with `## Quick Start`, `## Common Workflows`, and `## Key API Summary`. These are first-class synonyms — do not downgrade to Low on literal-name miss; accept them.
-
-**2.2 Code fence balance.** Count triple-backtick fences with `grep -c '^```' SKILL.md`. **Odd count → High severity** finding: `naive-coherence — unbalanced code fence (unclosed block)`.
-
-**2.3 Language tags on opening fences.** Only **opening** fences are required to carry a language tag; closing fences are bare by markdown convention and must NOT be flagged. Do not use a plain `grep -n '^```$' SKILL.md` — that flags every closing fence and produces one false positive per well-formed code block.
-
-Use a stateful open/close scan (toggle `in_code` on each `^```` line; flag only the line where `in_code` transitions 0→1 with no trailing language tag):
-
-```python
-in_code = False
-for i, line in enumerate(open('SKILL.md'), 1):
-    s = line.rstrip('\n')
-    if s.startswith('```'):
-        if not in_code:
-            if s == '```':
-                print(f'{i}: bare opening fence')
-            in_code = True
-        else:
-            in_code = False
+```bash
+uv run {scanSkillMdStructureScript} scan {skill-md} --required-sections
+uv run {scanSkillMdStructureScript} scan {skill-md}
 ```
 
-**Each flagged opening fence → Medium severity** finding: `naive-coherence — opening code fence at line {N} missing language tag`.
+The first call returns `{ description: {satisfied, matched_synonym, tried[]}, usage: {...}, api_surface: {...} }`. The second returns `{ unbalanced_fences, fence_count, bare_opening_fences[{line,text}], table_drift[{line,section,expected_cols,actual_cols,row}] }`. Hold both JSON blobs for the checks below.
+
+**2.1 Required sections present.** Read the first JSON blob from §2.0. For each of the three families (`description`, `usage`, `api_surface`):
+
+- `satisfied: true` → no finding.
+- `satisfied: false` AND family is `description` AND the SKILL.md frontmatter has a non-empty `description` field → no finding (the frontmatter alternative satisfies the family per the original rule).
+- Otherwise → **High severity** finding: `naive-coherence — missing required section: {family}` (the `tried[]` list from the JSON identifies which synonyms were checked: `Description`/`Overview`/`Purpose`/`Summary` for description; `Usage`/`Examples`/`How to use`/`Quickstart`/`Quick Start`/`Getting Started`/`Common Workflows` for usage; `API`/`API Surface`/`Exports`/`Public API`/`Interface`/`Reference`/`Key API Summary` for api_surface).
+
+The script matches case-insensitively and tolerates `##`/`###` heading levels. SKF-template skills' `## Quick Start`, `## Common Workflows`, and `## Key API Summary` are first-class synonyms baked into the script — they will surface with `satisfied: true` and the corresponding `matched_synonym` field.
+
+**2.2 Code fence balance.** Read `unbalanced_fences` from the second JSON blob. **`true` → High severity** finding: `naive-coherence — unbalanced code fence (unclosed block)` (the JSON's `fence_count` may be cited in the detail).
+
+**2.3 Language tags on opening fences.** Read `bare_opening_fences[]` from the second JSON blob. The script already runs the stateful open/close scan — closing fences are never reported. For each entry, emit a **Medium severity** finding: `naive-coherence — opening code fence at line {entry.line} missing language tag`.
 
 **2.4 Exports cross-used in Usage section.** For each function name reported in the step 3 subagent inventory (`exports[].name` where `kind == "function"` or `kind == "method"`):
 - `grep -c "{export.name}" SKILL.md` restricted to the Usage section (find the `## Usage` anchor from §2.1 and the next `^## ` anchor; count within that span).
@@ -62,20 +55,7 @@ for i, line in enumerate(open('SKILL.md'), 1):
 - Description says async + example shows no `await` → **High severity** finding: `naive-coherence — \`{name}\` described as async but example lacks \`await\``
 - Description says sync + example uses `await {name}` → **High severity** finding: `naive-coherence — \`{name}\` described as sync but example awaits it`
 
-**2.6 Table syntax.** `grep -nE '^\|.*\|$' SKILL.md | head` — for each table row, normalize escaped pipes (`\|`) before splitting, then verify adjacent rows have the same column count. **Escaped pipes appear inside TypeScript union types and discriminated payloads** (e.g. `string \| undefined`) and must not inflate the count.
-
-Recipe:
-
-```bash
-# Normalize `\|` to a placeholder, split on |, count, restore.
-grep -nE '^\|.*\|$' SKILL.md \
-  | sed 's/\\|/\x00/g' \
-  | awk -F'|' '{print NR, NF-2}'   # -2 drops the empty leading/trailing fields
-```
-
-Or equivalent: hand off to a proper markdown-table parser. A plain `split on |` WILL produce false "column drift" findings on any table whose cells contain union types.
-
-**Column-count drift → Medium severity** finding: `naive-coherence — table row at line {N} has {X} columns; neighboring rows have {Y}`.
+**2.6 Table syntax.** Read `table_drift[]` from the second JSON blob (§2.0). The script normalizes escaped pipes (`\|`, used inside TypeScript union types such as `string \| undefined`) before splitting and compares each row against its header's column count, so a plain `split on |` false-positive cannot occur here. For each entry, emit a **Medium severity** finding: `naive-coherence — table row at line {entry.line} has {entry.actual_cols} columns; header has {entry.expected_cols}` (the `entry.section` and `entry.row` fields populate the detail when present).
 
 **2.7 Scripts & Assets section.** If `{skillDir}/scripts/` or `{skillDir}/assets/` exists, `grep -n '^## Scripts' SKILL.md`:
 - Directory exists AND no `## Scripts` section → **Medium severity** finding: `naive-coherence — scripts/assets directory exists but Scripts & Assets section missing` (per `{scoringRulesFile}`)
@@ -117,11 +97,11 @@ Scan SKILL.md for all cross-references:
 - Integration pattern references (middleware chains, plugin hooks, shared state)
 - Script/asset references (`scripts/{file}`, `assets/{file}`) in SKILL.md body
 
-Launch a subprocess to grep/regex SKILL.md for reference patterns and return all found references with line numbers as structured JSON (`references_found[]` with line, type, target fields). If subprocess unavailable, scan in main thread.
+Delegate to a subagent that grep/regexes SKILL.md for reference patterns and returns ONLY this JSON shape — no prose, no commentary, no markdown fences: `{"references_found": [{"line": N, "type": "file-path|skill|type-import|integration-pattern|script-asset", "target": "..."}]}`. Parent strips wrapping markdown fences (if present) before parsing. If subagent unavailable, scan in main thread.
 
 ### 4. Contextual Mode: Validate Each Reference
 
-DO NOT BE LAZY — For EACH reference found, launch a subprocess that:
+For EACH reference found, delegate to a subagent that:
 
 1. Checks if the target exists (file exists, skill exists, type is declared)
 2. If target exists, validates the reference is accurate:
@@ -130,9 +110,9 @@ DO NOT BE LAZY — For EACH reference found, launch a subprocess that:
    - Skill references: referenced skill exists in skills output folder
    - Integration patterns: documented pattern matches actual implementation
    - Script/asset references: verify the referenced file exists in the skill's `scripts/` or `assets/` directory
-3. Returns structured validation JSON per reference (reference, line, target_exists, type_match, signature_match, issues[])
+3. Returns ONLY this JSON shape per reference — no prose, no commentary, no markdown fences: `{"reference": "...", "line": N, "target_exists": <bool>, "type_match": <bool>, "signature_match": <bool>, "issues": ["..."]}`
 
-If subprocess unavailable, validate each reference in main thread.
+Parent strips wrapping markdown fences (if present) before parsing. If subagent unavailable, validate each reference in main thread.
 
 4. **Scripts/assets directory check:** If a `scripts/` or `assets/` directory exists alongside SKILL.md, verify that a "Scripts & Assets" section (Section 7b) is present in SKILL.md. This directory-level check applies in both modes (naive mode performs it in Section 2; contextual mode performs it here alongside per-reference validation). Flag absence as Medium severity gap per `{scoringRulesFile}`.
 

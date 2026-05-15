@@ -2,6 +2,7 @@
 nextStepFile: 'map-and-detect.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 heuristicsFile: 'references/unit-detection-heuristics.md'
+disqualifyCandidatesScript: '{project-root}/src/shared/scripts/skf-disqualify-candidates.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -51,13 +52,41 @@ For EACH detected boundary from the scan:
 - `specific-modules` — selected components or packages
 - `public-api` — only exported interfaces
 
-**Step D — Check disqualification rules:**
-- Too small (fewer than 3 source files or 100 lines)
-- Generated code
-- Pure configuration
-- Test-only
-- Vendor/dependency copy
-- Already skilled (exists in existing_skills list)
+**Step D — Run deterministic disqualification filter (script):**
+
+Run the shared disqualification helper to apply the deterministic subset of the rules from {heuristicsFile} (file-count, LoC, generated-code paths, auto-generated header sentinels). The script collapses what was prose-orchestrated counting + path-substring + header scanning into one deterministic call.
+
+1. **Build the boundaries JSON** from the detected boundaries (one entry per candidate boundary). Use forward-slash paths throughout. Shape:
+   ```json
+   [
+     {"name": "<unit-name>",
+      "path": "<rel-from-project-root>",
+      "files": ["<rel-path>", ...]},
+     ...
+   ]
+   ```
+2. **Invoke the script** via stdin:
+   ```bash
+   uv run {disqualifyCandidatesScript} filter --boundaries - --source-root {project-root}
+   ```
+   piping the boundaries JSON on stdin. The script emits:
+   ```json
+   {
+     "kept":    [{"name": "...", "path": "...", "files_count": N, "loc_total": L}, ...],
+     "dropped": [{"name": "...", "reason": "<too-few-files|too-low-loc|generated-code|auto-generated-tag>", "context": {...}}, ...],
+     "stats":   {"kept": N, "dropped": N, "by_reason": {"<reason>": N, ...}}
+   }
+   ```
+3. **Parse the JSON result** and stash `kept[]` and `dropped[]` in workflow state for §3 (classification table) and §5 (recommendation summary). The `kept` set is the candidate pool for the boundary-type + scope-type classification that follows; the `dropped` set drives the Disqualification table.
+
+**LLM-judged disqualifications (not in script — apply on top of `kept[]`):**
+- **Pure configuration** — only config files (e.g., `.json`/`.yaml`) with no executable logic
+- **Test-only** — test utilities with no production code
+- **Already skilled** — exists in `existing_skills` list (recommend `update-skill` instead)
+
+Remove any boundary that fails one of these LLM-judged rules from the working `kept` set and append it to `dropped[]` with the appropriate reason. Reasons recorded by the script (`too-few-files`, `too-low-loc`, `generated-code`, `auto-generated-tag`) are authoritative; do NOT re-evaluate those rules manually.
+
+**Qualification CONFIRMATION:** Visually skim the script's `kept`/`dropped` decisions for sanity (e.g., a boundary you expected to qualify that landed in `dropped` — surface the script's `reason` and `context.first_match` to the user in §5 so they can override if the heuristic was wrong for this project).
 
 ### 3. Build Unit Classification Table
 

@@ -2,6 +2,7 @@
 nextStepFile: 'compile-stack.md'
 integrationPatterns: 'references/integration-patterns.md'
 composeModeRules: 'references/compose-mode-rules.md'
+pairIntersectScript: '{project-root}/src/shared/scripts/skf-pair-intersect.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -24,13 +25,33 @@ Analyze co-import patterns between confirmed libraries to identify integration p
 
 ### 1. Generate Library Pairs
 
-From `confirmed_dependencies`, generate all unique pairs:
-- N libraries → N*(N-1)/2 pairs
-- Skip pairs where either library had extraction failure in step 04
+From `confirmed_dependencies`, conceptually you have N*(N-1)/2 unordered pairs. Rather than enumerating and grep-testing each one, prune the matrix via a deterministic **file-list intersection fast path** (MANDATORY first pass, all N): pairs whose per-library file lists do not overlap cannot be integration candidates by construction — drop them. Subsequent grep passes (§2) run only against pairs with a non-empty intersection, and grep scope is restricted to those intersection files rather than the whole source tree. This is NOT a "subprocess-unavailable" fallback; it is the default strategy for every N. Rationale: at N≈21 this collapses 210 prescribed pair greps to ~12 non-empty-intersection pairs in typical codebases; at larger N the compression is even greater.
 
-**File-list intersection fast path (MANDATORY first pass, all N):** before issuing any pair grep, compute each pair's candidate file set by **intersecting the per-library file lists recorded by step 3 import-count extraction**. Pairs with an empty intersection cannot be integration candidates by construction — drop them. Subsequent grep passes run only against pairs with a non-empty intersection, and grep scope is restricted to those intersection files rather than the whole source tree. This is NOT a "subprocess-unavailable" fallback; it is the default strategy for every N. Rationale: at N≈21 this collapses 210 prescribed pair greps to ~12 non-empty-intersection pairs in typical codebases; at larger N the compression is even greater.
+**Compute the intersection deterministically via the shared script:**
 
-**Top-K cap (S7, lowered to 20):** If the file-list-intersection prune still leaves more than **20** non-empty-intersection pairs, cap at the top 20 pairs ranked by intersection size (or by import count if tied). Dropped pairs are excluded from integration detection — warn the user explicitly: `"non-empty-intersection pair count {N} exceeds cap — analyzing top 20 by intersection size; {excluded_count} pairs skipped"`. Record this cap in the evidence report. The legacy 50-dependency threshold that formerly gated a separate Top-K pass is retired — the file-intersection prune does the bulk of the work and the cap is now a second-order safety limit, not a primary strategy.
+1. **Build the libraries JSON** from the per-library file enumeration recorded by step 3 import-count extraction. Skip libraries where step 04 reported extraction failure. Shape:
+   ```json
+   [
+     {"name": "<library-name>", "files": ["<rel-path-forward-slash>", ...]},
+     ...
+   ]
+   ```
+2. **Invoke the script** via stdin (or a temp file under `{forge_data_folder}/` if stdin piping is unavailable):
+   ```bash
+   uv run {pairIntersectScript} intersect --libraries -
+   ```
+   piping the libraries JSON on stdin. The script emits:
+   ```json
+   {
+     "pairs": [{"a": "<lib>", "b": "<lib>", "intersection_count": N, "files": [...]}, ...],
+     "truncated": <bool>,
+     "total_pairs": <int>
+   }
+   ```
+   `pairs[]` is sorted by `intersection_count` DESC, then `(a, b)` ASC for stable ordering. Default Top-K cap is **20** (matches S7 below); pass `--top-k N` to override.
+3. **Parse the JSON result** and use `pairs[]` as the qualifying-pair set for §2 onward. The `intersection_count` is the candidate file count for the §2 2-file threshold pre-grep; `files[]` is the grep-scope for that pair.
+
+**Top-K cap (S7, 20):** If the script's response has `truncated: true`, more pairs than the cap had non-empty intersections. Surface a user-visible warning composed as: `"non-empty-intersection pair count {total_pairs} exceeds cap — analyzing top 20 by intersection size; {total_pairs - 20} pairs skipped"`. Record this cap in the evidence report. (Tie-break by intersection size is what the script sorts on; if you need to override the cap intentionally, pass `--top-k N` and document the rationale.) The legacy 50-dependency threshold that formerly gated a separate Top-K pass is retired — the file-intersection prune does the bulk of the work and the cap is now a second-order safety limit, not a primary strategy.
 
 Report: "**Analyzing {pair_count} library pairs for integration patterns** (pruned from {N*(N-1)/2} via file-list intersection; {capped_count} after Top-K if applicable)**...**"
 
