@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "6a5ad08885bc",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-feature-elevation-foundation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-analyze-source/SKILL.md",
+    "src/skf-analyze-source/customize.toml",
+    "src/skf-audit-skill/customize.toml",
+    "src/skf-create-stack-skill/SKILL.md",
+    "src/skf-create-stack-skill/customize.toml",
+    "src/skf-quick-skill/SKILL.md",
+    "src/skf-quick-skill/customize.toml",
+    "src/skf-test-skill/customize.toml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/6a/5ad08885bc/0/metadata.json",
+      "transcript": "/6a/5ad08885bc/0/full.jsonl",
+      "context": "/6a/5ad08885bc/0/context.md",
+      "content_hash": "/6a/5ad08885bc/0/content_hash.txt",
+      "prompt": "/6a/5ad08885bc/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 116,
+    "cache_creation_tokens": 272081,
+    "cache_read_tokens": 9264431,
+    "output_tokens": 91644,
+    "api_call_count": 61
+  }
+}

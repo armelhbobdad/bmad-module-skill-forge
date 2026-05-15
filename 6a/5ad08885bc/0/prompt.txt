@@ -1,0 +1,472 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-help
+
+# BMad Help
+
+## Purpose
+
+Help the user understand where they are in their BMad workflow and what to do next, and also answer broader questions when asked that could be augmented with remote sources such as module documentation sources.
+
+## Desired Outcomes
+
+When this skill completes, the user should:
+
+1. **Know where they are** — which module and phase they're in, what's already been completed
+2. **Know what to do next** — the next recommended and/or required step, with clear reasoning
+3. **Know how to invoke it** — skill name, menu code, action context, and any args that shortcut the conversation
+4. **Get offered a quick start** — when a single skill is the clear next step, offer to run it for the user right now rather than just listing it
+5. **Feel oriented, not overwhelmed** — surface only what's relevant to their current position; don't dump the entire catalog
+6. **Get answers to general questions** — when the question doesn't map to a specific skill, use the module's registered documentation to give a grounded answer
+
+## Data Sources
+
+- **Catalog**: `{project-root}/_bmad/_config/bmad-help.csv` — assembled manifest of all installed module skills
+- **Config**: `config.yaml` and `user-config.yaml` files in `{project-root}/_bmad/` and its subfolders — resolve `output-location` variables, provide `communication_language` and `project_knowledge`
+- **Artifacts**: Files matching `outputs` patterns at resolved `output-location` paths reveal which steps are possibly completed; their content may also provide grounding context for recommendations
+- **Project knowledge**: If `project_knowledge` resolves to an existing path, read it for grounding context. Never fabricate project-specific details.
+- **Module docs**: Rows with `_meta` in the `skill` column carry a URL or path in `output-location` pointing to the module's documentation (e.g., llms.txt). Fetch and use these to answer general questions about that module.
+
+## CSV Interpretation
+
+The catalog uses this format:
+
+```
+module,skill,display-name,menu-code,description,action,args,phase,after,before,required,output-location,outputs
+```
+
+**Phases** determine the high-level flow:
+- `anytime` — available regardless of workflow state
+- Numbered phases (`1-analysis`, `2-planning`, etc.) flow in order; naming varies by module
+
+**Dependencies** determine ordering within and across phases:
+- `after` — skills that should ideally complete before this one
+- `before` — skills that should run after this one
+- Format: `skill-name` for single-action skills, `skill-name:action` for multi-action skills
+
+**Required gates**:
+- `required=true` items must complete before the user can meaningfully proceed to later phases
+- A phase with no required items is entirely optional — recommend it but be clear about what's actually required next
+
+**Completion detection**:
+- Search resolved output paths for `outputs` patterns
+- Fuzzy-match found files to catalog rows
+- User may also state completion explicitly, or it may be evident from the current conversation
+
+**Descriptions carry routing context** — some contain cycle info and alternate paths (e.g., "back to DS if fixes needed"). Read them as navigation hints, not just display text.
+
+## Response Format
+
+For each recommended item, present:
+- `[menu-code]` **Display name** — e.g., "[CP] Create PRD"
+- Skill name in backticks — e.g., `bmad-create-prd`
+- For multi-action skills: action invocation context — e.g., "tech-writer lets create a mermaid diagram!"
+- Description if present in CSV; otherwise your existing knowledge of the skill suffices
+- Args if available
+
+**Ordering**: Show optional items first, then the next required item. Make it clear which is which.
+
+## Constraints
+
+- Present all output in `{communication_language}`
+- Recommend running each skill in a **fresh context window**
+- Match the user's tone — conversational when they're casual, structured when they want specifics
+- If the active module is ambiguous, retrieve all meta rows remote sources to find relevant info also to help answer their question
+
+
+ARGUMENTS: we just started to elevate skf core workflow skills:
+Core Workflows <-- DONE
+    Setup Forge (SF)
+    Brief Skill (BS)
+    Create Skill (CS)
+    Update Skill (US) 
+to Excellent using the Quality-analysis workflow (read the last PR merged on the v2 branch or read the diff between the main and v2 branch). Now we have a good foundatation, I want to do the same for
+Feature Workflows
+    Quick Skill (QS)
+    Stack Skill (SS)
+    Analyze Source (AN)
+    Audit Skill (AS)
+    Test Skill (TS)
+they should be elevated to Excellent too). What is the best approach? Let me know the genius approach.
+Feel free to Self improve your internal workflows (in .claude/skills folder) ONLY IF IT IS NECESSARY (RUN /reload-plugins  TO LOAD NEW UPDATED SKILLS). DO NO HALLUCINATE.
+
+---
+
+<task-notification>
+<task-id>a5b6eba8ec1387d68</task-id>
+<tool-use-id>toolu_01LvvWxYDo2axsTyiz3s8dxr</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c70b8977-6cb6-4f1e-ba68-308966cf0100/tasks/a5b6eba8ec1387d68.output</output-file>
+<status>completed</status>
+<summary>Agent "Quality scan skf-analyze-source" completed</summary>
+<result>/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-analyze-source/.analysis/2026-05-15T19-39-21Z/findings.md
+GRADE: Good</result>
+<usage><total_tokens>97966</total_tokens><tool_uses>39</tool_uses><duration_ms>317173</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a2731beaa1b0e18c3</task-id>
+<tool-use-id>toolu_01AEExhTWFBmKHqR1QQK13ts</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c70b8977-6cb6-4f1e-ba68-308966cf0100/tasks/a2731beaa1b0e18c3.output</output-file>
+<status>completed</status>
+<summary>Agent "Quality scan skf-create-stack-skill" completed</summary>
+<result>/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-create-stack-skill/.analysis/2026-05-15T19-39-21Z/findings.md
+GRADE: Good</result>
+<usage><total_tokens>134718</total_tokens><tool_uses>63</tool_uses><duration_ms>416519</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a43683b07217bb36f</task-id>
+<tool-use-id>toolu_01QQww53pvSuLJqZVDivZwgW</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c70b8977-6cb6-4f1e-ba68-308966cf0100/tasks/a43683b07217bb36f.output</output-file>
+<status>completed</status>
+<summary>Agent "Quality scan skf-test-skill" completed</summary>
+<result>The harness rejected the file write. Per harness rules, I must return findings as text rather than write a report file.
+
+/home/armel/Projects/OSS/bmad-module-skill-forge/src/skf-test-skill/.analysis/2026-05-15T19-39-21Z/findings.md
+GRADE: Good
+
+# Quality Findings: skf-test-skill
+
+**Grade:** Good
+**Narrative:** A deeply-engineered quality gate with a deterministic scoring script, a four-state source-access waterfall, and rigorous floor/cap logic — clearly the most architecturally substantive skill in the SKF module. The gap to Excellent is real but mechanical: there's no customize.toml, references omit `{communication_language}` headers, two `references/report.md` lines were flagged for `_bmad` path drift, two `coherence-check.md` lines for `../` literals (false-positive — inside a regex-pattern example), and the heavy reference files carry instances of bare-imperative padding ("DO NOT BE LAZY"), redundant scaffolding subsections, and a no-test compute-score.py that the scanner already flagged.
+
+## Broken (critical/high)
+(none)
+
+## Findings by Dimension
+
+### Architecture (structural integrity, prose craft, cohesion)
+
+- **[A1] No customize.toml at skill root** | severity: high | src/skf-test-skill/
+  Issue: The peer skf-brief-skill ships a customize.toml exposing `persistent_facts`, `activation_steps_*`, and three `*_path` scalars; test-skill exposes zero customization surface despite hardcoding multiple asset/template paths (`templates/test-report-template.md`, `assets/output-section-formats.md`, the scoring-rules and source-access-protocol prompts). Excellent skills opt in; this one forces forks for any house-style override.
+  Fix: Add `customize.toml` declaring `activation_steps_prepend/append`, `persistent_facts` (with the BMad default glob), and the three high-value path scalars: `test_report_template_path`, `output_formats_path`, `scoring_rules_path` (each empty-default-falls-through-to-bundled per skf-brief-skill's pattern); add a §3 customization resolver step to `## On Activation`.
+
+- **[A2] Reference files missing language headers** | severity: high | src/skf-test-skill/references/*.md
+  Issue: Per principles file ("Each carved-out file uses `{communication_language}`") and confirmed by grep, zero of the eight reference files in this skill carry a `{communication_language}` header — compare skf-brief-skill/references/gather-intent.md:13 (`&lt;!-- Config: communicate in {communication_language}. --&gt;`). On context compaction (SKILL.md drops mid-flow), a stage loaded standalone has no signal to honor the language. Inline workflow-rules at SKILL.md:34 doesn't survive a compaction that drops SKILL.md.
+  Fix: Stamp each `references/*.md` with the canonical header at the top of the file (after frontmatter): `&lt;!-- Config: communicate in {communication_language}. Test report content in {document_output_language}. --&gt;`.
+
+- **[A3] `## Conventions` block deviates from the canonical form** | severity: medium | src/skf-test-skill/SKILL.md:12-18
+  Issue: The skill adds a second `references/` bullet describing `nextStepFile` chaining and conflates two concerns. The canonical block from principles-file ("from `bmad-prfaq/SKILL.md`") is five lines; references-folder description belongs to a workflow-conventions doc, not the path-resolution block. skf-brief-skill/SKILL.md:16-22 matches the canonical exactly.
+  Fix: Trim to the canonical 5-bullet block and lift the `references/` chaining description into the existing `## Workflow Rules` section or `## Stages` preamble.
+
+- **[A4] Carved-out reference files repeat heavy boilerplate** | severity: medium | src/skf-test-skill/references/init.md:18-35, detect-mode.md:9-19, coverage-check.md:14-22, coherence-check.md:15-23, external-validators.md:12-20, score.md:15-23, report.md:25-34
+  Issue: Every step file repeats `STEP GOAL`, `## Rules`, `## MANDATORY SEQUENCE` with a "CRITICAL" warning, and a `## CRITICAL STEP COMPLETION NOTE` footer. This is the workflow-rules-table-restated-in-every-step pattern: skf-brief-skill's references run lean. Cumulative cost across 7 step files is ~150 lines of identical scaffolding the LLM already knows from SKILL.md's `## Workflow Rules`.
+  Fix: Drop `## Rules`/`## MANDATORY SEQUENCE` headers and the CRITICAL footer. Keep step goal + work. The chain note is one sentence at the end, not a 7-line subsection.
+
+- **[A5] "Auto-Proceed" subsections duplicate the chain instruction** | severity: medium | src/skf-test-skill/references/init.md:223-233, detect-mode.md:89-100, coverage-check.md:331-342, coherence-check.md:223-234, external-validators.md:188-198, score.md:250-261, report.md:253-285
+  Issue: Each step ends with both an "Auto-Proceed" subsection (`#### Menu Handling Logic` + `#### EXECUTION RULES`) and a `## CRITICAL STEP COMPLETION NOTE`. Both restate "update frontmatter then load `{nextStepFile}`." On a workflow with frontmatter `nextStepFile: 'X.md'` already declared, two restatements are clutter.
+  Fix: Collapse into one closing line: `Update stepsCompleted, then load and execute {nextStepFile}.` Drop "Menu Handling Logic" / "EXECUTION RULES" / "CRITICAL STEP COMPLETION NOTE" headers entirely from non-interactive auto-proceed steps.
+
+- **[A6] `health-check.md` carries a full step file for a 2-line probe** | severity: medium | src/skf-test-skill/references/health-check.md
+  Issue: 25 lines, frontmatter, `## STEP GOAL`, `## Rules`, `## MANDATORY SEQUENCE` to (1) probe two paths and (2) execute the first that exists. report.md:255-264 already declares the same probe order and HALT diagnostic — the dispatcher in report.md §7 could chain directly to the resolved file without a passthrough step.
+  Fix: Either inline the probe into report.md §7 (resolve `{nextStepFile}` to the actual shared path before chain), or shrink health-check.md to ≤6 lines.
+
+- **[A7] `## Workflow Rules` includes a no-op directive** | severity: low | src/skf-test-skill/SKILL.md:32
+  Issue: "If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread" — the LLM does this by default; the directive's only effect is to suggest main-thread fallback is quality-equivalent to ast-grep, which it's not.
+  Fix: Drop the bullet; tier-aware downgrade logic already lives in detect-mode.md and coverage-check.md.
+
+- **[A8] References codes (B1/B2/.../M5/S8) appear without a glossary** | severity: low | src/skf-test-skill/references/{init,score,report,coherence-check,scoring-rules}.md
+  Issue: `per B2`, `(B4)`, `(H4)`, `(S6)`, `M5`, `S9`, `H1` appear inline with no anchor explaining where they're defined. These look like requirement IDs from an external spec but the spec isn't referenced.
+  Fix: Either drop the codes inline or add a brief `references/spec-ids.md` glossary mapping each ID to its origin.
+
+### Determinism (intelligence placement, parallelization, script opportunities)
+
+- **[D1] Markdown-fence balance, language-tag scan, and table column drift could be one script** | severity: high | src/skf-test-skill/references/coherence-check.md:44-86
+  Issue: §2.2/§2.3/§2.6 hand the LLM bash recipes and a Python snippet to count fences, detect bare opening fences, and check table column alignment. These are pure deterministic operations — given identical SKILL.md, always produces identical findings. LLM cost ~500-800 tokens per invocation to "run" the recipe.
+  Fix: Author `scripts/scan-skill-md-structure.py` returning JSON `{unbalanced_fences, bare_opening_fences[], table_drift[]}`. Step prompt loads JSON and converts to findings.
+
+- **[D2] Required-section presence check is grep-fast** | severity: high | src/skf-test-skill/references/coherence-check.md:36-42
+  Issue: §2.1 has the LLM run `grep -n "^## {section}" SKILL.md` for each of 3 synonym sets. With 4-6 synonyms per set, that's 12-18 grep invocations LLM-orchestrated. A script returns the satisfied/unsatisfied verdict in one call.
+  Fix: Extend `scan-skill-md-structure.py` (D1) with a `--required-sections` mode emitting `{description: {satisfied, matched_synonym}, usage: {...}, api_surface: {...}}`.
+
+- **[D3] Exports-in-Usage cross-grep is per-export sequential** | severity: medium | src/skf-test-skill/references/coherence-check.md:65-67
+  Issue: §2.4 walks `exports[].name` and runs `grep -c "{export.name}" SKILL.md` per export. For a skill with 50+ exports this is 50 LLM-orchestrated grep calls. The subagent has SKILL.md content already (from §1); a single subagent invocation with the exports list returns all misses at once.
+  Fix: Fold into the existing inventory subagent (§1) — return `exports_used_in_usage_section: [{name, count}]` alongside the inventory.
+
+- **[D4] compute-score.py has no unit tests** | severity: high | src/skf-test-skill/scripts/compute-score.py
+  Issue: `scripts/tests/` does not exist. compute-score.py centralizes the floor logic that drives correctness (false-PASS catastrophic per scoring-rules.md:188). Without tests, future tweaks silently risk breaking equivalence-class arithmetic. M3 fixture matrix at scoring-rules.md:113-141 *declares* fixtures (`test/fixtures/compute-score-contract.json`) that don't exist alongside the script.
+  Fix: Create `scripts/tests/test_compute_score.py` seeded from the M3 matrix's 4 equivalence classes (A/B/C/D) + INCONCLUSIVE floor cases + threshold cap. Add an entry to top-level `package.json` `test:python`.
+
+- **[D5] compute-score.py lacks argparse / --help** | severity: medium | src/skf-test-skill/scripts/compute-score.py:289-298
+  Issue: Script uses raw `sys.argv[1]` with a one-line Usage print. Per repo's agentic-design convention, every script self-documents via argparse so an agent can `python3 compute-score.py --help` to discover the input schema.
+  Fix: Replace the sys.argv block with argparse: `--json-input` (positional or stdin), `--help` showing the input schema and an example.
+
+- **[D6] Subagent prompts return JSON without consistent "ONLY return X"** | severity: medium | src/skf-test-skill/references/coverage-check.md:46-72; references/coherence-check.md:118-145
+  Issue: §1 of coverage-check has the discipline ("ONLY return this compact JSON inventory — no prose"). Later sections (§1b cross-check, contextual coherence §3-§4) delegate to subagents without re-asserting it. Principles-file failure mode: "Subagent prompt without explicit return format → verbose prose."
+  Fix: Audit every subagent invocation; add `Return ONLY &lt;schema&gt;. No prose, no commentary, no markdown.` to each.
+
+- **[D7] External-validator probes run sequentially when they're independent** | severity: low | src/skf-test-skill/references/external-validators.md:53-130
+  Issue: §2 (skill-check) and §3 (tessl) are independent shells. Currently told to run in order; running both probes + both validations in a single parallel-Bash batch would halve wall-clock.
+  Fix: Add a note at §2 entry: "Run sections 2 and 3 in parallel — issue both probes and both validations in a single multi-call message; outputs are independent."
+
+### Customization Surface (customize.toml)
+
+- **[C1] No customize.toml — opt in** | severity: high-opportunity | src/skf-test-skill/
+  Issue: No customize.toml file exists. Workflow hardcodes three asset/template paths and has zero `persistent_facts` surface despite being a quality grader where org-specific severity rules are common.
+  Fix: Ship a customize.toml mirroring skf-brief-skill's shape: `activation_steps_prepend/append = []`, `persistent_facts = ["file:{project-root}/**/project-context.md"]`, three path scalars — `test_report_template_path`, `output_formats_path`, `scoring_rules_path` (each empty-string default). Wire resolver in SKILL.md's `## On Activation` (insert as step 3).
+
+- **[C2] Threshold is hardcoded; org-customizable override is natural** | severity: medium-opportunity | src/skf-test-skill/references/scoring-rules.md:5, score.md:31
+  Issue: `Pass threshold: 80%` is locked. Different orgs run different bars. The scoring script already accepts `threshold` in JSON input. Workflow text mentions "custom threshold override from workflow input" (score.md:31) without exposing the override path.
+  Fix: Add `default_threshold = 80` scalar to customize.toml. score.md §1 reads `{workflow.default_threshold}` and passes it into compute-score JSON. CLI override still wins.
+
+- **[C3] `on_complete` hook would let pipelines snap onto results** | severity: low-opportunity | src/skf-test-skill/
+  Issue: Workflow ends by writing result-JSON files and dispatching health-check. Downstream automator wanting slack/dashboard/CI hook would have to fork.
+  Fix: Add optional `on_complete = ""` scalar; report.md §4c invokes the command with `--result-path=...` after atomic write.
+
+### Enhancement (UX gaps, headless contract, edge cases, facilitative patterns)
+
+- **[E1] No "Exit Codes" / "Result Contract (Headless)" block in SKILL.md** | severity: high-opportunity | src/skf-test-skill/SKILL.md:50-67
+  Issue: The Invocation Contract table mentions `headless_mode` and "All gates auto-resolve" but doesn't enumerate exit codes the way skf-brief-skill/SKILL.md:93-105 does. Headless exit codes ARE defined inside the workflow (report.md:243-251: 0/2/3/4) — they should be surfaced at the contract level so an automator never has to read step files.
+  Fix: Add `## Exit Codes` and `## Result Contract (Headless)` sections to SKILL.md per skf-brief-skill's template; promote the report.md:243-251 exit-code table + the `skf-test-skill-result-{run_id}.json` schema sketch up to SKILL.md.
+
+- **[E2] No `--allow-workspace-drift` exposure at SKILL.md** | severity: medium-opportunity | src/skf-test-skill/SKILL.md:50-58
+  Issue: The flag governs an important workflow-level branch (`pass-with-drift` verdict, refusing to recommend export) but is introduced only at init.md:36. A user or automator scanning SKILL.md has no signal it exists.
+  Fix: Add a `**Flags**` row to the Invocation Contract table at SKILL.md:50: `--allow-workspace-drift` — bypass workspace-HEAD-vs-pinned guard; PASS verdicts become `pass-with-drift` and refuse export-skill chain.
+
+- **[E3] No first-time `forge-tier.yaml` missing recovery** | severity: medium-opportunity | src/skf-test-skill/references/init.md:128-132
+  Issue: When `{sidecarFile}` is missing, the step HALTs with "Please run the **setup** workflow first." For an automator running test-skill in a fresh CI shell, that's a dead-end.
+  Fix: Document an opt-in `--tier=&lt;Quick|Forge|Forge+|Deep&gt;` flag at init.md §1 that bypasses sidecar requirement, setting `detected_tier` directly. Sidecar missing + no `--tier` → keep current HALT.
+
+- **[E4] Discovery testing's `--discovery-catalog=all` recipe is underspecified** | severity: low-opportunity | src/skf-test-skill/references/report.md:89-96
+  Issue: §4b.0 already handles `catalog_size &lt; 2` by skipping. But the `--discovery-catalog=all` escape hatch at line 96 doesn't say what counts as "the broader pool".
+  Fix: Two-line elaboration: "When the flag is set, source candidates from `{project-root}/.claude/skills/*/SKILL.md` AND `{project-root}/_bmad/agents/**/agent.md` (their first-line description). Pool size = union of both globs."
+
+- **[E5] No `--skip-health-check` / `--no-discovery` for fast CI runs** | severity: low-opportunity | src/skf-test-skill/references/report.md:85-138, 253-285
+  Issue: Discovery testing and the health-check dispatch are both mandatory. For a CI matrix running test-skill across 50 skills, both dominate wall-clock. An automator running test-skill purely for the score doesn't need either.
+  Fix: Two optional flags: `--no-discovery` (skip §4b, log Info note); `--no-health-check` (skip §7 dispatch, exit at §6b). Default behavior unchanged.
+
+- **[E6] Result contract JSON schema isn't pinned in a shared schema file** | severity: low-opportunity | src/skf-test-skill/references/report.md:156-162
+  Issue: The contract's shape is described in prose. A downstream consumer wanting to type the JSON has to scrape the prose. The skill references `{outputContractSchema}` at line 10 pointing to `shared/references/output-contract-schema.md` — but test-skill's payload-specific schema isn't visibly carved out.
+  Fix: Either reference the existing shared schema explicitly (with a snippet showing test-skill's specific fields) or carve `assets/result-contract.schema.json` and have report.md §4c reference it.
+
+## Deterministic Summary
+
+- **path-standards:** 4 findings, all high. Two `_bmad/skf/` paths in report.md:8, 96 lack `{project-root}` prefix (existing prose says "NOT relative to this step file" but the scanner correctly flags the bare reference). Two `../` literals in coherence-check.md:122, 147 — inside doc examples of file paths the workflow scans (a legitimate use of `../` as the *subject* of detection); rephrasing to `parent-directory-prefix` would clear both without changing semantics.
+- **scripts:** 3 findings (1 high, 2 medium). `scripts/tests/` missing entirely; `compute-score.py` lacks argparse + has no unit tests. Single Python script, 1 file, 0 lint issues.
+- **workflow-integrity:** 0 issues, all 7 H2 sections present, valid frontmatter, simple-workflow classification matches inline-stages-table reality. (Note: stage_summary.total_stages reads `0` — the prepass keys on `## Stages` direct-child stages, not `references/`-folder enumeration; behavior is correct.)
+- **prompt-metrics:** SKILL.md 67 lines / ~865 tokens — well under the ~130-line ceiling. References vary: `report.md` 290 lines / 3995 tokens and `coverage-check.md` 347 lines / 5323 tokens are the heaviest; both in single-purpose ≤5000 token range but lean against it. Zero waste patterns detected, zero back-references — strong.
+- **execution-deps:** 0 issues — no inferable hard/soft dependency graph because chaining is encoded through frontmatter `nextStepFile`, which the prepass doesn't parse. Chain is linear (init → detect-mode → coverage → coherence → external → score → report → health-check) and correctly serializable.
+
+## Strengths (preserve)
+
+- Three-state PASS/FAIL/INCONCLUSIVE gate with a centralized minimum-evidence floor (scoring-rules.md:175-188) — exactly the failsafe principles-file calls out for a grader skill.
+- The deterministic scoring script (scripts/compute-score.py) implements the floor centrally, with a clear "Never override the script's `result` value" instruction at score.md:110.
+- M3 equivalence-class matrix at scoring-rules.md:103-150 — redistribution math captured as data, not prose, with 26 cells reducing to 4 classes. Pinning fixtures by class is the right testing strategy.
+- Subagent inventory contract at coverage-check.md:78-94 — parent-side schema validation + ground-truth spot-check is exactly the "ONLY return X + verify" discipline principles-file demands. (Apply consistently — see D6.)
+- Source-Access-Protocol five-state waterfall (source-access-protocol.md:74-103) — handles the local/provenance-map/metadata/remote/docs-only continuum without confidence inflation; `analysis_confidence` propagated downstream.
+- Run-id + flock (init.md:184-186) — per-run identifier + per-skill test lock makes the workflow safe under CI concurrency.
+- `pass-with-drift` (score.md:158-170, report.md:158, 228-229, 247) — the test result records that the verdict cannot be trusted for export, and next-workflow is forced to `update-skill`. The kind of design-rationale-as-mechanism principles-file rewards.
+
+## Recommendations (top 3 ranked by impact)
+
+1. **Ship customize.toml + reference-file language headers (A1, A2, C1, C2)** — effort: low. Unblocks org adoption (forks today, configurable tomorrow), brings the skill in line with the Excellent peer's shape, adds the persistent_facts surface where org-specific severity policies will naturally live. Resolves 4 findings.
+
+2. **Carve `scripts/scan-skill-md-structure.py` + add compute-score.py tests (D1, D2, D3, D4, D5)** — effort: medium. Replaces ~5 LLM-orchestrated grep/awk recipes per coverage+coherence run with a single script call (token savings: several thousand per invocation at large skills) and pins the scoring math against the M3 fixture matrix. Resolves 5 findings.
+
+3. **Tighten reference-file boilerplate + lift contract to SKILL.md (A4, A5, A6, A7, E1, E2)** — effort: medium. Cuts ~150 lines of repeated step-file ceremony, drops the redundant `health-check.md` passthrough, surfaces exit codes + `--allow-workspace-drift` at the SKILL.md contract level where automators look. Resolves 6 findings.</result>
+<usage><total_tokens>143125</total_tokens><tool_uses>51</tool_uses><duration_ms>390228</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a36bf12ab5c775d37</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c70b8977-6cb6-4f1e-ba68-308966cf0100/tasks/a36bf12ab5c775d37.output</output-file>
+<status>completed</status>
+<summary>Agent "Foundation edits for skf-create-stack-skill" completed</summary>
+<result>All tasks done. Let me write a concise summary.
+
+## Files Touched
+
+**SKILL.md** (`src/skf-create-stack-skill/SKILL.md`)
+- Task 1: Extended description trigger phrases to three quoted variants (`"create a stack skill"`, `"forge a stack"`, `"stack this project"`).
+- Task 2: Dropped "operating in Ferris Architect mode" from `## Role`.
+- Task 3: Added new step 3 to `## On Activation` calling `resolve_customization.py` and computing path-scalar fallback for the four scalars (`{stackSkillTemplatePath}` / `{integrationPatternsPath}` / `{manifestPatternsPath}` / `{composeModeRulesPath}`). Renumbered the init.md execution as step 4.
+- Task 4: Added `## Exit Codes` table after Invocation Contract, mapping the discovered HALT cases (config-missing, forge-tier-missing, headless no-manifests S2, all-extractions-failed B7, schemaVersion mismatches in feasibility-report + compose-mode-rules, group-dir collision, stale-manifest-corruption, user-cancelled). Also added `**Exit codes**` row to Invocation Contract.
+- Task 5: Added `## Result Contract (Headless)` section with `SKF_STACK_RESULT_JSON:` envelope (fields: `status`, `skill_package`, `skill_name`, `stack_libraries`, `mode`, `exit_code`, `halt_reason`); stdout on success at step 9, stderr on HARD HALT.
+
+**rank-and-confirm.md** (`src/skf-create-stack-skill/references/rank-and-confirm.md`)
+- Task 6: Added `[X] Cancel and exit` to the gate at section 5, with rollback contract handling and exit code 6.
+- Task 7: Added `&lt;!-- Config: communicate in {communication_language}. --&gt;` after frontmatter.
+
+**compile-stack.md** (`src/skf-create-stack-skill/references/compile-stack.md`)
+- Task 6: Added `[X] Cancel and exit` to the gate at section 8, with rollback contract and exit code 6.
+- Task 7: Added artifact-text language header (`&lt;!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. --&gt;`).
+
+**Language headers (Task 7)** — all 13 reference files now have the appropriate Config comment:
+- Short form (communication only): `init.md`, `detect-manifests.md`, `rank-and-confirm.md`, `parallel-extract.md`, `detect-integrations.md`, `health-check.md`, `integration-patterns.md`, `manifest-patterns.md`, `compose-mode-rules.md`.
+- Full form (communication + artifact text): `compile-stack.md`, `generate-output.md`, `validate.md`, `report.md`.
+
+**health-check.md** (`src/skf-create-stack-skill/references/health-check.md`)
+- Task 8: Fixed bare `_bmad/skf/` to `{project-root}/_bmad/skf/` in the frontmatter comment about `shared/health-check.md` resolution.
+
+## Skipped/Out of Scope (confirmed unchanged)
+
+- `customize.toml` (already done, not touched).
+- The cross-dir `./references/{library}.md` template bug — Tightening PR.
+- No new scripts/, no new headless args, no DLW resume protocol, no provenance-map schema carves.</result>
+<usage><total_tokens>100612</total_tokens><tool_uses>42</tool_uses><duration_ms>199377</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a16d0eb955af133e9</task-id>
+<tool-use-id>toolu_01FSTuwVYSio4skZt5ZNETsp</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c70b8977-6cb6-4f1e-ba68-308966cf0100/tasks/a16d0eb955af133e9.output</output-file>
+<status>completed</status>
+<summary>Agent "Foundation edits for skf-quick-skill" completed</summary>
+<result>The `_bmad/skf/` already has `{project-root}/` prefix — no fix needed.
+
+All edits complete. Summary report:
+
+**Files touched:**
+
+1. **`src/skf-quick-skill/SKILL.md`**
+   - **Task 1 (forger_root typo)**: Replaced `{forger_root}` with `{sidecar_path}` in On Activation step 1; added `sidecar_path` to the resolved-fields list.
+   - **Task 2 (customization resolver)**: Inserted new step 3 "Resolve workflow customization" (calls `resolve_customization.py --skill {skill-root} --key workflow`), with path-scalar fallback for `{skillTemplatePath}` → `assets/skill-template.md`, `{registryResolutionPath}` → `references/registry-resolution.md`, `{batchOutputPath}` → `{skills_output_folder}/_batch/`. Renumbered subsequent steps (4: parse CLI overrides; 5: batch handling; 6: execute resolve-target.md); updated Invocation Contract row "see On Activation step 3" → "step 4"; updated step-5's "continue at step 5" → "continue at step 6".
+   - **Task 3 (drop redundant Workflow Rules)**: Removed three LLM-native default rules ("Read each step file completely…", "Follow the mandatory sequence…", "Only load one step file at a time…"). Kept "Never fabricate content", `{communication_language}`, and the two headless-mode bullets.
+   - **Task 5 (cancel-line affordance)**: Added a new Workflow Rules bullet documenting the universal `cancel` / `exit` / `:q` / `[X]` affordance wired to exit code 6 (user-cancelled) with envelope contract; relabeled Exit Codes row 6 from `compile-cancelled` → `user-cancelled` (citing step 1 §1 and step 4 §6); updated the `error.code` enum row to list `user-cancelled (formerly compile-cancelled)`.
+
+2. **`src/skf-quick-skill/references/resolve-target.md`**
+   - **Task 4**: Replaced body-line `Communicate with the user in {communication_language}.` with `&lt;!-- Config: communicate in {communication_language}. --&gt;` HTML comment after the frontmatter close.
+   - **Task 5**: Added `[X]` / `cancel` / `exit` / `:q` affordance to the §1 prompt and a new "Cancel branch" handler that HARD HALTs with exit code 6, `error.code: "user-cancelled"`, `phase: "resolve-target"`.
+   - **Renumbering**: Updated "On Activation step 4" reference (batch mode handler) to "step 5".
+
+3. **`src/skf-quick-skill/references/compile.md`**
+   - **Task 4**: Replaced body-line directive with `&lt;!-- Config: communicate in {communication_language}. Generated SKILL.md text in {document_output_language}. --&gt;`.
+   - **Task 5**: Updated [Q] handler to use exit-code label `user-cancelled` and `error.code: "user-cancelled"` (was `compile-cancelled`).
+
+4. **`src/skf-quick-skill/references/ecosystem-check.md`** — Task 4 only (HTML comment, no document_output_language).
+5. **`src/skf-quick-skill/references/quick-extract.md`** — Task 4 only (HTML comment, no document_output_language).
+6. **`src/skf-quick-skill/references/write-and-validate.md`** — Task 4 only (HTML comment + document_output_language).
+7. **`src/skf-quick-skill/references/finalize.md`** — Task 4 only (HTML comment + document_output_language).
+8. **`src/skf-quick-skill/references/health-check.md`** — Task 4 only (HTML comment, no document_output_language).
+9. **`src/skf-quick-skill/references/registry-resolution.md`** — Task 4 only; file had no existing directive and no frontmatter, so inserted `&lt;!-- Config: communicate in {communication_language}. --&gt;` at the top before the H1.
+
+**Skipped:**
+- **Task 6**: health-check.md frontmatter already has `{project-root}/_bmad/skf/` correctly prefixed — no bare `_bmad/skf/` present. No edit needed.
+- **customize.toml**: not touched (already done per task scope).</result>
+<usage><total_tokens>91498</total_tokens><tool_uses>41</tool_uses><duration_ms>240121</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a940d05124b8c65d7</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c70b8977-6cb6-4f1e-ba68-308966cf0100/tasks/a940d05124b8c65d7.output</output-file>
+<status>completed</status>
+<summary>Agent "Foundation edits for skf-analyze-source" completed</summary>
+<result>customize.toml shows as untracked (already created prior, untouched by me). Foundation pass is complete.
+
+## Summary
+
+Foundation-pass elevation applied to `skf-analyze-source`. customize.toml left untouched.
+
+**Files touched (10):**
+
+- `src/skf-analyze-source/SKILL.md`
+  - Workflow Rules: rewrote with canonical `{communication_language}` / `{document_output_language}` paragraph; dropped the defensive "subprocess fallback" bullet and the duplicate `stepsCompleted` bullet
+  - On Activation: inserted new step 3 calling `resolve_customization.py --skill {skill-root} --key workflow`, with path-scalar fallback resolving `{unitDetectionHeuristicsPath}` / `{briefSchemaPath}` / `{analysisReportTemplatePath}`; renumbered init dispatch to step 4
+  - Invocation Contract: added `SKF_ANALYZE_RESULT_JSON` mention in Outputs, added `Exit codes` row
+  - Added new `## Exit Codes` section (codes 0/2/3/4/6) after Invocation Contract
+  - Added new `## Result Contract (Headless)` section with envelope prefix `SKF_ANALYZE_RESULT_JSON:` and fields `status`, `report_path`, `brief_paths[]`, `unit_counts {confirmed,skipped,maybe}`, `exit_code`, `halt_reason`
+
+- `src/skf-analyze-source/references/scan-project.md` — added `[X] Cancel and exit` to §7 menu, with HARD HALT exit 6 + envelope; added `&lt;!-- Config: communicate in {communication_language}. --&gt;` header
+
+- `src/skf-analyze-source/references/identify-units.md` — added `[X] Cancel and exit` to §7 menu with HARD HALT exit 6 + envelope; added language header
+
+- `src/skf-analyze-source/references/recommend.md` — added `[X] Cancel and exit` to §8 menu with HARD HALT exit 6 + envelope; added dual-language header (`Artifact text in {document_output_language}`) since recommend cards persist `description` / `scope.notes`
+
+- `src/skf-analyze-source/references/generate-briefs.md` — clarified §4 Y/N/M prompt by splitting `N` (skip writing, continue to report update) from new `X` (cancel and exit, exit code 6 + envelope); renamed §5 "user aborts (N)" to "user skips writing (N)" and added "user cancels (X)" branch; added dual-language header
+
+- `src/skf-analyze-source/references/init.md` — added language header
+
+- `src/skf-analyze-source/references/map-and-detect.md` — added language header
+
+- `src/skf-analyze-source/references/continue.md` — added language header
+
+- `src/skf-analyze-source/references/health-check.md` — fixed bare `_bmad/skf/` path in frontmatter comment to `{project-root}/_bmad/skf/`; added language header
+
+- `src/skf-analyze-source/references/unit-detection-heuristics.md` — added language header at top (no frontmatter to follow)
+
+**Nothing skipped.** All seven foundation-pass tasks completed within the stated scope. Out-of-scope items (Pattern 1/2 definitions, knowledge/tool-resolution.md resolution, intent-before-ingestion question, headless arg surface, scripts/ directory) deliberately left for the Tightening PR per execution rules.</result>
+<usage><total_tokens>79355</total_tokens><tool_uses>37</tool_uses><duration_ms>207941</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a5a20e1d37e1f6280</task-id>
+<tool-use-id>toolu_01CqGxodCjfuByRTwN8REkCH</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c70b8977-6cb6-4f1e-ba68-308966cf0100/tasks/a5a20e1d37e1f6280.output</output-file>
+<status>completed</status>
+<summary>Agent "Foundation edits for skf-audit-skill" completed</summary>
+<result>All 8 reference files have the language header (including the extended form on report.md), and the bare-path bug in health-check.md is fixed.
+
+## Summary
+
+Foundation-pass elevation applied to `skf-audit-skill`. Files touched:
+
+**`src/skf-audit-skill/SKILL.md`**
+- Dropped defensive Workflow Rule "If any instruction references a subprocess or tool you lack..." (Task 1, A3)
+- Expanded Invocation Contract Inputs row from `skill_name [required]` only → full enumeration of optional inputs (`skill_path`, `tier_override`, `degraded`, `upstream_drift_choice`, `dirty_worktree_choice`, `force`) plus richer Gates / Outputs / Headless rows (Task 2, A2)
+- Added Exit Codes table with codes 0 / 2 / 3 / 4 / 6 mapped to specific HARD HALT sites in init.md and report.md (Task 4, E1)
+- Added Result Contract (Headless) section with the `SKF_AUDIT_RESULT_JSON:` envelope shape and `halt_reason` enumeration (Task 5, E2)
+- Added new On Activation step 3 calling `resolve_customization.py` and computing path-scalar fallbacks `{driftReportTemplatePath}` / `{severityRulesPath}` (Task 3, C1/C2 wiring)
+
+**`src/skf-audit-skill/references/report.md`**
+- Added stdout-envelope emission block in §5 (Result Contract section) after the on-disk result contract, plus the HALT mirror-on-stderr block (Task 5, E2 wiring)
+- Added extended language header `&lt;!-- Config: communicate in {communication_language}. Drift report prose in {document_output_language}. --&gt;` (Task 6, A1)
+
+**`src/skf-audit-skill/references/health-check.md`**
+- Prepended `{project-root}/` to both `_bmad/skf/` and `src/` in the frontmatter comment (Task 7)
+- Added language header (Task 6)
+
+**`src/skf-audit-skill/references/{init.md, re-index.md, structural-diff.md, semantic-diff.md, severity-classify.md, severity-rules.md}`**
+- Added single-line language header `&lt;!-- Config: communicate in {communication_language}. --&gt;` after frontmatter close (severity-rules has no frontmatter — placed before H1) (Task 6, A1)
+
+**Not touched:** `customize.toml` (per instructions — already created). No scripts/, no resume protocol, no structural-rebuild branch — all per OUT OF SCOPE. No files outside `src/skf-audit-skill/`.
+
+No tasks skipped. All 7 tasks complete.</result>
+<usage><total_tokens>73530</total_tokens><tool_uses>37</tool_uses><duration_ms>211151</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ad75631a875e0d51f</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/c70b8977-6cb6-4f1e-ba68-308966cf0100/tasks/ad75631a875e0d51f.output</output-file>
+<status>completed</status>
+<summary>Agent "Foundation edits for skf-test-skill" completed</summary>
+<result>All edits verified — A7 line gone, Exit Codes and Result Contract sections present, customization resolver step present, path scalars present.
+
+Done. Concise summary of changes:
+
+**Files touched (12):**
+
+- `src/skf-test-skill/SKILL.md`
+  - Task 1 (A3 Conventions trim): No change needed — block already matches the canonical 5-bullet form from skf-brief-skill exactly.
+  - Task 2 (A7 drop): Removed the "If any instruction references a subprocess or tool you lack..." Workflow Rule.
+  - Task 3 (resolver step): Added `On Activation` step 3 calling `resolve_customization.py` with path-scalar fallback for `{testReportTemplatePath}` / `{outputFormatsPath}` / `{scoringRulesPath}`; renumbered the begin-workflow step to 4.
+  - Task 4 (Exit Codes table): Added `## Exit Codes` section after Invocation Contract with codes 0/2/3/4 (PASS/FAIL/INCONCLUSIVE/pass-with-drift) sourced from `report.md` §6b. Also added `**Exit codes** | See below` row and lifted result-JSON file mentions into the Outputs row.
+  - Task 5 (Result Contract): Added `## Result Contract (Headless)` with `SKF_TEST_RESULT_JSON:` envelope, field schema (`status`, `skill_name`, `verdict`, `score`, `threshold`, `report_path`, `next_workflow`, `exit_code`, `halt_reason`), and a separate table promoting the existing `skf-test-skill-result-{run_id}.json` / `-latest.json` on-disk paths.
+
+- `src/skf-test-skill/references/{init,detect-mode,coverage-check,coherence-check,external-validators,score,health-check}.md` (7 files): Added `&lt;!-- Config: communicate in {communication_language}. --&gt;` after the frontmatter close.
+- `src/skf-test-skill/references/report.md`: Added the document-output-language variant: `&lt;!-- Config: communicate in {communication_language}. Test report prose in {document_output_language}. --&gt;` after frontmatter close. Also fixed two bare paths: frontmatter comment `\`_bmad/skf/\`` and `\`src/\`` → `\`{project-root}/_bmad/skf/\`` / `\`{project-root}/src/\``; prose `.claude/skills/` / `_bmad/agents/` → `{project-root}/.claude/skills/` / `{project-root}/_bmad/agents/`.
+- `src/skf-test-skill/references/{migration-section-rules,scoring-rules,source-access-protocol}.md` (3 files with no frontmatter): Added `&lt;!-- Config: communicate in {communication_language}. --&gt;` at the top of the file (before the H1).
+
+**Key findings:**
+
+- Task 1 (A3) needed no change — the Conventions block already exactly matches the canonical 5-bullet skf-brief-skill form. The findings.md description appears stale relative to the current state of SKILL.md (no extra references-folder bullet present).
+- Findings cited "report.md:8 and report.md:96" — line 96 in the pre-edit file was the `_bmad/agents/` / `.claude/skills/` bare-path prose line, not another `_bmad/skf/` instance. Fixed both as bare-path violations per the scanner's intent.
+- The skill had no existing `SKF_TEST_RESULT_JSON:` envelope; introduced as the canonical prefix.
+- No customize.toml edits made (already done per scope rules).
+- All Tightening-PR items (boilerplate cleanup A4-A6, glossary A8, compute-score tests, new scripts, new flags) intentionally left untouched per scope.</result>
+<usage><total_tokens>82514</total_tokens><tool_uses>56</tool_uses><duration_ms>264995</duration_ms></usage>
+</task-notification>
