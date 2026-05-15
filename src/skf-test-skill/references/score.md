@@ -18,9 +18,15 @@ Calculate the overall completeness score by aggregating coverage, coherence, and
 
 Load `{scoringRulesFile}` to get:
 - Category weights (naive vs contextual distribution)
-- Default threshold (80%)
 - Tier-dependent scoring adjustments
-- Any custom threshold override from workflow input
+
+**Resolve the pass threshold (precedence: CLI > scalar > bundled fallback):**
+
+1. If the workflow received `--threshold=<N>` on invocation, use that integer as `effective_threshold` (CLI wins).
+2. Else if the resolved `{defaultThreshold}` workflow-context variable (from SKILL.md On Activation §3 — `workflow.default_threshold` scalar, default `80`) is set, use it as `effective_threshold`.
+3. Else fall back to `80` (the bundled default — this branch should be unreachable when SKILL.md resolution ran correctly, but keeps the step robust if customize.toml resolution failed silently).
+
+Pass `effective_threshold` into the scoring-input JSON's `threshold` field in §3a (the compute-score.py script already honors this field). The CLI flag and the scalar feed the same downstream field; the script does not need to know which layer supplied the value.
 
 **Docs-only mode check:** If the Coverage Analysis section in `{outputFile}` notes docs-only mode (set by step 3 for skills with all `[EXT:...]` citations and no local source), apply Quick-tier weight redistribution: Signature Accuracy and Type Coverage are not scored, their weights (22% + 14%) are redistributed proportionally to remaining active categories. Coverage score is based on documentation completeness rather than source coverage (as calculated by step 3).
 
@@ -73,7 +79,7 @@ Build a JSON object from the data gathered in steps 1-2:
     "coherence": "{combined_coherence_percentage or null if naive mode}",
     "externalValidation": "{external_validation_score or null if N/A}"
   },
-  "threshold": "{custom_threshold or omit for default 80}"
+  "threshold": "{effective_threshold from §1 — CLI --threshold wins, then workflow.default_threshold scalar, then 80}"
 }
 ```
 

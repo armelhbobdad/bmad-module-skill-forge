@@ -76,6 +76,8 @@ If no gaps found, append a clean pass message recommending **export-skill** work
 
 ### 4b. Discovery Testing (MANDATORY)
 
+**`--no-discovery` flag bypass (precedes the precondition check).** If `no_discovery: true` is set in workflow context (from §1 of `init.md` — `--no-discovery` flag on invocation), record an Info-severity note in the Discovery Quality subsection: `discovery — skipped: --no-discovery flag set`, log the bypass, and SKIP §4b.1–§4b.3. Proceed to §4b.4 (description optimization) only if tessl/skill-check flagged description issues; otherwise skip directly to §4c.
+
 After gap enumeration, perform minimum-viable discovery testing. This is a **Medium-weight** check contributing to the Discovery Quality subsection — no longer advisory boilerplate.
 
 **4b.0 Precondition — catalog size check:**
@@ -152,6 +154,14 @@ Payload contents:
 - `healthCheckDispatched` — boolean, set by §7 after the dispatch decision
 
 The `{forge_version}/.test-skill.lock` acquired in step 1 §6b remains held until the end of this step — it guards against concurrent latest-file overwrites.
+
+**Post-finalization hook.** If `{onCompleteCommand}` (resolved in SKILL.md On Activation §3 from `workflow.on_complete` scalar) is non-empty, invoke it as:
+
+```bash
+{onCompleteCommand} --result-path={forge_version}/skf-test-skill-result-{run_id}.json
+```
+
+Run it with a bounded timeout (default 60s). On success: log Info note "on_complete — invoked: {command}" and continue. On non-zero exit, timeout, or any failure: append the failure reason to `workflow_warnings[]` (e.g. `on_complete — failed (exit {N}): {stderr_first_line}`) and continue. **The hook must never fail the workflow** — its purpose is integration glue (notify a CI router, post to a queue, archive the result) and any failure there is orthogonal to the test verdict. If `{onCompleteCommand}` is empty, this hook is a no-op (no log entry needed).
 
 ### 5. Finalize Output Document — Enforce Step Completeness
 
@@ -243,6 +253,8 @@ If `{headless_mode}`:
 Non-headless mode always drops to the menu in §7.
 
 ### 7. Health-Check Dispatch + MENU OPTIONS
+
+**`--no-health-check` flag bypass (precedes the health-check resolution).** If `no_health_check: true` is set in workflow context (from §1 of `init.md` — `--no-health-check` flag on invocation), set `health_check_dispatched: false` in the output report frontmatter and mirror `healthCheckDispatched: false` into the result contract written in §4c (re-write atomically via `{atomicWriteHelper}`). Log Info note "health-check — skipped: --no-health-check flag set" and EXIT THE WORKFLOW: in `{headless_mode}`, exit with the code already determined in §6b; non-headless, simply terminate after the §6 presentation. Do NOT resolve `{healthCheckFile}`, do NOT display the menu, do NOT chain to `{nextStepFile}`. The §6b exit branch is the terminal state under this flag.
 
 Resolve `{healthCheckFile}`: probe `{healthCheckProbeOrder}` in order. **HALT** if neither candidate exists — the health-check is the true terminal step; without it the workflow cannot complete honestly:
 

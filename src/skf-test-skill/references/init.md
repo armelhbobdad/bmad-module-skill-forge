@@ -27,6 +27,10 @@ If skill path was provided as workflow argument, use it directly.
 
 **Recognized flags on the invocation:**
 - `--allow-workspace-drift` — bypass the section 5b pre-flight guard that halts when local workspace HEAD does not match `metadata.source_commit`. Store `allow_workspace_drift: true` in workflow context when present. No effect when `source_commit` is unpinned or the source is not a git working tree.
+- `--no-discovery` — skip the §4b Discovery Testing block in step 6 (report). Store `no_discovery: true` in workflow context when present.
+- `--no-health-check` — skip the §7 health-check dispatch in step 6 (report). Store `no_health_check: true` in workflow context when present.
+- `--tier=<Quick|Forge|Forge+|Deep>` — bypass the §4 forge-tier.yaml sidecar HALT. Store `tier_flag: '<value>'` in workflow context when present; §4 will set `detected_tier` directly from this value and skip the sidecar probe.
+- `--threshold=<N>` — override the pass threshold for this run. Consumed by `references/score.md` §1; CLI wins over the `workflow.default_threshold` scalar.
 
 If no path provided, ask:
 
@@ -113,14 +117,16 @@ This skill will fail `npx skills add` and `npx skill-check check`. {If warn:} Co
 
 ### 4. Load Forge Tier State
 
-Read `{sidecarFile}` to determine available analysis depth.
+**`--tier=<...>` flag bypass (precedes the sidecar probe).** If `tier_flag` is set in workflow context (from §1's `--tier=<Quick|Forge|Forge+|Deep>` flag), validate the value against the allowed set. On valid match: set `detected_tier` directly to the flag's value, leave `ast_grep`/`gh_cli`/`qmd` availability flags unset (downstream steps treat unset as "unknown" — analysis proceeds without tool-specific enrichment), log Info note "tier — supplied via --tier flag, sidecar bypassed", and SKIP the sidecar probe and HALT below (jump straight to §4b "Apply Tier Override"). On invalid value (not one of the four), HALT with "Error: --tier=<value> is not one of Quick, Forge, Forge+, Deep".
+
+**Otherwise (no `--tier` flag):** Read `{sidecarFile}` to determine available analysis depth.
 
 **If forge-tier.yaml exists:**
 - Read `tier` value (Quick, Forge, Forge+, or Deep)
 - Read tool availability flags (ast_grep, gh_cli, qmd)
 
 **If forge-tier.yaml missing:**
-"**Cannot proceed.** forge-tier.yaml not found at `{sidecarFile}`. Please run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
+"**Cannot proceed.** forge-tier.yaml not found at `{sidecarFile}`. Please run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep), or re-run with `--tier=<Quick|Forge|Forge+|Deep>` to bypass the sidecar."
 
 HALT — do not proceed.
 

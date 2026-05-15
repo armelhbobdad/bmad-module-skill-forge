@@ -49,6 +49,8 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | project_path [required], scope_hint [optional] |
+| **Headless inputs** | `--project-path <path>` (skip Step 1 project-path prompt), `--scope-hint <text>` (skip Step 1 scope-hint prompt), `--intent-hint <text>` (pre-supply analysis intent; drives recommendation ranking in Step 5) |
+| **Headless flag** | `--headless` / `-H` flips every confirm gate to auto-proceed |
 | **Gates** | step 2: Confirm Gate [C] | step 3: Confirm Gate [C] | step 5: Confirm Gate [C] |
 | **Outputs** | analysis-report.md, skill-brief.yaml files (one per recommended unit); final `SKF_ANALYZE_RESULT_JSON` line on stdout when `{headless_mode}` is true |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
@@ -98,12 +100,13 @@ SKF_ANALYZE_RESULT_JSON: {"status":"success|error","report_path":"…|null","bri
 
    If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each path scalar.
 
-   Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each of the three scalars, if the merged value is empty or absent, use the bundled default:
+   Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each scalar, if the merged value is empty or absent, use the bundled default:
 
    - `{unitDetectionHeuristicsPath}` ← `workflow.unit_detection_heuristics_path` if non-empty, else `references/unit-detection-heuristics.md`
    - `{briefSchemaPath}` ← `workflow.brief_schema_path` if non-empty, else `assets/skill-brief-schema.md`
    - `{analysisReportTemplatePath}` ← `workflow.analysis_report_template_path` if non-empty, else `templates/analysis-report-template.md`
+   - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string (no-op — workflow skips the hook invocation)
 
-   Stash all three as workflow-context variables. Stage files reference `{unitDetectionHeuristicsPath}` / `{briefSchemaPath}` / `{analysisReportTemplatePath}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies without forking the skill.
+   Stash all four as workflow-context variables. Stage files reference `{unitDetectionHeuristicsPath}` / `{briefSchemaPath}` / `{analysisReportTemplatePath}` / `{onCompleteCommand}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies (or wire in pipeline hooks) without forking the skill.
 
 4. Load, read the full file, and then execute `references/init.md` to begin the workflow.

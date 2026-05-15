@@ -17,6 +17,7 @@ previousWorkflow: 'create-skill'
 
 ## Audit Summary
 
+**Confidence Mode:** {confidence_mode}
 **Skill:** {skill_name}
 **Source:** {source_path}
 **Tier:** {forge_tier}

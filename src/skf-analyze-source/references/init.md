@@ -48,6 +48,8 @@ Look for {outputFile}.
 
 ### 3. Collect Project Path
 
+**Headless flag consumption:** If `--project-path <path>` was passed at invocation, set `project_paths[]` directly from the flag value (comma-split if multiple paths were supplied), skip the prompt below, and proceed to validation. Otherwise prompt as today.
+
 "**Welcome to Analyze Source — the SKF decomposition engine.**
 
 I'll analyze your project to identify discrete skillable units and produce skill-brief.yaml files for each recommended unit.
@@ -70,7 +72,24 @@ Wait for user input.
 - **IF any invalid:** "Path `{path}` doesn't appear to be valid. Please correct it."
 - Store as `project_paths[]` array in report frontmatter (single path stored as 1-element array for consistency)
 
+**Collect intent hint** (drives recommendation ranking in Step 5):
+
+**Headless flag consumption:** If `--intent-hint <text>` was passed at invocation, set workflow-context `intent_hint` directly from the flag value, skip the prompt below, and proceed. If `{headless_mode}` is true and no `--intent-hint` was supplied, set `intent_hint = ""` (empty) and proceed without prompting.
+
+"**Optional: What are you hoping to get out of this analysis?**
+
+For example:
+- Skills for a specific domain (e.g., 'authentication and authorization')
+- Target consumer agents (e.g., 'skills our backend team's AI assistants will call')
+- Constraints (e.g., 'we only want stable public APIs, no internal modules')
+
+Type details, or press Enter to skip."
+
+Wait for user input. Store as workflow-context `intent_hint` (empty string if skipped).
+
 ### 4. Collect Optional Scope Hints
+
+**Headless flag consumption:** If `--scope-hint <text>` was passed at invocation, set workflow-context `scope_hint` directly from the flag value, skip the prompt below, and proceed. If `{headless_mode}` is true and no `--scope-hint` was supplied, set `scope_hint = ""` (empty) and proceed without prompting.
 
 "**Optional: Do you have scope hints to narrow the analysis?**
 
@@ -110,6 +129,8 @@ project_name: '{project_name}'
 project_paths: ['{provided_project_path}']
 forge_tier: '{detected_tier}'
 existing_skills: [{list of existing skill names}]
+intent_hint: '{intent_hint or empty string}'
+scope_hint: '{scope_hint or empty string}'
 confirmed_units: []
 stack_skill_candidates: []
 nextWorkflow: ''

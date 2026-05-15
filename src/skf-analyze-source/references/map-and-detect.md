@@ -31,19 +31,27 @@ Read {outputFile} to obtain:
 
 Load {heuristicsFile} for stack skill candidate detection rules.
 
-### 2. Map Export Surfaces Per Unit
+### 2. Map Export Surfaces Per Unit (Subagent Fan-Out)
 
-DO NOT BE LAZY — For EACH qualifying unit, launch a subprocess (or analyze in main thread) that:
+DO NOT BE LAZY — For EACH qualifying unit, delegate deep analysis to a subagent so per-unit work runs in parallel and the parent's context stays clean.
 
-**Size-aware strategy selection:**
-- **< 50 files:** Full export scan — analyze every file for exports
-- **50-200 files:** Targeted scan — entry points (`__init__.py`, `index.ts`, `lib.rs`) + public modules + barrel exports only
-- **200+ files:** Entry-point strategy — analyze top-level entry point for public API surface, list submodule entry points, analyze each submodule entry point only. Report coverage confidence based on percentage of files analyzed.
+**Subagent fan-out protocol:**
 
-**Per-unit analysis (scaled by strategy above):**
+1. **Build the qualifying-unit list.** Read the unit list produced upstream (Step §3 / §4 outputs already in workflow context — names, paths, scope types, languages, file counts). Do NOT re-scan the project here.
 
-1. Scans the unit's directory for export/public interface files
-2. Counts and categorizes exports based on forge tier:
+2. **Delegate per-unit deep analysis to a subagent.** For each qualifying unit, launch a subagent task with these explicit constraints:
+   - The subagent reads ONLY that unit's directory tree
+   - The subagent analyzes exports / usage / CCC signals / scripts+assets for that one unit
+   - **The parent does NOT read the unit's source files before delegating** (avoid the implicit-read trap — the whole point of fan-out is to keep large source bodies out of the parent's context)
+
+3. **Per-unit analysis the subagent performs (scaled by size-aware strategy):**
+
+   **Size-aware strategy selection:**
+   - **< 50 files:** Full export scan — analyze every file for exports
+   - **50-200 files:** Targeted scan — entry points (`__init__.py`, `index.ts`, `lib.rs`) + public modules + barrel exports only
+   - **200+ files:** Entry-point strategy — analyze top-level entry point for public API surface, list submodule entry points, analyze each submodule entry point only. Report coverage confidence based on percentage of files analyzed.
+
+   **Tier-aware depth:**
    - **Quick tier:** Count files by type, identify index/barrel files, list directory structure
    - **Forge tier:** Parse export statements, identify public API surface, count exported functions/classes/types
    - **Forge+ tier:** All Forge analysis plus:
@@ -55,19 +63,38 @@ DO NOT BE LAZY — For EACH qualifying unit, launch a subprocess (or analyze in 
      - ast-grep type/interface mapping: `ast-grep -p 'interface $NAME' --lang typescript` or `ast-grep -p 'class $NAME($$$)' --lang python`
      - If QMD available: query for temporal evolution of identified exports (deprecation signals, recent additions, refactoring patterns)
      - Record semantic relationships between exports (which exports reference/depend on each other)
-3. Returns structured findings to parent:
-   - Export count (files, functions, types, classes)
-   - Primary export patterns (barrel exports, direct exports, re-exports)
-   - Public API surface size estimate
-   - Key entry points
-   - Script/asset presence: check for `scripts/`, `bin/`, `assets/`, `templates/` directories and files matching detection signals in `{heuristicsFile}`. Record counts in per-unit findings.
+
+   **Subagent must also record:**
+   - Script/asset presence: check for `scripts/`, `bin/`, `assets/`, `templates/` directories and files matching detection signals in `{heuristicsFile}`
    - Analysis strategy used and coverage confidence
 
-**Per-unit export summary:**
+4. **Subagent return contract.** Each subagent returns ONLY this JSON object — no prose, no commentary, no markdown fences:
+
+   ```json
+   {
+     "unit_name": "...",
+     "files_count": N,
+     "exports_count": N,
+     "export_pattern": "...",
+     "api_surface": ["..."],
+     "scripts_assets": {"scripts": [], "assets": []},
+     "ccc_signals": {"top_files": [], "available": <bool>},
+     "strategy_used": "ast-grep|regex|main-thread",
+     "confidence": "T1|T2|T1-low"
+   }
+   ```
+
+5. **Parent post-processing.** Strip any wrapping markdown fences (subagents sometimes wrap JSON in ` ```json … ``` ` despite the contract) before parsing. Validate each payload against the contract; if a key is missing, log a warning to `workflow_warnings[]` and continue with that unit's degraded record.
+
+6. **Aggregate.** Collect all per-unit JSON payloads into `per_unit_findings[]` in workflow context for use by §3 (import graph), §4 (integration points), §5 (stack candidates), §6 (findings presentation), and downstream stages (recommend.md, generate-briefs.md).
+
+**Per-unit export summary (built from `per_unit_findings[]`):**
 
 | Unit | Files | Exports | Export Pattern | API Surface | Scripts/Assets | CCC Signals |
 |------|-------|---------|----------------|-------------|----------------|-------------|
 | {name} | {count} | {count} | {pattern} | {small/medium/large} | {N scripts, M assets or --} | {CCC signals or --} |
+
+**Graceful degradation.** If subagents are unavailable in the current runtime, the parent performs the per-unit analysis sequentially in the main thread using the same size-aware strategy and tier-aware depth as above. Each main-thread analysis still produces the same JSON record shape so downstream stages remain agnostic to the execution mode. Record `strategy_used: "main-thread"` for every unit processed this way.
 
 ### 3. Map Import Graph
 

@@ -41,3 +41,9 @@ persistent_facts = [
 
 drift_report_template_path = ""
 severity_rules_path = ""
+
+# Optional post-audit hook. When non-empty, invoked with
+# `--result-path=<path>` after the drift report and result JSON are finalized.
+# Failures are logged to workflow_warnings[] but never fail the workflow.
+
+on_complete = ""

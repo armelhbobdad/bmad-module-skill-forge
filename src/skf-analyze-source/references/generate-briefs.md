@@ -187,7 +187,23 @@ To refine any brief, run the recommended next workflow. To re-analyze with diffe
 
 Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{forge_data_folder}/analyze-source-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_data_folder}/analyze-source-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all generated `skill-brief.yaml` paths in `outputs` and brief counts in `summary`.
 
+### 9b. On-Complete Hook (pipeline integration)
+
+If `{onCompleteCommand}` is non-empty, invoke it now — after the timestamped result JSON and the `analyze-source-result-latest.json` copy have both been written:
+
+```
+{onCompleteCommand} --result-path={result_json_path}
+```
+
+Where `{result_json_path}` is the absolute path to the freshly written `analyze-source-result-latest.json` (stable path is preferred over the timestamped copy so downstream consumers don't need to discover the timestamp).
+
+- On success: log to `workflow_warnings[]` as informational only if the hook emitted stderr (`on_complete hook stderr: …`); otherwise no entry.
+- On non-zero exit / process error: log to `workflow_warnings[]` (`on_complete hook failed (exit {code}): {stderr_snippet}`).
+- **Never fail the workflow on hook errors** — the hook is for pipeline integration (Slack, dashboards, CI), not for gating skill-brief production.
+
+If `{onCompleteCommand}` is empty, skip this section entirely (default behavior — no hook configured).
+
 ### 10. Chain to Health Check
 
-ONLY WHEN the briefs have been written (or skipped per user abort), the report updated, the summary presented, and the result contract saved will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.
+ONLY WHEN the briefs have been written (or skipped per user abort), the report updated, the summary presented, the result contract saved, and the on-complete hook invoked (or skipped per empty `{onCompleteCommand}`) will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.
 
