@@ -86,7 +86,7 @@ def test_render_produces_parseable_yaml():
 
 
 def test_render_preserves_canonical_section_comments():
-    """Header + section comments per step-02 template are preserved."""
+    """Header + section comments per step 2 template are preserved."""
     rendered = mod.render_forge_tier_yaml(_baseline_payload())
     assert "# Ferris Sidecar: Forge Tier State" in rendered
     assert "# Tool availability" in rendered
@@ -98,7 +98,7 @@ def test_render_preserves_canonical_section_comments():
 
 
 def test_render_section_order_is_canonical():
-    """Sections appear in the same order as the step-02 template."""
+    """Sections appear in the same order as the step 2 template."""
     rendered = mod.render_forge_tier_yaml(_baseline_payload())
     sections = [
         ("tools:", rendered.find("tools:")),

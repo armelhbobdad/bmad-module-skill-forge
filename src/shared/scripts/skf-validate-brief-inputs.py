@@ -6,8 +6,8 @@
 
 Validates and normalizes the headless argument set passed to skf-brief-skill
 before the workflow's interactive sequence runs. Catches malformed inputs at
-point of capture instead of letting them surface 5+ minutes later in step-02
-or step-05.
+point of capture instead of letting them surface 5+ minutes later in step 2
+or step 5.
 
 CLI:
   uv run skf-validate-brief-inputs.py --json '{...}'
@@ -77,7 +77,7 @@ KNOWN_FIELDS = {
     "exclude",
     "force",
 }
-# `preset` is intentionally NOT in KNOWN_FIELDS — it is consumed at the step-01 §8 GATE
+# `preset` is intentionally NOT in KNOWN_FIELDS — it is consumed at the step 1 §8 GATE
 # (the LLM merges the named preset YAML into the args dict and drops the `preset` key
 # before calling the validator). If the key leaks through, the validator's existing
 # unknown-field handling emits `"unrecognized field 'preset' — passed through unchanged"`
@@ -218,9 +218,9 @@ def validate(inp: dict[str, Any]) -> dict[str, Any]:
     normalized: dict[str, Any] = dict(inp)
     normalized.setdefault("source_type", "source")
     # `source_authority` is intentionally NOT setdefault'd here for source-type targets:
-    # step-01 §3.3's headless detection branch runs `gh api user` and may resolve to
+    # step 1 §3.3's headless detection branch runs `gh api user` and may resolve to
     # `official` for repos owned by the authenticated user. Stamping a default at
-    # validator time would pre-empt the detection because step-01 §8 GATE treats the
+    # validator time would pre-empt the detection because step 1 §8 GATE treats the
     # `normalized` object as the source of truth. Absence is the signal "run detection."
     # The docs-only branch below still forces `community` since detection cannot apply.
     normalized.setdefault("scripts_intent", "detect")

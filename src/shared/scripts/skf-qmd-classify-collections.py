@@ -4,20 +4,20 @@
 # ///
 """SKF QMD Classify Collections — Set arithmetic over QMD collection names.
 
-Replaces the prose-driven classification logic in `src/skf-setup/steps-c/
-step-03-auto-index.md` §3 with one Python invocation. Compares the live
+Replaces the prose-driven classification logic in `src/skf-setup/references/
+auto-index.md` §3 with one Python invocation. Compares the live
 QMD collections (from `qmd collection list`) against the forge registry
 (`qmd_collections` array in forge-tier.yaml) and classifies each name as
 Healthy / Orphaned / Stale, applying the forge-namespace suffix filter
 added in PR #244 to silently exclude collections owned by unrelated
 tools sharing the QMD daemon.
 
-Classification rules (per step-03 §3):
+Classification rules (per step 3 §3):
 
   Healthy   — name in {forge-suffix-matched live} AND in registry.
               No action needed.
   Orphaned  — name in {forge-suffix-matched live} but NOT in registry.
-              Flagged for user-prompted removal in step-03 §4.
+              Flagged for user-prompted removal in step 3 §4.
   Stale     — name in registry but NOT in {all live}. Registry entry
               should be removed.
   Foreign   — name in live but does NOT match a forge suffix. Silently
@@ -175,12 +175,39 @@ def classify(live: list[str], registry: list[str]) -> dict:
     stale = sorted(registry_set - all_live_set)
 
     return {
+        "live_names": sorted(all_live_set),
         "healthy": healthy,
         "orphaned": orphaned,
         "stale": stale,
         "foreign_filtered_count": len(foreign_live),
         "foreign_filtered_sample": foreign_live[:FOREIGN_SAMPLE_CAP],
     }
+
+
+def fetch_live_names_from_qmd() -> tuple[list[str], str | None]:
+    """Invoke `qmd collection list` and return (names, error).
+
+    Owns the CLI parsing so callers (and prompts) don't reinvent it.
+    Empty stdout / non-zero exit → ([], error_message). The classifier's
+    same-process invocation here is the single source of truth for what
+    counts as a "live collection name".
+    """
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["qmd", "collection", "list"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        return [], f"qmd collection list failed: {e}"
+    if result.returncode != 0:
+        return [], f"qmd collection list exited {result.returncode}: {result.stderr.strip() or '<no stderr>'}"
+    # Each non-empty line is a collection name (qmd's stable contract).
+    names = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return names, None
 
 
 def main() -> None:
@@ -190,9 +217,10 @@ def main() -> None:
     )
     parser.add_argument(
         "--live-names",
-        default="",
-        help="Comma-separated list of collection names currently in QMD "
-             "(from `qmd collection list`). Empty string → no live collections.",
+        default=None,
+        help="Comma-separated list of collection names currently in QMD. "
+             "If omitted, the script invokes `qmd collection list` itself. "
+             "Empty string → no live collections.",
     )
     parser.add_argument(
         "--registry-from-yaml",
@@ -203,7 +231,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    live = parse_live_names(args.live_names)
+    if args.live_names is None:
+        names, error = fetch_live_names_from_qmd()
+        if error is not None:
+            _die(2, error)
+        live = names
+    else:
+        live = parse_live_names(args.live_names)
     registry = load_registry_names(args.registry_from_yaml)
     _ok(classify(live, registry))
 

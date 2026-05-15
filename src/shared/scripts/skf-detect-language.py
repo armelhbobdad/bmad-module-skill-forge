@@ -5,7 +5,7 @@
 """SKF Detect Language — deterministic primary-language detection from a flat file tree.
 
 Single source of truth for the language-detection rule table that
-skf-brief-skill step-02 §3 applies. The rule walk is purely deterministic:
+skf-brief-skill step 2 §3 applies. The rule walk is purely deterministic:
 manifest-file presence first (Cargo.toml → rust, package.json → js/ts,
 etc.), then extension-frequency fallback. Moving it into a shared script
 saves ~150-250 tokens per workflow invocation and removes a quiet drift
@@ -167,7 +167,7 @@ def _frequency_fallback(tree: list[str]) -> dict[str, Any]:
     else:
         confidence = "low"
         source = f"no dominant extension: top is {top_ext} at {top_count}/{total} ({share:.0%}, threshold {int(_DOMINANCE_THRESHOLD * 100)}%)"
-        # Still surface the best-guess language; caller / step-03 §4 lets
+        # Still surface the best-guess language; caller / step 3 §4 lets
         # the user override on low confidence.
     return {
         "language": language,

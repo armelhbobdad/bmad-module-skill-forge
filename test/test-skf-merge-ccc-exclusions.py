@@ -100,11 +100,12 @@ def test_validate_warning_messages_are_actionable():
     _, w = mod.validate_config_value("forge_data_folder", "x*")
     assert "glob meta" in w.lower()
 
-    # Issue #293: unresolved {project-root}-style placeholder names step-01b §3
-    _, w = mod.validate_config_value("skills_output_folder", "{project-root}/skills")
+    # Validator backstops a placeholder leak — the merge entry point now
+    # resolves {project-root}/... before validation, so this path only fires
+    # when validate_config_value is invoked directly or with a stray brace.
+    _, w = mod.validate_config_value("skills_output_folder", "{stray}/skills")
     assert "skills_output_folder" in w
     assert "placeholder" in w.lower()
-    assert "step-01b" in w  # Points the operator at the step that must do substitution
 
 
 def test_validate_strips_surrounding_whitespace():
@@ -319,26 +320,25 @@ def test_cli_pr248_glob_meta_in_forge_data_folder(tmp_project):
     assert any("forge_data_folder" in w and "glob meta" in w.lower() for w in payload["warnings"])
 
 
-def test_cli_issue293_unresolved_placeholder_in_skills_folder(tmp_project):
-    """Issue #293 reproduction: step-01b passed '{project-root}/skills' literally
-    when it should have substituted and reduced to a basename. The resulting
-    `**/{project-root}/skills` glob silently never matched, so the SKF skills
-    directory was indexed by ccc anyway. Validator must reject the placeholder."""
+def test_cli_resolves_project_root_prefix(tmp_project):
+    """The merge entry point resolves '{project-root}/...' to a repo-relative
+    path before validation, so step prompts can forward raw config values.
+    Previously the step had to substitute and reduce-to-basename itself; the
+    contract now lives in the script."""
     rc, payload, _ = _run(tmp_project, skills="{project-root}/skills",
                           forge_data="{project-root}/forge-data")
     assert rc == 0
     settings = _read_settings(tmp_project)
-    # The malformed placeholder-globs must NOT be present
+    # Resolved values produce clean **/<segment> globs
+    assert "**/skills" in settings["exclude_patterns"]
+    assert "**/forge-data" in settings["exclude_patterns"]
+    # No malformed placeholder globs
     assert "**/{project-root}/skills" not in settings["exclude_patterns"]
-    assert "**/{project-root}/forge-data" not in settings["exclude_patterns"]
     # Always-include patterns survive
     for p in mod.ALWAYS_INCLUDE:
         assert p in settings["exclude_patterns"]
-    # Both rejected values produce actionable warnings
-    assert any("skills_output_folder" in w and "placeholder" in w.lower()
-               for w in payload["warnings"])
-    assert any("forge_data_folder" in w and "placeholder" in w.lower()
-               for w in payload["warnings"])
+    # Clean inputs produce no warnings
+    assert payload["warnings"] == []
 
 
 # ─── Error paths ────────────────────────────────────────────────────────────
