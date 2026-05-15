@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "12e958be0756",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-stages-rename",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/schemas/skf-setup-result-envelope.v1.json",
+    "src/shared/scripts/skf-detect-tools.py",
+    "src/shared/scripts/skf-emit-result-envelope.py",
+    "src/shared/scripts/skf-merge-ccc-exclusions.py",
+    "src/shared/scripts/skf-qmd-classify-collections.py",
+    "test/test-skf-emit-result-envelope.py",
+    "test/test-skf-merge-ccc-exclusions.py",
+    "test/test-skf-qmd-classify-collections.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/12/e958be0756/0/metadata.json",
+      "transcript": "/12/e958be0756/0/full.jsonl",
+      "context": "/12/e958be0756/0/context.md",
+      "content_hash": "/12/e958be0756/0/content_hash.txt",
+      "prompt": "/12/e958be0756/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1193,
+    "cache_creation_tokens": 567515,
+    "cache_read_tokens": 72318580,
+    "output_tokens": 232204,
+    "api_call_count": 276
+  }
+}
