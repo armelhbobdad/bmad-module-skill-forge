@@ -38,8 +38,10 @@ def _expected_hash(content: bytes) -> str:
 
 
 def _write(path: Path, content: str) -> Path:
+    # binary write so newline-translation on Windows doesn't change
+    # size_bytes / SHA-256 vs the bytes the test passed in
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    path.write_bytes(content.encode("utf-8"))
     return path
 
 

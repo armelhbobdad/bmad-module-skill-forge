@@ -183,10 +183,14 @@ def in_directory(path: Path, root: Path, dir_names: set[str]) -> bool:
 
 
 def matches_scope(path: Path, root: Path, scope_patterns: list[str]) -> bool:
-    """Match `path` against scope-include glob patterns relative to root."""
+    """Match `path` against scope-include glob patterns relative to root.
+
+    Forward-slash form so scope patterns like "scripts/*" match on Windows
+    too — fnmatch is byte-exact and won't normalize separators for us.
+    """
     if not scope_patterns:
         return True
-    rel = str(path.relative_to(root))
+    rel = path.relative_to(root).as_posix()
     return any(fnmatch.fnmatch(rel, pattern) for pattern in scope_patterns)
 
 
@@ -429,7 +433,7 @@ def extract_purpose(path: Path, *, asset_type_hint: str | None) -> str:
 def build_script_record(
     path: Path, source_root: Path, *, shebang_lang: str | None, max_lines: int
 ) -> dict:
-    rel = str(path.relative_to(source_root))
+    rel = path.relative_to(source_root).as_posix()
     lines = count_lines(path)
     return {
         "name": path.name,
@@ -446,7 +450,7 @@ def build_script_record(
 def build_asset_record(
     path: Path, source_root: Path, *, atype: str, max_lines: int
 ) -> dict:
-    rel = str(path.relative_to(source_root))
+    rel = path.relative_to(source_root).as_posix()
     lines = count_lines(path)
     return {
         "name": path.name,
