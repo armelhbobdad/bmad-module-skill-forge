@@ -11,15 +11,6 @@ outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
 
 Examine the skill metadata to determine whether this is an individual skill (naive mode — API surface coverage only) or a stack skill (contextual mode — full coherence validation including cross-references and integration patterns).
 
-## Rules
-
-- Focus only on mode detection — do not begin coverage or coherence analysis
-- Set testMode in output frontmatter before proceeding
-
-## MANDATORY SEQUENCE
-
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Examine Skill Type
 
 Read the skill metadata (loaded in step 01) and check:
@@ -88,20 +79,5 @@ Append the **Test Summary** section to `{outputFile}`:
 
 **Proceeding to coverage check...**"
 
-### 5. Auto-Proceed
-
-Display: "**Proceeding to coverage check...**"
-
-#### Menu Handling Logic:
-
-- After mode detection is complete, update {outputFile} frontmatter stepsCompleted, then immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed detection step with no user choices
-- Proceed directly to next step after mode is set
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN testMode is set in the output frontmatter and the Test Summary section is appended to the output document, will you then load and read fully `{nextStepFile}` to execute coverage check.
+Update stepsCompleted, then load and execute {nextStepFile}.
 

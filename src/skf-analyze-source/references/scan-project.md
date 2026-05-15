@@ -16,7 +16,7 @@ To map the complete project structure by scanning directory trees, detecting ser
 
 - Focus only on structural scanning — do not classify units or map exports yet
 - Do not read source file contents beyond manifest files and entry points
-- Use subprocess Pattern 1 for scanning across many files
+- Delegate per-file scanning to subagents in parallel when many files are involved (main-thread fallback is fine)
 - Tier-aware scanning depth: Quick (file structure), Forge (+ manifest parsing), Deep (+ config analysis)
 
 ## MANDATORY SEQUENCE

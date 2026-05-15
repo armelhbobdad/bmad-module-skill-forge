@@ -13,16 +13,6 @@ sourceAccessProtocol: 'references/source-access-protocol.md'
 
 Compare the exports, functions, classes, types, and interfaces documented in SKILL.md against the actual source code API surface. Identify missing documentation, undocumented exports, and signature mismatches. Analysis depth scales with forge tier.
 
-## Rules
-
-- Use subprocess optimization for per-file AST analysis when available; if unavailable, analyze sequentially
-- For each source file, launch a subprocess for deep analysis — do not shortcut
-- Coverage depth must match the detected forge tier
-
-## MANDATORY SEQUENCE
-
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 0. Check for Docs-Only Mode
 
 **If all SKILL.md citations are `[EXT:...]` format (no local source citations):**
@@ -88,7 +78,7 @@ test-skill is a quality gate — it MUST NOT trust subagent output blindly. Befo
 
 **Spot-check (ground-truth verification, zero-hallucination guard):**
 
-1. If `len(exports) == 0`: skip the spot-check (no names to verify). Zero-exports policy is handled in section 3 (B1 zero-exports guard).
+1. If `len(exports) == 0`: skip the spot-check (no names to verify). Zero-exports policy is handled in the §2b zero-exports guard.
 2. Otherwise, sample `min(3, len(exports))` exports deterministically — by default take indices `[0, len//2, len-1]` (first, middle, last) from the `exports` array after a stable sort by `name`.
 3. For each sampled export, run: `grep -n "{export.name}" {resolved_skill_package}/SKILL.md` in the parent context. The name MUST appear at least once.
 4. If ANY sampled name returns zero matches, HALT "coverage-check: subagent inventory failed ground-truth spot-check — `{name}` claimed as export but absent from SKILL.md".
@@ -170,7 +160,7 @@ If subprocess unavailable, perform ast-grep analysis in main thread per file.
 - Cross-check type definitions against their source declarations
 - Verify re-exported symbols trace to their original source
 
-### 2b. Zero-Exports Guard (B1)
+### 2b. Zero-Exports Guard
 
 After the source-code analysis (§2) completes, compute `total_exports` — the count of exports discovered in the source / provenance-map / metadata.json, per the stratified-scope and State 2 rules resolved in §4.
 
@@ -227,7 +217,7 @@ Load `{scoringRulesFile}` to determine category scores:
 
 Record the denominator source in the Coverage Analysis section as `Denominator: stratified ({effective_denominator | tier_a_include union | scope.include union}, {N} files matched)`. When stratified scope does not apply, use the standard barrel-based denominator and omit the stratified annotation.
 
-**M2 — Record the two non-chosen candidate values alongside the chosen one.**
+**Record the two non-chosen candidate values alongside the chosen one.**
 Stratified-scope resolution picks ONE of three denominator candidates
 (`stats.effective_denominator`, `tier_a_include` union, `scope.include` union)
 per the priority above. To make the choice auditable, append a
@@ -236,7 +226,7 @@ all three values — the chosen one explicitly marked and the other two recorded
 as-observed (or `absent` when the candidate was not present for this skill):
 
 ```markdown
-**Denominator Candidates** (M2 — stratified-scope audit trail):
+**Denominator Candidates** (stratified-scope audit trail):
 - `stats.effective_denominator`: {N | absent}  {← chosen if priority (1) applied}
 - `scope.tier_a_include` union: {N | absent}    {← chosen if priority (2) applied}
 - `scope.include` union: {N | absent}           {← chosen if priority (3) applied}
@@ -330,20 +320,5 @@ Note: Weight application is deferred to step 5 where all category weights are ca
 
 **Proceeding to coherence check...**"
 
-### 7. Auto-Proceed
-
-Display: "**Proceeding to coherence check...**"
-
-#### Menu Handling Logic:
-
-- After coverage analysis is complete, update {outputFile} frontmatter stepsCompleted, then immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed validation step with no user choices
-- Proceed directly to next step after coverage is analyzed
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN all source files have been analyzed, the Coverage Analysis section has been appended to {outputFile}, and category scores have been calculated, will you then load and read fully `{nextStepFile}` to execute coherence check.
+Update stepsCompleted, then load and execute {nextStepFile}.
 

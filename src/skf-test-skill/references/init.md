@@ -21,15 +21,6 @@ versionPathsKnowledge: 'knowledge/version-paths.md'
 
 Discover and validate the target skill, load forge tier state to determine analysis depth, and create the test report document from template.
 
-## Rules
-
-- Focus only on input discovery and validation — do not begin analysis
-- Validate all required files exist before proceeding
-
-## MANDATORY SEQUENCE
-
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Receive Skill Path
 
 If skill path was provided as workflow argument, use it directly.
@@ -104,7 +95,7 @@ If the command trips the 30s wall-clock (exit code `124`), set
 in workflow context, apply the step 5 tooling-degraded cap (score capped at
 `threshold - 1` → auto-FAIL), and record the reason in evidence-report.
 
-Parse the JSON output. Per B2, treat each `status` value explicitly:
+Parse the JSON output. Treat each `status` value explicitly:
 
 - `status: "pass"` — continue silently.
 - `status: "warn"` — display the warning below, log each issue as a pre-check finding, and continue with testing. Frontmatter issues surface in the gap report alongside coverage/coherence findings.
@@ -156,7 +147,7 @@ Test-skill reads `source_path` during coverage and coherence analysis. If the lo
 
 - Resolve `pinned_commit` from `metadata.source_commit`.
 - **If `pinned_commit` is null, empty, or `"local"`:** skip the guard; log `workspace_drift_check: skipped (no pinned commit)` and continue to section 6.
-- **If `pinned_commit` is a per-repo map (stack skills):** iterate each `{repo_path: commit}` entry — for each repo run `git -C "{repo_path}" rev-parse HEAD` and compare to its pinned commit (accept full-SHA or short-SHA-prefix match). If ANY repo diverges and the user did not pass `--allow-workspace-drift`, HALT with exit status `halted-for-workspace-drift` listing every mismatched repo. On all-match: log `workspace_drift_check: ok (stack, {N} repos verified)` and continue to section 6. Per B6, this guard MUST iterate every repo — do not skip stack skills.
+- **If `pinned_commit` is a per-repo map (stack skills):** iterate each `{repo_path: commit}` entry — for each repo run `git -C "{repo_path}" rev-parse HEAD` and compare to its pinned commit (accept full-SHA or short-SHA-prefix match). If ANY repo diverges and the user did not pass `--allow-workspace-drift`, HALT with exit status `halted-for-workspace-drift` listing every mismatched repo. On all-match: log `workspace_drift_check: ok (stack, {N} repos verified)` and continue to section 6. This guard MUST iterate every repo — do not skip stack skills.
 - **If `source_path` is not a git working tree** (bare checkout, tarball extract, docs-only source) — detect by `git -C "{source_path}" rev-parse --is-inside-work-tree`, non-zero exit means skip: log `workspace_drift_check: skipped (not a git working tree)` and continue to section 6.
 - **Otherwise** run `git -C "{source_path}" rev-parse HEAD` and compare to `pinned_commit`. Accept full-SHA or short-SHA-prefix match (stored pins are often 8-char short hashes — see `src/knowledge/provenance-tracking.md`).
   - **On match:** log `workspace_drift_check: ok ({short_sha})` and continue.
@@ -179,15 +170,15 @@ Test-skill reads `source_path` during coverage and coherence analysis. If the lo
     ```
 
     Do not proceed. The test report has not been created; no partial writes.
-  - **On mismatch WITH `--allow-workspace-drift`:** log `workspace_drift_check: overridden (pinned={pinned_commit}, head={head_sha})`, carry the warning into the final report frontmatter (`workspaceDrift: overridden`), and set `allow_workspace_drift: true` in workflow context (consumed by step 5 §5 M5 — a PASS under drift is demoted to `pass-with-drift` and `nextWorkflow` is forced to `update-skill`, never `export-skill`). Continue.
+  - **On mismatch WITH `--allow-workspace-drift`:** log `workspace_drift_check: overridden (pinned={pinned_commit}, head={head_sha})`, carry the warning into the final report frontmatter (`workspaceDrift: overridden`), and set `allow_workspace_drift: true` in workflow context (consumed by step 5 §5 drift override — a PASS under drift is demoted to `pass-with-drift` and `nextWorkflow` is forced to `update-skill`, never `export-skill`). Continue.
 
 ### 6. Create Output Document
 
-**6a. Generate `{run_id}`** per B5: a per-run identifier of the form `{YYYYMMDDTHHmmssZ}-{pid}-{rand4}` (UTC timestamp + process PID + 4-char random hex). Store in workflow context. All per-run artifacts in this and subsequent steps MUST carry this suffix; step 6 verifies `testDate` in the resulting report matches the run's stamp and fail-fast otherwise.
+**6a. Generate `{run_id}`**: a per-run identifier of the form `{YYYYMMDDTHHmmssZ}-{pid}-{rand4}` (UTC timestamp + process PID + 4-char random hex). Store in workflow context. All per-run artifacts in this and subsequent steps MUST carry this suffix; step 6 verifies `testDate` in the resulting report matches the run's stamp and fail-fast otherwise.
 
-**6b. Acquire the per-skill test lock** (B4): `flock {forge_version}/.test-skill.lock` for the duration of this run to serialize concurrent `skf-test-skill` invocations against the same skill. If the lock is already held by another run, HALT with "another test-skill run is active for {skill_name}".
+**6b. Acquire the per-skill test lock**: `flock {forge_version}/.test-skill.lock` for the duration of this run to serialize concurrent `skf-test-skill` invocations against the same skill. If the lock is already held by another run, HALT with "another test-skill run is active for {skill_name}".
 
-**6c. Create `{outputFile}` from `{templateFile}`** — use `{forge_version}/test-report-{skill_name}-{run_id}.md` per B5. Initial frontmatter:
+**6c. Create `{outputFile}` from `{templateFile}`** — use `{forge_version}/test-report-{skill_name}-{run_id}.md` Initial frontmatter:
 
 ```yaml
 ---
@@ -221,20 +212,5 @@ nextWorkflow: ''
 
 **Proceeding to mode detection...**"
 
-### 8. Auto-Proceed
-
-Display: "**Proceeding to mode detection...**"
-
-#### Menu Handling Logic:
-
-- After initialization is complete, update {outputFile} frontmatter stepsCompleted, then immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed initialization step with no user choices
-- Proceed directly to next step after setup
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN all required files are validated, forge tier is loaded, output document is created, and initialization status is reported, will you then load and read fully `{nextStepFile}` to execute mode detection.
+Update stepsCompleted, then load and execute {nextStepFile}.
 

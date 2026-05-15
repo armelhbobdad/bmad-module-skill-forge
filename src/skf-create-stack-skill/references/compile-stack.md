@@ -76,7 +76,7 @@ For each confirmed library (ordered by integration connectivity, then import cou
 - Key exports used in this project
 - Usage patterns from extraction
 - Confidence tier label
-- Link to reference file: `./references/{library}.md`
+- Link to reference file: `references/{library}.md`
 
 ### 5. Compile Project Conventions
 

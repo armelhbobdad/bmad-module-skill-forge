@@ -32,7 +32,7 @@ description: >
 
 | Library | Imports | Key Exports | Confidence | Reference |
 |---------|---------|-------------|------------|-----------|
-| {name} | {count} | {top_exports} | {tier} | [ref](./references/{name}.md) |
+| {name} | {count} | {top_exports} | {tier} | [ref](references/{name}.md) |
 
 ## Per-Library Summaries
 

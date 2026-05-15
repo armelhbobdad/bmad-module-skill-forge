@@ -23,18 +23,7 @@ atomicWriteProbeOrder:
 
 ## STEP GOAL:
 
-Generate a detailed gap report listing every issue found during coverage and coherence analysis, assign severity to each gap, provide specific actionable remediation suggestions, and finalize the test report document. This is the final step — no next step file.
-
-## Rules
-
-- Focus on gap enumeration, severity classification, and remediation — do not recalculate scores
-- Remediation suggestions reference specific files, exports, and line numbers
-- Gaps are ordered by severity (Critical > High > Medium > Low > Info)
-- Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing report is NOT the terminal step
-
-## MANDATORY SEQUENCE
-
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
+Generate a detailed gap report listing every issue found during coverage and coherence analysis, assign severity to each gap, provide specific actionable remediation suggestions, and finalize the test report document. Do not recalculate scores — that ran in step 5. This step chains to the local health-check step via `{nextStepFile}` after completion; the user-facing report is NOT the terminal step.
 
 ### 1. Collect All Issues
 
@@ -77,7 +66,7 @@ Load `{scoringRulesFile}` for gap severity classification:
 
 Load `{outputFormatsFile}` for gap entry format and remediation quality rules.
 
-For each issue, assign severity from `{scoringRulesFile}` and generate a specific remediation following the quality rules in `{outputFormatsFile}`. Order gaps by severity: Critical → High → Medium → Low → Info.
+For each issue, assign severity from `{scoringRulesFile}` and generate a specific remediation following the quality rules in `{outputFormatsFile}`. Remediation suggestions MUST reference specific files, exports, and line numbers. Order gaps by severity: Critical → High → Medium → Low → Info.
 
 ### 4. Generate Remediation Summary and Append Gap Report
 
@@ -85,7 +74,7 @@ Load the Gap Report section format from `{outputFormatsFile}`. Count gaps by sev
 
 If no gaps found, append a clean pass message recommending **export-skill** workflow.
 
-### 4b. Discovery Testing (MANDATORY — H4)
+### 4b. Discovery Testing (MANDATORY)
 
 After gap enumeration, perform minimum-viable discovery testing. This is a **Medium-weight** check contributing to the Discovery Quality subsection — no longer advisory boilerplate.
 
@@ -140,7 +129,7 @@ Realistic prompt patterns for synthesis (§4b.1 fallback):
 - Implicit: "why did {metric} drop last {period}"
 - Abbreviated: "run the {keyword} thing on this data"
 
-### 4c. Result Contract (atomic write — B4)
+### 4c. Result Contract (atomic write)
 
 **Resolve `{atomicWriteHelper}`:** probe `{atomicWriteProbeOrder}`. HALT if neither candidate exists — the contract is a downstream-consumer protocol and must never be written non-atomically.
 
@@ -158,7 +147,7 @@ cat payload.json | python3 {atomicWriteHelper} write --target {forge_version}/sk
 
 Payload contents:
 - `outputs[]` — include the test report path at `{outputFile}` with its `{run_id}` suffix
-- `summary` — `score`, `threshold`, `result` (`"PASS"`, `"PASS_WITH_DRIFT"`, `"FAIL"`, or **`"INCONCLUSIVE"`**), `testMode` (naive/contextual), `activeCategories[]`, `inconclusiveReasons[]` (when present). `PASS_WITH_DRIFT` is set when the workflow observed workspace drift and the user passed `--allow-workspace-drift` — see step 5 §5 (M5). Downstream consumers MUST treat `PASS_WITH_DRIFT` as a non-exportable result: re-run against the pinned commit before export.
+- `summary` — `score`, `threshold`, `result` (`"PASS"`, `"PASS_WITH_DRIFT"`, `"FAIL"`, or **`"INCONCLUSIVE"`**), `testMode` (naive/contextual), `activeCategories[]`, `inconclusiveReasons[]` (when present). `PASS_WITH_DRIFT` is set when the workflow observed workspace drift and the user passed `--allow-workspace-drift` — see step 5 §5 drift override. Downstream consumers MUST treat `PASS_WITH_DRIFT` as a non-exportable result: re-run against the pinned commit before export.
 - `runId` — the workflow's `{run_id}` for downstream correlation
 - `healthCheckDispatched` — boolean, set by §7 after the dispatch decision
 
@@ -166,7 +155,7 @@ The `{forge_version}/.test-skill.lock` acquired in step 1 §6b remains held unti
 
 ### 5. Finalize Output Document — Enforce Step Completeness
 
-**Per S6 (incremental step tracking):** read `stepsCompleted` from the output frontmatter. The expected set is the canonical chain:
+**Incremental step tracking:** read `stepsCompleted` from the output frontmatter. The expected set is the canonical chain:
 
 ```
 ['init',
@@ -180,7 +169,7 @@ The `{forge_version}/.test-skill.lock` acquired in step 1 §6b remains held unti
 
 If any expected entry is missing, HALT with "step completeness violation — missing {list}; workflow state is inconsistent, do not finalize the report". Only append `'report'` and write back after the check passes.
 
-**M4 — Section anchor presence check (companion to stepsCompleted).** The
+**Section anchor presence check (companion to stepsCompleted).** The
 report template ships six canonical H2 anchors — one per populating step. An
 off-sequence run (e.g. a step wrote its section into the wrong anchor, or a
 subagent truncated the file) can leave `stepsCompleted` intact while a section
@@ -243,7 +232,7 @@ skipped its append.
 
 **Test report finalized.**"
 
-### 6b. Headless Exit Status (S7)
+### 6b. Headless Exit Status
 
 If `{headless_mode}`:
 - `testResult: 'pass'` → `exit 0`
@@ -255,7 +244,7 @@ Non-headless mode always drops to the menu in §7.
 
 ### 7. Health-Check Dispatch + MENU OPTIONS
 
-Resolve `{healthCheckFile}` per H2: probe `{healthCheckProbeOrder}` in order. **HALT** if neither candidate exists — the health-check is the true terminal step; without it the workflow cannot complete honestly:
+Resolve `{healthCheckFile}`: probe `{healthCheckProbeOrder}` in order. **HALT** if neither candidate exists — the health-check is the true terminal step; without it the workflow cannot complete honestly:
 
 ```
 Error: cannot locate shared/health-check.md at either of:
@@ -275,19 +264,5 @@ Also mirror the boolean into the `healthCheckDispatched` field of the result con
 
 Display: "**Test complete.** [C] Finish"
 
-#### Menu Handling Logic:
-
-- IF C: Load, read the full file, and execute `{nextStepFile}` — the health-check step is the true terminal step of this workflow.
-- IF Any other: help user respond, then redisplay menu
-
-#### EXECUTION RULES:
-
-- ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past report menu"; set `health_check_dispatched: true` in frontmatter before chaining
-- C triggers the health check, which is the true workflow exit
-- User may ask questions about the report before finishing
-
-## CRITICAL STEP COMPLETION NOTE
-
-When the user selects C, this step chains to the local health-check step (`{nextStepFile}`), which in turn delegates to `shared/health-check.md`. After the health check completes, the test-skill workflow is fully done. The test report document at `{outputFile}` contains the full analysis: Test Summary, Coverage Analysis, Coherence Analysis, Completeness Score, and Gap Report.
+On [C] (or auto-proceed in `{headless_mode}` — log: "headless: auto-continue past report menu"): set `health_check_dispatched: true` in frontmatter, then load and execute `{nextStepFile}` (the local health-check dispatcher). The test report document at `{outputFile}` contains the full analysis: Test Summary, Coverage Analysis, Coherence Analysis, Completeness Score, and Gap Report.
 

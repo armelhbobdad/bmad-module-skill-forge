@@ -59,8 +59,8 @@ An official skill already exists. You can:
 #### Menu Handling Logic:
 
 - IF P: Set `ecosystem_status: match-proceed`, then load, read entire file, then execute {nextStepFile}
-- IF I: Display install instructions for the official skill, then end workflow
-- IF A: Display "Compilation cancelled." and end workflow
+- IF I: Display install instructions for the official skill, emit the HARD HALT envelope per SKILL.md "Result Contract on HARD HALT" (`phase: "ecosystem-check"`, `error.code: "ecosystem-redirect"`, `error.message: "User opted to install existing official skill instead of compiling a custom community skill."`, `skill_package: null`), exit with code 8 (ecosystem-redirect). Skill package is unknown at this phase — no on-disk result file is written.
+- IF A: Display "Compilation cancelled.", emit the HARD HALT envelope (`phase: "ecosystem-check"`, `error.code: "user-cancelled"`, `error.message: "User aborted at ecosystem-match gate."`, `skill_package: null`), exit with code 6 (user-cancelled). Skill package is unknown at this phase — no on-disk result file is written.
 - IF Any other: help user, then redisplay the match menu
 
 #### EXECUTION RULES:

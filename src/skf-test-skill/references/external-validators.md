@@ -11,16 +11,6 @@ outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
 
 Run external validation tools (`skill-check` and `tessl`) against the skill directory, capture their scores and findings, and append results to the test report. These tools catch complementary issues that internal coverage and coherence checks miss: `skill-check` validates spec compliance while `tessl` evaluates content quality and actionability.
 
-## Rules
-
-- Run each tool independently — one tool's failure does not affect the other
-- Do not halt the workflow if either tool is unavailable or fails
-- Read-only — do not modify skill content
-
-## MANDATORY SEQUENCE
-
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Resolve Skill Directory
 
 Read {outputFile} frontmatter to get the skill directory path (`skillDir`).
@@ -67,7 +57,7 @@ on the actual validator run below. If the probe exits non-zero OR the 15s
 timeout trips (exit code `124`), record `skill_check_score: N/A` and skip to
 section 3.
 
-**Run validation (S2 — 120s timeout):**
+**Run validation (120s timeout):**
 
 ```bash
 timeout 120s npx skill-check check {skillDir} --format json --no-security-scan
@@ -99,7 +89,7 @@ prevent a cold-cache fetch from stalling the workflow. If the probe exits
 non-zero OR the 15s timeout trips (exit code `124`), record
 `tessl_score: N/A` and skip to section 4.
 
-**Run review (S2 — 120s timeout):**
+**Run review (120s timeout):**
 
 The §2 probe (`npx --no-install -y tessl --version`) already resolved tessl via the caller's npm cache or a locally-installed binary on `$PATH`. Invoke the same binary for the review — do not re-pin to a registry-published version.
 
@@ -187,19 +177,5 @@ Append to `{outputFile}`:
 
 **Proceeding to scoring...**"
 
-### 7. Auto-Proceed
-
-#### Menu Handling Logic:
-
-- After external validation is complete, update {outputFile} frontmatter stepsCompleted, then immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed validation step with no user choices
-- Tool unavailability is a skip, not a halt
-- Proceed directly to next step after external validation
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN external validation results are appended to {outputFile} and scores are stored in context will you proceed to load `{nextStepFile}` for scoring.
+Update stepsCompleted, then load and execute {nextStepFile}.
 

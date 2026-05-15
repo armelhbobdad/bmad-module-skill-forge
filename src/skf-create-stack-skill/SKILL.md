@@ -32,7 +32,11 @@ These rules apply to every step in this workflow:
 - If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread
 - Always communicate in `{communication_language}`
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
-- **Workflow state contract — `workflow_warnings[]` accumulator (M4):** every step that emits a warning ("log a warning", "record in workflow state for the evidence report", "Warning: ...", etc.) MUST append a structured entry to a single in-memory list named `workflow_warnings[]`. Each entry has the shape `{step: "step-NN", severity: "info|warn|error", code: "<short-slug>", message: "<human text>", context: {<optional fields>}}`. Step-07 surfaces these in `evidence-report.md`; step 8 may add validation findings; step 9 §5 reads the accumulated list and renders the user-facing "Warnings" section. Do not invent a per-step warning channel — there is exactly one accumulator for the whole workflow.
+- Warnings use a single accumulator — see `## Workflow state contract` below for shape and surfacing.
+
+## Workflow state contract
+
+Every step that emits a warning ("log a warning", "record in workflow state for the evidence report", "Warning: ...", etc.) appends a structured entry to a single in-memory list named `workflow_warnings[]`. Each entry has the shape `{step: "step-NN", severity: "info|warn|error", code: "<short-slug>", message: "<human text>", context: {<optional fields>}}`. Step 7 surfaces these in `evidence-report.md`; step 8 may add validation findings; step 9 §5 reads the accumulated list and renders the user-facing "Warnings" section. There is exactly one accumulator for the whole workflow — do not invent per-step channels.
 
 ## Stages
 
