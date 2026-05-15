@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e3480c797802",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-stages-rename",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/schemas/skf-setup-result-envelope.v1.json",
+    "src/shared/scripts/skf-emit-result-envelope.py",
+    "src/skf-setup/SKILL.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e3/480c797802/0/metadata.json",
+      "transcript": "/e3/480c797802/0/full.jsonl",
+      "context": "/e3/480c797802/0/context.md",
+      "content_hash": "/e3/480c797802/0/content_hash.txt",
+      "prompt": "/e3/480c797802/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 595,
+    "cache_creation_tokens": 423198,
+    "cache_read_tokens": 37558541,
+    "output_tokens": 150371,
+    "api_call_count": 190
+  }
+}
