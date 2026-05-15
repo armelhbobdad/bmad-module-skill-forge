@@ -54,7 +54,7 @@ These rules apply to every step in this workflow:
 | **Inputs** | skill_name [required] |
 | **Gates** | step 1: Confirm Gate [C] | step 4: Confirm Gate [C if clean merge, HALT if conflicts] |
 | **Outputs** | Updated SKILL.md, updated provenance-map.json, evidence-report.md |
-| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
+| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. Each auto-resolved gate appends a `{gate, default_action, taken_action, reason, evidence?}` entry to `headless_decisions[]`, surfaced in step 7's `SKF_UPDATE_RESULT_JSON` envelope so non-interactive runs can be audited post-hoc. Pipeline branches on the envelope's top-level `status` field (`success`, `no-changes`, or one of the documented `halted-for-*` codes). Schema: `src/shared/scripts/schemas/skf-update-result-envelope.v1.json`. |
 
 ## On Activation
 

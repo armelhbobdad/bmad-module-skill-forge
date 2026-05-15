@@ -207,7 +207,7 @@ Display: "**Merge complete with conflict resolution. Select:** [C] Continue to V
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after conflict resolution
-- **GATE [default: C if clean merge]** — If `{headless_mode}` and merge is clean (no [MANUAL] conflicts): auto-proceed with [C] Continue, log: "headless: clean merge, auto-continue". If conflicts exist, HALT even in headless mode — conflicts require human judgment.
+- **GATE [default: C if clean merge]** — If `{headless_mode}` and merge is clean (no [MANUAL] conflicts): auto-proceed with [C] Continue, log: "headless: clean merge, auto-continue". **Also append to in-context `headless_decisions[]`** (surfaced via `SKF_UPDATE_RESULT_JSON` by step 7): `{gate: "merge.clean-merge-gate", default_action: "C", taken_action: "C", reason: "headless: clean merge, no conflicts to resolve"}`. If conflicts exist, HALT even in headless mode — conflicts require human judgment, and the headless_decisions[] array does NOT get a continue-on-conflict entry (the workflow status becomes `halted-for-manual-mismatch` instead).
 - ONLY proceed when user selects 'C'
 
 **If clean merge (no conflicts):**
