@@ -3,6 +3,8 @@ nextStepFile: 'rank-and-confirm.md'
 manifestPatterns: 'references/manifest-patterns.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 2: Detect Manifests
 
 ## STEP GOAL:

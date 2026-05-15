@@ -3,6 +3,8 @@ nextStepFile: 'generate-output.md'
 stackSkillTemplate: 'assets/stack-skill-template.md'
 ---
 
+<!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
+
 # Step 6: Compile Stack Skill
 
 ## STEP GOAL:
@@ -117,7 +119,7 @@ Create the reference index table:
 
 ### 8. Present MENU OPTIONS
 
-Display: **Select:** [C] Continue to Output Generation
+Display: **Select:** [C] Continue to Output Generation | [X] Cancel and exit
 
 #### EXECUTION RULES:
 
@@ -128,5 +130,6 @@ Display: **Select:** [C] Continue to Output Generation
 #### Menu Handling Logic:
 
 - IF C: Store skill_content, then load, read entire file, then execute {nextStepFile}
+- IF X: Invoke the rollback contract (purge any `{forge_data_folder}/{project_name}-stack/{version}/*-tmp` and `*.skf-tmp` staging artifacts under the forge workspace, leave any existing committed stack package untouched), emit the `SKF_STACK_RESULT_JSON` envelope on stderr with `status: "error"`, `halt_reason: "user-cancelled"`, `exit_code: 6`, and exit with code 6
 - IF Any other: Process as feedback, adjust compilation, redisplay preview, then [Redisplay Menu Options](#8-present-menu-options)
 

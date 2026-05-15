@@ -8,6 +8,8 @@ nextStepOptions:
   step 6: 'generate-briefs.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 1b: Continue Analysis
 
 ## STEP GOAL:

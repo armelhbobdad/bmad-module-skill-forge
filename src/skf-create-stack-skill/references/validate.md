@@ -3,6 +3,8 @@ nextStepFile: 'report.md'
 stackSkillTemplate: 'assets/stack-skill-template.md'
 ---
 
+<!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
+
 # Step 8: Validate Output
 
 ## STEP GOAL:

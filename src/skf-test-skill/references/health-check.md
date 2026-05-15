@@ -7,6 +7,8 @@ nextStepFileProbeOrder:
   - '{project-root}/src/shared/health-check.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 7: Workflow Health Check
 
 ## STEP GOAL:

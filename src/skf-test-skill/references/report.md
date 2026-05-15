@@ -5,8 +5,9 @@ outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
 scoringRulesFile: 'references/scoring-rules.md'
 outputFormatsFile: 'assets/output-section-formats.md'
 # outputContractSchema and healthCheck resolve relative to the SKF module root
-# (`_bmad/skf/` when installed, `src/` during development), NOT relative to
-# this step file. Both paths are probed in order; HALT if neither exists.
+# (`{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during
+# development), NOT relative to this step file. Both paths are probed in
+# order; HALT if neither exists.
 outputContractSchema: 'shared/references/output-contract-schema.md'
 healthCheckProbeOrder:
   - '{project-root}/_bmad/skf/shared/health-check.md'
@@ -15,6 +16,8 @@ atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 ---
+
+<!-- Config: communicate in {communication_language}. Test report prose in {document_output_language}. -->
 
 # Step 6: Gap Report
 
@@ -93,7 +96,7 @@ Count the skills in `{skillsOutputFolder}`: `ls -1d {skillsOutputFolder}/*/ 2>/d
 - If `catalog_size < 2`: **skip §4b.1–§4b.3**. Record an Info-severity note in the Discovery Quality subsection: `discovery — skipped: catalog size N={catalog_size}, requires ≥2 candidates for meaningful routing`. The routing test is vacuous with one candidate (any prompt returns the sole skill); reporting `3/3 PASS` under those conditions inflates the Discovery score and masks genuinely bad description triggers. Proceed to §4b.4 (description optimization) if tessl/skill-check flagged description issues; otherwise skip to §4c.
 - If `catalog_size >= 2`: continue with §4b.1 as written.
 
-Optional escape hatch: the workflow accepts `--discovery-catalog=all` to broaden the candidate pool to `.claude/skills/` or `_bmad/agents/` for single-skill repos where the repo-local catalog is trivially too small. When the flag is set, rebuild `catalog_size` from the broader pool before the precondition check.
+Optional escape hatch: the workflow accepts `--discovery-catalog=all` to broaden the candidate pool to `{project-root}/.claude/skills/` or `{project-root}/_bmad/agents/` for single-skill repos where the repo-local catalog is trivially too small. When the flag is set, rebuild `catalog_size` from the broader pool before the precondition check.
 
 **4b.1 Extract realistic prompts from the skill under test:**
 

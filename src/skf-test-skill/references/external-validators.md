@@ -3,6 +3,8 @@ nextStepFile: 'score.md'
 outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 4b: External Validators
 
 ## STEP GOAL:

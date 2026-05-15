@@ -3,6 +3,8 @@ nextStepFile: 'semantic-diff.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 3: Structural Diff
 
 ## STEP GOAL:

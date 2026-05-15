@@ -6,6 +6,8 @@ advancedElicitationSkill: '/bmad-advanced-elicitation'
 partyModeSkill: '/bmad-party-mode'
 ---
 
+<!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
+
 # Step 5: Recommend
 
 ## STEP GOAL:
@@ -153,7 +155,7 @@ stack_skill_candidates: [{updated list with user decisions}]
 
 ### 8. Present MENU OPTIONS
 
-Display: "**Select an Option:** [A] Advanced Elicitation [P] Party Mode [D] Discover Additional Source [C] Continue to Brief Generation"
+Display: "**Select an Option:** [A] Advanced Elicitation [P] Party Mode [D] Discover Additional Source [C] Continue to Brief Generation [X] Cancel and exit"
 
 #### Menu Handling Logic:
 
@@ -161,6 +163,7 @@ Display: "**Select an Option:** [A] Advanced Elicitation [P] Party Mode [D] Disc
 - IF P: Invoke {partyModeSkill}, and when finished redisplay the menu
 - IF D: Accept a new repo path/URL from the user. Run a lightweight scan + classify (subset of steps 02-03) for the new source only. Merge new units into the existing report and update `project_paths[]` in frontmatter. Run export mapping for the new units (same logic as step 04 section 2). Generate recommendation cards for the new units and present them for confirmation. Then redisplay this menu.
 - IF C: Save recommendations to {outputFile}, update frontmatter, then load, read entire file, then execute {nextStepFile}
+- IF X: HARD HALT with exit code 6 (`user-cancelled`). Emit the `SKF_ANALYZE_RESULT_JSON` envelope on stderr with `status: "error"`, `halt_reason: "user-cancelled"`, and counts/paths reflecting state at cancellation
 - IF Any other comments or queries: help user respond then [Redisplay Menu Options](#8-present-menu-options)
 
 #### EXECUTION RULES:

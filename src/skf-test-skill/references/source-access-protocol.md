@@ -1,3 +1,5 @@
+<!-- Config: communicate in {communication_language}. -->
+
 # Source Access Protocol
 
 ## Source API Surface Definition

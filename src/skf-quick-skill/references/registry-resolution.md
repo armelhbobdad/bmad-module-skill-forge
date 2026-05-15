@@ -1,3 +1,5 @@
+<!-- Config: communicate in {communication_language}. -->
+
 # Registry Resolution Patterns
 
 ## Package-to-Repo Resolution

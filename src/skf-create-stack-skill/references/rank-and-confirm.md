@@ -2,6 +2,8 @@
 nextStepFile: 'parallel-extract.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 3: Rank and Confirm Scope
 
 ## STEP GOAL:
@@ -122,7 +124,7 @@ Display final confirmation:
 
 ### 5. Present MENU OPTIONS
 
-Display: **Select:** [C] Continue to Extraction
+Display: **Select:** [C] Continue to Extraction | [X] Cancel and exit
 
 #### EXECUTION RULES:
 
@@ -133,5 +135,6 @@ Display: **Select:** [C] Continue to Extraction
 #### Menu Handling Logic:
 
 - IF C: Store current `confirmed_dependencies` (including any modifications made since initial presentation), then load, read entire file, then execute {nextStepFile}
+- IF X: Invoke the rollback contract (purge any `{forge_data_folder}/{project_name}-stack/{version}/*-tmp` and `*.skf-tmp` staging artifacts under the forge workspace, leave any existing committed stack package untouched), emit the `SKF_STACK_RESULT_JSON` envelope on stderr with `status: "error"`, `halt_reason: "user-cancelled"`, `exit_code: 6`, and exit with code 6
 - IF Any other: Process as scope modification (add/remove skills from `confirmed_dependencies`), update the in-memory `confirmed_dependencies` list accordingly, redisplay the updated skills table, then [Redisplay Menu Options](#5-present-menu-options)
 

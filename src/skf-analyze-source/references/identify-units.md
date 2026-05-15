@@ -4,6 +4,8 @@ outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 heuristicsFile: 'references/unit-detection-heuristics.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 3: Identify Units
 
 ## STEP GOAL:
@@ -120,11 +122,12 @@ lastStep: 'identify-units'
 
 ### 7. Present MENU OPTIONS
 
-Display: "**Select:** [C] Continue to Export Mapping and Integration Detection"
+Display: "**Select:** [C] Continue to Export Mapping and Integration Detection | [X] Cancel and exit"
 
 #### Menu Handling Logic:
 
 - IF C: Save classifications to {outputFile}, update frontmatter, then load, read entire file, then execute {nextStepFile}
+- IF X: HARD HALT with exit code 6 (`user-cancelled`). Emit the `SKF_ANALYZE_RESULT_JSON` envelope on stderr with `status: "error"`, `halt_reason: "user-cancelled"`, and counts/paths reflecting state at cancellation
 - IF Any other: help user, then [Redisplay Menu Options](#7-present-menu-options)
 
 #### EXECUTION RULES:

@@ -3,6 +3,8 @@ nextStepFile: 'detect-manifests.md'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 1: Initialize
 
 ## STEP GOAL:

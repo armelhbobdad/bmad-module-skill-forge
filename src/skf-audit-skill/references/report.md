@@ -3,6 +3,8 @@ outputFile: '{forge_version}/drift-report-{timestamp}.md'
 nextStepFile: 'health-check.md'
 ---
 
+<!-- Config: communicate in {communication_language}. Drift report prose in {document_output_language}. -->
+
 # Step 6: Generate Report
 
 ## STEP GOAL:
@@ -169,6 +171,16 @@ Update {outputFile} frontmatter:
 ### Result Contract
 
 Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{forge_version}/audit-skill-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_version}/audit-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include the drift report path in `outputs`; include `drift_count` and `severity` (CLEAN/MINOR/SIGNIFICANT/CRITICAL) in `summary`.
+
+**Stdout envelope (headless only).** When `{headless_mode}` is true, emit a single-line JSON envelope to **stdout** immediately after the on-disk result contract is written, so chaining workflows can consume `drift_score`, `report_path`, and `next_workflow` from a captured stdout line without polling the filesystem. The shape matches the "Result Contract (Headless)" section in SKILL.md verbatim:
+
+```
+SKF_AUDIT_RESULT_JSON: {"status":"success","skill_name":"{skill_name}","drift_score":"{CLEAN|MINOR|SIGNIFICANT|CRITICAL}","report_path":"{outputFile}","next_workflow":"{update-skill|null}","audit_ref":"{audit_ref}","exit_code":0,"halt_reason":null}
+```
+
+Field rules: `next_workflow` is `"update-skill"` when CRITICAL or HIGH findings exist (matches the frontmatter `nextWorkflow` set in §4), otherwise `null`. `audit_ref` carries the resolved value from step 1 §5b (`baseline_ref` when no upstream drift was detected, `latest_tag` or `remote_head` when the operator chose `[C] Checkout-and-audit-against-latest`).
+
+**HALT envelope mirror (headless only).** For every HARD HALT raised in this workflow (skill-not-found at init.md §1, forge-tier missing at §2, source-dir missing at §5, write-failed at §6, user-cancelled at any `[X]` selection), emit the same envelope shape on **stderr** with `status: "error"`, `drift_score: null` (or last known value if classification ran), `report_path: null` if the report write failed, `exit_code` matching the Exit Codes table, and `halt_reason` set to the failure class from the table (`"skill-not-found"`, `"forge-tier-missing"`, `"source-dir-missing"`, `"write-failed"`, `"user-cancelled"`). This is the only signal a wrapping pipeline receives on failure — log it before exiting.
 
 ### 6. Chain to Health Check
 

@@ -13,6 +13,8 @@ frontmatterScriptProbeOrder:
 versionPathsKnowledge: 'knowledge/version-paths.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 1: Initialize Test
 
 ## STEP GOAL:

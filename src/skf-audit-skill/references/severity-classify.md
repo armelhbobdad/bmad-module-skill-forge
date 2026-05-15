@@ -4,6 +4,8 @@ outputFile: '{forge_version}/drift-report-{timestamp}.md'
 severityRulesFile: 'references/severity-rules.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 5: Severity Classification
 
 ## STEP GOAL:

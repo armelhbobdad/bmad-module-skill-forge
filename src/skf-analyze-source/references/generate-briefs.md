@@ -4,6 +4,8 @@ schemaFile: 'assets/skill-brief-schema.md'
 nextStepFile: 'health-check.md'
 ---
 
+<!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
+
 # Step 6: Generate Briefs
 
 ## STEP GOAL:
@@ -89,7 +91,7 @@ For each generated brief, check against {schemaFile} validation rules:
 **Validation:** {all passed / N issues found}
 {List any validation issues}
 
-**Ready to write {count} skill-brief.yaml files.** Confirm to proceed? (Y to write / N to abort / M to modify a specific brief)"
+**Ready to write {count} skill-brief.yaml files.** Confirm to proceed? (Y to write all briefs / N to skip writing but continue to report update / M to modify a specific brief / X to cancel and exit the workflow)"
 
 Wait for explicit user confirmation before writing files.
 
@@ -107,9 +109,12 @@ For each confirmed brief:
 - Update the YAML, re-validate, present again
 - Return to confirmation prompt
 
-**IF user aborts (N):**
-- Document abort decision
+**IF user skips writing (N):**
+- Document the skip decision
 - Skip file writing, proceed to report update
+
+**IF user cancels (X):**
+- HARD HALT with exit code 6 (`user-cancelled`). Emit the `SKF_ANALYZE_RESULT_JSON` envelope on stderr with `status: "error"`, `halt_reason: "user-cancelled"`, `brief_paths: []`, and `unit_counts` reflecting the confirmed/skipped/maybe state from step 5
 
 ### 6. Determine Next Workflow Per Unit
 

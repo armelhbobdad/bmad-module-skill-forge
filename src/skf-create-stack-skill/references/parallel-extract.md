@@ -2,6 +2,8 @@
 nextStepFile: 'detect-integrations.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 4: Parallel Library Extraction
 
 ## STEP GOAL:
