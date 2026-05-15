@@ -34,7 +34,7 @@ These rules apply to every step in this workflow:
   - exit (just before chaining to nextStepFile): `{"step":N,"name":"<slug>","status":"done"}`
   - on HARD HALT: `{"step":N,"name":"<slug>","status":"halt","exit":<code>}` instead of "done"
 
-  `N` is the step number (1–7) and `<slug>` is the kebab portion of the filename after the number — `resolve-target`, `ecosystem-check`, `quick-extract`, `compile`, `write-and-validate`, `finalize`, `health-check`. One line per event; do not pretty-print.
+  `N` is the step number and `<slug>` is the kebab portion of the filename (see the Stages table below for the canonical list). One line per event; do not pretty-print.
 
 ## Stages
 
@@ -69,10 +69,11 @@ Every HARD HALT in this workflow exits with a stable, documented code so headles
 | 3    | resolution-failure     | step 1 §2c (prose input), step 1 §3 (registry chain failed) |
 | 4    | write-failure          | step 5 §2 (deliverable write failed)                       |
 | 5    | overwrite-cancelled    | step 5 §1 (user selected [N])                              |
-| 6    | user-cancelled         | step 1 §1 ([X] Cancel and exit, or cancel-line affordance); step 4 §6 (user selected [Q]) — originally `compile-cancelled`, generalised to cover any interactive gate |
+| 6    | user-cancelled         | step 1 §1 ([X] Cancel and exit, or cancel-line affordance); step 2 §3 ([A] Abort at ecosystem-match gate); step 4 §6 (user selected [Q]) — originally `compile-cancelled`, generalised to cover any interactive gate |
 | 7    | finalize-blocked       | step 6 §1 (active-pointer flip refused — non-link in place) |
+| 8    | ecosystem-redirect     | step 2 §3 ([I] Install at ecosystem-match gate — user opted to install the existing official skill instead of compiling a custom community skill) |
 
-Reserved: `validator-missing` may be promoted from advisory log to fatal exit code in a future revision; consumers should not assume code 8+ is unused.
+Reserved: `validator-missing` may be promoted from advisory log to fatal exit code in a future revision.
 
 ## Result Contract on HARD HALT
 
@@ -102,7 +103,7 @@ so consumers that hardcode the `-latest.json` path see a deterministic file even
 | `status`        | string         | always `"error"` for HARD HALTs                                                                             |
 | `exit_code`     | integer        | matches the Exit Codes table                                                                                |
 | `phase`         | string         | step slug where the HALT occurred (e.g. `resolve-target`, `compile`)                                        |
-| `error.code`    | string         | one of: `resolution-failure`, `write-failure`, `overwrite-cancelled`, `user-cancelled` (formerly `compile-cancelled`), `finalize-blocked` |
+| `error.code`    | string         | one of: `resolution-failure`, `write-failure`, `overwrite-cancelled`, `user-cancelled` (formerly `compile-cancelled`), `finalize-blocked`, `ecosystem-redirect` |
 | `error.message` | string         | the user-facing message that was displayed                                                                  |
 | `error.details` | any            | optional — phase-specific context (e.g. the failed file path)                                               |
 | `outputs`       | object         | empty `{}` on early HALTs; partial when files were already written                                          |

@@ -14,16 +14,6 @@ migrationSectionRules: 'references/migration-section-rules.md'
 
 Validate internal consistency of the skill documentation. In contextual mode (stack skills): verify that all cross-references in SKILL.md point to real files, types match their declarations, and integration patterns are complete. In naive mode (individual skills): perform basic structural validation only.
 
-## Rules
-
-- Use subprocess optimization: grep for references, then per-reference deep validation
-- For each reference in contextual mode, launch a subprocess to validate the target — do not shortcut
-- Analysis depth is conditional on testMode (naive vs contextual)
-
-## MANDATORY SEQUENCE
-
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Check Test Mode
 
 Read `testMode` from `{outputFile}` frontmatter.
@@ -31,7 +21,7 @@ Read `testMode` from `{outputFile}` frontmatter.
 **IF naive mode → Execute Naive Coherence (Section 2)**
 **IF contextual mode → Execute Contextual Coherence (Sections 3-5)**
 
-### 2. Naive Mode: Concrete Structural Validation (H1)
+### 2. Naive Mode: Concrete Structural Validation
 
 Perform the following explicit checks (no hand-waving — each recipe is a shell recipe or a literal pattern). Severity assignments are binding; do not relax them.
 
@@ -146,7 +136,7 @@ If subprocess unavailable, validate each reference in main thread.
 
 4. **Scripts/assets directory check:** If a `scripts/` or `assets/` directory exists alongside SKILL.md, verify that a "Scripts & Assets" section (Section 7b) is present in SKILL.md. This directory-level check applies in both modes (naive mode performs it in Section 2; contextual mode performs it here alongside per-reference validation). Flag absence as Medium severity gap per `{scoringRulesFile}`.
 
-5. **Path containment (S8):** for every resolved reference target, compute its canonical path (`os.path.realpath`) and require that it lives inside `{skillDir}` OR inside `{source_path}` (the extraction tree recorded in metadata.json). References whose canonical path escapes both roots (e.g. `../../../etc/passwd`, absolute paths to unrelated dirs, symlink redirections outside the skill or its source) are **High severity** findings: `coherence — reference escapes skill/source sandbox: {raw_ref} → {canonical_path}`. Do NOT validate the target's contents for escaping references — the escape itself is the finding.
+5. **Path containment:** for every resolved reference target, compute its canonical path (`os.path.realpath`) and require that it lives inside `{skillDir}` OR inside `{source_path}` (the extraction tree recorded in metadata.json). References whose canonical path escapes both roots (e.g. `../../../etc/passwd`, absolute paths to unrelated dirs, symlink redirections outside the skill or its source) are **High severity** findings: `coherence — reference escapes skill/source sandbox: {raw_ref} → {canonical_path}`. Do NOT validate the target's contents for escaping references — the escape itself is the finding.
 
 ### 5. Contextual Mode: Check Integration Pattern Completeness
 
@@ -222,20 +212,5 @@ Reference validation of **{skill_name}**:
 
 **Proceeding to external validation...**"
 
-### 8. Auto-Proceed
-
-Display: "**Proceeding to external validation...**"
-
-#### Menu Handling Logic:
-
-- After coherence analysis is complete, update {outputFile} frontmatter stepsCompleted, then immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed validation step with no user choices
-- Proceed directly to next step after coherence is analyzed
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN coherence analysis is complete (naive structural or contextual full validation), the Coherence Analysis section has been appended to {outputFile}, and coherence scores (if contextual) have been calculated, will you then load and read fully `{nextStepFile}` to execute external validation.
+Update stepsCompleted, then load and execute {nextStepFile}.
 

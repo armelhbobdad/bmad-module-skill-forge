@@ -14,16 +14,6 @@ scoringScript: 'scripts/compute-score.py'
 
 Calculate the overall completeness score by aggregating coverage, coherence, and external validation category scores with the appropriate weight distribution (naive or contextual), apply the pass/fail threshold, and determine the test result.
 
-## Rules
-
-- Focus only on score calculation — do not generate remediation suggestions (Step 06)
-- Score must be deterministic — same inputs always produce same output
-- Show the math: category scores, weights, weighted contributions, total
-
-## MANDATORY SEQUENCE
-
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Load Scoring Rules
 
 Load `{scoringRulesFile}` to get:
@@ -55,7 +45,7 @@ Read `{outputFile}` and extract the category scores calculated in previous steps
 
 **Read testMode from {outputFile} frontmatter.**
 
-#### 2b. Apply S9 State 2 Undercount Deduction (pre-script)
+#### 2b. Apply State 2 Undercount Deduction (pre-script)
 
 If `analysis_confidence == 'provenance-map'` (State 2) AND step 3 recorded a provenance vs metadata divergence > 5% (see §4b in step 3), apply a 10-point deduction to `exportCoverage` BEFORE building the scoring input:
 
@@ -129,9 +119,9 @@ Report: "**Note:** Scoring script unavailable — calculated manually per scorin
 
 The scoring script returns `totalScore` and a preliminary `result`. Two caps may override the script's PASS into FAIL — applied in this order, and ONLY if the script did NOT return INCONCLUSIVE (floor always takes precedence):
 
-**Cap 1 — Tooling degraded (B3):** if `analysisConfidence == "degraded"` or `toolingStatus` indicates a missing helper (`python3-missing`, `frontmatter-validator-missing`), set `effective_score = min(totalScore, threshold - 1)` and record `scoring_notes: tooling degraded — capped below threshold until helper restored`.
+**Cap 1 — Tooling degraded:** if `analysisConfidence == "degraded"` or `toolingStatus` indicates a missing helper (`python3-missing`, `frontmatter-validator-missing`), set `effective_score = min(totalScore, threshold - 1)` and record `scoring_notes: tooling degraded — capped below threshold until helper restored`.
 
-**Cap 2 — Docs-only without external validators (S4):** if `docsOnly == true` AND `externalValidation` score was null (neither skill-check nor tessl ran), set `effective_score = min(effective_score, threshold - 1)` and record `scoring_notes: docs-only without external validators — capped below threshold per S4`.
+**Cap 2 — Docs-only without external validators:** if `docsOnly == true` AND `externalValidation` score was null (neither skill-check nor tessl ran), set `effective_score = min(effective_score, threshold - 1)` and record `scoring_notes: docs-only without external validators — capped below threshold`.
 
 If either cap fired and `result` was `PASS`, change it to `FAIL`. If `result` was already `INCONCLUSIVE`, leave it — the evidence-floor verdict is never overridden by a cap.
 
@@ -149,7 +139,7 @@ IF score < threshold        → FAIL
 - `active_categories < 2` (after all redistribution), OR
 - `tier == "Quick"` AND Export Coverage is the sole scoring contributor
 
-**Tooling-degraded cap (B3):** If the `analysisConfidence` in output frontmatter is `degraded` (python3 missing, frontmatter validator missing, or other degraded state flagged in step 1), the step MUST cap the score at `threshold - 1` BEFORE the PASS/FAIL comparison. This forces a deterministic FAIL until tooling is restored. Do NOT override an INCONCLUSIVE result with the cap — INCONCLUSIVE remains the verdict.
+**Tooling-degraded cap:** If the `analysisConfidence` in output frontmatter is `degraded` (python3 missing, frontmatter validator missing, or other degraded state flagged in step 1), the step MUST cap the score at `threshold - 1` BEFORE the PASS/FAIL comparison. This forces a deterministic FAIL until tooling is restored. Do NOT override an INCONCLUSIVE result with the cap — INCONCLUSIVE remains the verdict.
 
 ### 5. Determine Next Workflow Recommendation
 
@@ -157,7 +147,7 @@ Based on test result:
 
 **IF PASS:**
 - `nextWorkflow: 'export-skill'` — skill is ready for export
-- **M5 — drift override:** if workflow context carries
+- **Drift override:** if workflow context carries
   `allow_workspace_drift: true` (set in step 1 §5b when the user passed
   `--allow-workspace-drift` AND the workspace HEAD did not match
   `metadata.source_commit`), the PASS is a **conditional PASS**:
@@ -223,7 +213,7 @@ If `analysis_confidence` is not `full`, append a degradation notice. **The notic
 ### 7. Update Output Frontmatter
 
 Update `{outputFile}` frontmatter:
-- `testResult: '{pass|pass-with-drift|fail|inconclusive}'` (lowercase; mirrors script `result`, with `pass-with-drift` substituted for `pass` when `allow_workspace_drift` was set and drift was observed — see §5 M5)
+- `testResult: '{pass|pass-with-drift|fail|inconclusive}'` (lowercase; mirrors script `result`, with `pass-with-drift` substituted for `pass` when `allow_workspace_drift` was set and drift was observed — see §5 drift override)
 - `score: '{total}%'`
 - `threshold: '{threshold}%'`
 - `analysisConfidence: '{full|degraded|provenance-map|metadata-only|remote-only|docs-only}'`
@@ -249,20 +239,5 @@ Update `{outputFile}` frontmatter:
 
 **Proceeding to gap report...**"
 
-### 9. Auto-Proceed
-
-Display: "**Proceeding to gap report...**"
-
-#### Menu Handling Logic:
-
-- After score is calculated and frontmatter updated, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed scoring step with no user choices
-- Proceed directly to next step after score is determined
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the score is calculated, pass/fail is determined, the Completeness Score section is appended to {outputFile}, and frontmatter is updated with testResult and score, will you then load and read fully `{nextStepFile}` to execute gap report generation.
+Update stepsCompleted, then load and execute {nextStepFile}.
 
