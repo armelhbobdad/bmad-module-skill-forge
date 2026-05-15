@@ -1,5 +1,14 @@
 ---
 nextStepFile: 'report.md'
+descriptionGuardProtocol: '{project-root}/src/shared/references/description-guard-protocol.md'
+# Resolve `{descriptionGuardHelper}` by probing `{descriptionGuardProbeOrder}`
+# in order (installed SKF module path first, src/ dev-checkout fallback);
+# first existing path wins. HALT if neither resolves — letting an external
+# tool's rewrite of the merged description field stand would silently
+# regress discovery quality and re-introduce angle-bracket tokens.
+descriptionGuardProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-description-guard.py'
+  - '{project-root}/src/shared/scripts/skf-description-guard.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -25,25 +34,9 @@ Verify the merged SKILL.md and stack reference files that step 4 section 6b wrot
 
 **Used by:** §7 (`skill-check check --fix` and `skill-check split-body --write`), and any future tool invocation that may modify SKILL.md's frontmatter on disk.
 
-External validators occasionally rewrite the frontmatter `description` field — `skill-check --fix` may replace it with a generic or truncated version, and `split-body` may touch it during mechanical restructuring. The merged description written to disk in step 4 is **authoritative**: it reflects the final merge of the prior skill's description (with any author edits preserved) and fresh re-extraction results. Losing it to a tool's well-meaning rewrite breaks discovery quality and — if the prior skill was compiled from a sanitized description (step 5 §2a) — can re-introduce angle-bracket tokens that then fail tessl on the next run.
+Load `{descriptionGuardProtocol}` for the full prose explanation of the four-phase guard (why it exists, what counts as divergence, why token-stream comparison is the right shape). The deterministic phases are executed via `{descriptionGuardHelper}` — §7 invokes the helper at the capture and verify-restore points around every `skill-check` call.
 
-To prevent this, any tool invocation in §7 that may touch SKILL.md must run inside the following four-phase guard:
-
-1. **Capture.** Before invoking the tool, read `{skill_package}/SKILL.md` frontmatter and snapshot the exact `description` value into a local variable (e.g., `guarded_description`). Capture the in-context copy as well.
-2. **Execute.** Run the tool as specified in its section.
-3. **Verify.** After the tool completes, re-read the on-disk SKILL.md and compare its frontmatter `description` against `guarded_description`. Normalize whitespace for comparison (trim leading/trailing whitespace, collapse internal runs) but do not ignore content differences.
-4. **Restore on divergence.** If the post-tool description differs from `guarded_description` in any way other than whitespace normalization, write `guarded_description` back to the on-disk SKILL.md frontmatter and update the in-context copy to match. Record `description_guard_restored: true` with the tool name in context for the evidence report.
-
-**What counts as divergence:**
-
-- The description was replaced (different content).
-- The description was truncated (suffix missing).
-- Angle-bracket tokens were re-introduced (should never happen if the prior skill was correctly sanitized, but protect anyway).
-- The field was deleted entirely (extreme tool behavior).
-
-**What does NOT count as divergence:** whitespace-only differences (trailing newline, trimmed spaces) — treat as equivalent.
-
-**Why this lives in update-skill too:** the guard protocol was first introduced in `skf-create-skill/validate.md §0` to defend the freshly-compiled description. Update-skill runs the identical `skill-check check --fix` command against the merged skill package in §7, so it faces the same risk and needs the same defense. Keep the two §0 protocols functionally identical — if external tool behavior changes, update both workflows.
+Update-skill does not run the optional post-restore frontmatter re-validation today — the post-write checks in §1 catch downstream issues, and a `restored: true` outcome is already surfaced through the evidence report (§4).
 
 ### 1. Verify SKILL.md Write
 
@@ -247,7 +240,21 @@ For each derived artifact:
 
 External tool checks deferred from step 5 now run against the written files.
 
-**Description Guard Protocol:** every invocation below that may modify SKILL.md (`skill-check check --fix` and any `split-body` write) must run inside the four-phase guard defined in §0. Capture `guarded_description` before each call, execute, verify against the post-tool description, and restore on divergence. Do not rely on per-call ad-hoc preservation logic — use the §0 protocol.
+**Description Guard Protocol:** every invocation below that may modify SKILL.md (`skill-check check --fix` and any `split-body` write) must run inside the four-phase guard defined in §0. Invoke `{descriptionGuardHelper}` at the capture and verify-restore points around each call:
+
+```bash
+# Phase 1 — capture before any frontmatter-touching tool call
+uv run {descriptionGuardHelper} capture {skill_package}/SKILL.md
+# stash returned `description` as `guarded_description`
+
+# Phase 2 — run the tool (skill-check --fix, split-body --write, etc.)
+
+# Phases 3+4 — verify and restore after the tool call
+uv run {descriptionGuardHelper} verify-restore {skill_package}/SKILL.md \
+    --captured-description "{guarded_description}"
+```
+
+Do not rely on per-call ad-hoc preservation logic — use the helper.
 
 **If skill-check available:**
 

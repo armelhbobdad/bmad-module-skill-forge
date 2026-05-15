@@ -1,6 +1,7 @@
 ---
 nextStepFile: 'generate-artifacts.md'
 tesslDismissalData: 'assets/tessl-dismissal-rules.md'
+descriptionGuardProtocol: '{project-root}/src/shared/references/description-guard-protocol.md'
 # Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
 # path wins. HALT if neither resolves — losing atomic-write guarantees is not
@@ -8,6 +9,14 @@ tesslDismissalData: 'assets/tessl-dismissal-rules.md'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# Resolve `{descriptionGuardHelper}` by probing `{descriptionGuardProbeOrder}`
+# in order (installed SKF module path first, src/ dev-checkout fallback);
+# first existing path wins. HALT if neither resolves — letting an external
+# tool's rewrite of the description field stand would silently regress
+# discovery quality.
+descriptionGuardProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-description-guard.py'
+  - '{project-root}/src/shared/scripts/skf-description-guard.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -34,26 +43,9 @@ To validate the compiled SKILL.md content against the agentskills.io specificati
 
 **Used by:** §2 (`skill-check check --fix`), §4 (`split-body`), and any future tool invocation that may modify SKILL.md.
 
-External validators occasionally rewrite the frontmatter `description` field — `skill-check --fix` may replace it with a generic or truncated version, and `split-body` may touch it during mechanical restructuring. The step 5 §2a compiled description is **authoritative**: it has already been sanitized of angle-bracket tokens and trigger-optimized for agent discovery. Losing it to a tool's well-meaning rewrite breaks discovery quality and re-introduces the angle-bracket failure mode.
+Load `{descriptionGuardProtocol}` for the full prose explanation of the four-phase guard (why it exists, what counts as divergence, why token-stream comparison is the right shape). The deterministic phases are executed via `{descriptionGuardHelper}` — the calling sections (§2 and §4) invoke the helper at the capture and verify-restore points.
 
-To prevent this, any tool invocation that may touch SKILL.md must run inside the following four-phase guard:
-
-1. **Capture.** Before invoking the tool, read the current SKILL.md frontmatter and snapshot the exact `description` value into a local variable (e.g., `guarded_description`). Capture the in-context copy as well.
-2. **Execute.** Run the tool as specified in its section.
-3. **Verify.** After the tool completes, re-read the on-disk SKILL.md and compare its frontmatter `description` against `guarded_description` as **token streams**: split each string on whitespace (`str.split()` — any run of spaces/tabs/newlines collapses) and compare the resulting lists element-by-element. This catches content divergence (missing words, replaced phrases, truncation, angle-bracket re-introduction) while ignoring cosmetic whitespace changes that a tool may apply (trailing newline, re-wrapped quoted strings). Do NOT use a normalized-string equality — a tool that rewrites `"foo  bar"` to `"foo bar"` (collapsed inner run) would trip a naive normalization even though no semantic content changed, and a tool that swapped one word would slip past a looser fuzzy match. Token-stream comparison is the sweet spot.
-4. **Restore on divergence.** If the post-tool description differs from `guarded_description` in any way other than whitespace normalization, write `guarded_description` back to the on-disk SKILL.md frontmatter and update the in-context copy to match. Record `description_guard_restored: true` with the tool name in context for the evidence report.
-5. **Re-validate restored description.** After a restore, run `uv run {project-root}/src/shared/scripts/skf-validate-frontmatter.py <staging-skill-dir>/SKILL.md` against the on-disk file to confirm the restored description still satisfies the frontmatter contract (length limits, forbidden tokens, required fields). The script declares pyyaml in its PEP 723 inline metadata; `uv run` resolves it automatically (per `docs/getting-started.md`'s uv prereq), while bare `python3` would `ModuleNotFoundError` on a fresh interpreter. Capture `schema_revalidation_result` in context. If the validator exits non-zero OR reports failure for the `description` field: flip the Schema result back to `FAIL` in the evidence report (overriding any prior PASS/WARN from §2), record `description_guard_revalidation: FAIL` with the validator's diagnostic message, and continue — do not halt (step 9 health-check and result contract still need to run so the failure is surfaced through the normal artifact path).
-
-**What counts as divergence:**
-
-- The description was replaced (different content).
-- The description was truncated (suffix missing).
-- Angle-bracket tokens were re-introduced (should never happen after step 5 §2a, but protect anyway).
-- The field was deleted entirely (extreme tool behavior).
-
-**What does NOT count as divergence:** whitespace-only differences (trailing newline, trimmed spaces) — treat as equivalent.
-
-**Why this is centralized:** previously, §2 and §4 each contained their own capture/verify/restore prose. Duplicated defensive code drifts: a fix in one section doesn't propagate to the other, and adding a new tool invocation in the future requires remembering to copy the pattern. Centralizing the protocol gives step 6 one place to update when external validator behavior changes.
+**This skill's post-restore re-validation hook:** after `{descriptionGuardHelper}` reports `restored: true`, run `uv run {project-root}/src/shared/scripts/skf-validate-frontmatter.py <staging-skill-dir>/SKILL.md` and capture `schema_revalidation_result` in context. If the validator exits non-zero OR reports failure for the `description` field, flip the Schema result back to `FAIL` in the evidence report (overriding any prior PASS/WARN from §2), record `description_guard_revalidation: FAIL` with the validator's diagnostic message, and continue — do not halt (step 9 health-check and result contract still need to run so the failure is surfaced through the normal artifact path).
 
 ### 1. Check Tool Availability
 
@@ -88,7 +80,21 @@ This performs frontmatter validation, description quality checks, body limit enf
 
 **Parse the JSON output** for: `qualityScore` (0-100), `diagnostics[]` (remaining issues), `fixed[]` (auto-corrected issues).
 
-**Description Guard Protocol:** This invocation may modify SKILL.md (especially when `fixed[]` is non-empty). Wrap the `skill-check check --fix` call in the four-phase protocol defined in §0: capture `guarded_description` before the call, execute, verify against the post-tool description, and restore on divergence. If `fixed[]` is non-empty, also re-read the modified SKILL.md to sync the in-context copy before proceeding — this prevents silent divergence between the in-context and on-disk versions that step 7 will use for artifact generation.
+**Description Guard Protocol:** This invocation may modify SKILL.md (especially when `fixed[]` is non-empty). Wrap the `skill-check check --fix` call in the four-phase guard defined in §0 by invoking `{descriptionGuardHelper}` at the capture and verify-restore points:
+
+```bash
+# Phase 1 — capture before the tool call
+uv run {descriptionGuardHelper} capture <staging-skill-dir>/SKILL.md
+# stash the returned `description` as `guarded_description` in workflow context
+
+# Phase 2 — run skill-check (see command block above)
+
+# Phases 3+4 — verify and restore after the tool call
+uv run {descriptionGuardHelper} verify-restore <staging-skill-dir>/SKILL.md \
+    --captured-description "{guarded_description}"
+```
+
+If `restored: true` in the verify-restore output, apply §0's post-restore re-validation hook. If `fixed[]` was non-empty in the skill-check output, also re-read the modified SKILL.md to sync the in-context copy before proceeding — this prevents silent divergence between the in-context and on-disk versions that step 7 will use for artifact generation.
 
 **Note:** `skill-check` may return non-zero exit code even when `errorCount` is 0. Always rely on parsed JSON, not the shell exit code.
 
@@ -115,7 +121,21 @@ If fails: auto-fix (deterministic), re-validate once, record result. If passes: 
 
 **If step 2 reported `body.max_lines` failure:**
 
-**Description Guard Protocol:** Split operations may rewrite the frontmatter. Wrap the split invocation in the four-phase protocol defined in §0 to capture `guarded_description` before the call, execute, verify, and restore on divergence.
+**Description Guard Protocol:** Split operations may rewrite the frontmatter. Wrap the split invocation in the four-phase guard defined in §0:
+
+```bash
+# Phase 1 — capture before the split
+uv run {descriptionGuardHelper} capture <staging-skill-dir>/SKILL.md
+# stash returned `description` as `guarded_description`
+
+# Phase 2 — run the split (selective extraction or, last-resort, split-body --write)
+
+# Phases 3+4 — verify and restore after the split
+uv run {descriptionGuardHelper} verify-restore <staging-skill-dir>/SKILL.md \
+    --captured-description "{guarded_description}"
+```
+
+If `restored: true` in the verify-restore output, apply §0's post-restore re-validation hook.
 
 **Mandatory approach — selective split:** Identify Tier 2 sections by their `## Full` heading prefix (e.g., `## Full API Reference`, `## Full Type Definitions`, `## Full Integration Patterns`). Extract ONLY those sections to `references/`, starting with the largest. Keep ALL Tier 1 content and any smaller sections inline. Inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval (per Vercel research).
 
