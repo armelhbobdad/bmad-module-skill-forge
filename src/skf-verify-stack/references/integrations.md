@@ -1,12 +1,14 @@
 ---
 nextStepFile: 'requirements.md'
-integrationRulesData: 'references/integration-verification-rules.md'
-coveragePatternsData: 'references/coverage-patterns.md'
+integrationRulesData: '{integrationRulesPath}'
+coveragePatternsData: '{coveragePatternsPath}'
 feasibilitySchemaRef: 'src/shared/references/feasibility-report-schema.md'
 atomicWriteScript: '{project-root}/src/shared/scripts/skf-atomic-write.py'
-outputFile: '{forge_data_folder}/feasibility-report-{project_slug}-{timestamp}.md'
-outputFileLatest: '{forge_data_folder}/feasibility-report-{project_slug}-latest.md'
+outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
+outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.md'
 ---
+
+<!-- Config: communicate in {communication_language}. Append the Integration Verdicts section to the report in {document_output_language}. -->
 
 # Step 3: Integration Verification
 

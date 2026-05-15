@@ -2,6 +2,8 @@
 nextStepFile: 'health-check.md'
 ---
 
+<!-- Config: communicate in {communication_language}. Render the report block in {document_output_language}. -->
+
 # Step 3: Report Drop Results
 
 ## STEP GOAL:
@@ -72,6 +74,14 @@ These require manual review — see the error-handling guidance in step 2.
 ### Result Contract
 
 Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/drop-skill-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{skills_output_folder}/drop-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all purged file paths in `outputs`; include `target_skill`, `drop_mode`, and `versions_affected` in `summary`.
+
+When `{headless_mode}` is true, also emit the single-line envelope on **stdout** before chaining to step 4 (matches the SKILL.md "Result Contract (Headless)" shape):
+
+```
+SKF_DROP_SKILL_RESULT_JSON: {"status":"success","skill":"{target_skill}","drop_mode":"{drop_mode}","versions_affected":{target_versions},"files_deleted":{files_deleted},"manifest_updated":{manifest_updated},"exit_code":0,"halt_reason":null}
+```
+
+Substitute `{target_versions}` as a JSON array (e.g. `["0.5.0"]`) or the literal string `"all"`; substitute `{files_deleted}` as a JSON array of absolute paths (`[]` in soft-drop mode); `manifest_updated` is the boolean from step 2's context.
 
 ### 3. Chain to Health Check
 

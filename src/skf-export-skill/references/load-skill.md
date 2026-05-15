@@ -2,6 +2,8 @@
 nextStepFile: 'package.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 1: Load Skill
 
 ## STEP GOAL:
@@ -236,11 +238,12 @@ Continue to step 5 regardless — this is advisory, not blocking.
 
 ### 6. Present MENU OPTIONS
 
-Display: "**Select:** [C] Continue to packaging" (multi-skill mode: the single [C] gate covers the whole batch)
+Display: "**Select:** [C] Continue to packaging | [X] Cancel and exit (or type `cancel` / `exit` / `:q`)" (multi-skill mode: the single [C] gate covers the whole batch)
 
 #### Menu Handling Logic:
 
 - IF C: Proceed with loaded skill data, then load, read entire file, then execute {nextStepFile}
+- IF X (or `cancel` / `exit` / `:q`): Display "Cancelled — no packaging or context file writes were performed." and HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with the resolved `skills`, `context_files_updated: []`, and `manifest_path: null`.
 - IF Any other: help user respond, then [Redisplay Menu Options](#6-present-menu-options)
 
 #### EXECUTION RULES:

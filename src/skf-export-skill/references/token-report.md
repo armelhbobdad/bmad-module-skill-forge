@@ -2,6 +2,8 @@
 nextStepFile: 'summary.md'
 ---
 
+<!-- Config: communicate in {communication_language}. Render the token report in {document_output_language}. -->
+
 # Step 5: Token Report
 
 ## STEP GOAL:

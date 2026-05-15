@@ -2,7 +2,25 @@
 nextStepFile: 'report.md'
 versionPathsKnowledge: 'knowledge/version-paths.md'
 managedSectionLogic: 'skf-export-skill/assets/managed-section-format.md'
+# Resolve `{manifestOpsHelper}` by probing `{manifestOpsProbeOrder}` in
+# order (installed SKF module path first, src/ dev-checkout fallback);
+# first existing path wins. §2 calls it for atomic manifest deprecate /
+# remove with v1→v2 migration handled internally — letting the LLM hand-
+# roll JSON manipulation risks key-order drift, indent regressions, and
+# write-atomicity bugs. HALT if neither candidate exists.
+manifestOpsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
+  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
+# Resolve `{rebuildManagedSectionsHelper}` similarly. §3 calls it (replace
+# action) for the surgical between-marker rewrite — the LLM still computes
+# the new managed section text, but the file mutation is deterministic
+# (atomic temp-file + rename, marker preservation, post-write verify).
+rebuildManagedSectionsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
+  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
 ---
+
+<!-- Config: communicate in {communication_language}. -->
 
 # Step 2: Execute Drop
 
@@ -33,32 +51,33 @@ Also read `{managedSectionLogic}` for the format template, the four-case logic, 
 
 **If `target_in_manifest == true`:**
 
-Load `{skills_output_folder}/.export-manifest.json`.
+**Resolve `{manifestOpsHelper}`** from `{manifestOpsProbeOrder}`; first existing path wins. HALT (exit code 4, `halt_reason: "manifest-write-failed"`) if no candidate exists — atomic manifest mutation must go through the helper.
 
 **If `is_skill_level == false` (version-level drop):**
 
-For each version in `target_versions`:
+For each version in `target_versions`, invoke:
 
-1. Navigate to `exports.{target_skill}.versions.{version}`
-2. Set `status = "deprecated"`
-3. Leave `ides`, `last_exported`, and all other fields unchanged
+```bash
+python3 {manifestOpsHelper} {skills_output_folder} deprecate {target_skill} {version}
+```
 
-Do NOT change `active_version` on the skill entry in this pass — if the dropped version was the active one (only reachable when it was the sole non-deprecated version per the step 1 guard), the active_version field will still point at it, but every consumer excludes deprecated versions from exports.
+The helper sets `exports.{target_skill}.versions.{version}.status = "deprecated"` and writes the manifest atomically. It does NOT change `active_version` on the skill entry — if the dropped version was the active one (only reachable when it was the sole non-deprecated version per the step 1 guard), the field still points at it, but every consumer excludes deprecated versions from exports.
 
 **If `is_skill_level == true` (skill-level drop):**
 
-1. Delete the `exports.{target_skill}` key entirely from the manifest
-2. Leave all other skill entries untouched
+```bash
+python3 {manifestOpsHelper} {skills_output_folder} remove {target_skill}
+```
 
-**Write the updated manifest back to `{skills_output_folder}/.export-manifest.json`.**
+The helper deletes the `exports.{target_skill}` key entirely; other entries are untouched.
 
 Set context flag `manifest_updated = true`.
 
-**On error (read/parse/write failure):**
+**On error (helper non-zero exit):**
 
 - Do not proceed to section 3
-- Report: "**Manifest update failed:** {error}. No files were deleted and platform context files were not rebuilt. The manifest is in its pre-drop state — rerun the workflow once the underlying issue is resolved."
-- Store `manifest_updated = false` and jump to section 6
+- Report: "**Manifest update failed:** {captured stderr}. No files were deleted and platform context files were not rebuilt. The manifest is in its pre-drop state — rerun the workflow once the underlying issue is resolved."
+- Store `manifest_updated = false` and jump to section 6. In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with `halt_reason: "manifest-write-failed"` and exit code 4.
 
 ### 3. Rebuild Context Files
 
@@ -117,17 +136,15 @@ For each entry in `target_context_files`:
 
    If the filtered skill index is empty (e.g., the dropped skill was the only one), still emit the header with `0 skills|0 stack` and no skill entries. This keeps the managed section syntactically valid.
 
-8. **Surgical replacement — Case 3 (Regenerate) only:**
-   - Locate the `<!-- SKF:BEGIN` line — preserve everything before it
-   - Locate the `<!-- SKF:END -->` line — preserve everything after it
-   - Replace everything between the markers (inclusive) with the new managed section
-   - Write the file back
+8. **Surgical replacement — atomic, deterministic.** Resolve `{rebuildManagedSectionsHelper}` from `{rebuildManagedSectionsProbeOrder}`; first existing path wins. Then invoke:
 
-9. **Verify:**
-   - Re-read the written file
-   - Confirm both markers are present
-   - Confirm `{target_skill}` (at the dropped version, or at all versions if skill-level) no longer appears between the markers
-   - Confirm content outside the markers is byte-identical to what was preserved
+   ```bash
+   python3 {rebuildManagedSectionsHelper} {context_file} replace --content "{new_managed_section_text}"
+   ```
+
+   The helper handles marker location, between-marker swap, atomic temp-file + rename, and post-write verification (markers preserved, content outside markers byte-identical). It exits non-zero on any failure with a clear `stderr` reason.
+
+9. **Verify (deferred to helper).** The `replace` action above performs verification internally. Treat any non-zero exit code as a per-file failure (next bullet). If the helper is missing entirely (no probe candidate exists), HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) — the rewrite cannot proceed without the atomic helper.
 
 10. **On per-file failure:** record the error against that context file and continue to the next entry. Do not halt — other context files should still be rebuilt.
 

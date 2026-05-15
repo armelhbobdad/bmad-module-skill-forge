@@ -1,7 +1,9 @@
 ---
 nextStepFile: 'compile.md'
-refinementRulesData: 'references/refinement-rules.md'
+refinementRulesData: '{refinementRulesPath}'
 ---
+
+<!-- Config: communicate in {communication_language}. Append improvement findings to the RA state file in {document_output_language}. -->
 
 # Step 4: Improvement Detection
 

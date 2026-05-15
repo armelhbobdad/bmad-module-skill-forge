@@ -1,7 +1,9 @@
 ---
 nextStepFile: 'report.md'
-outputFile: '{output_folder}/refined-architecture-{project_name}.md'
+outputFile: '{outputFolderPath}/refined-architecture-{project_name}.md'
 ---
+
+<!-- Config: communicate in {communication_language}. Compile the refined architecture document in {document_output_language}. -->
 
 # Step 5: Compile Refined Architecture
 

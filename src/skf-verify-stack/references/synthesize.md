@@ -2,9 +2,11 @@
 nextStepFile: 'report.md'
 feasibilitySchemaRef: 'src/shared/references/feasibility-report-schema.md'
 atomicWriteScript: '{project-root}/src/shared/scripts/skf-atomic-write.py'
-outputFile: '{forge_data_folder}/feasibility-report-{project_slug}-{timestamp}.md'
-outputFileLatest: '{forge_data_folder}/feasibility-report-{project_slug}-latest.md'
+outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
+outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.md'
 ---
+
+<!-- Config: communicate in {communication_language}. Append the Executive Summary, synthesized verdict, and Recommendations to the report in {document_output_language}. -->
 
 # Step 5: Synthesize Verdict
 

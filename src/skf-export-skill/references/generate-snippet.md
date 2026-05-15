@@ -1,7 +1,9 @@
 ---
 nextStepFile: 'update-context.md'
-snippetFormatData: 'assets/snippet-format.md'
+snippetFormatData: '{snippetFormatPath}'
 ---
+
+<!-- Config: communicate in {communication_language}. Generate snippet content in {document_output_language}. -->
 
 # Step 3: Generate Snippet
 

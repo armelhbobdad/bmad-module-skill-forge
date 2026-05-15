@@ -2,6 +2,8 @@
 nextStepFile: 'generate-snippet.md'
 ---
 
+<!-- Config: communicate in {communication_language}. Validate package contents in {document_output_language}. -->
+
 # Step 2: Package
 
 ## STEP GOAL:

@@ -1,9 +1,11 @@
 ---
-# `shared/health-check.md` resolves relative to the SKF module root
-# (`_bmad/skf/` when installed, `src/` during development), NOT relative
-# to this step file.
+# Note: `shared/health-check.md` resolves relative to the SKF module root
+# ({project-root}/_bmad/skf/ when installed, {project-root}/src/ during
+# development), NOT relative to this step file.
 nextStepFile: 'shared/health-check.md'
 ---
+
+<!-- Config: communicate in {communication_language}. -->
 
 # Step 4: Workflow Health Check
 
@@ -19,4 +21,10 @@ Chain to the shared workflow self-improvement health check at `{nextStepFile}`. 
 
 ## MANDATORY SEQUENCE
 
-Load `{nextStepFile}`, read it fully, then execute it.
+1. **Release the rename lock.** Delete `{forge_data_folder}/{old_name}/.skf-rename.lock` if it still exists (the lock is acquired in select.md §4b and released here as the terminal cleanup). A no-op when `old_name` was never resolved or the lock was already removed by an earlier halt path.
+
+   ```bash
+   rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"
+   ```
+
+2. Load `{nextStepFile}`, read it fully, then execute it.

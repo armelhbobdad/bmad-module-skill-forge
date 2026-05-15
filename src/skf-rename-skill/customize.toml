@@ -1,0 +1,52 @@
+# DO NOT EDIT -- overwritten on every update.
+#
+# Workflow customization surface for skf-rename-skill.
+
+[workflow]
+
+# --- Configurable below. Overrides merge per BMad structural rules: ---
+#   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
+#   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
+
+# Steps to run before the standard activation (uv probe, config load).
+# Overrides append. Use for org-wide pre-flight checks (audit-log emit,
+# ticket-reference enforcement) that must precede any rename work.
+
+activation_steps_prepend = []
+
+# Steps to run after activation but before the first stage executes.
+# Overrides append. Use for context loads or banner customization that
+# should run once activation completes successfully.
+
+activation_steps_append = []
+
+# Persistent facts the workflow keeps in mind for the whole run
+# (rename-policy reminders, public-name-stability rules, audit guardrails).
+# Overrides append.
+#
+# Each entry is either:
+#   - a literal sentence, e.g. "Renames of skills tagged `published` require approval."
+#   - a file reference prefixed with `file:`, e.g.
+#     "file:{project-root}/docs/rename-policy.md" (globs supported; file
+#     contents are loaded and treated as facts).
+
+persistent_facts = [
+  "file:{project-root}/**/project-context.md",
+]
+
+# --- Optional safety + default scalars ---
+#
+# Auto-acknowledge the source-authority="official" warning in headless mode.
+# Empty string = HALT in headless when source_authority is "official"
+# (the safe default — local renames diverge from any registry-published
+# name). Set to "true" to silently proceed and record the override in the
+# headless decision trail.
+
+force_source_authority_in_headless = ""
+
+# Fallback IDE → context-file mapping for unknown IDEs in `config.yaml.ides`.
+# Empty string = use bundled defaults (AGENTS.md / .agents/skills/).
+# Used by execute.md §7 when rebuilding context files.
+
+unknown_ide_default_context_file = ""
+unknown_ide_default_skill_root = ""

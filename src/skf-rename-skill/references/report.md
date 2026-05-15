@@ -2,6 +2,8 @@
 nextStepFile: 'health-check.md'
 ---
 
+<!-- Config: communicate in {communication_language}. Render the report block in {document_output_language}. -->
+
 # Step 3: Report Rename Results
 
 ## STEP GOAL:
@@ -71,7 +73,15 @@ Informational: the old name still appears in SKILL.md body text (prose only, non
 
 ### Result Contract
 
-Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/{new_name}/rename-skill-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{skills_output_folder}/{new_name}/rename-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all updated file paths (SKILL.md, metadata.json, context-snippet.md, provenance-map.json) in `outputs`; include `old_name`, `new_name`, and `versions_renamed` in `summary`.
+Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/{new_name}/rename-skill-result-{timestamp}.json` (reuse the activation-stored `{timestamp}`, resolution to seconds) and a copy at `{skills_output_folder}/{new_name}/rename-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all updated file paths (SKILL.md, metadata.json, context-snippet.md, provenance-map.json) in `outputs`; include `old_name`, `new_name`, and `versions_renamed` in `summary`.
+
+When `{headless_mode}` is true, also emit the single-line envelope on **stdout** before chaining to step 4 (matches the SKILL.md "Result Contract (Headless)" shape):
+
+```
+SKF_RENAME_SKILL_RESULT_JSON: {"status":"success","old_name":"{old_name}","new_name":"{new_name}","versions_renamed":{affected_versions},"manifest_rekeyed":{manifest_rekeyed},"context_files_updated":{context_files_updated},"exit_code":0,"halt_reason":null}
+```
+
+Substitute `{affected_versions}` and `{context_files_updated}` as JSON arrays; `manifest_rekeyed` is the boolean from step 2's context.
 
 ### 2. Chain to Health Check
 

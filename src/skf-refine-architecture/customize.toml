@@ -1,0 +1,49 @@
+# DO NOT EDIT -- overwritten on every update.
+#
+# Workflow customization surface for skf-refine-architecture.
+
+[workflow]
+
+# --- Configurable below. Overrides merge per BMad structural rules: ---
+#   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
+#   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
+
+# Steps to run before the standard activation (uv probe, config load).
+# Overrides append. Use for org-wide pre-flight checks (auth, network,
+# compliance) that must precede architecture refinement work.
+
+activation_steps_prepend = []
+
+# Steps to run after activation but before the first stage executes.
+# Overrides append. Use for context loads or banner customization that
+# should run once activation completes successfully.
+
+activation_steps_append = []
+
+# Persistent facts the workflow keeps in mind for the whole run
+# (refinement standards, evidence-citation rules, house-style preservation
+# guardrails). Overrides append.
+#
+# Each entry is either:
+#   - a literal sentence, e.g. "Refinements must cite specific API signatures, never speculate."
+#   - a file reference prefixed with `file:`, e.g.
+#     "file:{project-root}/docs/refine-policy.md" (globs supported; file
+#     contents are loaded and treated as facts).
+
+persistent_facts = [
+  "file:{project-root}/**/project-context.md",
+]
+
+# --- Optional asset overrides ---
+#
+# Lift the canonical refinement-rules path so orgs can substitute house-style
+# rules (e.g. add domain-specific gap categories) without forking the skill.
+# Empty string = use the bundled default.
+
+refinement_rules_path = ""
+
+# Override the destination directory for the refined architecture document.
+# Empty = use {output_folder} from config.yaml. Useful for orgs that want
+# refined-architecture artifacts to land under a curated docs tree.
+
+output_folder_path = ""

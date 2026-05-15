@@ -1,7 +1,9 @@
 ---
 nextStepFile: 'issue-detection.md'
-refinementRulesData: 'references/refinement-rules.md'
+refinementRulesData: '{refinementRulesPath}'
 ---
+
+<!-- Config: communicate in {communication_language}. Append gap-analysis findings to the RA state file in {document_output_language}. -->
 
 # Step 2: Gap Analysis
 
