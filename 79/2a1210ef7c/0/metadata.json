@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "792a1210ef7c",
+  "session_id": "068bf5f6-e22a-4387-8972-7f6e4026ace5",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-15T11:02:42.4822168Z",
+  "branch": "refactor/skf-stages-rename",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".gitignore"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "93be09bb3126",
+  "token_usage": {
+    "input_tokens": 1190,
+    "cache_creation_tokens": 565668,
+    "cache_read_tokens": 70879874,
+    "output_tokens": 231058,
+    "api_call_count": 273
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-15T11:02:41.366941615Z",
+    "agent_lines": 0,
+    "human_added": 833,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 833,
+    "agent_percentage": 0
+  }
+}
