@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "c3d30d6cb270",
+  "session_id": "068bf5f6-e22a-4387-8972-7f6e4026ace5",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-15T10:46:46.095976332Z",
+  "branch": "refactor/skf-stages-rename",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/shared/scripts/skf-detect-tools.py",
+    "src/skf-setup/SKILL.md",
+    "src/skf-setup/references/ccc-index.md",
+    "src/skf-setup/references/detect-and-tier.md",
+    "src/skf-setup/references/report.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "dc2b2d983d1e",
+  "token_usage": {
+    "input_tokens": 1166,
+    "cache_creation_tokens": 532949,
+    "cache_read_tokens": 64442191,
+    "output_tokens": 209746,
+    "api_call_count": 259
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-15T10:46:44.820832097Z",
+    "agent_lines": 0,
+    "human_added": 42,
+    "human_modified": 9,
+    "human_removed": 0,
+    "total_committed": 42,
+    "agent_percentage": 0
+  }
+}
