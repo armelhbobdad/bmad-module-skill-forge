@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "2c2e2eaf1ccc",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-issue-331-carves",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-rename-skill/references/execute.md",
+    "src/skf-rename-skill/references/rebuild-context.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2c/2e2eaf1ccc/0/metadata.json",
+      "transcript": "/2c/2e2eaf1ccc/0/full.jsonl",
+      "context": "/2c/2e2eaf1ccc/0/context.md",
+      "content_hash": "/2c/2e2eaf1ccc/0/content_hash.txt",
+      "prompt": "/2c/2e2eaf1ccc/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8,
+    "cache_creation_tokens": 17594,
+    "cache_read_tokens": 992796,
+    "output_tokens": 8872,
+    "api_call_count": 8
+  }
+}
