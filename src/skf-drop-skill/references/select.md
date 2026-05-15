@@ -200,9 +200,27 @@ Store the list as `affected_directories`.
 
 If `drop_mode == "deprecate"`, record the list but present it as "retained" in the confirmation output — no deletion will occur.
 
+#### 9b. Compute Blast-Radius Metrics (for §10 summary)
+
+Compute three scalars to put in front of the path list at §10. The user's "I didn't know it would touch THAT" footgun is real — 12 paths can hide 50MB of on-disk content and a sweep across every IDE's managed section. A one-line summary makes the scale legible before the gate.
+
+1. **`versions_count`** — the number of skill versions in scope:
+   - Version-level drop: `len(target_versions)` (typically `1`)
+   - Skill-level drop: count of non-deprecated versions in `exports.{target_skill}.versions` (the deprecated ones are already absent from the active managed sections)
+
+2. **`bytes_total`** — recursive sum of byte sizes for every path in `affected_directories` that exists on disk. For each path, walk it and sum file sizes (`du -sb {path}` or equivalent). Skip non-existent paths silently — the §10 display is best-effort. Convert to a human-readable string for display (e.g. `"4.2 MB"`, `"812 KB"`); store the raw integer alongside as `bytes_total_raw` if a downstream step wants exact arithmetic. Defense in depth with execute.md §4 — that section will recompute per-path sizes for the canonical `disk_freed` reporting; this pre-compute is purely for the gate display and may slightly disagree if files change between gate and execute (acceptable for an "approximate" label).
+
+3. **`context_files_count`** — the number of distinct context files the §3 rebuild loop will rewrite:
+   - Read `config.yaml.ides`
+   - For each entry, look up its `context_file` via the canonical mapping table in `skf-export-skill/assets/managed-section-format.md` (use `AGENTS.md` fallback for unknown IDEs)
+   - Deduplicate by `context_file`
+   - Count the result. If `config.yaml.ides` is absent or empty, default to `1` (the AGENTS.md fallback)
+
+Store as `blast_radius = {versions_count, bytes_total, bytes_total_raw, context_files_count}` for §10's summary line.
+
 ### 10. Confirmation Gate
 
-Display the full operation summary:
+Display the full operation summary with the blast-radius summary line ahead of the path list so the user sees the scale before scanning paths:
 
 ```
 **About to drop:**
@@ -210,6 +228,7 @@ Display the full operation summary:
   Skill:   {target_skill}
   Version: {version or "ALL versions"}
   Mode:    {Deprecate (soft) | Purge (hard)}
+  Scope:   {versions_count} version(s), ~{bytes_total} on disk, will rebuild {context_files_count} context file(s)
   Files:
     {for each path in affected_directories, list one per line}
     {or "(retained on disk — soft drop)" if drop_mode == "deprecate"}
@@ -221,6 +240,8 @@ Display the full operation summary:
 
 Proceed? [Y/N]
 ```
+
+The `Scope:` line is the §9b-computed `blast_radius` rendered as one line. In `deprecate` mode the `~{bytes_total} on disk` reads as "size that will remain on disk (soft drop — files retained)"; the user is still served by knowing it. In `purge` mode it reads as "approximate disk that will be freed". The wording stays the same — the surrounding `Mode:` field disambiguates intent.
 
 **GATE [default: Y]** — If `{headless_mode}`: auto-proceed with [Y], log: "headless: auto-confirmed drop of {target_skill}"
 
