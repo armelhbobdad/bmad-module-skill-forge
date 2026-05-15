@@ -21,7 +21,7 @@ description: >
   - Uppercase placeholders are also acceptable: `NAME`, `COMPONENT_ID`.
   - For code-ish fragments, use curly braces in place of angle brackets inside the backticks: `` `Meta{typeof X}` ``, `` `Array{T}` ``.
 
-  Authors should not rely on remembering this — step-05 §2a enforces it via a pre-write sanitization pass that unconditionally replaces every `<` with `{` and every `>` with `}` in the frontmatter `description`. See step-05 §2a for the rule and `assets/tessl-dismissal-rules.md` (`description-xml-tags-guarded-upstream`) for the recovery path if a downstream tool rewrites the description after §2a has run.
+  Authors should not rely on remembering this — step 5 §2a enforces it via a pre-write sanitization pass that unconditionally replaces every `<` with `{` and every `>` with `}` in the frontmatter `description`. See step 5 §2a for the rule and `assets/tessl-dismissal-rules.md` (`description-xml-tags-guarded-upstream`) for the recovery path if a downstream tool rewrites the description after §2a has run.
 - Only `name` and `description` in frontmatter — `version` and `author` go in metadata.json
 - No other frontmatter fields for standard skills (only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted by spec)
 
@@ -62,7 +62,7 @@ These sections form the essential standalone body. Target: **under 300 lines tot
 - Provenance citation per function
 
 **Section 4b — Migration & Deprecation Warnings (~10 lines, Deep tier only):**
-- Only populated when step-04 enrichment produced **T2-future** annotations (deprecation warnings, breaking changes, planned renames)
+- Only populated when step 4 enrichment produced **T2-future** annotations (deprecation warnings, breaking changes, planned renames)
 - List each warning as a single-line bullet: function name, what changed or will change, source citation
 - Max 10 lines — just the actionable warnings, not full context
 - Link to Tier 2 Full API Reference for details: "See Full API Reference for migration details."
@@ -158,7 +158,7 @@ Replace the function table with a Component Catalog organized by category:
 **Total components:** {unique count} | {Per variant: **With {name}:** {count}}
 ```
 
-Source: `component_catalog[]` from step-03d. Group by `category` field. Provenance: cite the registry file.
+Source: `component_catalog[]` from step 3d. Group by `category` field. Provenance: cite the registry file.
 
 **Section 5 (Key Types) — Props-focused override:**
 

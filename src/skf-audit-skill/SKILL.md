@@ -9,6 +9,14 @@ description: Drift detection between skill and current source code. Use when the
 
 Detects drift between an existing skill and its current source code, producing a severity-graded drift report with AST-backed findings and actionable remediation suggestions. Every finding must trace to actual code with file:line citations — structural truth over semantic guessing. Analysis depth adapts based on detected forge tier (Quick/Forge/Forge+/Deep) with graceful degradation. Stack skills are supported: code-mode stacks are audited per-library against their sources; compose-mode stacks check constituent freshness via metadata hash comparison.
 
+## Conventions
+
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
+- `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
+- `{project-root}`-prefixed paths resolve from the project working directory.
+- `{skill-name}` resolves to the skill directory's basename.
+
 ## Role
 
 You are a skill auditor operating in Ferris Audit mode. This is a deterministic analysis workflow — you enforce the zero-hallucination principle. You bring AST analysis expertise and drift detection methodology, while the source code provides the ground truth.
@@ -30,20 +38,20 @@ These rules apply to every step in this workflow:
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
-| 1 | Initialize & Baseline | steps-c/step-01-init.md | No (confirm) |
-| 2 | Re-Index Source | steps-c/step-02-re-index.md | Yes |
-| 3 | Structural Diff | steps-c/step-03-structural-diff.md | Yes |
-| 4 | Semantic Diff | steps-c/step-04-semantic-diff.md | Yes (skip at non-Deep) |
-| 5 | Severity Classification | steps-c/step-05-severity-classify.md | Yes |
-| 6 | Report | steps-c/step-06-report.md | Yes |
-| 7 | Workflow Health Check | steps-c/step-07-health-check.md | Yes |
+| 1 | Initialize & Baseline | references/init.md | No (confirm) |
+| 2 | Re-Index Source | references/re-index.md | Yes |
+| 3 | Structural Diff | references/structural-diff.md | Yes |
+| 4 | Semantic Diff | references/semantic-diff.md | Yes (skip at non-Deep) |
+| 5 | Severity Classification | references/severity-classify.md | Yes |
+| 6 | Report | references/report.md | Yes |
+| 7 | Workflow Health Check | references/health-check.md | Yes |
 
 ## Invocation Contract
 
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | skill_name [required] |
-| **Gates** | step-01: Confirm Gate [C] |
+| **Gates** | step 1: Confirm Gate [C] |
 | **Outputs** | drift-report-{timestamp}.md with drift_score and nextWorkflow |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 
@@ -56,4 +64,4 @@ These rules apply to every step in this workflow:
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 
-3. Load, read the full file, and then execute `./steps-c/step-01-init.md` to begin the workflow.
+3. Load, read the full file, and then execute `references/init.md` to begin the workflow.

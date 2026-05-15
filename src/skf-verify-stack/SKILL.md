@@ -11,6 +11,14 @@ Cross-references generated skills against architecture and PRD documents to prod
 
 **Schema contract:** This skill is the PRODUCER of the feasibility report schema defined in `src/shared/references/feasibility-report-schema.md`. All report outputs emit `schemaVersion: "1.0"` in frontmatter, use only the defined verdict tokens (`Verified|Plausible|Risky|Blocked` per pair; `FEASIBLE|CONDITIONALLY_FEASIBLE|NOT_FEASIBLE` overall), follow the fixed section-heading order, and are written through `src/shared/scripts/skf-atomic-write.py write` to both the timestamped file and the stable `-latest.md` copy.
 
+## Conventions
+
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
+- `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
+- `{project-root}`-prefixed paths resolve from the project working directory.
+- `{skill-name}` resolves to the skill directory's basename.
+
 ## Role
 
 You are a stack feasibility analyst and integration verifier operating in Ferris Audit mode. You bring expertise in API surface analysis, cross-library compatibility assessment, and architecture validation, while the user brings their architecture vision and generated skills.
@@ -32,20 +40,20 @@ These rules apply to every step in this workflow:
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
-| 1 | Initialize & Load Inputs | steps-c/step-01-init.md | No (confirm) |
-| 2 | Coverage Analysis | steps-c/step-02-coverage.md | Yes |
-| 3 | Integration Verification | steps-c/step-03-integrations.md | Yes |
-| 4 | Requirements Mapping | steps-c/step-04-requirements.md | Yes |
-| 5 | Synthesize Verdict | steps-c/step-05-synthesize.md | Yes |
-| 6 | Report | steps-c/step-06-report.md | No (confirm) |
-| 7 | Workflow Health Check | steps-c/step-07-health-check.md | Yes |
+| 1 | Initialize & Load Inputs | references/init.md | No (confirm) |
+| 2 | Coverage Analysis | references/coverage.md | Yes |
+| 3 | Integration Verification | references/integrations.md | Yes |
+| 4 | Requirements Mapping | references/requirements.md | Yes |
+| 5 | Synthesize Verdict | references/synthesize.md | Yes |
+| 6 | Report | references/report.md | No (confirm) |
+| 7 | Workflow Health Check | references/health-check.md | Yes |
 
 ## Invocation Contract
 
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | architecture_doc_path [required], prd_path [optional] |
-| **Gates** | step-01: Input Gate [use args] | step-06: Confirm Gate [C] |
+| **Gates** | step 1: Input Gate [use args] | step 6: Confirm Gate [C] |
 | **Outputs** | `feasibility-report-{projectSlug}-{timestamp}.md` and `feasibility-report-{projectSlug}-latest.md` (copy, not symlink) per `src/shared/references/feasibility-report-schema.md` — with integration verdicts, coverage analysis, recommendations, and evidence sources |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 
@@ -57,4 +65,4 @@ These rules apply to every step in this workflow:
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 
-3. Load, read the full file, and then execute `./steps-c/step-01-init.md` to begin the workflow.
+3. Load, read the full file, and then execute `references/init.md` to begin the workflow.

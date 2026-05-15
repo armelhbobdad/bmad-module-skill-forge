@@ -26,14 +26,14 @@ Parse document section headers for technology groupings:
 
 ### Coverage Verdict
 
-The coverage matrix renders two verdict tokens per referenced technology: **Covered** and **Missing**. Extra skills (skills present in the inventory but NOT referenced by the architecture document) are tracked in a separate informational subdivision — they are not coverage verdicts and do not appear in the primary `Technology → Skill Match → Verdict` column. See step-02 §4 for the Extra-skill subdivision output.
+The coverage matrix renders two verdict tokens per referenced technology: **Covered** and **Missing**. Extra skills (skills present in the inventory but NOT referenced by the architecture document) are tracked in a separate informational subdivision — they are not coverage verdicts and do not appear in the primary `Technology → Skill Match → Verdict` column. See step 2 §4 for the Extra-skill subdivision output.
 
 | Verdict     | Meaning                                                          |
 |-------------|------------------------------------------------------------------|
 | **Covered** | A generated skill exists in `skills/` for this technology        |
 | **Missing** | Technology is referenced in architecture doc but no skill exists |
 
-**Informational — Extra skills subdivision (not a verdict; rendered in a separate section per step-02 §4):**
+**Informational — Extra skills subdivision (not a verdict; rendered in a separate section per step 2 §4):**
 
 | Label                                  | Meaning                                                                                                                          |
 |----------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|

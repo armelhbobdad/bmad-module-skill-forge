@@ -90,7 +90,7 @@ function resolveOmsPath(anchors) {
 }
 
 // Accept either a full SHA match or a short-SHA prefix match, per
-// src/skf-update-skill/steps-c/step-03-re-extract.md:36 — the pinned commit
+// src/skf-update-skill/references/re-extract.md:36 — the pinned commit
 // is often stored as an 8-char short hash. Both anchors and metadata are
 // lowercased before comparison; blank / null values never match.
 function commitsMatch(anchorCommit, metadataCommit) {

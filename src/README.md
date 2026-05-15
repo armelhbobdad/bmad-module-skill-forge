@@ -16,7 +16,7 @@ src/
 │   └── ...
 ├── skf-{name}/               # 13 workflow skills (one directory each)
 │   ├── SKILL.md              # Skill entry point (overview, stages, invocation contract)
-│   ├── steps-c/              # Sequential step files
+│   ├── references/              # Sequential step files
 │   ├── references/           # Rules, patterns, protocols (decision-making)
 │   ├── assets/               # Schemas, output formats
 │   └── templates/            # Output skeletons (used by some skills)

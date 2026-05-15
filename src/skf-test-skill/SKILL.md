@@ -9,6 +9,14 @@ description: Cognitive completeness verification — quality gate before export.
 
 Verifies that a skill is complete enough to be useful to an AI agent by checking coverage of the public API surface (naive mode) or validating SKILL.md + references coherence (contextual mode). Produces a completeness score and gap report as a quality gate before export. Every finding must trace to actual code with file:line citations.
 
+## Conventions
+
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
+- `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
+- `{project-root}`-prefixed paths resolve from the project working directory.
+- `{skill-name}` resolves to the skill directory's basename.
+
 ## Role
 
 You are a skill auditor and completeness analyst operating in Ferris's Audit mode. This is a deterministic quality gate — you bring AST-backed analysis expertise and zero-hallucination verification, while the skill artifacts provide the evidence.
@@ -30,21 +38,21 @@ These rules apply to every step in this workflow:
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
-| 1 | Initialize & Load Skill | steps-c/step-01-init.md | Yes |
-| 2 | Detect Mode | steps-c/step-02-detect-mode.md | Yes |
-| 3 | Coverage Check | steps-c/step-03-coverage-check.md | Yes |
-| 4 | Coherence Check | steps-c/step-04-coherence-check.md | Yes |
-| 4b | External Validators | steps-c/step-04b-external-validators.md | Yes |
-| 5 | Score | steps-c/step-05-score.md | Yes |
-| 6 | Report | steps-c/step-06-report.md | No (confirm) |
-| 7 | Workflow Health Check | steps-c/step-07-health-check.md | Yes |
+| 1 | Initialize & Load Skill | references/init.md | Yes |
+| 2 | Detect Mode | references/detect-mode.md | Yes |
+| 3 | Coverage Check | references/coverage-check.md | Yes |
+| 4 | Coherence Check | references/coherence-check.md | Yes |
+| 4b | External Validators | references/external-validators.md | Yes |
+| 5 | Score | references/score.md | Yes |
+| 6 | Report | references/report.md | No (confirm) |
+| 7 | Workflow Health Check | references/health-check.md | Yes |
 
 ## Invocation Contract
 
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | skill_name [required] |
-| **Gates** | step-06: Confirm Gate [C] |
+| **Gates** | step 6: Confirm Gate [C] |
 | **Outputs** | test-report-{skill_name}.md with completeness score and result (PASS/FAIL) |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 
@@ -56,4 +64,4 @@ These rules apply to every step in this workflow:
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 
-3. Load, read the full file, and then execute `./steps-c/step-01-init.md` to begin the workflow.
+3. Load, read the full file, and then execute `references/init.md` to begin the workflow.

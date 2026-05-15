@@ -49,7 +49,7 @@ If the source is a remote GitHub repo, use `gh api repos/{owner}/{repo}/contents
 
 If detection succeeds, use the detected version. If it fails or returns a non-semver value, fall back to `"1.0.0"`.
 
-The create-skill workflow (step-03-extract) also performs version reconciliation at extraction time — if the source version has changed since the brief was created, the extraction step warns and uses the source version.
+The create-skill workflow (extract) also performs version reconciliation at extraction time — if the source version has changed since the brief was created, the extraction step warns and uses the source version.
 
 **Target version override:** When `target_version` is present in the brief, it takes precedence over auto-detection. Auto-detection still runs for informational purposes (displayed as "Detected version" alongside the user-specified "Target version"), but the `target_version` value is used as the brief's `version` field. This is particularly useful for docs-only skills (where no package manifest exists) and when the user wants to compile a skill for a specific older version.
 

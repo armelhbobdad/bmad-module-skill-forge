@@ -9,6 +9,14 @@ description: Smart regeneration preserving [MANUAL] sections after source change
 
 Surgically updates existing skills when source code changes, preserving all [MANUAL] developer content while re-extracting only affected exports with full provenance tracking. Only changed exports are re-extracted — unchanged content is never touched. Every regenerated instruction must trace to code with file:line citations. Stack skills (`skill_type: "stack"` in metadata.json) are not supported by surgical update — use `skf-create-stack-skill` to re-compose from updated constituents. If a stack skill is provided, this workflow exits with a redirect message.
 
+## Conventions
+
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
+- `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
+- `{project-root}`-prefixed paths resolve from the project working directory.
+- `{skill-name}` resolves to the skill directory's basename.
+
 ## Role
 
 You are a precision code analyst operating in Ferris Surgeon mode. This is a surgical operation, not an exploratory session. You bring AST-backed structural analysis and provenance-driven change detection expertise, while the source code provides the ground truth.
@@ -29,21 +37,21 @@ These rules apply to every step in this workflow:
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
-| 1 | Initialize & Load | steps-c/step-01-init.md | No (confirm) |
-| 2 | Detect Changes | steps-c/step-02-detect-changes.md | Yes |
-| 3 | Re-Extract | steps-c/step-03-re-extract.md | Yes |
-| 4 | Merge | steps-c/step-04-merge.md | Yes |
-| 5 | Validate | steps-c/step-05-validate.md | Yes |
-| 6 | Write | steps-c/step-06-write.md | Yes |
-| 7 | Report | steps-c/step-07-report.md | Yes |
-| 8 | Workflow Health Check | steps-c/step-08-health-check.md | Yes |
+| 1 | Initialize & Load | references/init.md | No (confirm) |
+| 2 | Detect Changes | references/detect-changes.md | Yes |
+| 3 | Re-Extract | references/re-extract.md | Yes |
+| 4 | Merge | references/merge.md | Yes |
+| 5 | Validate | references/validate.md | Yes |
+| 6 | Write | references/write.md | Yes |
+| 7 | Report | references/report.md | Yes |
+| 8 | Workflow Health Check | references/health-check.md | Yes |
 
 ## Invocation Contract
 
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | skill_name [required] |
-| **Gates** | step-01: Confirm Gate [C] | step-04: Confirm Gate [C if clean merge, HALT if conflicts] |
+| **Gates** | step 1: Confirm Gate [C] | step 4: Confirm Gate [C if clean merge, HALT if conflicts] |
 | **Outputs** | Updated SKILL.md, updated provenance-map.json, evidence-report.md |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 
@@ -55,4 +63,4 @@ These rules apply to every step in this workflow:
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 
-3. Load, read the full file, and then execute `./steps-c/step-01-init.md` to begin the workflow.
+3. Load, read the full file, and then execute `references/init.md` to begin the workflow.
