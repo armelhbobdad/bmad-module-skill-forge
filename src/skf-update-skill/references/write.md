@@ -9,6 +9,14 @@ descriptionGuardProtocol: '{project-root}/src/shared/references/description-guar
 descriptionGuardProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-description-guard.py'
   - '{project-root}/src/shared/scripts/skf-description-guard.py'
+# Resolve `{updateActiveSymlinkHelper}` to the first existing path; HALT if
+# neither candidate exists. §5b uses it to atomically flip the active
+# symlink; §6 uses it (verify mode) to confirm the post-state. Without
+# the helper, §5b's "rm and recreate" pattern leaves a brief window where
+# concurrent readers see a missing symlink.
+updateActiveSymlinkProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-update-active-symlink.py'
+  - '{project-root}/src/shared/scripts/skf-update-active-symlink.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -197,17 +205,24 @@ Write the regenerated snippet to `{skill_package}/context-snippet.md`, preservin
 
 **If skill_type == "stack"**, also verify that the reference file updates from the first half of this section have been applied before writing the snippet so the stack snippet reflects the newest integration list.
 
-### 5b. Update Active Symlink (If Version Changed)
+### 5b. Update Active Symlink
 
-If the version was incremented or changed in section 2 (metadata.json update):
-- Create or update the `active` symlink at `{skill_group}/active` pointing to the new `{version}`
-- If the symlink already exists, remove it first and recreate
+Flip `{skill_group}/active` to point at the current `{version}` via the helper. The call is **always** run — atomic, idempotent, and verified in one shot. The helper's no-op path handles the "version did not change" case (gap-driven mode, or no source drift) without writing to disk:
 
+```bash
+uv run {updateActiveSymlinkHelper} update \
+    --skill-group {skill_group} \
+    --version {version}
 ```
-{skill_group}/active -> {version}
-```
 
-If the version did not change, the existing symlink already points to the correct version -- no action needed.
+The helper emits a result envelope with `status` ∈ `{ok, flipped, mismatch, missing-target}` and a pre-formatted `log_message`. Log the message to the evidence report.
+
+**Dispatch on `status`:**
+
+- **`ok`** (exit 0): symlink already points at `{version}` — no disk write. Continue to §6.
+- **`flipped`** (exit 0): symlink was atomically updated (temp-and-replace). Continue to §6.
+- **`missing-target`** (exit 2): `{skill_group}/{version}/` directory does not exist on disk. HALT — display `halt_message` verbatim. This indicates §4 §6b did not write the version directory before §5b ran (a workflow bug, not a user error).
+- **`mismatch`** (exit 2): re-read after flip showed the symlink still points elsewhere. HALT — display `halt_message`. Should be impossible because the helper uses `os.replace` (atomic rename); a mismatch here indicates filesystem-level interference (concurrent writer, broken FUSE mount).
 
 ### 6. Verify Derived Artifact Writes
 
@@ -218,7 +233,7 @@ For each derived artifact:
 - Confirm content matches expected output
 - Report verification status
 
-**Active symlink verification:** resolve `readlink({skill_group}/active)` and assert it equals the `version` just written to `metadata.json` in §2. This closes the §5b gap where a silent skip would otherwise leave the manifest and symlink divergent — the symlink is the fallback resolver for consumers that don't read the manifest (see `knowledge/version-paths.md` §Reading Workflows step 5), so a mismatch must fail the step, not warn. Applies in every mode — gap-driven runs do not bump `version`, but the symlink must still point to the current `version`, otherwise a prior partial run left it pointing elsewhere.
+**Active symlink verification:** run `{updateActiveSymlinkHelper} verify --skill-group {skill_group} --version {version}` — read-only check that the symlink resolves to the version just written to `metadata.json` in §2. This closes the §5b gap where a silent skip would otherwise leave the manifest and symlink divergent — the symlink is the fallback resolver for consumers that don't read the manifest (see `knowledge/version-paths.md` §Reading Workflows step 5), so a `mismatch` must fail the step, not warn. Applies in every mode — gap-driven runs do not bump `version`, but the symlink must still point to the current `version`, otherwise a prior partial run left it pointing elsewhere.
 
 "**Write Verification:**
 
@@ -232,7 +247,7 @@ For each derived artifact:
 | {skill_group}/active symlink | {VERIFIED/FAILED} (readlink → {resolved_version}, expected {version}) |
 | {stack reference files...} | {VERIFIED in section 5} |
 
-**On symlink FAILED:** HALT. Do not proceed to §7 post-write validation or §8 menu. Alert the user: "**Active symlink divergence.** `{skill_group}/active` resolves to `{resolved_version}` but `metadata.json` reports `version: {version}`. §5b did not apply. Re-point the symlink manually (`ln -sfn {version} {skill_group}/active`) or re-run update-skill, then re-verify." This matches the severity of the other four artifact checks — silent divergence here mis-routes any downstream consumer that uses the symlink fallback.
+**On symlink `mismatch` (helper exit 2):** HALT. Do not proceed to §7 post-write validation or §8 menu. Display the helper's `halt_message` verbatim — it already includes the diverged target, the expected version, and the recovery command. This matches the severity of the other four artifact checks — silent divergence here mis-routes any downstream consumer that uses the symlink fallback.
 
 **All files written and verified.**"
 
