@@ -86,12 +86,28 @@ If neither trigger fires, keep the page content as-is and do NOT trigger subpage
 
 2. **Filter discovered URLs by relevance and origin:** Restrict candidates to the same **registrable domain** as the root URL — strip the URL down to its eTLD+1 (e.g., for root `https://docs.example.com/intro`, accept any subdomain of `example.com` such as `api.example.com` or `docs.example.com`, but reject `example.org` or `cdn.partner.io`). Cross-origin links must be discarded before any fetch. The same-registrable-domain rule prevents Mintlify/Docusaurus link clouds from pulling in tracking pixels, doc-site CDNs, or third-party embeds as if they were canonical docs. From the surviving same-domain candidates, select the most relevant pages by searching for API-related terms in the URL path or title (e.g., `api`, `reference`, `quickstart`, `setup`, `config`, `getting-started`, `guide`, `sdk`, `methods`, `functions`). Exclude pages that are clearly non-API content (e.g., `blog`, `changelog`, `pricing`, `about`, `careers`).
 
-3. **Fetch top subpages:** Fetch up to **10** of the most relevant subpages. For each:
+3. **Fetch top subpages (in parallel):** Fetch up to **10** of the most relevant subpages **concurrently** — subpage fetches are independent and network-bound, so wall-clock benefits substantially from parallel execution. Bound concurrency to **4 in flight** at a time to stay polite to documentation hosts (Mintlify/Docusaurus typically allow more, but conservatism here protects against unrecognized rate limits).
+
+   The parallel pattern depends on the fetch tool:
+
+   - **LLM-driven tools** (Firecrawl `firecrawl_scrape`, `WebFetch`, MCP fetch, browser tools): issue up to 4 tool calls **in a single message**. The agent runtime executes parallel tool calls concurrently; collect results from the batch before issuing the next set of up to 4. Repeat until all up-to-10 subpages have been attempted or rate limiting halts the batch.
+   - **Bash-driven tools** (`curl`, `wget`): use `xargs -P 4 -n 1` to fan out from a newline-separated subpage list. Example:
+
+     ```bash
+     printf '%s\n' "${subpages[@]}" | xargs -P 4 -n 1 -I {} bash -c '
+       url="{}"
+       safe=$(echo -n "$url" | sha256sum | cut -c1-12)
+       curl -sSL --max-time 30 "$url" > "{staging}/subpage-$safe.md" \
+         || echo "fetch failed: $url" > "{staging}/subpage-$safe.md"
+     '
+     ```
+
+   For each subpage (regardless of tool):
    - Use the same web fetching tool as the root URL
    - Store with the subpage URL as provenance: `[EXT:{subpage-url}]`
-   - If a subpage fetch fails, skip it and continue
+   - If a subpage fetch fails, skip it and continue with the rest of the batch — do not halt the whole stage
 
-4. **Rate limiting:** If rate limiting (HTTP 429) is encountered during subpage fetching, stop discovery for this root URL. Keep results collected so far. Log: "Subpage discovery stopped due to rate limiting."
+4. **Rate limiting:** If rate limiting (HTTP 429) is encountered during subpage fetching, stop discovery for this root URL. Keep results collected so far. Log: "Subpage discovery stopped due to rate limiting." For the parallel-tool-call pattern, drop any not-yet-issued tool calls from subsequent batches; for the `xargs` pattern, interrupt the pipeline (set `--max-procs 0` is **not** a graceful stop — the simplest stop is to kill the xargs PID and let in-flight writers complete naturally).
 
 **If ALL URLs fail (including any subpage fetches):** Log warning: "No documentation could be fetched. Proceeding without T3 content." Skip to section 7 (auto-proceed).
 
