@@ -9,6 +9,14 @@ noChangeReportFile: 'report.md'
 hashContentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
+# Resolve `{buildChangeManifestHelper}` to the first existing path; HALT if
+# neither candidate exists. §3 uses `build` to aggregate Category A/B/C/D
+# results into the unified manifest; §2.2 uses `deletion-ratio` to compute
+# the major-version trigger. Falling back to prose-driven count rollups
+# would let the LLM drift on manifest shape across runs.
+buildChangeManifestProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-build-change-manifest.py'
+  - '{project-root}/src/shared/scripts/skf-build-change-manifest.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -294,22 +302,29 @@ Aggregate all subprocess results into a unified change manifest.
 
 **Purpose:** §1c catches the major-version case when an audit drift report supplies explicit candidates. §2.2 is the safety net that fires when no audit was run (or audit emitted no out-of-scope section): it inspects the just-built Category A/B results for the deletion-ratio signature of a major-version restructure and gives the user an off-ramp before §3 commits the change manifest.
 
-**Skip this section entirely if:**
+**Trigger computation:** invoke the helper with the same Category A/B/C/D JSON used for §3, plus the provenance map:
 
-- `update_mode == "gap-driven"` (test-report mode), OR
-- `degraded_mode == true` (no provenance baseline to compare against — every export looks "modified", deletion ratio is meaningless), OR
-- Provenance map's tracked export count is zero.
-
-**Trigger:** Compute
-
-```
-deleted_export_count = (sum of exports across Category A DELETED files)
-                     + (DELETED_EXPORT count from Category B)
-total_provenance_exports = provenance_map.entries.length
-deletion_ratio = deleted_export_count / total_provenance_exports
+```bash
+echo "{category JSON}" | uv run {buildChangeManifestHelper} deletion-ratio \
+    --provenance-map {forge_version}/provenance-map.json
 ```
 
-If `deletion_ratio >= 0.50`, present the prompt below. Otherwise skip §2.2 silently and continue to §3.
+The helper handles the three skip conditions internally — when the input has `update_mode: "gap-driven"`, `degraded_mode: true`, or the provenance has zero entries, it returns `skip_reason` set and `should_trigger: false`. The output envelope:
+
+```json
+{
+  "skip_reason": "gap-driven" | "degraded-mode" | "zero-provenance-exports" | null,
+  "deleted_export_count": N,
+  "total_provenance_exports": N,
+  "deletion_ratio": 0.X,
+  "deleted_file_count": N,
+  "added_in_scope_count": N,
+  "renamed_or_moved_count": N,
+  "should_trigger": <bool>
+}
+```
+
+If `skip_reason` is non-null OR `should_trigger` is false, skip the prompt and continue to §3. If `should_trigger` is true, present the prompt below.
 
 **Prompt:**
 
@@ -341,29 +356,50 @@ The upstream surface appears to have been substantially replaced. The brief's
 
 ### 3. Build Change Manifest
 
-Compile the change manifest with structured entries:
+Hand the assembled Category A/B/C/D JSON to the helper:
 
+```bash
+echo "{category JSON}" | uv run {buildChangeManifestHelper} build
 ```
-Change Manifest:
-  files_changed: [count]
-  files_added: [count]
-  files_deleted: [count]
-  files_moved: [count]
 
-  exports_modified: [count]
-  exports_new: [count]
-  exports_deleted: [count]
-  exports_renamed: [count]
-  exports_moved: [count]
+The category JSON shape is:
 
-  scripts_modified, scripts_added, scripts_deleted: {counts}
-  assets_modified, assets_added, assets_deleted: {counts}
-
-  Per-file detail:
-    {file_path}:
-      status: MODIFIED|ADDED|DELETED|MOVED
-      exports_affected: [{export_name, change_type, old_line, new_line}]
+```json
+{
+  "category_a": {"modified": [...], "added": [...], "deleted": [...]},
+  "category_b": {"modified_exports": [...], "new_exports": [...],
+                 "deleted_exports": [...], "moved_exports": [...]},
+  "category_c": {"renamed_files": [...], "renamed_exports": [...]},
+  "category_d": {"scripts_modified": [...], "scripts_added": [...],
+                 "scripts_deleted": [...], "assets_modified": [...],
+                 "assets_added": [...], "assets_deleted": [...]},
+  "degraded_mode": <bool>,
+  "update_mode": "normal" | "gap-driven"
+}
 ```
+
+The helper emits the unified manifest envelope:
+
+```json
+{
+  "no_changes": <bool>,
+  "degraded_mode": <bool>,
+  "counts": {
+    "files_changed": N, "files_added": N, "files_deleted": N, "files_moved": N,
+    "exports_modified": N, "exports_new": N, "exports_deleted": N,
+    "exports_renamed": N, "exports_moved": N,
+    "scripts_modified": N, "scripts_added": N, "scripts_deleted": N,
+    "assets_modified": N, "assets_added": N, "assets_deleted": N
+  },
+  "total_export_changes": N,
+  "per_file": [
+    {"file_path": "...", "status": "MODIFIED|ADDED|DELETED|MOVED",
+     "exports_affected": [{name, change_type, old_line, new_line}, ...]}
+  ]
+}
+```
+
+`per_file` entries are sorted MODIFIED → ADDED → DELETED → MOVED, then alphabetically within each status group, so downstream stages can rely on stable ordering. MOVED entries include an extra `old_path` field. Stash the envelope as the change manifest in workflow context.
 
 ### 4. Check for No-Change Shortcut
 
