@@ -64,7 +64,8 @@ class TestHash:
     def test_include_path(self, tmp_path: Path) -> None:
         path = _write(tmp_path / "x.txt", "x\n")
         rec = mod.hash_record(path, include_path=True)
-        assert rec["path"] == str(path)
+        # path is emitted in forward-slash form for cross-platform JSON
+        assert rec["path"] == path.as_posix()
         assert "content_hash" in rec
 
     def test_empty_file(self, tmp_path: Path) -> None:
@@ -267,7 +268,7 @@ class TestCli:
         result = _run_cli("hash", str(path), "--include-path")
         assert result.returncode == 0
         payload = json.loads(result.stdout)
-        assert payload["path"] == str(path)
+        assert payload["path"] == path.as_posix()
 
     def test_hash_missing_file_exits_1(self, tmp_path: Path) -> None:
         result = _run_cli("hash", str(tmp_path / "missing.txt"))
