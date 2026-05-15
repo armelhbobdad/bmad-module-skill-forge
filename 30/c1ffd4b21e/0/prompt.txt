@@ -1,0 +1,359 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-help
+
+# BMad Help
+
+## Purpose
+
+Help the user understand where they are in their BMad workflow and what to do next, and also answer broader questions when asked that could be augmented with remote sources such as module documentation sources.
+
+## Desired Outcomes
+
+When this skill completes, the user should:
+
+1. **Know where they are** — which module and phase they're in, what's already been completed
+2. **Know what to do next** — the next recommended and/or required step, with clear reasoning
+3. **Know how to invoke it** — skill name, menu code, action context, and any args that shortcut the conversation
+4. **Get offered a quick start** — when a single skill is the clear next step, offer to run it for the user right now rather than just listing it
+5. **Feel oriented, not overwhelmed** — surface only what's relevant to their current position; don't dump the entire catalog
+6. **Get answers to general questions** — when the question doesn't map to a specific skill, use the module's registered documentation to give a grounded answer
+
+## Data Sources
+
+- **Catalog**: `{project-root}/_bmad/_config/bmad-help.csv` — assembled manifest of all installed module skills
+- **Config**: `config.yaml` and `user-config.yaml` files in `{project-root}/_bmad/` and its subfolders — resolve `output-location` variables, provide `communication_language` and `project_knowledge`
+- **Artifacts**: Files matching `outputs` patterns at resolved `output-location` paths reveal which steps are possibly completed; their content may also provide grounding context for recommendations
+- **Project knowledge**: If `project_knowledge` resolves to an existing path, read it for grounding context. Never fabricate project-specific details.
+- **Module docs**: Rows with `_meta` in the `skill` column carry a URL or path in `output-location` pointing to the module's documentation (e.g., llms.txt). Fetch and use these to answer general questions about that module.
+
+## CSV Interpretation
+
+The catalog uses this format:
+
+```
+module,skill,display-name,menu-code,description,action,args,phase,after,before,required,output-location,outputs
+```
+
+**Phases** determine the high-level flow:
+- `anytime` — available regardless of workflow state
+- Numbered phases (`1-analysis`, `2-planning`, etc.) flow in order; naming varies by module
+
+**Dependencies** determine ordering within and across phases:
+- `after` — skills that should ideally complete before this one
+- `before` — skills that should run after this one
+- Format: `skill-name` for single-action skills, `skill-name:action` for multi-action skills
+
+**Required gates**:
+- `required=true` items must complete before the user can meaningfully proceed to later phases
+- A phase with no required items is entirely optional — recommend it but be clear about what's actually required next
+
+**Completion detection**:
+- Search resolved output paths for `outputs` patterns
+- Fuzzy-match found files to catalog rows
+- User may also state completion explicitly, or it may be evident from the current conversation
+
+**Descriptions carry routing context** — some contain cycle info and alternate paths (e.g., "back to DS if fixes needed"). Read them as navigation hints, not just display text.
+
+## Response Format
+
+For each recommended item, present:
+- `[menu-code]` **Display name** — e.g., "[CP] Create PRD"
+- Skill name in backticks — e.g., `bmad-create-prd`
+- For multi-action skills: action invocation context — e.g., "tech-writer lets create a mermaid diagram!"
+- Description if present in CSV; otherwise your existing knowledge of the skill suffices
+- Args if available
+
+**Ordering**: Show optional items first, then the next required item. Make it clear which is which.
+
+## Constraints
+
+- Present all output in `{communication_language}`
+- Recommend running each skill in a **fresh context window**
+- Match the user's tone — conversational when they're casual, structured when they want specifics
+- If the active module is ambiguous, retrieve all meta rows remote sources to find relevant info also to help answer their question
+
+
+ARGUMENTS: we just started to unify SKF carved-content layout and elevate skf-setup to Excellent using the Quality-analysis workflow (read the last 3 commits from the last PR merged). Now we have a good foundatation, I want to do the same for the remaining Core workflow (they should be elevated to Excellent too):Core Workflows
+    Setup Forge (SF) <-- DONE
+    Brief Skill (BS)
+    Create Skill (CS)
+    Update Skill (US) . What is the best approach? Maybe we can leverage claude code agent teams and subagents? Let me now the genius approach. Feel free to Self improve your internal workflows (in .claude/skills folder) ONLY IF IT IS NECESSARY (RUN /reload-plugins  TO LOAD NEW UPDATED SKILLS). DO NO HALLUCINATE.
+
+---
+
+<task-notification>
+<task-id>ad60db195996a56cb</task-id>
+<tool-use-id>toolu_01KKW8EEzYQiSzBwmiSTEDjm</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/bea58142-752f-49eb-92a3-83ac2514f5b2/tasks/ad60db195996a56cb.output</output-file>
+<status>completed</status>
+<summary>Agent "Quality-analysis on skf-brief-skill" completed</summary>
+<result>All artifacts in place. Here's the summary report.
+
+---
+
+## Quality Analysis Complete — skf-brief-skill
+
+**Grade:** **Excellent**
+
+**Reports:**
+- Markdown: `/home/armel/Projects/OSS/bmad-module-skill-forge/skills/reports/skf-brief-skill/quality-analysis/20260515T115954/quality-report.md`
+- HTML: `/home/armel/Projects/OSS/bmad-module-skill-forge/skills/reports/skf-brief-skill/quality-analysis/20260515T115954/quality-report.html`
+
+### Top 8 actionable opportunities
+
+1. **customization-surface (medium)** — Ship `customize.toml` with `[agent]` metadata block; the skill is below the new SKF baseline established by skf-setup PR #305.
+2. **structure / repo-hygiene (low)** — Scrub `.decision-log.md` and `.analysis/20260515-113559/` from the skill folder (gitignore both); they are prior-scan scratch artifacts.
+3. **customization-surface (medium)** — Lift three asset paths to `customize.toml` scalars (`description_voice_examples_path`, `scope_templates_path`, `brief_schema_path`) so orgs can override house style without forking.
+4. **enhancement (medium)** — Add interactive "brief from preset" entry point that reuses the existing headless preset-merge logic for ecosystem-batch users.
+5. **enhancement (medium)** — Add optional "preview what `skf-create-skill` will produce" between step 4 confirm and step 5 write, to catch overscope before compilation.
+6. **enhancement (low)** — Specify or remove the underspecified workspace-list `'list'` pagination option at step 2 §1b.
+7. **script-opportunities (low)** — Add `skf-count-sentences.py` to crystallise the description sentence-count check now done in prose (~150 tokens/run).
+8. **enhancement (low)** — Promote the "Wanted something different?" cancel-line to the first line of step 1 §2 Welcome so confused users exit before paying start-up cost.
+
+### Broken findings
+
+**None.** Zero critical/high blocking issues. The three path-standards "high" findings (`.decision-log.md` at root; absolute paths inside `.analysis/`) are repo-hygiene issues caused by a prior in-tree scan writing artifacts back into the skill folder — not skill-design defects.
+
+### Scanner anomalies / notes
+
+- **L7 sanctum architecture skipped** as designed — `sanctum-architecture-prepass.json` reports `is_memory_agent: false`.
+- **Subagent execution constraint:** the harness in this environment did not expose a Task-spawning tool, so the 7 LLM scanners (L1-L6, L8) and the report-creator role were executed inline against the prepass JSON and the target skill files rather than as parallel subagents. All scanner output documents (`structure-analysis.md`, `prompt-craft-analysis.md`, `execution-efficiency-analysis.md`, `agent-cohesion-analysis.md`, `enhancement-opportunities-analysis.md`, `script-opportunities-analysis.md`, `customization-surface-analysis.md`) are present in the report directory.
+- **Prepass false-positives noted in the report:** the structure prepass flags missing `Identity`/`Communication Style`/`Principles` (agent-archetype expectations that don't apply to workflow skills) and "no progression keywords" on 5 reference files (which are static lazy-loaded references, not chained step files). These are documented as false positives in the synthesis, not actionable findings.
+- **Grade delta from prior scan:** previous in-tree scan (2026-05-03, captured in `.decision-log.md`) graded "Good"; this scan grades "Excellent" — reflecting both the module-wide `steps-c/ → references/` refactor and shared-script delegation maturation since that scan.</result>
+<usage><total_tokens>170666</total_tokens><tool_uses>58</tool_uses><duration_ms>629412</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ac60a6e5f58246647</task-id>
+<tool-use-id>toolu_016k774NdkNHB4E7cbBkdtyy</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/bea58142-752f-49eb-92a3-83ac2514f5b2/tasks/ac60a6e5f58246647.output</output-file>
+<status>completed</status>
+<summary>Agent "Quality-analysis on skf-update-skill" completed</summary>
+<result>All outputs are in place. Final report below.
+
+---
+
+# Quality Analysis Report — skf-update-skill
+
+**Grade: Excellent**
+
+**Report paths:**
+- Markdown: `/home/armel/Projects/OSS/bmad-module-skill-forge/skills/reports/skf-update-skill/quality-analysis/20260515T120017/quality-report.md`
+- HTML: `/home/armel/Projects/OSS/bmad-module-skill-forge/skills/reports/skf-update-skill/quality-analysis/20260515T120017/quality-report.html`
+
+## Top opportunities (7 themes, 21 constituent findings)
+
+1. **Customization-Surface Parity** (customization-surface, HIGH) — `customize.toml` is missing entirely; module-wide consistency with skf-setup PR #305 requires it. Also exposes 50% deletion-ratio threshold, 80% rename-similarity threshold, and `[MANUAL]` marker syntax.
+2. **Lift Deterministic Operations into Scripts** (script-opportunities, HIGH) — 6 extractions: change-manifest builder, provenance-map gap-driven dispatcher, SHA-256 hashing, workspace-drift git guard, active-symlink atomic update, Description Guard. Description Guard is duplicated across skf-update-skill and skf-create-skill — shared script enforces protocol parity.
+3. **Concurrency &amp; Build Hygiene** (enhancement, MEDIUM) — No concurrency lock (two simultaneous runs corrupt provenance); `.analysis/` directories accumulate inside skill source (caused 6 false-positive lint findings this run).
+4. **Headless Observability &amp; UX Modes** (enhancement, MEDIUM) — Headless auto-resolutions not in result contract; `--dry-run` and `--detect-only` flags missing; test-report fallback signals too weakly.
+5. **Document Cross-Skill Data Coupling** (structure / prompt-craft / cohesion, LOW) — `re-extract.md` frontmatter pulls 4 references from `skf-create-skill/references/` — undocumented in SKILL.md `## Conventions`. Three scanners flagged independently.
+6. (in recommendations) Add `headless_decisions[]` to result contract + `.analysis/` cleanup.
+7. (in recommendations) Extract S-1 / S-2 scripts for largest token savings.
+
+## Broken findings
+
+**None.** No critical or high-blocking issues. Workflow is correct and complete.
+
+## Scanner anomalies
+
+- **`scan-path-standards.py` produced 6 false-positive `bare-bmad` findings** — five came from a stale `.analysis/20260515-113655/` directory inside the target skill (artifact of a prior tooling run, dated April 2026), one from `references/health-check.md:3` which is a frontmatter-comment explaining path resolution (the scanner pattern-matched the literal string `_bmad/skf/` inside a `#` comment). Neither is a real defect. Promoted to a real finding under Opportunity 3 (build-hygiene).
+- **Structure prepass flagged missing `## Identity`, `## Communication Style`, `## Principles` sections.** These are persona-agent expectations and do not apply to SKF Core workflow skills (peer skill skf-create-skill has the identical 7-section shape). Treated as archetype-mismatch INFO.
+- **L7 (sanctum-architecture) was correctly skipped** — prepass reported `is_memory_agent: false` (no `assets/PERSONA-template.md` etc.). 7 LLM scanners executed (L1, L2, L3, L4, L5, L6, L8); not 8.
+- **No subagent spawning available in this environment** — all 7 scanners and the report-synthesizer were executed inline by the orchestrator rather than dispatched to parallel subagents. Output quality matches the scanner-spec contracts but parallelism savings did not materialize.</result>
+<usage><total_tokens>161389</total_tokens><tool_uses>56</tool_uses><duration_ms>803146</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa125fa3a02f73ba6</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/bea58142-752f-49eb-92a3-83ac2514f5b2/tasks/aa125fa3a02f73ba6.output</output-file>
+<status>completed</status>
+<summary>Agent "Quality-analysis on skf-create-skill" completed</summary>
+<result>All artifacts produced successfully. Here's the headless-mode summary report.
+
+---
+
+## Quality Analysis Complete — skf-create-skill
+
+**Grade:** Good
+
+**Report paths:**
+- Markdown: `/home/armel/Projects/OSS/bmad-module-skill-forge/skills/reports/skf-create-skill/quality-analysis/20260515T120003/quality-report.md`
+- HTML: `/home/armel/Projects/OSS/bmad-module-skill-forge/skills/reports/skf-create-skill/quality-analysis/20260515T120003/quality-report.html`
+- JSON: `/home/armel/Projects/OSS/bmad-module-skill-forge/skills/reports/skf-create-skill/quality-analysis/20260515T120003/report-data.json`
+
+**Top opportunities (ordered by impact):**
+
+1. **Customization surface gap (high — customization-surface)** — No `customize.toml` exists. Blocks module-roster integration; lags behind the recently-elevated `skf-setup` (PR #305). Ship one with `[agent]` metadata block (code=CS, title, icon, agent_type=stateless, persistent_facts).
+
+2. **Stage-file workflow housekeeping (high — structure / path-standards)** — Two parent-directory frontmatter refs in `references/sub/{ccc-discover,fetch-docs}.md`, one `~/.skf/workspace/` literal in `source-resolution-protocols.md`, no `{communication_language}` config header in any of the 14 stage files.
+
+3. **Script delegation for deterministic ops (high — script-opportunities)** — `extract.md §4c` (script/asset detection), `extract.md §2a` (authoritative-files protocol), `load-brief.md §3` (brief schema validation) belong in `src/shared/scripts/`. ~2-3k tokens/invocation + determinism wins.
+
+4. **extract.md size (medium — prompt-craft)** — 379 lines, with §2a authoritative-files protocol embedded (~95 lines). Carve §2a to its own protocol file. Same pattern applies to `extraction-patterns.md` (430 lines) and `skill-sections.md` (395 lines).
+
+5. **Network parallelization (medium — execution-efficiency)** — `fetch-temporal.md §3` runs 4 independent gh fetches sequentially; `fetch-docs.md §3` runs up to 10 subpage fetches sequentially. ~5-18s wall-clock saved.
+
+6. **Per-gate headless overrides (medium — enhancement)** — Headless is binary today; pipelines can't tune individual gate defaults. Surface via `[agent.gate_defaults]` (depends on #1).
+
+7. **UX polish (medium — enhancement)** — Re-forge with rename orphans old directory silently; existing-version artifacts overwritten with no diff preview; Quick tier doesn't suggest tier-upgrade when AST tools are available.
+
+**Broken findings:** 0. The skill operates correctly today. All "high" findings from lint pre-passes are real quality issues but non-blocking.
+
+**Scanner notes:**
+- L7 (sanctum-architecture) correctly skipped — `is_memory_agent: false`.
+- Path-standards lint scanned files inside `.analysis/20260515-113603/` (prior analysis artifacts within the skill); ~8 of the 18 high-severity findings are from those internal report files, not the actual skill source — flagged in the structure analysis as noise the lint can't distinguish. The legitimate path-standards findings are summarized above.
+- Structure pre-pass applied agent-shape heuristics (Identity / Communication Style / Principles required, name must contain "agent") that don't apply to stage-chained workflow skills — those 4 findings are archetype mismatches and were re-classified as false positives in the structure analysis.
+- No subagent spawning tool was available in this environment — scanners were run inline rather than as parallel subagents. Pre-pass scripts ran in parallel (all 6 completed exit 0).</result>
+<usage><total_tokens>235362</total_tokens><tool_uses>63</tool_uses><duration_ms>876890</duration_ms></usage>
+</task-notification>
+
+---
+
+merged
+
+---
+
+continue
+
+---
+
+merged. Continue
+
+---
+
+merged. continue with A4
+
+---
+
+merge. continue
+
+---
+
+the CI failed on windows-latest
+
+---
+
+<task-notification>
+<task-id>bvhptkzuz</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/bea58142-752f-49eb-92a3-83ac2514f5b2/tasks/bvhptkzuz.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll until Windows python job finishes" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm6o4pyil</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/bea58142-752f-49eb-92a3-83ac2514f5b2/tasks/bm6o4pyil.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll windows-latest python until pass/fail" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bv3j17byz</task-id>
+<tool-use-id>toolu_01Cu1WT35Rq9nzCwPoF2coEf</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/bea58142-752f-49eb-92a3-83ac2514f5b2/tasks/bv3j17byz.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll windows python until done" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+merged. continue
+
+---
+
+<task-notification>
+<task-id>b481nxhot</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/bea58142-752f-49eb-92a3-83ac2514f5b2/tasks/b481nxhot.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll Windows CI on PR 312" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+merged. continue
+
+---
+
+<task-notification>
+<task-id>bs3pl0o17</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/bea58142-752f-49eb-92a3-83ac2514f5b2/tasks/bs3pl0o17.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll Windows CI on PR 313" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+merged. continue
+
+---
+
+<task-notification>
+<task-id>b31jrgha3</task-id>
+<tool-use-id>toolu_01GJj3rgTFgSsez33tXD4uJC</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/bea58142-752f-49eb-92a3-83ac2514f5b2/tasks/b31jrgha3.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll Windows CI on PR 314" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+merged. continue
+
+---
+
+<task-notification>
+<task-id>b7pht1bad</task-id>
+<tool-use-id>toolu_01PVMJE4NwzmDDFhwCRioAE4</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/bea58142-752f-49eb-92a3-83ac2514f5b2/tasks/b7pht1bad.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll Windows CI on PR 315" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+merged. continue
+
+---
+
+<task-notification>
+<task-id>brjofrorc</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/bea58142-752f-49eb-92a3-83ac2514f5b2/tasks/brjofrorc.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll Windows CI on PR 316" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b2ljs1tqq</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/bea58142-752f-49eb-92a3-83ac2514f5b2/tasks/b2ljs1tqq.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll again" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+merged. continue
+
+---
+
+merged. continue
+
+---
+
+merged. continue

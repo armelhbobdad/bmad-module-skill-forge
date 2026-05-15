@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "30c1ffd4b21e",
+  "session_id": "bea58142-752f-49eb-92a3-83ac2514f5b2",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-15T18:13:01.706805619Z",
+  "branch": "feat/skf-update-result-envelope",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-update-skill/SKILL.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "8856682c905d",
+  "token_usage": {
+    "input_tokens": 485,
+    "cache_creation_tokens": 1127858,
+    "cache_read_tokens": 114162082,
+    "output_tokens": 363545,
+    "api_call_count": 345
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-15T18:12:59.786016483Z",
+    "agent_lines": 1,
+    "human_added": 7689,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 7690,
+    "agent_percentage": 0.013003901170351105
+  }
+}
