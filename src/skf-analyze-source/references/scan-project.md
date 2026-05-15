@@ -2,6 +2,7 @@
 nextStepFile: 'identify-units.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 heuristicsFile: 'references/unit-detection-heuristics.md'
+scanManifestsScript: '{project-root}/src/shared/scripts/skf-scan-manifests.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -38,9 +39,9 @@ Load {heuristicsFile} for reference on detection signals.
 
 1. Map the top-level directory tree (2-3 levels deep)
 2. Identify workspace configuration files (pnpm-workspace.yaml, lerna.json, Cargo.toml [workspace], go.work, etc.)
-3. Find all package manifests (package.json, Cargo.toml, go.mod, requirements.txt, pyproject.toml, build.gradle, pom.xml)
+3. Enumerate package manifests deterministically — invoke `uv run {scanManifestsScript} scan {path}` and parse the JSON envelope. The script returns `{manifests[], total_unique, monorepo, warnings?}` covering npm/python/rust/go/maven/gradle/ruby/composer/swift; record each `{path, ecosystem}` for the manifests catalog in §4 and capture `monorepo` for the boundary-signal pass in §3
 4. Locate entry point files (index.ts, main.ts, app.ts, main.go, main.rs, __init__.py, etc.)
-5. Detect service configuration (Dockerfile, docker-compose.yml, kubernetes manifests, serverless.yml)
+5. Detect service configuration (Dockerfile, docker-compose.yml, kubernetes manifests, serverless.yml) — keep this step LLM-driven; file glob + presence check is sufficient, no parsing required
 6. Return structured findings — file paths and types only, not contents
 
 **If subprocess unavailable:** Perform directory scanning in main thread using file I/O tools.

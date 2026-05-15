@@ -130,10 +130,10 @@ Start from the package entry point (see 0b) and identify the public API surface.
 - Cannot verify signatures — note as "unverified" in report
 
 **Forge Tier (ast-grep available):**
-DO NOT BE LAZY — For EACH source file that defines public API exports, launch a subprocess that:
+For EACH source file that defines public API exports, delegate to a subagent that:
 1. Uses ast-grep to extract all exported symbols with their full signatures
 2. Matches each export against the documented inventory
-3. Returns structured findings:
+3. Returns ONLY the JSON object below — no prose, no commentary, no markdown fences:
 
 ```json
 {
@@ -152,7 +152,7 @@ DO NOT BE LAZY — For EACH source file that defines public API exports, launch 
 }
 ```
 
-If subprocess unavailable, perform ast-grep analysis in main thread per file.
+Parent strips wrapping markdown fences (if present) before parsing, same as §1a. If subagent unavailable, perform ast-grep analysis in main thread per file.
 
 **Deep Tier (ast-grep + gh + QMD):**
 - All Forge tier checks, plus:

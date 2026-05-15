@@ -1,6 +1,7 @@
 ---
 nextStepFile: 'rank-and-confirm.md'
 manifestPatterns: 'references/manifest-patterns.md'
+scanManifestsScript: '{project-root}/src/shared/scripts/skf-scan-manifests.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -87,18 +88,31 @@ Store the explicit list as `raw_dependencies` and skip to [Display Detection Sum
 
 **If no explicit list:** Continue to section 2.
 
-### 2. Scan for Manifest Files
+### 2. Scan and Parse Manifests
 
-Load `{manifestPatterns}` for supported ecosystem detection patterns.
+Invoke the deterministic manifest scanner — it walks the project root, parses every recognised manifest, dedupes the production dep set, and flags monorepo layout:
 
-Scan the project root (depth 0-1) for manifest files, **excluding directories listed in the Scan Exclusion Patterns section of `{manifestPatterns}`**:
+```bash
+uv run {scanManifestsScript} scan {scan_root}
+```
 
-- Search for each supported manifest filename
-- Record: file path, ecosystem type, file size
-- **Apply exclusion patterns** from `{manifestPatterns}` — skip `node_modules/`, `.venv/`, `vendor/`, `dist/`, `build/`, `target/`, `.git/`, and all hidden directories when globbing
-- Note any unusual structures (monorepo with multiple manifests, workspace configurations)
+Where `{scan_root}` is the project root path. Load `{manifestPatterns}` for the ecosystem reference table that documents supported filenames, dependency keys, and normalisation rules; the script implements exactly that table (npm/pnpm/yarn, python pip/poetry/pdm, rust cargo, go modules, java/kotlin maven + gradle, ruby bundler, composer, swift package manager). Exclusion patterns (`node_modules/`, `.venv/`, `vendor/`, `dist/`, `build/`, `target/`, `.git/`, hidden dirs) are applied internally.
 
-**If no manifest files found:**
+Parse the JSON output — shape:
+
+```
+{
+  "manifests": [
+    {"path": "<rel-from-root>", "ecosystem": "<name>", "deps": [{"name": "...", "version": "..."}]},
+    ...
+  ],
+  "total_unique": N,
+  "monorepo": <bool>,
+  "warnings": ["..."]   // optional, only if any parse warning fired
+}
+```
+
+If `manifests` is empty:
 
 **Headless auto-cancel (S2):** If `{headless_mode}` is true, do NOT wait for user input. Emit a structured error contract `{"status":"error","skill":"skf-create-stack-skill","stage":"step 2","reason":"no manifests found, headless cannot prompt"}` on stderr and exit non-zero. Headless mode cannot proceed without an explicit dependency list.
 
@@ -117,21 +131,7 @@ Searched for: package.json, requirements.txt, Cargo.toml, go.mod, pom.xml, build
 
 STOP — wait for user response.
 
-### 3. Parse Each Manifest
-
-For each discovered manifest file:
-
-1. Read the file contents
-2. Extract dependency names and version constraints using ecosystem-specific parsing:
-   - JSON manifests: parse dependencies/devDependencies keys
-   - TOML manifests: parse [dependencies] sections
-   - Text manifests: parse line-by-line (name==version or name>=version)
-   - XML manifests: parse dependency elements
-   - Gradle: parse implementation/api/compile declarations
-3. Categorize: runtime vs dev-only
-4. Normalize dependency names across ecosystems
-
-Deduplicate dependencies found across multiple manifests.
+Otherwise, store the parsed `manifests[]` and `total_unique` as `raw_dependencies` (dedup is already applied by the scanner), surface any `warnings[]` to the user as parse-quality notes, and inspect the `monorepo` flag: if `true`, mention the monorepo layout in the detection summary so the user can decide whether to scope the ranking to a specific package or proceed across all manifests.
 
 ### 4. Display Detection Summary
 

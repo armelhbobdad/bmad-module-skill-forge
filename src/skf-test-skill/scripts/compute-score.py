@@ -8,11 +8,34 @@ Pure-function scoring script for the SKF test-skill workflow (step-05).
 Implements the weight tables, skip conditions, and proportional redistribution
 defined in scoring-rules.md.
 
-CLI: python3 compute-score.py '<JSON>'
+CLI usage:
+  uv run compute-score.py '<JSON>'                  # JSON literal as positional arg
+  uv run compute-score.py --json-input '<JSON>'     # explicit flag form
+  cat input.json | uv run compute-score.py --stdin  # piped input
+
+Input schema (one object):
+  {
+    "mode": "contextual" | "naive",
+    "tier": "Quick" | "Forge" | "Forge+" | "Deep",
+    "scores": {
+      "exportCoverage": <0-100>,
+      "signatureAccuracy": <0-100>,
+      "typeCoverage": <0-100>,
+      "coherence": <0-100>,
+      "externalValidation": <0-100>
+    },
+    "threshold": <0-100, optional, default 80>,
+    "evidenceCount": <int, optional, used for INCONCLUSIVE floor>
+  }
+
+Exit codes:
+  0  — score computed (verdict may be PASS/FAIL/INCONCLUSIVE)
+  1  — input error (bad JSON, missing fields, schema violation)
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import sys
@@ -286,25 +309,73 @@ def compute_score(inp):
 
 # --- CLI Entry Point ---
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python3 compute-score.py '<JSON>'", file=sys.stderr)
-        print(
-            'Example: python3 compute-score.py \'{"mode":"contextual","tier":"Deep",'
-            '"scores":{"exportCoverage":92,"signatureAccuracy":85,"typeCoverage":100,'
-            '"coherence":80,"externalValidation":78}}\'',
-            file=sys.stderr,
-        )
-        sys.exit(1)
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="compute-score",
+        description=(
+            "Deterministic Completeness Score calculator. Input is a single JSON "
+            "object describing mode, tier, scores, and optional threshold/evidence "
+            "count; output is the verdict + redistributed score breakdown."
+        ),
+        epilog=(
+            "Example:\n"
+            "  uv run compute-score.py "
+            "'{\"mode\":\"contextual\",\"tier\":\"Deep\","
+            "\"scores\":{\"exportCoverage\":92,\"signatureAccuracy\":85,"
+            "\"typeCoverage\":100,\"coherence\":80,\"externalValidation\":78}}'"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    src = parser.add_mutually_exclusive_group()
+    src.add_argument(
+        "json_input",
+        nargs="?",
+        help="JSON object as a positional argument (single-quote it on the shell).",
+    )
+    src.add_argument(
+        "--json-input",
+        dest="json_input_flag",
+        help="JSON object passed via flag (overrides positional).",
+    )
+    src.add_argument(
+        "--stdin",
+        action="store_true",
+        help="Read the JSON object from stdin.",
+    )
+    return parser
+
+
+def _resolve_input(args: argparse.Namespace) -> str:
+    if args.stdin:
+        return sys.stdin.read()
+    if args.json_input_flag is not None:
+        return args.json_input_flag
+    if args.json_input is not None:
+        return args.json_input
+    return ""
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    raw = _resolve_input(args)
+    if not raw.strip():
+        parser.print_usage(file=sys.stderr)
+        print("error: no input provided (positional arg, --json-input, or --stdin)", file=sys.stderr)
+        return 1
 
     try:
-        data = json.loads(sys.argv[1])
-    except json.JSONDecodeError:
-        print(
-            json.dumps(make_error(f"Invalid JSON: {sys.argv[1][:100]}"), indent=2)
-        )
-        sys.exit(1)
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(json.dumps(make_error(f"Invalid JSON: {exc.msg}"), indent=2))
+        return 1
 
     result = compute_score(data)
     print(json.dumps(result, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
     sys.exit(1 if "error" in result else 0)

@@ -2,6 +2,8 @@
 nextStepFile: 're-index.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
 templateFile: 'assets/drift-report-template.md'
+loadProvenanceScript: '{project-root}/src/shared/scripts/skf-load-provenance.py'
+compareFileHashesScript: '{project-root}/src/shared/scripts/skf-compare-file-hashes.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -97,22 +99,31 @@ Load the following from the skill directory:
 Search for provenance map at `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json` (i.e., `{forge_version}/provenance-map.json`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`:
 
 **If found:**
-- Load and extract: export list, file mappings, extraction timestamps, confidence tiers
-- Record provenance map age (days since last extraction)
+- Record provenance map age (days since last extraction) from file mtime
+- Normalize the map's deterministic projections in one subprocess call:
+
+  ```bash
+  uv run {loadProvenanceScript} normalize {provenanceMap}
+  ```
+
+  Parse the emitted JSON and stash these fields in workflow context (downstream steps read them directly — no re-walk):
+  - `{bounded_scan_files}` — sorted POSIX list, union of `entries[].source_file` and `file_entries[].source_file`. Step 2 `re-index.md` consumes this as the bounded scan list.
+  - `{is_stack_skill}`, `{legacy_stack_provenance}` — stack-skill flags (see Stack Skill Detection below for downstream branching).
+  - `{source_root}`, `{baseline_commit}`, `{baseline_ref}` — used by §5 Resolve Source Path and §5b Detect Upstream Drift.
+  - `{reexport_map}` — `{<internal>: <public>}` mapping consumed by `structural-diff.md` §1 to collapse public-API renames before diffing.
+
+  If the script exits non-zero, surface the stderr as a HARD HALT — the map is structurally invalid and downstream steps cannot proceed.
 
 **If missing at both paths:**
 - "No provenance map found for `{skill_name}`. This skill may not have been created by create-skill."
 - "**Degraded mode available:** I can perform text-based comparison without provenance data. Findings will have T1-low confidence."
 - "**[D]egraded mode** — proceed with text-diff only"
 - "**[X]** — abort audit"
-- Wait for user selection. If D, set `degraded_mode: true`. If X, halt workflow.
+- Wait for user selection. If D, set `degraded_mode: true` and skip the normalize call above (no map to normalize). If X, halt workflow.
 
 ### Stack Skill Detection
 
-After loading provenance-map.json, detect skill type:
-- If `provenance_version` is `"2.0"` and `skill_type` is `"stack"`: set `{is_stack_skill}` = true
-- If provenance-map has top-level `libraries` key (v1 stack format): set `{is_stack_skill}` = true, `{legacy_stack_provenance}` = true
-- Otherwise: `{is_stack_skill}` = false
+`{is_stack_skill}` and `{legacy_stack_provenance}` are already resolved by the normalize call in §4 — no additional walk needed. Apply the post-detection logic:
 
 If `{is_stack_skill}` is true and `constituents` array is present (compose-mode stack):
 - For each constituent, compute the current metadata hash: read `{constituent.skill_path}/active/{constituent.skill_name}/metadata.json` and compute SHA-256
@@ -125,10 +136,9 @@ If `{legacy_stack_provenance}` is true: log a note that this stack uses v1 prove
 ### 5. Resolve Source Path
 
 **If provenance map loaded:**
-- Use `source_root` from provenance map as source code path
+- Use `{source_root}` (already extracted by §4 normalize) as source code path
 - Verify source path still exists and is accessible
-- Extract `baseline_commit` = `provenance-map.source_commit` (fall back to `metadata.source_commit` if absent from the provenance map)
-- Extract `baseline_ref` = `metadata.source_ref` (may be a tag, branch, `HEAD`, or `"local"`)
+- `{baseline_commit}` and `{baseline_ref}` are already populated by §4. If `{baseline_commit}` is null in the projection, fall back to `metadata.source_commit`. `{baseline_ref}` may be a tag, branch, `HEAD`, or `"local"`.
 
 **If degraded mode:**
 - Ask user: "Please provide the path to the current source code."

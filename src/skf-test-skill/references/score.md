@@ -82,10 +82,10 @@ Build a JSON object from the data gathered in steps 1-2:
 #### 3b. Run the Scoring Script
 
 ```bash
-python3 {scoringScript} '<JSON>'
+echo '<JSON>' | uv run {scoringScript} --stdin
 ```
 
-Where `{scoringScript}` is the path resolved from the frontmatter variable (relative to the skill root, i.e., the skf-test-skill/ directory).
+Where `{scoringScript}` is the path resolved from the frontmatter variable (relative to the skill root, i.e., the skf-test-skill/ directory). The script also accepts the JSON as a positional argument (`uv run {scoringScript} '<JSON>'`) or via `--json-input '<JSON>'`; `--stdin` is preferred since it avoids shell-quote escaping of nested JSON.
 
 Parse the JSON output. The script returns:
 - `weights` — final redistributed weights per category
