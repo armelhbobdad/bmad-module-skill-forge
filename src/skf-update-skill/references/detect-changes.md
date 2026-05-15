@@ -17,6 +17,14 @@ hashContentProbeOrder:
 buildChangeManifestProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-build-change-manifest.py'
   - '{project-root}/src/shared/scripts/skf-build-change-manifest.py'
+# Resolve `{provenanceGapDispatchHelper}` to the first existing path; HALT
+# if neither exists. §1c uses it to discover the latest drift report, parse
+# Out-of-Scope candidates, and classify them against brief.scope.amendments[]
+# in one call. Falling back to prose-driven markdown parsing would let
+# report-format drift produce silent skips of out-of-scope candidates.
+provenanceGapDispatchProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-provenance-gap-dispatch.py'
+  - '{project-root}/src/shared/scripts/skf-provenance-gap-dispatch.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -161,23 +169,51 @@ Read the source directory at `{source_root}` and build a current file inventory:
 
 **Procedure:**
 
-1. **Locate the most recent audit drift report.** Search `{forge_data_folder}/{skill_name}/{baseline_version}/drift-report-*.md`, sorted by timestamp descending. Pick the latest. If none found, **skip §1c entirely** — the post-detection deletion-ratio trigger in §2.2 still catches major restructures even without an audit pass.
+1. **Discover, parse, and reconcile in one call.** The helper handles drift-report discovery (glob, timestamp-DESC sort, latest wins), Out-of-Scope section extraction (both `## Out-of-Scope Observations` and `### Out-of-Scope New Public API` under `## Remediation Suggestions` heading shapes), candidate parsing (bullet and table markdown formats), and amendment reconciliation against `brief.scope.amendments[]`:
 
-2. **Parse the report for an "Out-of-Scope Observations" section.** Look for either a top-level `## Out-of-Scope Observations` heading or a `### Out-of-Scope New Public API` subsection under `## Remediation Suggestions`. Each entry must expose:
+   ```bash
+   uv run {provenanceGapDispatchHelper} dispatch \
+       --skill-name {skill_name} \
+       --baseline-version {baseline_version} \
+       --forge-data-folder {forge_data_folder} \
+       --brief {forge_data_folder}/{skill_name}/skill-brief.yaml
+   ```
 
-   - `path` — literal file path or directory glob (e.g., `python/cocoindex/_internal/api.py` or `python/cocoindex/resources/**`)
-   - `evidence` — short one-liner from the report (export count, rationale)
+   Output envelope:
 
-   **Note:** This section is an optional audit-skill output. `skf-audit-skill` does not currently discover new files (per `src/skf-audit-skill/references/re-index.md` — new-file detection is the responsibility of update-skill). The section is a forward-looking integration point: manual additions to the drift report or a future audit-skill enhancement populate it. If absent, no candidates from this trigger — proceed to step 6.
+   ```json
+   {
+     "status": "no-report" | "no-candidates" | "candidates-found",
+     "report_path": "<abs path>" | null,
+     "candidates_total": N,
+     "classified": [
+       {
+         "path": "<glob or file path>",
+         "evidence": "<one-liner>",
+         "status": "already-in-scope" | "pre-decided-skipped"
+                 | "pre-decided-demoted" | "unresolved",
+         "prior_action": "promoted" | "skipped"
+                       | "demoted-include" | "demoted-exclude"
+                       | null
+       }, ...
+     ],
+     "summary": {"pre_decided_count": N, "unresolved_count": N}
+   }
+   ```
 
-3. **Reconcile against existing amendments.** For each candidate, consult `brief.scope.amendments[]`:
+2. **Dispatch on `status`:**
 
-   - `action: "promoted"` AND `path` matches → already in scope, skip silently.
-   - `action: "skipped"` AND `path` matches → user previously declined, honor silently.
-   - `action: "demoted-include"` or `action: "demoted-exclude"` AND `path` matches → user previously narrowed scope on this path, do not re-prompt; record as `pre_decided`.
-   - No matching amendment → continue to user prompt.
+   - **`no-report`** — no drift report under `{forge_data_folder}/{skill_name}/{baseline_version}/`. **Skip §1c entirely** — proceed to step 6's summary line (omit). §2.2's post-detection deletion-ratio trigger still catches major restructures.
+   - **`no-candidates`** — report exists but the Out-of-Scope section is absent or empty. Proceed to step 6's summary line with `"no out-of-scope observations in drift report."`
+   - **`candidates-found`** — iterate `classified[]`:
+     - `status: "already-in-scope"` → skip silently (`prior_action: "promoted"`).
+     - `status: "pre-decided-skipped"` → honor silently (`prior_action: "skipped"`).
+     - `status: "pre-decided-demoted"` → record as `pre_decided`; do not re-prompt (`prior_action` ∈ `demoted-include`, `demoted-exclude`).
+     - `status: "unresolved"` → continue to step 4 (user prompt).
 
-4. **Prompt for each unresolved candidate.** Present the same menu shape as §1b:
+   **Note:** the Out-of-Scope section is an optional audit-skill output. `skf-audit-skill` does not currently discover new files (per `src/skf-audit-skill/references/re-index.md` — new-file detection is the responsibility of update-skill). The section is a forward-looking integration point: manual additions or a future audit-skill enhancement populate it.
+
+3. **Prompt for each unresolved candidate.** Present the same menu shape as §1b:
 
    ```
    **Out-of-scope new public API discovered**
@@ -193,9 +229,9 @@ Read the source directory at `{source_root}` and build a current file inventory:
    [U] Update  — halt this run and return to skf-brief-skill to refine scope
    ```
 
-5. **Headless mode (`{headless_mode}` is true):** auto-select `[S] Skip` for every candidate — record `action: "skipped"`, `category: "scope-expansion"`, `reason: "headless: no user to prompt"`, `workflow: "skf-update-skill"`. A non-interactive update run must never silently expand scope.
+4. **Headless mode (`{headless_mode}` is true):** auto-select `[S] Skip` for every candidate — record `action: "skipped"`, `category: "scope-expansion"`, `reason: "headless: no user to prompt"`, `workflow: "skf-update-skill"`. A non-interactive update run must never silently expand scope.
 
-6. **Apply decision:**
+5. **Apply decision:**
 
    - **[P] Promote:**
      1. Append `candidate.path` to `brief.scope.include` as a literal glob (preserve any wildcards from the drift report).
@@ -215,7 +251,7 @@ Read the source directory at `{source_root}` and build a current file inventory:
      2. Display: `"Halting update-skill. Re-run skf-brief-skill to refine scope for {skill_name}, then re-run skf-update-skill."`
      3. Exit with status `halted-for-brief-refinement`. Change manifest is not yet built — no partial writes to provenance.
 
-7. **Summary:** After all candidates are resolved (or none were found):
+6. **Summary:** After all candidates are resolved (or none were found):
 
    - `"Scope reconciliation: {N} candidates, {P} promoted, {S} skipped, {A} pre-decided from amendments."`
    - If N = 0 (section absent or empty): `"Scope reconciliation: no out-of-scope observations in drift report."`
