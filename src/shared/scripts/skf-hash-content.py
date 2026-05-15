@@ -100,7 +100,7 @@ def hash_record(path: Path, *, include_path: bool = False) -> dict:
         "line_count": count_lines(path),
     }
     if include_path:
-        rec = {"path": str(path), **rec}
+        rec = {"path": path.as_posix(), **rec}
     return rec
 
 

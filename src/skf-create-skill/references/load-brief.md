@@ -2,6 +2,14 @@
 nextStepFile: 'ecosystem-check.md'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 preferencesFile: '{sidecar_path}/preferences.yaml'
+# Resolve `{validateBriefSchemaHelper}` to the first existing path; HALT if
+# neither candidate exists. §3 relies on the helper for deterministic
+# schema-conformance checks (required fields, regex patterns, enum
+# membership, docs-only conditional rules) so this stage does not re-run
+# those checks in prose.
+validateBriefSchemaProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-schema.py'
+  - '{project-root}/src/shared/scripts/skf-validate-brief-schema.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -63,35 +71,35 @@ Halt with: "No skill brief found. Run [BS] Brief Skill to create one, or use [QS
 
 ### 3. Validate Brief Structure
 
-Check that the loaded skill-brief.yaml contains required fields:
+Run the deterministic schema validator — it checks required fields, regex patterns (`name`, `version`), enum membership (`source_type`, `source_authority`, `forge_tier`, `scope.type`), type correctness, the docs-only conditional rule (`doc_urls` ≥ 1 when `source_type == "docs-only"`), and the version-non-empty-or-whitespace rule:
 
-**Required fields:**
-- `name` — skill identifier (kebab-case)
-- `version` — source version to compile against
-- `source_repo` — GitHub owner/repo or local path (**optional when `source_type: "docs-only"`**)
-- `language` — primary source language
-- `scope` — what to extract. Accepts either a string (simple scope description, e.g., "all public exports") or an object with sub-fields: `type` (e.g., `"component-library"`), `include`, `exclude`, `notes`, and optionally `demo_patterns`, `registry_path`, `ui_variants` for component libraries
+```bash
+uv run {validateBriefSchemaHelper} <path-to-skill-brief.yaml>
+```
 
-**Optional fields:**
-- `source_type` — `"source"` (default) or `"docs-only"` (external documentation only)
-- `doc_urls` — array of `{url, label}` documentation URLs (required when `source_type: "docs-only"`)
-- `source_branch` — branch to use (default: main/master)
-- `source_authority` — official/community/internal (default: community; forced to `community` for docs-only)
-- `target_version` — specific version to compile against (triggers **explicit** tag resolution for remote repos; see source-resolution-protocols.md). When absent, the workflow falls back to **implicit** tag resolution from `brief.version` for remote sources — see below.
-- `include_patterns` — file glob patterns to include
-- `exclude_patterns` — file glob patterns to exclude
-- `description` — human description of the skill
-- `scripts_intent` — `"none"` to skip scripts detection, omit for default auto-detection
-- `assets_intent` — `"none"` to skip assets detection, omit for default auto-detection
+The helper emits:
 
-**Docs-only validation:** When `source_type: "docs-only"`, `source_repo` is not required but `doc_urls` must have at least one entry. `source_authority` is forced to `community`.
+```json
+{
+  "valid": <bool>,
+  "errors":   [{"field": "...", "message": "Brief validation failed: ..."}, ...],
+  "warnings": [{"field": "...", "message": "..."}, ...],
+  "halt_reason": "brief-missing" | "brief-malformed" | "brief-invalid" | null,
+  "brief": { ...parsed YAML when loadable... }
+}
+```
 
-**If required fields missing:**
-Halt with specific error: "Brief validation failed: missing required field `{field}`. Update your skill-brief.yaml and re-run."
+**If `valid` is false:** HALT and display the first error's `message` field verbatim — the helper already formats messages in the "Brief validation failed: ..." form the user expects. For halt-reasons:
 
-**Name format check (run after required-field check, before any path creation):** validate `brief.name` against the regex `^[a-z0-9][a-z0-9-]{0,63}$` — 1-64 characters, lowercase alphanumeric plus hyphens, must start with a letter or digit, no leading hyphen, no uppercase, no underscores, no slashes. This matches the agentskills.io skill-name rule and the directory-name constraint that `skill-check`'s `frontmatter.name_matches_directory` rule will later enforce. If validation fails, halt BEFORE any directory is created or any path is resolved: "Brief validation failed: `name` field `{value}` does not match required pattern `^[a-z0-9][a-z0-9-]{0,63}$`. Skill names must be 1-64 chars, lowercase alphanumeric plus hyphens, no leading hyphen, no underscores, no slashes. Update your skill-brief.yaml and re-run."
+- `brief-missing` — the brief path doesn't exist. Display the helper's message (it includes the `Run [BS] Brief Skill` redirect).
+- `brief-malformed` — the YAML failed to parse. Display the helper's message.
+- `brief-invalid` — schema or conditional-rule violation. Display the first `errors[].message`. Multiple errors may appear; the user typically fixes one source and re-runs.
 
-**Version non-empty check:** reject `brief.version` if absent, empty, or whitespace-only (`version.strip() == ""`). Halt: "Brief validation failed: `version` field is required and must be non-empty. Update your skill-brief.yaml and re-run." This guards downstream directory resolution — an empty version would later create paths like `{skills_output_folder}/{name}//` with a stray double-slash, which is a nightmare to clean up.
+**If `valid` is true:** continue with `brief` (the parsed object) for downstream sections. Surface any `warnings[]` to the user but do not halt.
+
+**Field reference (for human readers):**
+
+The complete contract — required fields, optional fields, types, and rules — lives in `src/shared/scripts/schemas/skill-brief.v1.json` and the prose mirror at `src/skf-brief-skill/assets/skill-brief-schema.md`. Read those if you need to explain a specific field; do NOT restate the rules here.
 
 ### 4. Resolve Source Code Location
 
