@@ -71,57 +71,63 @@ Create a staging directory: `_bmad-output/{skill-name}-temporal/`
 
 Resolve the `owner` and `repo` from `source_repo` (e.g., `acme/toolkit` from `https://github.com/acme/toolkit`).
 
-Execute the following fetches, writing output as markdown files to the staging directory. **If any individual fetch fails, log a warning and continue with the others:**
+Execute the four fetches below **in parallel** — they are independent and the network round-trips dominate wall-clock. Background each, then `wait` for the batch. **If any individual fetch fails, log a warning and continue with the others.** The 4-concurrent fan-out is well under GitHub's authenticated REST rate limit (5000/hr); no bounded-concurrency guard is needed for this set.
 
-1. **Issues (last 100):** (rationale: 100 is `gh issue list`'s default max-per-page; a single paginated call captures recent activity without extra round trips or rate-limit pressure)
+```bash
+mkdir -p {staging}
+# 1. Issues (last 100)
+( gh issue list -R {owner}/{repo} --state all --limit 100 \
+    --json number,title,state,labels,createdAt,closedAt,body \
+    | jq -r '...' > {staging}/issues.md ) &
+# 2. Merged PRs (last 100)
+( gh pr list -R {owner}/{repo} --state merged --limit 100 \
+    --json number,title,mergedAt,labels,body \
+    | jq -r '...' > {staging}/prs.md ) &
+# 3. Release tags only (the per-tag fetch loop runs sequentially below to
+#    preserve append-immediately crash-resume semantics for releases.md)
+( gh release list -R {owner}/{repo} --limit 10 \
+    --json tagName,name,publishedAt > {staging}/.release-tags.json ) &
+# 4. Changelog (404 is silent skip — note `set +e` so the subshell doesn't
+#    propagate `gh api`'s non-zero exit on missing file)
+( set +e
+  gh api repos/{owner}/{repo}/contents/CHANGELOG.md --jq '.content' \
+    | base64 -d > {staging}/changelog.md 2>/dev/null
+  [ -s {staging}/changelog.md ] || rm -f {staging}/changelog.md ) &
+wait
+```
 
-   ```bash
-   gh issue list -R {owner}/{repo} --state all --limit 100 --json number,title,state,labels,createdAt,closedAt,body | ...
-   ```
+Per-call rationale:
 
-   Write to `{staging}/issues.md` — format as a markdown document with one section per issue (number, title, state, labels, body summary).
+1. **Issues (last 100):** 100 is `gh issue list`'s default max-per-page; one paginated call captures recent activity without extra round trips or rate-limit pressure. Output → `{staging}/issues.md` formatted as a markdown document with one section per issue.
 
-2. **Merged PRs (last 100):** (rationale: same 100-per-page convention as issues — captures the most recent merges in one API call)
+2. **Merged PRs (last 100):** Same 100-per-page convention as issues — captures the most recent merges in one API call. Output → `{staging}/prs.md`.
 
-   ```bash
-   gh pr list -R {owner}/{repo} --state merged --limit 100 --json number,title,mergedAt,labels,body | ...
-   ```
+3. **Release tags + per-release fetches (last 10):** Release notes accumulate slowly relative to issues/PRs; the most recent 10 tags cover roughly the last 6-18 months of changelog-relevant history for typical OSS projects, which is enough context for T2-past annotations without fanning out to dozens of `gh release view` calls.
 
-   Write to `{staging}/prs.md` — format as a markdown document with one section per PR.
+   **Note:** `gh release list --json` does **not** support the `body` field. The parallel block above fetches tags only (Step 1). After `wait`, run **Step 2 sequentially** to preserve the append-immediately crash-resume contract:
 
-3. **Releases (last 10):** (rationale: release notes accumulate slowly relative to issues/PRs; the most recent 10 tags cover roughly the last 6-18 months of changelog-relevant history for typical OSS projects, which is enough context for T2-past annotations without fanning out to dozens of `gh release view` calls)
-
-   **Note:** `gh release list --json` does **not** support the `body` field. Use a two-step approach: list tags first, then fetch each release individually with `--json` (which IS supported on `gh release view`).
-
-   ```bash
-   # Step 1: Get release tags (body NOT available here)
-   gh release list -R {owner}/{repo} --limit 10 --json tagName,name,publishedAt
-   ```
-
-   If Step 1 returns an empty array (no releases), skip Step 2 and omit the releases section entirely.
-
-   ```bash
-   # Step 2: For EACH tagName from Step 1, fetch the full release
-   gh release view {tagName} -R {owner}/{repo} --json tagName,name,publishedAt,body
-   ```
-
-   Iterate over every `tagName` from Step 1's JSON array. **Append each release to `{staging}/releases.md` immediately after its `gh release view` call returns** — do not buffer the entire loop in memory and write once at the end. The append-per-release pattern guarantees that a mid-loop abort (rate limit, network drop, user interrupt) leaves a partial but well-formed `releases.md` with every release fetched so far, rather than discarding all of them because the loop didn't reach its final write.
-
-   Write an empty `{staging}/releases.md` with a header (`# Releases (partial if interrupted)`) before the loop, then append one `## {tagName} — {name} ({publishedAt})` section per successful fetch. Failed individual fetches get a one-line placeholder: `## {tagName} — fetch failed: {error}`.
-
-   If `gh release view` fails for a specific tag, log a warning and skip that release — continue with remaining tags. If a rate limit (HTTP 429) is hit, stop the release loop, keep the partial `releases.md` file in place (do NOT delete it), and log: "Release fetch stopped at tag {N}/{total} due to rate limiting — partial releases.md retained."
-
-   Format each section as a markdown block with tag, name, date, and body.
-
-4. **Changelog (if exists):**
-
-   Check if `CHANGELOG.md` or `RELEASES.md` exists in the repository root:
+   If `{staging}/.release-tags.json` is empty (no releases), skip Step 2 and omit the releases section entirely. Otherwise:
 
    ```bash
-   gh api repos/{owner}/{repo}/contents/CHANGELOG.md --jq '.content' | base64 -d
+   # Sequential per-tag loop. Iterate the JSON tag array verbatim so a
+   # crash mid-loop leaves a partial-but-well-formed releases.md on disk.
+   echo "# Releases (partial if interrupted)" > {staging}/releases.md
+   jq -r '.[].tagName' {staging}/.release-tags.json | while IFS= read -r tag; do
+     if gh release view "$tag" -R {owner}/{repo} \
+          --json tagName,name,publishedAt,body 2>/tmp/.gh-err; then
+       jq -r '...' >> {staging}/releases.md  # one ## {tag} block per release
+     else
+       echo "## $tag — fetch failed: $(cat /tmp/.gh-err)" \
+         >> {staging}/releases.md
+     fi
+   done
    ```
 
-   If found, write to `{staging}/changelog.md`. If not found (404), skip silently.
+   Failed individual fetches get a one-line placeholder; the loop continues with remaining tags. If a rate limit (HTTP 429) is hit, stop the release loop, keep the partial `releases.md` file in place (do NOT delete it), and log: "Release fetch stopped at tag {N}/{total} due to rate limiting — partial releases.md retained."
+
+   **Why sequential here when the rest is parallel:** the append-per-release pattern guarantees that a mid-loop abort (rate limit, network drop, user interrupt) leaves a partial but well-formed `releases.md` with every release fetched so far. Parallel writers appending to the same file would need file locking and per-writer ordering — the simpler sequential loop is robust for free, and 10 release fetches contribute only ~5-10s of the total wall-clock.
+
+4. **Changelog:** `CHANGELOG.md` or `RELEASES.md` at the repository root. The parallel block above writes to `{staging}/changelog.md` only when the file exists; non-existence (404 from `gh api`) leaves no file behind.
 
 #### 3b. Targeted Function Searches (Uses Extraction Inventory)
 
@@ -133,15 +139,38 @@ After the generic fetches above, perform **targeted searches** using the top-lev
 
 For each function name in `top_exports[]` (up to 10), **sanitize first**: strip every character that is not in `[A-Za-z0-9_]` from `function_name` to produce `safe_name`. This prevents shell injection and `gh` query parser errors when an export name contains punctuation (e.g., `<T>`, `.method`, `::namespace`, quotes). If `safe_name` is empty after sanitization (the original was entirely punctuation — rare but possible for symbol exports), fall back to piping the original name through stdin via `--query-from-file -`-style indirection if your `gh` version supports it; otherwise skip that one entry with a log line — never substitute the unsanitized name back into the shell command.
 
+**Parallel fan-out (bounded concurrency = 5):** sanitized searches are independent and benefit from parallelism. Use `xargs -P 5` so at most 5 `gh search` calls are in flight at once — this stays well under GitHub's authenticated search rate limit (30/min) while saving ~5-8s of wall-clock on a top-10 export list compared to fully sequential.
+
 ```bash
-# safe_name = re.sub(r'[^A-Za-z0-9_]', '', function_name); skip if empty
-# --limit 5: top-5 issues per function keeps signal-to-noise high (most matches
-# below rank 5 are typically keyword coincidences, not targeted discussions) and
-# caps the total response size across 10 function fan-outs at 50 issues.
-gh search issues --repo {owner}/{repo} "{safe_name}" --limit 5 --json number,title,state,body
+# 1. Sanitize and write one safe_name per line; skip empties.
+#    Python is the canonical sanitizer because awk/sed regex semantics
+#    vary across platforms.
+jq -r '.top_exports[]' {extraction_inventory.json} \
+  | python3 -c 'import sys,re
+for line in sys.stdin:
+  s = re.sub(r"[^A-Za-z0-9_]", "", line.strip())
+  if s: print(s)' > {staging}/.safe-names.txt
+
+# 2. Fan out to gh search, 5 in flight. Each writer emits a self-contained
+#    section to its own per-name file; we concatenate after the wait.
+# --limit 5: top-5 issues per function keeps signal-to-noise high and caps
+#    total response size across 10 fan-outs at 50 issues.
+mkdir -p {staging}/targeted
+cat {staging}/.safe-names.txt | xargs -P 5 -I {} bash -c '
+  gh search issues --repo {owner}/{repo} "{}" --limit 5 \
+      --json number,title,state,body 2>/dev/null \
+    | jq -r ". | \"## {}\\n\" + (...)" > {staging}/targeted/{}.md \
+  || echo "## {} — fetch failed" > {staging}/targeted/{}.md
+'
+
+# 3. Concatenate in stable order (alpha by safe_name) into the single
+#    aggregated file the rest of the workflow expects.
+sort {staging}/.safe-names.txt | while IFS= read -r name; do
+  cat "{staging}/targeted/$name.md"
+done > {staging}/targeted-issues.md
 ```
 
-Aggregate all targeted search results into a single file: `{staging}/targeted-issues.md`. Format as a markdown document with one section per function name, listing the matching issues/PRs found.
+Aggregate all targeted search results into a single file: `{staging}/targeted-issues.md`. The per-name temp directory `{staging}/targeted/` can be removed after concat — it exists only to give each parallel writer an isolated output stream.
 
 **If `gh search` is unavailable** (older `gh` CLI versions): skip targeted searches silently. The generic fetches from section 3 still provide baseline temporal context.
 
