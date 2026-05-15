@@ -81,7 +81,7 @@ This looks like a monorepo ({manifest_kind}) with these workspaces:
   1. {workspaces[0].name} ({workspaces[0].path})
   2. {workspaces[1].name} ({workspaces[1].path})
   ...
-Which one should the skill cover? Pick a number, type 'all' to scope at the repo root, or 'list' to keep listing more.
+Which one should the skill cover? Pick a number, or type 'all' to scope at the repo root.
 ```
 
 Interactive: wait for the user choice. On a numbered choice, store `monorepo_workspace: {path}` and rebase §2-§4b against that path. On `'all'`, leave `monorepo_workspace` unset and proceed at the repo root with a note in the analysis summary that scope is unfiltered.

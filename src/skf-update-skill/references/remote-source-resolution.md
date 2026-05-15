@@ -1,3 +1,7 @@
+---
+type: static-reference
+---
+
 # Remote Source Resolution (Forge/Deep Tier)
 
 If `source_root` is a local path: proceed with the tier-appropriate strategy as normal.

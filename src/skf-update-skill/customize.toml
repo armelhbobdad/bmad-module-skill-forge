@@ -30,7 +30,9 @@ activation_steps_append = []
 #     "file:{project-root}/docs/update-policy.md" (globs supported; file
 #     contents are loaded and treated as facts).
 
-persistent_facts = []
+persistent_facts = [
+  "file:{project-root}/**/project-context.md",
+]
 
 # --- Optional gate thresholds ---
 #

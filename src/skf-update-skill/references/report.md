@@ -93,8 +93,18 @@ The headless envelope carries `status: "dry-run"`, `files_written: []`, the `hea
 |--------|-------|
 | **Skill** | {skill_name} ({single/stack}) |
 | **Forge Tier** | {tier} |
-| **Mode** | {normal/degraded} |
+| **Mode** | {update_mode}{mode_fallback_note} |
 | **Duration** | {step count} steps |
+
+**`{update_mode}`** is one of `normal`, `gap-driven`, or `degraded` (mirrors the `update_mode` field of `SKF_UPDATE_RESULT_JSON`).
+
+**`{mode_fallback_note}`** surfaces weak-signal fallbacks the workflow took silently and would otherwise be buried in the evidence report. Render it inline after the mode value when any of these conditions fire; render the empty string when none did:
+
+- `--from-test-report` was passed but the test report was missing at the expected path, so step 1 fell back to `normal` mode → ` (gap-driven requested; test report missing — fell back to normal)`
+- `re-extract.md §0.a` skipped the workspace-drift guard because `source_root` is not a git working tree (or HEAD was unreadable) → ` (workspace-drift check skipped: {skip_reason})` where `{skip_reason}` is the helper's `skip_reason` field (`not-a-git-tree` or `HEAD unreadable`)
+- Both fallbacks fired: concatenate both parenthetical notes with `; ` between them
+
+These signals also appear in `warnings[]` on the headless envelope; the Mode row makes them visible to interactive users who scan the report without parsing the envelope.
 
 ### Changes Applied
 

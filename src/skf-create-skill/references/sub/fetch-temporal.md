@@ -112,15 +112,17 @@ Per-call rationale:
    # Sequential per-tag loop. Iterate the JSON tag array verbatim so a
    # crash mid-loop leaves a partial-but-well-formed releases.md on disk.
    echo "# Releases (partial if interrupted)" > {staging}/releases.md
+   ERR_FILE="{staging}/.gh-release-err"  # per-run stderr capture inside staging
    jq -r '.[].tagName' {staging}/.release-tags.json | while IFS= read -r tag; do
      if gh release view "$tag" -R {owner}/{repo} \
-          --json tagName,name,publishedAt,body 2>/tmp/.gh-err; then
+          --json tagName,name,publishedAt,body 2>"$ERR_FILE"; then
        jq -r '...' >> {staging}/releases.md  # one ## {tag} block per release
      else
-       echo "## $tag — fetch failed: $(cat /tmp/.gh-err)" \
+       echo "## $tag — fetch failed: $(cat "$ERR_FILE")" \
          >> {staging}/releases.md
      fi
    done
+   rm -f "$ERR_FILE"
    ```
 
    Failed individual fetches get a one-line placeholder; the loop continues with remaining tags. If a rate limit (HTTP 429) is hit, stop the release loop, keep the partial `releases.md` file in place (do NOT delete it), and log: "Release fetch stopped at tag {N}/{total} due to rate limiting — partial releases.md retained."

@@ -1,3 +1,7 @@
+---
+type: static-reference
+---
+
 # [MANUAL] Section Rules
 
 ## Detection Pattern
