@@ -54,6 +54,46 @@ Search for the test report at `{forge_data_folder}/{skill_name}/{active_version}
 
 **If BOTH `--detect-only` AND `--dry-run` were provided:** `--detect-only` wins (it's the more restrictive). Warn the user once: "`--detect-only` supersedes `--dry-run`; re-extract is skipped." Set `detect_only_mode: true`, ignore `dry_run_mode`.
 
+### 1b. Concurrency Guard
+
+**Skip this section entirely if `detect_only_mode` OR `dry_run_mode` is true.** Both inspection modes are read-only — they do not modify any artifact and are safe to run alongside a concurrent real update.
+
+Two concurrent `skf-update-skill` runs against the same `{forge_data_folder}/{skill_name}/` can corrupt provenance: one would write metadata.json mid-way through the other's extraction. The lock below catches the common accidental-double-invoke case (user re-runs in another shell before the first finishes). It is a **best-effort PID-file guard**, not a held flock — the LLM-driven workflow spans many turn boundaries and no single bash invocation can hold flock across them. Use the pattern from `skf-create-skill/references/source-resolution-protocols.md:87` (workspace concurrency guard) as the conceptual model.
+
+**Mirror this exactly so the guard works the same way every run:**
+
+```bash
+# Lock file path — one per skill, lives next to skill-brief.yaml
+LOCK={forge_data_folder}/{skill_name}/.skf-update.lock
+mkdir -p "$(dirname "$LOCK")"
+
+if [ -f "$LOCK" ]; then
+  HELD_PID=$(head -n1 "$LOCK" 2>/dev/null | awk '{print $1}')
+  if [ -n "$HELD_PID" ] && kill -0 "$HELD_PID" 2>/dev/null; then
+    # Live PID — another update is running. HALT.
+    echo "skf-update-skill: another update is in progress (pid=$HELD_PID, started $(awk 'NR==2' "$LOCK" 2>/dev/null))"
+    # (LLM emits SKF_UPDATE_RESULT_JSON status=halted-for-concurrent-run, see below)
+    exit 1
+  fi
+  # Stale lock (PID is dead) — log + overwrite
+  echo "skf-update-skill: clearing stale lock from pid=$HELD_PID"
+fi
+
+# Acquire: write our PID + start timestamp (one per line)
+printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK"
+```
+
+**Halt protocol on live-PID collision:**
+
+- Display: `"**Another update is in progress.** The skill {skill_name} is locked by pid={HELD_PID} (started {timestamp from line 2 of the lock file}). Wait for that run to finish, or — if you know that pid is no longer running — delete {LOCK} manually and re-run."`
+- In `{headless_mode}`, emit `SKF_UPDATE_RESULT_JSON` with `status: "halted-for-concurrent-run"`, `error: {phase: "init:concurrency-guard", path: "{LOCK}", reason: "another update in progress (pid={HELD_PID})"}`, and exit immediately. **No `headless_decisions[]` entry** — this is a hard halt before any gate fires.
+
+**Release contract:**
+
+- The terminal health-check step (step 8) deletes the lock file as its final action.
+- **Every halted-for-\* path in this workflow must delete the lock before exiting** — otherwise the next attempt would see a stale lock from this run. The lock-release is a single `rm -f "$LOCK"` per halt site; do not skip it.
+- The lock is best-effort: a crash mid-workflow (process kill, host reboot) leaves a stale lock that the next run will clear via the live-PID check above. No manual cleanup needed in the common case.
+
 ### 2. Validate Required Artifacts
 
 **Check SKILL.md exists:**

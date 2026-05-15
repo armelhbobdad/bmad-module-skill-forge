@@ -35,9 +35,10 @@
             "halted-for-remediation-path",
             "halted-for-manual-mismatch",
             "halted-for-write-failure",
+            "halted-for-concurrent-run",
             "blocked"
           ],
-          "description": "Single-field outcome for pipeline branching. 'success' when the run completed and wrote the updated artifacts. 'no-changes' when detect-changes found nothing to update. 'detect-only' when the workflow was invoked with --detect-only and exited after step 2 without modifying any artifact. 'dry-run' when the workflow was invoked with --dry-run and exited after step 3 (re-extract) without merging or writing — the envelope describes what merge+write WOULD have done. Each 'halted-for-*' value corresponds to a documented halt in the stage prose (workspace-drift from re-extract.md §0.a, brief-refinement from detect-changes.md §1c [U] / §2.2 [B], audit from §2.2 [A], remediation-path from re-extract.md §0a, manual-mismatch from write.md §1, write-failure for any §5b/§6 failure). 'blocked' is the catch-all for halts that don't map to a documented status code. NOTE: detect-only and dry-run are successful exits — pipelines treating non-success as failure must include them in the success set."
+          "description": "Single-field outcome for pipeline branching. 'success' when the run completed and wrote the updated artifacts. 'no-changes' when detect-changes found nothing to update. 'detect-only' when the workflow was invoked with --detect-only and exited after step 2 without modifying any artifact. 'dry-run' when the workflow was invoked with --dry-run and exited after step 3 (re-extract) without merging or writing — the envelope describes what merge+write WOULD have done. Each 'halted-for-*' value corresponds to a documented halt in the stage prose (workspace-drift from re-extract.md §0.a, brief-refinement from detect-changes.md §1c [U] / §2.2 [B], audit from §2.2 [A], remediation-path from re-extract.md §0a, manual-mismatch from write.md §1, write-failure for any §5b/§6 failure, concurrent-run from init.md §1b's PID-file collision check). 'blocked' is the catch-all for halts that don't map to a documented status code. NOTE: detect-only and dry-run are successful exits — pipelines treating non-success as failure must include them in the success set."
         },
         "skill_name": {
           "type": "string",
