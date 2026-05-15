@@ -42,3 +42,14 @@ persistent_facts = [
 unit_detection_heuristics_path = ""
 brief_schema_path = ""
 analysis_report_template_path = ""
+
+# Pipeline-integration hook invoked after the final result JSON is written
+# (see generate-briefs.md). The command is called as:
+#   <on_complete> --result-path=<absolute_path_to_result_json>
+# Useful for Slack notifications, dashboard ingest, CI hooks, or chaining
+# into checkpoint-preview / a brief linter. Failures are logged to
+# workflow_warnings[] but never fail the workflow.
+#
+# Empty string = no-op (default).
+
+on_complete = ""

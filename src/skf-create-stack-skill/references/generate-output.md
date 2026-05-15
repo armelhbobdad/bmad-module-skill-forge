@@ -1,6 +1,7 @@
 ---
 nextStepFile: 'validate.md'
 stackSkillTemplate: 'assets/stack-skill-template.md'
+provenanceMapSchemaPath: 'assets/provenance-map-schema.md'
 # Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
 # path wins. HALT if neither resolves — stage/commit/flip-link/write below
@@ -193,87 +194,12 @@ If any workspace write fails, invoke the rollback contract from §1.
 
 **provenance-map.json:**
 
-**In code-mode:**
-```json
-{
-  "provenance_version": "2.0",
-  "skill_name": "{project_name}-stack",
-  "skill_type": "stack",
-  "source_repo": ["{repo_url_1}", "{repo_url_2}"],
-  "source_commit": {"{repo_1}": "{hash_1}", "{repo_2}": "{hash_2}"},
-  "generated_at": "{ISO-8601}",
-  "entries": [
-    {
-      "export_name": "{name}",
-      "export_type": "{type}",
-      "source_library": "{library-name}",
-      "params": [],
-      "return_type": "{type}",
-      "source_file": "{file}",
-      "source_line": 0,
-      "confidence": "T1|T1-low|T2",
-      "extraction_method": "ast_bridge|source_reading|qmd_bridge",
-      "signature_source": "T1|T2|T3"
-    }
-  ],
-  "integrations": [
-    {
-      "libraries": ["{libA}", "{libB}"],
-      "pattern_type": "{type}",
-      "detection_method": "co-import grep",
-      "co_import_files": [{"file": "{path}", "line": 0}],
-      "confidence": "T1|T2"
-    }
-  ]
-}
-```
+Use the schema from `{provenanceMapSchemaPath}` — see that asset for the canonical templates and field definitions of both variants:
 
-**In compose-mode:**
-```json
-{
-  "provenance_version": "2.0",
-  "skill_name": "{project_name}-stack",
-  "skill_type": "stack",
-  "source_repo": null,
-  "source_commit": null,
-  "source_ref": null,
-  "generated_at": "{ISO-8601}",
-  "entries": [
-    {
-      "export_name": "{name}",
-      "export_type": "{type}",
-      "source_library": "{library-name}",
-      "params": [],
-      "return_type": "{type}",
-      "source_file": "{from constituent skill}",
-      "source_line": 0,
-      "confidence": "T1|T1-low|T2",
-      "extraction_method": "compose-from-skill",
-      "signature_source": "T1|T2|T3"
-    }
-  ],
-  "integrations": [
-    {
-      "libraries": ["{libA}", "{libB}"],
-      "pattern_type": "{type}",
-      "detection_method": "architecture_co_mention|inferred_from_shared_domain",
-      "co_import_files": [],
-      "confidence": "T2|T3"
-    }
-  ],
-  "constituents": [
-    {
-      "skill_name": "{constituent-skill-name}",
-      "skill_path": "skills/{skill-dir}/",
-      "version": "{version from constituent metadata.json}",
-      "composed_at": "{ISO-8601}",
-      "metadata_hash": "sha256:{hash of constituent metadata.json}"
-    }
-  ]
-}
-```
+- **In code-mode:** use the code-mode variant (`source_repo` / `source_commit` populated; `extraction_method` ∈ `ast_bridge|source_reading|qmd_bridge`; `detection_method = "co-import grep"`).
+- **In compose-mode:** use the compose-mode variant (source-anchor fields `null`; `extraction_method = "compose-from-skill"`; `detection_method ∈ "architecture_co_mention|inferred_from_shared_domain"`; includes the additional `constituents[]` array for drift detection).
 
-> **Note:** Per-export entries use the same schema as single skills (see `skill-sections.md`), with `source_library` identifying the originating library. In compose-mode, `constituents[]` enables audit to detect constituent drift via metadata hash comparison. **Use the `metadata_hash` value already stored in workflow state during step 2 (S13) — do NOT re-read and re-hash at step 7 time. The stored hash captures the state as it was at manifest-detection time, which is the correct provenance anchor.**
+**Use the `metadata_hash` value already stored in workflow state during step 2 (S13) — do NOT re-read and re-hash at step 7 time. The stored hash captures the state as it was at manifest-detection time, which is the correct provenance anchor.**
 
 **evidence-report.md:**
 - Extraction summary per library

@@ -25,6 +25,8 @@ Load the existing skill artifacts, provenance map, and forge tier configuration 
 
 **CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
 
+**Initialize workflow context defaults.** Before entering §1, set `confidence_mode = "normal"` as the default. §4 may upgrade this to `"degraded — all findings T1-low"` if the operator opts into degraded mode. Downstream steps (report.md, drift-report-template.md) consume this variable directly — no conditional at the usage site.
+
 ### 1. Get Skill Path
 
 "**Audit Skill — Drift Detection**
@@ -119,7 +121,7 @@ Search for provenance map at `{forge_data_folder}/{skill_name}/{active_version}/
 - "**Degraded mode available:** I can perform text-based comparison without provenance data. Findings will have T1-low confidence."
 - "**[D]egraded mode** — proceed with text-diff only"
 - "**[X]** — abort audit"
-- Wait for user selection. If D, set `degraded_mode: true` and skip the normalize call above (no map to normalize). If X, halt workflow.
+- Wait for user selection. If D, set `degraded_mode: true` and `confidence_mode = "degraded — all findings T1-low"`, then skip the normalize call above (no map to normalize). If X, halt workflow.
 
 ### Stack Skill Detection
 
@@ -229,6 +231,32 @@ When skipping, log the reason, then set the audit-ref context variables to basel
 5. **Record for report:** store `audit_ref`, `audit_ref_source`, `audit_commit`, `latest_tag`, `remote_head`, and `baseline_commit` in context. Step-06 surfaces them in the Provenance section so readers can tell which comparison actually ran.
 
 ### 6. Create Drift Report
+
+**Re-audit detection (before creating a fresh report).** Glob `{forge_version}/drift-report-*.md`. If one or more matches exist, identify the most recent one by file mtime (or by the `{timestamp}` segment in the filename when mtime is unreliable on the filesystem). If that report's age is `< 7 days` and its frontmatter `audit_ref` matches the current `{audit_ref}` (resolved in §5b), surface a soft gate before creating a fresh report:
+
+  "**Recent audit found:** `{prior_report_path}` (created {prior_timestamp}, audit_ref=`{audit_ref}`).
+  
+  Options:
+  - **[F] Fresh audit** (recommended; default in headless) — start a new drift report at `{outputFile}` and ignore the prior run.
+  - **[D] Diff against prior report** — compute findings delta vs the prior report and emit a `## Diff Against Prior Report` subsection in step 6 (report.md).
+  - **[R] Resume the prior report** — load the prior report's frontmatter (`stepsCompleted`, `drift_score`, intermediate findings) and jump to the next un-completed step instead of starting over.
+  
+  **Select:** [F] / [D] / [R]"
+
+**Gate handling:**
+- **[F]:** Default. Proceed with the fresh-report creation below — ignore the prior report.
+- **[D]:** Read the prior report's findings_list (parse the Structural/Semantic/Severity sections, or the appended findings tables) and stash as `prior_findings` in workflow context. Run the new audit normally. In step 6 (report.md), after the Remediation Suggestions section, emit a `## Diff Against Prior Report` subsection summarizing added / removed / changed findings vs `prior_findings`.
+- **[R]:** Load the prior report's frontmatter (`stepsCompleted`, `drift_score`, any intermediate state). Set `{outputFile}` to the prior report path (do NOT create a new one). Determine the next un-completed step from `stepsCompleted` and skip forward to it; downstream steps append to the existing report.
+
+  > **Note (resumability):** the existing template frontmatter captures `stepsCompleted` and `drift_score` but does not currently persist intermediate findings_list between stages. If [R] is selected and stepsCompleted indicates the prior run halted after structural-diff or semantic-diff, the appended sections in the report body (`## Structural Drift`, `## Semantic Drift`, `## Severity Classification`) serve as the implicit intermediate state — re-parse them on resume rather than re-running completed stages. **TODO:** if resumability proves unreliable in practice, extend the report frontmatter to carry an explicit `intermediate_findings` block (out of scope for this PR).
+
+- **Other input:** help user, redisplay the gate.
+
+**Headless default** (when `{headless_mode}`): auto-select **[F]** and emit a loud log line: `"headless: recent audit found at {prior_report_path}; defaulting to fresh audit. Re-run interactively to choose [D]/[R]."`
+
+**Skip this gate** if no prior report matches the `< 7 days + same audit_ref` filter — proceed directly to creating the fresh report.
+
+**Create the fresh report** (when [F] is selected, headless default fires, or no prior report exists):
 
 Create `{outputFile}` from `{templateFile}`:
 

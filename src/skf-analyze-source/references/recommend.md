@@ -32,8 +32,11 @@ Read {outputFile} completely to obtain:
 - Integration points and coupling analysis
 - Stack skill candidates from frontmatter
 - Existing skills from frontmatter
+- `intent_hint` from frontmatter (captured in init.md §3 — user's stated goal for the analysis; empty string if skipped)
 
 Load {schemaFile} for reference on what skill-brief.yaml requires (so recommendations are actionable).
+
+**Apply `intent_hint` when ranking units.** If `intent_hint` is non-empty, use it to bias the order in which recommendation cards are presented and to soften the rationale for units that fall outside the stated intent (e.g., when `intent_hint` mentions "authentication and authorization", rank auth-related units first and flag unrelated units with a one-line rationale acknowledging the mismatch). If `intent_hint` is empty, present in the deterministic order from the export map.
 
 ### 2. Build Recommendation Cards
 
@@ -83,7 +86,10 @@ Present each recommendation card, then after ALL cards:
 - **N** — Reject: skip this unit
 - **M** — Modify: adjust name, scope, or description before confirming
 
-You can respond with a list (e.g., '1:Y, 2:Y, 3:N, 4:M') or address each individually.
+**Bulk shortcuts:**
+- `all-Y` — confirm every recommendation as-is
+- `all-N` — skip every recommendation
+- Individual response list (e.g., `1:Y, 2:N, 3:M, ...`) — explicit per-unit decisions (use this when you want to mix Y/N/M or modify any unit)
 
 **Questions?** Ask 'why?' about any recommendation and I'll explain my reasoning with specific evidence."
 

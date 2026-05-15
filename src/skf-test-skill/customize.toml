@@ -42,3 +42,13 @@ persistent_facts = [
 test_report_template_path = ""
 output_formats_path = ""
 scoring_rules_path = ""
+
+# Pass threshold (percent). CLI `--threshold=<N>` wins over this scalar.
+# Override here to change the org-wide default without forking the skill.
+default_threshold = 80
+
+# Optional post-finalization hook. When non-empty, the workflow invokes:
+#   <on_complete> --result-path=<path-to-skf-test-skill-result-{run_id}.json>
+# after the result JSON is finalized. Failures are recorded to
+# workflow_warnings[] but never fail the workflow. Empty = no-op.
+on_complete = ""

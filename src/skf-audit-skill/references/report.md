@@ -182,6 +182,14 @@ Field rules: `next_workflow` is `"update-skill"` when CRITICAL or HIGH findings 
 
 **HALT envelope mirror (headless only).** For every HARD HALT raised in this workflow (skill-not-found at init.md §1, forge-tier missing at §2, source-dir missing at §5, write-failed at §6, user-cancelled at any `[X]` selection), emit the same envelope shape on **stderr** with `status: "error"`, `drift_score: null` (or last known value if classification ran), `report_path: null` if the report write failed, `exit_code` matching the Exit Codes table, and `halt_reason` set to the failure class from the table (`"skill-not-found"`, `"forge-tier-missing"`, `"source-dir-missing"`, `"write-failed"`, `"user-cancelled"`). This is the only signal a wrapping pipeline receives on failure — log it before exiting.
 
+**Post-audit hook (optional).** If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it as:
+
+```bash
+{onCompleteCommand} --result-path={result_json_path}
+```
+
+where `{result_json_path}` is the per-run record path written above (`{forge_version}/audit-skill-result-{YYYYMMDD-HHmmss}.json`). Log success/failure to `workflow_warnings[]` — never fail the workflow on a hook error. The hook runs after the result contract is finalized so notifiers, ticket-tracker integrations, or downstream pipelines see a complete record. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
+
 ### 6. Chain to Health Check
 
 ONLY WHEN the report has been written, presented, and the result contract saved will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the user-facing summary reads as final.

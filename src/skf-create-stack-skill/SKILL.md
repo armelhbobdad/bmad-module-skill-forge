@@ -112,13 +112,14 @@ SKF_STACK_RESULT_JSON: {"status":"success|error","skill_package":"…|null","ski
 
    If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each path scalar.
 
-   Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each of the four scalars, if the merged value is empty or absent, use the bundled default:
+   Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each of the five scalars, if the merged value is empty or absent, use the bundled default:
 
    - `{stackSkillTemplatePath}` ← `workflow.stack_skill_template_path` if non-empty, else `assets/stack-skill-template.md`
    - `{integrationPatternsPath}` ← `workflow.integration_patterns_path` if non-empty, else `references/integration-patterns.md`
    - `{manifestPatternsPath}` ← `workflow.manifest_patterns_path` if non-empty, else `references/manifest-patterns.md`
    - `{composeModeRulesPath}` ← `workflow.compose_mode_rules_path` if non-empty, else `references/compose-mode-rules.md`
+   - `{provenanceMapSchemaPath}` ← `workflow.provenance_map_schema_path` if non-empty, else `assets/provenance-map-schema.md`
 
-   Stash all four as workflow-context variables. Stage files reference `{stackSkillTemplatePath}` / `{integrationPatternsPath}` / `{manifestPatternsPath}` / `{composeModeRulesPath}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies without forking the skill.
+   Stash all five as workflow-context variables. Stage files reference `{stackSkillTemplatePath}` / `{integrationPatternsPath}` / `{manifestPatternsPath}` / `{composeModeRulesPath}` / `{provenanceMapSchemaPath}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies without forking the skill.
 
 4. Load, read the full file, and then execute `references/init.md` to begin the workflow.

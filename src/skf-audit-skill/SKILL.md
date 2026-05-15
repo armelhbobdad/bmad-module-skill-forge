@@ -101,11 +101,12 @@ SKF_AUDIT_RESULT_JSON: {"status":"success|error","skill_name":"…","drift_score
 
    If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each path scalar.
 
-   Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each of the two scalars, if the merged value is empty or absent, use the bundled default:
+   Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each of the scalars, if the merged value is empty or absent, use the bundled default:
 
    - `{driftReportTemplatePath}` ← `workflow.drift_report_template_path` if non-empty, else `assets/drift-report-template.md`
    - `{severityRulesPath}` ← `workflow.severity_rules_path` if non-empty, else `references/severity-rules.md`
+   - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty (no-op — report.md skips the hook invocation entirely)
 
-   Stash both as workflow-context variables. Stage files reference `{driftReportTemplatePath}` / `{severityRulesPath}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies (custom drift-report layout, stricter severity thresholds) without forking the skill.
+   Stash all three as workflow-context variables. Stage files reference `{driftReportTemplatePath}` / `{severityRulesPath}` / `{onCompleteCommand}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies (custom drift-report layout, stricter severity thresholds) or wire in post-audit hooks (Slack notifier, ticket-tracker integration) without forking the skill.
 
 4. Load, read the full file, and then execute `references/init.md` to begin the workflow.
