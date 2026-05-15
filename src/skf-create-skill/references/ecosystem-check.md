@@ -2,6 +2,8 @@
 nextStepFile: 'sub/ccc-discover.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 2: Ecosystem Check
 
 ## STEP GOAL:

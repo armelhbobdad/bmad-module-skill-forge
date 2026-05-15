@@ -6,6 +6,8 @@ detectWorkspacesScript: '{project-root}/src/shared/scripts/skf-detect-workspaces
 detectLanguageScript: '{project-root}/src/shared/scripts/skf-detect-language.py'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 2: Analyze Target
 
 ## STEP GOAL:

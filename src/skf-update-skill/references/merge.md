@@ -4,6 +4,8 @@ manualSectionRulesFile: 'references/manual-section-rules.md'
 mergeConflictRulesFile: 'references/merge-conflict-rules.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 4: Merge
 
 ## STEP GOAL:

@@ -6,6 +6,8 @@ remoteSourceResolutionData: 'references/remote-source-resolution.md'
 tierDegradationRulesData: 'skf-create-skill/references/tier-degradation-rules.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 3: Re-Extract Changed Exports
 
 ## STEP GOAL:

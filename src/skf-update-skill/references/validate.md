@@ -2,6 +2,8 @@
 nextStepFile: 'write.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 5: Validate
 
 ## STEP GOAL:

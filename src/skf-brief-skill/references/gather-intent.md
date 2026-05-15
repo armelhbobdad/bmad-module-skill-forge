@@ -10,6 +10,8 @@ validateBriefInputsScript: '{project-root}/src/shared/scripts/skf-validate-brief
 emitBriefEnvelopeScript: '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 1: Gather Intent
 
 ## STEP GOAL:
@@ -59,6 +61,8 @@ Attempt to load `{forgeTierFile}`:
 
 "**Welcome to Brief Skill — the skill scoping workflow.**
 
+**Wanted something different?** This workflow *creates* a new brief — a YAML scoping document for a skill that doesn't yet exist. If you meant to compile an existing brief into a skill (`/skf-create-skill`), package one for distribution (`/skf-export-skill`), or just ask SKF a question, type `cancel` at any prompt and run that workflow instead.
+
 I'll help you define exactly what to skill and produce a `skill-brief.yaml` that drives the create-skill compilation workflow.
 
 We'll work through this together:
@@ -73,8 +77,6 @@ We'll work through this together:
 **Your forge tier:** {detected tier} — {tier_gloss}
 
 (Substitute `{tier_gloss}` with the matching one-liner so the user knows what the tier label means: `Quick` → "text-only extraction"; `Forge` → "AST-grep on, semantic discovery off"; `Forge+` → "AST-grep + ccc semantic discovery"; `Deep` → "full pipeline — AST + ccc + qmd portfolio search + LLM re-ranking". The tier sets the ceiling for what the downstream create-skill workflow can do; you can re-run setup later to change it.)
-
-**Wanted something different?** This workflow *creates* a new brief — a YAML scoping document for a skill that doesn't yet exist. If you meant to compile an existing brief into a skill (`/skf-create-skill`), package one for distribution (`/skf-export-skill`), or just ask SKF a question, type `cancel` at any prompt and run that workflow instead.
 
 Let's get started."
 

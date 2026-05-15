@@ -6,6 +6,8 @@ advancedElicitationSkill: '/bmad-advanced-elicitation'
 partyModeSkill: '/bmad-party-mode'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 3: Scope Definition
 
 ## STEP GOAL:

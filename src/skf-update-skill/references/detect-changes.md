@@ -3,6 +3,8 @@ nextStepFile: 're-extract.md'
 noChangeReportFile: 'report.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 2: Detect Changes
 
 ## STEP GOAL:

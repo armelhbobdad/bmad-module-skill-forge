@@ -2,6 +2,8 @@
 nextStepFile: 'health-check.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 7: Report
 
 ## STEP GOAL:

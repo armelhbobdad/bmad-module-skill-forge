@@ -2,6 +2,8 @@
 nextStepFile: '../extract.md'
 ---
 
+<!-- Config: communicate in {communication_language}. -->
+
 # Step 2b: CCC Semantic Discovery
 
 ## STEP GOAL:
