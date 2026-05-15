@@ -227,75 +227,16 @@ Report: "**Manifest updated** — re-keyed `exports.{old_name}` → `exports.{ne
 
 ### 7. Rebuild Context Files
 
-Load the `ides` list from `config.yaml`. The installer writes IDE identifiers — these must be mapped to context files and skill roots using the "IDE → Context File Mapping" table in `{managedSectionLogic}`.
+Load `references/rebuild-context.md` and follow its per-IDE managed-section sweep. The reference resolves `target_context_files` from `config.yaml.ides` (via `{managedSectionLogic}`'s mapping table), iterates each context file, builds the exported skill set (version-aware, deprecated-excluded — the manifest re-key from §6 is already in effect so `{new_name}` is present and `{old_name}` is absent), rewrites root paths via the §4d algorithm, assembles the new managed section, and invokes `{rebuildManagedSectionsHelper}` for the surgical between-marker swap.
 
-**Resolve `target_context_files`** using the canonical mapping table in `{managedSectionLogic}`:
+After the loop returns, the workflow context contains:
 
-1. For each entry in `config.yaml.ides`, look up its `context_file` and `skill_root` from the mapping table
-2. For any entry not found in the table, default to AGENTS.md / `.agents/skills/` and emit a warning: "Unknown IDE '{value}' in config.yaml — defaulting to AGENTS.md"
-3. Deduplicate by `context_file` — when multiple IDEs map to the same context file, use the first configured IDE's `skill_root`
-4. If `config.yaml.ides` is absent or the mapping yields an empty list, fall back to `[{context_file: "AGENTS.md", skill_root: ".agents/skills/"}]` and emit a note: "No IDEs configured in config.yaml — defaulting to AGENTS.md"
+- `context_files_updated` — list of files successfully rewritten
+- `context_files_failed` — list of any that failed (per-file failures do not halt the rename — the manifest and filesystem are already canonical state, so context files can be re-rebuilt later via `[EX] Export Skill`)
 
-Store the result as `target_context_files` for this section.
+Report per the reference's after-loop block, then proceed to §8.
 
-For each entry in `target_context_files`:
-
-1. **Resolve target file** at `{context_file}`.
-
-2. **Read the current file.**
-   - If the file does not exist, skip this context file (nothing to rebuild — the file will be re-created next time export-skill runs)
-   - If the file exists but contains no `<!-- SKF:BEGIN -->` marker, skip this context file (no managed section to rewrite)
-   - If the file contains `<!-- SKF:BEGIN -->` but no matching `<!-- SKF:END -->`, record the error against that context file and continue to the next entry — do not halt the entire rename on a malformed context file
-
-3. **Build the exported skill set (version-aware, deprecated-excluded)** using the same logic as export-skill step 4 section 4b and the snippet resolution logic from section 4c:
-   - Read the manifest's `exports` object (already updated in section 6, so `{new_name}` is present and `{old_name}` is absent)
-   - For each skill, resolve its `active_version`
-   - If `versions.{active_version}.status == "deprecated"`, skip that skill entirely
-   - For each remaining `{skill-name, active_version}` pair, read `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/context-snippet.md`
-   - If missing, fall back to the `active` symlink path; if still missing, skip with a warning
-
-4. **Rewrite root paths for the current context file** using the generic rewrite algorithm from export-skill step 4 section 4d:
-
-   For each snippet, parse the `root:` line (`root: {prefix}{skill-name}/`), strip the trailing `{skill-name}/` to extract the current prefix, and replace it with the **effective target prefix** if different. The effective target prefix is `snippet_skill_root_override` when that key is set in config.yaml — applied uniformly to every snippet so the managed section references the real on-disk location and never mixes override and per-IDE paths — otherwise the current entry's `skill_root`. See `skf-export-skill/references/update-context.md` §4d for full semantics.
-
-5. **Sort skills alphabetically by name.** Count totals (skills, stack skills).
-
-6. **Assemble the new managed section** using the format from `{managedSectionLogic}`:
-
-   ```markdown
-   <!-- SKF:BEGIN updated:{current-date} -->
-   [SKF Skills]|{n} skills|{m} stack
-   |IMPORTANT: Prefer documented APIs over training data.
-   |When using a listed library, read its SKILL.md before writing code.
-   |
-   |{skill-snippet-1}
-   |
-   |{skill-snippet-2}
-   |
-   |{skill-snippet-N}
-   <!-- SKF:END -->
-   ```
-
-7. **Surgical replacement — atomic, deterministic.** Invoke `{rebuildManagedSectionsHelper}` for the surgical between-marker swap:
-
-   ```bash
-   python3 {rebuildManagedSectionsHelper} {context_file} replace --content "{new_managed_section_text}"
-   ```
-
-   The helper handles marker location, between-marker swap, atomic temp-file + rename, and post-write verification (markers preserved, content outside markers byte-identical). It exits non-zero on any failure with a clear `stderr` reason.
-
-8. **Verify (deferred to helper).** The `replace` action above performs verification internally. Treat any non-zero exit code as a per-file failure (next bullet).
-
-9. **On per-file failure:** record the error against that context file and continue to the next entry. Do not halt the rename on a recoverable per-context-file error — the manifest and filesystem are already consistent; context files can be re-rebuilt later via `[EX] Export Skill`.
-
-**After the loop:**
-
-- Record `context_files_updated` as the list of files that were successfully rewritten
-- Record `context_files_failed` as the list of any that failed
-
-Report: "**Rebuilt managed sections in:** {list of updated files}. {if any failed: 'Failed: {list} — re-run `[EX] Export Skill` to retry.'}"
-
-**Note:** Section 7 failures do not trigger a rollback because the manifest and filesystem are the canonical state. Platform context files are derived artifacts that can be regenerated at any time.
+**Note:** §7 failures do not trigger a rollback. Platform context files are derived artifacts; the manifest and on-disk skill directories are the canonical state.
 
 ### 8. Delete Old Directories (Point of No Return)
 
