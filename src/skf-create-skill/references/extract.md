@@ -11,6 +11,13 @@ sourceResolutionData: 'references/source-resolution-protocols.md'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# Resolve `{detectScriptsAssetsHelper}` to the first existing path; HALT if
+# neither candidate exists. §4c relies on the helper for deterministic
+# script/asset detection (file walk, SHA-256 hashing, header-comment purpose
+# extraction); falling back to prose-driven detection would lose hash stability.
+detectScriptsAssetsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-scripts-assets.py'
+  - '{project-root}/src/shared/scripts/skf-detect-scripts-assets.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -297,15 +304,29 @@ Use the entry point as the authoritative source for `metadata.json`'s `exports[]
 
 **Default resolution:** If `scripts_intent` is absent from the brief, treat as `"detect"` (auto-detection). If `assets_intent` is absent, treat as `"detect"`. Only an explicit `"none"` value disables detection.
 
-**If `scripts_intent` is `"none"` AND `assets_intent` is `"none"`:** Skip this section entirely. **If only one is `"none"`:** Skip that category only, proceed with the other.
+Invoke the deterministic detector — it implements the heuristics from `{extractionPatternsTracingData}` (directory conventions, shebang signals, `package.json` `bin` entry-points, asset filename patterns, binary-extension exclusion, generated-path pruning) so this stage doesn't re-derive them per-run:
 
-After export extraction, scan the source for scripts and assets using the detection patterns in `{extractionPatternsTracingData}`:
+```bash
+uv run {detectScriptsAssetsHelper} detect <source-root> \
+    --scripts-intent <scripts_intent> \
+    --assets-intent <assets_intent> \
+    [--scope-include "<glob1>,<glob2>,..."] \
+    [--max-lines 500]
+```
 
-1. Scan source tree for directories/files matching detection heuristics (scripts/, bin/, tools/, cli/ for scripts; assets/, templates/, schemas/, configs/, examples/ for assets)
-2. For each candidate: verify existence, check size (flag >500 lines), exclude binaries, compute SHA-256 hash
-3. Extract purpose from header comments, shebang, README references, or schema fields. Record: file_path, purpose, source_path, language/type, content_hash, confidence (T1-low)
+The helper emits JSON on stdout:
 
-Add results to `scripts_inventory[]` and `assets_inventory[]` alongside the existing export inventory.
+```json
+{
+  "scripts_inventory": [ {name, source_file, purpose, language, content_hash, confidence, lines, size_flag}, ... ],
+  "assets_inventory":  [ {name, source_file, purpose, type,     content_hash, confidence, lines, size_flag}, ... ],
+  "scripts_skipped": <bool>,
+  "assets_skipped":  <bool>,
+  "stats": { "scripts_found": N, "assets_found": M, "files_scanned": K }
+}
+```
+
+Merge `scripts_inventory[]` and `assets_inventory[]` into the running extraction inventory verbatim — entries already carry `confidence: "T1-low"` and `content_hash` (sha256:...). Records with `size_flag: "oversized"` should be surfaced in §6 (Extraction Summary) so the user can confirm before bundling. If both `scripts_skipped` and `assets_skipped` are true, the helper performs no walk and §4c is effectively a no-op.
 
 ### 5. Build Extraction Inventory
 
