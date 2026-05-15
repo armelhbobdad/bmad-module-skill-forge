@@ -29,6 +29,8 @@ Provide either:
 - A full path to the skill folder
 - A skill name with `--from-test-report` to use the test report's gap findings instead of source drift detection
 - `--allow-workspace-drift` (gap-driven mode only) to intentionally bypass the step 3 §0.a guard that halts when the local workspace HEAD does not match `metadata.source_commit`. Only use this if you know the spot-checks should read the current workspace instead of the pinned tree — step 6 will NOT automatically re-pin
+- `--detect-only` to run detect-changes only and exit; emits the change manifest with no further work and no writes
+- `--dry-run` to run detect-changes + re-extract and exit before merge/write; emits what WOULD change without modifying any artifact
 
 **Skill:** {user provides path or name}"
 
@@ -45,6 +47,12 @@ Resolve the path to an absolute skill folder location.
 Search for the test report at `{forge_data_folder}/{skill_name}/{active_version}/test-report-{skill_name}.md` (i.e., `{forge_version}/test-report-{skill_name}.md`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/test-report-{skill_name}.md`. If found, set `test_report_path` in context and `update_mode: gap-driven`. If not found at either path, warn and continue with normal source drift mode.
 
 **If `--allow-workspace-drift` was provided:** set `allow_workspace_drift: true` in workflow context. This flag is consumed by step 3 §0.a's pre-flight drift guard (gap-driven mode only) and has no effect in normal source-drift mode.
+
+**If `--detect-only` was provided:** set `detect_only_mode: true` in workflow context. After step 2 (detect-changes) completes, jump directly to step 7 (report) — skip re-extract, merge, validate, and write. The report emits the change manifest and a `SKF_UPDATE_RESULT_JSON` envelope with `status: "detect-only"`. **Compatibility:** `--detect-only` short-circuits before §0.a runs, so `--allow-workspace-drift` is silently ignored in detect-only mode (warn the user once at flag-parse time: "`--allow-workspace-drift` has no effect with `--detect-only` — workspace drift guard runs in step 3 §0.a, which is skipped").
+
+**If `--dry-run` was provided:** set `dry_run_mode: true` in workflow context. After step 3 (re-extract) completes, jump directly to step 7 (report) — skip merge, validate, and write. The report emits what would change with `status: "dry-run"` in the envelope. No artifact on disk is modified — `--dry-run` is the "show me what an update would do without committing" mode.
+
+**If BOTH `--detect-only` AND `--dry-run` were provided:** `--detect-only` wins (it's the more restrictive). Warn the user once: "`--detect-only` supersedes `--dry-run`; re-extract is skipped." Set `detect_only_mode: true`, ignore `dry_run_mode`.
 
 ### 2. Validate Required Artifacts
 

@@ -469,15 +469,20 @@ Display: "**Proceeding to re-extraction...**"
 
 #### Menu Handling Logic:
 
-- After change manifest is built, immediately load, read entire file, then execute {nextStepFile}
-- **EXCEPTION:** If no changes detected (section 4), load {noChangeReportFile} instead
+- **If `detect_only_mode` is true:** display "**Detect-only mode — skipping re-extract/merge/validate/write.** Loading report..." and load `{noChangeReportFile}` (report.md). The report handles the detect-only envelope. Do NOT load `{nextStepFile}`.
+- Else, after change manifest is built, immediately load, read entire file, then execute `{nextStepFile}`.
+- **EXCEPTION:** If no changes detected (section 4), load `{noChangeReportFile}` instead.
 
 #### EXECUTION RULES:
 
 - This is an auto-proceed step with no user choices
-- Proceed directly to next step after change detection completes
+- Proceed directly to next step after change detection completes (or to report when `detect_only_mode` is true)
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY WHEN the change manifest is fully built will you load {nextStepFile} to begin re-extraction. If no changes detected, skip to {noChangeReportFile}.
+ONLY WHEN the change manifest is fully built will you load the next file:
+
+- `detect_only_mode == true` → load `{noChangeReportFile}` (report.md). Report emits status `detect-only`.
+- No changes detected → load `{noChangeReportFile}` (report.md). Report emits status `no-changes`.
+- Otherwise → load `{nextStepFile}` (re-extract.md) to begin re-extraction.
 

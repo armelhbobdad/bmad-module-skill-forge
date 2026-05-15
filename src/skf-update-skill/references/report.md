@@ -37,6 +37,50 @@ Source code matches provenance map exactly. The skill `{skill_name}` is current 
 
 → Load, read the full file, and execute `{nextStepFile}` — the health-check step is the true terminal step of this workflow.
 
+### 1a. Handle Detect-Only Mode
+
+**If `detect_only_mode` is true (routed here from detect-changes.md §6):**
+
+"**Update Skill Report: {skill_name} — Detect-Only Mode**
+
+**Status:** Detect-only (no writes)
+
+The change manifest below describes what would be updated. No artifact was modified — re-run without `--detect-only` to apply.
+
+{render the change manifest summary table from detect-changes.md §5, plus the per-file detail section}
+
+**Recommendation:** Review the manifest; if it matches expectations, re-run `skf-update-skill` without `--detect-only` to perform the actual update."
+
+The headless envelope (`SKF_UPDATE_RESULT_JSON`) carries `status: "detect-only"`, `files_written: []`, and any `headless_decisions[]` recorded by detect-changes' §1b / §1c / §2.2 gates. `version` and `previous_version` are both equal to the on-disk version (detect-only does not bump). `update_mode` reflects the run's mode (`normal` or `gap-driven` or `degraded`) so consumers know which detection path produced the manifest.
+
+→ Load, read the full file, and execute `{nextStepFile}` (health-check) — even detect-only runs through the terminal health-check step.
+
+### 1b. Handle Dry-Run Mode
+
+**If `dry_run_mode` is true (routed here from re-extract.md §6):**
+
+"**Update Skill Report: {skill_name} — Dry-Run Mode**
+
+**Status:** Dry-run (no writes)
+
+The change manifest below shows what was detected; re-extraction ran to compute the planned merge but neither merge nor write executed. No artifact was modified.
+
+{render the change manifest summary AND the re-extraction summary — what merge+validate+write WOULD have done}
+
+**Planned writes (skipped):**
+- SKILL.md re-merge with re-extracted exports
+- metadata.json version bump (or hold for gap-driven)
+- provenance-map.json update with re-extraction results
+- evidence-report.md
+- context-snippet.md (only if a staleness trigger fired)
+- active-symlink flip (only if version changed)
+
+**Recommendation:** Review the manifest and re-extraction summary; if both match expectations, re-run `skf-update-skill` without `--dry-run` to perform the actual update."
+
+The headless envelope carries `status: "dry-run"`, `files_written: []`, the `headless_decisions[]` recorded so far (everything before merge), and `update_mode` from the run.
+
+→ Load, read the full file, and execute `{nextStepFile}` (health-check).
+
 ### 2. Present Change Summary
 
 "**Update Skill Report: {skill_name}**
