@@ -22,8 +22,6 @@ To present each qualifying unit as a recommendation with evidence-based rational
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Load Context
 
 Read {outputFile} completely to obtain:

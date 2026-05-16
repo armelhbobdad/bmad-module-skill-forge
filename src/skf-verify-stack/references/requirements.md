@@ -22,8 +22,6 @@ If a PRD or vision document was provided in Step 01, verify that the combined ca
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Check PRD Availability
 
 **Read `prdAvailable` from `{outputFile}` frontmatter (set in Step 01). If `prdAvailable` is false (no PRD/vision document was provided):**

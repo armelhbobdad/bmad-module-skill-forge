@@ -23,8 +23,6 @@ Load the existing skill artifacts, provenance map, and forge tier configuration 
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 **Initialize workflow context defaults.** Before entering §1, set `confidence_mode = "normal"` as the default. §4 may upgrade this to `"degraded — all findings T1-low"` if the operator opts into degraded mode. Downstream steps (report.md, drift-report-template.md) consume this variable directly — no conditional at the usage site.
 
 ### 1. Get Skill Path

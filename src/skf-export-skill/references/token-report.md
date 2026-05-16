@@ -18,8 +18,6 @@ To calculate approximate token counts for all exported artifacts and present a c
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Calculate Token Counts
 
 For each artifact, estimate tokens using the heuristic: **words * 1.3** (approximate for GPT/Claude tokenizers). This same heuristic is used in step 3 for snippet token estimation.

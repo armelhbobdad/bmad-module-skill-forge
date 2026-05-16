@@ -20,8 +20,6 @@ Identify exactly what the user wants to drop — which skill, which version(s), 
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Load Knowledge
 
 Read `{versionPathsKnowledge}` completely and extract:

@@ -30,8 +30,6 @@ Perform tier-aware extraction on only the changed files identified in step 02, p
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 0. Check for Gap-Driven Mode
 
 **If `update_mode == "gap-driven"` (set in step 1 via `--from-test-report`, confirmed in step 2 section 0):**

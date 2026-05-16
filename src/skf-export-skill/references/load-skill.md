@@ -17,8 +17,6 @@ To load the target skill's artifacts, validate they meet agentskills.io spec com
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Parse Export Arguments
 
 "**Starting skill export...**"

@@ -21,8 +21,6 @@ To initialize the analyze-source workflow by loading configuration, detecting co
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Check for Existing Report (Continuation Detection)
 
 Look for {outputFile}.

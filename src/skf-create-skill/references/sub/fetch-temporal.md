@@ -25,8 +25,6 @@ To fetch temporal context (issues, PRs, changelogs, release notes) from the sour
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Check Eligibility
 
 Evaluate the following conditions sequentially. **If ANY condition fails, skip silently to section 5 (auto-proceed) with no output:**

@@ -24,8 +24,6 @@ To resume the analyze-source workflow from where it was left off in a previous s
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Welcome Back
 
 "**Welcome back!** Let me check where we left off with the source analysis..."

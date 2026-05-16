@@ -18,8 +18,6 @@ Load the existing skill and all its provenance data, detect whether this is an i
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Request Skill Path
 
 "**Which skill would you like to update?**

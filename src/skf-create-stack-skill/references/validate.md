@@ -18,8 +18,6 @@ Validate all written output files against their expected structure and verify co
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Verify File Existence
 
 Check that all expected files exist from written_files[]:

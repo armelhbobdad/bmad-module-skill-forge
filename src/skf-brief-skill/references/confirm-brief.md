@@ -22,8 +22,6 @@ To present the complete skill brief in human-readable format, highlighting all f
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Assemble Complete Brief
 
 Use the values already accepted in steps 01-03 directly — do not re-load `{briefSchemaPath}` here. The 18 fields below are all in conversation; the schema is only consulted in §4 if an inline adjustment needs a specific field's validation rule cited.

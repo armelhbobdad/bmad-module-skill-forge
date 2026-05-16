@@ -26,8 +26,6 @@ To write all compiled content to disk — 4 deliverable files to `{skill_package
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Create Directory Structure
 
 Resolve `{version}` from the skill brief's `version` field. Create the following directories:

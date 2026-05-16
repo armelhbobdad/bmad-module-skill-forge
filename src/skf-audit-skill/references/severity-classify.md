@@ -20,8 +20,6 @@ Grade every drift finding from Steps 03 and 04 by severity level (CRITICAL/HIGH/
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Load Severity Rules
 
 Launch a subprocess (Pattern 3 — data operations) that:

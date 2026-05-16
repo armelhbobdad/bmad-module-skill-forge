@@ -21,8 +21,6 @@ To generate a valid skill-brief.yaml file for each confirmed unit using the sche
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Load Context
 
 Read {outputFile} completely to obtain:

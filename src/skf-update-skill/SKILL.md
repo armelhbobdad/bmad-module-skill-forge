@@ -28,8 +28,6 @@ These rules apply to every step in this workflow:
 
 - Never hallucinate — every statement must have AST provenance
 - [MANUAL] sections survive regeneration with zero content loss
-- Read each step file completely before taking any action
-- Follow the mandatory sequence in each step exactly — do not skip, reorder, or optimize
 - Only load one step file at a time — never preload future steps
 - Always communicate in `{communication_language}`
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision

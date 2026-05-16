@@ -18,8 +18,6 @@ To search the agentskills.io ecosystem for an existing official skill matching t
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Check Ecosystem for Existing Skill
 
 **Note:** Ecosystem lookup requires the agentskills.io registry API, which is not yet available. The `skill-check` CLI validates local skills but does not query a remote registry.

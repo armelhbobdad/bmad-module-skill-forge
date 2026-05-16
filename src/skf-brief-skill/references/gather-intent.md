@@ -27,8 +27,6 @@ To initialize the brief-skill workflow by discovering the forge tier configurati
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Discover Forge Tier
 
 **Pre-flight write probe.** Before any conversational state accumulates, verify `{forge_data_folder}` is writable. A read-only mount, full disk, or permissions-denied path otherwise only surfaces at step 5's atomic write — by then the user has invested 5–15 minutes. Run a single-byte write-and-remove probe:

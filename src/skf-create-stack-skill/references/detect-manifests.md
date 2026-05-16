@@ -20,8 +20,6 @@ Scan the project root for dependency manifest files, parse each to extract depen
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 0. Check Compose Mode
 
 **If `compose_mode` is true AND `explicit_deps` was provided in step 01:**

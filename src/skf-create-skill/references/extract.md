@@ -47,8 +47,6 @@ To extract all public exports, function signatures, type definitions, and co-imp
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Load Extraction Patterns
 
 Load `{extractionPatternsData}` completely. Identify the strategy for the current forge tier.

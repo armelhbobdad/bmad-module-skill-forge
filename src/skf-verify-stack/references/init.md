@@ -36,8 +36,6 @@ Load all generated skills from the skills output folder, accept the architecture
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Accept Input Documents
 
 "**Verify Stack — Feasibility Analysis** (read-only — never modifies your skills, architecture doc, or PRD).

@@ -18,8 +18,6 @@ Present a clear, final summary of what the drop workflow changed — manifest st
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly.
-
 ### 1. Determine Remaining Versions
 
 **If `is_skill_level == true`:**

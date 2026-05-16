@@ -42,8 +42,6 @@ Compare current source code state against the provenance map to produce a comple
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 0. Check for Test Report Input (Gap-Driven Mode)
 
 **If `update_mode == "gap-driven"` (set in step 1 via `--from-test-report`):**

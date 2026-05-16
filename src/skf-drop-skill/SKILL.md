@@ -29,8 +29,6 @@ These rules apply to every step in this workflow:
 
 - Never delete files without explicit user confirmation in purge mode
 - Never drop an active version when other non-deprecated versions exist — enforce the active version guard
-- Read each step file completely before taking any action
-- Follow the mandatory sequence in each step exactly — do not skip, reorder, or optimize
 - Only load one step file at a time — never preload future steps
 - If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread
 - Always communicate in `{communication_language}`

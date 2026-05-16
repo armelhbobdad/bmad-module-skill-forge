@@ -25,8 +25,6 @@ Display the final summary of the forged stack skill with confidence distribution
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Display Stack Forged Banner
 
 "**Stack forged: {project_name}-stack — {lib_count} libraries, {integration_count} integration patterns**

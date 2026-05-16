@@ -27,8 +27,6 @@ Load the architecture document (required), scan the skills folder to build a ski
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Accept Input Documents
 
 "**Refine Architecture — Evidence-Backed Refinement** (additive — never deletes original content).

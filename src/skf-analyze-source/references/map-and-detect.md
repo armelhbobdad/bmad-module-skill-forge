@@ -21,8 +21,6 @@ To analyze each qualifying unit's export surface and import graph, detect cross-
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Load Context
 
 Read {outputFile} to obtain:

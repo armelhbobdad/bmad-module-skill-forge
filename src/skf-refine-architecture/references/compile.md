@@ -19,8 +19,6 @@ Produce the refined architecture document by starting with the original as a bas
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Prepare the Original as Base
 
 Load the complete original architecture document.

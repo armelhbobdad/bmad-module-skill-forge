@@ -18,8 +18,6 @@ To assemble and validate an agentskills.io-compliant package structure from the 
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Validate Package Structure
 
 Verify the skill package at `{resolved_skill_package}` (resolved in step 1 via manifest or `active` symlink — see `knowledge/version-paths.md`) contains the expected agentskills.io package layout:
