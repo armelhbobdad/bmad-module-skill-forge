@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "6e1810a8a0b4",
+  "strategy": "manual-commit",
+  "branch": "feat/skf-chain-reachability-lint",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "package.json",
+    "test/test-skf-chain-reachability.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/6e/1810a8a0b4/0/metadata.json",
+      "transcript": "/6e/1810a8a0b4/0/full.jsonl",
+      "context": "/6e/1810a8a0b4/0/context.md",
+      "content_hash": "/6e/1810a8a0b4/0/content_hash.txt",
+      "prompt": "/6e/1810a8a0b4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 58,
+    "cache_creation_tokens": 53536,
+    "cache_read_tokens": 6579890,
+    "output_tokens": 35189,
+    "api_call_count": 28
+  }
+}
