@@ -245,10 +245,24 @@ The `Scope:` line is the §9b-computed `blast_radius` rendered as one line. In `
 
 Wait for explicit user response.
 
-**If `--dry-run` was passed**: skip the Y/N prompt entirely. Display "**[DRY RUN] No changes were made — preview above shows what would be dropped.**" and emit the success envelope per SKILL.md "Result Contract (Headless)" with `status: "dry-run"`, the resolved `skill`, `drop_mode`, and `versions_affected`, then HALT (exit code 0). The manifest, filesystem, and context files are untouched.
+**If `--dry-run` was passed**: skip the Y/N prompt entirely. Display the `[DRY RUN]` line followed by a copy-pasteable selection memo so the user can capture this preview in their shell history and re-run it (interactively, picking the same values) when they're ready to commit:
+
+```
+**[DRY RUN] No changes were made — preview above shows what would be dropped.**
+
+To repeat this selection later:
+  Skill:   {target_skill}
+  Version: {target_versions[0] if is_skill_level == false else "all"}
+  Mode:    {Deprecate (soft) | Purge (hard)}
+
+Re-invoke `/skf-drop-skill {target_skill}` and re-select these values, or
+re-run with `--dry-run` to preview again.
+```
+
+Then emit the success envelope per SKILL.md "Result Contract (Headless)" with `status: "dry-run"`, the resolved `skill`, `drop_mode`, and `versions_affected`, then HALT (exit code 0). The manifest, filesystem, and context files are untouched.
 
 - **If `Y`** → proceed to section 11
-- **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → "**Cancelled.** No changes were made." HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with the resolved `skill`, `drop_mode`, and `versions_affected`.
+- **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → "**Cancelled.** No changes were made. (Tip: invoke with `--dry-run` next time to preview the operation without reaching the commit prompt.)" HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with the resolved `skill`, `drop_mode`, and `versions_affected`.
 - **Any other input** → re-display the confirmation and ask again
 
 ### 11. Store Decisions in Context
