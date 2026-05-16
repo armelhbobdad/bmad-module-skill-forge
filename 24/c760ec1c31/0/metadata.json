@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "24c760ec1c31",
+  "session_id": "261e433d-477e-4516-9fbf-2eba6dd912ac",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-16T00:43:38.505240358Z",
+  "branch": "chore/skf-issue-335-drop-redundant-scaffolding",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-analyze-source/SKILL.md",
+    "src/skf-audit-skill/SKILL.md",
+    "src/skf-brief-skill/SKILL.md",
+    "src/skf-create-skill/SKILL.md",
+    "src/skf-create-stack-skill/SKILL.md",
+    "src/skf-drop-skill/SKILL.md",
+    "src/skf-export-skill/SKILL.md",
+    "src/skf-quick-skill/SKILL.md",
+    "src/skf-refine-architecture/SKILL.md",
+    "src/skf-rename-skill/SKILL.md",
+    "src/skf-test-skill/SKILL.md",
+    "src/skf-update-skill/SKILL.md",
+    "src/skf-verify-stack/SKILL.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "46dd9c8f9f15",
+  "token_usage": {
+    "input_tokens": 1203,
+    "cache_creation_tokens": 599083,
+    "cache_read_tokens": 5358651,
+    "output_tokens": 93412,
+    "api_call_count": 46
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-16T00:43:37.860457805Z",
+    "agent_lines": 2,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 2,
+    "agent_percentage": 100
+  }
+}

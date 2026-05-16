@@ -1,0 +1,280 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-help
+
+# BMad Help
+
+## Purpose
+
+Help the user understand where they are in their BMad workflow and what to do next, and also answer broader questions when asked that could be augmented with remote sources such as module documentation sources.
+
+## Desired Outcomes
+
+When this skill completes, the user should:
+
+1. **Know where they are** — which module and phase they're in, what's already been completed
+2. **Know what to do next** — the next recommended and/or required step, with clear reasoning
+3. **Know how to invoke it** — skill name, menu code, action context, and any args that shortcut the conversation
+4. **Get offered a quick start** — when a single skill is the clear next step, offer to run it for the user right now rather than just listing it
+5. **Feel oriented, not overwhelmed** — surface only what's relevant to their current position; don't dump the entire catalog
+6. **Get answers to general questions** — when the question doesn't map to a specific skill, use the module's registered documentation to give a grounded answer
+
+## Data Sources
+
+- **Catalog**: `{project-root}/_bmad/_config/bmad-help.csv` — assembled manifest of all installed module skills
+- **Config**: `config.yaml` and `user-config.yaml` files in `{project-root}/_bmad/` and its subfolders — resolve `output-location` variables, provide `communication_language` and `project_knowledge`
+- **Artifacts**: Files matching `outputs` patterns at resolved `output-location` paths reveal which steps are possibly completed; their content may also provide grounding context for recommendations
+- **Project knowledge**: If `project_knowledge` resolves to an existing path, read it for grounding context. Never fabricate project-specific details.
+- **Module docs**: Rows with `_meta` in the `skill` column carry a URL or path in `output-location` pointing to the module's documentation (e.g., llms.txt). Fetch and use these to answer general questions about that module.
+
+## CSV Interpretation
+
+The catalog uses this format:
+
+```
+module,skill,display-name,menu-code,description,action,args,phase,after,before,required,output-location,outputs
+```
+
+**Phases** determine the high-level flow:
+- `anytime` — available regardless of workflow state
+- Numbered phases (`1-analysis`, `2-planning`, etc.) flow in order; naming varies by module
+
+**Dependencies** determine ordering within and across phases:
+- `after` — skills that should ideally complete before this one
+- `before` — skills that should run after this one
+- Format: `skill-name` for single-action skills, `skill-name:action` for multi-action skills
+
+**Required gates**:
+- `required=true` items must complete before the user can meaningfully proceed to later phases
+- A phase with no required items is entirely optional — recommend it but be clear about what's actually required next
+
+**Completion detection**:
+- Search resolved output paths for `outputs` patterns
+- Fuzzy-match found files to catalog rows
+- User may also state completion explicitly, or it may be evident from the current conversation
+
+**Descriptions carry routing context** — some contain cycle info and alternate paths (e.g., "back to DS if fixes needed"). Read them as navigation hints, not just display text.
+
+## Response Format
+
+For each recommended item, present:
+- `[menu-code]` **Display name** — e.g., "[CP] Create PRD"
+- Skill name in backticks — e.g., `bmad-create-prd`
+- For multi-action skills: action invocation context — e.g., "tech-writer lets create a mermaid diagram!"
+- Description if present in CSV; otherwise your existing knowledge of the skill suffices
+- Args if available
+
+**Ordering**: Show optional items first, then the next required item. Make it clear which is which.
+
+## Constraints
+
+- Present all output in `{communication_language}`
+- Recommend running each skill in a **fresh context window**
+- Match the user's tone — conversational when they're casual, structured when they want specifics
+- If the active module is ambiguous, retrieve all meta rows remote sources to find relevant info also to help answer their question
+
+
+ARGUMENTS: what we need to do to genuinely address this issue without any regression and missing impact: https://github.com/armelhbobdad/bmad-module-skill-forge/issues/335 . DO NOT HALLUCINATE
+
+---
+
+Before you run the audit, feel free to activate the party mode or the advanced elicitation whenever/if needed
+
+---
+
+o to party mode
+
+---
+
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-party-mode
+
+# Party Mode
+
+Facilitate roundtable discussions where BMAD agents participate as **real subagents** — each spawned independently via the Agent tool so they think for themselves. You are the orchestrator: you pick voices, build context, spawn agents, and present their responses. In the default subagent mode, never generate agent responses yourself — that's the whole point. In `--solo` mode, you roleplay all agents directly.
+
+## Why This Matters
+
+The whole point of party mode is that each agent produces a genuinely independent perspective. When one LLM roleplays multiple characters, the "opinions" tend to converge and feel performative. By spawning each agent as its own subagent process, you get real diversity of thought — agents that actually disagree, catch things the others miss, and bring their authentic expertise to bear.
+
+## Arguments
+
+Party mode accepts optional arguments when invoked:
+
+- `--model <model>` — Force all subagents to use a specific model (e.g. `--model haiku`, `--model opus`). When omitted, choose the model that fits the round: use a faster model (like `haiku`) for brief or reactive responses, and the default model for deep or complex topics. Match model weight to the depth of thinking the round requires.
+- `--solo` — Run without subagents. Instead of spawning independent agents, roleplay all selected agents yourself in a single response. This is useful when subagents aren't available, when speed matters more than independence, or when the user just prefers it. Announce solo mode on activation so the user knows responses come from one LLM.
+
+## On Activation
+
+1. **Parse arguments** — check for `--model` and `--solo` flags from the user's invocation.
+
+2. Load config from `{project-root}/_bmad/core/config.yaml` and resolve:
+  - Use `{user_name}` for greeting
+  - Use `{communication_language}` for all communications
+
+3. **Resolve the agent roster** by running:
+
+    ```bash
+    python3 {project-root}/_bmad/scripts/resolve_config.py --project-root {project-root} --key agents
+    ```
+
+    The resolver merges four layers in order: `_bmad/config.toml` (installer base, team-scoped), `_bmad/config.user.toml` (installer base, user-scoped), `_bmad/custom/config.toml` (team overrides), and `_bmad/custom/config.user.toml` (personal overrides). Each entry under `agents` is keyed by the agent's `code` and carries `name`, `title`, `icon`, `description`, `module`, and `team`. Build an internal roster of available agents from those fields.
+
+4. **Load project context** — search for `**/project-context.md`. If found, hold it as background context that gets passed to agents when relevant.
+
+5. **Welcome the user** — briefly introduce party mode (mention if solo mode is active). Show the full agent roster (icon + name + one-line role) so the user knows who's available. Ask what they'd like to discuss.
+
+## The Core Loop
+
+For each user message:
+
+### 1. Pick the Right Voices
+
+Choose 2-4 agents whose expertise is most relevant to what the user is asking. Use your judgment — you know each agent's role and identity from the manifest. Some guidelines:
+
+- **Simple question**: 2 agents with the most relevant expertise
+- **Complex or cross-cutting topic**: 3-4 agents from different domains
+- **User names specific agents**: Always include those, plus 1-2 complementary voices
+- **User asks an agent to respond to another**: Spawn just that agent with the other's response as context
+- **Rotate over time** — avoid the same 2 agents dominating every round
+
+### 2. Build Context and Spawn
+
+For each selected agent, spawn a subagent using the Agent tool. Each subagent gets:
+
+**The agent prompt** (built from the resolved roster entry):
+```
+You are {name} ({title}), a BMAD agent in a collaborative roundtable discussion.
+
+## Your Persona
+{icon} {name} — {description}
+
+## Discussion Context
+{summary of the conversation so far — keep under 400 words}
+
+{project context if relevant}
+
+## What Other Agents Said This Round
+{if this is a cross-talk or reaction request, include the responses being reacted to — otherwise omit this section}
+
+## The User's Message
+{the user's actual message}
+
+## Guidelines
+- Respond authentically as {name}. Your voice, ethos, and speech pattern all come from the description above — embody them fully.
+- Start your response with: {icon} **{name}:**
+- Speak in {communication_language}.
+- Scale your response to the substance — don't pad. If you have a brief point, make it briefly.
+- Disagree with other agents when your perspective tells you to. Don't hedge or be polite about it.
+- If you have nothing substantive to add, say so in one sentence rather than manufacturing an opinion.
+- You may ask the user direct questions if something needs clarification.
+- Do NOT use tools. Just respond with your perspective.
+```
+
+**Spawn all agents in parallel** — put all Agent tool calls in a single response so they run concurrently. If `--model` was specified, use that model for all subagents. Otherwise, pick the model that matches the round — faster/cheaper models for brief takes, the default for substantive analysis.
+
+**Solo mode** — if `--solo` is active, skip spawning. Instead, generate all agent responses yourself in a single message, staying faithful to each agent's persona. Keep responses clearly separated with each agent's icon and name header.
+
+### 3. Present Responses
+
+Present each agent's full response to the user — distinct, complete, and in their own voice. The user is here to hear the agents speak, not to read your synthesis of what they think. Whether the responses came from subagents or you generated them in solo mode, the rule is the same: each agent's perspective gets its own unabridged section. Never blend, paraphrase, or condense agent responses into a summary.
+
+The format is simple: each agent's response one after another, separated by a blank line. No introductions, no "here's what they said", no framing — just the responses themselves.
+
+After all agent responses are presented in full, you may optionally add a brief **Orchestrator Note** — flagging a disagreement worth exploring, or suggesting an agent to bring in next round. Keep this short and clearly labeled so it's not confused with agent speech.
+
+### 4. Handle Follow-ups
+
+The user drives what happens next. Common patterns:
+
+| User says... | You do... |
+|---|---|
+| Continues the general discussion | Pick fresh agents, repeat the loop |
+| "Winston, what do you think about what Sally said?" | Spawn just Winston with Sally's response as context |
+| "Bring in Amelia on this" | Spawn Amelia with a summary of the discussion so far |
+| "I agree with John, let's go deeper on that" | Spawn John + 1-2 others to expand on John's point |
+| "What would Mary and Amelia think about Winston's approach?" | Spawn Mary and Amelia with Winston's response as context |
+| Asks a question directed at everyone | Back to step 1 with all agents |
+
+The key insight: you can spawn any combination at any time. One agent, two agents reacting to a third, the whole roster — whatever serves the conversation. Each spawn is cheap and independent.
+
+## Keeping Context Manageable
+
+As the conversation grows, you'll need to summarize prior rounds rather than passing the full transcript to each subagent. Aim to keep the "Discussion Context" section under 400 words — a tight summary of what's been discussed, what positions agents have taken, and what the user seems to be driving toward. Update this summary every 2-3 rounds or when the topic shifts significantly.
+
+## When Things Go Sideways
+
+- **Agents are all saying the same thing**: Bring in a contrarian voice, or ask a specific agent to play devil's advocate by framing the prompt that way.
+- **Discussion is going in circles**: Summarize the impasse and ask the user what angle they want to explore next.
+- **User seems disengaged**: Ask directly — continue, change topic, or wrap up?
+- **Agent gives a weak response**: Don't retry. Present it and let the user decide if they want more from that agent.
+
+## Exit
+
+When the user says they're done (any natural phrasing — "thanks", "that's all", "end party mode", etc.), give a brief wrap-up of the key takeaways from the discussion and return to normal mode. Don't force exit triggers — just read the room.
+
+
+ARGUMENTS: D1+D2 ratify-vs-drop decision for SKF whole-module pass — see context below.
+
+## Decision under discussion (issue #335)
+
+Three coupled questions for a single whole-module PR across the bmad-module-skill-forge repo:
+
+1. **D1 — "Workflow Rules" trio in SKILL.md**: keep, drop, or ratify the three LLM-native bullets ("Read each step file completely", "Follow the mandatory sequence exactly", "Only load one step file at a time"). The `nextStepFile` chain mechanism already enforces these — they're documentation redundancy.
+
+2. **D2 — Step-file banners**: keep, drop, or ratify three banner patterns in `references/*.md` step files: `## MANDATORY SEQUENCE` headings, `## CRITICAL STEP COMPLETION NOTE` framing, and `Auto-Proceed` framing.
+
+3. **`skf-test-skill` outlier**: its 11 step files have 0 MANDATORY, 0 CRITICAL, 1 AUTO — is this intentional architecture (it's a validation/testing skill with different lifecycle) or just stale, missed during elevation?
+
+## Verified ground truth (run today, do NOT re-deliberate)
+
+**D1 current state across 15 SKILL.md files:**
+- Full trio (3/3): 12 elevated skf-* skills
+- Partial (1/3 — only rule 3): `skf-setup` ← inconsistency outlier
+- None (0/3): `skf-forger`, `skf-quick-skill`
+
+**D2 current state across step files (showing 3 banner types per skill — MANDATORY/CRITICAL/AUTO counts):**
+- High coverage: `skf-create-skill` 13/11/10 of 15; `skf-update-skill` 8/6/6 of 11
+- MANDATORY+AUTO but 0 CRITICAL: `skf-create-stack-skill`, `skf-verify-stack`, `skf-setup`, `skf-refine-architecture`
+- Mixed/partial: `skf-brief-skill` 6/6/3 of 12; `skf-export-skill`, `skf-rename-skill`, `skf-drop-skill`
+- Near-zero outlier: `skf-test-skill` 0/0/1 of 11
+
+**Asymmetric effort**: Ratify-D2 = adding banners to ~50+ files that lack them. Drop-D2 = removing from ~100+ files. Not symmetric.
+
+**Original issue #335's claim that "brief-skill is simpler auto-proceed style; update-skill is stricter pattern" is STALE** — brief-skill carries the same MANDATORY SEQUENCE pattern. Don't deliberate on that axis.
+
+## Agents requested for the party
+
+- **Winston (Architect)** — consistency-as-convention argument; when redundancy is signal vs. noise in a multi-skill module
+- **Paige (Tech Writer)** — does the trio/banners aid human reader comprehension of SKILL.md, or is it cargo-culted boilerplate?
+- **Amelia (Dev)** — has the trio or banners ever measurably prevented a failure mode in skill execution? Are LLMs that read these files actually changing behavior based on them?
+- **Mary (Analyst)** — risk/blast-radius, asymmetric ratify-vs-drop cost, whether this decision is reversible later
+
+## What I need out of party mode
+
+A surfaced recommendation per question (D1, D2, test-skill outlier) with the dissenting view captured. Not a forced consensus — if Winston says ratify and Amelia says drop, I want to hear both with their reasoning, so I can make the final call with eyes open.
+
+---
+
+what is the best next move?
+
+---
+
+yes
+
+---
+
+what is the best next move?
+
+---
+
+let's goo
+
+---
+
+we got some problem according to the previous quality report during our v2 work started with the refactoring of the skf-setup (see commits d78617863d8ace86bfdd523a8a63cd3d0fd0a7b8 49937672b33f3f5552f4d32bc68cd513e9721450 3dd864cd8807b4dd975d563bde50056e9f85957a). Use claude-mem for more details. I would like to know if the decisions we are making right now will not reintroduce those gap.
+
+---
+
+yes proceed
+
+---
+
+1

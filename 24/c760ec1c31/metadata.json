@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "24c760ec1c31",
+  "strategy": "manual-commit",
+  "branch": "chore/skf-issue-335-drop-redundant-scaffolding",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-analyze-source/SKILL.md",
+    "src/skf-audit-skill/SKILL.md",
+    "src/skf-brief-skill/SKILL.md",
+    "src/skf-create-skill/SKILL.md",
+    "src/skf-create-stack-skill/SKILL.md",
+    "src/skf-drop-skill/SKILL.md",
+    "src/skf-export-skill/SKILL.md",
+    "src/skf-quick-skill/SKILL.md",
+    "src/skf-refine-architecture/SKILL.md",
+    "src/skf-rename-skill/SKILL.md",
+    "src/skf-test-skill/SKILL.md",
+    "src/skf-update-skill/SKILL.md",
+    "src/skf-verify-stack/SKILL.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/24/c760ec1c31/0/metadata.json",
+      "transcript": "/24/c760ec1c31/0/full.jsonl",
+      "context": "/24/c760ec1c31/0/context.md",
+      "content_hash": "/24/c760ec1c31/0/content_hash.txt",
+      "prompt": "/24/c760ec1c31/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1203,
+    "cache_creation_tokens": 599083,
+    "cache_read_tokens": 5358651,
+    "output_tokens": 93412,
+    "api_call_count": 46
+  }
+}
