@@ -21,8 +21,6 @@ To classify each detected boundary from the project scan into discrete skillable
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Load Context
 
 Read {outputFile} to obtain:

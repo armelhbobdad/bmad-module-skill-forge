@@ -19,8 +19,6 @@ Identify capability expansions — library features documented in the generated 
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Reference Refinement Rules
 
 Use the refinement rules loaded in Step 01 from `{refinementRulesData}`. If not available in context, reload from `{refinementRulesData}`.

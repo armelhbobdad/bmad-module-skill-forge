@@ -21,8 +21,6 @@ Merge freshly extracted export data into the existing SKILL.md content while pre
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Load Merge Rules
 
 Load {manualSectionRulesFile} for [MANUAL] detection and preservation patterns.

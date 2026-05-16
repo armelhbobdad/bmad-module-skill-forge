@@ -18,8 +18,6 @@ Present a comprehensive change summary showing what was updated, [MANUAL] sectio
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Handle No-Change Shortcut
 
 **If routed here from step 02 with no changes detected:**

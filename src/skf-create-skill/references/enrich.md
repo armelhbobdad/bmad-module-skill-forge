@@ -19,8 +19,6 @@ To enrich the extraction inventory with temporal context from QMD knowledge sear
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Check Tier Eligibility
 
 **If tier is Quick, Forge, or Forge+:**

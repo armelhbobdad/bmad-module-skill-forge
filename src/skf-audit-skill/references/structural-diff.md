@@ -21,8 +21,6 @@ Compare the original provenance map extractions from create-skill against the cu
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Prepare Comparison Sets
 
 Load both datasets:

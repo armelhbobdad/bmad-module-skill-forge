@@ -37,8 +37,6 @@ Execute the drop decisions recorded in step 1: update the export manifest, rebui
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Re-read Version-Paths Knowledge
 
 Read `{versionPathsKnowledge}` again and confirm the templates and management operations. This ensures the execution step uses the same rules as the selection step even when run in isolation.

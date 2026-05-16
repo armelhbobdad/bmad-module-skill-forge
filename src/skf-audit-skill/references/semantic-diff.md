@@ -20,8 +20,6 @@ Compare QMD knowledge context between the original skill creation and current st
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Check Forge Tier
 
 **IF forge tier is Quick, Forge, or Forge+:**

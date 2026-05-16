@@ -25,8 +25,6 @@ Present the complete feasibility report to the user. Display the overall verdict
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Load Complete Report
 
 Read the entire `{outputFile}` to have all data available for presentation.

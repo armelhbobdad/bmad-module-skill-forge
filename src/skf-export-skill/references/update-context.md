@@ -43,8 +43,6 @@ To update the managed `<!-- SKF:BEGIN/END -->` section in the platform-appropria
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Check Passive Context Setting
 
 **If `passive_context: false` was detected in step 1:**

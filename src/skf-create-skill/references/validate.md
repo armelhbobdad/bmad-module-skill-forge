@@ -37,8 +37,6 @@ To validate the compiled SKILL.md content against the agentskills.io specificati
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 0. Description Guard Protocol
 
 **Used by:** §2 (`skill-check check --fix`), §4 (`split-body`), and any future tool invocation that may modify SKILL.md.

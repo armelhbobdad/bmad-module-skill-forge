@@ -28,8 +28,6 @@ To generate the complete skill-brief.yaml from the approved brief data and write
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Reference the Schema (LLM context only)
 
 `{briefSchemaPath}` and `{versionResolutionFile}` document the brief contract for human readers. The deterministic enforcement of that contract lives in `{writeSkillBriefScript}` and its JSON Schema artifact at `src/shared/scripts/schemas/skill-brief.v1.json`. Load `{briefSchemaPath}` only if you need to explain a specific field to the user during inline adjustments — otherwise skip the read; the script is the source of truth.

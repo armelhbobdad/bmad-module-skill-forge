@@ -25,8 +25,6 @@ Fetch remote documentation from brief-specified URLs using whatever web fetching
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Check Eligibility
 
 Evaluate the following conditions. **If the condition fails, skip silently to section 7 (auto-proceed) with no output:**

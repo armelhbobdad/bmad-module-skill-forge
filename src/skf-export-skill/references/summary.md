@@ -18,8 +18,6 @@ To present a complete export summary showing all files written, token counts, an
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Compile Export Summary
 
 "**Export Complete{if dry-run: ' (Dry Run)'}**

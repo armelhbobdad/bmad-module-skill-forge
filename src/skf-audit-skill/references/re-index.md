@@ -19,8 +19,6 @@ Re-scan the source code using the current forge tier tools to build a fresh extr
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Determine Extraction Strategy
 
 Based on forge tier detected in Step 01:

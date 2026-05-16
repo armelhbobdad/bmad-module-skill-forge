@@ -27,8 +27,6 @@ To load and validate the skill-brief.yaml compilation config, resolve the source
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Load Forge Tier
 
 Load `{forgeTierFile}` completely.

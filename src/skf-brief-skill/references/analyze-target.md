@@ -23,8 +23,6 @@ To analyze the target repository by resolving its location, reading its structur
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Resolve Target Location
 
 **For GitHub URLs:**

@@ -36,8 +36,6 @@ Verify the merged SKILL.md and stack reference files that step 4 section 6b wrot
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 0. Description Guard Protocol
 
 **Used by:** §7 (`skill-check check --fix` and `skill-check split-body --write`), and any future tool invocation that may modify SKILL.md's frontmatter on disk.

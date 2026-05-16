@@ -21,8 +21,6 @@ Calculate the overall feasibility verdict based on all three analysis passes, ge
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Calculate Overall Verdict
 
 **Zero-coverage short-circuit (evaluate before anything else):** Read `coveragePercentage` from `{outputFile}` frontmatter. If `coveragePercentage == 0`, force `overallVerdict: NOT_FEASIBLE` with rationale "no coverage — analysis vacuous: zero generated skills match the architecture's referenced technologies, so integration and requirements verdicts cannot produce meaningful evidence." Skip the remainder of the verdict ladder; proceed directly to section 2 to generate recommendations for the Missing skills surfaced by Step 02.

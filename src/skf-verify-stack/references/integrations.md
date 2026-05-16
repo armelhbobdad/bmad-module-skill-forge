@@ -24,8 +24,6 @@ Cross-reference API surfaces between library pairs that the architecture documen
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Load Integration Verification Rules
 
 Load `{integrationRulesData}` for the cross-reference verification protocol.

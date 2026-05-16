@@ -17,8 +17,6 @@ Count import frequency for each dependency across the codebase, rank by usage, a
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Count Import Frequency
 
 **If `compose_mode` is true:**

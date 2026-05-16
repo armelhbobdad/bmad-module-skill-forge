@@ -19,8 +19,6 @@ For each confirmed dependency, extract key exports, usage patterns, and API surf
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 0. Check Compose Mode
 
 **If `compose_mode` is true:**

@@ -25,8 +25,6 @@ You are a source code analyst and decomposition architect collaborating with a d
 
 These rules apply to every step in this workflow:
 
-- Read each step file completely before taking any action
-- Follow the mandatory sequence in each step exactly — do not skip, reorder, or optimize
 - Only load one step file at a time — never preload future steps
 - Always communicate in `{communication_language}` (the language for user-facing prose). Written artifact text — the per-unit recommendation `description` and `scope.notes` persisted into `skill-brief.yaml` — is in `{document_output_language}`; per-step rules call this out where it applies. The two values may be the same.
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision

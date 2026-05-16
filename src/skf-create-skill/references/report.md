@@ -24,8 +24,6 @@ To display the final compilation summary — skill name, version, source, export
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Display Forge Completion Banner
 
 "**Skill forged: {name} v{version} — {export_count} functions, {primary_confidence} confidence.**"

@@ -22,8 +22,6 @@ Verify that a generated skill exists for every technology, library, or framework
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Load Coverage Patterns
 
 Load `{coveragePatternsData}` for detection rules.

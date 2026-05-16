@@ -19,8 +19,6 @@ Assemble the main SKILL.md by combining per-library extractions with the integra
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Load Template Structure
 
 Load `{stackSkillTemplate}` and prepare SKILL.md section structure.

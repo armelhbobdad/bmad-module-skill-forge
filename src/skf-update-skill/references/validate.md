@@ -18,8 +18,6 @@ Validate the merged skill content against the agentskills.io specification, veri
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Check Tool Availability and Validation Timing
 
 Run: `npx skill-check -h`

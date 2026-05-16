@@ -27,8 +27,6 @@ Write all deliverable and workspace artifact files to their target directories.
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Resolve Paths and Stage Target Directory
 
 Resolve `{version}` from the primary library version or default to `1.0.0` (see S11 in "Primary library" note below). The final artifact paths are:

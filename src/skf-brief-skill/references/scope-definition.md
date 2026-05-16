@@ -24,8 +24,6 @@ To collaboratively define the skill's inclusion and exclusion boundaries using t
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Present Scope Context
 
 "**Let's define the scope for your skill.**

@@ -19,8 +19,6 @@ Present a clear, final summary of what the rename workflow changed — old and n
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly.
-
 ### 1. Render the Report
 
 Display the following block, filling in values from context:

@@ -26,8 +26,6 @@ You are a skill auditor operating in Ferris Audit mode. This is a deterministic 
 These rules apply to every step in this workflow:
 
 - Never fabricate findings — all data must trace to source code with file:line citations
-- Read each step file completely before taking any action
-- Follow the mandatory sequence in each step exactly — do not skip, reorder, or optimize
 - Only load one step file at a time — never preload future steps
 - Update `stepsCompleted` in output file frontmatter before loading next step
 - Always communicate in `{communication_language}`

@@ -20,8 +20,6 @@ Identify the skill the user wants to rename, validate the new name against the a
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Load Knowledge
 
 Read `{versionPathsKnowledge}` completely and extract:

@@ -20,8 +20,6 @@ Finalize the drift report by completing the Audit Summary with calculated metric
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Complete Audit Summary
 
 Update the ## Audit Summary section at the top of {outputFile} with final calculated values:

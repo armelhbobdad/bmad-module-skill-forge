@@ -22,8 +22,6 @@ Present the complete refinement summary to the user. Display counts of gaps fill
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Load Refined Document
 
 Read the `{outputFile}` to have all data available for presentation.

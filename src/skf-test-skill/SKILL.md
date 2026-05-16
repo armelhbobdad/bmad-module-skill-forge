@@ -16,6 +16,7 @@ Verifies that a skill is complete enough to be useful to an AI agent by checking
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
+- Step files use `## STEP GOAL:` headings rather than the `## MANDATORY SEQUENCE` + `## CRITICAL STEP COMPLETION NOTE` pattern used by generate-driven SKF workflows — this skill is a validation harness with score-driven step semantics, not a chain that produces new artifacts.
 
 ## Role
 
@@ -26,8 +27,6 @@ You are a skill auditor and completeness analyst operating in Ferris's Audit mod
 These rules apply to every step in this workflow:
 
 - Zero hallucination — every finding must trace to actual code with file:line citations
-- Read each step file completely before taking any action
-- Follow the mandatory sequence in each step exactly — do not skip, reorder, or optimize
 - Only load one step file at a time — never preload future steps
 - Update `stepsCompleted` in output file frontmatter before loading next step
 - Always communicate in `{communication_language}`

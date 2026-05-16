@@ -21,8 +21,6 @@ Analyze co-import patterns between confirmed libraries to identify integration p
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise.
-
 ### 1. Generate Library Pairs
 
 From `confirmed_dependencies`, conceptually you have N*(N-1)/2 unordered pairs. Rather than enumerating and grep-testing each one, prune the matrix via a deterministic **file-list intersection fast path** (MANDATORY first pass, all N): pairs whose per-library file lists do not overlap cannot be integration candidates by construction — drop them. Subsequent grep passes (§2) run only against pairs with a non-empty intersection, and grep scope is restricted to those intersection files rather than the whole source tree. This is NOT a "subprocess-unavailable" fallback; it is the default strategy for every N. Rationale: at N≈21 this collapses 210 prescribed pair greps to ~12 non-empty-intersection pairs in typical codebases; at larger N the compression is even greater.

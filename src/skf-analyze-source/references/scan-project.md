@@ -22,8 +22,6 @@ To map the complete project structure by scanning directory trees, detecting ser
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** Follow this sequence exactly. Do not skip, reorder, or improvise unless user explicitly requests a change.
-
 ### 1. Load Context
 
 Read {outputFile} frontmatter to obtain:
