@@ -70,7 +70,27 @@
         },
         "include": { "type": "array", "items": { "type": "string" } },
         "exclude": { "type": "array", "items": { "type": "string" } },
-        "notes": { "type": "string" }
+        "notes": { "type": "string" },
+        "rationale": {
+          "type": "object",
+          "description": "Optional authoring-time scope-type decision record written once by skf-brief-skill step 03. Absent on legacy briefs.",
+          "required": ["recommended", "chosen", "accepted_recommendation", "heuristic", "reason", "recorded"],
+          "additionalProperties": false,
+          "properties": {
+            "recommended": {
+              "type": "string",
+              "enum": ["full-library", "specific-modules", "public-api", "component-library", "reference-app", "docs-only"]
+            },
+            "chosen": {
+              "type": "string",
+              "enum": ["full-library", "specific-modules", "public-api", "component-library", "reference-app", "docs-only"]
+            },
+            "accepted_recommendation": { "type": "boolean" },
+            "heuristic": { "type": "string", "minLength": 1 },
+            "reason": { "type": "string", "minLength": 1 },
+            "recorded": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }
+          }
+        }
       }
     }
   }

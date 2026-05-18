@@ -83,6 +83,7 @@ Assemble the brief context as a **flat** JSON object — every approved value is
   "scope_include":    ["{approved include patterns}"],
   "scope_exclude":    ["{approved exclude patterns}"],
   "scope_notes":      "{approved scope notes or empty string}",
+  "scope_rationale":  null | {"recommended":"...","chosen":"...","accepted_recommendation":true|false,"heuristic":"...","reason":"...","recorded":"YYYY-MM-DD"},
   "doc_urls":         null | [{"url": "...", "label": "..."}],
   "scripts_intent":   null | "{detect|none|free-text}",
   "assets_intent":    null | "{detect|none|free-text}",

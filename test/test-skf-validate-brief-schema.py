@@ -315,3 +315,69 @@ class TestCli:
         # argparse missing-required exits 2
         result = _run_cli()
         assert result.returncode == 2
+
+
+# --------------------------------------------------------------------------
+# scope.rationale — optional authoring-time decision record
+# --------------------------------------------------------------------------
+
+
+def _rationale() -> dict:
+    return {
+        "recommended": "full-library",
+        "chosen": "public-api",
+        "accepted_recommendation": False,
+        "heuristic": "narrow-public-api",
+        "reason": "user overrode full-library->public-api: only documented API ships",
+        "recorded": "2026-05-18",
+    }
+
+
+class TestScopeRationaleSchema:
+    """skill-brief.v1.json: rationale is optional but fully constrained when present."""
+
+    def test_legacy_brief_without_rationale_validates(self) -> None:
+        brief = _valid_brief()
+        assert "rationale" not in brief["scope"]
+        result = mod.validate_brief(brief)
+        assert result["valid"] is True
+        assert result["errors"] == []
+
+    def test_brief_with_rationale_validates(self) -> None:
+        brief = _valid_brief()
+        brief["scope"]["rationale"] = _rationale()
+        result = mod.validate_brief(brief)
+        assert result["valid"] is True, result["errors"]
+        assert result["errors"] == []
+
+    def test_rationale_missing_required_subkey_fails(self) -> None:
+        brief = _valid_brief()
+        r = _rationale()
+        del r["reason"]
+        brief["scope"]["rationale"] = r
+        result = mod.validate_brief(brief)
+        assert result["valid"] is False
+
+    def test_rationale_bad_scope_type_enum_fails(self) -> None:
+        brief = _valid_brief()
+        r = _rationale()
+        r["chosen"] = "made-up"
+        brief["scope"]["rationale"] = r
+        result = mod.validate_brief(brief)
+        assert result["valid"] is False
+
+    def test_rationale_rejects_additional_properties(self) -> None:
+        brief = _valid_brief()
+        r = _rationale()
+        r["extra"] = "nope"
+        brief["scope"]["rationale"] = r
+        result = mod.validate_brief(brief)
+        assert result["valid"] is False
+
+    def test_rationale_recorded_must_be_iso_date(self) -> None:
+        brief = _valid_brief()
+        r = _rationale()
+        r["recorded"] = "May 18 2026"
+        brief["scope"]["rationale"] = r
+        result = mod.validate_brief(brief)
+        assert result["valid"] is False
