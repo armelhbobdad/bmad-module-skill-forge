@@ -181,14 +181,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 Past releases are documented in [CHANGELOG.md](CHANGELOG.md).
 
-## Versioning & Stability
-
-The v1.0.0 public API contract is documented in [docs/_internal/STABILITY.md](docs/_internal/STABILITY.md).
-
-## Release Process
-
-Maintainers: see [docs/_internal/RELEASING.md](docs/_internal/RELEASING.md) for branch-protection rules, required status checks, the [`release` environment with required-reviewer gate](docs/_internal/RELEASING.md#release-environment), the [npm Trusted Publisher registration](docs/_internal/RELEASING.md#npm-trusted-publisher) (OIDC-backed publish, auto-provenance), and the [rollback playbook](docs/_internal/RELEASING.md#rollback-playbook) covering seven failure scenarios.
-
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.
