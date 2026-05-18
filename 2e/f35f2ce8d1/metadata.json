@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "2ef35f2ce8d1",
+  "strategy": "manual-commit",
+  "branch": "feat/skf-brief-scope-rationale",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/schemas/skill-brief.v1.json",
+    "src/shared/scripts/skf-write-skill-brief.py",
+    "src/skf-brief-skill/assets/skill-brief-schema.md",
+    "src/skf-brief-skill/references/confirm-brief.md",
+    "src/skf-brief-skill/references/scope-definition.md",
+    "src/skf-brief-skill/references/write-brief.md",
+    "test/test-skf-validate-brief-schema.py",
+    "test/test-skf-write-skill-brief.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2e/f35f2ce8d1/0/metadata.json",
+      "transcript": "/2e/f35f2ce8d1/0/full.jsonl",
+      "context": "/2e/f35f2ce8d1/0/context.md",
+      "content_hash": "/2e/f35f2ce8d1/0/content_hash.txt",
+      "prompt": "/2e/f35f2ce8d1/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 106,
+    "cache_creation_tokens": 152806,
+    "cache_read_tokens": 3854431,
+    "output_tokens": 33600,
+    "api_call_count": 53
+  }
+}

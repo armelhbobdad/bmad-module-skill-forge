@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "2ef35f2ce8d1",
+  "session_id": "da2a5730-0820-4c47-aa8e-1b69e1b50282",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-18T13:27:08.58713204Z",
+  "branch": "feat/skf-brief-scope-rationale",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/schemas/skill-brief.v1.json",
+    "src/shared/scripts/skf-write-skill-brief.py",
+    "src/skf-brief-skill/assets/skill-brief-schema.md",
+    "src/skf-brief-skill/references/confirm-brief.md",
+    "src/skf-brief-skill/references/scope-definition.md",
+    "src/skf-brief-skill/references/write-brief.md",
+    "test/test-skf-validate-brief-schema.py",
+    "test/test-skf-write-skill-brief.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "2eb9c10e4425",
+  "token_usage": {
+    "input_tokens": 106,
+    "cache_creation_tokens": 152806,
+    "cache_read_tokens": 3854431,
+    "output_tokens": 33600,
+    "api_call_count": 53
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-18T13:27:07.985335855Z",
+    "agent_lines": 335,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 335,
+    "agent_percentage": 100
+  }
+}
