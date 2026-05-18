@@ -1,0 +1,207 @@
+---
+outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
+schemaFile: 'assets/skill-brief-schema.md'
+nextStepFile: 'health-check.md'
+---
+
+<!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
+
+# Step 6: Generate Briefs
+
+## STEP GOAL:
+
+To generate a valid skill-brief.yaml file for each confirmed unit using the schema, write the files to the forge data folder, append generation results to the analysis report, and recommend the appropriate next workflow for each unit — completing the analyze-source workflow.
+
+## Rules
+
+- Generate only for units in confirmed_units — no extras, no omissions
+- Do not modify recommendations or re-ask for confirmations
+- Every generated field must trace back to data collected in steps 02-05
+- Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing summary is NOT the terminal step
+
+## MANDATORY SEQUENCE
+
+### 1. Load Context
+
+Read {outputFile} completely to obtain:
+- `confirmed_units` from frontmatter (names of units approved in step 05)
+- `project_paths`, `forge_tier`, `user_name`, `forge_data_folder` from frontmatter
+- Recommendation cards from "## Recommendations" section (proposed brief fields per unit)
+- Export map and integration data from prior sections
+
+Load {schemaFile} for validation reference.
+
+**Guard clause:** If `confirmed_units` is empty, present:
+"**No confirmed units to generate briefs for.** The analysis is complete with no skill briefs produced. Run analyze-source again with different scope or parameters if needed."
+Mark workflow complete and halt.
+
+### 2. Generate Skill-Brief YAML Per Unit
+
+For EACH unit in `confirmed_units`, construct a skill-brief.yaml using:
+
+**Field mapping:**
+
+| Field | Source |
+|-------|--------|
+| name | Confirmed name from step 05 recommendation card |
+| version | Auto-detect from source (see schema Version Detection), fall back to `1.0.0` |
+| source_repo | `{project_paths[0]}` from frontmatter (or per-unit path if multi-repo) |
+| language | Primary language detected in step 03 |
+| scope.type | Scope type from step 05 recommendation card |
+| scope.include | Include patterns from step 05 recommendation card |
+| scope.exclude | Inferred from heuristics (test files, generated code) |
+| scope.notes | Rationale from step 05 recommendation card |
+| description | Description from step 05 recommendation card |
+| forge_tier | `{forge_tier}` from frontmatter |
+| created | Current date (ISO format YYYY-MM-DD) |
+| created_by | `{user_name}` from frontmatter |
+
+### 3. Validate Each Brief
+
+For each generated brief, check against {schemaFile} validation rules:
+
+1. **Name uniqueness** — no duplicate names within the batch or existing skills
+2. **Source accessible** — project_path exists
+3. **Language recognized** — valid programming language identifier
+4. **Scope type valid** — matches `full-library`, `specific-modules`, `public-api`, or `component-library`
+5. **Include patterns** — at least one glob pattern present
+6. **Forge tier match** — matches forge_tier from config
+
+**If validation fails for any brief:**
+- Document the failure with specific field and reason
+- Present to user for correction before writing
+- Do NOT write invalid briefs
+
+### 4. Present Generation Preview
+
+"**Skill Brief Generation Preview**
+
+**Units to generate:** {count}
+
+{For each unit:}
+---
+**{unit-name}** → `{forge_data_folder}/{unit-name}/skill-brief.yaml`
+```yaml
+{complete YAML content}
+```
+---
+
+**Validation:** {all passed / N issues found}
+{List any validation issues}
+
+**Ready to write {count} skill-brief.yaml files.** Confirm to proceed? (Y to write all briefs / N to skip writing but continue to report update / M to modify a specific brief / X to cancel and exit the workflow)"
+
+Wait for explicit user confirmation before writing files.
+
+### 5. Write Files
+
+**IF user confirms (Y):**
+
+For each confirmed brief:
+1. Create directory `{forge_data_folder}/{unit-name}/` if it does not exist
+2. Write `skill-brief.yaml` to `{forge_data_folder}/{unit-name}/skill-brief.yaml`
+3. Verify file was written successfully
+
+**IF user modifies (M):**
+- Ask which brief and what to change
+- Update the YAML, re-validate, present again
+- Return to confirmation prompt
+
+**IF user skips writing (N):**
+- Document the skip decision
+- Skip file writing, proceed to report update
+
+**IF user cancels (X):**
+- HARD HALT with exit code 6 (`user-cancelled`). Emit the `SKF_ANALYZE_RESULT_JSON` envelope on stderr with `status: "error"`, `halt_reason: "user-cancelled"`, `brief_paths: []`, and `unit_counts` reflecting the confirmed/skipped/maybe state from step 5
+
+### 6. Determine Next Workflow Per Unit
+
+For each generated brief, recommend the appropriate next workflow:
+
+| Condition | Recommendation |
+|-----------|---------------|
+| Brief has `scope.type: full-library` and unit is well-bounded | create-skill — brief is sufficient for direct skill creation |
+| Brief has `scope.type: component-library` and registry defines boundaries | create-skill — component boundaries defined by registry |
+| Brief has `scope.type: specific-modules` or scope needs refinement | brief-skill — refine scope before creating skill |
+| Brief has `scope.type: public-api` or complex interface | brief-skill — detailed scoping needed |
+| Unit flagged as stack skill candidate | create-stack-skill — after individual skills exist |
+| Unit flagged as already-skilled | update-skill — refresh existing skill |
+
+### 7. Append to Report
+
+Append the complete "## Generation Results" section to {outputFile}:
+
+Replace `[Appended by generate-briefs]` with:
+
+**Generated Briefs:**
+| # | Unit Name | Output Path | Validation | Next Workflow |
+|---|-----------|-------------|------------|---------------|
+| {n} | {name} | {path} | {pass/fail} | {recommendation} |
+
+**Generation Summary:**
+- Total confirmed units: {count}
+- Briefs generated: {count}
+- Briefs skipped/failed: {count}
+- Stack skill candidates flagged: {count}
+
+**Next Steps:**
+{For each next workflow recommendation, a clear action item}
+
+Update {outputFile} frontmatter:
+```yaml
+stepsCompleted: [append 'generate-briefs' to existing array]
+lastStep: 'generate-briefs'
+nextWorkflow: '{primary recommendation}'
+```
+
+### 8. Present Summary
+
+"**Analyze-Source Summary**
+
+**Project:** {project_name}
+**Forge Tier:** {forge_tier}
+
+**Results:**
+- **Scanned:** {boundary count} boundaries detected
+- **Identified:** {unit count} qualifying units classified
+- **Confirmed:** {confirmed count} units approved for brief generation
+- **Generated:** {brief count} skill-brief.yaml files written
+
+**Files Created:**
+{List each skill-brief.yaml with full path}
+
+**Analysis Report:** {outputFile}
+
+**Recommended Next Steps:**
+{For each unit, the recommended next workflow with brief explanation}
+
+{If stack skill candidates exist:}
+**Stack Skill Candidates:**
+{List candidates with recommendation to run create-stack-skill after individual skills are created}
+
+To refine any brief, run the recommended next workflow. To re-analyze with different scope, run analyze-source again."
+
+### 9. Result Contract
+
+Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{forge_data_folder}/analyze-source-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_data_folder}/analyze-source-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all generated `skill-brief.yaml` paths in `outputs` and brief counts in `summary`.
+
+### 9b. On-Complete Hook (pipeline integration)
+
+If `{onCompleteCommand}` is non-empty, invoke it now — after the timestamped result JSON and the `analyze-source-result-latest.json` copy have both been written:
+
+```
+{onCompleteCommand} --result-path={result_json_path}
+```
+
+Where `{result_json_path}` is the absolute path to the freshly written `analyze-source-result-latest.json` (stable path is preferred over the timestamped copy so downstream consumers don't need to discover the timestamp).
+
+- On success: log to `workflow_warnings[]` as informational only if the hook emitted stderr (`on_complete hook stderr: …`); otherwise no entry.
+- On non-zero exit / process error: log to `workflow_warnings[]` (`on_complete hook failed (exit {code}): {stderr_snippet}`).
+- **Never fail the workflow on hook errors** — the hook is for pipeline integration (Slack, dashboards, CI), not for gating skill-brief production.
+
+If `{onCompleteCommand}` is empty, skip this section entirely (default behavior — no hook configured).
+
+### 10. Chain to Health Check
+
+ONLY WHEN the briefs have been written (or skipped per user abort), the report updated, the summary presented, the result contract saved, and the on-complete hook invoked (or skipped per empty `{onCompleteCommand}`) will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.
+

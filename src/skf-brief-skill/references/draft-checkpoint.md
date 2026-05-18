@@ -1,6 +1,6 @@
 # Draft Checkpoint Lifecycle
 
-The `.brief-draft.json` file at `{forge_data_folder}/{skill-name}/.brief-draft.json` is a step-01 in-flight-state checkpoint. It exists only while the workflow has progressed past §7 but not yet completed step-05 — once the final brief writes successfully, step-05 §4 removes it.
+The `.brief-draft.json` file at `{forge_data_folder}/{skill-name}/.brief-draft.json` is a step 1 in-flight-state checkpoint. It exists only while the workflow has progressed past §7 but not yet completed step 5 — once the final brief writes successfully, step 5 §4 removes it.
 
 **Headless mode skips this entire lifecycle** — the run completes in a single invocation, so no resume is meaningful and no checkpoint is written.
 
@@ -8,7 +8,7 @@ The two halves of the lifecycle (resume on entry, write on §7 confirmation) for
 
 ## Half 1 — Resume Check (loaded from §6 after name confirmation)
 
-After the skill name is confirmed in §6, check for an in-progress draft at `{forge_data_folder}/{name}/.brief-draft.json`. **Only present the resume prompt** when the file exists AND no `skill-brief.yaml` sits beside it (a finished brief uses the same dir; if a finished brief exists, the draft is stale and step-05's overwrite gate is the right control point).
+After the skill name is confirmed in §6, check for an in-progress draft at `{forge_data_folder}/{name}/.brief-draft.json`. **Only present the resume prompt** when the file exists AND no `skill-brief.yaml` sits beside it (a finished brief uses the same dir; if a finished brief exists, the draft is stale and step 5's overwrite gate is the right control point).
 
 When the precondition is met, present:
 
@@ -24,7 +24,7 @@ Load the JSON and restore the captured fields: `target_repo`, `source_type`, `so
 
 The skip rule for §7b is load-bearing: re-running §7b would overwrite the user's previously accepted `description` with a fresh candidate synthesized from the seed material. The restored `description` is authoritative.
 
-The user can still revise any field at step-04 §3 if a refinement is needed after the full brief is visible.
+The user can still revise any field at step 4 §3 if a refinement is needed after the full brief is visible.
 
 ### `[N]` — Start fresh
 
@@ -43,4 +43,4 @@ After the user confirms the §7 summary, persist the captured state atomically. 
 
 Atomic-write protocol: write to `.brief-draft.json.tmp` first, then `mv .brief-draft.json.tmp .brief-draft.json`. The rename is atomic on a single filesystem; a partial write never becomes visible as `.brief-draft.json`.
 
-The file is removed by step-05 §4 after the final brief writes successfully.
+The file is removed by step 5 §4 after the final brief writes successfully.

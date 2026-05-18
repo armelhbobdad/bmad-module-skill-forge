@@ -1,0 +1,35 @@
+# DO NOT EDIT -- overwritten on every update.
+#
+# Workflow customization surface for skf-create-skill.
+
+[workflow]
+
+# --- Configurable below. Overrides merge per BMad structural rules: ---
+#   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
+#   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
+
+# Steps to run before the standard activation (uv probe, config load).
+# Overrides append. Use for org-wide pre-flight checks (auth, network,
+# compliance) that must precede any skill compilation work.
+
+activation_steps_prepend = []
+
+# Steps to run after activation but before the first stage executes.
+# Overrides append. Use for context loads or banner customization that
+# should run once activation completes successfully.
+
+activation_steps_append = []
+
+# Persistent facts the workflow keeps in mind for the whole run
+# (extraction style, compilation guardrails, tessl review preferences).
+# Overrides append.
+#
+# Each entry is either:
+#   - a literal sentence, e.g. "Skills must declare PEP 723 inline metadata."
+#   - a file reference prefixed with `file:`, e.g.
+#     "file:{project-root}/docs/create-policy.md" (globs supported; file
+#     contents are loaded and treated as facts).
+
+persistent_facts = [
+  "file:{project-root}/**/project-context.md",
+]

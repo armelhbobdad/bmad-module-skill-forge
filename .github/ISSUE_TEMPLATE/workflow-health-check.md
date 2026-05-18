@@ -12,7 +12,7 @@ assignees: ''
 
 ## Step File
 <!-- Exact path to the step file where the issue occurred -->
-`src/skf-{workflow}/steps-c/step-NN-name.md`
+`src/skf-{workflow}/references/step-NN-name.md`
 
 ## Severity
 <!-- Pick one: `bug` | `friction` | `gap`

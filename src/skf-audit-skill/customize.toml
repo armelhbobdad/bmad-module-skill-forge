@@ -1,0 +1,49 @@
+# DO NOT EDIT -- overwritten on every update.
+#
+# Workflow customization surface for skf-audit-skill.
+
+[workflow]
+
+# --- Configurable below. Overrides merge per BMad structural rules: ---
+#   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
+#   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
+
+# Steps to run before the standard activation (uv probe, config load).
+# Overrides append. Use for org-wide pre-flight checks (auth, network,
+# compliance) that must precede any audit work.
+
+activation_steps_prepend = []
+
+# Steps to run after activation but before the first stage executes.
+# Overrides append. Use for context loads or banner customization that
+# should run once activation completes successfully.
+
+activation_steps_append = []
+
+# Persistent facts the workflow keeps in mind for the whole run
+# (house style, severity-threshold policies, audit guardrails).
+# Overrides append.
+#
+# Each entry is either:
+#   - a literal sentence, e.g. "Critical drift requires CODEOWNERS notification."
+#   - a file reference prefixed with `file:`, e.g.
+#     "file:{project-root}/docs/audit-policy.md" (globs supported; file
+#     contents are loaded and treated as facts).
+
+persistent_facts = [
+  "file:{project-root}/**/project-context.md",
+]
+
+# --- Optional asset overrides ---
+#
+# Lift the canonical asset paths so orgs can substitute house-style copies
+# without forking the skill. Empty string = use the bundled default.
+
+drift_report_template_path = ""
+severity_rules_path = ""
+
+# Optional post-audit hook. When non-empty, invoked with
+# `--result-path=<path>` after the drift report and result JSON are finalized.
+# Failures are logged to workflow_warnings[] but never fail the workflow.
+
+on_complete = ""

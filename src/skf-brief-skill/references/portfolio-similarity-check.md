@@ -1,6 +1,6 @@
 # Portfolio-Similarity Check
 
-Loaded by step-01 §6 only when **all three** preconditions hold:
+Loaded by step 1 §6 only when **all three** preconditions hold:
 
 1. Forge tier is `Deep`
 2. `tools.qmd` is true in `forge-tier.yaml`
@@ -10,7 +10,7 @@ This check catches **semantic near-duplicates** that exact-name collision misses
 
 ## Procedure
 
-The brief portfolio is already indexed in QMD collections — one `{skill-name}-brief` collection per existing brief, registered by step-05 §5 of every prior Deep-tier run. The qmd CLI does not support glob-style collection selection, so enumerate first then query per collection in **a single message with N parallel Bash calls**:
+The brief portfolio is already indexed in QMD collections — one `{skill-name}-brief` collection per existing brief, registered by step 5 §5 of every prior Deep-tier run. The qmd CLI does not support glob-style collection selection, so enumerate first then query per collection in **a single message with N parallel Bash calls**:
 
 ```bash
 # 1. Enumerate brief collections (one per existing brief)

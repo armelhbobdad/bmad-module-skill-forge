@@ -1,3 +1,7 @@
+---
+type: static-reference
+---
+
 # Remote Source Resolution (Forge/Deep Tier)
 
 If `source_root` is a local path: proceed with the tier-appropriate strategy as normal.
@@ -83,7 +87,7 @@ After extraction is complete for all files in scope (whether successful or parti
 
 ## Version Reconciliation
 
-After the source path is accessible, check whether the source version has changed since the original skill was created. Look for the version file matching the detected language (e.g., `pyproject.toml`, `package.json`, `Cargo.toml`). If the source version differs from the current `metadata.json` version, record `source_version_detected` in context for step-06 to use when updating `metadata.json`. No warning needed here — step-06 handles the version update.
+After the source path is accessible, check whether the source version has changed since the original skill was created. Look for the version file matching the detected language (e.g., `pyproject.toml`, `package.json`, `Cargo.toml`). If the source version differs from the current `metadata.json` version, record `source_version_detected` in context for step 6 to use when updating `metadata.json`. No warning needed here — step 6 handles the version update.
 
 ## AST Tool Unavailability (Local Source)
 

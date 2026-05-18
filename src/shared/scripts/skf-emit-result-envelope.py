@@ -4,9 +4,9 @@
 # ///
 """SKF Emit Result Envelope — Schema-locked headless output for skf-setup.
 
-Replaces the prose-driven envelope assembly in `src/skf-setup/steps-c/
-step-04-report.md` §4 with one Python invocation. The envelope contract
-(SKF_SETUP_RESULT_JSON) was added to step-04 in PR #247, extended in
+Replaces the prose-driven envelope assembly in `src/skf-setup/references/
+report.md` §4 with one Python invocation. The envelope contract
+(SKF_SETUP_RESULT_JSON) was added to step 4 in PR #247, extended in
 PR #248 (header / outputs / failure modes), and extended again in this
 PR (previous_tier, tier_changed, tools_added, tools_removed, error).
 
@@ -89,7 +89,7 @@ SCHEMA_FILE = Path(__file__).parent / "schemas" / "skf-setup-result-envelope.v1.
 TOOL_KEYS = ("ast_grep", "gh_cli", "qmd", "ccc")
 VALID_TIERS = ("Quick", "Forge", "Forge+", "Deep")
 VALID_FILES = ("forge-tier.yaml", "preferences.yaml", "settings.yml", "ccc_index")
-VALID_CCC_STATUS = ("fresh", "created", "failed", "none")
+VALID_CCC_STATUS = ("fresh", "created", "failed", "none", "skipped")
 
 
 def _die(code: int, message: str) -> None:
@@ -132,7 +132,7 @@ def _compute_tool_deltas(current: dict, previous) -> tuple[list[str], list[str]]
     """Return (added, removed) tool-key lists, sorted for determinism.
 
     First-run convention (previous is None or empty): added = currently
-    available tools; removed = []. Matches the documented step-04 §4 rule.
+    available tools; removed = []. Matches the documented step 4 §4 rule.
     """
     cur = _normalize_tools(current)
     if not previous:
@@ -147,7 +147,7 @@ def _compute_tool_deltas(current: dict, previous) -> tuple[list[str], list[str]]
 def _assemble_warnings(payload: dict) -> list[str]:
     """Fold every documented warning source into the envelope's warnings array.
 
-    Matches the field-rules block in step-04 §4 — pipelines should only need
+    Matches the field-rules block in step 4 §4 — pipelines should only need
     to consult `warnings` to surface non-fatal issues.
     """
     warnings: list[str] = []
@@ -253,8 +253,12 @@ def assemble_envelope(payload: dict) -> dict:
     if require_tier_satisfied is not None and not isinstance(require_tier_satisfied, bool):
         _die(1, f"require_tier_satisfied must be bool or null, got {type(require_tier_satisfied).__name__}")
 
+    error = _normalize_error(payload.get("error"))
+    status = _compute_status(error, require_tier_satisfied)
+
     return {
         "skf_setup": {
+            "status": status,
             "tier": tier,
             "previous_tier": previous_tier,
             "tier_changed": tier_changed,
@@ -268,9 +272,27 @@ def assemble_envelope(payload: dict) -> dict:
             "tier_override_invalid": bool(payload.get("tier_override_invalid", False)),
             "require_tier_satisfied": require_tier_satisfied,
             "warnings": _assemble_warnings(payload),
-            "error": _normalize_error(payload.get("error")),
+            "error": error,
         }
     }
+
+
+def _compute_status(error: dict | None, require_tier_satisfied) -> str:
+    """Derive the single-field status from error + require_tier_satisfied.
+
+    - 'write_failure' when error.phase signals a file-write failure
+    - 'blocked'       when error is non-null but not a write failure
+    - 'tier_failure'  when require_tier_satisfied is False
+    - 'success'       otherwise
+    """
+    if error is not None:
+        phase = (error.get("phase") or "").lower()
+        if "write" in phase or phase.endswith("forge-tier.yaml") or phase.endswith("preferences.yaml"):
+            return "write_failure"
+        return "blocked"
+    if require_tier_satisfied is False:
+        return "tier_failure"
+    return "success"
 
 
 def emit_envelope_line(envelope: dict) -> str:
@@ -398,19 +420,81 @@ def cmd_validate() -> None:
         _die(1, "; ".join(errors))
 
 
+def assemble_blocked_envelope(phase: str, reason: str, path: str | None = None) -> dict:
+    """Assemble a minimal status='blocked' envelope for early-halt paths.
+
+    Used when On Activation or step 2 halts before the regular envelope
+    construction has the inputs it needs (no tier, no detected tools,
+    no config_path). Every other required field gets a documented sentinel
+    so the envelope still passes schema validation and pipelines can
+    branch on `status: "blocked"` and inspect `error` for context.
+    """
+    return {
+        "skf_setup": {
+            "status": "blocked",
+            "tier": "Quick",
+            "previous_tier": None,
+            "tier_changed": False,
+            "tools": {"ast_grep": False, "gh_cli": False, "qmd": False, "ccc": False},
+            "tools_added": [],
+            "tools_removed": [],
+            "config_path": path or "<unknown — halt before config_path resolved>",
+            "ccc_index": {"status": "none", "indexed_path": None, "file_count": None},
+            "files_written": [],
+            "tier_override_active": False,
+            "tier_override_invalid": False,
+            "require_tier_satisfied": None,
+            "warnings": [],
+            "error": {
+                "phase": phase,
+                "path": path or "<n/a>",
+                "reason": reason,
+            },
+        }
+    }
+
+
+def cmd_emit_blocked() -> None:
+    """Emit a blocked envelope. Reads `phase`, `reason`, optional `path` from stdin JSON.
+
+    Designed for early-halt paths (uv missing, config.yaml missing, etc.) where
+    the regular `emit` subcommand can't run because tier/tools/config_path are
+    not yet known.
+    """
+    payload = _read_stdin_json("emit-blocked")
+    phase = payload.get("phase")
+    reason = payload.get("reason")
+    if not isinstance(phase, str) or not phase:
+        _die(1, "emit-blocked: 'phase' must be a non-empty string")
+    if not isinstance(reason, str) or not reason:
+        _die(1, "emit-blocked: 'reason' must be a non-empty string")
+    path = payload.get("path")
+    if path is not None and not isinstance(path, str):
+        _die(1, "emit-blocked: 'path' must be a string or omitted")
+    envelope = assemble_blocked_envelope(phase, reason, path)
+    schema = _load_schema()
+    errors = _validate_against_schema(envelope, schema)
+    if errors:
+        _die(2, f"assembled blocked envelope failed schema validation: {errors}")
+    print(emit_envelope_line(envelope))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="cmd")
-    sub.add_parser("emit",     help="Build envelope from context payload (default).")
-    sub.add_parser("validate", help="Validate an envelope payload against the schema.")
+    sub.add_parser("emit",          help="Build envelope from context payload (default).")
+    sub.add_parser("emit-blocked",  help="Emit minimal status='blocked' envelope for early-halt paths.")
+    sub.add_parser("validate",      help="Validate an envelope payload against the schema.")
     args = parser.parse_args()
 
     cmd = args.cmd or "emit"
     if cmd == "emit":
         cmd_emit()
+    elif cmd == "emit-blocked":
+        cmd_emit_blocked()
     elif cmd == "validate":
         cmd_validate()
 

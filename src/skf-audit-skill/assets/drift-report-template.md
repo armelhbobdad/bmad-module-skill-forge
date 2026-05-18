@@ -17,6 +17,7 @@ previousWorkflow: 'create-skill'
 
 ## Audit Summary
 
+**Confidence Mode:** {confidence_mode}
 **Skill:** {skill_name}
 **Source:** {source_path}
 **Tier:** {forge_tier}
@@ -35,28 +36,28 @@ previousWorkflow: 'create-skill'
 
 ## Structural Drift
 
-<!-- Appended by step-03-structural-diff -->
+<!-- Appended by structural-diff -->
 
 ---
 
 ## Semantic Drift
 
-<!-- Appended by step-04-semantic-diff (Deep tier only) -->
+<!-- Appended by semantic-diff (Deep tier only) -->
 
 ---
 
 ## Severity Classification
 
-<!-- Appended by step-05-severity-classify -->
+<!-- Appended by severity-classify -->
 
 ---
 
 ## Remediation Suggestions
 
-<!-- Appended by step-06-report -->
+<!-- Appended by report -->
 
 ---
 
 ## Provenance
 
-<!-- Appended by step-06-report -->
+<!-- Appended by report -->

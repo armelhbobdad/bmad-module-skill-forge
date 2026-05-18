@@ -1,0 +1,57 @@
+# DO NOT EDIT -- overwritten on every update.
+#
+# Workflow customization surface for skf-drop-skill.
+
+[workflow]
+
+# --- Configurable below. Overrides merge per BMad structural rules: ---
+#   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
+#   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
+
+# Steps to run before the standard activation (uv probe, config load).
+# Overrides append. Use for org-wide pre-flight checks (audit-log emit,
+# ticket-reference enforcement) that must precede any destructive work.
+
+activation_steps_prepend = []
+
+# Steps to run after activation but before the first stage executes.
+# Overrides append. Use for context loads or banner customization that
+# should run once activation completes successfully.
+
+activation_steps_append = []
+
+# Persistent facts the workflow keeps in mind for the whole run
+# (drop-policy reminders, retention guardrails, audit-trail rules).
+# Overrides append.
+#
+# Each entry is either:
+#   - a literal sentence, e.g. "Purges of skills tagged `compliance` require ticket reference."
+#   - a file reference prefixed with `file:`, e.g.
+#     "file:{project-root}/docs/drop-policy.md" (globs supported; file
+#     contents are loaded and treated as facts).
+
+persistent_facts = [
+  "file:{project-root}/**/project-context.md",
+]
+
+# --- Optional safety + default scalars ---
+#
+# Default drop mode. Empty string = always prompt the user at §8 Ask Mode.
+# Set to "deprecate" or "purge" to skip the prompt — the headless
+# auto-decision log records the override source.
+
+default_mode = ""
+
+# Hard-block hard-purge in headless mode. When set to "true", a headless
+# invocation with `mode=purge` HALTs at activation with exit code 6
+# (`halt_reason: "headless-purge-forbidden"`) instead of silently deleting
+# files. Operators must either re-run with `mode=deprecate` or unset this
+# flag for that run. Empty string = no guard (default).
+
+forbid_purge_in_headless = ""
+
+# Fallback IDE → context-file mapping for unknown IDEs in `config.yaml.ides`.
+# Empty string = use bundled defaults (AGENTS.md / .agents/skills/).
+
+unknown_ide_default_context_file = ""
+unknown_ide_default_skill_root = ""

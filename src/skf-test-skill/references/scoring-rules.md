@@ -1,3 +1,5 @@
+<!-- Config: communicate in {communication_language}. -->
+
 # Scoring Rules
 
 ## Default Threshold
@@ -44,7 +46,7 @@ tessl evaluates SKILL.md body content only — it does not read `references/*.md
 
 ### Docs-Only Mode (all [EXT:...] citations, any tier)
 
-When `docs_only_mode: true` is set by step-03 (indicating a skill where all SKILL.md citations are `[EXT:...]` format with no local source code):
+When `docs_only_mode: true` is set by step 3 (indicating a skill where all SKILL.md citations are `[EXT:...]` format with no local source code):
 
 - **Signature Accuracy:** Not scored (no source to compare against)
 - **Type Coverage:** Not scored (no source to compare against)
@@ -54,7 +56,7 @@ When `docs_only_mode: true` is set by step-03 (indicating a skill where all SKIL
 
 This is functionally identical to Quick tier weight redistribution but with a different coverage denominator (self-consistency instead of source comparison).
 
-**S4 external-validator requirement for docs-only:** docs-only mode removes two categories (Signature Accuracy, Type Coverage) from scoring. If External Validation is ALSO unavailable, the evidence base collapses to Coverage alone (naive) or Coverage + Coherence (contextual) — which in the naive/Quick case trips the minimum-evidence floor (INCONCLUSIVE). To keep docs-only skills gradable when external validators are present but still deterministic when they are missing: **when `docsOnly: true` AND `externalValidation is null`, step-05 MUST cap `totalScore` at `threshold - 1` (forcing FAIL) before the INCONCLUSIVE floor is evaluated.** This prevents a docs-only skill from PASSing with only one or two redistributed categories carrying all the weight. Implement in step-05 §4 as a pre-compare cap, recorded in the report as `scoring_notes: docs-only without external validators — capped below threshold per S4`.
+**External-validator requirement for docs-only:** docs-only mode removes two categories (Signature Accuracy, Type Coverage) from scoring. If External Validation is ALSO unavailable, the evidence base collapses to Coverage alone (naive) or Coverage + Coherence (contextual) — which in the naive/Quick case trips the minimum-evidence floor (INCONCLUSIVE). To keep docs-only skills gradable when external validators are present but still deterministic when they are missing: **when `docsOnly: true` AND `externalValidation is null`, step 5 MUST cap `totalScore` at `threshold - 1` (forcing FAIL) before the INCONCLUSIVE floor is evaluated.** This prevents a docs-only skill from PASSing with only one or two redistributed categories carrying all the weight. Implement in step 5 §4 as a pre-compare cap, recorded in the report as `scoring_notes: docs-only without external validators — capped below threshold`.
 
 ### Stack Skills (Any Tier)
 
@@ -64,7 +66,7 @@ When `metadata.json.skill_type == "stack"` (set `stackSkill: true` in the scorin
 - **Type Coverage:** N/A — same rationale; the type surface belongs to the external libraries.
 - **Weight redistribution:** Same as Quick tier / docs-only / State 2 — Signature Accuracy (22%) and Type Coverage (14%) weights redistributed proportionally to remaining active categories (Export Coverage, Coherence, External Validation).
 - **Applies regardless of detected tier** (Quick, Forge, Forge+, Deep) and is independent of `docsOnly` and `state2`. A stack skill can also be docs-only or State 2; the skip reasons combine additively (e.g. `"stack skill (external type surface) + State 2 (provenance-map)"`).
-- **Detection:** step-05 reads `metadata.json.skill_type` from the skill package. If the value is `"stack"`, set `stackSkill: true` in the scoring input JSON.
+- **Detection:** step 5 reads `metadata.json.skill_type` from the skill package. If the value is `"stack"`, set `stackSkill: true` in the scoring input JSON.
 
 Equivalence-class note: stack skills with `docsOnly:false` / `state2:false` map to the same equivalence class as State 2 contextual rows (class B) or State 2 naive rows (class D) — the redistribution math is identical; only the `skipReasons` string changes.
 
@@ -80,7 +82,7 @@ When source is not locally available and analysis resolves to State 2 (provenanc
 
 Note: When provenance-map entries are predominantly T1 (AST-verified at compilation time), the coverage and name-matching data is already at highest confidence. The N/A categories reflect the inability to re-verify at test time, not low-quality extraction data.
 
-**S9 State 2 undercount risk acknowledgement:** provenance-map is a cached extraction snapshot — if the source has evolved since extraction, public API adds/removes will NOT surface in Export Coverage (denominator is frozen to the provenance-map union). When `state2: true` AND step-03 records any provenance vs metadata divergence (e.g. union > either source by >5%), apply a flat **10% deduction** to `exportCoverage` before calling the scoring script, AND set `analysis_confidence: provenance-map` (already set) with a report note: `scoring_notes: State 2 undercount risk acknowledged — 10% deduction applied to Export Coverage`. Rationale: the skill cannot be reliably scored on a frozen denominator when the cache is known to disagree with its own metadata; prefer understating over overstating.
+**State 2 undercount risk acknowledgement:** provenance-map is a cached extraction snapshot — if the source has evolved since extraction, public API adds/removes will NOT surface in Export Coverage (denominator is frozen to the provenance-map union). When `state2: true` AND step 3 records any provenance vs metadata divergence (e.g. union > either source by >5%), apply a flat **10% deduction** to `exportCoverage` before calling the scoring script, AND set `analysis_confidence: provenance-map` (already set) with a report note: `scoring_notes: State 2 undercount risk acknowledged — 10% deduction applied to Export Coverage`. Rationale: the skill cannot be reliably scored on a frozen denominator when the cache is known to disagree with its own metadata; prefer understating over overstating.
 
 ### Forge Tier (ast-grep)
 - Export Coverage: AST-backed export comparison
@@ -98,7 +100,7 @@ Note: When provenance-map entries are predominantly T1 (AST-verified at compilat
 - Cross-repository reference verification
 - QMD knowledge enrichment for coherence
 - Full scoring formula with maximum depth
-- **Migration & Deprecation Warnings section:** If T2-future annotations exist in the enrichment data, verify that Section 4b is present in SKILL.md Tier 1 and that each warning traces to a T2 provenance citation. If no T2-future annotations exist, Section 4b should normally be absent (not empty). Presence/absence mismatch is a Medium severity gap — with one Info-severity exception for historical-migration content (completed package renames, consolidated import paths, shipped API cutovers that remain load-bearing for training-data drift remediation). See `steps-c/step-04-coherence-check.md` §2b/§5b for the three-case rule.
+- **Migration & Deprecation Warnings section:** If T2-future annotations exist in the enrichment data, verify that Section 4b is present in SKILL.md Tier 1 and that each warning traces to a T2 provenance citation. If no T2-future annotations exist, Section 4b should normally be absent (not empty). Presence/absence mismatch is a Medium severity gap — with one Info-severity exception for historical-migration content (completed package renames, consolidated import paths, shipped API cutovers that remain load-bearing for training-data drift remediation). See `references/coherence-check.md` §2b/§5b for the three-case rule.
 
 ## Redistribution Combinations Matrix (M3 — terminology + determinism)
 
@@ -179,7 +181,7 @@ Three-state gate — **PASS / FAIL / INCONCLUSIVE**. `INCONCLUSIVE` is not PASS 
   - `active_categories` = count of categories with a non-zero final weight *after* all redistribution (Quick tier, docs-only, State 2, external-validator-unavailable). Categories with a redistributed weight of 0 do not count as active, even if they received a score.
   - **If `active_categories < 2`** → force `result: INCONCLUSIVE` with rationale `"insufficient evidence: only {N} active category"`. A single active category cannot cross-validate itself and a PASS would be a false signal.
   - **If `tier == "Quick"` AND the sole active contributor is Export Coverage** → force `result: INCONCLUSIVE` with rationale `"Quick tier: Export Coverage alone is insufficient evidence — add a second active category by upgrading tier or enabling external validators"`. This catches the degenerate case where every signature/type/coherence/external category gets redistributed to 0 and Export Coverage is doing all the work.
-  - The floor is enforced by `scripts/compute-score.py`. The step-05 scoring step reads `result` from the script output and writes it into the test report frontmatter unchanged.
+  - The floor is enforced by `scripts/compute-score.py`. The step 5 scoring step reads `result` from the script output and writes it into the test report frontmatter unchanged.
 
 - Otherwise:
   - score >= threshold → PASS

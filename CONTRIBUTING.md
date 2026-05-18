@@ -92,7 +92,7 @@ The `src/skf-*/` directories each follow the same shape:
 ```
 src/skf-<name>/
   SKILL.md            # frontmatter (name, description, "Use when ..."), stages table
-  steps-c/            # one file per step, loaded one-at-a-time by Ferris
+  references/            # one file per step, loaded one-at-a-time by Ferris
   references/         # step-scoped rules, protocols, decision tables
   assets/             # step-scoped templates, schemas, output formats
 ```
@@ -111,7 +111,7 @@ Knowledge lives in [`src/knowledge/`](src/knowledge/) and is loaded just-in-time
 
 - Keep each file single-concern: zero-hallucination, confidence-tiers, provenance-tracking, version-paths, etc.
 - Add the new file to the **Knowledge Map** table in [`src/knowledge/overview.md`](src/knowledge/overview.md) with its purpose and the workflow codes (CS, QS, US, ...) that consume it.
-- Reference it from the step that needs it with a `Load:` directive (see any `steps-c/step-*.md` for the pattern).
+- Reference it from the step that needs it with a `Load:` directive (see any `references/step-*.md` for the pattern).
 - If the principle cuts across ≥2 workflows, it belongs in `knowledge/`. If it's step-scoped, it belongs in the workflow's `references/` instead.
 
 Forger-sidecar (`src/forger/`) is Ferris's own memory: `preferences.yaml` and `forge-tier.yaml`. Changes here should be rare and tied to a real behavioural change in a workflow.

@@ -51,10 +51,10 @@ The `status` field is only present when QMD embed verification fails during coll
 
 | Type | Producer | Content | Primary Consumers |
 | --- | --- | --- | --- |
-| `extraction` | create-skill step-07 | Compiled SKILL.md, references, context-snippet — structured, confidence-rated exports | audit-skill (drift detection), update-skill (T2 enrichment) |
-| `brief` | brief-skill step-05 | skill-brief.yaml — intent, scope, target repository metadata | Portfolio-level search (cross-skill deduplication) |
-| `temporal` | create-skill step-03b | GitHub issues, PRs, releases, changelogs — historical and planned context at T2 confidence | step-04 enrichment (temporal annotations per exported function) |
-| `docs` | create-skill step-03c | Fetched external documentation — API references, guides, usage examples (T3 confidence) | step-04 enrichment (cross-reference doc context with source-extracted functions) |
+| `extraction` | create-skill step 7 | Compiled SKILL.md, references, context-snippet — structured, confidence-rated exports | audit-skill (drift detection), update-skill (T2 enrichment) |
+| `brief` | brief-skill step 5 | skill-brief.yaml — intent, scope, target repository metadata | Portfolio-level search (cross-skill deduplication) |
+| `temporal` | create-skill step 3b | GitHub issues, PRs, releases, changelogs — historical and planned context at T2 confidence | step 4 enrichment (temporal annotations per exported function) |
+| `docs` | create-skill step 3c | Fetched external documentation — API references, guides, usage examples (T3 confidence) | step 4 enrichment (cross-reference doc context with source-extracted functions) |
 
 ### Lifecycle
 
@@ -112,7 +112,7 @@ The `ccc_index_registry` array in forge-tier.yaml is a **parallel but separate**
 | **What is indexed** | Curated workflow artifacts (SKILL.md, briefs, temporal data) | Source code (the actual codebase) |
 | **Index engine** | QMD (BM25 + optional vector search) | cocoindex-code (AST + vector embeddings) |
 | **Lifecycle** | Per-skill: created by create-skill, consumed by audit/update-skill | Per-project: created by setup, verified by create-skill |
-| **Janitor** | setup step-03 (orphan/stale QMD collection cleanup) | setup step-03 section 5b (stale path cleanup) |
+| **Janitor** | setup step 3 (orphan/stale QMD collection cleanup) | setup step 3 section 5b (stale path cleanup) |
 | **Availability** | Deep tier only | Forge+ and Deep tiers |
 
 These registries are orthogonal — they never reference each other, and their janitor sections operate independently.

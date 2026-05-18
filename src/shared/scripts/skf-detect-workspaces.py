@@ -8,7 +8,7 @@ Takes a JSON payload on stdin describing a target repo's file tree plus the
 contents of a small set of root manifests, and returns whether a workspace
 layout is present, which manifest kind drives it, and the list of resolved
 workspaces. The helper does NO file I/O — the caller (typically
-skf-brief-skill step-02 §1b) fetches files via `gh api` / local filesystem
+skf-brief-skill step 2 §1b) fetches files via `gh api` / local filesystem
 and pipes the relevant content in.
 
 Detection runs in priority order; the first matching detector wins:

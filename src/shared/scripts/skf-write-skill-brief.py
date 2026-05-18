@@ -6,7 +6,7 @@
 
 Replaces the prose-driven YAML emission, version-precedence resolution,
 conditional optional-field rendering, and non-atomic file write currently
-inlined in `src/skf-brief-skill/steps-c/step-05-write-brief.md` §3-§4.
+inlined in `src/skf-brief-skill/references/write-brief.md` §3-§4.
 
 Each of those operations is purely deterministic: there is no LLM
 judgement required to render the YAML, decide which optional fields
@@ -56,7 +56,7 @@ Context payload shape (consumed by `write`):
 
 Version precedence (resolved into the rendered YAML's `version` field):
   1. version_resolved if explicitly supplied (caller already ran the
-     precedence rule). Used by step-05 when it has confirmed values.
+     precedence rule). Used by step 5 when it has confirmed values.
   2. Otherwise: target_version if non-null.
   3. Otherwise: detected_version if non-null.
   4. Otherwise: "1.0.0".
@@ -263,6 +263,36 @@ def validate_context(ctx: dict[str, Any]) -> list[str]:
     if not isinstance(scope["notes"], str):
         _die("scope.notes must be a string (use empty string when no notes)", field="scope.notes")
 
+    # scope.rationale — optional authoring-time scope-type decision record.
+    # Absent/None → field is simply not present (same null-drop path as
+    # doc_urls). When present it must be a complete six-subkey object.
+    rationale = scope.get("rationale")
+    if rationale is not None:
+        if not isinstance(rationale, dict):
+            _die("scope.rationale must be an object when present", field="scope.rationale")
+        _RATIONALE_STR_KEYS = ("recommended", "chosen", "heuristic", "reason", "recorded")
+        for rk in (*_RATIONALE_STR_KEYS, "accepted_recommendation"):
+            if rk not in rationale:
+                _die(f"scope.rationale.{rk} is required", field=f"scope.rationale.{rk}")
+        for rk in _RATIONALE_STR_KEYS:
+            if not isinstance(rationale[rk], str) or not rationale[rk]:
+                _die(
+                    f"scope.rationale.{rk} must be a non-empty string",
+                    field=f"scope.rationale.{rk}",
+                )
+        if not isinstance(rationale["accepted_recommendation"], bool):
+            _die(
+                "scope.rationale.accepted_recommendation must be a boolean",
+                field="scope.rationale.accepted_recommendation",
+            )
+        for rk in ("recommended", "chosen"):
+            if rationale[rk] not in VALID_SCOPE_TYPES:
+                _die(
+                    f"scope.rationale.{rk} must be one of {sorted(VALID_SCOPE_TYPES)}. "
+                    f"Got: {rationale[rk]!r}",
+                    field=f"scope.rationale.{rk}",
+                )
+
     # target_version semver shape (when present)
     tv = ctx.get("target_version")
     if tv is not None:
@@ -308,6 +338,21 @@ def assemble_brief(ctx: dict[str, Any], resolved_version: str) -> dict[str, Any]
         },
     }
 
+    # Conditional: scope.rationale — canonical position is after `notes` and
+    # before `amendments` (amendments is appended post-authoring by other
+    # workflows and is never emitted here, so appending after notes yields the
+    # canonical order). Absent → key omitted, matching the legacy-brief default.
+    scope_rationale = ctx["scope"].get("rationale")
+    if scope_rationale is not None:
+        brief["scope"]["rationale"] = {
+            "recommended": scope_rationale["recommended"],
+            "chosen": scope_rationale["chosen"],
+            "accepted_recommendation": scope_rationale["accepted_recommendation"],
+            "heuristic": scope_rationale["heuristic"],
+            "reason": scope_rationale["reason"],
+            "recorded": scope_rationale["recorded"],
+        }
+
     # Conditional: target_version (must equal version)
     tv = ctx.get("target_version")
     if tv is not None:
@@ -346,7 +391,7 @@ def assemble_brief(ctx: dict[str, Any], resolved_version: str) -> dict[str, Any]
 def render_yaml(brief: dict[str, Any]) -> str:
     """Dump the brief dict as YAML in canonical key order with a leading document marker.
 
-    The step-05 §3 template shows leading and trailing `---` markers, but those were
+    The step 5 §3 template shows leading and trailing `---` markers, but those were
     wrapping the example YAML for documentation purposes — actual on-disk YAML uses
     only the leading `---` (or none). A trailing `---` would start a second empty
     document and break callers that use `yaml.safe_load` (which expects a single
@@ -388,7 +433,13 @@ def atomic_write(target: Path, content: str) -> int:
 # Top-level keys that get folded into the nested `scope` sub-object — every
 # other top-level key passes through unchanged so future additions to the
 # schema don't require a translator update.
-_FLAT_SCOPE_KEYS = ("scope_type", "scope_include", "scope_exclude", "scope_notes")
+_FLAT_SCOPE_KEYS = (
+    "scope_type",
+    "scope_include",
+    "scope_exclude",
+    "scope_notes",
+    "scope_rationale",
+)
 
 
 def flat_to_nested(flat: dict[str, Any]) -> dict[str, Any]:
@@ -437,6 +488,11 @@ def flat_to_nested(flat: dict[str, Any]) -> dict[str, Any]:
             scope["exclude"] = flat["scope_exclude"]
         if "scope_notes" in flat and flat["scope_notes"] is not None:
             scope["notes"] = flat["scope_notes"]
+        # Optional authoring-time rationale. Null/absent → key dropped (same
+        # null-drop semantics as doc_urls); when present it carries the full
+        # six-subkey object validated by validate_context.
+        if "scope_rationale" in flat and flat["scope_rationale"] is not None:
+            scope["rationale"] = flat["scope_rationale"]
         nested["scope"] = scope
     return nested
 
@@ -495,7 +551,7 @@ def main() -> int:
             "scope_type/scope_include/scope_exclude/scope_notes top-level keys, "
             "optional fields nullable) instead of the nested shape. Eliminates "
             "the conditional-omit logic the LLM currently walks at the §3 "
-            "assembly site in step-05."
+            "assembly site in step 5."
         ),
     )
 

@@ -46,7 +46,7 @@ If the source is a remote GitHub repo, use `gh api repos/{owner}/{repo}/contents
 
 If detection succeeds, use the detected version. If it fails or returns a non-semver value, fall back to `"1.0.0"`.
 
-The create-skill workflow (step-03-extract) also performs version reconciliation at extraction time — if the source version has changed since the brief was created, the extraction step warns and uses the source version.
+The create-skill workflow (extract) also performs version reconciliation at extraction time — if the source version has changed since the brief was created, the extraction step warns and uses the source version.
 
 **Target version override:** When `target_version` is present in the brief, it takes precedence over auto-detection. Auto-detection still runs for informational purposes (displayed as "Detected version" alongside the user-specified "Target version"), but the `target_version` value is used as the brief's `version` field. This is particularly useful for docs-only skills (where no package manifest exists) and when the user wants to compile a skill for a specific older version.
 
@@ -67,6 +67,14 @@ scope:
   #   - "code/core/src/manager-api/**"
   #   - "code/core/src/preview-api/**"
   notes: "Optional notes about scope decisions"
+  # Optional: authoring-time scope-type rationale (written once by brief-skill 2c)
+  # rationale:
+  #   recommended: full-library
+  #   chosen: public-api
+  #   accepted_recommendation: false
+  #   heuristic: narrow-public-api
+  #   reason: "user overrode full-library->public-api: only documented API ships"
+  #   recorded: "2026-05-18"
   # Optional: amendment log for scope decisions made during create-skill §2a,
   # update-skill §1b (auth-doc), and update-skill §1c (scope-expansion).
   # amendments:
@@ -93,6 +101,28 @@ scope:
   #   - "**/demo/**"
   #   - "**/*.stories.*"
 ```
+
+### Scope Rationale (Optional)
+
+`scope.rationale` is a single optional object recording **why the scope type was chosen at authoring time**. Unlike `scope.amendments[]` (an additive log that accumulates post-authoring decisions across workflow runs), `scope.rationale` is one decision, written once by `skf-brief-skill` step 03 §2c and revised in place on a step-4 `[R]` re-entry. It sits structurally beside `scope.amendments`, reusing the same structured / script-readable / human-auditable ethos rather than a prose decision log.
+
+**Fields:**
+
+| Field | Type | Required | Source |
+|---|---|---|---|
+| `recommended` | string (one of the six `scope.type` values) | yes | `skf-recommend-scope-type.py` → `scope_type` |
+| `chosen` | string (one of the six) | yes | final `scope.type` |
+| `accepted_recommendation` | bool | yes | `chosen == recommended` |
+| `heuristic` | string | yes | script `matched_heuristic` |
+| `reason` | string | yes | accepted → script `rationale` verbatim; overridden → user's stated reason, or `"user overrode {recommended}->{chosen}; reason not stated"` |
+| `recorded` | string (ISO date `YYYY-MM-DD`) | yes | current date — mirrors `amendments[].date` |
+
+**Who reads `scope.rationale`:**
+
+- Humans reviewing the brief — it records why the boundary was drawn the way it was.
+- `skf-update-skill` Update intent MAY later surface conflicts against it (e.g., a scope change that contradicts the original authoring decision). **Not implemented now — deferred.** The field is forward-compatible; the reader is wired later.
+
+**Backward compatibility:** `scope.rationale` is optional. Briefs without this field validate unchanged — treat missing as absent (null). Mirrors the `scope.amendments` backward-compat rule.
 
 ### Scope Amendments (Optional)
 
@@ -171,7 +201,7 @@ scope:
 
 ## Human-Readable Presentation Format
 
-The runtime template lives in `steps-c/step-04-confirm-brief.md` §2 — that is the single source of truth for how the brief is rendered for user confirmation (brief-skill step-04 only; analyze-source batch generation does not render). If the rendering format needs to change, edit the step file. This asset documents the data contract; the step owns the presentation.
+The runtime template lives in `references/confirm-brief.md` §2 — that is the single source of truth for how the brief is rendered for user confirmation (brief-skill step 4 only; analyze-source batch generation does not render). If the rendering format needs to change, edit the step file. This asset documents the data contract; the step owns the presentation.
 
 ## Validation Rules
 

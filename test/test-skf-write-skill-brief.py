@@ -571,3 +571,156 @@ class TestCLIWriteFlat:
         body = tmp_target.read_text()
         assert "doc_urls:" in body
         assert "https://docs.example.com" in body
+
+
+# --------------------------------------------------------------------------
+# scope.rationale — authoring-time scope-type decision record (optional)
+# --------------------------------------------------------------------------
+
+
+def _rationale(**overrides) -> dict:
+    """A complete, valid scope.rationale object (override individual subkeys)."""
+    base = {
+        "recommended": "full-library",
+        "chosen": "public-api",
+        "accepted_recommendation": False,
+        "heuristic": "narrow-public-api",
+        "reason": "user overrode full-library->public-api: only documented API ships",
+        "recorded": "2026-05-18",
+    }
+    base.update(overrides)
+    return base
+
+
+class TestScopeRationaleValidation:
+    """validate_context — rationale is optional, but complete when present."""
+
+    def test_absent_rationale_validates(self):
+        # Legacy briefs have no scope.rationale and must still pass.
+        ctx = _baseline_ctx()
+        assert "rationale" not in ctx["scope"]
+        mod.validate_context(ctx)  # no raise
+
+    def test_present_valid_rationale_validates(self):
+        ctx = _baseline_ctx()
+        ctx["scope"]["rationale"] = _rationale()
+        mod.validate_context(ctx)  # no raise
+
+    def test_rationale_must_be_object(self):
+        ctx = _baseline_ctx()
+        ctx["scope"]["rationale"] = "not-an-object"
+        with pytest.raises(SystemExit):
+            mod.validate_context(ctx)
+
+    @pytest.mark.parametrize(
+        "missing",
+        ["recommended", "chosen", "accepted_recommendation", "heuristic", "reason", "recorded"],
+    )
+    def test_rationale_missing_subkey_fails(self, missing):
+        ctx = _baseline_ctx()
+        r = _rationale()
+        del r[missing]
+        ctx["scope"]["rationale"] = r
+        with pytest.raises(SystemExit):
+            mod.validate_context(ctx)
+
+    def test_rationale_accepted_recommendation_must_be_bool(self):
+        ctx = _baseline_ctx()
+        ctx["scope"]["rationale"] = _rationale(accepted_recommendation="false")
+        with pytest.raises(SystemExit):
+            mod.validate_context(ctx)
+
+    def test_rationale_recommended_must_be_valid_scope_type(self):
+        ctx = _baseline_ctx()
+        ctx["scope"]["rationale"] = _rationale(recommended="bogus-type")
+        with pytest.raises(SystemExit):
+            mod.validate_context(ctx)
+
+    def test_rationale_empty_reason_fails(self):
+        ctx = _baseline_ctx()
+        ctx["scope"]["rationale"] = _rationale(reason="")
+        with pytest.raises(SystemExit):
+            mod.validate_context(ctx)
+
+
+class TestScopeRationaleAssembly:
+    """assemble_brief — rationale sits after notes; omitted when absent."""
+
+    def test_rationale_absent_when_not_supplied(self):
+        brief = mod.assemble_brief(_baseline_ctx(), "1.0.0")
+        assert "rationale" not in brief["scope"]
+
+    def test_rationale_emitted_after_notes(self):
+        ctx = _baseline_ctx()
+        ctx["scope"]["rationale"] = _rationale()
+        brief = mod.assemble_brief(ctx, "1.0.0")
+        scope_keys = list(brief["scope"].keys())
+        assert scope_keys == ["type", "include", "exclude", "notes", "rationale"]
+        assert brief["scope"]["rationale"]["chosen"] == "public-api"
+        # Subkeys emitted in canonical order
+        assert list(brief["scope"]["rationale"].keys()) == [
+            "recommended", "chosen", "accepted_recommendation",
+            "heuristic", "reason", "recorded",
+        ]
+
+    def test_rationale_round_trips_through_yaml(self):
+        ctx = _baseline_ctx()
+        ctx["scope"]["rationale"] = _rationale()
+        rendered = mod.render_yaml(mod.assemble_brief(ctx, "1.0.0"))
+        parsed = yaml.safe_load(rendered)
+        assert parsed["scope"]["rationale"] == _rationale()
+
+
+class TestScopeRationaleFlatTranslation:
+    """flat_to_nested — scope_rationale maps in; null drops out."""
+
+    def test_flat_scope_rationale_mapped_into_scope(self):
+        flat = _baseline_flat()
+        flat["scope_rationale"] = _rationale()
+        nested = mod.flat_to_nested(flat)
+        assert nested["scope"]["rationale"] == _rationale()
+        # Does not leak as a top-level key
+        assert "scope_rationale" not in nested
+
+    def test_flat_scope_rationale_null_drops_key(self):
+        flat = _baseline_flat()
+        flat["scope_rationale"] = None
+        nested = mod.flat_to_nested(flat)
+        assert "rationale" not in nested["scope"]
+        assert "scope_rationale" not in nested
+
+    def test_flat_scope_rationale_absent_drops_key(self):
+        nested = mod.flat_to_nested(_baseline_flat())
+        assert "rationale" not in nested["scope"]
+
+
+class TestCLIWriteFlatScopeRationale:
+    """End-to-end flat CLI write with scope_rationale."""
+
+    def _write_flat(self, target: Path, flat: dict):
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "write", "--target", str(target), "--from-flat"],
+            input=json.dumps(flat),
+            capture_output=True,
+            text=True,
+        )
+        out = json.loads(proc.stdout) if proc.stdout.strip() else {}
+        return proc.returncode, out, proc.stderr
+
+    def test_flat_write_with_rationale_object(self, tmp_target):
+        flat = _baseline_flat()
+        flat["scope_rationale"] = _rationale()
+        code, response, stderr = self._write_flat(tmp_target, flat)
+        assert code == 0, stderr
+        parsed = yaml.safe_load(tmp_target.read_text())
+        assert parsed["scope"]["rationale"] == _rationale()
+
+    def test_flat_write_with_null_rationale_omits_key(self, tmp_target):
+        flat = _baseline_flat()
+        flat["scope_rationale"] = None
+        code, response, stderr = self._write_flat(tmp_target, flat)
+        assert code == 0, stderr
+        body = tmp_target.read_text()
+        assert "rationale:" not in body
+        parsed = yaml.safe_load(body)
+        assert "rationale" not in parsed["scope"]

@@ -8,7 +8,7 @@ priorities:
    src/shared/scripts/schemas/skf-setup-result-envelope.v1.json — for
    every input shape the script accepts.
 2. Derived fields (tools_added/removed, tier_changed, warnings) match
-   the documented step-04 §4 rules exactly.
+   the documented step 4 §4 rules exactly.
 """
 
 from __future__ import annotations
@@ -71,6 +71,63 @@ def test_baseline_envelope_assembles_and_validates():
     assert errors == [], f"baseline envelope failed schema: {errors}"
 
 
+# ─── status derivation ─────────────────────────────────────────────────────
+
+
+def test_status_success_on_clean_run():
+    env = mod.assemble_envelope(_baseline_payload())
+    assert env["skf_setup"]["status"] == "success"
+
+
+def test_status_tier_failure_when_require_tier_not_satisfied():
+    p = _baseline_payload()
+    p["require_tier_satisfied"] = False
+    p["require_tier_failure_missing"] = ["qmd"]
+    assert mod.assemble_envelope(p)["skf_setup"]["status"] == "tier_failure"
+
+
+def test_status_write_failure_when_error_phase_signals_write():
+    p = _baseline_payload()
+    p["error"] = {"phase": "step 2:write-tools", "path": "/x/forge-tier.yaml", "reason": "permission denied"}
+    assert mod.assemble_envelope(p)["skf_setup"]["status"] == "write_failure"
+
+
+def test_status_blocked_for_non_write_error():
+    p = _baseline_payload()
+    p["error"] = {"phase": "step 1:foreign-ccc", "path": "/usr/local/bin/ccc", "reason": "identity check failed"}
+    assert mod.assemble_envelope(p)["skf_setup"]["status"] == "blocked"
+
+
+# ─── assemble_blocked_envelope: early-halt envelopes ────────────────────────
+
+
+def test_blocked_envelope_validates_against_schema():
+    env = mod.assemble_blocked_envelope("on-activation:uv-missing", "uv is not installed")
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    errors = mod._validate_against_schema(env, schema)
+    assert errors == [], f"blocked envelope failed schema: {errors}"
+
+
+def test_blocked_envelope_carries_status_and_error():
+    env = mod.assemble_blocked_envelope(
+        "on-activation:config-missing",
+        "config.yaml not found",
+        path="/abs/_bmad/skf/config.yaml",
+    )
+    e = env["skf_setup"]
+    assert e["status"] == "blocked"
+    assert e["error"]["phase"] == "on-activation:config-missing"
+    assert e["error"]["path"] == "/abs/_bmad/skf/config.yaml"
+    assert e["error"]["reason"] == "config.yaml not found"
+
+
+def test_blocked_envelope_path_optional():
+    env = mod.assemble_blocked_envelope("phase", "reason")
+    e = env["skf_setup"]
+    assert e["error"]["path"] == "<n/a>"
+    assert e["config_path"].startswith("<unknown")
+
+
 def test_tier_changed_false_on_first_run():
     env = mod.assemble_envelope(_baseline_payload())
     assert env["skf_setup"]["tier_changed"] is False
@@ -92,7 +149,7 @@ def test_tier_changed_false_on_same_tier_rerun():
 
 
 def test_first_run_tools_added_lists_all_available_tools():
-    """Per step-04 §4 rule: on first runs, tools_added equals currently-detected tools."""
+    """Per step 4 §4 rule: on first runs, tools_added equals currently-detected tools."""
     p = _baseline_payload()
     p["previous_tools"] = None
     env = mod.assemble_envelope(p)
@@ -133,7 +190,7 @@ def test_normalize_tools_accepts_detect_tools_output_shape():
     }
 
 
-# ─── Warnings assembly (per step-04 §4 documented rules) ────────────────────
+# ─── Warnings assembly (per step 4 §4 documented rules) ────────────────────
 
 
 def test_warnings_empty_on_clean_run():
@@ -265,11 +322,11 @@ def test_error_null_serializes_as_null():
 
 def test_error_object_includes_required_fields():
     p = _baseline_payload()
-    p["error"] = {"phase": "step-02:write-config", "path": "/x/forge-tier.yaml", "reason": "permission denied"}
+    p["error"] = {"phase": "step 2:write-config", "path": "/x/forge-tier.yaml", "reason": "permission denied"}
     env = mod.assemble_envelope(p)
     err = env["skf_setup"]["error"]
     assert err == {
-        "phase": "step-02:write-config",
+        "phase": "step 2:write-config",
         "path": "/x/forge-tier.yaml",
         "reason": "permission denied",
     }
@@ -277,7 +334,7 @@ def test_error_object_includes_required_fields():
 
 def test_error_object_missing_field_is_user_error():
     p = _baseline_payload()
-    p["error"] = {"phase": "step-02", "path": "/x"}  # missing 'reason'
+    p["error"] = {"phase": "step 2", "path": "/x"}  # missing 'reason'
     with pytest.raises(SystemExit) as exc:
         mod.assemble_envelope(p)
     assert exc.value.code == 1

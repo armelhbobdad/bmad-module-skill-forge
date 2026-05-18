@@ -8,9 +8,9 @@ skill-template.md schema with quick-skill-specific population rules.
 Pure renderer — no I/O beyond stdin/stdout. Reads a JSON payload of
 extracted state on stdin and emits the corresponding metadata.json
 on stdout. Replaces the hand-assembly the LLM previously did in
-skf-quick-skill step-04 §4.
+skf-quick-skill step 4 §4.
 
-Constants vs. input-derived split mirrors step-04's documentation:
+Constants vs. input-derived split mirrors step 4's documentation:
 
   Constants (always literal):
     skill_type            "single"

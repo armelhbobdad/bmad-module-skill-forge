@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tests for skf-qmd-classify-collections.py.
 
-Classification rules under test (per step-03 §3 and PR #244):
+Classification rules under test (per step 3 §3 and PR #244):
 
   Healthy   = forge-suffix-matched live ∩ registry
   Orphaned  = forge-suffix-matched live − registry
@@ -143,12 +143,19 @@ def test_classify_first_run_no_collections():
     """Empty live, empty registry — everything is empty."""
     out = mod.classify([], [])
     assert out == {
+        "live_names": [],
         "healthy": [],
         "orphaned": [],
         "stale": [],
         "foreign_filtered_count": 0,
         "foreign_filtered_sample": [],
     }
+
+
+def test_classify_returns_live_names_sorted_unique():
+    """live_names mirrors the input (sorted, deduplicated) so downstream callers don't re-fetch."""
+    out = mod.classify(["foo-brief", "memory-root-1", "foo-brief"], [])
+    assert out["live_names"] == ["foo-brief", "memory-root-1"]
 
 
 def test_classify_all_healthy():

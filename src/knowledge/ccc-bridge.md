@@ -43,7 +43,7 @@ Returns: list of `{file, score, snippet}` entries ranked by semantic relevance t
 
 **Resolves to:** Check `ccc_index.status` in forge-tier.yaml. If `"none"` or the indexed_path does not match, run `cd {path} && ccc init` then `ccc index` and update forge-tier.yaml. Note: `ccc init` takes no positional arguments — it initializes the index for the current working directory.
 
-**Usage context:** Called by setup step-01b to ensure the project root is indexed. Called lazily by extraction steps when `ccc_index.status` is `"none"` but ccc is available.
+**Usage context:** Called by setup step 1b to ensure the project root is indexed. Called lazily by extraction steps when `ccc_index.status` is `"none"` but ccc is available.
 
 ### `ccc_bridge.status()`
 
@@ -51,7 +51,7 @@ Returns: list of `{file, score, snippet}` entries ranked by semantic relevance t
 1. `ccc --help` — confirms binary exists (exit 0) AND output contains the `CocoIndex Code` identity marker (rejects unrelated `ccc`-named binaries shadowing PATH)
 2. `ccc doctor` — confirms daemon is running, extracts version string, validates embedding model
 
-**Usage context:** Called exclusively by setup step-01 during tool detection. Downstream workflows read the result from forge-tier.yaml — they do not re-verify.
+**Usage context:** Called exclusively by setup step 1 during tool detection. Downstream workflows read the result from forge-tier.yaml — they do not re-verify.
 
 ## Confidence
 
@@ -67,7 +67,7 @@ The ccc search is invisible in the output artifact. A Forge+ skill's citations a
 
 ### When Indexing Happens
 
-1. **setup step-01b:** Indexes the project root when setup runs. This is the primary indexing point.
+1. **setup step 1b:** Indexes the project root when setup runs. This is the primary indexing point.
 2. **Workflow discovery steps:** If `ccc_index.status` is `"stale"` or `"none"`, discovery steps trigger a re-index and warn the user. They do not block.
 3. **ccc daemon:** Incremental indexing means re-indexing unchanged files is a near-no-op.
 
@@ -81,7 +81,7 @@ The ccc search is invisible in the output artifact. A Forge+ skill's citations a
 
 CCC stores its configuration at `{project-root}/.cocoindex_code/settings.yml`. This file contains `exclude_patterns` and `include_patterns` arrays in glob format. `ccc init` creates the file with sensible defaults (excludes `node_modules`, `__pycache__`, hidden dirs, etc.).
 
-**SKF infrastructure exclusions:** setup step-01b appends SKF-specific exclusion patterns after `ccc init` creates the default config. These patterns prevent indexing of framework and output directories that have zero value for source extraction:
+**SKF infrastructure exclusions:** setup step 1b appends SKF-specific exclusion patterns after `ccc init` creates the default config. These patterns prevent indexing of framework and output directories that have zero value for source extraction:
 
 | Pattern | Purpose |
 |---------|---------|
@@ -98,13 +98,13 @@ The configured exclusion patterns are stored in `ccc_index.exclude_patterns` in 
 
 ### Deferred Discovery (Remote Sources)
 
-For remote repository sources (GitHub URLs), CCC cannot operate during step-02b because no local code exists yet. The workspace clone or ephemeral clone happens in step-03. To provide CCC pre-ranking for remote sources:
+For remote repository sources (GitHub URLs), CCC cannot operate during step 2b because no local code exists yet. The workspace clone or ephemeral clone happens in step 3. To provide CCC pre-ranking for remote sources:
 
-1. **step-02b:** Detects remote source, sets `{ccc_discovery: []}`, displays deferred message
-2. **step-03:** After source resolution succeeds, detects the deferred scenario (`tools.ccc == true AND {ccc_discovery} is empty AND remote_clone_path is set AND tier is Forge+/Deep`)
-3. **step-03 (workspace fast path):** If `{remote_clone_path}/.cocoindex_code/` already exists (persisted workspace index), skips init/index and uses `ccc search --refresh` — CCC daemon re-indexes only if files changed since last index. This is near-instant for unchanged repos.
-4. **step-03 (first-time path):** If no existing CCC index, runs `cd {remote_clone_path} && ccc init`, applies standard build/dependency exclusions (node_modules, dist, .git, vendor, etc.) to `settings.yml`, then runs `ccc index`. Brief-specific `include_patterns`/`exclude_patterns` are NOT written to `settings.yml` — the CCC index is general-purpose. Filtering happens at search result time.
-5. **step-03:** Executes CCC search and populates `{ccc_discovery}` before AST extraction begins
+1. **step 2b:** Detects remote source, sets `{ccc_discovery: []}`, displays deferred message
+2. **step 3:** After source resolution succeeds, detects the deferred scenario (`tools.ccc == true AND {ccc_discovery} is empty AND remote_clone_path is set AND tier is Forge+/Deep`)
+3. **step 3 (workspace fast path):** If `{remote_clone_path}/.cocoindex_code/` already exists (persisted workspace index), skips init/index and uses `ccc search --refresh` — CCC daemon re-indexes only if files changed since last index. This is near-instant for unchanged repos.
+4. **step 3 (first-time path):** If no existing CCC index, runs `cd {remote_clone_path} && ccc init`, applies standard build/dependency exclusions (node_modules, dist, .git, vendor, etc.) to `settings.yml`, then runs `ccc index`. Brief-specific `include_patterns`/`exclude_patterns` are NOT written to `settings.yml` — the CCC index is general-purpose. Filtering happens at search result time.
+5. **step 3:** Executes CCC search and populates `{ccc_discovery}` before AST extraction begins
 
 For workspace repos, the CCC index persists at `{workspace_repo_path}/.cocoindex_code/` and is reused across forges, projects, and sessions. For ephemeral fallback clones, the index is not registered in `ccc_index_registry` — the clone is deleted after extraction.
 
@@ -114,7 +114,7 @@ ccc_index and qmd_collections are **orthogonal**:
 - `ccc_index` in forge-tier.yaml tracks the persistent source code index (one per project)
 - `qmd_collections[]` in forge-tier.yaml tracks per-skill workflow artifact collections
 - ccc indexes source code for semantic search; QMD indexes curated artifacts for temporal/knowledge search
-- The janitor role for QMD (setup step-03) operates independently of ccc_index
+- The janitor role for QMD (setup step 3) operates independently of ccc_index
 
 ## Query Volume Bounds
 
@@ -133,7 +133,7 @@ To prevent excessive daemon calls, workflow steps cap ccc queries:
 - Listing ccc as "unavailable" in reports for Quick/Forge tiers — ccc is a Forge+ capability, not something Quick/Forge tiers are missing
 - Indexing without configuring exclusions — for project root indexes, apply SKF exclusions (framework/output directories); for workspace repo indexes, apply standard build artifact exclusions (node_modules, dist, .git, etc.)
 - Writing brief-specific `exclude_patterns` to a workspace repo's `settings.yml` — workspace indexes are general-purpose and serve multiple briefs. Apply brief patterns at search result time, not index time. (Exception: ephemeral fallback clones are single-use, so brief exclusions may be applied to their `settings.yml` to reduce indexing time.)
-- Skipping CCC discovery for remote sources without deferring to step-03 — remote repos deserve the same pre-ranking as local sources
+- Skipping CCC discovery for remote sources without deferring to step 3 — remote repos deserve the same pre-ranking as local sources
 
 ## Related Fragments
 

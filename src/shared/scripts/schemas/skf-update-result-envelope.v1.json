@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-update-result-envelope.v1.json",
+  "title": "SKF_UPDATE_RESULT_JSON envelope (v1)",
+  "description": "Single-line JSON document emitted by skf-update-skill step 7 (report) when {headless_mode} is true, prefixed with the literal 'SKF_UPDATE_RESULT_JSON: '. Pipelines branch on the envelope's top-level fields without parsing the human-readable report. The `headless_decisions[]` array surfaces every auto-resolved gate so non-interactive runs can be audited post-hoc — previously these were buried in the evidence report as free-form log lines. Schema added in PR #319.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["skf_update"],
+  "properties": {
+    "skf_update": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "skill_name",
+        "version",
+        "previous_version",
+        "update_mode",
+        "files_written",
+        "headless_decisions",
+        "warnings",
+        "error"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "success",
+            "no-changes",
+            "detect-only",
+            "dry-run",
+            "halted-for-workspace-drift",
+            "halted-for-brief-refinement",
+            "halted-for-audit",
+            "halted-for-remediation-path",
+            "halted-for-manual-mismatch",
+            "halted-for-write-failure",
+            "halted-for-concurrent-run",
+            "blocked"
+          ],
+          "description": "Single-field outcome for pipeline branching. 'success' when the run completed and wrote the updated artifacts. 'no-changes' when detect-changes found nothing to update. 'detect-only' when the workflow was invoked with --detect-only and exited after step 2 without modifying any artifact. 'dry-run' when the workflow was invoked with --dry-run and exited after step 3 (re-extract) without merging or writing — the envelope describes what merge+write WOULD have done. Each 'halted-for-*' value corresponds to a documented halt in the stage prose (workspace-drift from re-extract.md §0.a, brief-refinement from detect-changes.md §1c [U] / §2.2 [B], audit from §2.2 [A], remediation-path from re-extract.md §0a, manual-mismatch from write.md §1, write-failure for any §5b/§6 failure, concurrent-run from init.md §1b's PID-file collision check). 'blocked' is the catch-all for halts that don't map to a documented status code. NOTE: detect-only and dry-run are successful exits — pipelines treating non-success as failure must include them in the success set."
+        },
+        "skill_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the skill being updated, read from metadata.json at workflow start."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Version written this run. In gap-driven mode this equals previous_version (gap-driven runs do not bump). In normal mode this is either the detected source version or an incremented patch."
+        },
+        "previous_version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Version read from metadata.json at workflow start, before any write."
+        },
+        "update_mode": {
+          "type": "string",
+          "enum": ["normal", "gap-driven", "degraded"],
+          "description": "Which detect-changes path ran. 'normal' = provenance map present and source-drift detection ran. 'gap-driven' = --from-test-report path. 'degraded' = no provenance baseline (every export looks modified)."
+        },
+        "files_written": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["SKILL.md", "metadata.json", "provenance-map.json", "evidence-report.md", "context-snippet.md", "active-symlink"]
+          },
+          "uniqueItems": true,
+          "description": "Artifacts actually written or updated this run. Empty array when a halt fired before any write completed."
+        },
+        "headless_decisions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["gate", "default_action", "taken_action", "reason"],
+            "properties": {
+              "gate": {
+                "type": "string",
+                "enum": [
+                  "init.update-confirmation",
+                  "detect-changes.promoted-doc-prompt",
+                  "detect-changes.scope-expansion",
+                  "detect-changes.deletion-ratio",
+                  "merge.clean-merge-gate"
+                ],
+                "description": "Identifier for the gate. Matches the labels in stage prose so post-hoc audits can grep both directions."
+              },
+              "default_action": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The action documented as the default for this gate (e.g. 'C' for [C] Continue, 'S' for [S] Skip)."
+              },
+              "taken_action": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The action actually taken. In headless mode this almost always equals default_action — the field exists so future user-overrides via flags (e.g. --orphan-action style) can differ from defaults."
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Human-readable rationale (e.g. 'headless: no user to prompt')."
+              },
+              "evidence": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Optional gate-specific data — for deletion-ratio, the ratio value and counts; for promoted-doc, the candidate path; etc. Pipelines that want the audit trail richer than reason can read this."
+              }
+            }
+          },
+          "description": "One entry per gate that auto-resolved during this run. Empty when no gates fired (no-changes path, or interactive run where the user resolved gates manually). The merge.clean-merge-gate entry never appears with taken_action=continue when the gate halted on conflicts — conflict halts produce a halted-for-* status instead."
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Non-fatal anomalies surfaced during the run. May include workspace_drift_overridden, scope_reconciliation_post entries, qmd indexing failures, etc. Empty when none."
+        },
+        "error": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["phase", "reason"],
+              "properties": {
+                "phase": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Step or operation that failed (e.g. 'write:active-symlink', 'init:provenance-load')."
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Optional path the failed operation targeted (when applicable)."
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Human-readable error message."
+                }
+              }
+            }
+          ],
+          "description": "Null on success or no-changes. Object describing the failure when a halt or write error fired. Pipelines branch on error !== null for non-zero exit semantics."
+        }
+      }
+    }
+  }
+}

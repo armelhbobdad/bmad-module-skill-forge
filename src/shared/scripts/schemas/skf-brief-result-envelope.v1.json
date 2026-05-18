@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-brief-result-envelope.v1.json",
   "title": "SKF_BRIEF_RESULT_JSON envelope (v1)",
-  "description": "Single-line JSON document emitted by skf-brief-skill step-05 §4b when {headless_mode} is true, prefixed with the literal 'SKF_BRIEF_RESULT_JSON: '. Pipelines grep one line out of the workflow log to branch on the brief outcome without parsing prose. Schema mirrors the contract in src/skf-brief-skill/SKILL.md Result Contract section.",
+  "description": "Single-line JSON document emitted by skf-brief-skill step 5 §4b when {headless_mode} is true, prefixed with the literal 'SKF_BRIEF_RESULT_JSON: '. Pipelines grep one line out of the workflow log to branch on the brief outcome without parsing prose. Schema mirrors the contract in src/skf-brief-skill/SKILL.md Result Contract section.",
   "type": "object",
   "additionalProperties": false,
   "required": ["status", "brief_path", "skill_name", "version", "language", "scope_type", "exit_code", "halt_reason"],
@@ -10,7 +10,7 @@
     "status": {
       "type": "string",
       "enum": ["success", "error"],
-      "description": "'success' on the terminal happy path (after step-05 wrote the brief and step-06 returned). 'error' on any HARD HALT."
+      "description": "'success' on the terminal happy path (after step 5 wrote the brief and step 6 returned). 'error' on any HARD HALT."
     },
     "brief_path": {
       "type": ["string", "null"],
@@ -19,20 +19,20 @@
     "skill_name": {
       "type": "string",
       "minLength": 1,
-      "description": "Brief's skill_name field — present in every envelope (success and error) since it is captured at step-01 §6 before any of the other failure branches."
+      "description": "Brief's skill_name field — present in every envelope (success and error) since it is captured at step 1 §6 before any of the other failure branches."
     },
     "version": {
       "type": ["string", "null"],
-      "description": "Resolved brief version (target_version if set, else auto-detected, else '1.0.0'). Null when the run errored before step-05's version-resolution ran."
+      "description": "Resolved brief version (target_version if set, else auto-detected, else '1.0.0'). Null when the run errored before step 5's version-resolution ran."
     },
     "language": {
       "type": ["string", "null"],
-      "description": "Detected or user-confirmed primary language. Null when the run errored before step-02's language-detection ran."
+      "description": "Detected or user-confirmed primary language. Null when the run errored before step 2's language-detection ran."
     },
     "scope_type": {
       "type": ["string", "null"],
       "enum": ["full-library", "specific-modules", "public-api", "component-library", "reference-app", "docs-only", null],
-      "description": "Confirmed scope.type from step-03. Null when the run errored before scope was confirmed."
+      "description": "Confirmed scope.type from step 3. Null when the run errored before scope was confirmed."
     },
     "exit_code": {
       "type": "integer",

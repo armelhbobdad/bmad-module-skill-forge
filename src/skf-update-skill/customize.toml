@@ -1,0 +1,44 @@
+# DO NOT EDIT -- overwritten on every update.
+#
+# Workflow customization surface for skf-update-skill.
+
+[workflow]
+
+# --- Configurable below. Overrides merge per BMad structural rules: ---
+#   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
+#   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
+
+# Steps to run before the standard activation (uv probe, config load).
+# Overrides append. Use for org-wide pre-flight checks (auth, network,
+# compliance) that must precede any skill update work.
+
+activation_steps_prepend = []
+
+# Steps to run after activation but before the first stage executes.
+# Overrides append. Use for context loads or banner customization that
+# should run once activation completes successfully.
+
+activation_steps_append = []
+
+# Persistent facts the workflow keeps in mind for the whole run
+# (drift policies, manual-section preservation rules, compliance
+# guardrails). Overrides append.
+#
+# Each entry is either:
+#   - a literal sentence, e.g. "Updates must preserve [MANUAL] sections verbatim."
+#   - a file reference prefixed with `file:`, e.g.
+#     "file:{project-root}/docs/update-policy.md" (globs supported; file
+#     contents are loaded and treated as facts).
+
+persistent_facts = [
+  "file:{project-root}/**/project-context.md",
+]
+
+# --- Optional gate thresholds ---
+#
+# Override the default thresholds used by detect-changes and merge. Empty
+# string or commented = use the bundled default (50% deletion ratio,
+# 80% rename similarity).
+
+deletion_ratio_threshold = ""
+rename_similarity_threshold = ""

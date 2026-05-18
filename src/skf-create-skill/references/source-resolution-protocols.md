@@ -43,9 +43,9 @@ When `brief.target_version` is absent but `brief.version` is present AND `source
 3. **Resolution outcomes:**
    - **Single match:** Store the matched tag as `source_ref`. Use it as `{branch}` in all subsequent clone/API commands. Do not warn — this is the expected path.
    - **Multiple matches:** Present the matching tags to the user — "Multiple tags match `brief.version` ({brief.version}): {list}. Which one should I use, or fall back to HEAD?" Wait for selection.
-   - **Zero matches:** ⚠️ Warn: "No git tag found matching `brief.version` ({brief.version}). Falling back to default branch — **extracted code may not match the declared version.** If you intended to pin a specific version, set `target_version` explicitly in the brief." Set `source_ref` to `HEAD` and proceed with default branch. Append `tag_resolution: {status: "fallback-head", requested: "{brief.version}", reason: "no-matching-tag"}` to the in-context evidence-report payload so step-05 §7 surfaces the fallback in the evidence report. This turns the warning into a persistent audit trail a reviewer can grep later, not just a one-shot stderr line.
+   - **Zero matches:** ⚠️ Warn: "No git tag found matching `brief.version` ({brief.version}). Falling back to default branch — **extracted code may not match the declared version.** If you intended to pin a specific version, set `target_version` explicitly in the brief." Set `source_ref` to `HEAD` and proceed with default branch. Append `tag_resolution: {status: "fallback-head", requested: "{brief.version}", reason: "no-matching-tag"}` to the in-context evidence-report payload so step 5 §7 surfaces the fallback in the evidence report. This turns the warning into a persistent audit trail a reviewer can grep later, not just a one-shot stderr line.
 
-4. **Do not halt on zero matches.** Unlike the explicit path, implicit resolution never blocks compilation — `brief.version` is an auto-populated hint, and some repositories simply do not tag releases. The warning is sufficient notice; the evidence report in step-08 will surface the HEAD fallback for reviewers.
+4. **Do not halt on zero matches.** Unlike the explicit path, implicit resolution never blocks compilation — `brief.version` is an auto-populated hint, and some repositories simply do not tag releases. The warning is sufficient notice; the evidence report in step 8 will surface the HEAD fallback for reviewers.
 
 5. **Store `source_ref`** in context exactly as in the explicit path. It flows through to metadata.json and provenance-map.json so downstream workflows (update-skill, audit-skill) can re-clone from the same ref.
 
@@ -65,7 +65,7 @@ Implicit resolution via `brief.version` is **not applied to local sources** — 
 
 ## Remote Source Resolution
 
-**Note:** Quick-tier remote sources do not use the workspace/clone protocol described below. Quick tier accesses remote files via the `gh_bridge.read_file` path described in step-03 section 4.
+**Note:** Quick-tier remote sources do not use the workspace/clone protocol described below. Quick tier accesses remote files via the `gh_bridge.read_file` path described in step 3 section 4.
 
 If `source_repo` is a local path: proceed with the tier-appropriate strategy as normal.
 
@@ -84,7 +84,7 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
 
 3. **Workspace check — resolve the source locally:**
 
-   **Concurrency guard:** all of the operations below (fetch, checkout, rev-parse, and the extraction read that follows in step-03) must be wrapped in an exclusive `flock` on `{workspace_repo_path}/.skf-workspace.lock`. Acquire the lock before the workspace-hit check, hold it across fetch + checkout + rev-parse, AND keep holding it through the extraction-time read of the working tree. Two concurrent batch runs that target the same workspace clone but different `source_ref` values would otherwise race — one would `checkout` while the other was reading files mid-extraction, corrupting the inventory. The lock makes the per-workspace-repo unit of work serial. Use `flock -x {lockfile} -c "..."` or `fcntl.flock(LOCK_EX)`. If `flock` is unavailable, log a warning ("Concurrency guard unavailable — concurrent forges against the same workspace repo may produce inconsistent extraction inventories") and proceed.
+   **Concurrency guard:** all of the operations below (fetch, checkout, rev-parse, and the extraction read that follows in step 3) must be wrapped in an exclusive `flock` on `{workspace_repo_path}/.skf-workspace.lock`. Acquire the lock before the workspace-hit check, hold it across fetch + checkout + rev-parse, AND keep holding it through the extraction-time read of the working tree. Two concurrent batch runs that target the same workspace clone but different `source_ref` values would otherwise race — one would `checkout` while the other was reading files mid-extraction, corrupting the inventory. The lock makes the per-workspace-repo unit of work serial. Use `flock -x {lockfile} -c "..."` or `fcntl.flock(LOCK_EX)`. If `flock` is unavailable, log a warning ("Concurrency guard unavailable — concurrent forges against the same workspace repo may produce inconsistent extraction inventories") and proceed.
 
    **If `{workspace_repo_path}/.git/` exists (workspace hit):**
 
@@ -217,7 +217,7 @@ Also store `source_ref` in context (from tag resolution above, or `HEAD` if no t
 
 **If `source_type: "docs-only"`:** skip this section — no source files exist to reconcile.
 
-After the source path is accessible (local path from step-01, or workspace/ephemeral clone from above), check whether the source contains a version identifier and reconcile it with `brief.version`. Look for the first matching version file in the resolved source path:
+After the source path is accessible (local path from step 1, or workspace/ephemeral clone from above), check whether the source contains a version identifier and reconcile it with `brief.version`. Look for the first matching version file in the resolved source path:
 
 - Python: `pyproject.toml` (`[project] version`), `setup.py` (`version=`), `__version__` in `__init__.py`
 - JavaScript/TypeScript: `package.json` (`"version"`). **Monorepo resolution:** When multiple `package.json` files exist (workspace root + packages), resolve version using this priority:
@@ -232,7 +232,7 @@ After the source path is accessible (local path from step-01, or workspace/ephem
 
 ⚠️ Warn the user: "Brief version ({brief.version}) differs from source version ({source_version}). Using source version ({source_version})."
 
-Update the working version in context to the source version. Record the mismatch in context for the evidence report (step-08).
+Update the working version in context to the source version. Record the mismatch in context for the evidence report (step 8).
 
 **If no version file is found or version cannot be extracted:** keep `brief.version` as-is. No warning needed.
 

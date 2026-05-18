@@ -18,24 +18,24 @@ nextWorkflow: ''
 
 ## Project Scan
 
-[Appended by step-02-scan-project]
+[Appended by scan-project]
 
 ## Identified Units
 
-[Appended by step-03-identify-units]
+[Appended by identify-units]
 
 ## Export Map
 
-[Appended by step-04-map-and-detect]
+[Appended by map-and-detect]
 
 ## Integration Points
 
-[Appended by step-04-map-and-detect]
+[Appended by map-and-detect]
 
 ## Recommendations
 
-[Appended by step-05-recommend]
+[Appended by recommend]
 
 ## Generation Results
 
-[Appended by step-06-generate-briefs]
+[Appended by generate-briefs]

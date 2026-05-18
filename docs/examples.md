@@ -210,7 +210,7 @@ No source code to clone — only API documentation. Example: you're integrating 
 # When asked for target version, specify: 2025-04-30.basil
 # Ferris confirms your doc URLs match that API version
 @Ferris CS
-# step-03 skips (no source to clone), step-03c fetches docs via doc_fetcher
+# step 3 skips (no source to clone), step 3c fetches docs via doc_fetcher
 # All content is T3 [EXT:url] confidence. source_authority: community
 ```
 

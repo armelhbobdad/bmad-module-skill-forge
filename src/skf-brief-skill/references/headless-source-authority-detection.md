@@ -1,6 +1,6 @@
 # Headless Source-Authority Detection
 
-Loaded by step-01 §8 only when **all three** preconditions hold:
+Loaded by step 1 §8 only when **all three** preconditions hold:
 
 1. `{headless_mode}` is true
 2. `source_authority` is absent from the validator's `normalized` output (the validator intentionally leaves it absent so detection can run here — when it was supplied in args, the supplied value wins and detection does not run)

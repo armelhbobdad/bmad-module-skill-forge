@@ -17,7 +17,7 @@ Token set is defined canonically in `src/shared/references/feasibility-report-sc
 | **Risky**     | Type mismatch, protocol gap, or language boundary requiring a bridge                           | A clear gap exists (e.g., TypeScript↔Rust FFI needed) but a workaround is architecturally feasible — a named workaround MUST be cited in the recommendation                                                                                                        |
 | **Blocked**   | Fundamental incompatibility — no feasible integration path even with a bridge or adapter layer | The two libraries cannot exchange data in any documented way; requires replacing one of the libraries                                                                                                                                                              |
 
-**Promotion rule:** `Verified` requires Check 4 evidence. If Checks 1 and 3 pass but Check 4 fails (no literal substring/name citation from either skill's SKILL.md), the verdict is capped at `Plausible`. This rule is enforced by step-03 §4 and is the producer obligation declared in the shared schema.
+**Promotion rule:** `Verified` requires Check 4 evidence. If Checks 1 and 3 pass but Check 4 fails (no literal substring/name citation from either skill's SKILL.md), the verdict is capped at `Plausible`. This rule is enforced by step 3 §4 and is the producer obligation declared in the shared schema.
 
 ---
 

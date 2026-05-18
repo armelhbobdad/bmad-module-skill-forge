@@ -1,3 +1,5 @@
+<!-- Config: communicate in {communication_language}. -->
+
 # Integration Pattern Detection Rules
 
 ## Co-Import Detection

@@ -62,3 +62,7 @@ skills
 
 # Playwright MCP session artifacts
 .playwright-mcp/
+
+# Skill quality-analysis artifacts and per-skill decision logs (local-only)
+**/.analysis
+**/.decision-log.md
