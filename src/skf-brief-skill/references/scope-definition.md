@@ -20,7 +20,7 @@ To collaboratively define the skill's inclusion and exclusion boundaries using t
 - Do not make scope decisions unilaterally — user drives all scope choices
 - Produce: scope type, include patterns, exclude patterns
 - All user-facing output in `{communication_language}`
-- **Re-entry from step 4 [R] revise:** prior selections (`scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scripts_intent`, `assets_intent`, supplemental `doc_urls`) are preserved as the current state. Re-present them at each section as the existing answer; the user only re-confirms or overrides. Do not reset to the §2c template menu unless the user explicitly asks to start scope over.
+- **Re-entry from step 4 [R] revise:** prior selections (`scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scope.rationale`, `scripts_intent`, `assets_intent`, supplemental `doc_urls`) are preserved as the current state. Re-present them at each section as the existing answer; the user only re-confirms or overrides. Do not reset to the §2c template menu unless the user explicitly asks to start scope over. When `scope.rationale` is preserved and the user changes `chosen` (the scope type) on this pass, recompute `accepted_recommendation` (`chosen == recommended`) and refresh `reason` and `recorded` per the §2c capture rules — revise in place, do not append.
 
 ## MANDATORY SEQUENCE
 
@@ -104,6 +104,8 @@ echo '{
 
 The script returns `{scope_type, matched_heuristic, signals, rationale}`. Use `rationale` directly — it already names the specific signals that fired.
 
+**Persist the rationale — do not discard it.** Hold `scope_type` as `rationale.recommended` and `matched_heuristic` as `rationale.heuristic` in conversation state. After the user's §2c selection: if they accept the recommendation, set `rationale.chosen = recommended`, `accepted_recommendation = true`, `reason = <script rationale verbatim>`. If they override, set `chosen = <selected type>`, `accepted_recommendation = false`, and ask one line — *"In a sentence, why {chosen} over the recommended {recommended}?"* — storing the answer as `reason` (or `"user overrode {recommended}->{chosen}; reason not stated"` if skipped). Set `recorded = {current ISO date}`. This object becomes `scope.rationale`.
+
 Present:
 
 "**Recommended scope type: [{letter}] {Name}** — {rationale from the script}.
@@ -183,6 +185,7 @@ Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Conti
   - Otherwise auto-select via `{recommendScopeTypeScript}` — invoke the script with the **same payload shape** documented in §2c but with `mode: "headless"` (presence-only matching for the component-registry rule, since `entry_files` may not be available without an interactive context). Use the returned `scope_type` and log `"headless: scope_type={value} from heuristic={matched_heuristic}"`. The script's docs-only short-circuit handles `source_type=docs-only` automatically.
   - If `include`/`exclude` were supplied, use them verbatim (split on comma) instead of running the boundary prompts in §3.
   - If `scripts_intent`/`assets_intent` were supplied, record them and skip §5b; otherwise default to `detect`.
+  - Set `scope.rationale`: `recommended`/`heuristic` from the script (or `recommended = scope_type` arg, `heuristic = "user-supplied-arg"` when `scope_type` was passed); `chosen = <resolved type>`; `accepted_recommendation = (no scope_type arg)`; `reason = "<script rationale>"` (auto path) or `"headless: scope_type supplied as argument"` (arg path); `recorded = {date}`. No prompt — headless never asks "why".
   - Log: `"headless: scope_type={value} include={n} exclude={n} scripts_intent={value} assets_intent={value}"`.
 - ONLY proceed to next step when user selects 'C'
 - After other menu items execution, return to this menu
