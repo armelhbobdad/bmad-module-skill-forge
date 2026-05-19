@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "9d779e97c343",
+  "session_id": "43f8c9a3-7a05-40f0-b6f3-9d283ace1d25",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-19T16:24:53.351445512Z",
+  "branch": "fix/skf-detect-tools-cli-timeout",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/shared/scripts/skf-detect-tools.py",
+    "test/test-skf-detect-tools.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "c37bf9b18464",
+  "token_usage": {
+    "input_tokens": 3035,
+    "cache_creation_tokens": 453182,
+    "cache_read_tokens": 18820128,
+    "output_tokens": 115803,
+    "api_call_count": 121
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-19T16:24:49.143947912Z",
+    "agent_lines": 64,
+    "human_added": 62,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 126,
+    "agent_percentage": 50.79365079365079
+  }
+}
