@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -205,3 +206,34 @@ class TestManifestOps:
         entry = r["entry"]["versions"]["2.0.0"]
         assert entry["ides"] == ["cursor"]
         assert "platforms" not in entry
+
+    def test_set_with_ides_writes_sorted_deduped(self, manifest_path):
+        """S15: cmd_set(ides=...) on a new version records the deduped, sorted list."""
+        mod.cmd_set(manifest_path, "cocoindex", "2.0.0", ides=["cursor", "claude-code", "cursor"])
+        r = mod.cmd_get(manifest_path, "cocoindex")
+        entry = r["entry"]["versions"]["2.0.0"]
+        assert entry["ides"] == ["claude-code", "cursor"]
+
+    def test_set_with_ides_unions_existing(self, manifest_path):
+        """S16: cmd_set(ides=...) unions into the version's existing ides; absence preserves."""
+        mod.cmd_set(manifest_path, "cocoindex", "2.0.0", ides=["claude-code"])
+        # Re-set same version with a new IDE → union, deduped + sorted
+        mod.cmd_set(manifest_path, "cocoindex", "2.0.0", ides=["cursor", "claude-code"])
+        entry = mod.cmd_get(manifest_path, "cocoindex")["entry"]["versions"]["2.0.0"]
+        assert entry["ides"] == ["claude-code", "cursor"]
+        # Re-set with no --ides → existing list preserved verbatim (backward-compatible)
+        mod.cmd_set(manifest_path, "cocoindex", "2.0.0")
+        entry = mod.cmd_get(manifest_path, "cocoindex")["entry"]["versions"]["2.0.0"]
+        assert entry["ides"] == ["claude-code", "cursor"]
+
+    def test_cli_set_parses_ides_flag(self, manifest_path):
+        """S17: the `set ... --ides a,b` CLI dispatch path parses and unions the list."""
+        script = Path(__file__).parent.parent / "src" / "shared" / "scripts" / "skf-manifest-ops.py"
+        proc = subprocess.run(
+            [sys.executable, str(script), str(manifest_path.parent),
+             "set", "cocoindex", "2.0.0", "--ides", "cursor,claude-code"],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert proc.returncode == 0, proc.stderr
+        entry = mod.cmd_get(manifest_path, "cocoindex")["entry"]["versions"]["2.0.0"]
+        assert entry["ides"] == ["claude-code", "cursor"]

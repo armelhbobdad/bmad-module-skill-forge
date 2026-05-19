@@ -335,10 +335,10 @@ On success per file, report: "**{target-file} updated successfully.** Verified b
 5. Write the updated manifest atomically via `{manifestOpsHelper}` after all skills in the batch have been applied. For each skill / version pair, invoke:
 
    ```bash
-   python3 {manifestOpsHelper} {skills_output_folder} set {skill-name} {version}
+   python3 {manifestOpsHelper} {skills_output_folder} set {skill-name} {version} --ides {ides_written}
    ```
 
-   The helper handles v2-schema validation, v1→v2 migration, and `platforms`→`ides` rename internally — no in-prompt JSON manipulation needed. Each `set` invocation merges the per-version `ides` and `last_exported` fields into the existing entry. After all skills have been set, re-read the manifest via `{manifestOpsHelper} {skills_output_folder} read` to confirm the final state matches expectations.
+   `{ides_written}` is the comma-joined sorted IDE set computed in step 3. The helper handles v2-schema validation, v1→v2 migration, and `platforms`→`ides` rename internally — no in-prompt JSON manipulation needed. Each `set` invocation unions the supplied `--ides` into the version entry's existing `ides` (deduplicated, sorted) server-side and refreshes `last_exported`. After all skills have been set, re-read the manifest via `{manifestOpsHelper} {skills_output_folder} read` to confirm the final state matches expectations.
 
 **Dry-run mode:** Do NOT update the manifest. Display: "**[DRY RUN] Export manifest would be updated for {skill-name-list} — ides: {ides_written}.**" (list every skill in `skill_batch`)
 
