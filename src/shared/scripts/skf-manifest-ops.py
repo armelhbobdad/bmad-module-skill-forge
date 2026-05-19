@@ -12,7 +12,10 @@ CLI: python3 skf-manifest-ops.py <skills-folder> <command> [args]
 Commands:
   read                          — Read entire manifest
   get <skill-name>              — Get a single skill entry
-  set <skill-name> <version>    — Add/update skill with active version
+  set <skill-name> <version> [--ides a,b]
+                                — Add/update skill with active version;
+                                  --ides unions a comma-separated IDE list
+                                  into the version entry (deduped, sorted)
   remove <skill-name>           — Remove skill from manifest
   deprecate <skill-name> [ver]  — Mark skill or version as deprecated
   rename <old-name> <new-name>  — Rename a skill entry
@@ -124,7 +127,7 @@ def cmd_get(manifest_path, skill_name):
     return {"status": "ok", "skill": skill_name, "entry": exports[skill_name]}
 
 
-def cmd_set(manifest_path, skill_name, version):
+def cmd_set(manifest_path, skill_name, version, ides=None):
     data, err = read_manifest(manifest_path)
     if err:
         return {"status": "error", "error": err}
@@ -140,10 +143,18 @@ def cmd_set(manifest_path, skill_name, version):
     if old_active and old_active in versions and old_active != version:
         versions[old_active]["status"] = "archived"
 
-    # Add or update the new active version
+    # Add or update the new active version. Absent --ides preserves the
+    # existing ides/platforms list verbatim (backward-compatible). When
+    # --ides is supplied, union it in (dedupe, keep sorted).
     existing_version = versions.get(version, {})
+    merged_ides = list(existing_version.get("ides", existing_version.get("platforms", [])))
+    if ides:
+        for ide in ides:
+            if ide not in merged_ides:
+                merged_ides.append(ide)
+        merged_ides = sorted(merged_ides)
     versions[version] = {
-        "ides": existing_version.get("ides", existing_version.get("platforms", [])),
+        "ides": merged_ides,
         "last_exported": today,
         "status": "active",
     }
@@ -205,7 +216,7 @@ def cmd_rename(manifest_path, old_name, new_name):
 def main():
     if len(sys.argv) < 3:
         print("Usage: python3 skf-manifest-ops.py <skills-folder> <command> [args]", file=sys.stderr)
-        print("Commands: read, get <name>, set <name> <version>, remove <name>, deprecate <name> [version], rename <old> <new>", file=sys.stderr)
+        print("Commands: read, get <name>, set <name> <version> [--ides a,b], remove <name>, deprecate <name> [version], rename <old> <new>", file=sys.stderr)
         sys.exit(1)
 
     skills_folder = Path(sys.argv[1])
@@ -217,7 +228,12 @@ def main():
     elif command == "get" and len(sys.argv) >= 4:
         result = cmd_get(manifest_path, sys.argv[3])
     elif command == "set" and len(sys.argv) >= 5:
-        result = cmd_set(manifest_path, sys.argv[3], sys.argv[4])
+        ides_arg = None
+        if "--ides" in sys.argv:
+            idx = sys.argv.index("--ides")
+            if idx + 1 < len(sys.argv):
+                ides_arg = [s for s in sys.argv[idx + 1].split(",") if s]
+        result = cmd_set(manifest_path, sys.argv[3], sys.argv[4], ides_arg)
     elif command == "remove" and len(sys.argv) >= 4:
         result = cmd_remove(manifest_path, sys.argv[3])
     elif command == "deprecate" and len(sys.argv) >= 4:

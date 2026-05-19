@@ -26,9 +26,11 @@ To initialize the analyze-source workflow by loading configuration, detecting co
 Look for {outputFile}.
 
 **IF the file exists AND has `stepsCompleted` with entries:**
-- "**Found an existing analysis report. Resuming previous session...**"
-- Load, read entirely, then execute {continueFile}
-- **STOP HERE** — do not continue this sequence
+- The report filename is keyed to `{project_name}` (the forge workspace), not the analyzed target — so a report from a *different* target can collide here. Before resuming, establish the requested target and compare it to the existing report:
+  - Determine the requested target now: if `--project-path <path>` was passed at invocation, set `project_paths[]` from it (comma-split if multiple); otherwise collect the path(s) using the section-3 "Collect Project Path" prompt and store as `project_paths[]`. (Section 3 must NOT re-prompt when `project_paths[]` is already populated here.)
+  - Read the existing report's frontmatter `project_paths`.
+  - **IF the existing report's `project_paths` matches the requested target:** "**Found an existing analysis report. Resuming previous session...**" — Load, read entirely, then execute {continueFile}. **STOP HERE** — do not continue this sequence.
+  - **ELSE (different target — stale collision):** the existing report belongs to another analysis. Archive it by renaming to `{forge_data_folder}/analyze-source-report-{project_name}-<UTC-timestamp>.md`, announce "**Existing report belongs to a different target — archived as <name>; starting a fresh analysis.**", then continue to section 2 (skip re-collecting the path in section 3 — it is already set).
 
 **IF the file does not exist OR stepsCompleted is empty:**
 - Continue to section 2
@@ -46,7 +48,7 @@ Look for {outputFile}.
 
 ### 3. Collect Project Path
 
-**Headless flag consumption:** If `--project-path <path>` was passed at invocation, set `project_paths[]` directly from the flag value (comma-split if multiple paths were supplied), skip the prompt below, and proceed to validation. Otherwise prompt as today.
+**Headless flag consumption:** If `project_paths[]` is already populated (e.g. collected by the section-1 stale-collision guard) OR `--project-path <path>` was passed at invocation, set/keep `project_paths[]` (comma-split the flag value if multiple paths were supplied), skip the prompt below, and proceed to validation. Otherwise prompt as today.
 
 "**Welcome to Analyze Source — the SKF decomposition engine.**
 

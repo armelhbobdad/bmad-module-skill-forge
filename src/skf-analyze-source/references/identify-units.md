@@ -58,16 +58,16 @@ Run the shared disqualification helper to apply the deterministic subset of the 
    ```json
    [
      {"name": "<unit-name>",
-      "path": "<rel-from-project-root>",
+      "path": "<rel-from-analyzed-source-root (project_paths[0])>",
       "files": ["<rel-path>", ...]},
      ...
    ]
    ```
 2. **Invoke the script** via stdin:
    ```bash
-   uv run {disqualifyCandidatesScript} filter --boundaries - --source-root {project-root}
+   uv run {disqualifyCandidatesScript} filter --boundaries - --source-root {project_paths[0]}
    ```
-   piping the boundaries JSON on stdin. The script emits:
+   piping the boundaries JSON on stdin. `--source-root` is the analyzed-source root (`project_paths[0]`) — the directory the boundaries/manifest scan ran against — not `{project-root}` (the forge workspace), which differs whenever the analyzed target lives outside the forge workspace. The script emits:
    ```json
    {
      "kept":    [{"name": "...", "path": "...", "files_count": N, "loc_total": L}, ...],
