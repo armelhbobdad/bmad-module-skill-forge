@@ -140,7 +140,7 @@ def _logical(cmd):
     underlying tool argv so probe `side_effect`s can match on the logical
     command regardless of whether the host has `timeout` available.
     """
-    if cmd and os.path.basename(str(cmd[0])) == "timeout":
+    if cmd and os.path.splitext(os.path.basename(str(cmd[0])))[0].lower() == "timeout":
         rest = list(cmd[1:])
         while rest and (rest[0].startswith("-") or rest[0].replace(".", "", 1).isdigit()):
             rest.pop(0)

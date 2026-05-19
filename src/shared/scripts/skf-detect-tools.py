@@ -102,9 +102,12 @@ PROBE_TIMEOUT_SEC = 8  # per-tool subprocess.run timeout
 # its daemon; `subprocess.run`'s own post-timeout `process.wait()` is
 # unbounded and never returns in that case, hanging the whole detector.
 # `timeout --kill-after` reaps the child (and its session) at the OS level,
-# so Python's wait always returns. None on platforms without it (then we
-# fall back to subprocess.run's own timeout, accepting the rare hang).
-_TIMEOUT_BIN = shutil.which("timeout")
+# so Python's wait always returns. POSIX-only: Windows' `timeout.exe` is an
+# unrelated builtin (waits for input; cannot run a command), and the
+# uninterruptible-wait hang is itself POSIX-specific (Windows uses a
+# forcible TerminateProcess), so on Windows we fall back to subprocess.run's
+# own timeout. None when unavailable.
+_TIMEOUT_BIN = shutil.which("timeout") if os.name == "posix" else None
 CCC_IDENTITY_MARKER = "cocoindex code"  # case-insensitive substring
 
 
