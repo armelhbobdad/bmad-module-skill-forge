@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "a164678bd7ee",
+  "session_id": "43f8c9a3-7a05-40f0-b6f3-9d283ace1d25",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-19T15:52:42.355552216Z",
+  "branch": "fix/skf-analyze-source-and-manifest-ides",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/skf-manifest-ops.py",
+    "src/skf-analyze-source/references/identify-units.md",
+    "src/skf-analyze-source/references/init.md",
+    "src/skf-export-skill/references/update-context.md",
+    "test/test-skf-manifest-ops.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "ab5f480e39b4",
+  "checkpoint_transcript_start": 302,
+  "transcript_lines_at_start": 302,
+  "token_usage": {
+    "input_tokens": 62,
+    "cache_creation_tokens": 26806,
+    "cache_read_tokens": 4075698,
+    "output_tokens": 14705,
+    "api_call_count": 31
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-19T15:52:41.15386363Z",
+    "agent_lines": 65,
+    "human_added": 7,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 72,
+    "agent_percentage": 90.27777777777779
+  }
+}
