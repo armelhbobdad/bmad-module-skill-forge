@@ -2,7 +2,9 @@
 nextStepFile: 'map-and-detect.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 heuristicsFile: 'references/unit-detection-heuristics.md'
-disqualifyCandidatesScript: '{project-root}/src/shared/scripts/skf-disqualify-candidates.py'
+disqualifyCandidatesProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-disqualify-candidates.py'
+  - '{project-root}/src/shared/scripts/skf-disqualify-candidates.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -31,6 +33,8 @@ Read {outputFile} to obtain:
 Load {heuristicsFile} for classification rules.
 
 ### 2. Apply Detection Heuristics
+
+**Resolve `{disqualifyCandidatesHelper}`** from `{disqualifyCandidatesProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
 For EACH detected boundary from the scan:
 
@@ -65,7 +69,7 @@ Run the shared disqualification helper to apply the deterministic subset of the 
    ```
 2. **Invoke the script** via stdin:
    ```bash
-   uv run {disqualifyCandidatesScript} filter --boundaries - --source-root {project_paths[0]}
+   uv run {disqualifyCandidatesHelper} filter --boundaries - --source-root {project_paths[0]}
    ```
    piping the boundaries JSON on stdin. `--source-root` is the analyzed-source root (`project_paths[0]`) — the directory the boundaries/manifest scan ran against — not `{project-root}` (the forge workspace), which differs whenever the analyzed target lives outside the forge workspace. The script emits:
    ```json

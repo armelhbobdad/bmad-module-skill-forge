@@ -1,6 +1,6 @@
 # Headless Argument Table
 
-Loaded by step 1 §8 only when `{headless_mode}` is true. Canonical operator-facing documentation for the argument set consumed at step 1's GATE; the `{validateBriefInputsScript}` enforces these rules deterministically (its `KNOWN_FIELDS` set must stay in sync with this table).
+Loaded by step 1 §8 only when `{headless_mode}` is true. Canonical operator-facing documentation for the argument set consumed at step 1's GATE; the `{validateBriefInputsHelper}` enforces these rules deterministically (its `KNOWN_FIELDS` set must stay in sync with this table).
 
 | Argument | Required | Default | Notes |
 |----------|----------|---------|-------|

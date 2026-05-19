@@ -4,7 +4,9 @@ outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
 outputFormatsFile: 'assets/output-section-formats.md'
 scoringRulesFile: 'references/scoring-rules.md'
 migrationSectionRules: 'references/migration-section-rules.md'
-scanSkillMdStructureScript: '{project-root}/src/shared/scripts/skf-scan-skill-md-structure.py'
+scanSkillMdStructureProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-scan-skill-md-structure.py'
+  - '{project-root}/src/shared/scripts/skf-scan-skill-md-structure.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -26,11 +28,13 @@ Read `testMode` from `{outputFile}` frontmatter.
 
 Perform the following explicit checks (no hand-waving — most use a single deterministic script; severity assignments are binding; do not relax them).
 
-**2.0 Run the structural scan.** Invoke `{scanSkillMdStructureScript}` twice and parse the JSON outputs. These results back §§2.1, 2.2, 2.3, and 2.6 — do not re-implement those checks with grep/sed/awk loops.
+**Resolve `{scanSkillMdStructureHelper}`** from `{scanSkillMdStructureProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
+**2.0 Run the structural scan.** Invoke `{scanSkillMdStructureHelper}` twice and parse the JSON outputs. These results back §§2.1, 2.2, 2.3, and 2.6 — do not re-implement those checks with grep/sed/awk loops.
 
 ```bash
-uv run {scanSkillMdStructureScript} scan {skill-md} --required-sections
-uv run {scanSkillMdStructureScript} scan {skill-md}
+uv run {scanSkillMdStructureHelper} scan {skill-md} --required-sections
+uv run {scanSkillMdStructureHelper} scan {skill-md}
 ```
 
 The first call returns `{ description: {satisfied, matched_synonym, tried[]}, usage: {...}, api_surface: {...} }`. The second returns `{ unbalanced_fences, fence_count, bare_opening_fences[{line,text}], table_drift[{line,section,expected_cols,actual_cols,row}] }`. Hold both JSON blobs for the checks below.

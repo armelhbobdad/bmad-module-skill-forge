@@ -6,8 +6,12 @@ headlessArgsFile: 'references/headless-args.md'
 headlessSourceAuthorityDetectionFile: 'references/headless-source-authority-detection.md'
 portfolioSimilarityCheckFile: 'references/portfolio-similarity-check.md'
 draftCheckpointFile: 'references/draft-checkpoint.md'
-validateBriefInputsScript: '{project-root}/src/shared/scripts/skf-validate-brief-inputs.py'
-emitBriefEnvelopeScript: '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
+validateBriefInputsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-inputs.py'
+  - '{project-root}/src/shared/scripts/skf-validate-brief-inputs.py'
+emitBriefEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-brief-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -302,14 +306,16 @@ Display: "**Select:** [C] Continue to Target Analysis · [X] Cancel and exit"
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: use args]** — If `{headless_mode}`, consume pre-supplied arguments and auto-proceed. The full argument set (required/optional, defaults, halt codes, enum values) is documented in `{headlessArgsFile}` — load it now if you need to look up a specific argument. Validation is delegated to `{validateBriefInputsScript}`; the table is the canonical operator-facing documentation, the script enforces it.
+- **Resolve `{validateBriefInputsHelper}`** from `{validateBriefInputsProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
+- **GATE [default: use args]** — If `{headless_mode}`, consume pre-supplied arguments and auto-proceed. The full argument set (required/optional, defaults, halt codes, enum values) is documented in `{headlessArgsFile}` — load it now if you need to look up a specific argument. Validation is delegated to `{validateBriefInputsHelper}`; the table is the canonical operator-facing documentation, the script enforces it.
 
   **Preset merge (before validation).** If the headless args include a `preset` field, load `{sidecar_path}/brief-presets/{preset}.yaml` and merge its contents as defaults — explicit args override preset values, key by key. The preset file is YAML; if it does not exist, log `"warn: preset '{name}' not found at {path} — proceeding without preset"` and continue (do not HALT). If it parses but contains unknown fields, log per-field warnings and pass through unchanged (the validator's KNOWN_FIELDS check will catch any that survive). Drop the `preset` key itself from the merged dict before passing to the validator (it is consumed at this level and is not a brief field).
 
-  **Delegate validation to `{validateBriefInputsScript}`** instead of reasoning through the table rules in prose:
+  **Delegate validation to `{validateBriefInputsHelper}`** instead of reasoning through the table rules in prose:
 
   ```bash
-  echo '<headless-args-as-json>' | uv run {validateBriefInputsScript}
+  echo '<headless-args-as-json>' | uv run {validateBriefInputsHelper}
   ```
 
   The script returns a JSON envelope: `{valid, errors[], warnings[], normalized, halt_reason}`. Apply the result deterministically:

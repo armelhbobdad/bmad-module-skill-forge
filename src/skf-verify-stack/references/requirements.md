@@ -1,7 +1,9 @@
 ---
 nextStepFile: 'synthesize.md'
 feasibilitySchemaRef: 'src/shared/references/feasibility-report-schema.md'
-atomicWriteScript: '{project-root}/src/shared/scripts/skf-atomic-write.py'
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
 outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.md'
 ---
@@ -24,6 +26,8 @@ If a PRD or vision document was provided in Step 01, verify that the combined ca
 
 ### 1. Check PRD Availability
 
+**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
 **Read `prdAvailable` from `{outputFile}` frontmatter (set in Step 01). If `prdAvailable` is false (no PRD/vision document was provided):**
 
 "**Pass 3: Requirements Coverage — Skipped**
@@ -34,7 +38,7 @@ To include this pass, re-run **[VS]** with a PRD or vision document path.
 
 **Proceeding to synthesis...**"
 
-Update `{outputFile}` frontmatter: append `'requirements'` to `stepsCompleted`; set `requirementsPass: "skipped"`. Pipe the updated content through `python3 {atomicWriteScript} write --target {outputFile}` and again with `--target {outputFileLatest}`.
+Update `{outputFile}` frontmatter: append `'requirements'` to `stepsCompleted`; set `requirementsPass: "skipped"`. Pipe the updated content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`.
 
 Load, read the full file and then execute `{nextStepFile}`. **STOP HERE — do not execute sections 2-6.**
 
@@ -105,7 +109,7 @@ Write the Requirements Coverage content under the `## Recommendations` section (
 - Update frontmatter: append `'requirements'` to `stepsCompleted`
 - Set `requirementsPass: "completed"`
 - Set `requirementsFulfilled`, `requirementsPartial`, `requirementsNotAddressed` counts
-- Pipe the updated full content through `python3 {atomicWriteScript} write --target {outputFile}` and again with `--target {outputFileLatest}`
+- Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`
 
 ### 6. Auto-Proceed to Next Step
 

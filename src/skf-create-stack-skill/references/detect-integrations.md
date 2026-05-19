@@ -2,7 +2,9 @@
 nextStepFile: 'compile-stack.md'
 integrationPatterns: 'references/integration-patterns.md'
 composeModeRules: 'references/compose-mode-rules.md'
-pairIntersectScript: '{project-root}/src/shared/scripts/skf-pair-intersect.py'
+pairIntersectProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-pair-intersect.py'
+  - '{project-root}/src/shared/scripts/skf-pair-intersect.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -35,8 +37,11 @@ From `confirmed_dependencies`, conceptually you have N*(N-1)/2 unordered pairs. 
    ]
    ```
 2. **Invoke the script** via stdin (or a temp file under `{forge_data_folder}/` if stdin piping is unavailable):
+
+   **Resolve `{pairIntersectHelper}`** from `{pairIntersectProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
    ```bash
-   uv run {pairIntersectScript} intersect --libraries -
+   uv run {pairIntersectHelper} intersect --libraries -
    ```
    piping the libraries JSON on stdin. The script emits:
    ```json

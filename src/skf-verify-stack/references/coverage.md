@@ -2,7 +2,9 @@
 nextStepFile: 'integrations.md'
 coveragePatternsData: '{coveragePatternsPath}'
 feasibilitySchemaRef: 'src/shared/references/feasibility-report-schema.md'
-atomicWriteScript: '{project-root}/src/shared/scripts/skf-atomic-write.py'
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
 outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.md'
 ---
@@ -107,13 +109,15 @@ Extra and Orphan skills are informational only. They do not affect the coverage 
 
 ### 6. Append to Report
 
+**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
 Write the **Coverage Analysis** section to `{outputFile}` (see `{feasibilitySchemaRef}` — section headings are fixed and ordered: `## Executive Summary`, `## Coverage Analysis`, `## Integration Verdicts`, `## Recommendations`, `## Evidence Sources`):
 - Include the full coverage table
 - Include coverage percentage
 - Include missing skill recommendations
 - Include the Extra (unreferenced) and Orphan (source_repo unresolvable) subdivisions from section 4
 - Update frontmatter: append `'coverage'` to `stepsCompleted`; set `coveragePercentage` (integer 0..100)
-- Pipe the updated full content through `python3 {atomicWriteScript} write --target {outputFile}` and again with `--target {outputFileLatest}`
+- Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`
 
 ### 7. Auto-Proceed to Next Step
 

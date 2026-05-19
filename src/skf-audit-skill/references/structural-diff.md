@@ -1,8 +1,12 @@
 ---
 nextStepFile: 'semantic-diff.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
-loadProvenanceScript: '{project-root}/src/shared/scripts/skf-load-provenance.py'
-compareFileHashesScript: '{project-root}/src/shared/scripts/skf-compare-file-hashes.py'
+loadProvenanceProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-load-provenance.py'
+  - '{project-root}/src/shared/scripts/skf-load-provenance.py'
+compareFileHashesProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-compare-file-hashes.py'
+  - '{project-root}/src/shared/scripts/skf-compare-file-hashes.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -89,10 +93,12 @@ For each changed export, record:
 
 **Only execute if provenance-map.json contains `file_entries`.**
 
+**Resolve `{compareFileHashesHelper}`** from `{compareFileHashesProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
 Run one deterministic comparison subprocess — it walks tracked file_entries[] AND the inverse direction (source-tree → candidate set in standard script/asset/doc directories) so the LLM does not orchestrate per-file hashing:
 
 ```bash
-uv run {compareFileHashesScript} compare {provenanceMap} {sourceRoot}
+uv run {compareFileHashesHelper} compare {provenanceMap} {sourceRoot}
 ```
 
 Parse the emitted JSON:

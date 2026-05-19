@@ -41,7 +41,7 @@ echo '{
   "skill_name": "{skill-name}",
   "created_at": "{current ISO date}"
   // include "status": "pending" only when embed verification failed
-}' | uv run {forgeTierRwScript} register-qmd-collection --target {forgeTierFile}
+}' | uv run {forgeTierRwHelper} register-qmd-collection --target {forgeTierFile}
 ```
 
 The script handles the upsert deterministically (replace existing entry with same `name`, else append) and preserves all other forge-tier state (tools, tier, ccc_index, ccc_index_registry, other qmd_collections entries) — no need to reason about YAML re-rendering or section comments.

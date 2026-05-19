@@ -6,7 +6,9 @@
 outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
 outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.md'
 feasibilitySchemaRef: 'src/shared/references/feasibility-report-schema.md'
-atomicWriteScript: '{project-root}/src/shared/scripts/skf-atomic-write.py'
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 nextStepFile: 'health-check.md'
 ---
 
@@ -98,9 +100,11 @@ Based on the overall verdict, present the appropriate recommendation:
 
 ### 4b. Result Contract
 
+**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
 Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{forge_data_folder}/verify-stack-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_data_folder}/verify-stack-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include the feasibility report path (both `{outputFile}` and `{outputFileLatest}`) in `outputs`; include `overallVerdict` (`FEASIBLE` / `CONDITIONALLY_FEASIBLE` / `NOT_FEASIBLE`), `coveragePercentage`, and `recommendationCount` in `summary` — use the case-sensitive schema tokens.
 
-Write both JSON files through `python3 {atomicWriteScript} write --target ...` to avoid partial-write corruption. On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) and emit the error envelope.
+Write both JSON files through `python3 {atomicWriteHelper} write --target ...` to avoid partial-write corruption. On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) and emit the error envelope.
 
 When `{headless_mode}` is true, also emit the single-line envelope on **stdout** before chaining to step 7 (matches the SKILL.md "Result Contract (Headless)" shape):
 

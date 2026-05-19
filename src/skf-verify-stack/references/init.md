@@ -1,7 +1,9 @@
 ---
 nextStepFile: 'coverage.md'
 feasibilitySchemaRef: 'src/shared/references/feasibility-report-schema.md'
-atomicWriteScript: '{project-root}/src/shared/scripts/skf-atomic-write.py'
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 # {outputFile} and {outputFileLatest} resolve from the activation-stored
 # {project_slug}, {timestamp}, and {outputFolderPath} variables (set in
 # SKILL.md On Activation §2 + §4). The activation-stored values are
@@ -109,6 +111,8 @@ Each helper-emitted entry includes: `skill_name`, `version`, `language`, `confid
 
 ### 4. Create Feasibility Report
 
+**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
 This skill is the PRODUCER of the feasibility report schema defined in `{feasibilitySchemaRef}`. All outputs MUST conform to that schema — in particular: `schemaVersion: "1.0"`, the defined verdict token set (`Verified|Plausible|Risky|Blocked`; overall `FEASIBLE|CONDITIONALLY_FEASIBLE|NOT_FEASIBLE`), the filename pattern, and the section-heading order.
 
 **Filename variables** (already computed at activation — do not re-derive):
@@ -137,7 +141,7 @@ This skill is the PRODUCER of the feasibility report schema defined in `{feasibi
 - `skillsAnalyzed: {count}`
 - `stepsCompleted: ['init']`
 
-**Atomic write:** Pipe the staged content through `python3 {atomicWriteScript} write --target {outputFile}` and then again with `--target {outputFileLatest}`. Both writes use the same staged content. Do NOT use `rm`+rewrite; do NOT create a symlink for the `-latest` copy.
+**Atomic write:** Pipe the staged content through `python3 {atomicWriteHelper} write --target {outputFile}` and then again with `--target {outputFileLatest}`. Both writes use the same staged content. Do NOT use `rm`+rewrite; do NOT create a symlink for the `-latest` copy.
 
 On any non-zero exit from either write: HALT (exit code 4, `halt_reason: "write-failed"`) and emit the error envelope per SKILL.md "Result Contract (Headless)" with `report_path: null`, `report_latest_path: null`, `overall_verdict: null`.
 

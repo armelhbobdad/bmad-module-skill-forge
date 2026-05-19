@@ -1,9 +1,15 @@
 ---
 nextStepFile: 'scope-definition.md'
 versionResolutionFile: 'references/version-resolution.md'
-extractPublicApiScript: '{project-root}/src/shared/scripts/skf-extract-public-api.py'
-detectWorkspacesScript: '{project-root}/src/shared/scripts/skf-detect-workspaces.py'
-detectLanguageScript: '{project-root}/src/shared/scripts/skf-detect-language.py'
+extractPublicApiProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
+  - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
+detectWorkspacesProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-workspaces.py'
+  - '{project-root}/src/shared/scripts/skf-detect-workspaces.py'
+detectLanguageProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-language.py'
+  - '{project-root}/src/shared/scripts/skf-detect-language.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -58,11 +64,13 @@ Display: "**Resolving target...**"
 
 ### 1b. Detect Monorepo / Workspace Layout
 
-Delegate workspace detection to `{detectWorkspacesScript}` instead of reasoning through manifest rules in prose. Build a payload from the tree fetched in §1 plus the small set of root manifests the detector needs, then invoke the script:
+**Resolve `{detectWorkspacesHelper}`** from `{detectWorkspacesProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
+Delegate workspace detection to `{detectWorkspacesHelper}` instead of reasoning through manifest rules in prose. Build a payload from the tree fetched in §1 plus the small set of root manifests the detector needs, then invoke the script:
 
 ```bash
 echo '{"tree": [<flat list of repo-relative file paths>], "manifests": {"package.json": "<raw text>", "Cargo.toml": "<raw text>", "pnpm-workspace.yaml": "<raw text>", "lerna.json": "<raw text>"}}' | \
-  uv run {detectWorkspacesScript}
+  uv run {detectWorkspacesHelper}
 ```
 
 - **`tree`** — pass the flat list of repo-relative file paths already fetched in §1 (for GitHub: the `path` values from the `gh api .../git/trees/HEAD?recursive=1` response; for local: the equivalent listing).
@@ -104,10 +112,12 @@ List the top-level directory structure:
 
 ### 3. Detect Primary Language
 
-Delegate the rule walk to `{detectLanguageScript}` instead of evaluating manifest presence and extension frequency in prose:
+**Resolve `{detectLanguageHelper}`** from `{detectLanguageProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
+Delegate the rule walk to `{detectLanguageHelper}` instead of evaluating manifest presence and extension frequency in prose:
 
 ```bash
-echo '{"tree": [<flat list of repo-relative file paths from §1>]}' | uv run {detectLanguageScript}
+echo '{"tree": [<flat list of repo-relative file paths from §1>]}' | uv run {detectLanguageHelper}
 ```
 
 The script returns `{language, confidence, detection_source, fallback_to_extension_frequency}` after walking the documented rule table (manifest presence first — package.json with tsconfig.json disambiguation, Cargo.toml, pyproject.toml/setup.py/setup.cfg, go.mod, pom.xml, build.gradle.kts, build.gradle Groovy with Java/Kotlin disambiguation, *.csproj/*.sln, Gemfile — then extension-frequency fallback over recognized source extensions). Use the returned values directly:
@@ -120,7 +130,9 @@ If `confidence` is `low` (or `unknown` is returned for `language`): flag for use
 
 ### 4. List Top-Level Modules and Exports
 
-Identify the public API surface. **Delegate the parsing to `{extractPublicApiScript}` whenever the detected language is supported** — the script is the single source of truth for manifest parsing, export discovery, and version detection across the whole SKF pipeline. Hand-rolling these in prose creates drift seams the LLM cannot fully close.
+**Resolve `{extractPublicApiHelper}`** from `{extractPublicApiProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
+Identify the public API surface. **Delegate the parsing to `{extractPublicApiHelper}` whenever the detected language is supported** — the script is the single source of truth for manifest parsing, export discovery, and version detection across the whole SKF pipeline. Hand-rolling these in prose creates drift seams the LLM cannot fully close.
 
 **Script-supported languages** (use the script): `js`, `ts`, `javascript`, `typescript`, `python`, `rust`, `go`, `java`, `kotlin`.
 
@@ -153,7 +165,7 @@ This section runs exactly one of §4.1 (script path) or §4.2 (fallback path) ba
 3. Invoke the script and parse its JSON stdout:
 
    ```bash
-   echo '<payload-json>' | uv run {extractPublicApiScript} --mode quick
+   echo '<payload-json>' | uv run {extractPublicApiHelper} --mode quick
    ```
 
    On a non-zero exit (codes 1 or 2 per the script's docstring), capture stderr, log it, and fall through to §4.2 (the prose-fallback path) — never HALT just because the script choked on an unusual manifest.
@@ -200,7 +212,7 @@ If CCC is unavailable or returns no results: skip this subsection silently.
 
 ### 4b. Detect Source Version
 
-**When the language was script-supported (§4 took the script path):** the `version` field returned by `{extractPublicApiScript}` IS the detected version — do not re-derive it and do not load `{versionResolutionFile}`. The script already implements the language-specific lookups documented in that reference, so loading the reference here only burns context.
+**When the language was script-supported (§4 took the script path):** the `version` field returned by `{extractPublicApiHelper}` IS the detected version — do not re-derive it and do not load `{versionResolutionFile}`. The script already implements the language-specific lookups documented in that reference, so loading the reference here only burns context.
 
 **When the language was not script-supported:** load `{versionResolutionFile}` and follow the prose Detection Algorithm directly (Ruby / C# / Swift / etc. fall outside the script's coverage).
 
