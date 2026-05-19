@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "ded1dfa20dba",
+  "strategy": "manual-commit",
+  "branch": "refactor/skf-shared-script-probe-order",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-analyze-source/references/identify-units.md",
+    "src/skf-analyze-source/references/scan-project.md",
+    "src/skf-audit-skill/references/init.md",
+    "src/skf-audit-skill/references/structural-diff.md",
+    "src/skf-brief-skill/SKILL.md",
+    "src/skf-brief-skill/references/analyze-target.md",
+    "src/skf-brief-skill/references/gather-intent.md",
+    "src/skf-brief-skill/references/headless-args.md",
+    "src/skf-brief-skill/references/qmd-collection-registration.md",
+    "src/skf-brief-skill/references/scope-definition.md",
+    "src/skf-brief-skill/references/write-brief.md",
+    "src/skf-create-stack-skill/references/detect-integrations.md",
+    "src/skf-create-stack-skill/references/detect-manifests.md",
+    "src/skf-create-stack-skill/references/parallel-extract.md",
+    "src/skf-test-skill/references/coherence-check.md",
+    "src/skf-verify-stack/references/coverage.md",
+    "src/skf-verify-stack/references/init.md",
+    "src/skf-verify-stack/references/integrations.md",
+    "src/skf-verify-stack/references/report.md",
+    "src/skf-verify-stack/references/requirements.md",
+    "src/skf-verify-stack/references/synthesize.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/de/d1dfa20dba/0/metadata.json",
+      "transcript": "/de/d1dfa20dba/0/full.jsonl",
+      "context": "/de/d1dfa20dba/0/context.md",
+      "content_hash": "/de/d1dfa20dba/0/content_hash.txt",
+      "prompt": "/de/d1dfa20dba/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 34,
+    "cache_creation_tokens": 58467,
+    "cache_read_tokens": 3112716,
+    "output_tokens": 24249,
+    "api_call_count": 17
+  }
+}

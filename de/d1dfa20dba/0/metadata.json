@@ -1,0 +1,52 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "ded1dfa20dba",
+  "session_id": "43f8c9a3-7a05-40f0-b6f3-9d283ace1d25",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-19T16:05:53.738087016Z",
+  "branch": "refactor/skf-shared-script-probe-order",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-analyze-source/references/identify-units.md",
+    "src/skf-analyze-source/references/scan-project.md",
+    "src/skf-audit-skill/references/init.md",
+    "src/skf-audit-skill/references/structural-diff.md",
+    "src/skf-brief-skill/SKILL.md",
+    "src/skf-brief-skill/references/analyze-target.md",
+    "src/skf-brief-skill/references/gather-intent.md",
+    "src/skf-brief-skill/references/headless-args.md",
+    "src/skf-brief-skill/references/qmd-collection-registration.md",
+    "src/skf-brief-skill/references/scope-definition.md",
+    "src/skf-brief-skill/references/write-brief.md",
+    "src/skf-create-stack-skill/references/detect-integrations.md",
+    "src/skf-create-stack-skill/references/detect-manifests.md",
+    "src/skf-create-stack-skill/references/parallel-extract.md",
+    "src/skf-test-skill/references/coherence-check.md",
+    "src/skf-verify-stack/references/coverage.md",
+    "src/skf-verify-stack/references/init.md",
+    "src/skf-verify-stack/references/integrations.md",
+    "src/skf-verify-stack/references/report.md",
+    "src/skf-verify-stack/references/requirements.md",
+    "src/skf-verify-stack/references/synthesize.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "07a4ff88351b",
+  "checkpoint_transcript_start": 480,
+  "transcript_lines_at_start": 480,
+  "token_usage": {
+    "input_tokens": 34,
+    "cache_creation_tokens": 58467,
+    "cache_read_tokens": 3112716,
+    "output_tokens": 24249,
+    "api_call_count": 17
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-19T16:05:52.147717979Z",
+    "agent_lines": 159,
+    "human_added": 12,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 171,
+    "agent_percentage": 92.98245614035088
+  }
+}
