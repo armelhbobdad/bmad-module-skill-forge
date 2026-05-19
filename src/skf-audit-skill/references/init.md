@@ -2,8 +2,12 @@
 nextStepFile: 're-index.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
 templateFile: 'assets/drift-report-template.md'
-loadProvenanceScript: '{project-root}/src/shared/scripts/skf-load-provenance.py'
-compareFileHashesScript: '{project-root}/src/shared/scripts/skf-compare-file-hashes.py'
+loadProvenanceProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-load-provenance.py'
+  - '{project-root}/src/shared/scripts/skf-load-provenance.py'
+compareFileHashesProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-compare-file-hashes.py'
+  - '{project-root}/src/shared/scripts/skf-compare-file-hashes.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -98,12 +102,14 @@ Load the following from the skill directory:
 
 Search for provenance map at `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json` (i.e., `{forge_version}/provenance-map.json`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`:
 
+**Resolve `{loadProvenanceHelper}`** from `{loadProvenanceProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
 **If found:**
 - Record provenance map age (days since last extraction) from file mtime
 - Normalize the map's deterministic projections in one subprocess call:
 
   ```bash
-  uv run {loadProvenanceScript} normalize {provenanceMap}
+  uv run {loadProvenanceHelper} normalize {provenanceMap}
   ```
 
   Parse the emitted JSON and stash these fields in workflow context (downstream steps read them directly — no re-walk):

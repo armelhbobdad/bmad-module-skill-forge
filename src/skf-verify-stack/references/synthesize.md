@@ -1,7 +1,9 @@
 ---
 nextStepFile: 'report.md'
 feasibilitySchemaRef: 'src/shared/references/feasibility-report-schema.md'
-atomicWriteScript: '{project-root}/src/shared/scripts/skf-atomic-write.py'
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
 outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.md'
 ---
@@ -121,6 +123,8 @@ Assemble the following for the report:
 
 ### 5. Append to Report
 
+**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
 Write the **Recommendations** and **Evidence Sources** sections to `{outputFile}` (per the fixed heading order in `{feasibilitySchemaRef}`):
 - Include overall verdict with rationale in the `## Executive Summary` section (replace the placeholder text from the template)
 - Include prioritized recommendation list under `## Recommendations`
@@ -137,7 +141,7 @@ Write the **Recommendations** and **Evidence Sources** sections to `{outputFile}
   - If any pair has Check 4 missing/weak AND was capped at `Plausible`, that alone does NOT force `NOT_FEASIBLE`, but `FEASIBLE` requires zero such pairs
   - `FEASIBLE` requires 100% coverage AND zero Blocked pairs AND zero Check-4-missing pairs — otherwise downgrade to `CONDITIONALLY_FEASIBLE`
   - `coveragePercentage == 0` forces `NOT_FEASIBLE` (per section 1 short-circuit)
-- Pipe the updated full content through `python3 {atomicWriteScript} write --target {outputFile}` and again with `--target {outputFileLatest}`
+- Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`
 
 ### 6. Auto-Proceed to Next Step
 

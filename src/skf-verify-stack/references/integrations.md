@@ -3,7 +3,9 @@ nextStepFile: 'requirements.md'
 integrationRulesData: '{integrationRulesPath}'
 coveragePatternsData: '{coveragePatternsPath}'
 feasibilitySchemaRef: 'src/shared/references/feasibility-report-schema.md'
-atomicWriteScript: '{project-root}/src/shared/scripts/skf-atomic-write.py'
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
 outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.md'
 ---
@@ -160,12 +162,14 @@ For each integration pair `{library_a, library_b}`, apply the verification proto
 
 ### 6. Append to Report
 
+**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
 Write the **Integration Verdicts** section to `{outputFile}` (heading is fixed — consumers grep for `## Integration Verdicts`; the table header MUST be the canonical `| lib_a | lib_b | verdict | rationale |` per `{feasibilitySchemaRef}`; the skill-local display table with the extra Context/Source/Evidence columns can be rendered beneath it for human readers):
 - Emit the canonical `| lib_a | lib_b | verdict | rationale |` table first (verdict tokens MUST be one of `Verified`, `Plausible`, `Risky`, `Blocked` — case-sensitive)
 - Include the extended table with Context, Source, and Evidence columns below it
 - Include recommendations for Risky and Blocked pairs (Blocked recommendations MUST cite a named candidate per step 5 H6, or the explicit no-candidate notice)
 - Update frontmatter: append `'integrations'` to `stepsCompleted`; set `pairsVerified`, `pairsPlausible`, `pairsRisky`, `pairsBlocked` counts
-- Pipe the updated full content through `python3 {atomicWriteScript} write --target {outputFile}` and again with `--target {outputFileLatest}`
+- Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`
 
 ### 7. Auto-Proceed to Next Step
 

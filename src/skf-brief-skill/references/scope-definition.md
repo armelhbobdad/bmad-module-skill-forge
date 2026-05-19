@@ -1,7 +1,9 @@
 ---
 nextStepFile: 'confirm-brief.md'
 scopeTemplatesFile: 'assets/scope-templates.md'
-recommendScopeTypeScript: '{project-root}/src/shared/scripts/skf-recommend-scope-type.py'
+recommendScopeTypeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-recommend-scope-type.py'
+  - '{project-root}/src/shared/scripts/skf-recommend-scope-type.py'
 advancedElicitationSkill: '/bmad-advanced-elicitation'
 partyModeSkill: '/bmad-party-mode'
 ---
@@ -82,7 +84,9 @@ Load `{scopeTemplatesPath}` for the scope type options ([F], [M], [P], [C], [R])
 
 **Recommend a scope type — don't present the five options as equal weight.** SKILL.md states this workflow "steers toward the smaller, sharper version when scope is unclear" — surface that opinion at decision time. Use the analysis from step 2 and the user's intent from step 1 to pick the best-fit recommendation, then present the menu with that option marked as the suggested default.
 
-**Delegate the recommendation to `{recommendScopeTypeScript}`** instead of walking the heuristic ladder in prose. The script is the single source of truth for the five-rule ladder (component-registry → reference-app keywords → specific-modules naming/count → narrow-public-api → default full-library) plus the docs-only short-circuit. Both the interactive recommendation and the §6 headless GATE invoke the same script — same inputs, same outputs, no drift.
+**Resolve `{recommendScopeTypeHelper}`** from `{recommendScopeTypeProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
+**Delegate the recommendation to `{recommendScopeTypeHelper}`** instead of walking the heuristic ladder in prose. The script is the single source of truth for the five-rule ladder (component-registry → reference-app keywords → specific-modules naming/count → narrow-public-api → default full-library) plus the docs-only short-circuit. Both the interactive recommendation and the §6 headless GATE invoke the same script — same inputs, same outputs, no drift.
 
 **Fetch registry-file contents before building the payload.** Step-02 §4.1 fetches `package.json` plus the entry-point files but does not fetch `registry.ts` / `components.ts` — the deep-match branch of the component-registry rule needs those contents. Scan the tree for any of `registry.ts` / `registry.tsx` / `components.ts` / `components.tsx` (any depth). For each match, fetch its contents in **one message with N parallel Bash calls** (`gh api repos/{owner}/{repo}/contents/{path}` for GitHub, file reads for local), then base64-decode the responses together. Skip the fetch if the tree contains no registry files.
 
@@ -97,7 +101,7 @@ echo '{
   "entry_files": [{"path": "<registry path>", "content": "<contents>"}, ...],
   "source_type": "source",
   "mode": "interactive"
-}' | uv run {recommendScopeTypeScript}
+}' | uv run {recommendScopeTypeHelper}
 ```
 
 `entry_files` carries the registry contents fetched above; omit when no registry files exist in the tree. `mode: "interactive"` activates the content-inspection branch of the component-registry rule (10+ entries or `Component[]` annotation); the headless GATE in §6 uses `mode: "headless"` which falls back to presence-only matching. `source_type: "docs-only"` short-circuits to `docs-only` regardless of the other signals.
@@ -182,7 +186,7 @@ Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Conti
 - ALWAYS halt and wait for user input after presenting menu
 - **GATE [default: C]** — If `{headless_mode}`: consume the headless inputs from step 1 in priority order:
   - If `scope_type` was supplied, use it (must match one of the six valid types) and skip the §2c template menu.
-  - Otherwise auto-select via `{recommendScopeTypeScript}` — invoke the script with the **same payload shape** documented in §2c but with `mode: "headless"` (presence-only matching for the component-registry rule, since `entry_files` may not be available without an interactive context). Use the returned `scope_type` and log `"headless: scope_type={value} from heuristic={matched_heuristic}"`. The script's docs-only short-circuit handles `source_type=docs-only` automatically.
+  - Otherwise auto-select via `{recommendScopeTypeHelper}` — invoke the script with the **same payload shape** documented in §2c but with `mode: "headless"` (presence-only matching for the component-registry rule, since `entry_files` may not be available without an interactive context). Use the returned `scope_type` and log `"headless: scope_type={value} from heuristic={matched_heuristic}"`. The script's docs-only short-circuit handles `source_type=docs-only` automatically.
   - If `include`/`exclude` were supplied, use them verbatim (split on comma) instead of running the boundary prompts in §3.
   - If `scripts_intent`/`assets_intent` were supplied, record them and skip §5b; otherwise default to `detect`.
   - Set `scope.rationale`: `recommended`/`heuristic` from the script (or `recommended = scope_type` arg, `heuristic = "user-supplied-arg"` when `scope_type` was passed); `chosen = <resolved type>`; `accepted_recommendation = (no scope_type arg)`; `reason = "<script rationale>"` (auto path) or `"headless: scope_type supplied as argument"` (arg path); `recorded = {date}`. No prompt — headless never asks "why".

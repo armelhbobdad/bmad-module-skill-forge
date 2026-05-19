@@ -1,7 +1,9 @@
 ---
 nextStepFile: 'rank-and-confirm.md'
 manifestPatterns: 'references/manifest-patterns.md'
-scanManifestsScript: '{project-root}/src/shared/scripts/skf-scan-manifests.py'
+scanManifestsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-scan-manifests.py'
+  - '{project-root}/src/shared/scripts/skf-scan-manifests.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -90,8 +92,10 @@ Store the explicit list as `raw_dependencies` and skip to [Display Detection Sum
 
 Invoke the deterministic manifest scanner — it walks the project root, parses every recognised manifest, dedupes the production dep set, and flags monorepo layout:
 
+**Resolve `{scanManifestsHelper}`** from `{scanManifestsProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
 ```bash
-uv run {scanManifestsScript} scan {scan_root}
+uv run {scanManifestsHelper} scan {scan_root}
 ```
 
 Where `{scan_root}` is the project root path. Load `{manifestPatterns}` for the ecosystem reference table that documents supported filenames, dependency keys, and normalisation rules; the script implements exactly that table (npm/pnpm/yarn, python pip/poetry/pdm, rust cargo, go modules, java/kotlin maven + gradle, ruby bundler, composer, swift package manager). Exclusion patterns (`node_modules/`, `.venv/`, `vendor/`, `dist/`, `build/`, `target/`, `.git/`, hidden dirs) are applied internally.

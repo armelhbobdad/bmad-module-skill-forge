@@ -3,9 +3,15 @@ briefSchemaFile: 'assets/skill-brief-schema.md'
 versionResolutionFile: 'references/version-resolution.md'
 qmdRegistrationFile: 'references/qmd-collection-registration.md'
 nextStepFile: 'health-check.md'
-writeSkillBriefScript: '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
-emitBriefEnvelopeScript: '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
-forgeTierRwScript: '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
+writeSkillBriefProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
+  - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
+emitBriefEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-brief-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
+forgeTierRwProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
+  - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 ---
 
@@ -30,7 +36,9 @@ To generate the complete skill-brief.yaml from the approved brief data and write
 
 ### 1. Reference the Schema (LLM context only)
 
-`{briefSchemaPath}` and `{versionResolutionFile}` document the brief contract for human readers. The deterministic enforcement of that contract lives in `{writeSkillBriefScript}` and its JSON Schema artifact at `src/shared/scripts/schemas/skill-brief.v1.json`. Load `{briefSchemaPath}` only if you need to explain a specific field to the user during inline adjustments — otherwise skip the read; the script is the source of truth.
+**Resolve `{writeSkillBriefHelper}`** from `{writeSkillBriefProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
+`{briefSchemaPath}` and `{versionResolutionFile}` document the brief contract for human readers. The deterministic enforcement of that contract lives in `{writeSkillBriefHelper}` and its JSON Schema artifact at `src/shared/scripts/schemas/skill-brief.v1.json`. Load `{briefSchemaPath}` only if you need to explain a specific field to the user during inline adjustments — otherwise skip the read; the script is the source of truth.
 
 ### 2. Resolve Output Path
 
@@ -94,7 +102,7 @@ Assemble the brief context as a **flat** JSON object — every approved value is
 Pipe it into the writer script with the `--from-flat` flag:
 
 ```bash
-echo '<context-json>' | uv run {writeSkillBriefScript} write --target {resolved-target-path} --from-flat
+echo '<context-json>' | uv run {writeSkillBriefHelper} write --target {resolved-target-path} --from-flat
 ```
 
 The script translates flat → nested internally, drops the null optional fields, and runs the same schema validation and atomic write as before — pass every key always, the writer decides what reaches the YAML.
@@ -121,20 +129,22 @@ The script:
 
 ### 4b. Headless Result Envelope (Canonical)
 
+**Resolve `{emitBriefEnvelopeHelper}`** from `{emitBriefEnvelopeProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
 This section is the canonical envelope-emission reference for the workflow. Every headless emission — the success terminal here and every HARD HALT in step 1/02/05 — uses this contract. Remote sites point here instead of restating it.
 
 **Success (this call site only — emitted from §3 directly):**
 
 ```bash
 echo '{"status":"success","brief_path":"<from §3 response>","skill_name":"<name>","version":"<from §3 response>","language":"<language>","scope_type":"<scope.type>","halt_reason":null}' | \
-  uv run {emitBriefEnvelopeScript} emit
+  uv run {emitBriefEnvelopeHelper} emit
 ```
 
 **Error (used by every HARD HALT site):**
 
 ```bash
 echo '{"status":"error","skill_name":"<name>","halt_reason":"<reason>"}' | \
-  uv run {emitBriefEnvelopeScript} emit --target stderr
+  uv run {emitBriefEnvelopeHelper} emit --target stderr
 ```
 
 When the HALT fires before `skill_name` has been resolved (step 1 §1 pre-flight write probe, step 1 §8 input-missing on a malformed args bundle), pass the partially-gathered value or the literal `"unknown"` — the script accepts any non-empty string at this position.
@@ -148,6 +158,8 @@ Invocation sites (each pointed at this block, not duplicated): step 1 §1 (write
 When `{headless_mode}` is false, skip this section silently — no envelope is emitted.
 
 ### 5. QMD Collection Registration (Deep Tier Only)
+
+**Resolve `{forgeTierRwHelper}`** from `{forgeTierRwProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
 **IF forge tier is Deep AND QMD tool is available:** load `{qmdRegistrationFile}` and follow the procedure there to index the brief into a QMD collection and update the forge-tier registry.
 

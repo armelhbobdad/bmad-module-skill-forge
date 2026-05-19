@@ -1,6 +1,8 @@
 ---
 nextStepFile: 'detect-integrations.md'
-enumerateStackSkillsScript: '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
+enumerateStackSkillsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
+  - '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -33,8 +35,10 @@ Use `skill_package_path` (stored in step 2 and optionally refreshed above) direc
 
 **Exports resolution order (H1) — script-driven:** Do NOT walk per-skill `metadata.json` → `references/` → SKILL.md by hand. Invoke the helper once at step entry to compute the full inventory for every confirmed skill in one deterministic call:
 
+**Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
 ```bash
-uv run {enumerateStackSkillsScript} enumerate {skills_output_folder}
+uv run {enumerateStackSkillsHelper} enumerate {skills_output_folder}
 ```
 
 The script emits JSON of the form:
