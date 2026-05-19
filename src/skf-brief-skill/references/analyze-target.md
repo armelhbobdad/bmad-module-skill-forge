@@ -153,7 +153,7 @@ This section runs exactly one of §4.1 (script path) or §4.2 (fallback path) ba
 3. Invoke the script and parse its JSON stdout:
 
    ```bash
-   echo '<payload-json>' | uv run {extractPublicApiScript} --language <lang> --mode quick
+   echo '<payload-json>' | uv run {extractPublicApiScript} --mode quick
    ```
 
    On a non-zero exit (codes 1 or 2 per the script's docstring), capture stderr, log it, and fall through to §4.2 (the prose-fallback path) — never HALT just because the script choked on an unusual manifest.

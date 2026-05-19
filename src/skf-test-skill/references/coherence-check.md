@@ -47,9 +47,12 @@ The script matches case-insensitively and tolerates `##`/`###` heading levels. S
 
 **2.3 Language tags on opening fences.** Read `bare_opening_fences[]` from the second JSON blob. The script already runs the stateful open/close scan — closing fences are never reported. For each entry, emit a **Medium severity** finding: `naive-coherence — opening code fence at line {entry.line} missing language tag`.
 
-**2.4 Exports cross-used in Usage section.** For each function name reported in the step 3 subagent inventory (`exports[].name` where `kind == "function"` or `kind == "method"`):
-- `grep -c "{export.name}" SKILL.md` restricted to the Usage section (find the `## Usage` anchor from §2.1 and the next `^## ` anchor; count within that span).
-- **Zero occurrences → High severity** finding: `naive-coherence — exported {kind} \`{name}\` is not referenced in the Usage section`. This catches the "documented but unused" failure mode that trivially fails discovery testing.
+**2.4 Exports cross-used in a usage-family section.** For each function name reported in the step 3 subagent inventory (`exports[].name` where `kind == "function"` or `kind == "method"`):
+- Determine the usage-family search scope:
+  - **Single-body skill** (no `references/` directory, or `## Full*` sections carry real content): the span from §2.1's `matched_synonym` anchor to the next `^## ` anchor.
+  - **Split-body skill** (a `references/` directory exists alongside SKILL.md AND the SKILL.md `## Full*` sections are stubs/pointers): the union of EVERY usage-family heading present in SKILL.md (`Usage`/`Examples`/`How to use`/`Quickstart`/`Quick Start`/`Getting Started`/`Common Workflows`/`Key API Summary`), each from its anchor to the next `^## ` anchor, PLUS the full text of every file under `references/`.
+- `grep -c "{export.name}"` across that scope and sum the counts.
+- **Zero occurrences across the entire scope → High severity** finding: `naive-coherence — exported {kind} \`{name}\` is not referenced in any usage-family section or reference file`. This catches the "documented but unused" failure mode that trivially fails discovery testing. A method referenced in any usage-family section OR any `references/` file satisfies the check.
 
 **2.5 Async/sync consistency.** For every export with `async` in its description prose (grep for `\basync\b` in the description segment), check the corresponding code example segment for `await` / `async` keywords:
 - Description says async + example shows no `await` → **High severity** finding: `naive-coherence — \`{name}\` described as async but example lacks \`await\``

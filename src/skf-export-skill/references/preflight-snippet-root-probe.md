@@ -48,8 +48,9 @@ Emit a single warning (once, not per snippet) and present resolution options bef
 > - **(a) Set override** — add `snippet_skill_root_override: {observed_prefix}` to `config.yaml`. Snippets keep their on-disk prefix; the managed section references the real location.
 > - **(b) Proceed with IDE mapping** — step 4 will rewrite every snippet's root path to the IDE's skill_root. Use this only if the IDE's skill directory actually contains the skill files.
 > - **(c) Cancel** — abort export and investigate.
+> - **(d) Use observed prefix for this run only** — set the effective snippet root to the single observed on-disk prefix for this export run, without writing to `config.yaml`. The managed section references the real on-disk location. (Only offered when exactly one prefix was observed.)
 >
-> If multiple distinct prefixes were observed, the snippets disagree with each other — investigate before choosing (a).
+> If multiple distinct prefixes were observed, the snippets disagree with each other — investigate before choosing (a) or (d).
 
 Wait for user choice.
 
@@ -68,6 +69,10 @@ Continue to §2. Step 4's root-rewrite algorithm will rewrite every snippet's pr
 ### (c) Cancel
 
 HALT. Exit code 6, `halt_reason: "user-cancelled"`. No files written.
+
+### (d) Use observed prefix for this run only
+
+**Only available when `observed_prefixes` contains exactly one value.** Set the effective snippet root for this run to that single observed prefix — do NOT mutate `config.yaml`. Step 4's root-rewrite algorithm uses this value as the reference instead of `target_context_files[0].skill_root`, so snippets keep their on-disk prefix and the managed section resolves to the real location. Print a one-line hint: "Persist `snippet_skill_root_override: {observed_prefix}` in config.yaml to skip this prompt on future exports." Continue to §2.
 
 ## No-mismatch fast path
 

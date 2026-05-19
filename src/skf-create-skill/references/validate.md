@@ -61,11 +61,11 @@ Run the external skill-check tool against the compiled skill staging directory.
 **Flag probe (run once, cache the result for §4 and §5 re-invocations):**
 
 ```bash
-npx skill-check --help 2>/dev/null | grep -- --no-security-scan
+npx skill-check check --help 2>/dev/null | grep -- --no-security-scan
 ```
 
 - If the probe matches `--no-security-scan`: set `{security_scan_flag} = "--no-security-scan"`.
-- Else run a second probe — `npx skill-check --help 2>/dev/null | grep -- --skip-security` — and if it matches, set `{security_scan_flag} = "--skip-security"`.
+- Else run a second probe — `npx skill-check check --help 2>/dev/null | grep -- --skip-security` — and if it matches, set `{security_scan_flag} = "--skip-security"`.
 - If neither flag exists: set `{security_scan_flag} = ""` (empty) AND set `{skill_check_flag_fallback} = true`. Skip §2 and §4 automated flows entirely — fall through to §3 manual frontmatter validation. Record in evidence-report: `skill_check_flag_probe: neither --no-security-scan nor --skip-security supported by installed skill-check; validation performed manually`.
 
 **If a security-scan-disable flag was resolved (probe succeeded):**
