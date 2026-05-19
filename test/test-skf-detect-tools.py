@@ -135,6 +135,19 @@ def _fake_run(rc: int = 0, stdout: str = "", stderr: str = ""):
     return _Result()
 
 
+def _logical(cmd):
+    """Strip the OS `timeout(1)` wrapper `_run()` prepends, returning the
+    underlying tool argv so probe `side_effect`s can match on the logical
+    command regardless of whether the host has `timeout` available.
+    """
+    if cmd and os.path.splitext(os.path.basename(str(cmd[0])))[0].lower() == "timeout":
+        rest = list(cmd[1:])
+        while rest and (rest[0].startswith("-") or rest[0].replace(".", "", 1).isdigit()):
+            rest.pop(0)
+        return rest
+    return list(cmd)
+
+
 def test_probe_ast_grep_success():
     with patch.object(mod.subprocess, "run", return_value=_fake_run(0, "ast-grep 0.39.5\n")):
         result = mod.probe_ast_grep()
@@ -156,6 +169,7 @@ def test_probe_ccc_identity_marker_present():
     doctor_output = "All systems operational\n"
 
     def _side_effect(cmd, **kwargs):
+        cmd = _logical(cmd)
         if cmd == ["ccc", "--help"]:
             return _fake_run(0, help_output)
         if cmd == ["ccc", "doctor"]:
@@ -174,6 +188,7 @@ def test_probe_ccc_identity_marker_absent_rejects_alias():
     foreign_help = "Usage: ccc [OPTIONS]\n\nA generic tool that happens to use ccc as its name.\n"
 
     def _side_effect(cmd, **kwargs):
+        cmd = _logical(cmd)
         if cmd == ["ccc", "--help"]:
             return _fake_run(0, foreign_help)
         raise AssertionError(
@@ -188,6 +203,7 @@ def test_probe_ccc_identity_marker_absent_rejects_alias():
 
 def test_probe_qmd_binary_present_daemon_stopped():
     def _side_effect(cmd, **kwargs):
+        cmd = _logical(cmd)
         if cmd == ["qmd", "--version"]:
             return _fake_run(0, "qmd 1.2.3\n")
         if cmd == ["qmd", "status"]:
@@ -202,6 +218,7 @@ def test_probe_qmd_binary_present_daemon_stopped():
 def test_probe_qmd_falls_back_to_help_when_version_unsupported():
     """Some qmd builds reject --version; fall back to --help for identity check."""
     def _side_effect(cmd, **kwargs):
+        cmd = _logical(cmd)
         if cmd == ["qmd", "--version"]:
             return _fake_run(2, "", "unknown option --version\n")
         if cmd == ["qmd", "--help"]:

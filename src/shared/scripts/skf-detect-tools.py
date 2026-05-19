@@ -88,13 +88,26 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 
 
 VALID_TIERS = ("Quick", "Forge", "Forge+", "Deep")
 PROBE_TIMEOUT_SEC = 8  # per-tool subprocess.run timeout
+# Prefer the OS `timeout(1)` utility to bound each probe. A daemon-backed
+# tool (e.g. `qmd status`) can block in an uninterruptible syscall against
+# its daemon; `subprocess.run`'s own post-timeout `process.wait()` is
+# unbounded and never returns in that case, hanging the whole detector.
+# `timeout --kill-after` reaps the child (and its session) at the OS level,
+# so Python's wait always returns. POSIX-only: Windows' `timeout.exe` is an
+# unrelated builtin (waits for input; cannot run a command), and the
+# uninterruptible-wait hang is itself POSIX-specific (Windows uses a
+# forcible TerminateProcess), so on Windows we fall back to subprocess.run's
+# own timeout. None when unavailable.
+_TIMEOUT_BIN = shutil.which("timeout") if os.name == "posix" else None
 CCC_IDENTITY_MARKER = "cocoindex code"  # case-insensitive substring
 
 
@@ -115,16 +128,45 @@ def _run(cmd: list[str], timeout: int = PROBE_TIMEOUT_SEC) -> tuple[int, str, st
     Treats every failure mode (FileNotFoundError, TimeoutExpired, OSError,
     CalledProcessError) as a failed probe — returns rc=127 and an empty
     stdout/stderr. Tool detection should never crash the workflow.
+
+    The child is wrapped in the OS `timeout(1)` utility (when available) so a
+    daemon-backed probe blocked in an uninterruptible syscall (e.g.
+    `qmd status` waiting on its daemon socket) is reaped at the OS level —
+    `subprocess.run`'s own post-timeout `process.wait()` is unbounded and
+    would otherwise never return, hanging the whole detector. Child
+    stdout/stderr are redirected to temp files (no pipe to drain), and
+    `start_new_session=True` isolates the child's process group; the
+    Python-level timeout is a secondary net set slightly above the OS one.
     """
+    if _TIMEOUT_BIN:
+        run_cmd = [_TIMEOUT_BIN, "--kill-after=2", str(timeout), *cmd]
+        py_timeout = timeout + 5
+    else:
+        run_cmd = cmd
+        py_timeout = timeout
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-        return result.returncode, result.stdout or "", result.stderr or ""
+        with tempfile.TemporaryFile() as out_f, tempfile.TemporaryFile() as err_f:
+            result = subprocess.run(
+                run_cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=out_f,
+                stderr=err_f,
+                timeout=py_timeout,
+                check=False,
+                start_new_session=True,
+            )
+            # Mocked unit tests patch `subprocess.run` to return a fake with
+            # `.stdout`/`.stderr` strings set; real runs redirect to the temp
+            # files (so `result.stdout` is None — read the files instead).
+            stdout = result.stdout
+            if stdout is None:
+                out_f.seek(0)
+                stdout = out_f.read().decode("utf-8", "replace")
+            stderr = result.stderr
+            if stderr is None:
+                err_f.seek(0)
+                stderr = err_f.read().decode("utf-8", "replace")
+            return result.returncode, stdout or "", stderr or ""
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return 127, "", ""
 
