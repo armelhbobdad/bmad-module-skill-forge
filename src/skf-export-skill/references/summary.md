@@ -89,17 +89,17 @@ Your skill is generated from an external dependency for local use.
 
 ### 3. Use It In This Project
 
-Always show this section (regardless of `source_authority`) so the author can install the skill they just forged into the current project and try it immediately:
+Always show this section (regardless of `source_authority`) so the author can install the skill they just forged into the current project and try it immediately.
+
+**Rendering rule for the command below — must be obeyed:** substitute `{resolved_skill_package}` with the actual resolved path before printing (do not leave the placeholder for the user to replace). The substituted path must be either absolute (starts with `/`) or `./`-prefixed. A bare relative path like `skills/foo/1.0.0/foo` is parsed by the `skills` CLI as `https://github.com/skills/foo.git` (org/repo GitHub lookup) and will fail with an authentication error. If `{resolved_skill_package}` resolves to a relative path, prefix it with `./` before emitting.
 
 "### Use It In This Project
 
-To install this skill into the current project right now:
+To install this skill into the current project right now, run:
 
 ```
 npx skills add {resolved_skill_package}
 ```
-
-Replace `{resolved_skill_package}` with the absolute path to the package folder shown above (from step 2), e.g. `{skills_output_folder}/{skill-name}/{version}/{skill-name}/`.
 
 For other source formats (registry name, git URL, tarball, etc.), see the **Installation → Source Formats** section at <https://www.npmjs.com/package/skills>.
 
