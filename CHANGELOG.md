@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [1.5.1](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.5.0...v1.5.1) (2026-05-20)
+
+### Bug Fixes
+
+* **skf:** bound detect-tools probes so a hung daemon can't stall it ([f6c4960](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/f6c4960da190cfac597e9115237a087b4b7b002c))
+* **skf:** correct analyze-source roots and manifest IDE recording ([facde71](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/facde7110aeee4f0e9835c56e9587416635a8cbc))
+* **skf:** correct step-file instructions surfaced by health checks ([fc4fbfc](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/fc4fbfc877703ecce704e07b468e2719872b4582))
+* **skf:** prevent npx install hint from being parsed as github org/repo ([b5b4d86](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/b5b4d86226f84eaecd294b37c174eeb62df2e0ad))
+* **skf:** restrict detect-tools timeout wrapper to POSIX ([a2415e8](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/a2415e8b2caa2b544f2468c53f8198ea8792ddf7))
 ## [1.5.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.4.1...v1.5.0) (2026-05-18)
 
 ### Features
