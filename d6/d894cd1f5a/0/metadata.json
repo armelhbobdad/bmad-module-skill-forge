@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d6d894cd1f5a",
+  "session_id": "9caca465-69ad-41a9-8e8a-4d2f780e10bb",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-20T15:54:05.704019182Z",
+  "branch": "fix/skf-export-skill-npx-install-path-trap",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-export-skill/references/summary.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "3856f796683c",
+  "token_usage": {
+    "input_tokens": 61,
+    "cache_creation_tokens": 62898,
+    "cache_read_tokens": 1758126,
+    "output_tokens": 22101,
+    "api_call_count": 32
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-20T15:54:05.448971948Z",
+    "agent_lines": 4,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 4,
+    "agent_percentage": 100
+  }
+}

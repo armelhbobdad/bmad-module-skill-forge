@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d6d894cd1f5a",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-export-skill-npx-install-path-trap",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-export-skill/references/summary.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d6/d894cd1f5a/0/metadata.json",
+      "transcript": "/d6/d894cd1f5a/0/full.jsonl",
+      "context": "/d6/d894cd1f5a/0/context.md",
+      "content_hash": "/d6/d894cd1f5a/0/content_hash.txt",
+      "prompt": "/d6/d894cd1f5a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 61,
+    "cache_creation_tokens": 62898,
+    "cache_read_tokens": 1758126,
+    "output_tokens": 22101,
+    "api_call_count": 32
+  }
+}
