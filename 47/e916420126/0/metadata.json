@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "47e916420126",
+  "session_id": "691e2320-7121-41a7-9be9-466ebec70f25",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-21T06:47:56.124700169Z",
+  "branch": "docs/skf-create-skill-description-trigger-phrase",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-skill/assets/compile-assembly-rules.md",
+    "src/skf-create-skill/assets/skill-sections.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "af76451e8c30",
+  "token_usage": {
+    "input_tokens": 61,
+    "cache_creation_tokens": 102283,
+    "cache_read_tokens": 2400008,
+    "output_tokens": 17851,
+    "api_call_count": 42
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-21T06:47:55.688818262Z",
+    "agent_lines": 2,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 2,
+    "agent_percentage": 100
+  }
+}

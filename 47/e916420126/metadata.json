@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "47e916420126",
+  "strategy": "manual-commit",
+  "branch": "docs/skf-create-skill-description-trigger-phrase",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-skill/assets/compile-assembly-rules.md",
+    "src/skf-create-skill/assets/skill-sections.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/47/e916420126/0/metadata.json",
+      "transcript": "/47/e916420126/0/full.jsonl",
+      "context": "/47/e916420126/0/context.md",
+      "content_hash": "/47/e916420126/0/content_hash.txt",
+      "prompt": "/47/e916420126/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 61,
+    "cache_creation_tokens": 102283,
+    "cache_read_tokens": 2400008,
+    "output_tokens": 17851,
+    "api_call_count": 42
+  }
+}
