@@ -160,17 +160,45 @@ def is_diverged(diff_kind: str) -> bool:
 def restore_description(skill_md: Path, captured: str) -> None:
     """Atomically rewrite SKILL.md so its frontmatter `description` equals captured.
 
-    Preserves frontmatter key order and surrounding whitespace by doing a
-    line-level rewrite of just the `description:` value, not a full YAML
-    re-dump (which would re-order keys, change quoting style, and likely
-    fail roundtrip tests downstream).
+    Parses the entire frontmatter via PyYAML, replaces the top-level
+    `description` value, and re-emits the frontmatter via `yaml.safe_dump`.
+    This guarantees valid YAML output regardless of the source representation
+    (inline, double-quoted, single-quoted, folded `>`, literal `|`), and
+    avoids the line-level pitfalls a previous implementation had with folded
+    block scalars and nested `description:` keys in sibling mappings.
+
+    Key order is preserved (PyYAML's `safe_dump` honours dict insertion order;
+    this module's `requires-python = ">=3.10"` guarantees ordered dicts).
+    Quoting style of *other* fields may change to whatever `safe_dump`
+    chooses for each scalar — downstream readers parse YAML, so any valid
+    YAML emission is acceptable.
     """
     text = skill_md.read_text(encoding="utf-8")
     leading, fm_yaml, body = _split_frontmatter(text)
     if not fm_yaml:
         raise ValueError(f"cannot restore: no frontmatter in {skill_md}")
 
-    new_fm = _rewrite_description_line(fm_yaml, captured)
+    try:
+        fm = yaml.safe_load(fm_yaml)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"frontmatter in {skill_md} is not valid YAML: {exc}") from exc
+    if not isinstance(fm, dict):
+        raise ValueError(f"frontmatter in {skill_md} is not a mapping")
+    if "description" not in fm:
+        raise ValueError(f"frontmatter in {skill_md} has no `description` field")
+
+    fm["description"] = captured
+
+    # `width=10**9` keeps the description on one line regardless of length;
+    # PyYAML otherwise inserts line breaks at ~80 chars which would re-introduce
+    # folded-scalar continuation lines — the exact failure mode this rewrite fixes.
+    new_fm = yaml.safe_dump(
+        fm,
+        sort_keys=False,
+        default_flow_style=False,
+        allow_unicode=True,
+        width=10**9,
+    ).rstrip("\n")
     new_text = f"{leading}{new_fm}\n---\n{body}"
 
     # atomic: write to a sibling temp file, fsync, rename
@@ -189,81 +217,6 @@ def restore_description(skill_md: Path, captured: str) -> None:
         except FileNotFoundError:
             pass
         raise
-
-
-def _rewrite_description_line(fm_yaml: str, new_description: str) -> str:
-    """Replace the `description:` value in a YAML frontmatter block.
-
-    Preserves other keys verbatim. Handles three common shapes:
-      description: single-line value
-      description: "double-quoted value"
-      description: |     # block scalar (folded variant: >)
-        multi-line
-        value here
-    """
-    lines = fm_yaml.split("\n")
-    out: list[str] = []
-    i = 0
-    quoted = _yaml_quote_inline(new_description)
-    replaced = False
-    while i < len(lines):
-        line = lines[i]
-        if not replaced and _is_description_key_line(line):
-            stripped = line.lstrip()
-            indent = line[: len(line) - len(stripped)]
-            # detect block-scalar indicator (| or >)
-            after_key = stripped[len("description:") :].lstrip()
-            if after_key.startswith("|") or after_key.startswith(">"):
-                # skip block-scalar continuation lines (deeper indent than the key line)
-                key_indent = len(indent)
-                i += 1
-                while i < len(lines):
-                    nxt = lines[i]
-                    if nxt.strip() == "":
-                        # blank lines belong to the block scalar
-                        i += 1
-                        continue
-                    nxt_indent = len(nxt) - len(nxt.lstrip())
-                    if nxt_indent <= key_indent:
-                        break
-                    i += 1
-                out.append(f"{indent}description: {quoted}")
-                replaced = True
-                continue
-            out.append(f"{indent}description: {quoted}")
-            replaced = True
-            i += 1
-            continue
-        out.append(line)
-        i += 1
-    if not replaced:
-        raise ValueError("description key not found while rewriting frontmatter")
-    return "\n".join(out)
-
-
-def _is_description_key_line(line: str) -> bool:
-    stripped = line.lstrip()
-    return stripped.startswith("description:") and (
-        len(stripped) == len("description:") or stripped[len("description:")] in (" ", "\t", "")
-    )
-
-
-def _yaml_quote_inline(value: str) -> str:
-    """Emit a YAML scalar suitable as the inline value of `description: `.
-
-    Uses double-quoted form so control characters and embedded quotes are
-    safe. Block scalars (| / >) are not used — the description field is a
-    single semantic string and downstream readers (skill-check, agentskills)
-    expect inline form.
-    """
-    escaped = (
-        value.replace("\\", "\\\\")
-        .replace("\"", "\\\"")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
-    )
-    return f'"{escaped}"'
 
 
 # --------------------------------------------------------------------------
