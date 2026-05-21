@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "b091a13465b3",
+  "session_id": "691e2320-7121-41a7-9be9-466ebec70f25",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-21T06:53:38.489540669Z",
+  "branch": "fix/skf-analyze-source-continue-route-health-check",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-analyze-source/references/continue.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "e4b70a285f97",
+  "checkpoint_transcript_start": 219,
+  "transcript_lines_at_start": 219,
+  "token_usage": {
+    "input_tokens": 34,
+    "cache_creation_tokens": 13935,
+    "cache_read_tokens": 1647660,
+    "output_tokens": 6972,
+    "api_call_count": 19
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-21T06:53:38.240456957Z",
+    "agent_lines": 3,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 3,
+    "agent_percentage": 100
+  }
+}
