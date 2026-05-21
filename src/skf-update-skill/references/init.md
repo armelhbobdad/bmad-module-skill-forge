@@ -42,7 +42,14 @@ Provide either:
 Resolve the path to an absolute skill folder location.
 
 **If `--from-test-report` was provided (or user references a test report):**
-Search for the test report at `{forge_data_folder}/{skill_name}/{active_version}/test-report-{skill_name}.md` (i.e., `{forge_version}/test-report-{skill_name}.md`). If not found at the versioned path, fall back to `{forge_data_folder}/{skill_name}/test-report-{skill_name}.md`. If found, set `test_report_path` in context and `update_mode: gap-driven`. If not found at either path, warn and continue with normal source drift mode.
+
+`skf-test-skill` writes timestamped test-report filenames (`test-report-{skill_name}-{ISO-TIMESTAMP}-{HASH}.md`) — there is no exact-name `test-report-{skill_name}.md` on disk. Locate the most recent report by glob, mirroring `skf-export-skill/references/load-skill.md §4b`:
+
+1. Glob `{forge_data_folder}/{skill_name}/{active_version}/test-report-{skill_name}-*.md` (i.e. `{forge_version}/test-report-{skill_name}-*.md`). Sort matches descending by the parsed ISO-timestamp segment in the filename (`YYYYMMDDTHHMMSSZ` between the skill name and the hash — `sort -r` on the filename works because the timestamp is the first variable component). Take the first match.
+2. If the versioned glob returns nothing, fall back to the same glob at the flat path `{forge_data_folder}/{skill_name}/test-report-{skill_name}-*.md`. Pick the newest by parsed timestamp.
+3. If neither glob returns anything, look for the stable companion `skf-test-skill-result-latest.json` in the same two directories (versioned first, then flat). Read the report path from `outputs[]` per the canonical contract documented at `shared/references/output-contract-schema.md` (resolved by skf-test-skill step 6 §4c) and load that file.
+
+If a report is located, set `test_report_path` in context to the resolved absolute path and set `update_mode: gap-driven`. Surface the actual file picked in the message (e.g. `test-report-{skill_name}-20260507T050917Z-487606-9b2f.md`) so an operator can navigate to the report from the log. If all three lookups fail, warn and continue with normal source drift mode.
 
 **If `--allow-workspace-drift` was provided:** set `allow_workspace_drift: true` in workflow context. This flag is consumed by step 3 §0.a's pre-flight drift guard (gap-driven mode only) and has no effect in normal source-drift mode.
 
