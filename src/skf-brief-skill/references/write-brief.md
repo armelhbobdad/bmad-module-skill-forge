@@ -52,7 +52,11 @@ The script's atomic-write helper creates parent directories as needed (`mkdir -p
 
 Before writing, check whether the resolved target path already exists.
 
-**Interactive (`{headless_mode}` is false):**
+**Ratify path (`ratify_mode: true` in workflow context):**
+
+The user already confirmed overwrite up-front at step 1 §3.1a when they chose `[R] Ratify` against the same file. Skip the interactive prompt below; log a single-line `brief-skill: ratify-mode auto-overwriting existing brief at {path}` and proceed to §3. Resuming the prompt would be friction — the user has by now also reviewed and approved the brief at step 4. This auto-accept does not apply to headless mode (handled below) nor to the standard interactive path (also below).
+
+**Interactive (`{headless_mode}` is false, `ratify_mode` not set):**
 
 If the file exists, present:
 

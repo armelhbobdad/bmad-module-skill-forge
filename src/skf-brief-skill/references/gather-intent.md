@@ -1,5 +1,6 @@
 ---
 nextStepFile: 'analyze-target.md'
+ratifyTargetFile: 'confirm-brief.md'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 descriptionVoiceExamplesFile: 'assets/description-voice-examples.md'
 headlessArgsFile: 'references/headless-args.md'
@@ -9,6 +10,9 @@ draftCheckpointFile: 'references/draft-checkpoint.md'
 validateBriefInputsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-inputs.py'
   - '{project-root}/src/shared/scripts/skf-validate-brief-inputs.py'
+validateBriefSchemaProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-schema.py'
+  - '{project-root}/src/shared/scripts/skf-validate-brief-schema.py'
 emitBriefEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-brief-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
@@ -84,7 +88,7 @@ Let's get started."
 
 ### 3. Gather Target Repository
 
-This section has three sub-flows. Execute exactly one branch — 3.2 *or* 3.3 — based on the user's response in 3.1, then end with the shared confirmation. Do not mix branches.
+This section has four sub-flows. Execute exactly one branch — 3.1a *or* 3.2 *or* 3.3 — based on the user's response in 3.1, then end with the shared confirmation (3.1a is terminal for §3 and jumps directly to confirm-brief.md). Do not mix branches.
 
 #### 3.1 Collect target
 
@@ -94,6 +98,7 @@ Provide one of:
 - A **GitHub URL** (e.g., `https://github.com/org/repo`)
 - A **local path** (e.g., `/path/to/project`)
 - **Documentation URLs** for a docs-only skill (e.g., `https://docs.stripe.com/api`) — use this when no source code is available (SaaS, closed-source)
+- A **path to an existing `skill-brief.yaml`** (file path or a directory containing one) — use this to ratify a brief produced by another workflow (e.g. `skf-analyze-source`) without re-deriving fields
 
 Or type `cancel` / `exit` / `[X]` to leave without writing anything.
 
@@ -102,9 +107,63 @@ Or type `cancel` / `exit` / `[X]` to leave without writing anything.
 Wait for user response. Branch on the response:
 
 - Empty input, `cancel`, `exit`, `[X]`, `q`, or `:q` → Display `"Cancelled — no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). Cancellation here is non-destructive — no files have been written yet by step 1. Headless mode never reaches this branch (the GATE in §8 short-circuits the interactive sub-flows).
+- Path that resolves to an existing `skill-brief.yaml` (file path ending in `skill-brief.yaml` that exists, OR a directory containing a `skill-brief.yaml`) → §3.1a
 - Documentation URLs only (no source location) → §3.2
 - GitHub URL or local filesystem path → §3.3
 - Any other free-form question (e.g. "what is this?", "show me an example", "how does SKF work?") → answer briefly, re-display the prompt
+
+#### 3.1a Branch — Ratify existing brief
+
+This branch handles the AN→BS handoff: another workflow (typically `skf-analyze-source`) has already produced a `skill-brief.yaml`, and the user wants to review and confirm it without re-running gather-intent / analyze-target / scope-definition. **This branch is interactive-only** — headless mode reaches step 1 via §8's GATE with `target_repo`/`skill_name` args, not via this §3.1a path. (A headless ratify equivalent could be added later via a `from_brief` argument; out of scope here.)
+
+Resolve the path:
+
+- If the user's input ends in `skill-brief.yaml` and points at an existing file → that is the brief path.
+- Otherwise (input was a directory) → the brief path is `<input>/skill-brief.yaml`.
+
+**Validate the brief against the schema** before presenting it. Resolve `{validateBriefSchemaHelper}` from `{validateBriefSchemaProbeOrder}` (first existing path wins; HALT if no candidate exists), then:
+
+```bash
+uv run {validateBriefSchemaHelper} <resolved-brief-path>
+```
+
+The script returns JSON `{valid, errors[], warnings[], halt_reason, brief}`. Apply the result:
+
+- **`valid: false`** — surface the `errors[]` messages and the `halt_reason` to the user, then re-display the §3.1 prompt for a corrected path (or another target altogether). Do not HALT — the user may simply have pointed at the wrong file. Example: `"**Brief at `{path}` is invalid:** {first error message}. Pick a different brief, or supply a repo / docs URL instead."`
+- **`valid: true`** — proceed with the parsed `brief` payload.
+
+Surface any non-empty `warnings[]` as a single grouped line (`"**Brief validation warnings:** {joined warnings}"`), then present the ratify menu:
+
+```
+**Existing brief detected at `{path}`.**
+
+- **Name:** {brief.name}
+- **Target:** {brief.source_repo}
+- **Description:** "{brief.description}"
+- **Created:** {brief.created} by {brief.created_by}
+- **Scope:** {brief.scope.type}
+
+Pick one:
+  [R] Ratify — review in step 4 and write (overwriting this file once approved)
+  [F] Start fresh — discard this brief and re-prompt for a target
+  [X] Cancel and exit
+```
+
+Wait for user response. Branch:
+
+- **[R] Ratify** — Confirm overwrite up front: store `ratify_mode: true` and `ratify_source_path: <resolved-brief-path>` in workflow context. Hydrate the brief context variables from the parsed `brief` payload so step 4 has the same field set it normally derives from steps 1-3:
+  - `name` ← `brief.name`; `version` ← `brief.version`; `target_version` ← `brief.target_version`
+  - `source_repo` ← `brief.source_repo`; `source_type` ← `brief.source_type`; `source_authority` ← `brief.source_authority`; `doc_urls` ← `brief.doc_urls`
+  - `language` ← `brief.language`; `description` ← `brief.description`; `forge_tier` ← `brief.forge_tier`
+  - `created` ← `brief.created`; `created_by` ← `brief.created_by`
+  - `scope.type` / `scope.include` / `scope.exclude` / `scope.notes` / `scope.rationale` ← `brief.scope.*`
+  - `scripts_intent` ← `brief.scripts_intent`; `assets_intent` ← `brief.assets_intent`
+
+  Then load, read entirely, and execute `{ratifyTargetFile}` — bypassing §3.1b/§3.2/§3.3, §3b, §4, §5, §6, §7, §7b, and §8 entirely. Skip step 2 (analyze-target) and step 3 (scope-definition) — both would re-derive fields already on disk. The forward chain resumes at step 4 (confirm-brief) where the user gets the standard review pass and can still adjust fields inline via §4.
+
+- **[F] Start fresh** — discard the loaded brief and re-display §3.1 above (the user is now at the same point as if they had typed nothing).
+- **[X] Cancel** — Display `"Cancelled — no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). Non-destructive.
+- **Any other input** — treat as a fresh §3.1 response and re-evaluate the routing branches above (a typed GitHub URL after seeing the menu means "I changed my mind, brief this repo instead").
 
 #### 3.2 Branch — Documentation URLs (docs-only)
 
