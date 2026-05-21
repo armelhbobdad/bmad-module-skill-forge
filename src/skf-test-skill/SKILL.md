@@ -51,7 +51,7 @@ These rules apply to every step in this workflow:
 |--------|--------|
 | **Inputs** | skill_name [required]; optional flags: `--allow-workspace-drift`, `--no-discovery` (skip §4b Discovery Testing), `--no-health-check` (skip §7 health-check dispatch), `--tier=<Quick\|Forge\|Forge+\|Deep>` (bypass forge-tier.yaml sidecar requirement), `--threshold=<N>` (override pass threshold; CLI wins over `workflow.default_threshold` scalar) |
 | **Gates** | step 6: Confirm Gate [C] |
-| **Outputs** | test-report-{skill_name}.md with completeness score and result (PASS/FAIL); per-run `skf-test-skill-result-{run_id}.json` and `skf-test-skill-result-latest.json` written atomically under `{forge_version}/` |
+| **Outputs** | per-run `test-report-{skill_name}-{run_id}.md` with completeness score and result (PASS/FAIL); per-run `skf-test-skill-result-{run_id}.json` and `skf-test-skill-result-latest.json` written atomically under `{forge_version}/` — downstream consumers (export-skill, update-skill `--from-test-report`) glob `test-report-{skill_name}-*.md` and pick newest by parsed ISO timestamp |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 | **Exit codes** | See "Exit Codes" below |
 
