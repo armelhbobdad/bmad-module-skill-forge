@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "8203d8e64741",
+  "strategy": "manual-commit",
+  "branch": "pitch-insitoo",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "skills-lock.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/82/03d8e64741/0/metadata.json",
+      "transcript": "/82/03d8e64741/0/full.jsonl",
+      "context": "/82/03d8e64741/0/context.md",
+      "content_hash": "/82/03d8e64741/0/content_hash.txt",
+      "prompt": "/82/03d8e64741/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 38374,
+    "cache_read_tokens": 224658,
+    "output_tokens": 2157,
+    "api_call_count": 5
+  }
+}

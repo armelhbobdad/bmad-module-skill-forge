@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "8203d8e64741",
+  "session_id": "6e8e766b-6097-4e48-b7a5-ed0923aba526",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-21T03:18:39.616328741Z",
+  "branch": "pitch-insitoo",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "skills-lock.json"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "84c6418bc51c",
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 38374,
+    "cache_read_tokens": 224658,
+    "output_tokens": 2157,
+    "api_call_count": 5
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-21T03:18:39.465189797Z",
+    "agent_lines": 11,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 11,
+    "agent_percentage": 100
+  }
+}
