@@ -17,6 +17,16 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
+
+
+def _parse_frontmatter(text: str) -> dict:
+    """Extract the frontmatter mapping from a SKILL.md text blob."""
+    assert text.startswith("---\n"), "expected leading frontmatter fence"
+    rest = text[4:]
+    close = rest.find("\n---\n")
+    assert close != -1, "expected closing frontmatter fence"
+    return yaml.safe_load(rest[:close])
 
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -188,35 +198,41 @@ version: 1.2.3
         )
         mod.restore_description(skill, "the authoritative original description")
         text = skill.read_text(encoding="utf-8")
-        assert 'description: "the authoritative original description"' in text
-        # other keys + order preserved
-        lines = text.split("\n")
-        assert lines[1] == "name: my-skill"
-        assert any(line == "version: 1.2.3" for line in lines)
+        fm = _parse_frontmatter(text)
+        # frontmatter parses as valid YAML with all expected keys
+        assert fm["name"] == "my-skill"
+        assert fm["description"] == "the authoritative original description"
+        assert fm["version"] == "1.2.3"
+        # key order preserved (name → description → version)
+        assert list(fm.keys()) == ["name", "description", "version"]
         # body untouched
         assert "# Body" in text
 
     def test_restore_quoted(self, tmp_path: Path) -> None:
         skill = _write_skill(tmp_path, "tool wrote this", shape="quoted")
         mod.restore_description(skill, "original")
-        text = skill.read_text(encoding="utf-8")
-        assert 'description: "original"' in text
+        fm = _parse_frontmatter(skill.read_text(encoding="utf-8"))
+        assert fm["description"] == "original"
 
     def test_restore_block_scalar_collapses_to_inline(self, tmp_path: Path) -> None:
         skill = _write_skill(tmp_path, "tool wrote this", shape="block")
         mod.restore_description(skill, "original")
         text = skill.read_text(encoding="utf-8")
-        # block scalar lines are removed; replaced with single inline line
-        assert 'description: "original"' in text
+        fm = _parse_frontmatter(text)
+        assert fm["description"] == "original"
+        # the prior block-scalar shape (`description: |` with continuation lines)
+        # MUST NOT survive — its leftover continuation block was the original
+        # failure mode this fix targets
         assert "description: |" not in text
+        assert "description: >" not in text
 
     def test_restore_escapes_embedded_quotes(self, tmp_path: Path) -> None:
         skill = _write_skill(tmp_path, "x", shape="inline")
         mod.restore_description(skill, 'has "double" quotes and \\ backslash')
-        text = skill.read_text(encoding="utf-8")
-        assert (
-            'description: "has \\"double\\" quotes and \\\\ backslash"' in text
-        )
+        fm = _parse_frontmatter(skill.read_text(encoding="utf-8"))
+        # round-trip through YAML emit/parse preserves the value verbatim,
+        # regardless of which quoting style safe_dump chose
+        assert fm["description"] == 'has "double" quotes and \\ backslash'
 
     def test_restore_atomic_no_partial_file(self, tmp_path: Path) -> None:
         # after restore, no .skf-guard.tmp files remain in the directory
@@ -230,6 +246,83 @@ version: 1.2.3
         mod.restore_description(skill, "the original")
         desc, _ = mod.read_description(skill)
         assert desc == "the original"
+
+    def test_restore_block_scalar_with_keys_after(self, tmp_path: Path) -> None:
+        """Regression: folded `>` description followed by sibling keys.
+
+        The previous line-rewrite implementation could leave continuation
+        lines on disk in certain layouts, producing invalid YAML where the
+        new inline `description:` was followed by orphan indented text.
+        With YAML round-trip, the output is always parseable.
+        """
+        skill = tmp_path / "SKILL.md"
+        skill.write_text(
+            """---
+name: my-skill
+description: >
+  Tool-rewritten short
+  version on multiple
+  lines.
+license: MIT
+metadata:
+  version: 1.2.3
+---
+
+# Body
+""",
+            encoding="utf-8",
+        )
+        mod.restore_description(skill, "the authoritative original")
+        text = skill.read_text(encoding="utf-8")
+        fm = _parse_frontmatter(text)
+        assert fm["description"] == "the authoritative original"
+        assert fm["name"] == "my-skill"
+        assert fm["license"] == "MIT"
+        assert fm["metadata"] == {"version": "1.2.3"}
+
+    def test_restore_does_not_touch_nested_description_key(self, tmp_path: Path) -> None:
+        """Regression: a `description:` inside a nested mapping must not
+        be mistaken for the top-level field, and must be left untouched.
+        """
+        skill = tmp_path / "SKILL.md"
+        skill.write_text(
+            """---
+metadata:
+  description: nested — must not be touched
+name: my-skill
+description: top-level tool-rewritten
+---
+
+# Body
+""",
+            encoding="utf-8",
+        )
+        mod.restore_description(skill, "top-level original")
+        fm = _parse_frontmatter(skill.read_text(encoding="utf-8"))
+        assert fm["description"] == "top-level original"
+        assert fm["metadata"]["description"] == "nested — must not be touched"
+
+    def test_restore_when_only_nested_description_exists_raises(
+        self, tmp_path: Path
+    ) -> None:
+        """Regression: if the top-level frontmatter has no `description`
+        field (only a nested one), restore must fail loudly rather than
+        silently rewriting the nested key.
+        """
+        skill = tmp_path / "SKILL.md"
+        skill.write_text(
+            """---
+name: my-skill
+related:
+  description: nested only
+---
+
+# Body
+""",
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="no `description`"):
+            mod.restore_description(skill, "should not be written anywhere")
 
 
 # --------------------------------------------------------------------------
