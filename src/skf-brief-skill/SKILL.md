@@ -13,6 +13,8 @@ A good skill brief sets a tight, cohesive boundary: one capability with 3-8 prim
 
 Brief-skill is split from create-skill so the scoping conversation runs *once*, on cheap signals (manifests, top-level exports, intent), without paying for AST extraction. Compilation is expensive; scoping decisions are cheap to revise. Keeping them in separate workflows lets a user iterate on the brief, share it for review, and re-run create-skill against the same brief whenever the upstream version moves.
 
+**Ratify path (interactive only).** When the user already has a `skill-brief.yaml` produced by another workflow — typically `skf-analyze-source`'s `generate-briefs` step, where one analyze pass emits several recommended briefs — invoking `/skf-brief-skill` with a path to that brief at the first prompt routes to a fast-path review: gather-intent §3.1a loads the YAML, hydrates the brief context, and jumps straight to step 4 (confirm-brief) where the standard review/edit cycle still applies before step 5 writes. This skips re-deriving fields the upstream draft already supplies and saves the 5-10 minutes a full re-run of intent + analyze + scope would cost.
+
 ## Conventions
 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
