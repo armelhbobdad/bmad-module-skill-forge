@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e4215d9ae824",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-description-guard-yaml-roundtrip",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/skf-description-guard.py",
+    "test/test-skf-description-guard.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e4/215d9ae824/0/metadata.json",
+      "transcript": "/e4/215d9ae824/0/full.jsonl",
+      "context": "/e4/215d9ae824/0/context.md",
+      "content_hash": "/e4/215d9ae824/0/content_hash.txt",
+      "prompt": "/e4/215d9ae824/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 46,
+    "cache_creation_tokens": 50675,
+    "cache_read_tokens": 3739418,
+    "output_tokens": 27900,
+    "api_call_count": 31
+  }
+}

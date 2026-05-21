@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e4215d9ae824",
+  "session_id": "691e2320-7121-41a7-9be9-466ebec70f25",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-21T07:03:56.076063232Z",
+  "branch": "fix/skf-description-guard-yaml-roundtrip",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/skf-description-guard.py",
+    "test/test-skf-description-guard.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "16962f6cbae8",
+  "checkpoint_transcript_start": 327,
+  "transcript_lines_at_start": 327,
+  "token_usage": {
+    "input_tokens": 46,
+    "cache_creation_tokens": 50675,
+    "cache_read_tokens": 3739418,
+    "output_tokens": 27900,
+    "api_call_count": 31
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-21T07:03:55.701168119Z",
+    "agent_lines": 139,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 139,
+    "agent_percentage": 100
+  }
+}
