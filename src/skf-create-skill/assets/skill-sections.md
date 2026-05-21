@@ -18,7 +18,7 @@ description: >
 **Frontmatter rules (agentskills.io specification):**
 
 - `name`: 1-64 characters, lowercase alphanumeric + hyphens only, must match parent directory name. Prefer gerund form (`processing-pdfs`, `analyzing-spreadsheets`) for clarity; noun phrases and action-oriented forms are acceptable alternatives.
-- `description`: 1-1024 characters, trigger-optimized for agent matching. MUST use third-person voice ("Processes..." not "I can..." or "You can...").
+- `description`: 1-1024 characters, trigger-optimized for agent matching. MUST use third-person voice ("Processes..." not "I can..." or "You can...") AND include a trigger phrase ("Use when ...", "Triggers on ...", "Reach for this when ..."). When using "Use when ", follow with a gerund (`Use when building/processing/analyzing X…`) or noun-phrase clause — never a bare indicative verb, since `skill-check --fix` will prepend a literal "Use when " to descriptions missing the phrase. See `skf-brief-skill/assets/description-voice-examples.md`.
 - Only 6 fields permitted: `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`
 - `version` and `author` belong in metadata.json, NOT in frontmatter
 
