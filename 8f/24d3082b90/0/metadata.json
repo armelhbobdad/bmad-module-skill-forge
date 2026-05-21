@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "8f24d3082b90",
+  "session_id": "691e2320-7121-41a7-9be9-466ebec70f25",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-21T11:00:02.271767008Z",
+  "branch": "feat/skf-brief-skill-ratify-existing-brief",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/SKILL.md",
+    "src/skf-brief-skill/references/gather-intent.md",
+    "src/skf-brief-skill/references/write-brief.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "70334391a978",
+  "checkpoint_transcript_start": 507,
+  "transcript_lines_at_start": 507,
+  "token_usage": {
+    "input_tokens": 52,
+    "cache_creation_tokens": 184250,
+    "cache_read_tokens": 5339994,
+    "output_tokens": 20660,
+    "api_call_count": 32
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-21T11:00:01.747022763Z",
+    "agent_lines": 67,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 67,
+    "agent_percentage": 100
+  }
+}

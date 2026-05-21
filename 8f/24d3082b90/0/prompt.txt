@@ -1,0 +1,179 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-workflow-builder
+
+# Overview
+
+You are a creative agent skills workflow builder and facilitator. Your job: turn a user's vision and ideas locked in their head into the outcome driven skills, where every line earns its place against the test "would an LLM do this correctly without being told?"
+
+**Args:** `--headless` / `-H` for non-interactive; an initial description for a new build; or a path to an existing skill with keywords like analyze, edit, or rebuild. To re-shape an existing non-BMad skill, just point to it and describe what should change — the build flow handles it.
+
+## Conventions
+
+- Bare paths (e.g. `references/build-process.md`) resolve from the skill root.
+- `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives).
+- `{project-root}`-prefixed paths resolve from the project working directory.
+- `{skill-name}` resolves to the skill directory's basename.
+
+## On Activation
+
+1. Detect intent. If `--headless` or `-H`, set `{headless_mode}=true` for all sub-prompts.
+
+2. Load config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml` (root and bmb section). Fall back to `{project-root}/_bmad/bmb/config.yaml` (legacy per-module format). If neither exists and the `bmad-builder-setup` skill is available, mention it. Resolve and apply throughout the session (defaults in parens):
+   - `{user_name}` (default: null) — address the user by name
+   - `{communication_language}` (default: user or system intent) — for all communications
+   - `{document_output_language}` (default: user or system intent) — for generated document content
+   - `{bmad_builder_output_folder}` (default: `{project-root}/skills`) — where new skills are created. Existing skills use their own path.
+
+3. **Open the floor (interactive only).** Before any structured questions or routing, invite the user to share everything they have in mind unless they already provided extensive detail (if they did then you could just ask if they want to add any more before proceeding): goals, references, examples, half-formed ideas, paths to existing skills or artifacts, anything they want you to read. Adapt the invitation to what they already gave you — for a vague "build me X," ask for the full picture; for a path or URL, ask what they want focused on or what context you should know. After they share, one soft "anything else?" surfaces what they almost forgot. The dump replaces most structured Q&A downstream; let it run. Skip in headless mode and skip if the invocation already includes enough detail to act on.
+
+4. **Resume detection.** Once a target skill is identified — either a path to an existing skill, or a new build with a target name — check `{target-skill-path}/.decision-log.md`. If found, read its frontmatter for state recovery (`phase`, `classification`, `last_touched`) and tail the body for full decision history. In headless mode, resume automatically and append a new session heading.
+
+## Routing
+
+| Intent                       | Load                              |
+| ---------------------------- | --------------------------------- |
+| Build new or edit existing   | `references/build-process.md`     |
+| Analyze                      | `references/quality-analysis.md`  |
+
+---
+
+what is the best way to fix these issues:  /home/armel/Projects/GMC/Code/gmc-skills/_bmad-output/improvement-queue. we should end up with the minimal commits and PRs. Review all the changes for any breaking changes, or missing impacts/bugs/regressions and ect... DO NOT HALLUCINATE. Activate party mode and/or advanced elicitation only if it is necessary. The commit and PRs messages should not content local artefacts. We will go PRs by PRs at once.
+
+---
+
+<task-notification>
+<task-id>bguto2i4g</task-id>
+<tool-use-id>toolu_01UBEczDEzE94RovxgxFLnUb</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/691e2320-7121-41a7-9be9-466ebec70f25/tasks/bguto2i4g.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full test suite" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+ush and open PR
+
+---
+
+merged
+
+---
+
+<task-notification>
+<task-id>bwawb0fga</task-id>
+<tool-use-id>toolu_014NwyE9PmjBE11wS9duySKz</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/691e2320-7121-41a7-9be9-466ebec70f25/tasks/bwawb0fga.output</output-file>
+<status>completed</status>
+<summary>Background command "Branch and run full suite" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+go
+
+---
+
+merged
+
+---
+
+<task-notification>
+<task-id>brqe00fct</task-id>
+<tool-use-id>toolu_01NDnfvVwSTZvwcFBmV3xpvZ</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/691e2320-7121-41a7-9be9-466ebec70f25/tasks/brqe00fct.output</output-file>
+<status>completed</status>
+<summary>Background command "Branch and run full suite for PR-C" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+ush and open PR
+
+---
+
+# /loop — schedule a recurring or self-paced prompt
+
+Parse the input below into `[interval] <prompt…>` and schedule it.
+
+## Parsing (in priority order)
+
+1. **Leading token**: if the first whitespace-delimited token matches `^\d+[smhd]$` (e.g. `5m`, `2h`), that's the interval; the rest is the prompt.
+2. **Trailing "every" clause**: otherwise, if the input ends with `every <N><unit>` or `every <N> <unit-word>` (e.g. `every 20m`, `every 5 minutes`, `every 2 hours`), extract that as the interval and strip it from the prompt. Only match when what follows "every" is a time expression — `check every PR` has no interval.
+3. **No interval**: otherwise, the entire input is the prompt and you'll self-pace dynamically (see "Dynamic mode" below).
+
+If the resulting prompt is empty, show usage `/loop [interval] <prompt>` and stop.
+
+Examples:
+- `5m /babysit-prs` → interval `5m`, prompt `/babysit-prs` (rule 1)
+- `check the deploy every 20m` → interval `20m`, prompt `check the deploy` (rule 2)
+- `run tests every 5 minutes` → interval `5m`, prompt `run tests` (rule 2)
+- `check the deploy` → no interval → dynamic mode, prompt `check the deploy` (rule 3)
+- `check every PR` → no interval → dynamic mode, prompt `check every PR` (rule 3 — "every" not followed by time)
+- `5m` → empty prompt → show usage
+
+## Offer cloud first
+
+Before any scheduling step, check whether EITHER is true:
+- the parsed interval (rule 1 or 2) is **≥60 minutes**, or
+- regardless of which rule matched, the original input uses daily phrasing ("every morning", "daily", "every day", "each night", "every weekday")
+
+If either is true, call AskUserQuestion first:
+- `question`: "This loop stops when you close this session. Set it up as a cloud schedule instead so it keeps running?"
+- `header`: "Schedule"
+- `options`: `[{label: "Cloud schedule (recommended)", description: "Runs in Anthropic's cloud even after you close this session"}, {label: "This session only", description: "Runs in this terminal until you exit"}]`
+
+If they pick **Cloud schedule**: do NOT call CronCreate. Invoke the `schedule` skill directly via the Skill tool with `args` set to their original input verbatim (e.g. `Skill({skill: "schedule", args: "every morning tell me a joke"})`), then follow that skill's instructions to completion. Do NOT tell the user to run /schedule themselves. **Then stop — do not continue to any section below** (no CronCreate, no ScheduleWakeup, no "execute the prompt now").
+If they pick **This session only**:
+- If the trigger was a parsed ≥60-minute interval (rule 1 or 2): continue below with that interval.
+- If the trigger was daily phrasing only (rule 3, no parsed interval): do NOT call CronCreate. Explain that a daily-cadence loop won't fire before this session closes, so there's nothing useful to schedule locally — suggest they either pick Cloud schedule, or re-run `/loop` with an explicit shorter interval (e.g. `/loop 1h <prompt>`) if they want a session loop. Then stop.
+If neither trigger condition was met: continue below.
+
+## Fixed-interval mode (rules 1 and 2)
+
+Convert the interval to a cron expression:
+
+| Interval pattern      | Cron expression     | Notes                                    |
+|-----------------------|---------------------|------------------------------------------|
+| `Nm` where N ≤ 59   | `*/N * * * *`     | every N minutes                          |
+| `Nm` where N ≥ 60   | `0 */H * * *`     | round to hours (H = N/60, must divide 24)|
+| `Nh` where N ≤ 23   | `0 */N * * *`     | every N hours                            |
+| `Nd`                | `0 0 */N * *`     | every N days at midnight local           |
+| `Ns`                | treat as `ceil(N/60)m` | cron minimum granularity is 1 minute  |
+
+**If the interval doesn't cleanly divide its unit** (e.g. `7m` → `*/7 * * * *` gives uneven gaps at :56→:00; `90m` → 1.5h which cron can't express), pick the nearest clean interval and tell the user what you rounded to before scheduling.
+
+Then:
+1. Call CronCreate with: `cron` (the expression above), `prompt` (the parsed prompt verbatim), `recurring: true`.
+2. Briefly confirm: what's scheduled, the cron expression, the human-readable cadence, that recurring tasks auto-expire after 7 days, and that the user can cancel sooner with CronDelete (include the job ID). Only if you did NOT show the cloud-offer AskUserQuestion above (i.e., neither trigger condition applied), end the confirmation with this exact line on its own, italicized: `_Runs until you close this session · For durable cloud-based loops, use /schedule_`. If the user already answered that question, omit this line.
+3. **Then immediately execute the parsed prompt now** — don't wait for the first cron fire. If it's a slash command, invoke it via the Skill tool; otherwise act on it directly.
+
+## Dynamic mode (rule 3 — no interval)
+
+The user wants you to self-pace. Decide what makes the next iteration worth running — a passage of time, or an observable event.
+
+1. **Run the parsed prompt now.** If it's a slash command, invoke it via the Skill tool; otherwise act on it directly.
+2. **If the next run is gated on an event** (CI finishing, a log line matching, a file changing, a PR comment) and no Monitor is already running for it: arm one now with `persistent: true`. Its events arrive as `<task-notification>` messages and wake this loop immediately — you do not wait for the ScheduleWakeup deadline. Arm once; on later iterations call TaskList first and skip this step if a monitor is already running.
+3. **Briefly confirm**: that you're self-pacing, whether a Monitor is the primary wake signal, that you ran the task now, and what fallback delay you're about to pick. Write this as text *before* calling ScheduleWakeup — the turn ends as soon as that tool returns.
+4. **Then, as the last action of this turn, call ScheduleWakeup** with:
+   - `delaySeconds`: with a Monitor armed this is the **fallback heartbeat** — how long to wait if no event fires (lean 1200–1800s; idle ticks past the 5-minute cache window are pure overhead). Without a Monitor this is the cadence — pick based on what you observed. Read the tool's own description for cache-aware delay guidance.
+   - `reason`: one short sentence on why you picked that delay.
+   - `prompt`: the full original /loop input verbatim, prefixed with `/loop ` so the next firing re-enters this skill and continues the loop. For example, if the user typed `/loop check the deploy`, pass `/loop check the deploy` as the prompt.
+5. **If you were woken by a `<task-notification>`** rather than this prompt: handle the event in the context of the loop task, then call ScheduleWakeup again with the same `prompt` and the same 1200–1800s `delaySeconds` from step 4 — the Monitor remains the wake signal; this only resets the safety net.
+6. **To stop the loop**, omit the ScheduleWakeup call and TaskStop any Monitor you armed (use TaskList to find the task ID if it is no longer in context).
+
+## Input
+
+continue PR-A: tests should be done — check output, fix if red, commit if green, then stop at push gate.
+
+---
+
+merged
+
+---
+
+<task-notification>
+<task-id>bg5os2m0x</task-id>
+<tool-use-id>toolu_01SJx1vxL4FMte2P9ehJe3M1</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/691e2320-7121-41a7-9be9-466ebec70f25/tasks/bg5os2m0x.output</output-file>
+<status>completed</status>
+<summary>Background command "Branch and run full suite for PR-D" completed (exit code 0)</summary>
+</task-notification>

@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "8f24d3082b90",
+  "strategy": "manual-commit",
+  "branch": "feat/skf-brief-skill-ratify-existing-brief",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/SKILL.md",
+    "src/skf-brief-skill/references/gather-intent.md",
+    "src/skf-brief-skill/references/write-brief.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/8f/24d3082b90/0/metadata.json",
+      "transcript": "/8f/24d3082b90/0/full.jsonl",
+      "context": "/8f/24d3082b90/0/context.md",
+      "content_hash": "/8f/24d3082b90/0/content_hash.txt",
+      "prompt": "/8f/24d3082b90/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 52,
+    "cache_creation_tokens": 184250,
+    "cache_read_tokens": 5339994,
+    "output_tokens": 20660,
+    "api_call_count": 32
+  }
+}
