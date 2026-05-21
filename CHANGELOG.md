@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [1.6.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.5.1...v1.6.0) (2026-05-21)
+
+### Features
+
+* **skf:** ratify existing skill-brief.yaml in brief-skill ([bac2072](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/bac207201aa7ba522d85030904a96cd35b98915e))
+
+### Bug Fixes
+
+* **shared:** YAML round-trip in description-guard restore ([a56fc3b](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/a56fc3bebad085ffb29948b9eeb84a069776b01a))
+* **skf:** resolve test report by glob in update-skill --from-test-report ([150fbbd](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/150fbbdc14eecae95c065bebd4ba7514216cb1bc)), closes [#299](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/299)
+* **skf:** route resume after generate-briefs to health-check ([402e0ca](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/402e0ca3c51d993713169acb432d34d8c357d52a))
 ## [1.5.1](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.5.0...v1.5.1) (2026-05-20)
 
 ### Bug Fixes
