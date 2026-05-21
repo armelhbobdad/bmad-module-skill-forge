@@ -6,6 +6,7 @@ nextStepOptions:
   step 4: 'map-and-detect.md'
   step 5: 'recommend.md'
   step 6: 'generate-briefs.md'
+  step 7: 'health-check.md'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -61,8 +62,9 @@ Map the last completed step to the next step file:
 | identify-units | map-and-detect |
 | map-and-detect | recommend |
 | recommend | generate-briefs |
+| generate-briefs | health-check |
 
-**IF all steps completed:**
+**IF `health-check` is in `stepsCompleted`:**
 "**This analysis appears to be complete.** All steps have been finished. Would you like to start a new analysis?"
 
 ### 5. Update and Route
