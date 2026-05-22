@@ -136,7 +136,7 @@ scope:
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Relative path (or glob, for `category: "scope-expansion"`) from source root to the file or tree being amended. For `promoted` actions this matches the literal entry added to `scope.include`. |
-| `action` | string | yes | One of: `promoted` (path added to `scope.include`), `skipped` (user declined promotion; decision recorded to prevent re-prompting), `demoted-include` (path removed from `scope.include` — only valid with `category: "scope-expansion"`), `demoted-exclude` (path removed from `scope.exclude` — only valid with `category: "scope-expansion"`). |
+| `action` | string | yes | One of: `promoted` (path added to `scope.include`), `skipped` (user declined promotion; decision recorded to prevent re-prompting), `excluded` (path added to `scope.exclude` — only valid with `category: "scope-expansion"`; used by gap-driven rescope to remove an internal / `#[doc(hidden)]` / out-of-scope export from the public surface), `demoted-include` (path removed from `scope.include` — only valid with `category: "scope-expansion"`), `demoted-exclude` (path removed from `scope.exclude` — only valid with `category: "scope-expansion"`). |
 | `category` | string | no | One of: `auth-doc` (default for entries without this field — the historical sole use case), `scope-expansion`. Distinguishes which workflow path wrote the entry and which writer-rules apply on re-runs. |
 | `reason` | string | yes | Human-readable sentence explaining the decision. Either user-provided at prompt time or auto-generated. |
 | `heuristic` | string | conditional | Required for `category: "auth-doc"` — the basename that matched (`llms.txt`, `AGENTS.md`, etc.). Omit for `category: "scope-expansion"`. |
@@ -149,6 +149,8 @@ scope:
 **Skip recording:** When `action: "skipped"`, the workflow does NOT modify `scope.include` or `scope.exclude`. The amendment entry alone is enough to prevent re-prompting, because the discovery loop checks `amendments[]` before prompting.
 
 **Demotion (scope-expansion only):** `demoted-include` removes a previously-promoted path from `scope.include` — used when a prior `[P]` decision is reversed. `demoted-exclude` removes a path from `scope.exclude` — used when a previously excluded path needs to be re-evaluated. Both write the structural change and append the amendment so future runs see the rationale. Demotion is not valid for `category: "auth-doc"`: auth-doc skips already prevent re-prompting without scope mutation.
+
+**Exclusion (scope-expansion only):** `excluded` adds a path to `scope.exclude` — written by `skf-update-skill` gap-driven rescope (detect-changes §0 rule R1) when a coverage gap's remediation is removal (the export is internal, `#[doc(hidden)]`, or out of scope). The amendment is the audit trail; the `scope.exclude` write is what shrinks the source barrel, so the legitimate scope reduction is expressed in the brief rather than by editing `metadata.stats`. This keeps the reduction visible to `skf-test-skill`'s denominator-deflation check, which re-derives the barrel from `scope.include` filtered by `scope.exclude`. Not valid for `category: "auth-doc"`.
 
 **Backward compatibility:** `scope.amendments` is optional. Briefs without this field validate unchanged. Treat missing as an empty list. Existing entries without `category` are equivalent to `category: "auth-doc"` — readers must default the field when absent.
 
@@ -165,6 +167,7 @@ scope:
 - `skf-create-skill` §2a (Discovered Authoritative Files Protocol) — `category: "auth-doc"`
 - `skf-update-skill` §1b (mirror of §2a applied during change detection) — `category: "auth-doc"`
 - `skf-update-skill` §1c (Major-Version Scope Reconciliation) — `category: "scope-expansion"`
+- `skf-update-skill` gap-driven rescope (detect-changes §0 rule R1) — `category: "scope-expansion"`, `action: "excluded"`
 - Manual edits by the brief author are permitted but should include all required fields above (and `category` when the entry is not an auth-doc decision).
 
 ## YAML Template

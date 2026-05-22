@@ -54,17 +54,30 @@ Load the test report at `{test_report_path}` and extract findings:
 
 | Gap Severity | Gap Type | Change Category |
 |-------------|----------|-----------------|
-| Critical | Missing export documentation | NEW_EXPORT (undocumented public API) |
+| Critical | Missing export documentation | NEW_EXPORT (undocumented public API) — unless the remediation says the export is internal / out of scope; then DELETED_EXPORT (rescope), see rule R1 |
 | High | Signature mismatch | MODIFIED_EXPORT (signature needs update) |
 | Medium | Missing type/interface docs | NEW_EXPORT (undocumented type) |
 | Medium | Stale documentation | MODIFIED_EXPORT (docs reference removed export) |
-| Low | Missing metadata/examples | metadata update |
+| Critical/Medium | Coverage gap whose remediation is **removal** (export is internal, `#[doc(hidden)]`, or explicitly out of scope) | DELETED_EXPORT (rescope) — see rule R1 |
+| Medium/High | Structural / coherence drift (output file only, no source change) | STRUCTURAL_FIX — see rule R2 |
+| Medium | Export documented in SKILL.md/references but **missing from the provenance-map** | NEW_EXPORT (provenance-completeness) — see rule R3 |
+| Low | Missing metadata/examples | metadata update — see rule R4 |
+
+**Translation rules (referenced by the table above):**
+
+- **R1 — DELETED_EXPORT (rescope).** A coverage gap is a rescope only when its remediation text names removal (`rescope`, `remove from surface`, `out of scope`) or the export is upstream `#[doc(hidden)]` / internal. Default a bare "missing export documentation" gap to NEW_EXPORT (document it); choose rescope only on that explicit signal. **Interactive:** prompt per qualifying gap — "[D] Document the export / [R] Rescope (remove from the public surface)". **Headless:** default to **document** (NEW_EXPORT); choose rescope only when the remediation explicitly says removal *and* the export is internal/`#[doc(hidden)]`. A rescope is honest only if the reduction is expressed in the brief's scope: append a `scope.amendments[]` entry (`category: "scope-expansion"`, `action: "excluded"`) **and** add the export's source path to `brief.scope.exclude`, then route the entry to merge Priority 1 (removal) so step 4/6 remove it and recompute stats from the amended scope. Never close a coverage gap by editing `metadata.stats` to equal the documented count — that is denominator deflation and `skf-test-skill` will reject it.
+- **R2 — STRUCTURAL_FIX.** A coherence finding from `skf-scan-skill-md-structure.py` (e.g., `table_drift`, `unbalanced_fences`, a broken intra-skill anchor) that touches the generated output file only, with no source change and no provenance entry change. Carries `remediation` text describing the surgical markdown edit. Routes to merge Priority 8 (generated-markdown edit only); it never adds, modifies, or removes a provenance `entries[]` row.
+- **R3 — provenance-completeness.** An export documented in SKILL.md/`references/` but absent from the provenance-map. These are documented-and-known, so `unknown` is never correct: route to re-extract §0a source resolution **regardless of severity**, gated only on `source_root` being pinned and readable (see re-extract.md §0).
+- **R4 — metadata update.** A metadata-coherence patch that changes no export's source (e.g., reconcile a divergent `stats` count). Routes to merge Priority 8b and is applied by write.md §2 *before* the automatic stat recount (see merge.md §3 / write.md §2).
 
 4. Build the change manifest from translated gaps — no file-level timestamp comparison needed since source hasn't changed. For each manifest entry, propagate these fields from the test report finding so step 3 can resolve the export against live source:
 
    - **`severity`** — the Gap Report severity (`Critical`, `High`, `Medium`, `Low`, `Info`). Step-03 §0 and step 6 §3 gate the null-citation fallback on severity: Critical/High gaps must produce AST provenance, Medium/Low/Info gaps may degrade to `unknown`.
    - **`source_citation: {file, line}`** — populated only when the finding's `Source:` field is a `file:line` pair (e.g., a Gap Report row that cites `packages/utils/src/builder-utils.ts:33`). Step-03 §0 uses this field to perform a live spot-check against source rather than flagging the export as `unknown`. Omit when the `Source:` field is a region reference (e.g., `@storybook/addon-docs control primitives`) or missing.
    - **`remediation_paths: [path, ...]`** — path-like tokens extracted from the finding's `Remediation:` text: any substring matching a recognized source file extension (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.py`, `.rs`, `.go`, `.java`, `.rb`, `.c`, `.h`, `.cpp`), or a directory/glob fragment under the project's source root. Include every matching path verbatim. Step-03 §0a uses this list as the source set for its Targeted Re-Extraction Branch when `source_citation` is absent and severity is Critical/High. Omit the field when the Remediation text names no paths — the entry then falls through to `unknown` or to §0a's halt, depending on severity.
+   - **`change_category`** — the Change Category resolved from the table above (`NEW_EXPORT`, `MODIFIED_EXPORT`, `DELETED_EXPORT`, `STRUCTURAL_FIX`, or `metadata update`). Step 3 §1a partitions on this field; merge.md §3 dispatches on it.
+   - **`remediation`** — the finding's full `Remediation:` text, verbatim. Required for `STRUCTURAL_FIX` (the surgical markdown edit), `metadata update` (the patch description), and `DELETED_EXPORT` rescope (the removal rationale recorded in the `scope.amendments[]` entry). For `NEW_EXPORT` / `MODIFIED_EXPORT` it is informational.
+   - **`provenance_completeness: true`** — set on a `NEW_EXPORT` entry whose gap is rule R3 (documented in SKILL.md/`references/` but absent from the provenance-map). Step 3 §0 routes these to §0a regardless of severity.
 5. Set `gap_count` from the total number of translated entries
 6. **Skip to section 5** (Display Change Summary) with the gap-derived manifest
 
