@@ -191,12 +191,14 @@ Do not write the Coverage Analysis section. Do not proceed to scoring. This is a
 On a split-body skill the §1 inventory (documented surface) and the §2 AST output (source barrel) are two independent lists, so the `Documented` count must be their **intersection**, not a parent estimate. Compute three sets deterministically so the Export Coverage numerator is reproducible across runs and reviewers:
 
 1. **`documented_set`** := the de-duplicated set of `name` from the §1 inventory `exports[]`, excluding `kind: "method"` (methods are members of an already-counted class/type, not top-level barrel exports).
-2. **`barrel_set`** := the union of `exports_found[]` across every §2 per-file result (the actual source public surface). When a stratified-scope or State-2 denominator applies (see §4), `barrel_set` is that resolved denominator's name set instead of the raw union.
-3. Compute:
+2. **`barrel_set`** := the union of `exports_found[]` across every §2 per-file result (the actual source public surface). When a stratified-scope or State-2 denominator applies (see §4) **and it resolves to an enumerated name set** — the priority-2/3 re-derivation from `scope.tier_a_include` / `scope.include` globs — `barrel_set` is that resolved denominator's name set instead of the raw union.
+
+   **Scalar-denominator branch (§4 priority 1):** when the resolved denominator is the scalar `metadata.json.stats.effective_denominator` (a count with **no enumerated name set**), there is no `barrel_set` to intersect against — the `documented_set ∩ barrel_set` formula in step 3 does not apply. Instead compute the numerator by full-grep verification: for each name in `documented_set`, grep it across `SKILL.md ∪ references/*.md`; `Documented` := the count of `documented_set` names that appear at least once. Use `effective_denominator` directly as the denominator, set `Missing` := `effective_denominator − Documented`, and omit `Stale` (not enumerable without a barrel name set). If §4b's numerator-ground-truth arm fires (it triggers only when `exports_documented == effective_denominator`), its verified count is authoritative and **overrides** this numerator — do not apply both.
+3. Compute (**enumerated path only** — skip when the scalar-denominator branch above applies):
    - `Documented` := `|documented_set ∩ barrel_set|`
    - `Missing` := `barrel_set − documented_set` (in source, not documented)
    - `Stale` := `documented_set − barrel_set` (documented, not in source)
-4. Carry these three counts into §3's table and §4's Export Coverage: `Export Coverage = |Documented| / |barrel_set| * 100`. Record the three counts in the Coverage Analysis section so the numerator is auditable.
+4. Carry the resulting counts into §3's table and §4's Export Coverage: `Export Coverage = |Documented| / |barrel_set| * 100` (enumerated path) or `Documented / effective_denominator * 100` (scalar-denominator branch). Record the counts in the Coverage Analysis section so the numerator is auditable.
 
 This removes the parent-side guess that otherwise swings the documented count between runs (e.g., "85 from the AST agent" vs "~120 from a hand intersection") and can cross the PASS threshold on split-body skills.
 
@@ -269,7 +271,7 @@ After the denominator has been resolved (standard, stratified, or State 2), cros
 **Cluster B — documented surface** (what was extracted and documented, including methods and submodule members):
 
 3. `metadata.json.stats.exports_documented` — the declared documented count
-4. Provenance-map entry count (if `{forge_data_folder}/{skill_name}/provenance-map.json` exists)
+4. Provenance-map **named-export count** (if `{forge_data_folder}/{skill_name}/provenance-map.json` exists) — count only top-level named exports: **exclude entries whose `export_name` contains `::`** (impl-block methods like `Type::method`, which roll up under an already-counted type and are not separate barrel exports). Comparing the raw entry count instead false-positives on any method-enumerating provenance map (common for Rust/TS type-heavy skills): e.g. a map with 88 named exports + 48 `Type::method` entries reports 136 against `exports_documented` ≈ 92 → a spurious ~32% Cluster-B drift, while the comparable named-export count (88) agrees within ~4%.
 5. `confidence_distribution` sum (`t1 + t1_low + t2 + t3`, when present in `metadata.json.stats`) — every extracted/documented export is binned into exactly one confidence tier, so the distribution must sum to the documented-surface total; a divergence (e.g., distribution sums to 91 while `exports_documented` is 85) is an internal-consistency defect even when the two clusters look fine
 
 Cluster assignment is canonical: `skf-create-skill` step 5 derives `exports_public_api` from entry-point validation and writes the `exports[]` array from the same barrel surface (see `skf-create-skill/references/compile.md:105`), while `exports_documented` tracks the broader documented surface that the provenance-map also enumerates.
