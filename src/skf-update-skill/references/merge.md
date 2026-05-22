@@ -42,6 +42,7 @@ Follow the merge priority order from {mergeConflictRulesFile}:
 - Check if deleted export has attached [MANUAL] blocks
 - If [MANUAL] attached: flag as ORPHAN conflict (do not remove)
 - If no [MANUAL]: remove generated content cleanly
+- **Gap-driven rescopes** (`DELETED_EXPORT` from detect-changes §0 rule R1, verification `rescoped`) are processed here with the same removal. Step 6 also removes the provenance `entries[]` row and recomputes `stats` from the amended `brief.scope` (write.md §2/§3). The brief's `scope.amendments[]` (`action: "excluded"`) + `scope.exclude` entry must already exist — step 3 §0 HALTs otherwise, so no unscoped removal reaches here.
 
 **Priority 2 — Process MOVED exports:**
 - Update file:line citations in generated content
@@ -96,6 +97,27 @@ For each entry in the in-context `promoted_docs_new[]` list:
 - Record in the update report: `"Added authoritative doc: {path} (heuristic: {basename})"`.
 
 **If `promoted_docs_new[]` is empty:** skip Priority 7 silently. No report entry.
+
+**Priority 8 — Process STRUCTURAL_FIX entries (gap-driven, from detect-changes §0 rule R2):**
+
+For each `STRUCTURAL_FIX` entry forwarded by step 3 §0/1a:
+
+- Apply the surgical edit described in the entry's `remediation` text to the **generated output file only** (e.g., escape an unescaped `|` inside a code span, balance a fence, repair a broken intra-skill anchor in SKILL.md or a `references/*.md`).
+- Do **not** add, modify, or remove any provenance `entries[]` row — STRUCTURAL_FIX never touches the provenance map.
+- Preserve any [MANUAL] blocks; if the fix location overlaps a [MANUAL] block, flag as a POSITION conflict instead of editing.
+- Record in the update report: `"Structural fix: {remediation summary} at {file}:{line}"`.
+
+**If no STRUCTURAL_FIX entries:** skip Priority 8 silently.
+
+**Priority 8b — Process metadata-update entries (gap-driven, from detect-changes §0 rule R4):**
+
+For each `metadata update` entry forwarded by step 3 §0/1a:
+
+- Queue the surgical metadata patch described in the entry's `remediation` (e.g., reconcile a divergent `stats` count, add an explanatory stat) in workflow context as `metadata_patches[]` for write.md §2 to apply **before** its automatic stat recount.
+- Touch no provenance `entries[]` row and no generated markdown — this priority only stages the patch; write.md §2 applies it.
+- Record in the update report: `"Metadata patch queued: {remediation summary}"`.
+
+**If no metadata-update entries:** skip Priority 8b silently.
 
 ### 4. Check for Conflicts
 
