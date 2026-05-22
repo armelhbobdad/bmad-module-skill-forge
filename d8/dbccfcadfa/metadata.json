@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d8dbccfcadfa",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-test-scalar-denominator-and-method-normalization",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/skf-test-skill/references/coverage-check.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d8/dbccfcadfa/0/metadata.json",
+      "transcript": "/d8/dbccfcadfa/0/full.jsonl",
+      "context": "/d8/dbccfcadfa/0/context.md",
+      "content_hash": "/d8/dbccfcadfa/0/content_hash.txt",
+      "prompt": "/d8/dbccfcadfa/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 156,
+    "cache_creation_tokens": 168583,
+    "cache_read_tokens": 10121760,
+    "output_tokens": 73784,
+    "api_call_count": 78
+  }
+}
