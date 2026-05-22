@@ -361,6 +361,59 @@ DETECTORS: list[tuple[str, callable]] = [
     ("generic-folders",      detect_generic_folders),
 ]
 
+# Language ecosystem each manifest kind belongs to. Drives the cross-ecosystem
+# secondary-manifest warning below. `generic-folders` is intentionally absent —
+# it is a tree-shape heuristic, not a distinct root workspace manifest, so it
+# never participates in cross-ecosystem warnings.
+ECOSYSTEM_OF_KIND = {
+    "npm-workspaces":       "js",
+    "pnpm-workspaces":      "js",
+    "lerna":                "js",
+    "cargo-workspace":      "rust",
+    "python-multi-package": "python",
+}
+
+ROOT_MANIFEST_OF_KIND = {
+    "npm-workspaces":       "package.json",
+    "pnpm-workspaces":      "pnpm-workspace.yaml",
+    "lerna":                "lerna.json",
+    "cargo-workspace":      "Cargo.toml",
+    "python-multi-package": None,  # discovered from the tree; no single root manifest
+}
+
+
+def _cross_ecosystem_warnings(
+    primary_kind: str, tree: set[str], manifests: dict[str, str]
+) -> list[str]:
+    """Warn when a root workspace manifest from a *different* language ecosystem
+    than the surfaced one also resolves members.
+
+    First-match-wins detection silently drops a co-located workspace from another
+    ecosystem (e.g. a root `Cargo.toml [workspace]` when a pnpm workspace wins),
+    which then poisons downstream language detection and the §1b workspace menu.
+    This re-runs only the manifest-backed detectors from a different ecosystem,
+    against a throwaway warnings sink so their parse errors are not propagated,
+    and emits one warning per ignored cross-ecosystem kind that resolves >=1
+    member. The surfaced `manifest_kind` / `workspaces` are left unchanged.
+    """
+    primary_eco = ECOSYSTEM_OF_KIND.get(primary_kind)
+    out: list[str] = []
+    for kind, detector in DETECTORS:
+        eco = ECOSYSTEM_OF_KIND.get(kind)
+        if kind == primary_kind or eco is None or eco == primary_eco:
+            continue  # self, generic-folders, or same ecosystem as the winner
+        result = detector(tree, manifests, [])
+        if result and len(result) >= 1:
+            manifest = ROOT_MANIFEST_OF_KIND.get(kind)
+            where = f" (root {manifest})" if manifest else ""
+            out.append(
+                f"cross-ecosystem workspace ignored: {kind}{where} resolves "
+                f"{len(result)} member(s) but only {primary_kind} was surfaced. "
+                f"If the skill targets the {kind} ecosystem, re-scope to it — "
+                f"language detection keys off the surfaced manifest_kind."
+            )
+    return out
+
 
 # --------------------------------------------------------------------------
 # Entry point
@@ -381,6 +434,7 @@ def detect(payload: dict) -> dict:
     for kind, detector in DETECTORS:
         result = detector(tree, manifests, warnings)
         if result and len(result) >= 1:
+            warnings.extend(_cross_ecosystem_warnings(kind, tree, manifests))
             return {
                 "is_monorepo":   True,
                 "manifest_kind": kind,

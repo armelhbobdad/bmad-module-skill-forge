@@ -611,6 +611,122 @@ class TestGenericFolders:
 
 
 # --------------------------------------------------------------------------
+# Cross-ecosystem secondary-manifest warning
+# --------------------------------------------------------------------------
+
+
+class TestCrossEcosystemWarning:
+    # tauri-style repo: a root pnpm workspace (JS) co-located with a root
+    # `Cargo.toml [workspace]` (Rust). pnpm wins by priority; the cargo
+    # workspace must not vanish silently.
+    DUAL = {
+        "tree": [
+            "pnpm-workspace.yaml",
+            "packages/api/package.json",
+            "packages/cli/package.json",
+            "Cargo.toml",
+            "crates/tauri/Cargo.toml",
+            "crates/tauri-runtime/Cargo.toml",
+        ],
+        "manifests": {
+            "pnpm-workspace.yaml": "packages:\n  - 'packages/*'\n",
+            "packages/api/package.json": json.dumps({"name": "api"}),
+            "packages/cli/package.json": json.dumps({"name": "cli"}),
+            "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n',
+            "crates/tauri/Cargo.toml": '[package]\nname = "tauri"\nversion = "2.11.2"\n',
+            "crates/tauri-runtime/Cargo.toml": '[package]\nname = "tauri-runtime"\n',
+        },
+    }
+
+    def test_pnpm_wins_but_cargo_workspace_is_flagged_not_dropped(self):
+        out = mod.detect(self.DUAL)
+        # Surfaced result is unchanged (non-breaking): pnpm still wins.
+        assert out["manifest_kind"] == "pnpm-workspaces"
+        assert {ws["path"] for ws in out["workspaces"]} == {"packages/api", "packages/cli"}
+        # ...but the ignored cargo workspace now surfaces as a warning.
+        cargo_warns = [w for w in out["warnings"] if "cargo-workspace" in w]
+        assert len(cargo_warns) == 1, out["warnings"]
+        assert "Cargo.toml" in cargo_warns[0]
+        assert "2 member" in cargo_warns[0]
+        assert_envelope_shape(out)
+
+    def test_cargo_wins_flags_co_located_python_workspace(self):
+        # Inverse direction: a JS root workspace always wins by priority over
+        # cargo, so the reachable inverse is cargo (priority 4) winning over a
+        # co-located python-multi-package layout (priority 5), which must be
+        # flagged rather than silently dropped.
+        out = mod.detect(
+            {
+                "tree": [
+                    "Cargo.toml",
+                    "crates/core/Cargo.toml",
+                    "crates/cli/Cargo.toml",
+                    "packages/svc-a/pyproject.toml",
+                    "packages/svc-b/pyproject.toml",
+                ],
+                "manifests": {
+                    "Cargo.toml": '[workspace]\nmembers = ["crates/*"]\n',
+                    "crates/core/Cargo.toml": '[package]\nname = "core"\n',
+                    "crates/cli/Cargo.toml": '[package]\nname = "cli"\n',
+                    "packages/svc-a/pyproject.toml": '[project]\nname = "svc-a"\n',
+                    "packages/svc-b/pyproject.toml": '[project]\nname = "svc-b"\n',
+                },
+            }
+        )
+        assert out["manifest_kind"] == "cargo-workspace"
+        assert any("python-multi-package" in w for w in out["warnings"]), out["warnings"]
+
+    def test_same_ecosystem_npm_and_pnpm_do_not_warn(self):
+        # npm + pnpm are both JS — the priority pick is expected, not a
+        # cross-ecosystem drop, so no warning should fire.
+        out = mod.detect(
+            {
+                "tree": [
+                    "package.json",
+                    "pnpm-workspace.yaml",
+                    "packages/foo/package.json",
+                ],
+                "manifests": {
+                    "package.json": json.dumps({"workspaces": ["packages/*"]}),
+                    "pnpm-workspace.yaml": "packages:\n  - 'packages/*'\n",
+                    "packages/foo/package.json": json.dumps({"name": "foo"}),
+                },
+            }
+        )
+        assert out["manifest_kind"] == "npm-workspaces"
+        assert not any("cross-ecosystem" in w for w in out["warnings"]), out["warnings"]
+
+    def test_single_ecosystem_repo_emits_no_cross_ecosystem_warning(self):
+        out = mod.detect(
+            {
+                "tree": ["pnpm-workspace.yaml", "packages/foo/package.json"],
+                "manifests": {
+                    "pnpm-workspace.yaml": "packages:\n  - 'packages/*'\n",
+                    "packages/foo/package.json": json.dumps({"name": "foo"}),
+                },
+            }
+        )
+        assert not any("cross-ecosystem" in w for w in out["warnings"]), out["warnings"]
+
+    def test_malformed_secondary_manifest_does_not_leak_into_warnings(self):
+        # A broken Cargo.toml alongside the winning pnpm workspace must not
+        # surface a "Cargo.toml parse error" — the secondary detector's parse
+        # warnings go to a throwaway sink.
+        out = mod.detect(
+            {
+                "tree": ["pnpm-workspace.yaml", "packages/foo/package.json", "Cargo.toml"],
+                "manifests": {
+                    "pnpm-workspace.yaml": "packages:\n  - 'packages/*'\n",
+                    "packages/foo/package.json": json.dumps({"name": "foo"}),
+                    "Cargo.toml": "[workspace\nmembers =",  # broken
+                },
+            }
+        )
+        assert out["manifest_kind"] == "pnpm-workspaces"
+        assert not any("parse error" in w for w in out["warnings"]), out["warnings"]
+
+
+# --------------------------------------------------------------------------
 # CLI / I/O
 # --------------------------------------------------------------------------
 
