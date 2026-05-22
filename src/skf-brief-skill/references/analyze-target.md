@@ -96,6 +96,8 @@ Headless: if the input contract supplied an `include` glob that begins with one 
 
 Surface any non-empty `warnings[]` from the script to the operator log so a malformed root manifest is debuggable; the workflow does not HALT — falling back to repo-root analysis is always safe.
 
+**`cross-ecosystem workspace ignored` warning:** when a root workspace manifest from a different language ecosystem co-exists with the surfaced one (e.g. a root `Cargo.toml [workspace]` alongside a pnpm workspace), the script surfaces only the higher-priority kind and emits this warning naming the ignored kind and its member count. The ignored ecosystem's workspaces are **not** in `workspaces[]`, so the numbered menu above will not list them. When this warning is present, tell the operator both ecosystems exist and ask which the skill should cover; if they pick the ignored ecosystem, scope §2-§4b at its root (or the relevant member) rather than the surfaced workspace, and carry the ignored kind into §3 (see the `workspace_signal` note there).
+
 ### 2. Read Repository Structure
 
 List the top-level directory structure:
@@ -121,6 +123,8 @@ echo '{"tree": [<flat list of repo-relative file paths from §1>], "workspace_si
 ```
 
 Pass the §1b `manifest_kind` as `workspace_signal` (omit the key when it is `null` / not a monorepo). This gives the workspace root precedence: for a `cargo-workspace` or `python-multi-package` root, the script returns the root language (rust/python) instead of being misled into `typescript` by a nested `package.json` + `tsconfig.json` in a non-workspace subdirectory (e.g. a `docs/` or `website/` site). JS-family workspace kinds (`npm-workspaces`/`pnpm-workspaces`/`lerna`) carry no override — their root `package.json` resolves js/ts normally.
+
+**When §1b surfaced a `cross-ecosystem workspace ignored` warning and the operator chose the ignored ecosystem:** pass that ignored kind as `workspace_signal` (not the surfaced kind), so a co-located `cargo-workspace`/`python-multi-package` root resolves to rust/python instead of being pinned to the surfaced ecosystem's language by the workspace that won detection priority.
 
 The script returns `{language, confidence, detection_source, fallback_to_extension_frequency}` after walking the documented rule table (the `workspace_signal` precedence above first, then manifest presence — package.json with tsconfig.json disambiguation, Cargo.toml, pyproject.toml/setup.py/setup.cfg, go.mod, pom.xml, build.gradle.kts, build.gradle Groovy with Java/Kotlin disambiguation, *.csproj/*.sln, Gemfile — then extension-frequency fallback over recognized source extensions). Use the returned values directly:
 
