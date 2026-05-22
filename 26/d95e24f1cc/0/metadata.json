@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "26d95e24f1cc",
+  "session_id": "62104a4c-684b-4f9d-a925-209064142722",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-22T23:48:50.093027218Z",
+  "branch": "fix/skf-update-public-reachability-gate",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/skf-update-skill/references/re-extract.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "917ee97a98de",
+  "token_usage": {
+    "input_tokens": 184,
+    "cache_creation_tokens": 189217,
+    "cache_read_tokens": 12861124,
+    "output_tokens": 89239,
+    "api_call_count": 92
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-22T23:48:49.54247359Z",
+    "agent_lines": 3,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 3,
+    "agent_percentage": 100
+  }
+}
