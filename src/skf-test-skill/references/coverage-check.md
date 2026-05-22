@@ -80,8 +80,8 @@ test-skill is a quality gate — it MUST NOT trust subagent output blindly. Befo
 
 1. If `len(exports) == 0`: skip the spot-check (no names to verify). Zero-exports policy is handled in the §2b zero-exports guard.
 2. Otherwise, sample `min(3, len(exports))` exports deterministically — by default take indices `[0, len//2, len-1]` (first, middle, last) from the `exports` array after a stable sort by `name`.
-3. For each sampled export, run: `grep -n "{export.name}" {resolved_skill_package}/SKILL.md` in the parent context. The name MUST appear at least once.
-4. If ANY sampled name returns zero matches, HALT "coverage-check: subagent inventory failed ground-truth spot-check — `{name}` claimed as export but absent from SKILL.md".
+3. For each sampled export, grep for the name across SKILL.md **and every reference file the subagent listed in its `references[]` array** (the documented surface of a split-body skill spans both): `grep -n "{export.name}" {resolved_skill_package}/SKILL.md {resolved_skill_package}/{each references[] path}` in the parent context. The name MUST appear at least once somewhere in that file set. Greping SKILL.md alone would false-HALT a split-body skill whose sampled export is documented only in a `references/*.md` file (a legitimate placement per §1 step 2 and the split-body note below).
+4. If a sampled name returns zero matches across SKILL.md **and** all listed reference files, HALT "coverage-check: subagent inventory failed ground-truth spot-check — `{name}` claimed as export but absent from SKILL.md and the listed reference files".
 
 These checks catch two hallucination classes: schema-shape drift (subagent paraphrased or dropped the contract) and fabricated exports (subagent invented names not in the document). Both are disqualifying for a grader skill — do not downgrade to a warning.
 
@@ -130,9 +130,12 @@ Start from the package entry point (see 0b) and identify the public API surface.
 - Cannot verify signatures — note as "unverified" in report
 
 **Forge Tier (ast-grep available):**
+
+**Before delegating, the parent builds a `documented_signatures` map** from the §1 inventory: `{ "{name}": {"params": "...", "return_type": "..."} }` for every documented export that carries a signature. Pass this map as a structured input alongside the per-file ast-grep instructions. Without it the subagent has only the bare source — it cannot diff against the documented signatures, so `signature_mismatches[]` collapses to empty and Signature Accuracy defaults to 100% on a name-only pass (a silent false positive). The subagent must populate `documented_sig` from this map, not invent it.
+
 For EACH source file that defines public API exports, delegate to a subagent that:
-1. Uses ast-grep to extract all exported symbols with their full signatures
-2. Matches each export against the documented inventory
+1. Uses ast-grep to extract all exported symbols with their full signatures (the `source_sig`)
+2. Matches each export against the `documented_signatures` map supplied by the parent, comparing params (name, type, order, optionality) and return type
 3. Returns ONLY the JSON object below — no prose, no commentary, no markdown fences:
 
 ```json
@@ -183,6 +186,20 @@ Do not write the Coverage Analysis section. Do not proceed to scoring. This is a
 
 **If `docs_only_mode == true` and the documented inventory is empty:** HALT with the analogous docs-only message ("docs-only skill declares zero items — no API surface to test").
 
+### 2c. Reconcile Documented vs Source Surface (Deterministic Intersection)
+
+On a split-body skill the §1 inventory (documented surface) and the §2 AST output (source barrel) are two independent lists, so the `Documented` count must be their **intersection**, not a parent estimate. Compute three sets deterministically so the Export Coverage numerator is reproducible across runs and reviewers:
+
+1. **`documented_set`** := the de-duplicated set of `name` from the §1 inventory `exports[]`, excluding `kind: "method"` (methods are members of an already-counted class/type, not top-level barrel exports).
+2. **`barrel_set`** := the union of `exports_found[]` across every §2 per-file result (the actual source public surface). When a stratified-scope or State-2 denominator applies (see §4), `barrel_set` is that resolved denominator's name set instead of the raw union.
+3. Compute:
+   - `Documented` := `|documented_set ∩ barrel_set|`
+   - `Missing` := `barrel_set − documented_set` (in source, not documented)
+   - `Stale` := `documented_set − barrel_set` (documented, not in source)
+4. Carry these three counts into §3's table and §4's Export Coverage: `Export Coverage = |Documented| / |barrel_set| * 100`. Record the three counts in the Coverage Analysis section so the numerator is auditable.
+
+This removes the parent-side guess that otherwise swings the documented count between runs (e.g., "85 from the AST agent" vs "~120 from a hand intersection") and can cross the PASS threshold on split-body skills.
+
 ### 3. Build Coverage Results
 
 Aggregate findings across all source files:
@@ -193,12 +210,12 @@ Aggregate findings across all source files:
 |--------|------|-----------|-----------------|-----------|--------|
 | {name} | function/class/type | yes/no | yes/no/unverified | src/file.ts:42 | PASS/FAIL/WARN |
 
-**Summary counts:**
-- Total exports in source: {N}
-- Documented in SKILL.md: {N}
-- Missing documentation: {N}
+**Summary counts** (from the §2c reconciliation — not re-estimated here):
+- Total exports in source: `|barrel_set|`
+- Documented in SKILL.md: `Documented` (`|documented_set ∩ barrel_set|`)
+- Missing documentation: `|Missing|`
 - Signature mismatches: {N}
-- Undocumented in SKILL.md but not in source (stale docs): {N}
+- Undocumented in SKILL.md but not in source (stale docs): `|Stale|`
 
 ### 4. Load Scoring Rules
 
@@ -210,8 +227,8 @@ Load `{scoringRulesFile}` to determine category scores:
 
 **Stratified-scope denominator (monorepo curated subsets):** Before computing Export Coverage, check whether the Source Access Protocol's stratified-scope clause applies to this skill (see `{sourceAccessProtocol}` §Source API Surface Definition — "Stratified-scope monorepo packages"). When it applies:
 
-1. **Prefer `metadata.json.stats.effective_denominator`** when present. Use it directly as `total_exports`.
-2. **Otherwise re-derive at test time** from the brief's scope globs per the protocol. When the brief supplies `scope.tier_a_include`, re-derive from that narrower list; otherwise re-derive from `scope.include`. Use the resulting union count as `total_exports`.
+1. **Prefer `metadata.json.stats.effective_denominator`** when present. Use it directly as `total_exports` — but apply the **denominator deflation guard** from `{sourceAccessProtocol}` stratified-scope resolution step 1: when source is readable, re-derive the source barrel and, if it exceeds `effective_denominator` by >25% with no `scope.tier_a_include`, treat the stored value as deflated, use the re-derived count, and emit the `denominator deflation` gap.
+2. **Otherwise re-derive at test time** from the brief's scope globs per the protocol. When the brief supplies `scope.tier_a_include`, re-derive from that narrower list (excluding umbrella barrel files per the protocol's umbrella-barrel note); otherwise re-derive from `scope.include`. Use the resulting union count as `total_exports`.
 3. **Run the denominator inflation check** defined in `{sourceAccessProtocol}` stratified-scope resolution step 3 whenever re-derivation fell back to `scope.include`. If the `scope.include` union exceeds the provenance-map entry count by more than 25%, emit the Medium-severity `denominator inflation — coarse scope.include union exceeds authored surface` gap and append it to the Coverage Analysis gap list.
 4. **Apply provenance-map canonicalization** before intersecting documented exports against the raw provenance-map entry list — see `{sourceAccessProtocol}` §Source API Surface Definition → "Provenance-map canonicalization" for the folding rules (`_def`/`_exact` suffix, `a11y_` prefix, renderer-prefix disambiguation). Skip folding when `metadata.json.stats.effective_denominator` is present and already equals the raw provenance-map entry count. Record the fold summary in the Coverage Analysis section so it's auditable.
 
@@ -253,10 +270,11 @@ After the denominator has been resolved (standard, stratified, or State 2), cros
 
 3. `metadata.json.stats.exports_documented` — the declared documented count
 4. Provenance-map entry count (if `{forge_data_folder}/{skill_name}/provenance-map.json` exists)
+5. `confidence_distribution` sum (`t1 + t1_low + t2 + t3`, when present in `metadata.json.stats`) — every extracted/documented export is binned into exactly one confidence tier, so the distribution must sum to the documented-surface total; a divergence (e.g., distribution sums to 91 while `exports_documented` is 85) is an internal-consistency defect even when the two clusters look fine
 
 Cluster assignment is canonical: `skf-create-skill` step 5 derives `exports_public_api` from entry-point validation and writes the `exports[]` array from the same barrel surface (see `skf-create-skill/references/compile.md:105`), while `exports_documented` tracks the broader documented surface that the provenance-map also enumerates.
 
-**Intra-cluster divergence (Medium):** For each cluster, if two counts are present and disagree by more than 10% of the larger, emit a **Medium**-severity gap titled `metadata drift — {cluster} export counts diverge` (substitute `barrel` for Cluster A, `documented-surface` for Cluster B). Enumerate the offending counts in the gap body (e.g., `stats.exports_public_api=55, exports[].length=48` → 13% drift). This is the real drift signal — the two sources should mirror the same surface and they don't, so upstream extraction or compilation produced inconsistent output that a re-compile should reconcile. Classify under structural/metadata coherence regardless of naive/contextual mode.
+**Intra-cluster divergence (Medium):** For each cluster, if two or more counts are present and the largest and smallest disagree by more than 10% of the larger, emit a **Medium**-severity gap titled `metadata drift — {cluster} export counts diverge` (substitute `barrel` for Cluster A, `documented-surface` for Cluster B). Enumerate the offending counts in the gap body (e.g., `stats.exports_public_api=55, exports[].length=48` → 13% drift). This is the real drift signal — the two sources should mirror the same surface and they don't, so upstream extraction or compilation produced inconsistent output that a re-compile should reconcile. Classify under structural/metadata coherence regardless of naive/contextual mode.
 
 **Cross-cluster divergence (Info):** After intra-cluster checks, if both clusters resolved to a representative count (pick the higher of each cluster's available counts) and the two cluster values differ by more than 10%, append a single **Info**-severity note titled `multi-denominator reporting — barrel vs documented surface` with both values (e.g., `barrel=55, documented=114`). This is expected for skills whose documented surface intentionally exceeds the barrel (methods, submodule members, re-exported classes) — it is not drift. The note exists so the test report makes the dual-denominator design visible and auditable without demanding action.
 
@@ -266,7 +284,14 @@ Cluster assignment is canonical: `skf-create-skill` step 5 derives `exports_publ
 
 **When only one count is available across both clusters:** Skip silently — there is nothing to cross-check.
 
-Append any findings (Medium gaps and/or the Info note) to the Coverage Analysis section's gap list (built in section 5) so they surface in the final test report alongside coverage and signature findings. Findings are informational about data quality — they do not change the denominator chosen above.
+**Numerator ground-truth — force a full grep on the inflation signature:** The intra/cross-cluster checks above only compare *counts*; they cannot tell whether the declared documented exports actually appear in the skill. When `metadata.json.stats.exports_documented == effective_denominator` exactly (the numerator equals the denominator — the signature of a numerator inflated to match the full surface), do **not** trust the documented count. Grep every declared export name (the full `metadata.exports[]` / provenance-map declared set — not the §1a 3-sample) against `SKILL.md ∪ references/*.md`. The count of declared names that actually appear is the **verified numerator**:
+
+- If verified == declared, the skill is genuinely fully documented — no finding; coverage stands.
+- If verified < declared, emit a **High**-severity gap `numerator inflation — {declared − verified} of {declared} declared exports absent from SKILL.md/references` listing the absent names, and use the verified count as the Export Coverage numerator (overriding `exports_documented`). A numerator padded to equal the denominator otherwise produces a tautological 100% that passes the gate.
+
+The full grep runs only on the exact equality signature, so it adds no cost to the common case where the numerator is already below the denominator. Unlike the count-coherence findings above, this arm is authoritative — it changes the numerator used for scoring.
+
+Append any findings (Medium gaps, the Info note, and/or the High numerator-inflation gap) to the Coverage Analysis section's gap list (built in section 5) so they surface in the final test report alongside coverage and signature findings. The count-coherence findings are informational about data quality and do not change the denominator chosen above; the numerator ground-truth arm is the one exception that overrides the numerator.
 
 ### 5. Append Coverage Analysis to Output
 
