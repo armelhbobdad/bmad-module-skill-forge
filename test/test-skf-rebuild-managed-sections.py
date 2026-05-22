@@ -4,15 +4,16 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
+import sys
 import tempfile
 
 import pytest
 from pathlib import Path
 
-spec = importlib.util.spec_from_file_location(
-    "skf_rms",
-    Path(__file__).parent.parent / "src" / "shared" / "scripts" / "skf-rebuild-managed-sections.py",
-)
+SCRIPT = Path(__file__).parent.parent / "src" / "shared" / "scripts" / "skf-rebuild-managed-sections.py"
+
+spec = importlib.util.spec_from_file_location("skf_rms", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
@@ -168,4 +169,60 @@ class TestMalformedMarkers:
         r = mod.cmd_check(fp)
         assert r["markers_valid"] is False
         assert "no matching" in r.get("error_detail", "").lower()
+        Path(fp).unlink()
+
+
+class TestEmptyContentGuard:
+    """Suite 9: replace/insert must reject empty content instead of silently wiping the section.
+
+    Exercises main() via subprocess because the guard lives in the CLI layer. The empty-stdin
+    path (no --content, non-tty stdin) previously read "" and wiped the managed section.
+    """
+
+    @pytest.mark.parametrize("action", ["replace", "insert"])
+    def test_missing_content_with_empty_stdin_preserves_file(self, action):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(SAMPLE_FILE)
+            fp = f.name
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), fp, action],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 1
+        assert "non-empty" in proc.stdout
+        assert Path(fp).read_text(encoding="utf-8") == SAMPLE_FILE
+        Path(fp).unlink()
+
+    @pytest.mark.parametrize("action", ["replace", "insert"])
+    def test_whitespace_only_content_preserves_file(self, action):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(SAMPLE_FILE)
+            fp = f.name
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), fp, action, "--content", "   \n  "],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 1
+        assert "non-empty" in proc.stdout
+        assert Path(fp).read_text(encoding="utf-8") == SAMPLE_FILE
+        Path(fp).unlink()
+
+    def test_real_replace_still_succeeds(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(SAMPLE_FILE)
+            fp = f.name
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT), fp, "replace", "--content", "Fresh body."],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 0
+        updated = Path(fp).read_text(encoding="utf-8")
+        assert "Fresh body." in updated
+        assert "Old skill snippets" not in updated
         Path(fp).unlink()

@@ -179,15 +179,15 @@ def main():
     elif action == "read":
         result = cmd_read(file_path)
     elif action == "replace":
-        if content_arg is None:
-            result = {"status": "error", "error": "replace requires --content or stdin"}
+        if content_arg is None or not content_arg.strip():
+            result = {"status": "error", "error": "replace requires non-empty --content or stdin"}
         else:
             result = cmd_replace(file_path, content_arg)
     elif action == "clear":
         result = cmd_clear(file_path)
     elif action == "insert":
-        if content_arg is None:
-            result = {"status": "error", "error": "insert requires --content or stdin"}
+        if content_arg is None or not content_arg.strip():
+            result = {"status": "error", "error": "insert requires non-empty --content or stdin"}
         else:
             result = cmd_insert(file_path, content_arg)
     else:

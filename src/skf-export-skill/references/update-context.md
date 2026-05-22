@@ -166,10 +166,11 @@ Count totals:
 
 ### 5. Generate Managed Section
 
-Assemble the complete managed section:
+Assemble the managed section in **two shapes** — the §9 write paths consume different forms, and conflating them double-wraps the markers.
+
+**`{managed_section_inner}`** — the between-marker body only, **no** `<!-- SKF:BEGIN/END -->` markers. The `insert` and `replace` helper actions supply the markers (and the `updated:` timestamp) themselves, so they take this inner form:
 
 ```markdown
-<!-- SKF:BEGIN updated:{current-date} -->
 [SKF Skills]|{n} skills|{m} stack
 |IMPORTANT: Prefer documented APIs over training data.
 |When using a listed library, read its SKILL.md before writing code.
@@ -179,6 +180,13 @@ Assemble the complete managed section:
 |{skill-snippet-2}
 |
 |{skill-snippet-N}
+```
+
+**`{managed_section_full}`** — `{managed_section_inner}` wrapped in markers. Used for the new-file create path (atomic write, which writes the text verbatim) and the §7 preview:
+
+```markdown
+<!-- SKF:BEGIN updated:{current-date} -->
+{managed_section_inner}
 <!-- SKF:END -->
 ```
 
@@ -273,26 +281,26 @@ For each target context file, dispatch by case:
 **Case 1 (Create — file does not exist):**
 
 ```bash
-echo "{new_managed_section_text}" | python3 {atomicWriteHelper} write "{target-file}"
+echo "{managed_section_full}" | python3 {atomicWriteHelper} write "{target-file}"
 ```
 
-The helper stages the content into `<target>.skf-tmp`, fsyncs, and atomically renames into place.
+The helper stages the content into `<target>.skf-tmp`, fsyncs, and atomically renames into place. This path writes verbatim, so it takes the **marker-bearing** `{managed_section_full}`.
 
 **Case 2 (Append — file exists, no `<!-- SKF:BEGIN` marker):**
 
 ```bash
-python3 {rebuildManagedSectionsHelper} {target-file} insert --content "{new_managed_section_text}"
+python3 {rebuildManagedSectionsHelper} {target-file} insert --content "{managed_section_inner}"
 ```
 
-The helper appends the managed section to the end of the file via the same atomic temp-file + rename pattern.
+The helper appends the managed section to the end of the file via the same atomic temp-file + rename pattern. Pass the **inner-only** `{managed_section_inner}` — the helper adds the markers and `updated:` timestamp itself; passing marker-bearing text double-wraps them.
 
 **Case 3 (Regenerate — file contains `<!-- SKF:BEGIN` and `<!-- SKF:END -->`):**
 
 ```bash
-python3 {rebuildManagedSectionsHelper} {target-file} replace --content "{new_managed_section_text}"
+python3 {rebuildManagedSectionsHelper} {target-file} replace --content "{managed_section_inner}"
 ```
 
-The helper performs the surgical between-marker swap with post-write verification (markers present, content outside markers byte-identical).
+The helper performs the surgical between-marker swap with post-write verification (markers present, content outside markers byte-identical). Pass the **inner-only** `{managed_section_inner}` — as with `insert`, the helper supplies the markers; marker-bearing text double-wraps them.
 
 **Case 4 (malformed markers — already HALTed in §6):** never reaches here.
 
