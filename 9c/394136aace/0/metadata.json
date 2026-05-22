@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "9c394136aace",
+  "session_id": "ae8fba67-918a-4327-a045-9f9928534ea2",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-22T05:41:02.393327112Z",
+  "branch": "fix/skf-tessl-description-judge-vs-validator",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-create-skill/assets/tessl-dismissal-rules.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "e150a951081e",
+  "checkpoint_transcript_start": 187,
+  "transcript_lines_at_start": 187,
+  "token_usage": {
+    "input_tokens": 133,
+    "cache_creation_tokens": 3946,
+    "cache_read_tokens": 216436,
+    "output_tokens": 2284,
+    "api_call_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-22T05:41:01.992830412Z",
+    "agent_lines": 10,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 10,
+    "agent_percentage": 100
+  }
+}
