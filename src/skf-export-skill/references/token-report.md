@@ -29,7 +29,7 @@ For each artifact, estimate tokens using the heuristic: **words * 1.3** (approxi
 3. **SKILL.md** — The full active skill document
 4. **metadata.json** — The machine-readable metadata
 5. **references/** — Total across all reference files (if present)
-6. **Full package total** — Sum of all above
+6. **Full package total** — Sum of this skill's own artifacts (context-snippet.md + SKILL.md + metadata.json + references/). **Exclude the Managed section row (item 2)** — it is a shared all-skills cost (it bundles this skill's snippet plus every other skill's snippet), reported separately under Context Budget Impact. Including it would double-count this skill's snippet and fold in unrelated skills' costs.
 
 **If passive_context was disabled:** Skip context-snippet.md and managed section measurements, note as "N/A (disabled)".
 
@@ -44,7 +44,7 @@ For each artifact, estimate tokens using the heuristic: **words * 1.3** (approxi
 | SKILL.md | {n} | ~{t} | Active skill (on-trigger) |
 | metadata.json | {n} | ~{t} | Machine-readable |
 | references/ | {n} | ~{t} | {count} files |
-| **Package total** | **{n}** | **~{t}** | **All artifacts combined** |
+| **Package total** | **{n}** | **~{t}** | **This skill's own artifacts (snippet + SKILL.md + metadata + references); excludes the shared Managed section row** |
 
 **Context Budget Impact:**
 - **Always-on cost:** ~{managed-section-tokens} tokens (managed section in {target-file-list})
