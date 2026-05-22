@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "bb6573e9c1c4",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-tessl-description-judge-vs-validator",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-create-skill/assets/tessl-dismissal-rules.md",
+    "src/skf-create-skill/references/validate.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/bb/6573e9c1c4/0/metadata.json",
+      "transcript": "/bb/6573e9c1c4/0/full.jsonl",
+      "context": "/bb/6573e9c1c4/0/context.md",
+      "content_hash": "/bb/6573e9c1c4/0/content_hash.txt",
+      "prompt": "/bb/6573e9c1c4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 14385,
+    "cache_creation_tokens": 98463,
+    "cache_read_tokens": 1498188,
+    "output_tokens": 48325,
+    "api_call_count": 23
+  }
+}
