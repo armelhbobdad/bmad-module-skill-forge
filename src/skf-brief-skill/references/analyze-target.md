@@ -117,10 +117,12 @@ List the top-level directory structure:
 Delegate the rule walk to `{detectLanguageHelper}` instead of evaluating manifest presence and extension frequency in prose:
 
 ```bash
-echo '{"tree": [<flat list of repo-relative file paths from §1>]}' | uv run {detectLanguageHelper}
+echo '{"tree": [<flat list of repo-relative file paths from §1>], "workspace_signal": "<§1b manifest_kind, or omit when null>"}' | uv run {detectLanguageHelper}
 ```
 
-The script returns `{language, confidence, detection_source, fallback_to_extension_frequency}` after walking the documented rule table (manifest presence first — package.json with tsconfig.json disambiguation, Cargo.toml, pyproject.toml/setup.py/setup.cfg, go.mod, pom.xml, build.gradle.kts, build.gradle Groovy with Java/Kotlin disambiguation, *.csproj/*.sln, Gemfile — then extension-frequency fallback over recognized source extensions). Use the returned values directly:
+Pass the §1b `manifest_kind` as `workspace_signal` (omit the key when it is `null` / not a monorepo). This gives the workspace root precedence: for a `cargo-workspace` or `python-multi-package` root, the script returns the root language (rust/python) instead of being misled into `typescript` by a nested `package.json` + `tsconfig.json` in a non-workspace subdirectory (e.g. a `docs/` or `website/` site). JS-family workspace kinds (`npm-workspaces`/`pnpm-workspaces`/`lerna`) carry no override — their root `package.json` resolves js/ts normally.
+
+The script returns `{language, confidence, detection_source, fallback_to_extension_frequency}` after walking the documented rule table (the `workspace_signal` precedence above first, then manifest presence — package.json with tsconfig.json disambiguation, Cargo.toml, pyproject.toml/setup.py/setup.cfg, go.mod, pom.xml, build.gradle.kts, build.gradle Groovy with Java/Kotlin disambiguation, *.csproj/*.sln, Gemfile — then extension-frequency fallback over recognized source extensions). Use the returned values directly:
 
 "**Detected language:** {language}
 **Confidence:** {confidence}

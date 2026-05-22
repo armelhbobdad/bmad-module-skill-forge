@@ -14,6 +14,13 @@ co-located with a deterministic rule rather than restated in prose.
 
 Detection rules (apply in order, first match wins):
 
+  0. workspace_signal (optional, from skf-detect-workspaces.manifest_kind):
+       "cargo-workspace"       → rust (high)
+       "python-multi-package"  → python (high)
+       A non-JS workspace root's language wins over a nested package.json +
+       tsconfig.json (e.g. a docs/ or website/ site that is not a workspace
+       member). JS-family workspaces (npm/pnpm/lerna) carry no entry here and
+       fall through to rule 1, whose root package.json correctly resolves js/ts.
   1. package.json (with optional tsconfig.json companion):
        tsconfig.json present → typescript (high)
        tsconfig.json absent  → javascript (high)
@@ -37,6 +44,10 @@ CLI:
 
 Input (JSON object on stdin or via --json):
   tree — list of repo-relative file paths (required, non-empty)
+  workspace_signal — optional manifest_kind from skf-detect-workspaces. When it
+                     names a non-JS workspace ("cargo-workspace",
+                     "python-multi-package"), rule 0 returns the root language
+                     and ignores nested package.json/tsconfig matches.
 
 Output (JSON on stdout):
   language          — javascript | typescript | rust | python | go
@@ -59,6 +70,17 @@ import json
 import sys
 from collections import Counter
 from typing import Any
+
+# Workspace manifest_kind → root language (rule 0). Only non-JS workspace kinds
+# appear here: a Cargo/Python workspace root is unambiguously rust/python, and a
+# nested package.json+tsconfig (a docs or website subproject) must not win. JS
+# workspace kinds (npm-workspaces/pnpm-workspaces/lerna) are intentionally
+# absent — their root manifest IS package.json, so rule 1 resolves js/ts
+# correctly. generic-folders / null carry no language signal.
+_WORKSPACE_SIGNAL_LANGUAGE: dict[str, str] = {
+    "cargo-workspace": "rust",
+    "python-multi-package": "python",
+}
 
 # Manifest basenames the rule table checks. Kept tight — tree-wide pattern
 # matches (e.g. *.csproj) are handled separately to avoid false positives
@@ -184,6 +206,18 @@ def detect(payload: dict[str, Any]) -> dict[str, Any]:
         _die("payload.tree must be an array of repo-relative file paths")
     if len(tree) == 0:
         _die("payload.tree must be non-empty")
+
+    # Rule 0 — workspace precedence. A non-JS workspace root (from
+    # skf-detect-workspaces.manifest_kind) wins over any nested package.json +
+    # tsconfig.json, which would otherwise be misread as a typescript root.
+    workspace_signal = payload.get("workspace_signal")
+    if isinstance(workspace_signal, str) and workspace_signal in _WORKSPACE_SIGNAL_LANGUAGE:
+        return {
+            "language": _WORKSPACE_SIGNAL_LANGUAGE[workspace_signal],
+            "confidence": "high",
+            "detection_source": f"workspace manifest_kind={workspace_signal} (root manifest wins over nested package.json)",
+            "fallback_to_extension_frequency": False,
+        }
 
     # Rule 1 — package.json (with tsconfig.json disambiguation)
     if _has_basename(tree, "package.json"):

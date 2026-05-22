@@ -66,6 +66,56 @@ def test_package_json_in_subdir_still_matches():
 
 
 # --------------------------------------------------------------------------
+# Rule 0 — workspace_signal precedence
+# --------------------------------------------------------------------------
+
+
+def test_cargo_workspace_signal_wins_over_nested_package_json_tsconfig():
+    """The reported bug: a Rust cargo-workspace root with a docs/ TS site must detect rust, not typescript."""
+    tree = [
+        "Cargo.toml",
+        "crates/core/src/lib.rs",
+        "docs/package.json",
+        "docs/tsconfig.json",
+        "docs/pages/index.tsx",
+    ]
+    result = mod.detect({"tree": tree, "workspace_signal": "cargo-workspace"})
+    assert_result_shape(result)
+    assert result["language"] == "rust"
+    assert result["confidence"] == "high"
+    assert result["fallback_to_extension_frequency"] is False
+    assert "cargo-workspace" in result["detection_source"]
+
+
+def test_python_multi_package_signal_returns_python():
+    tree = ["packages/a/pyproject.toml", "docs/package.json", "docs/tsconfig.json"]
+    result = mod.detect({"tree": tree, "workspace_signal": "python-multi-package"})
+    assert result["language"] == "python"
+    assert result["confidence"] == "high"
+
+
+def test_npm_workspace_signal_falls_through_to_package_json_rule():
+    """JS-family workspace kinds carry no override; a root package.json+tsconfig still resolves typescript."""
+    tree = ["package.json", "tsconfig.json", "packages/a/src/index.ts"]
+    result = mod.detect({"tree": tree, "workspace_signal": "npm-workspaces"})
+    assert result["language"] == "typescript"
+    assert result["confidence"] == "high"
+
+
+def test_unknown_or_null_workspace_signal_is_ignored():
+    """generic-folders / unexpected values fall through to the normal rule walk."""
+    tree = ["package.json", "src/index.js"]
+    assert mod.detect({"tree": tree, "workspace_signal": "generic-folders"})["language"] == "javascript"
+    assert mod.detect({"tree": tree, "workspace_signal": None})["language"] == "javascript"
+
+
+def test_no_workspace_signal_preserves_legacy_behavior():
+    """Absent workspace_signal: a nested package.json still matches rule 1 (unchanged)."""
+    result = mod.detect({"tree": ["docs/package.json", "Cargo.toml", "src/lib.rs"]})
+    assert result["language"] == "javascript"
+
+
+# --------------------------------------------------------------------------
 # Rules 2-6 — single-basename manifests
 # --------------------------------------------------------------------------
 
