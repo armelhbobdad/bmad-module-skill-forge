@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "19d0e377a37c",
+  "session_id": "62104a4c-684b-4f9d-a925-209064142722",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-22T23:34:11.48392391Z",
+  "branch": "fix/skf-export-package-total-managed-section",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/skf-export-skill/references/token-report.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "182a1f66f372",
+  "token_usage": {
+    "input_tokens": 136,
+    "cache_creation_tokens": 158384,
+    "cache_read_tokens": 8327323,
+    "output_tokens": 66972,
+    "api_call_count": 68
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-22T23:34:11.008236412Z",
+    "agent_lines": 2,
+    "human_added": 4,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 6,
+    "agent_percentage": 33.33333333333333
+  }
+}

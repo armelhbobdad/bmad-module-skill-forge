@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "19d0e377a37c",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-export-package-total-managed-section",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/skf-export-skill/references/token-report.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/19/d0e377a37c/0/metadata.json",
+      "transcript": "/19/d0e377a37c/0/full.jsonl",
+      "context": "/19/d0e377a37c/0/context.md",
+      "content_hash": "/19/d0e377a37c/0/content_hash.txt",
+      "prompt": "/19/d0e377a37c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 136,
+    "cache_creation_tokens": 158384,
+    "cache_read_tokens": 8327323,
+    "output_tokens": 66972,
+    "api_call_count": 68
+  }
+}
