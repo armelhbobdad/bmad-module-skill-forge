@@ -64,6 +64,16 @@ Each rule below describes a tessl suggestion that Skill Forge expects and dismis
 - **Rationale:** Progressive disclosure is the intentional SKF design. The conciseness scorer has no concept of Tier 1 / Tier 2 and flags the structure as redundancy. Collapsing the two tiers would eliminate standalone discoverability and break split-body behavior.
 - **Action:** dismiss. Do not attempt to raise the score above 2/3.
 
+### Rule: `provenance-citations-required`
+
+- **Scorer:** `conciseness`, `actionability`, or any
+- **Match criteria (any of):**
+  - Suggestion text references `[SRC:`, `[AST:`, `[QMD:`, or `[EXT:` annotations AND one of: `remove`, `strip`, `omit`, `drop`
+  - Suggestion mentions `provenance annotations`, `source citations`, or `source markers` AND one of: `remove`, `unnecessary`, `token bloat`, `token cost`
+- **Expected score:** `conciseness` 1/3 is normal while inline provenance annotations are present. Raising it would require stripping the annotations.
+- **Rationale:** SKF's zero-hallucination policy requires every claim in SKILL.md to carry a provenance citation — see the "Signature fidelity" rule in `assets/compile-assembly-rules.md` and the "Provenance Citation Format" table in `assets/skill-sections.md`. Removing them would break the provenance audit trail and the trust contract that lets `skf-update-skill` detect source drift and `skf-audit-skill` verify claims against source.
+- **Action:** dismiss.
+
 ### Rule: `description-xml-tags-guarded-upstream`
 
 - **Scorer:** `description_field` (deterministic validator)
