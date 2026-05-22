@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "4c37b51e50f4",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-brief-detect-language-workspace-precedence",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/shared/scripts/skf-detect-language.py",
+    "src/skf-brief-skill/references/analyze-target.md",
+    "test/test-skf-detect-language.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/4c/37b51e50f4/0/metadata.json",
+      "transcript": "/4c/37b51e50f4/0/full.jsonl",
+      "context": "/4c/37b51e50f4/0/context.md",
+      "content_hash": "/4c/37b51e50f4/0/content_hash.txt",
+      "prompt": "/4c/37b51e50f4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 64,
+    "cache_creation_tokens": 42621,
+    "cache_read_tokens": 5240596,
+    "output_tokens": 24597,
+    "api_call_count": 32
+  }
+}
