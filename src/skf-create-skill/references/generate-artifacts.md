@@ -187,7 +187,9 @@ Ensure the source path used for extraction is indexed by ccc and registered in t
 
 **Index verification:**
 
-Dispatch to ccc CLI (`ccc index {source_root}`) or ccc MCP tool — `ccc_bridge.ensure_index` is a conceptual interface, not a callable function. This is a no-op if the source was already indexed during setup or step 2b.
+`ccc index` requires the directory to be initialized first. Run `ccc init {source_root}` (idempotent — a no-op once initialized) before `ccc index {source_root}`, or use the ccc MCP tool. `ccc_bridge.ensure_index` is a conceptual interface, not a callable function. Indexing is a no-op if the source was already indexed during setup or step 2b.
+
+**Nested project marker:** when `{source_root}` is a subtree of a repo that already carries a project marker (e.g. a cloned source tree under `.forge-sources/`, or a `.cocoindex_code` / VCS marker in a parent), `ccc init {source_root}` exits non-zero with `A parent directory has a project marker`. This is expected — re-run as `ccc init -f {source_root}` to initialize at the subtree anyway, then `ccc index`. Do not treat the parent-marker warning as fatal.
 
 **Registry update:**
 
