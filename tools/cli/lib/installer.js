@@ -227,6 +227,7 @@ class Installer {
       project_name: config.project_name || 'Untitled Project',
       communication_language: 'en',
       document_output_language: 'en',
+      output_folder: config.output_folder || '_bmad-output',
       skills_output_folder: config.skills_output_folder || 'skills',
       forge_data_folder: config.forge_data_folder || 'forge-data',
       sidecar_path: '_bmad/_memory/forger-sidecar',
