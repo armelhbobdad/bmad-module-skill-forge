@@ -61,7 +61,7 @@ For v1 manifests (no `schema_version` field), the helper migrates in-place on th
 3. Wrap in v2 structure: `active_version` ← resolved version, single entry in `versions` with `status: "active"`, `ides: []` (unknown — fills on next successful export), and `last_exported`
 4. Set `schema_version: "2"` at root
 
-Workflows that load the manifest via `skf-manifest-ops.py read` always receive the v2 shape regardless of on-disk state.
+Workflows that load the manifest via `skf-manifest-ops.py read` receive a `{"status": "ok", "manifest": {...}}` envelope; the `manifest` value is always in canonical v2 shape regardless of on-disk state (parse `result["manifest"]`, not the top-level object).
 
 ## Integrity invariant
 

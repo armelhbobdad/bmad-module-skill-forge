@@ -87,13 +87,13 @@ Read the manifest via `{manifestOpsHelper}` (resolved at §9 from `{manifestOpsP
 python3 {manifestOpsHelper} {skills_output_folder} read
 ```
 
-The helper handles v2-schema enforcement, v1→v2 migration, and the `platforms`→`ides` rename internally. The returned JSON is always in canonical v2 shape regardless of on-disk state.
+The helper handles v2-schema enforcement, v1→v2 migration, and the `platforms`→`ides` rename internally. The `read` action returns a `{"status": "ok", "manifest": {...}}` envelope — parse `result["manifest"]`, **not** the top-level object (`result["exports"]` raises `KeyError`). The `manifest` value is always in canonical v2 shape regardless of on-disk state.
 
 **Schema reference:** `references/manifest-rebuild.md` documents the v2 shape, the status enum (`active`/`archived`/`deprecated`/`draft`), the v1 migration path, and the `active_version` integrity invariant. Load that file only when an inline schema reminder is needed — the helper enforces the shape so the in-prompt prose is not load-bearing.
 
 **Integrity guard:** if the helper returns an entry where `active_version` does not resolve to a key in `versions`, the manifest is inconsistent. Skip the affected skill and log: "**Manifest integrity warning:** `{skill-name}.active_version = v{active_version}` has no matching entry under `versions`. Skipping. Re-run `[EX] Export Skill` on `{skill-name}` to repair the manifest entry."
 
-**If the manifest does not exist** (first export or fresh forge): the helper returns `{"schema_version": "2", "exports": {}}`. Only the current export target will appear in the rebuilt index.
+**If the manifest does not exist** (first export or fresh forge): the envelope wraps an empty manifest — `result["manifest"]` is `{"schema_version": "2", "exports": {}}`, so `result["manifest"]["exports"]` is `{}`. Only the current export target will appear in the rebuilt index.
 
 #### 4b. Build Exported Skill Set (version-aware)
 
@@ -281,7 +281,7 @@ For each target context file, dispatch by case:
 **Case 1 (Create — file does not exist):**
 
 ```bash
-echo "{managed_section_full}" | python3 {atomicWriteHelper} write "{target-file}"
+echo "{managed_section_full}" | python3 {atomicWriteHelper} write --target "{target-file}"
 ```
 
 The helper stages the content into `<target>.skf-tmp`, fsyncs, and atomically renames into place. This path writes verbatim, so it takes the **marker-bearing** `{managed_section_full}`.
@@ -346,7 +346,7 @@ On success per file, report: "**{target-file} updated successfully.** Verified b
    python3 {manifestOpsHelper} {skills_output_folder} set {skill-name} {version} --ides {ides_written}
    ```
 
-   `{ides_written}` is the comma-joined sorted IDE set computed in step 3. The helper handles v2-schema validation, v1→v2 migration, and `platforms`→`ides` rename internally — no in-prompt JSON manipulation needed. Each `set` invocation unions the supplied `--ides` into the version entry's existing `ides` (deduplicated, sorted) server-side and refreshes `last_exported`. After all skills have been set, re-read the manifest via `{manifestOpsHelper} {skills_output_folder} read` to confirm the final state matches expectations.
+   `{ides_written}` is the comma-joined sorted IDE set computed in step 3. The helper handles v2-schema validation, v1→v2 migration, and `platforms`→`ides` rename internally — no in-prompt JSON manipulation needed. Each `set` invocation unions the supplied `--ides` into the version entry's existing `ides` (deduplicated, sorted) server-side and refreshes `last_exported`. After all skills have been set, re-read the manifest via `{manifestOpsHelper} {skills_output_folder} read` (the v2 manifest is under the `manifest` key of the returned envelope — see §4a) to confirm the final state matches expectations.
 
 **Dry-run mode:** Do NOT update the manifest. Display: "**[DRY RUN] Export manifest would be updated for {skill-name-list} — ides: {ides_written}.**" (list every skill in `skill_batch`)
 

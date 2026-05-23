@@ -21,6 +21,7 @@ Actions:
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -45,6 +46,64 @@ def read_context_file(file_path):
 def find_managed_section(content):
     """Find the managed section in content. Returns match or None."""
     return MARKER_PATTERN.search(content)
+
+
+def _atomic_write(file_path, text):
+    """Stage `text` into <file>.skf-tmp, fsync, then os.replace into place.
+
+    Mirrors skf-atomic-write.py's `write` so the marker-surgery actions deliver
+    the crash-safety the step file documents: a mid-write process kill leaves
+    the original file intact rather than truncated. Cleans up the temp file on
+    failure. Raises OSError on any I/O failure.
+    """
+    path = Path(file_path)
+    tmp = path.with_name(path.name + ".skf-tmp")
+    # O_BINARY (Windows only; 0 elsewhere) suppresses the text-mode \n -> \r\n
+    # translation that would otherwise diverge the on-disk bytes from the staged
+    # string and trip the byte-identity verify below.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0)
+    try:
+        fd = os.open(tmp, flags, 0o644)
+        try:
+            os.write(fd, text.encode("utf-8"))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(tmp, path)
+    except OSError:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        raise
+
+
+def _write_and_verify(file_path, updated, *, expect_section):
+    """Atomically write `updated`, then re-read to confirm integrity.
+
+    Returns None on success or an error string. The re-read asserts the on-disk
+    bytes match what was staged (so content outside the markers is byte-identical)
+    and that managed-section marker presence matches `expect_section`.
+    """
+    try:
+        _atomic_write(file_path, updated)
+    except OSError as e:
+        return f"atomic write failed: {e}"
+
+    # Re-read raw bytes (no newline translation) for a true byte-identity check.
+    try:
+        on_disk = Path(file_path).read_bytes()
+    except OSError as e:
+        return f"post-write verification failed: {e}"
+    if on_disk != updated.encode("utf-8"):
+        return "post-write verification failed: on-disk bytes do not match staged content"
+    if (find_managed_section(on_disk.decode("utf-8")) is not None) != expect_section:
+        return (
+            "post-write verification failed: managed section "
+            + ("missing after write" if expect_section else "still present after clear")
+        )
+    return None
 
 
 def cmd_check(file_path):
@@ -112,7 +171,9 @@ def cmd_replace(file_path, new_content):
     new_section = f"<!-- SKF:BEGIN updated:{today} -->\n{new_content}\n{END_MARKER}"
     updated = content[: match.start()] + new_section + content[match.end() :]
 
-    Path(file_path).write_text(updated, encoding="utf-8")
+    verify_err = _write_and_verify(file_path, updated, expect_section=True)
+    if verify_err:
+        return {"status": "error", "error": verify_err}
     return {"status": "ok", "action": "replaced", "bytes_written": len(updated)}
 
 
@@ -131,7 +192,9 @@ def cmd_clear(file_path):
     after = content[match.end() :].lstrip("\n")
     updated = before + ("\n\n" if before and after else "") + after
 
-    Path(file_path).write_text(updated, encoding="utf-8")
+    verify_err = _write_and_verify(file_path, updated, expect_section=False)
+    if verify_err:
+        return {"status": "error", "error": verify_err}
     return {"status": "ok", "action": "cleared", "bytes_written": len(updated)}
 
 
@@ -153,7 +216,9 @@ def cmd_insert(file_path, new_content):
     section = f"\n<!-- SKF:BEGIN updated:{today} -->\n{new_content}\n{END_MARKER}\n"
     updated = content.rstrip("\n") + "\n" + section if content.strip() else section.lstrip("\n")
 
-    Path(file_path).write_text(updated, encoding="utf-8")
+    verify_err = _write_and_verify(file_path, updated, expect_section=True)
+    if verify_err:
+        return {"status": "error", "error": verify_err}
     return {"status": "ok", "action": "inserted", "bytes_written": len(updated)}
 
 
