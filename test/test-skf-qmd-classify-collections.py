@@ -76,6 +76,81 @@ def test_parse_live_names_skips_empty_segments():
     assert mod.parse_live_names("a,,b,,,c,") == ["a", "b", "c"]
 
 
+# ─── parse_collection_list_output (qmd CLI stdout) ───────────────────────────
+
+
+def test_parse_collection_list_modern_format():
+    """Newer qmd: header, blank lines, `name (qmd://name/)`, indented metadata.
+
+    Regression for the silent no-op where suffixed entries failed the
+    is_forge_owned check and every forge collection was mis-classified foreign.
+    """
+    raw = (
+        "Collections (3):\n"
+        "\n"
+        "oms-cognee-brief (qmd://oms-cognee-brief/)\n"
+        "  Pattern:  skill-brief.yaml\n"
+        "  Files:    0\n"
+        "\n"
+        "livekit-extraction (qmd://livekit-extraction/)\n"
+        "  Pattern:  *.rs\n"
+        "  Files:    42\n"
+        "\n"
+        "memory-root-1 (qmd://memory-root-1/)\n"
+        "  Files:    7\n"
+    )
+    assert mod.parse_collection_list_output(raw) == [
+        "oms-cognee-brief",
+        "livekit-extraction",
+        "memory-root-1",
+    ]
+
+
+def test_parse_collection_list_legacy_bare_names():
+    """Older qmd printed one bare name per line — still supported."""
+    raw = "foo-brief\nbar-extraction\nmemory-root-1\n"
+    assert mod.parse_collection_list_output(raw) == [
+        "foo-brief",
+        "bar-extraction",
+        "memory-root-1",
+    ]
+
+
+def test_parse_collection_list_empty():
+    assert mod.parse_collection_list_output("") == []
+    assert mod.parse_collection_list_output("Collections (0):\n\n") == []
+
+
+def test_parse_collection_list_name_resembling_header_not_skipped():
+    """A collection named `Collections-*` must not be mistaken for the header."""
+    raw = (
+        "Collections (1):\n"
+        "\n"
+        "Collections-brief (qmd://Collections-brief/)\n"
+        "  Files:    1\n"
+    )
+    assert mod.parse_collection_list_output(raw) == ["Collections-brief"]
+
+
+def test_parse_collection_list_feeds_classify_correctly():
+    """End-to-end: modern stdout → parse → classify yields real classifications,
+    not an all-foreign no-op."""
+    raw = (
+        "Collections (2):\n"
+        "\n"
+        "foo-brief (qmd://foo-brief/)\n"
+        "  Files:    3\n"
+        "\n"
+        "lost-extraction (qmd://lost-extraction/)\n"
+        "  Files:    9\n"
+    )
+    live = mod.parse_collection_list_output(raw)
+    out = mod.classify(live, ["foo-brief"])
+    assert out["healthy"] == ["foo-brief"]
+    assert out["orphaned"] == ["lost-extraction"]
+    assert out["foreign_filtered_count"] == 0
+
+
 # ─── load_registry_names ─────────────────────────────────────────────────────
 
 
