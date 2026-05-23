@@ -21,6 +21,11 @@
       "pattern": "^v?\\d+\\.\\d+\\.\\d+([.\\-+][0-9A-Za-z][0-9A-Za-z.\\-+]*)?$",
       "description": "User-specified target. When present, MUST equal version."
     },
+    "target_ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional explicit git ref (tag or branch) used verbatim as source_ref, bypassing version-to-tag matching. Escape hatch for monorepo crate tags whose prefix differs from the skill name (e.g. tag livekit/v0.7.42 for skill livekit-rust). Remote sources only."
+    },
     "source_type": {
       "type": "string",
       "enum": ["source", "docs-only"]

@@ -23,6 +23,7 @@
 | `scripts_intent`   | string | `detect` / `none` / free-text                    | Describes whether scripts should be extracted. Values: `detect` (auto-detect from source — default when absent), `none` (skip scripts), or a free-text description of expected scripts (e.g., "CLI validation tools in bin/"). |
 | `assets_intent`    | string | `detect` / `none` / free-text                    | Describes whether assets should be extracted. Values: `detect` (auto-detect from source — default when absent), `none` (skip assets), or a free-text description of expected assets (e.g., "JSON schemas in schemas/").        |
 | `target_version`   | string | Semantic version (`X.Y.Z` or `X.Y.Z-prerelease`) | User-specified target version. When present, overrides auto-detection and becomes the skill's version. Recommended for docs-only skills where auto-detection is unavailable.                                                   |
+| `target_ref`       | string | Git ref (tag or branch)                          | Optional. Explicit git ref used verbatim as the resolved `source_ref`, bypassing version-to-tag matching. Escape hatch for monorepo crate tags whose prefix differs from the skill name (e.g. tag `livekit/v0.7.42` for skill `livekit-rust`). Remote sources only. |
 | `source_authority` | string | `official` / `community` / `internal`            | Default `community`. Set to `official` only when the skill creator is the library maintainer. Forced to `community` when `source_type: "docs-only"`.                                                                           |
 | `source_ref`       | string | Git ref (tag/branch/HEAD)                        | Resolved git ref used for source access. Set automatically during tag resolution — do not set manually.                                                                                                                        |
 | `scope.tier_a_include` | array | Glob patterns                                 | Optional. Narrower tier-A include list for stratified-scope monorepo skills. When present, `skf-test-skill` re-derives the coverage denominator from this list instead of the coarse `scope.include`, so the denominator reflects the authoring surface rather than incidentally-matched internal infrastructure. See `skf-test-skill/references/source-access-protocol.md` stratified-scope resolution. |
@@ -191,6 +192,7 @@ scope:
     - "{pattern}"
   notes: "{optional-scope-notes}"
 # target_version: "X.Y.Z"       # Optional: overrides auto-detection when specified
+# target_ref: "livekit/v0.7.42" # Optional: explicit git ref, used verbatim (monorepo crate tags)
 # source_ref: "v0.5.0"          # Auto-resolved — do not set manually
 # Optional: documentation URLs for T3 content (required when source_type: "docs-only")
 # doc_urls:

@@ -93,7 +93,7 @@ Then run CCC indexing and discovery on the resolved clone (workspace or ephemera
 
 1. **Check existing index:** If `{remote_clone_path}/.cocoindex_code/` already exists (workspace repo with a persisted CCC index), skip steps 2-3 and proceed directly to step 4 using `ccc search --refresh` instead of plain `ccc search`. The `--refresh` flag tells CCC to re-index if files have changed since the last index, then search. This is the fast path for workspace repos that have been indexed before. **Note:** If `--refresh` is not supported by the installed ccc version, omit the flag — ccc will use the existing index.
 
-2. **Initialize index (first time only):** Run `cd {remote_clone_path} && ccc init`. If init fails, set `{ccc_discovery: []}` and continue — this is not an error.
+2. **Initialize index (first time only):** Run `cd {remote_clone_path} && ccc init`. If init exits non-zero with `A parent directory has a project marker` — the common case when the clone is nested under a ccc-indexed project (e.g. a `.forge-sources/` checkout inside this repo) — re-run as `cd {remote_clone_path} && ccc init -f` to initialize at the subtree anyway (same handling as step 7 §6b). If init fails for any other reason, or the `-f` retry also fails, set `{ccc_discovery: []}` and continue — this is not an error.
 
    **Apply standard exclusions:** After `ccc init`, apply generic build/dependency exclusions to `{remote_clone_path}/.cocoindex_code/settings.yml`. These are standard artifact patterns, NOT SKF-specific paths (the workspace checkout is a source repo, not an SKF project):
 

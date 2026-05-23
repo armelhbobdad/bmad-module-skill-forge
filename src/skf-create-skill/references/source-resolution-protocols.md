@@ -6,9 +6,11 @@ Every shell snippet in this document uses `{...}` placeholders for paths. **Alwa
 
 ## Tag Resolution
 
-Tag resolution maps a declared version in the brief onto a concrete git ref before cloning, so the skill is built from code matching its declared version. Two paths trigger tag resolution: an **explicit** `brief.target_version` (deliberate user intent) or an **implicit** `brief.version` (auto-populated hint from `brief-skill`). Both apply only when `source_repo` is a remote URL.
+Tag resolution maps a declared version in the brief onto a concrete git ref before cloning, so the skill is built from code matching its declared version. Three signals can drive it, in priority order: an explicit `brief.target_ref` (a ref the user states verbatim — highest priority), an **explicit** `brief.target_version` (deliberate user intent), or an **implicit** `brief.version` (auto-populated hint from `brief-skill`). All apply only when `source_repo` is a remote URL.
 
-**When neither `brief.target_version` nor `brief.version` is set:** skip tag resolution entirely. Set `source_ref` to `HEAD` (default branch).
+**Explicit ref override (when `target_ref` is set):** When `brief.target_ref` is present AND `source_repo` is a remote URL, use its value verbatim as `source_ref` and skip all version-to-tag matching below. This is the escape hatch for ref conventions the matching heuristics don't cover — notably monorepo crate tags whose prefix differs from the skill name (e.g. skill `livekit-rust` built from tag `livekit/v0.7.42`). Confirm it resolves first: `git ls-remote "{source_repo}" "{target_ref}"` (matches a tag or branch) — if it returns nothing, ⚠️ warn "`target_ref` ({target_ref}) does not resolve in {source_repo}; falling back to version matching" and continue with the version-based matching below.
+
+**When none of `brief.target_ref`, `brief.target_version`, or `brief.version` is set:** skip tag resolution entirely. Set `source_ref` to `HEAD` (default branch).
 
 ### Explicit Tag Resolution (when target_version is set)
 
@@ -22,6 +24,7 @@ When `brief.target_version` is present AND `source_repo` is a remote URL, resolv
    - **Exact match:** `{target_version}` (e.g., `0.5.0`)
    - **With `v` prefix:** `v{target_version}` (e.g., `v0.5.0`)
    - **With package scope (monorepos):** `{brief.name}@{target_version}` or `@{scope}/{brief.name}@{target_version}`
+   - **With crate/package-directory prefix (monorepos):** `{brief.name}/v{target_version}`, `{brief.name}/{target_version}`, or `{brief.name}-v{target_version}` (e.g. `tokio/v1.0.0`). Covers monorepos whose tags are prefixed by the crate/package directory **when that directory equals the skill name**. When the directory differs from the skill name (e.g. crate `livekit` for skill `livekit-rust`, tag `livekit/v0.7.42`), this heuristic can't infer it — set `target_ref` explicitly instead.
 
 3. **Resolution outcomes:**
    - **Single match:** Store the matched tag as `source_ref`. Use it as `{branch}` in all subsequent clone/API commands.
