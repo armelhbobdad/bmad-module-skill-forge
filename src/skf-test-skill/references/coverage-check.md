@@ -167,7 +167,16 @@ Parent strips wrapping markdown fences (if present) before parsing, same as §1a
 
 After the source-code analysis (§2) completes, compute `total_exports` — the count of exports discovered in the source / provenance-map / metadata.json, per the stratified-scope and State 2 rules resolved in §4.
 
-**If `total_exports == 0` AND `docs_only_mode == false`:** HALT with:
+**Stack-skill branch (`metadata.json.skill_type == "stack"`):** A stack skill's own barrel is empty by design — it composes constituent skills rather than exporting a proprietary surface — so `total_exports` derived from its own barrel is `0` for a *correctly* built stack, and its `[from skill: …]` citations never trip §0's `[EXT:…]`-only docs-only trigger. The zero-exports HALT below targets individual source-based skills and must NOT fire for stacks. Derive the stack's coverage denominator (`stack_denominator`) from its composition surface, in priority order, and use it as `total_exports` for the rest of coverage scoring:
+
+1. Provenance-map cited-contract count — when `{forge_data_folder}/{skill_name}/provenance-map.json` exists **and its `entries[]` is non-empty**: count the named cited contracts, **excluding entries whose `export_name` contains `::`** (impl-block methods roll up under an already-counted type). Use the same exclusion as §4b's named-export rule so the §2b and §4b stack denominators agree.
+2. Otherwise the composition surface from `metadata.json`: `len(libraries) + len(integration_pairs)`.
+
+**If `stack_denominator == 0`** (no provenance-map or empty `entries[]`, AND `libraries` and `integration_pairs` are both empty): HALT with `Error: stack composition surface empty — {skill_name} cites no contracts, libraries, or integration pairs, so Export Coverage is undefined. Verify the stack was compiled from at least one constituent skill.` Do not write the Coverage Analysis section; this is an indeterminate state, not a FAIL.
+
+Otherwise carry `stack_denominator` forward as `total_exports`, skip the HALT below, and continue — §2c and §4b consume this same denominator via their own stack-skill branches. (Stacks route to contextual mode per `detect-mode.md` and have a dedicated section in `scoring-rules.md`, so they are first-class — the indeterminate-surface HALT is an individual-skill guard only.)
+
+**If `total_exports == 0` AND `docs_only_mode == false` AND `metadata.json.skill_type != "stack"`:** HALT with:
 
 ```
 Error: indeterminate API surface — 0 exports discovered in source for {skill_name}.
@@ -189,6 +198,8 @@ Do not write the Coverage Analysis section. Do not proceed to scoring. This is a
 ### 2c. Reconcile Documented vs Source Surface (Deterministic Intersection)
 
 On a split-body skill the §1 inventory (documented surface) and the §2 AST output (source barrel) are two independent lists, so the `Documented` count must be their **intersection**, not a parent estimate. Compute three sets deterministically so the Export Coverage numerator is reproducible across runs and reviewers:
+
+**Stack-skill branch (`metadata.json.skill_type == "stack"`):** A stack's source barrel is empty by design, so `barrel_set` is `{}` and the `|documented_set ∩ barrel_set|` / `|barrel_set|` formulas in steps 3–4 would divide by zero. Do NOT use the source barrel for a stack. Instead use the §2b `stack_denominator` as the denominator and compute the numerator by full-grep verification (same mechanism as the scalar-denominator branch below): enumerate the stack's composition-surface names — the provenance-map cited-contract names (`::`-excluded) when the map exists and is non-empty, else the `libraries` and `integration_pairs` names — and for each, grep across `SKILL.md ∪ references/*.md`; `Documented` := the count that appear at least once. Set `Missing` := `stack_denominator − Documented` and omit `Stale` (no source barrel to enumerate against). Carry these into §3/§4 with `Export Coverage = Documented / stack_denominator * 100`, and skip steps 1–4 below.
 
 1. **`documented_set`** := the de-duplicated set of `name` from the §1 inventory `exports[]`, excluding `kind: "method"` (methods are members of an already-counted class/type, not top-level barrel exports).
 2. **`barrel_set`** := the union of `exports_found[]` across every §2 per-file result (the actual source public surface). When a stratified-scope or State-2 denominator applies (see §4) **and it resolves to an enumerated name set** — the priority-2/3 re-derivation from `scope.tier_a_include` / `scope.include` globs — `barrel_set` is that resolved denominator's name set instead of the raw union.
@@ -260,6 +271,8 @@ suspects denominator gaming has the evidence inline.
 ### 4b. Metadata Export-Count Coherence Cross-Check
 
 After the denominator has been resolved (standard, stratified, or State 2), cross-check export counts *within each semantic cluster* to detect extraction drift without false-positiving on intentional multi-denominator reporting. Picking the denominator silently when sources disagree is a known friction — the tester cannot tell whether to trust the pick, ignore the drift, or report it. Make it explicit, but only for counts that are authored to measure the *same* surface.
+
+**Stack-skill branch (`metadata.json.skill_type == "stack"`):** Skip the intra-cluster and cross-cluster count comparisons, the `confidence_distribution` sum check, AND the numerator ground-truth check below — none apply to a stack. For a stack the three counts measure intentionally *different* surfaces, so comparing them yields only false drift: `exports_documented` / `exports[]` measure the stack's own barrel (empty by design → `0`), the provenance-map enumerates the cited *constituent* contracts, and `confidence_distribution` bins those constituents — so for a stack treat `confidence_distribution` as a per-constituent count (it sums to the constituent count, not to `exports_documented`) and do not assert it against `exports_documented`. The numerator-inflation arm below targets an *individual* skill whose `exports_documented` was padded to equal `effective_denominator`; a stack's numerator is instead computed by full-grep in §2c's stack-skill branch and stack `metadata.json.stats` carries no `effective_denominator`, so the arm is not run. Record the denominator using the §2b source — `Denominator: stack composition ({N} cited contracts)` when the provenance-map supplied it, or `Denominator: stack composition ({N} libraries + integration pairs)` when the composition surface did — then proceed.
 
 **Collect available counts (skip any that are absent) and bin them into two clusters:**
 
