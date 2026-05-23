@@ -42,6 +42,21 @@ Parse the architecture document for statements describing two or more technologi
 - Each pair: `{library_a, library_b, architectural_context}`
 - `architectural_context`: the quoted text or paraphrased description of their relationship
 
+### 2b. Establish Document Scope
+
+The skill inventory (Step 01 §2) can span a wider product surface than the architecture document under refinement. Pairs drawn from a different surface are NOT actionable gaps for THIS document — surfacing them injects irrelevant integration recommendations (e.g. wiring real-time A/V libraries into an admin-dashboard architecture).
+
+Resolve the in-scope skill set:
+
+- **If `{scope_skills}` was provided** (via `--scope-skills`, resolved in Step 01 §1): use it verbatim as `{in_scope_skills}` — it is authoritative.
+- **Otherwise derive:** `{in_scope_skills}` = every inventory skill whose name or primary technology is referenced anywhere in the architecture document (reuse the technology references parsed in §2; match on skill name and library/technology keywords, case-insensitive, word-boundary). Be conservative — when a skill's relevance is ambiguous, treat it as **in-scope**. Surfacing a borderline gap is safer than burying a real one.
+
+`{out_of_scope_skills}` = inventory skills not in `{in_scope_skills}`. A library pair is **out-of-scope** when either of its libraries is in `{out_of_scope_skills}`.
+
+**Safe default:** If scope cannot be derived (e.g. the architecture references no inventory skill by name) and no `{scope_skills}` was provided, treat ALL skills as in-scope and note: "Could not derive document scope — analyzing all skill pairs." This preserves prior behavior rather than hiding gaps.
+
+Store `{in_scope_skills}` and `{out_of_scope_skills}` as workflow state — Step 03 (issue detection) reuses them.
+
 ### 3. Generate All Possible Library Pairs
 
 From the skill inventory, generate all unique combinations of library pairs.
@@ -89,7 +104,9 @@ For each possible library pair NOT already documented in the architecture:
 - Do both libraries share a compatible protocol or data format?
 - Are they in the same language or is there a bridge mechanism available?
 
-**If compatible APIs exist but NO architecture mention:**
+**Scope routing (from §2b):** Before classifying, check the pair's scope. If the pair is **out-of-scope** (either library is in `{out_of_scope_skills}`), do NOT add it to the gap list even when its APIs are compatible — record it in the informational **Out-of-Scope** bucket instead (a compatible pair that belongs to a different product surface than this architecture). Only **in-scope** pairs proceed to gap classification below.
+
+**If compatible APIs exist (in-scope pair) but NO architecture mention:**
 - Classify the gap type (Missing Integration Path, Undocumented Data Flow, or Absent Bridge Layer)
 - Document the connecting APIs from both skills
 - Propose a brief architecture section describing the integration
@@ -112,7 +129,7 @@ Suggestion: {proposed architecture section content}
 
 "**Pass 1: Gap Analysis — Undocumented Integration Paths**
 
-**Gaps Found:** {count}
+**Gaps Found (in-scope):** {count}
 
 {IF gaps found:}
 | # | Library A | Library B | Gap Type | Connecting APIs |
@@ -121,15 +138,24 @@ Suggestion: {proposed architecture section content}
 
 {For each gap, display the full citation with evidence and suggestion}
 
+{IF out-of-scope compatible pairs exist (from §2b/§5):}
+**Out of scope for this document:** {oos_count} compatible pair(s) involve skills outside this architecture's surface — `{out_of_scope_skills}` — and were NOT counted as gaps. Listed for awareness only:
+
+| Library A | Library B | Reason |
+|-----------|-----------|--------|
+| {lib_a} | {lib_b} | out-of-scope — not referenced in this architecture |
+
+If any of these belongs in this architecture, re-run with `--scope-skills` naming the skills to include.
+
 {IF no gaps found AND N > 1:}
-**No undocumented integration paths detected.** The architecture document covers all compatible library pairs.
+**No undocumented integration paths detected.** The architecture document covers all compatible in-scope library pairs.
 
 {IF no gaps found AND N == 1:}
 **⚠️ Gap analysis skipped — only 1 skill loaded.** Pairwise integration analysis requires at least 2 skills. If the architecture references multiple libraries, those without a matching skill are invisible to gap analysis. **Recommendation:** Generate skills for all architecture libraries with [CS] or [QS] before running [RA] for comprehensive gap detection.
 
 **Proceeding to issue detection (still produces value with 1 skill)...**"
 
-Store all gap findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-GAPS] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted gap findings** (full citation blocks with evidence and suggestions, not just counts) — Step 05 can read this back if context degrades. **Do NOT write to `{output_folder}/refined-architecture-{project_name}.md` — that file is created only in step 5.**
+Store all **in-scope** gap findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-GAPS] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted gap findings** (full citation blocks with evidence and suggestions, not just counts) — Step 05 can read this back if context degrades. Record out-of-scope pairs under a separate `<!-- [RA-OUT-OF-SCOPE] ... -->` marker (NOT `[RA-GAPS]`) so Step 05 does not compile them into the refined document — they are informational only. **Do NOT write to `{output_folder}/refined-architecture-{project_name}.md` — that file is created only in step 5.**
 
 ### 7. Auto-Proceed to Next Step
 

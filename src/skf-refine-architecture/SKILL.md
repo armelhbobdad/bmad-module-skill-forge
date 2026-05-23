@@ -49,7 +49,7 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | architecture_doc_path [required], vs_report_path [optional] |
-| **Flags** | `--headless` / `-H` (auto-resolve all gates); `--architecture-doc <path>` (skip step 1 prompt for the required input); `--vs-report-path <path>` (skip step 1 prompt for the optional VS report) |
+| **Flags** | `--headless` / `-H` (auto-resolve all gates); `--architecture-doc <path>` (skip step 1 prompt for the required input); `--vs-report-path <path>` (skip step 1 prompt for the optional VS report); `--scope-skills <names>` (comma-separated in-scope skill names; overrides scope derivation in gap analysis) |
 | **Gates** | step 1: Input Gate [use args] | step 5: Review Gate [C] |
 | **Outputs** | `refined-architecture-{project_name}.md` at `{outputFolderPath}`, plus `refine-architecture-result-{timestamp}.json` and `refine-architecture-result-latest.json` |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. Per-flag args (`--architecture-doc`, `--vs-report-path`) consumed at the gates that would otherwise prompt. |
