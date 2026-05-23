@@ -29,7 +29,7 @@ Write all deliverable and workspace artifact files to their target directories.
 
 ### 1. Resolve Paths and Stage Target Directory
 
-Resolve `{version}` from the primary library version or default to `1.0.0` (see S11 in "Primary library" note below). The final artifact paths are:
+Resolve `{version}` per S11 below — the primary library version in code-mode, or the stack-local scheme in compose-mode (`1.0.0` for a new stack, or a bump of `{prior_stack_version}` on re-composition). The final artifact paths are:
 
 ```
 {skill_group}                          # {skills_output_folder}/{project_name}-stack/
@@ -41,13 +41,22 @@ Resolve `{version}` from the primary library version or default to `1.0.0` (see 
 
 Where the skill name is `{project_name}-stack` and `{version}` is the semver version (with build metadata stripped per `knowledge/version-paths.md`).
 
-**Primary library definition (S11):** In code-mode, the primary library is the dependency with the highest import count from step 3; its `version` (from the manifest) becomes `{primary_library_version}`, falling back to `1.0.0` if unavailable. In compose-mode, the stack carries its own release identity: default `{version}` to `1.0.0` (a stack-local scheme) — do NOT borrow the highest constituent semver. Constituent versions are preserved in `dependencies[]`, so no information is lost, and the package no longer reads as tracking whichever constituent happened to have the highest version.
+**Primary library definition (S11):** In code-mode, the primary library is the dependency with the highest import count from step 3; its `version` (from the manifest) becomes `{primary_library_version}`, falling back to `1.0.0` if unavailable. In compose-mode, the stack carries its own release identity: default `{version}` to `1.0.0` (a stack-local scheme) — do NOT borrow the highest constituent semver. Constituent versions are preserved in `dependencies[]`, so no information is lost, and the package no longer reads as tracking whichever constituent happened to have the highest version. The `1.0.0` default applies only to a **genuinely new** stack — see the re-composition rule below.
+
+**Re-composition versioning (S11, compose-mode):** When the S3 pre-flight resolves a `{prior_stack_version}` (re-composing a stack that already has a release line), continue that line instead of resetting — defaulting to `1.0.0` would publish a version *below* the existing release (e.g. `1.0.0` shadowing a prior `3.0.5`, a backward jump). Bump `{prior_stack_version}`:
+
+- **Major** if any library in `{prior_libraries}` is removed or replaced — dropping a documented library is breaking for consumers of the stack.
+- **Minor** otherwise — libraries only added, and/or integration content changed (backward-compatible).
+
+Never emit a `{version}` ≤ `{prior_stack_version}`. Narrate the resolved version and the bump rationale.
 
 **Pre-flight: group-dir type check (S3):** If `{skills_output_folder}/{project_name}-stack/` already exists, probe `{skills_output_folder}/{project_name}-stack/active/{project_name}-stack/metadata.json`. If that metadata exists and `skill_type != "stack"`, HALT with:
 
 "**Cannot proceed.** `{skills_output_folder}/{project_name}-stack/` exists but is not a stack skill (`skill_type={found_type}`). Rename the existing directory or choose a different `project_name` to avoid collision."
 
 Do NOT proceed to staging or commit.
+
+If that metadata exists and `skill_type == "stack"`, this run is a **re-composition**: capture its `version` as `{prior_stack_version}` and its `libraries` array as `{prior_libraries}` for the S11 re-composition rule above. If the group dir is absent — or exists but has no resolvable `active` stack metadata — treat this as a new stack and leave `{prior_stack_version}` unset.
 
 **Atomic write strategy (C2 / B5):** All artifact writes for `{skill_package}` MUST stage into a temp directory first, then commit atomically via `skf-atomic-write.py commit-dir`. The active symlink flip only happens AFTER the commit succeeds.
 
@@ -112,7 +121,7 @@ Write `{skill_staging}/context-snippet.md`:
 Use the Vercel-aligned indexed format targeting **~80-120 tokens** (M2). Token estimation is heuristic — use `ceil(char_count / 4)` as the working approximation (the standard rule-of-thumb for English text in BPE-style tokenizers; precise counts differ per model). Compute against the rendered snippet body (excluding trailing newline).
 
 ```
-[{project_name}-stack v{version — in code-mode: primary_library_version or 1.0.0; in compose-mode: 1.0.0 (stack-local scheme, per S11)}]|root: skills/{project_name}-stack/
+[{project_name}-stack v{version — per S11: code-mode primary_library_version or 1.0.0; compose-mode stack-local scheme — 1.0.0 for a new stack, or the bumped {prior_stack_version} on re-composition}]|root: skills/{project_name}-stack/
 |IMPORTANT: {project_name}-stack — read SKILL.md before writing integration code. Do NOT rely on training data.
 |stack: {dep-1}@{v1}, {dep-2}@{v2}, {dep-3}@{v3}
 |integrations: {pattern-1}, {pattern-2}
@@ -144,7 +153,7 @@ Populate all fields from the metadata.json schema defined in `{stackSkillTemplat
 {
   "skill_type": "stack",
   "name": "{project_name}-stack",
-  "version": "{version — resolved per S11: code-mode primary_library_version or 1.0.0; compose-mode 1.0.0}",
+  "version": "{version — resolved per S11: code-mode primary_library_version or 1.0.0; compose-mode 1.0.0 (new stack) or bumped {prior_stack_version} (re-composition)}",
   "generation_date": "{current_date}",
   "forge_tier": "{Quick|Forge|Forge+|Deep — the tier under which this run executed}",
   "confidence_tier": "{T1|T1-low|T2|T3 — dominant T-code from confidence_distribution below}",
