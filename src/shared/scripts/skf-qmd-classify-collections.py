@@ -89,6 +89,9 @@ import yaml
 FORGE_SUFFIXES = ("-brief", "-temporal", "-docs", "-extraction")
 FOREIGN_SAMPLE_CAP = 5
 
+# Header line emitted by newer qmd builds, e.g. "Collections (56):".
+_QMD_HEADER_RE = re.compile(r"^Collections \(\d+\):\s*$")
+
 
 def _die(code: int, message: str) -> None:
     print(json.dumps({"status": "error", "message": message}), file=sys.stderr)
@@ -184,6 +187,31 @@ def classify(live: list[str], registry: list[str]) -> dict:
     }
 
 
+def parse_collection_list_output(raw: str) -> list[str]:
+    """Extract collection names from `qmd collection list` stdout.
+
+    qmd's output format varies by version. Newer builds print a
+    `Collections (N):` header, a blank line between entries, each entry as
+    `<name> (qmd://<name>/)`, and indented metadata lines (`  Pattern:`,
+    `  Files:`). Older builds print one bare name per line. Both layouts are
+    handled: skip blank lines, the header, and indented metadata, then take
+    the first whitespace-delimited token of each remaining line — that strips
+    the trailing ` (qmd://name/)` URI and is a no-op for the bare-name form.
+    Without this, suffixed entries fail the `is_forge_owned` suffix check and
+    every forge collection is mis-classified as foreign.
+    """
+    names: list[str] = []
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        if line[0].isspace():  # indented per-collection metadata
+            continue
+        if _QMD_HEADER_RE.match(line):
+            continue
+        names.append(line.split()[0])
+    return names
+
+
 def fetch_live_names_from_qmd() -> tuple[list[str], str | None]:
     """Invoke `qmd collection list` and return (names, error).
 
@@ -205,9 +233,7 @@ def fetch_live_names_from_qmd() -> tuple[list[str], str | None]:
         return [], f"qmd collection list failed: {e}"
     if result.returncode != 0:
         return [], f"qmd collection list exited {result.returncode}: {result.stderr.strip() or '<no stderr>'}"
-    # Each non-empty line is a collection name (qmd's stable contract).
-    names = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-    return names, None
+    return parse_collection_list_output(result.stdout), None
 
 
 def main() -> None:
