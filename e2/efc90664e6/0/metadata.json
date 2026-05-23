@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e2efc90664e6",
+  "session_id": "d3522dbf-ac94-4433-8bcc-aee028c86703",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-23T06:37:39.608011173Z",
+  "branch": "fix/skf-brief-portfolio-similarity-robustness",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/references/portfolio-similarity-check.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "3d5d9affb6d5",
+  "token_usage": {
+    "input_tokens": 62,
+    "cache_creation_tokens": 208615,
+    "cache_read_tokens": 2835630,
+    "output_tokens": 50363,
+    "api_call_count": 31
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-23T06:37:39.051559824Z",
+    "agent_lines": 15,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 15,
+    "agent_percentage": 100
+  }
+}

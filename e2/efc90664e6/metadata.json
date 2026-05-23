@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e2efc90664e6",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-brief-portfolio-similarity-robustness",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-brief-skill/references/portfolio-similarity-check.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e2/efc90664e6/0/metadata.json",
+      "transcript": "/e2/efc90664e6/0/full.jsonl",
+      "context": "/e2/efc90664e6/0/context.md",
+      "content_hash": "/e2/efc90664e6/0/content_hash.txt",
+      "prompt": "/e2/efc90664e6/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 62,
+    "cache_creation_tokens": 208615,
+    "cache_read_tokens": 2835630,
+    "output_tokens": 50363,
+    "api_call_count": 31
+  }
+}
