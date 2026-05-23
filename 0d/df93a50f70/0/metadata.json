@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0ddf93a50f70",
+  "session_id": "e641a663-089c-4be8-a0fc-0b4adfcdc620",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-23T16:31:33.716448816Z",
+  "branch": "fix/skf-export-stdin-and-test-rust-denominator",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-test-skill/references/source-access-protocol.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "017240a135ef",
+  "token_usage": {
+    "input_tokens": 46,
+    "cache_creation_tokens": 86737,
+    "cache_read_tokens": 1673694,
+    "output_tokens": 31625,
+    "api_call_count": 23
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-23T16:31:33.407373256Z",
+    "agent_lines": 6,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 6,
+    "agent_percentage": 100
+  }
+}

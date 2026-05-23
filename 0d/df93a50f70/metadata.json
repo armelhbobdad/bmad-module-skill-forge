@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0ddf93a50f70",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-export-stdin-and-test-rust-denominator",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-test-skill/references/source-access-protocol.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0d/df93a50f70/0/metadata.json",
+      "transcript": "/0d/df93a50f70/0/full.jsonl",
+      "context": "/0d/df93a50f70/0/context.md",
+      "content_hash": "/0d/df93a50f70/0/content_hash.txt",
+      "prompt": "/0d/df93a50f70/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 46,
+    "cache_creation_tokens": 86737,
+    "cache_read_tokens": 1673694,
+    "output_tokens": 31625,
+    "api_call_count": 23
+  }
+}
