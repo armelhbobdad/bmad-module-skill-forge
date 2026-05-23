@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "4a6a10eadaf4",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-refine-architecture-gap-scope-filter",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-refine-architecture/SKILL.md",
+    "src/skf-refine-architecture/references/gap-analysis.md",
+    "src/skf-refine-architecture/references/init.md",
+    "src/skf-refine-architecture/references/issue-detection.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/4a/6a10eadaf4/0/metadata.json",
+      "transcript": "/4a/6a10eadaf4/0/full.jsonl",
+      "context": "/4a/6a10eadaf4/0/context.md",
+      "content_hash": "/4a/6a10eadaf4/0/content_hash.txt",
+      "prompt": "/4a/6a10eadaf4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 48,
+    "cache_creation_tokens": 40691,
+    "cache_read_tokens": 4084954,
+    "output_tokens": 27813,
+    "api_call_count": 24
+  }
+}

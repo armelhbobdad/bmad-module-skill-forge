@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "4a6a10eadaf4",
+  "session_id": "5f753dde-9ec8-4ab7-b78c-a185d2fcd32c",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-23T20:23:02.697803769Z",
+  "branch": "fix/skf-refine-architecture-gap-scope-filter",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-refine-architecture/SKILL.md",
+    "src/skf-refine-architecture/references/gap-analysis.md",
+    "src/skf-refine-architecture/references/init.md",
+    "src/skf-refine-architecture/references/issue-detection.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "f26fb6dd30ff",
+  "checkpoint_transcript_start": 307,
+  "transcript_lines_at_start": 307,
+  "token_usage": {
+    "input_tokens": 48,
+    "cache_creation_tokens": 40691,
+    "cache_read_tokens": 4084954,
+    "output_tokens": 27813,
+    "api_call_count": 24
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-23T20:23:02.310141062Z",
+    "agent_lines": 41,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 41,
+    "agent_percentage": 100
+  }
+}
