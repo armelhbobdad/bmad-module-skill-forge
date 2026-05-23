@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "69667f1b0427",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-export-context-atomicity-and-manifest-envelope",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/shared/scripts/skf-rebuild-managed-sections.py",
+    "test/test-skf-rebuild-managed-sections.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/69/667f1b0427/0/metadata.json",
+      "transcript": "/69/667f1b0427/0/full.jsonl",
+      "context": "/69/667f1b0427/0/context.md",
+      "content_hash": "/69/667f1b0427/0/content_hash.txt",
+      "prompt": "/69/667f1b0427/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 102,
+    "cache_creation_tokens": 217871,
+    "cache_read_tokens": 5378410,
+    "output_tokens": 47232,
+    "api_call_count": 51
+  }
+}
