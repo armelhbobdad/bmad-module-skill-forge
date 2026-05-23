@@ -114,6 +114,7 @@ async function testFreshInstall() {
     const configContent = yaml.load(await fs.readFile(configPath, 'utf8'));
     assert(configContent.project_name === 'test-project', 'config.yaml has correct project_name');
     assert(configContent.skills_output_folder === 'skills', 'config.yaml has correct skills_output_folder');
+    assert(configContent.output_folder === '_bmad-output', 'config.yaml has output_folder (inherited from core config)');
     assert(Array.isArray(configContent.ides) && configContent.ides.includes('claude-code'), 'config.yaml has IDEs');
 
     // Verify skills installed to IDE directory (.claude/skills/)
