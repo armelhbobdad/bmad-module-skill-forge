@@ -66,6 +66,8 @@ For each extracted claim, load the relevant skill(s) and check:
 
 If `vs_report_available` is true:
 
+**Scope filter (reuse `{out_of_scope_skills}` from Step 02 §2b):** The VS report carries verdicts across the entire skill set, which may exceed this architecture's surface. Before promoting any verdict, check the pair's scope — if a verdict is for an **out-of-scope** pair (either library in `{out_of_scope_skills}`), do NOT promote it to an issue for THIS architecture; record it under the informational Out-of-Scope bucket instead. Only **in-scope** pairs' verdicts are promoted by the rules below.
+
 **Load the VS feasibility report and extract verdicts:**
 - **Risky verdicts** (match case-insensitively: "Risky", "RISKY", "risky"): Promote to confirmed issues with the VS evidence as additional citation
 - **Blocked verdicts** (match case-insensitively: "Blocked", "BLOCKED", "blocked"): Promote to critical issues requiring architecture redesign
@@ -100,7 +102,7 @@ Suggestion: {specific correction with API evidence}
 
 "**Pass 2: Issue Detection — Architecture vs. API Reality**
 
-**Issues Found:** {count} ({critical_count} critical, {major_count} major, {minor_count} minor)
+**Issues Found (in-scope):** {count} ({critical_count} critical, {major_count} major, {minor_count} minor)
 
 {IF issues found:}
 | # | Libraries | Issue Type | Severity | Summary |
@@ -109,12 +111,15 @@ Suggestion: {specific correction with API evidence}
 
 {For each issue, display the full citation with evidence and suggestion}
 
+{IF out-of-scope VS verdicts were set aside (from §4):}
+**Out of scope for this document:** {oos_issue_count} VS verdict(s) involve skills outside this architecture's surface (`{out_of_scope_skills}`) and were NOT counted as issues. Listed for awareness only — re-run with `--scope-skills` if any belongs in scope.
+
 {IF no issues found:}
-**No contradictions detected.** Architecture claims align with verified skill API surfaces.
+**No contradictions detected.** Architecture claims align with verified in-scope skill API surfaces.
 
 **Proceeding to improvement detection...**"
 
-Store all issue findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-ISSUES] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted issue findings** (full citation blocks with architecture claims, skill evidence, VS verdicts, severity, and suggestions — not just counts) — Step 05 can read this back if context degrades. **Do NOT write to `{output_folder}/refined-architecture-{project_name}.md` — that file is created only in step 5.**
+Store all **in-scope** issue findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-ISSUES] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted issue findings** (full citation blocks with architecture claims, skill evidence, VS verdicts, severity, and suggestions — not just counts) — Step 05 can read this back if context degrades. Record any out-of-scope VS verdicts under the shared `<!-- [RA-OUT-OF-SCOPE] ... -->` marker (NOT `[RA-ISSUES]`) so Step 05 does not compile them — they are informational only. **Do NOT write to `{output_folder}/refined-architecture-{project_name}.md` — that file is created only in step 5.**
 
 ### 7. Auto-Proceed to Next Step
 

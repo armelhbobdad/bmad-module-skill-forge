@@ -51,6 +51,8 @@ Wait for user input. Store the validated architecture document path as `architec
 - If missing at user-provided path: attempt auto-probe (below) before giving up
 - Store VS report availability as `vs_report_available: true|false` and `vs_report_path`
 
+**Scope hint (optional, `--scope-skills`):** If `--scope-skills <names>` was provided, store the parsed comma-separated list as `{scope_skills}` — gap analysis (Step 02 §2b) uses it as the authoritative in-scope skill set. If absent, leave `{scope_skills}` empty; Step 02 derives scope from the architecture document instead.
+
 ### 2. Scan Skills Folder
 
 **Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins.
