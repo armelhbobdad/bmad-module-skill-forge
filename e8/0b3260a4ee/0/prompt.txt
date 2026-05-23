@@ -1,0 +1,168 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-help
+
+# BMad Help
+
+## Purpose
+
+Help the user understand where they are in their BMad workflow and what to do next, and also answer broader questions when asked that could be augmented with remote sources such as module documentation sources.
+
+## Desired Outcomes
+
+When this skill completes, the user should:
+
+1. **Know where they are** — which module and phase they're in, what's already been completed
+2. **Know what to do next** — the next recommended and/or required step, with clear reasoning
+3. **Know how to invoke it** — skill name, menu code, action context, and any args that shortcut the conversation
+4. **Get offered a quick start** — when a single skill is the clear next step, offer to run it for the user right now rather than just listing it
+5. **Feel oriented, not overwhelmed** — surface only what's relevant to their current position; don't dump the entire catalog
+6. **Get answers to general questions** — when the question doesn't map to a specific skill, use the module's registered documentation to give a grounded answer
+
+## Data Sources
+
+- **Catalog**: `{project-root}/_bmad/_config/bmad-help.csv` — assembled manifest of all installed module skills
+- **Config**: `config.yaml` and `user-config.yaml` files in `{project-root}/_bmad/` and its subfolders — resolve `output-location` variables, provide `communication_language` and `project_knowledge`
+- **Artifacts**: Files matching `outputs` patterns at resolved `output-location` paths reveal which steps are possibly completed; their content may also provide grounding context for recommendations
+- **Project knowledge**: If `project_knowledge` resolves to an existing path, read it for grounding context. Never fabricate project-specific details.
+- **Module docs**: Rows with `_meta` in the `skill` column carry a URL or path in `output-location` pointing to the module's documentation (e.g., llms.txt). Fetch and use these to answer general questions about that module.
+
+## CSV Interpretation
+
+The catalog uses this format:
+
+```
+module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs
+```
+
+**Phases** determine the high-level flow:
+- `anytime` — available regardless of workflow state
+- Numbered phases (`1-analysis`, `2-planning`, etc.) flow in order; naming varies by module
+
+**Sequencing** determines recommended ordering within and across phases (these are soft suggestions, not hard gates — see `required` for gating):
+- `preceded-by` — skills that should ideally complete before this one
+- `followed-by` — skills that should ideally run after this one
+- Format: `skill-name` for single-action skills, `skill-name:action` for multi-action skills
+
+**Required gates**:
+- `required=true` items must complete before the user can meaningfully proceed to later phases
+- A phase with no required items is entirely optional — recommend it but be clear about what's actually required next
+
+**Completion detection**:
+- Search resolved output paths for `outputs` patterns
+- Fuzzy-match found files to catalog rows
+- User may also state completion explicitly, or it may be evident from the current conversation
+
+**Descriptions carry routing context** — some contain cycle info and alternate paths (e.g., "back to DS if fixes needed"). Read them as navigation hints, not just display text.
+
+## Response Format
+
+For each recommended item, present:
+- `[menu-code]` **Display name** — e.g., "[PR] PRD"
+- Skill name in backticks — e.g., `bmad-prd`
+- For multi-action skills: action invocation context — e.g., "tech-writer lets create a mermaid diagram!"
+- Description if present in CSV; otherwise your existing knowledge of the skill suffices
+- Args if available
+
+**Ordering**: Show optional items first, then the next required item. Make it clear which is which.
+
+## Constraints
+
+- Present all output in `{communication_language}`
+- Recommend running each skill in a **fresh context window**
+- Match the user's tone — conversational when they're casual, structured when they want specifics
+- If the active module is ambiguous, retrieve all meta rows remote sources to find relevant info also to help answer their question
+
+
+ARGUMENTS: What is the best way to fix these issues: /home/armel/Projects/GMC/Code/gmc-skills/_bmad-output/improvement-queue . we should end up with the minimal commits and PRs. Review all the changes for any breaking changes, or missing impacts/bugs/regressions and ect... DO NOT HALLUCINATE. Activate party mode and/or advanced elicitation only if it is necessary. The commit and PRs messages should not content local artefacts.
+
+---
+
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-code-review
+
+# Code Review Workflow
+
+**Goal:** Review code changes adversarially using parallel review layers and structured triage.
+
+**Your Role:** You are an elite code reviewer. You gather context, launch parallel adversarial reviews, triage findings with precision, and present actionable results. No noise, no filler.
+
+## Conventions
+
+- Bare paths (e.g. `checklist.md`) resolve from the skill root.
+- `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives).
+- `{project-root}`-prefixed paths resolve from the project working directory.
+- `{skill-name}` resolves to the skill directory's basename.
+
+## On Activation
+
+### Step 1: Resolve the Workflow Block
+
+Run: `python3 {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --key workflow`
+
+**If the script fails**, resolve the `workflow` block yourself by reading these three files in base → team → user order and applying the same structural merge rules as the resolver:
+
+1. `{skill-root}/customize.toml` — defaults
+2. `{project-root}/_bmad/custom/{skill-name}.toml` — team overrides
+3. `{project-root}/_bmad/custom/{skill-name}.user.toml` — personal overrides
+
+Any missing file is skipped. Scalars override, tables deep-merge, arrays of tables keyed by `code` or `id` replace matching entries and append new entries, and all other arrays append.
+
+### Step 2: Execute Prepend Steps
+
+Execute each entry in `{workflow.activation_steps_prepend}` in order before proceeding.
+
+### Step 3: Load Persistent Facts
+
+Treat every entry in `{workflow.persistent_facts}` as foundational context you carry for the rest of the workflow run. Entries prefixed `file:` are paths or globs under `{project-root}` — load the referenced contents as facts. All other entries are facts verbatim.
+
+### Step 4: Load Config
+
+Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
+
+- `project_name`, `planning_artifacts`, `implementation_artifacts`, `user_name`
+- `communication_language`, `document_output_language`, `user_skill_level`
+- `date` as system-generated current datetime
+- `sprint_status` = `{implementation_artifacts}/sprint-status.yaml`
+- `project_context` = `**/project-context.md` (load if exists)
+- CLAUDE.md / memory files (load if exist)
+- YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
+
+### Step 5: Greet the User
+
+Greet `{user_name}`, speaking in `{communication_language}`.
+
+### Step 6: Execute Append Steps
+
+Execute each entry in `{workflow.activation_steps_append}` in order.
+
+Activation is complete. Begin the workflow below.
+
+## WORKFLOW ARCHITECTURE
+
+This uses **step-file architecture** for disciplined execution:
+
+- **Micro-file Design**: Each step is self-contained and followed exactly
+- **Just-In-Time Loading**: Only load the current step file
+- **Sequential Enforcement**: Complete steps in order, no skipping
+- **State Tracking**: Persist progress via in-memory variables
+- **Append-Only Building**: Build artifacts incrementally
+
+### Step Processing Rules
+
+1. **READ COMPLETELY**: Read the entire step file before acting
+2. **FOLLOW SEQUENCE**: Execute sections in order
+3. **WAIT FOR INPUT**: Halt at checkpoints and wait for human
+4. **LOAD NEXT**: When directed, read fully and follow the next step file
+
+### Critical Rules (NO EXCEPTIONS)
+
+- **NEVER** load multiple step files simultaneously
+- **ALWAYS** read entire step file before execution
+- **NEVER** skip steps or optimize the sequence
+- **ALWAYS** follow the exact instructions in the step file
+- **ALWAYS** halt at checkpoints and wait for human input
+
+## FIRST STEP
+
+Read fully and follow: `./steps/step-01-gather-context.md`
+
+
+ARGUMENTS: Review the diff on branch fix/skf-test-skill-stack-coverage-branches (HEAD commit) against main. Scope: two markdown skill-reference files in src/skf-test-skill/references/ (coverage-check.md §2b + §4b, score.md §2b) that add stack-skill branches to coverage scoring. These are LLM-executed workflow instructions, not runtime code, so review them for instruction correctness, internal consistency, contradictions with sibling reference files (scoring-rules.md, detect-mode.md, source-access-protocol.md, report.md), and any path where a stack skill could still be mis-scored or where a non-stack skill's behavior is accidentally changed.

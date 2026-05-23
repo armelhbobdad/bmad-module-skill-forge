@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e80b3260a4ee",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-test-skill-stack-coverage-branches",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-test-skill/references/coverage-check.md",
+    "src/skf-test-skill/references/score.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e8/0b3260a4ee/0/metadata.json",
+      "transcript": "/e8/0b3260a4ee/0/full.jsonl",
+      "context": "/e8/0b3260a4ee/0/context.md",
+      "content_hash": "/e8/0b3260a4ee/0/content_hash.txt",
+      "prompt": "/e8/0b3260a4ee/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1996,
+    "cache_creation_tokens": 63325,
+    "cache_read_tokens": 2569209,
+    "output_tokens": 39876,
+    "api_call_count": 20
+  }
+}
