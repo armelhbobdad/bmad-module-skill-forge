@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "9a915915870c",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-create-stack-compose-mode-and-enumerate",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-create-stack-skill/assets/provenance-map-schema.md",
+    "src/skf-create-stack-skill/references/compose-mode-rules.md",
+    "src/skf-create-stack-skill/references/detect-integrations.md",
+    "src/skf-create-stack-skill/references/generate-output.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9a/915915870c/0/metadata.json",
+      "transcript": "/9a/915915870c/0/full.jsonl",
+      "context": "/9a/915915870c/0/context.md",
+      "content_hash": "/9a/915915870c/0/content_hash.txt",
+      "prompt": "/9a/915915870c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 76,
+    "cache_creation_tokens": 226295,
+    "cache_read_tokens": 4094187,
+    "output_tokens": 57895,
+    "api_call_count": 38
+  }
+}

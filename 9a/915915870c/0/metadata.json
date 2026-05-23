@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "9a915915870c",
+  "session_id": "8dfba59e-7895-43ef-837f-884b24dd4c6a",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-23T17:40:42.795266513Z",
+  "branch": "fix/skf-create-stack-compose-mode-and-enumerate",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-create-stack-skill/assets/provenance-map-schema.md",
+    "src/skf-create-stack-skill/references/detect-integrations.md",
+    "src/skf-create-stack-skill/references/compose-mode-rules.md",
+    "src/skf-create-stack-skill/references/generate-output.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "b88632b58a50",
+  "token_usage": {
+    "input_tokens": 76,
+    "cache_creation_tokens": 226295,
+    "cache_read_tokens": 4094187,
+    "output_tokens": 57895,
+    "api_call_count": 38
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-23T17:40:42.39667068Z",
+    "agent_lines": 14,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 14,
+    "agent_percentage": 100
+  }
+}
