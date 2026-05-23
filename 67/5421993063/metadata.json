@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "675421993063",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-verify-stack-schema-ref-and-replaced-coverage",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-verify-stack/SKILL.md",
+    "src/skf-verify-stack/assets/feasibility-report-template.md",
+    "src/skf-verify-stack/references/coverage.md",
+    "src/skf-verify-stack/references/init.md",
+    "src/skf-verify-stack/references/integration-verification-rules.md",
+    "src/skf-verify-stack/references/integrations.md",
+    "src/skf-verify-stack/references/report.md",
+    "src/skf-verify-stack/references/requirements.md",
+    "src/skf-verify-stack/references/synthesize.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/67/5421993063/0/metadata.json",
+      "transcript": "/67/5421993063/0/full.jsonl",
+      "context": "/67/5421993063/0/context.md",
+      "content_hash": "/67/5421993063/0/content_hash.txt",
+      "prompt": "/67/5421993063/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 104,
+    "cache_creation_tokens": 104360,
+    "cache_read_tokens": 4556075,
+    "output_tokens": 54739,
+    "api_call_count": 52
+  }
+}

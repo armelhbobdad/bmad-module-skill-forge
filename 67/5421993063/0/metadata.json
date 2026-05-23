@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "675421993063",
+  "session_id": "1e132c75-9e74-4459-a447-fe6d8ce2d2dc",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-23T19:19:21.070832164Z",
+  "branch": "fix/skf-verify-stack-schema-ref-and-replaced-coverage",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-verify-stack/references/init.md",
+    "src/skf-verify-stack/references/coverage.md",
+    "src/skf-verify-stack/references/synthesize.md",
+    "src/skf-verify-stack/references/requirements.md",
+    "src/skf-verify-stack/references/report.md",
+    "src/skf-verify-stack/references/integrations.md",
+    "src/skf-verify-stack/assets/feasibility-report-template.md",
+    "src/skf-verify-stack/references/integration-verification-rules.md",
+    "src/skf-verify-stack/SKILL.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "2cdd455e1923",
+  "token_usage": {
+    "input_tokens": 104,
+    "cache_creation_tokens": 104360,
+    "cache_read_tokens": 4556075,
+    "output_tokens": 54739,
+    "api_call_count": 52
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-23T19:19:20.790363304Z",
+    "agent_lines": 35,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 35,
+    "agent_percentage": 100
+  }
+}
