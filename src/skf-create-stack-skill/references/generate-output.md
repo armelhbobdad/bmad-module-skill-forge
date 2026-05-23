@@ -41,7 +41,7 @@ Resolve `{version}` from the primary library version or default to `1.0.0` (see 
 
 Where the skill name is `{project_name}-stack` and `{version}` is the semver version (with build metadata stripped per `knowledge/version-paths.md`).
 
-**Primary library definition (S11):** In code-mode, the primary library is the dependency with the highest import count from step 3; its `version` (from the manifest) becomes `{primary_library_version}`. In compose-mode, use the highest semver across constituent skill `metadata.json` files. If neither is available, fall back to `1.0.0`.
+**Primary library definition (S11):** In code-mode, the primary library is the dependency with the highest import count from step 3; its `version` (from the manifest) becomes `{primary_library_version}`, falling back to `1.0.0` if unavailable. In compose-mode, the stack carries its own release identity: default `{version}` to `1.0.0` (a stack-local scheme) — do NOT borrow the highest constituent semver. Constituent versions are preserved in `dependencies[]`, so no information is lost, and the package no longer reads as tracking whichever constituent happened to have the highest version.
 
 **Pre-flight: group-dir type check (S3):** If `{skills_output_folder}/{project_name}-stack/` already exists, probe `{skills_output_folder}/{project_name}-stack/active/{project_name}-stack/metadata.json`. If that metadata exists and `skill_type != "stack"`, HALT with:
 
@@ -112,7 +112,7 @@ Write `{skill_staging}/context-snippet.md`:
 Use the Vercel-aligned indexed format targeting **~80-120 tokens** (M2). Token estimation is heuristic — use `ceil(char_count / 4)` as the working approximation (the standard rule-of-thumb for English text in BPE-style tokenizers; precise counts differ per model). Compute against the rendered snippet body (excluding trailing newline).
 
 ```
-[{project_name}-stack v{version — in code-mode: primary_library_version or 1.0.0; in compose-mode: highest version across constituent skill metadata.json files, or 1.0.0 if none}]|root: skills/{project_name}-stack/
+[{project_name}-stack v{version — in code-mode: primary_library_version or 1.0.0; in compose-mode: 1.0.0 (stack-local scheme, per S11)}]|root: skills/{project_name}-stack/
 |IMPORTANT: {project_name}-stack — read SKILL.md before writing integration code. Do NOT rely on training data.
 |stack: {dep-1}@{v1}, {dep-2}@{v2}, {dep-3}@{v3}
 |integrations: {pattern-1}, {pattern-2}
@@ -144,7 +144,7 @@ Populate all fields from the metadata.json schema defined in `{stackSkillTemplat
 {
   "skill_type": "stack",
   "name": "{project_name}-stack",
-  "version": "{primary_library_version or 1.0.0}",
+  "version": "{version — resolved per S11: code-mode primary_library_version or 1.0.0; compose-mode 1.0.0}",
   "generation_date": "{current_date}",
   "forge_tier": "{Quick|Forge|Forge+|Deep — the tier under which this run executed}",
   "confidence_tier": "{T1|T1-low|T2|T3 — dominant T-code from confidence_distribution below}",
@@ -195,7 +195,7 @@ If any workspace write fails, invoke the rollback contract from §1.
 Use the schema from `{provenanceMapSchemaPath}` — see that asset for the canonical templates and field definitions of both variants:
 
 - **In code-mode:** use the code-mode variant (`source_repo` / `source_commit` populated; `extraction_method` ∈ `ast_bridge|source_reading|qmd_bridge`; `detection_method = "co-import grep"`).
-- **In compose-mode:** use the compose-mode variant (source-anchor fields `null`; `extraction_method = "compose-from-skill"`; `detection_method ∈ "architecture_co_mention|inferred_from_shared_domain"`; includes the additional `constituents[]` array for drift detection).
+- **In compose-mode:** use the compose-mode variant (source-anchor fields `null`; `extraction_method = "compose-from-skill"`; `detection_method ∈ "architecture_co_mention|constituent_documented_contract|inferred_from_shared_domain"`; includes the additional `constituents[]` array for drift detection).
 
 **Use the `metadata_hash` value already stored in workflow state during step 2 (S13) — do NOT re-read and re-hash at step 7 time. The stored hash captures the state as it was at manifest-detection time, which is the correct provenance anchor.**
 

@@ -142,9 +142,12 @@ For each detected integration:
 - **Assign confidence (M1/M3) — derive from per-library tiers + detection-method qualifier (NOT from AST):** integration detection here is grep + co-import (optionally CCC-augmented), never AST. The integration's confidence is the **weaker** of the two libraries' tiers from `per_library_extractions[]` (tie-break: T1-low > T1, T2 > T1-low, T3 > T2 — never overstate). Then append a detection-method qualifier:
   - `grep-co-import` — the pair qualified via direct co-import grep (the default).
   - `ccc-augmented` — the pair qualified only after CCC semantic search elevated it (per §2 CCC augmentation), and the post-hoc import verification (H3) confirmed both imports.
-  - `architecture-co-mention` — compose-mode pair qualified via word-boundary co-mention in the architecture document (per §2 H2 guards).
-  - `inferred-shared-domain` — compose-mode pair without an architecture document, inferred from shared `language` or domain keywords.
+  - `architecture-co-mention` — compose-mode pair qualified via word-boundary co-mention in the architecture document (per §2 H2 guards). Maps to `detection_method: architecture_co_mention` in `provenance-map.json`.
+  - `constituent-documented-contract` — compose-mode pair whose cross-library contract is documented in a constituent skill's integration docs (cited, e.g. a grep-verified upstream seam) but not co-mentioned in the architecture document. Maps to `detection_method: constituent_documented_contract` in `provenance-map.json`.
+  - `inferred-shared-domain` — compose-mode pair without an architecture document, inferred from shared `language` or domain keywords (no cited contract). Maps to `detection_method: inferred_from_shared_domain` in `provenance-map.json`.
   - Render as `{tier} ({qualifier})` — e.g., `T1-low (grep-co-import)`, `T1 (ccc-augmented)`, `T1-low (architecture-co-mention) [composed]`. The `[composed]`/`[inferred from shared domain]` suffix from `compose-mode-rules.md` is appended after the qualifier in compose-mode.
+
+  **Provenance ↔ SKILL.md tier parity:** The tier derived above is the single value for this edge — write the *same* tier to both the SKILL.md integration label and `provenance-map.json` `integrations[].confidence`. The detection-method qualifier (and the `provenance-map.json` `detection_method` it maps to) records *how* the edge was found and is orthogonal to confidence; it never forces the tier into a fixed band.
 
 ### 4. Build Integration Graph
 

@@ -85,3 +85,5 @@ When no architecture document is available:
 - Infer from skills sharing domain keywords in their `SKILL.md` descriptions
 - Mark all inferred integrations: `[inferred from shared domain]`
 - Inferred integrations default to lowest confidence of the pair with `[inferred from shared domain]` suffix (use this instead of `[composed]` for inferred integrations)
+
+**Constituent-documented contracts (distinct from shared-domain inference):** When a constituent skill's own integration docs cite a verifiable cross-library contract (e.g. a grep-verified upstream seam) that the architecture document does not co-mention, record it with `detection_method: constituent_documented_contract` (see `assets/provenance-map-schema.md`) — NOT `inferred_from_shared_domain`. It is a cited contract, not a synthesized guess. Its confidence still inherits the weaker tier of the pair per the matrix above — detection method is orthogonal to tier and never forces a fixed band.

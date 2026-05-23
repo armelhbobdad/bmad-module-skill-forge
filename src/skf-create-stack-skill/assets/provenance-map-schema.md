@@ -53,7 +53,7 @@ Used when the workflow ran in code-mode against an actual codebase. `source_repo
 
 ## Compose-mode variant
 
-Used when the workflow ran in compose-mode against pre-generated constituent skills. Source-anchor fields (`source_repo`, `source_commit`, `source_ref`) are `null` because there is no codebase to anchor against — provenance traces back to the constituent skills instead, captured in the `constituents[]` array. Each entry's `extraction_method` is `"compose-from-skill"`; integrations have `detection_method` of `"architecture_co_mention"` (named in the architecture doc) or `"inferred_from_shared_domain"` (synthesized inference, must carry T2/T3 confidence).
+Used when the workflow ran in compose-mode against pre-generated constituent skills. Source-anchor fields (`source_repo`, `source_commit`, `source_ref`) are `null` because there is no codebase to anchor against — provenance traces back to the constituent skills instead, captured in the `constituents[]` array. Each entry's `extraction_method` is `"compose-from-skill"`; integrations have `detection_method` of `"architecture_co_mention"` (named in the architecture doc), `"constituent_documented_contract"` (a cross-library contract documented in a constituent skill's integration docs but not co-mentioned in the architecture document — e.g. a grep-verified upstream seam cited from a source skill), or `"inferred_from_shared_domain"` (synthesized inference from shared language/domain, no cited contract). `detection_method` records *how* an edge was discovered; it is orthogonal to `confidence`, which is inherited from the constituent skills per the Confidence Tier Inheritance matrix in `references/compose-mode-rules.md` (the integration tier is the weaker of the pair — never forced to a fixed band by detection method).
 
 ```json
 {
@@ -82,9 +82,9 @@ Used when the workflow ran in compose-mode against pre-generated constituent ski
     {
       "libraries": ["{libA}", "{libB}"],
       "pattern_type": "{type}",
-      "detection_method": "architecture_co_mention|inferred_from_shared_domain",
+      "detection_method": "architecture_co_mention|constituent_documented_contract|inferred_from_shared_domain",
       "co_import_files": [],
-      "confidence": "T2|T3"
+      "confidence": "T1|T1-low|T2|T3"
     }
   ],
   "constituents": [
