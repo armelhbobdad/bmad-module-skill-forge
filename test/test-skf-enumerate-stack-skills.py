@@ -77,6 +77,40 @@ def _make_skill(
     return skill_dir
 
 
+def _make_nested_skill(
+    root: Path,
+    name: str,
+    version: str,
+    *,
+    skill_md: str | None = "# placeholder\n",
+    metadata: dict | None = None,
+    references: dict[str, str] | None = None,
+    active: bool = True,
+) -> Path:
+    """Create a version-nested skill package and return the inner package dir.
+
+    Layout (knowledge/version-paths.md):
+        {root}/{name}/{version}/{name}/SKILL.md
+        {root}/{name}/active -> {version}      (when `active` is True)
+    """
+    pkg = _make_skill(
+        root / name / version,
+        name,
+        skill_md=skill_md,
+        metadata=metadata,
+        references=references,
+    )
+    if active:
+        import pytest
+
+        link = root / name / "active"
+        try:
+            os.symlink(version, link, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlinks not supported on this platform")
+    return pkg
+
+
 def _expected_hash(content: bytes) -> str:
     return "sha256:" + hashlib.sha256(content).hexdigest()
 
@@ -528,6 +562,130 @@ class TestEnumerateStackSkills:
         # `path` is relative to skills-root; for a single-level package
         # that's just the name. No backslashes regardless of platform.
         assert "\\" not in result["skills"][0]["path"]
+
+
+# --------------------------------------------------------------------------
+# Version-nested layout resolution
+# --------------------------------------------------------------------------
+
+
+class TestVersionSortKey:
+    def test_numeric_ordering(self) -> None:
+        assert mod._version_sort_key("1.10.0") > mod._version_sort_key("1.2.0")
+
+    def test_major_dominates(self) -> None:
+        assert mod._version_sort_key("2.0.0") > mod._version_sort_key("1.12.0")
+
+    def test_release_ranks_above_prerelease(self) -> None:
+        assert mod._version_sort_key("1.0.0") > mod._version_sort_key("1.0.0-rc1")
+
+    def test_non_numeric_ranks_lowest(self) -> None:
+        assert mod._version_sort_key("active") < mod._version_sort_key("0.0.1")
+
+
+class TestVersionNestedLayout:
+    """`{name}/{version}/{name}/SKILL.md` with an `active` symlink — the
+    canonical layout from knowledge/version-paths.md that the flat-only walk
+    used to skip entirely (empty inventory for every constituent)."""
+
+    def test_active_symlink_resolves(self, tmp_path: Path) -> None:
+        _make_nested_skill(
+            tmp_path,
+            "surreal",
+            "3.0.5",
+            metadata={"name": "surreal", "exports": ["query", "connect"]},
+        )
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert len(result["skills"]) == 1
+        s = result["skills"][0]
+        assert s["name"] == "surreal"
+        assert s["path"] == "surreal/active/surreal"
+        assert s["exports"] == ["query", "connect"]
+        assert s["exports_source"] == "metadata"
+        assert s["confidence"] == "T1"
+        assert s["metadata_hash"] is not None
+        assert result["warnings"] == []
+
+    def test_highest_version_when_no_active(self, tmp_path: Path) -> None:
+        _make_nested_skill(
+            tmp_path, "lib", "1.2.0",
+            metadata={"name": "lib", "exports": ["old"]}, active=False,
+        )
+        _make_nested_skill(
+            tmp_path, "lib", "1.10.0",
+            metadata={"name": "lib", "exports": ["new"]}, active=False,
+        )
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert len(result["skills"]) == 1
+        s = result["skills"][0]
+        assert s["exports"] == ["new"]
+        assert s["path"] == "lib/1.10.0/lib"
+
+    def test_prerelease_loses_to_release_fallback(self, tmp_path: Path) -> None:
+        _make_nested_skill(
+            tmp_path, "lib", "1.0.0-rc1",
+            metadata={"name": "lib", "exports": ["pre"]}, active=False,
+        )
+        _make_nested_skill(
+            tmp_path, "lib", "1.0.0",
+            metadata={"name": "lib", "exports": ["rel"]}, active=False,
+        )
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert result["skills"][0]["exports"] == ["rel"]
+
+    def test_active_symlink_wins_over_higher_version(self, tmp_path: Path) -> None:
+        # The stable `active` pointer is authoritative even if a higher
+        # version directory exists alongside it.
+        _make_nested_skill(
+            tmp_path, "lib", "1.0.0",
+            metadata={"name": "lib", "exports": ["pinned"]}, active=True,
+        )
+        _make_nested_skill(
+            tmp_path, "lib", "2.0.0",
+            metadata={"name": "lib", "exports": ["newer"]}, active=False,
+        )
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert len(result["skills"]) == 1
+        assert result["skills"][0]["exports"] == ["pinned"]
+        assert result["skills"][0]["path"] == "lib/active/lib"
+
+    def test_nested_composes_cycle_detected(self, tmp_path: Path) -> None:
+        # Cycle detection keys on the top-level dir name, unaffected by nesting.
+        _make_nested_skill(
+            tmp_path, "alpha", "1.0.0",
+            metadata={"name": "alpha", "exports": [], "composes": ["beta"]},
+        )
+        _make_nested_skill(
+            tmp_path, "beta", "1.0.0",
+            metadata={"name": "beta", "exports": [], "composes": ["alpha"]},
+        )
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert "alpha" in result["cycles"]
+        assert any("composes cycle detected" in w for w in result["warnings"])
+
+    def test_mixed_flat_and_nested(self, tmp_path: Path) -> None:
+        _make_skill(
+            tmp_path, "flatlib", metadata={"name": "flatlib", "exports": ["f"]},
+        )
+        _make_nested_skill(
+            tmp_path, "nestlib", "0.1.0",
+            metadata={"name": "nestlib", "exports": ["n"]},
+        )
+        result = mod.enumerate_stack_skills(tmp_path)
+        by_name = {s["name"]: s for s in result["skills"]}
+        assert by_name["flatlib"]["path"] == "flatlib"
+        assert by_name["nestlib"]["path"] == "nestlib/active/nestlib"
+
+    def test_version_dir_without_inner_skill_md_skipped(self, tmp_path: Path) -> None:
+        # A version dir whose inner package lacks SKILL.md is not a package.
+        inner = tmp_path / "broken" / "1.0.0" / "broken"
+        inner.mkdir(parents=True)
+        (inner / "metadata.json").write_text('{"name":"broken","exports":[]}')
+        _make_skill(
+            tmp_path, "real", metadata={"name": "real", "exports": ["x"]},
+        )
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert [s["name"] for s in result["skills"]] == ["real"]
 
 
 # --------------------------------------------------------------------------

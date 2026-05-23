@@ -24,11 +24,16 @@ benefit from LLM judgment).
 Subcommand:
   enumerate <skills-root>
       Emit JSON {"skills": [...], "cycles": [...], "warnings": [...]}
-      describing every subdirectory of <skills-root> that contains a
-      SKILL.md. Each entry carries:
+      describing every subdirectory of <skills-root> that resolves to a
+      skill package. Both layouts from knowledge/version-paths.md are
+      supported: the flat layout (<child>/SKILL.md) and the version-nested
+      layout (<child>/active/<name>/SKILL.md via the `active` symlink, or
+      <child>/<version>/<name>/SKILL.md by highest version). Each entry
+      carries:
 
-        name             — skill name (subdirectory name)
-        path             — relative path under skills-root, forward-slash
+        name             — skill name (top-level subdirectory name)
+        path             — relative path to the resolved package under
+                           skills-root, forward-slash
         exports          — exports list resolved via cascade
         exports_source   — "metadata|references|skill-md|unknown"
         confidence       — "T1|T2|T1-low" (mapped from exports_source)
@@ -394,6 +399,80 @@ def detect_cycles(graph: dict[str, list[str]]) -> list[str]:
 
 
 # --------------------------------------------------------------------------
+# Version-nested layout resolution
+# --------------------------------------------------------------------------
+
+
+def _version_sort_key(name: str) -> tuple:
+    """Sort key for version directory names — higher sorts as newer.
+
+    Parses the leading dotted numeric core (`N.N.N`); a pre-release suffix
+    (`-rc1`, `-beta.2`, ...) ranks below the same core release. Names without
+    a numeric core rank lowest. Deterministic tie-break on the raw name.
+    """
+    core, _, pre = name.partition("-")
+    nums: list[int] = []
+    for part in core.split("."):
+        if part.isdigit():
+            nums.append(int(part))
+        else:
+            break
+    return (tuple(nums), 0 if pre == "" else -1, name)
+
+
+def _inner_package(version_dir: Path) -> Path | None:
+    """Within a version directory, return the inner package dir holding SKILL.md.
+
+    Matches the `{version}/{skill-name}/SKILL.md` shape from
+    knowledge/version-paths.md. Returns None if no inner dir has a SKILL.md.
+    """
+    try:
+        for inner in sorted(version_dir.iterdir()):
+            if inner.is_dir() and (inner / "SKILL.md").is_file():
+                return inner
+    except OSError:
+        return None
+    return None
+
+
+def _resolve_package_dir(child: Path) -> Path | None:
+    """Resolve the agentskills package dir (the one containing SKILL.md).
+
+    Supports both layouts defined in knowledge/version-paths.md:
+      - flat:           {child}/SKILL.md
+      - version-nested: {child}/active/{skill-name}/SKILL.md (via the `active`
+                        symlink) or {child}/{version}/{skill-name}/SKILL.md.
+
+    For the nested layout the `active` symlink wins; otherwise the highest
+    version directory by semver precedence is used. Returns None when no
+    SKILL.md is reachable (caller skips the entry as a non-package).
+    """
+    # Flat layout — direct SKILL.md.
+    if (child / "SKILL.md").is_file():
+        return child
+
+    # Nested layout — prefer the stable `active` pointer.
+    active = child / "active"
+    if active.is_dir():  # is_dir() follows the symlink; False if broken
+        pkg = _inner_package(active)
+        if pkg is not None:
+            return pkg
+
+    # Fallback — highest version directory.
+    try:
+        version_dirs = [
+            d for d in child.iterdir() if d.is_dir() and d.name != "active"
+        ]
+    except OSError:
+        return None
+    for vdir in sorted(version_dirs, key=lambda d: _version_sort_key(d.name), reverse=True):
+        pkg = _inner_package(vdir)
+        if pkg is not None:
+            return pkg
+    return None
+
+
+# --------------------------------------------------------------------------
 # Enumeration entry point
 # --------------------------------------------------------------------------
 
@@ -416,8 +495,10 @@ def enumerate_stack_skills(skills_root: Path) -> dict:
         if name.startswith("."):
             continue
 
-        # Symlink fallback — resolve and verify target is a directory we
-        # can read. If anything fails, warn and skip the entry.
+        # Symlink fallback — a child-level symlink (e.g. a top-level `active`
+        # pointer) must resolve to a readable directory. If it's broken, warn
+        # and skip; otherwise keep the original path so the reported `path`
+        # stays relative to skills_root.
         if child.is_symlink():
             try:
                 target = child.resolve(strict=True)
@@ -431,16 +512,18 @@ def enumerate_stack_skills(skills_root: Path) -> dict:
                     f"{name}: symlink target is not a directory"
                 )
                 continue
-            skill_dir = target
-        else:
-            if not child.is_dir():
-                continue
-            skill_dir = child
+        elif not child.is_dir():
+            continue
 
-        # Require SKILL.md to consider this a skill package. Subdirs
-        # without SKILL.md (e.g. `shared/`, `knowledge/`) are skipped
-        # silently — they're not skill packages by definition.
-        if not (skill_dir / "SKILL.md").is_file():
+        # Resolve the package dir across flat and version-nested layouts
+        # (knowledge/version-paths.md). Subdirs with no reachable SKILL.md
+        # (e.g. `shared/`, `knowledge/`) are skipped silently — not packages.
+        try:
+            skill_dir = _resolve_package_dir(child)
+        except OSError as exc:
+            result["warnings"].append(f"{name}: failed to resolve package dir ({exc})")
+            continue
+        if skill_dir is None:
             continue
 
         try:
@@ -448,6 +531,14 @@ def enumerate_stack_skills(skills_root: Path) -> dict:
         except Exception as exc:  # noqa: BLE001 — per-skill failures are warnings, not fatal
             result["warnings"].append(f"{name}: enumeration failed: {exc}")
             continue
+
+        # Reflect the resolved package location (forward-slash, relative to
+        # skills_root) — for the nested layout this is the `{active_skill}`
+        # path, for the flat layout just the skill name.
+        try:
+            entry["path"] = skill_dir.relative_to(skills_root).as_posix()
+        except ValueError:
+            entry["path"] = name
 
         result["skills"].append(entry)
         result["warnings"].extend(skill_warnings)
