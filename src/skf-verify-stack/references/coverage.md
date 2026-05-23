@@ -1,7 +1,9 @@
 ---
 nextStepFile: 'integrations.md'
 coveragePatternsData: '{coveragePatternsPath}'
-feasibilitySchemaRef: 'src/shared/references/feasibility-report-schema.md'
+feasibilitySchemaProbeOrder:
+  - '{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md'
+  - '{project-root}/src/shared/references/feasibility-report-schema.md'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
@@ -64,9 +66,18 @@ For each referenced technology in the list:
   4. Compare the resulting basenames/segments against the tech tokens via case-insensitive equality (no substring/fuzzy matching)
   5. A match on either `source_repo` basename or `source_root` last segment counts as a hit
 
+**Detect a deliberate-removal signal (from the architecture document):** Before assigning Covered/Missing, check whether the referenced technology is explicitly marked for removal or replacement in the architecture document itself. Be conservative — recognize a removal signal ONLY when one of these is present, and when in doubt do NOT treat it as removal:
+- The technology is listed under a section whose heading matches (case-insensitive) one of: "deprecated", "removed", "legacy", "migrating away", "being replaced", "to be removed", "sunset", "retiring".
+- The technology's own mention carries an inline removal annotation, e.g. "(deprecated)", "(being replaced by …)", "(removing)", "(to be removed)", "(legacy)".
+
+Record the cited section heading or annotation text as evidence for every technology flagged this way.
+
 **Assign verdict:**
 - **Covered** — a matching skill exists in the inventory
-- **Missing** — no matching skill found
+- **Replaced** — no matching skill exists AND a deliberate-removal signal (above) was found; the technology is intentionally being removed/replaced, so no skill should exist for it
+- **Missing** — no matching skill found and no removal signal
+
+**Replaced** technologies are EXCLUDED from the coverage denominator — they are not a gap to close. The denominator (`live_count`) is the count of referenced technologies that are **Covered** or **Missing**; **Replaced** technologies do not count toward it.
 
 Build the coverage matrix as a structured table.
 
@@ -90,9 +101,9 @@ Extra and Orphan skills are informational only. They do not affect the coverage 
 
 | Technology | Source Section | Skill Match | Verdict |
 |------------|---------------|-------------|---------|
-| {tech_name} | {section_heading} | {skill_name or '—'} | {Covered / Missing} |
+| {tech_name} | {section_heading} | {skill_name or '—'} | {Covered / Missing / Replaced} |
 
-**Coverage: {covered_count}/{total_count} ({percentage}%)**
+**Coverage: {covered_count}/{live_count} ({percentage}%)** — `live_count` excludes technologies marked **Replaced** (being removed/replaced); they are not a coverage gap.
 
 {IF 100% coverage AND no Extra skills:}
 **All referenced technologies have a matching skill. No extra skills detected.**
@@ -101,6 +112,11 @@ Extra and Orphan skills are informational only. They do not affect the coverage 
 **Missing Skills — Action Required:**
 {For each missing technology:}
 - `{tech_name}` → Run **[CS] Create Skill** or **[QS] Quick Skill** for `{tech_name}`, then re-run **[VS]**
+
+{IF any Replaced:}
+**Replaced / Being Removed (informational — no skill needed):**
+{For each replaced technology:}
+- `{tech_name}` — marked for removal/replacement in the architecture document ({cited_removal_evidence}); excluded from coverage. No skill should be created; if the technology is not actually being removed, correct the architecture document and re-run **[VS]**.
 
 {IF any Extra:}
 **Extra Skills (informational):**
@@ -111,17 +127,30 @@ Extra and Orphan skills are informational only. They do not affect the coverage 
 
 **Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
+**Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback).
+
 Write the **Coverage Analysis** section to `{outputFile}` (see `{feasibilitySchemaRef}` — section headings are fixed and ordered: `## Executive Summary`, `## Coverage Analysis`, `## Integration Verdicts`, `## Recommendations`, `## Evidence Sources`):
 - Include the full coverage table
 - Include coverage percentage
 - Include missing skill recommendations
+- Include the Replaced (being removed/replaced) subdivision from section 3, with the cited removal evidence — these are NOT gaps and carry no [CS]/[QS] recommendation
 - Include the Extra (unreferenced) and Orphan (source_repo unresolvable) subdivisions from section 4
-- Update frontmatter: append `'coverage'` to `stepsCompleted`; set `coveragePercentage` (integer 0..100)
+- Update frontmatter: append `'coverage'` to `stepsCompleted`; set `coveragePercentage` (integer 0..100) computed as `covered_count / live_count` (Replaced technologies excluded from the denominator; if `live_count` is 0, set `coveragePercentage: 0`)
 - Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`
 
 ### 7. Auto-Proceed to Next Step
 
-{IF coveragePercentage is 0%:}
+{IF live_count is 0 — every referenced technology is marked Replaced:}
+"**⚠️ Every referenced technology is marked for removal/replacement — there is no live technology to verify.** Coverage is reported as 0%; the architecture document describes only technologies being removed, so the stack cannot be assessed as described.
+
+**Recommended:** Update the architecture document to describe the technologies that remain after the pivot, then re-run [VS].
+
+**Select:** [X] Halt workflow (recommended) | [C] Continue anyway"
+
+- IF X: "**Workflow halted.** Update the architecture document and re-run [VS] when ready." — END workflow
+- IF C: "**Continuing — the analysis covers only technologies marked for removal and will be limited.**" Load, read the full file and then execute `{nextStepFile}`.
+
+{IF coveragePercentage is 0% AND live_count > 0:}
 "**⚠️ 0% coverage — no matching skills found for any referenced technology.** All subsequent analysis (integration, requirements) will be vacuous and produce empty tables.
 
 **Recommended:** Generate skills with [CS] or [QS] for your architecture technologies, then re-run [VS].

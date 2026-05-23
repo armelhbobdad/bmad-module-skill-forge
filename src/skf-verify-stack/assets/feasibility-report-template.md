@@ -37,7 +37,7 @@ deltaUnchanged: null
 **PRD Document:** {prdDoc}
 **Skills Analyzed:** {skillsAnalyzed}
 
-> Schema contract: `src/shared/references/feasibility-report-schema.md` (schemaVersion `1.0`). Consumers MUST halt on `schemaVersion` mismatch.
+> Schema contract: `{feasibilitySchemaRef}` (schemaVersion `1.0`). Consumers MUST halt on `schemaVersion` mismatch.
 
 ## Executive Summary
 

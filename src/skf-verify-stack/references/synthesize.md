@@ -1,6 +1,8 @@
 ---
 nextStepFile: 'report.md'
-feasibilitySchemaRef: 'src/shared/references/feasibility-report-schema.md'
+feasibilitySchemaProbeOrder:
+  - '{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md'
+  - '{project-root}/src/shared/references/feasibility-report-schema.md'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
@@ -25,7 +27,7 @@ Calculate the overall feasibility verdict based on all three analysis passes, ge
 
 ### 1. Calculate Overall Verdict
 
-**Zero-coverage short-circuit (evaluate before anything else):** Read `coveragePercentage` from `{outputFile}` frontmatter. If `coveragePercentage == 0`, force `overallVerdict: NOT_FEASIBLE` with rationale "no coverage — analysis vacuous: zero generated skills match the architecture's referenced technologies, so integration and requirements verdicts cannot produce meaningful evidence." Skip the remainder of the verdict ladder; proceed directly to section 2 to generate recommendations for the Missing skills surfaced by Step 02.
+**Zero-coverage short-circuit (evaluate before anything else):** Read `coveragePercentage` from `{outputFile}` frontmatter. If `coveragePercentage == 0`, force `overallVerdict: NOT_FEASIBLE` with rationale "no coverage — analysis vacuous: zero generated skills match the architecture's referenced technologies, so integration and requirements verdicts cannot produce meaningful evidence." Skip the remainder of the verdict ladder; proceed directly to section 2 to generate recommendations for the Missing and/or Replaced technologies surfaced by Step 02.
 
 Apply the following decision logic using findings from all completed passes:
 
@@ -37,7 +39,7 @@ Apply the following decision logic using findings from all completed passes:
 
 **CONDITIONALLY_FEASIBLE (evaluate second):**
 If ANY of the following apply, the verdict is `CONDITIONALLY_FEASIBLE`. Include ALL matching conditions in the rationale:
-- Any technology is **Missing** from coverage (no skill exists)
+- Any technology is **Missing** from coverage (no skill exists). Technologies marked **Replaced** in Step 02 are intentionally being removed and do NOT count as Missing — they never trigger CONDITIONALLY_FEASIBLE or a [CS]/[QS] recommendation.
 - Any integration is **Risky** (but none Blocked)
 - Requirements have any **Not Addressed** items
 - Requirements have any **Partially Fulfilled** items
@@ -61,6 +63,10 @@ For each non-verified finding across all passes, generate an actionable next ste
 
 **Missing skill (from Step 02):**
 - "Run **[CS] Create Skill** or **[QS] Quick Skill** for `{library_name}`, then re-run **[VS]** to verify coverage."
+
+**Replaced / being-removed technology (from Step 02):**
+- "`{library_name}` is marked for removal/replacement in the architecture document — no skill is needed. Remove it from the architecture document (or, if it is in fact staying, correct the document to drop the removal marker), then re-run **[VS]**."
+- Do NOT emit a [CS]/[QS] recommendation for a Replaced technology — forging a skill for a technology that is being deleted is exactly the misfire this category prevents.
 
 **Risky integration (from Step 03):**
 - If protocol mismatch → "Consider adding a bridge layer between `{lib_a}` and `{lib_b}` (e.g., HTTP adapter, message queue). Document the bridge in the architecture."
@@ -124,6 +130,8 @@ Assemble the following for the report:
 ### 5. Append to Report
 
 **Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
+**Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback).
 
 Write the **Recommendations** and **Evidence Sources** sections to `{outputFile}` (per the fixed heading order in `{feasibilitySchemaRef}`):
 - Include overall verdict with rationale in the `## Executive Summary` section (replace the placeholder text from the template)

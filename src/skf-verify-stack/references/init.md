@@ -1,6 +1,8 @@
 ---
 nextStepFile: 'coverage.md'
-feasibilitySchemaRef: 'src/shared/references/feasibility-report-schema.md'
+feasibilitySchemaProbeOrder:
+  - '{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md'
+  - '{project-root}/src/shared/references/feasibility-report-schema.md'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
@@ -113,6 +115,8 @@ Each helper-emitted entry includes: `skill_name`, `version`, `language`, `confid
 
 **Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
+**Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback). HALT if no candidate exists.
+
 This skill is the PRODUCER of the feasibility report schema defined in `{feasibilitySchemaRef}`. All outputs MUST conform to that schema — in particular: `schemaVersion: "1.0"`, the defined verdict token set (`Verified|Plausible|Risky|Blocked`; overall `FEASIBLE|CONDITIONALLY_FEASIBLE|NOT_FEASIBLE`), the filename pattern, and the section-heading order.
 
 **Filename variables** (already computed at activation — do not re-derive):
@@ -121,7 +125,7 @@ This skill is the PRODUCER of the feasibility report schema defined in `{feasibi
 - `outputFile` resolves to `{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md` per the stage frontmatter template
 - `outputFileLatest` resolves to `{outputFolderPath}/feasibility-report-{project_slug}-latest.md` (a copy, not a symlink — per schema)
 
-**Load** `{reportTemplatePath}` (the customize-aware template path resolved in SKILL.md On Activation §4) and stage the initial content.
+**Load** `{reportTemplatePath}` (the customize-aware template path resolved in SKILL.md On Activation §4) and stage the initial content. Substitute the template's `Schema contract:` line `{feasibilitySchemaRef}` placeholder with the resolved schema path so every emitted report cites a path that exists on the running machine.
 
 **Populate frontmatter (per shared schema — required keys):**
 - `schemaVersion: "1.0"`
