@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "749ba79346f2",
+  "session_id": "8dfba59e-7895-43ef-837f-884b24dd4c6a",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-23T17:40:56.604913974Z",
+  "branch": "fix/skf-create-stack-compose-mode-and-enumerate",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/skf-enumerate-stack-skills.py",
+    "test/test-skf-enumerate-stack-skills.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "b88632b58a50",
+  "token_usage": {
+    "input_tokens": 78,
+    "cache_creation_tokens": 228929,
+    "cache_read_tokens": 4250780,
+    "output_tokens": 58353,
+    "api_call_count": 39
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-23T17:40:56.238482875Z",
+    "agent_lines": 264,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 264,
+    "agent_percentage": 100
+  }
+}
