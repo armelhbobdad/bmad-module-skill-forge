@@ -562,3 +562,15 @@ def test_register_qmd_missing_target_is_user_error(tmp_target):
     code, _, stderr = _register_qmd(tmp_target, {"name": "foo", "type": "brief"})
     assert code == 1
     assert "does not exist" in stderr
+
+
+class TestAtomicWriteBinary:
+    """_atomic_write persists content verbatim — no CRLF injection on Windows."""
+
+    def test_byte_identity_multiline(self):
+        content = "tools:\n  qmd: true\nqmd_collections:\n  - a\n  - b\n"
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "forge.yaml"
+            mod._atomic_write(target, content)
+            assert target.read_bytes() == content.encode("utf-8")
+            assert b"\r\n" not in target.read_bytes()

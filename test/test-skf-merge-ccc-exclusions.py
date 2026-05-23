@@ -376,3 +376,15 @@ def test_cli_non_mapping_top_level_dies(tmp_project):
     settings_path.write_text("- just\n- a\n- list\n", encoding="utf-8")
     rc, _, stderr = _run(tmp_project)
     assert rc == 1
+
+
+class TestAtomicWriteBinary:
+    """_atomic_write persists content verbatim — no CRLF injection on Windows."""
+
+    def test_byte_identity_multiline(self):
+        content = "exclude_patterns:\n  - one\n  - two\n"
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "settings.yml"
+            mod._atomic_write(target, content)
+            assert target.read_bytes() == content.encode("utf-8")
+            assert b"\r\n" not in target.read_bytes()
