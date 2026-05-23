@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e7809bb355b5",
+  "session_id": "03b00f06-132a-4725-95af-bad6ae12767d",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-23T01:00:30.877294942Z",
+  "branch": "fix/skf-export-context-atomicity-and-manifest-envelope",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/skf-rebuild-managed-sections.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "20fefaf06fe7",
+  "token_usage": {
+    "input_tokens": 140,
+    "cache_creation_tokens": 258743,
+    "cache_read_tokens": 8520898,
+    "output_tokens": 62722,
+    "api_call_count": 70
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-23T01:00:30.401291849Z",
+    "agent_lines": 0,
+    "human_added": 4,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 4,
+    "agent_percentage": 0
+  }
+}
