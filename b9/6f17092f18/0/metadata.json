@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "b96f17092f18",
+  "session_id": "5f753dde-9ec8-4ab7-b78c-a185d2fcd32c",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-23T20:03:02.174371027Z",
+  "branch": "fix/skf-installer-inherit-output-folder",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "test/test-cli-integration.js",
+    "tools/cli/lib/installer.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "3ab0da24053b",
+  "token_usage": {
+    "input_tokens": 40,
+    "cache_creation_tokens": 88729,
+    "cache_read_tokens": 1577238,
+    "output_tokens": 36592,
+    "api_call_count": 20
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-23T20:03:01.96350033Z",
+    "agent_lines": 2,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 2,
+    "agent_percentage": 100
+  }
+}
