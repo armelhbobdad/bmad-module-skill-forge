@@ -53,13 +53,15 @@ Read `{outputFile}` and extract the category scores calculated in previous steps
 
 #### 2b. Apply State 2 Undercount Deduction (pre-script)
 
-If `analysis_confidence == 'provenance-map'` (State 2) AND step 3 recorded a provenance vs metadata divergence > 5% (see §4b in step 3), apply a 10-point deduction to `exportCoverage` BEFORE building the scoring input:
+If `analysis_confidence == 'provenance-map'` (State 2) AND `metadata.json.skill_type != "stack"` AND step 3 recorded a provenance vs metadata divergence > 5% (see §4b in step 3), apply a 10-point deduction to `exportCoverage` BEFORE building the scoring input:
 
 ```
 exportCoverage_adjusted = max(0, exportCoverage - 10)
 ```
 
 Record in the report: `scoring_notes: State 2 undercount risk acknowledged — 10% deduction applied to Export Coverage (raw: {N}%, adjusted: {M}%)`. Use the adjusted value as the `exportCoverage` field in §3a below. The deduction is deterministic and does not change category weights or active-category counting.
+
+Stack skills are exempt (the `metadata.json.skill_type != "stack"` guard above; `skill_type` is loaded in step 01 and also surfaces as `stackSkill` in §3a): a stack's own barrel is empty by design, so a provenance-vs-metadata divergence on a stack reflects the barrel-vs-constituent surface difference (suppressed by §4b's stack-skill branch in step 3), not extraction undercount — deducting for it would penalize a correctly built stack.
 
 #### 3a. Construct Scoring Input JSON
 
