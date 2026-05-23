@@ -146,8 +146,11 @@ def _atomic_write(target: Path, content: str) -> None:
     """Crash-safe write via temp + fsync + rename. Mirrors skf-atomic-write.py."""
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(target.name + ".skf-tmp")
+    # O_BINARY (Windows only; 0 elsewhere) suppresses the text-mode \n -> \r\n
+    # translation that would otherwise corrupt verbatim writes on Windows.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0)
     try:
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        fd = os.open(tmp, flags, 0o644)
         try:
             os.write(fd, content.encode("utf-8"))
             os.fsync(fd)

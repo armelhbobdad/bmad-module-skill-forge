@@ -724,3 +724,15 @@ class TestCLIWriteFlatScopeRationale:
         assert "rationale:" not in body
         parsed = yaml.safe_load(body)
         assert "rationale" not in parsed["scope"]
+
+
+class TestAtomicWriteBinary:
+    """atomic_write persists content verbatim — no CRLF injection on Windows."""
+
+    def test_byte_identity_multiline(self):
+        content = "---\nname: x\n---\n\nline1\nline2\n"
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "brief.md"
+            mod.atomic_write(target, content)
+            assert target.read_bytes() == content.encode("utf-8")
+            assert b"\r\n" not in target.read_bytes()
