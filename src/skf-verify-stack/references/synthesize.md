@@ -1,6 +1,8 @@
 ---
 nextStepFile: 'report.md'
-feasibilitySchemaRef: 'src/shared/references/feasibility-report-schema.md'
+feasibilitySchemaProbeOrder:
+  - '{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md'
+  - '{project-root}/src/shared/references/feasibility-report-schema.md'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
@@ -124,6 +126,8 @@ Assemble the following for the report:
 ### 5. Append to Report
 
 **Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
+**Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback).
 
 Write the **Recommendations** and **Evidence Sources** sections to `{outputFile}` (per the fixed heading order in `{feasibilitySchemaRef}`):
 - Include overall verdict with rationale in the `## Executive Summary` section (replace the placeholder text from the template)

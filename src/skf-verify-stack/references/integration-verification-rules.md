@@ -8,7 +8,7 @@ Rules for cross-referencing API surfaces between two skills to determine integra
 
 ## Verdict Definitions
 
-Token set is defined canonically in `src/shared/references/feasibility-report-schema.md` — the table below restates the same set with this skill's evidence obligations. Tokens are case-sensitive (`Verified`, `Plausible`, `Risky`, `Blocked`); emitting any other token is a schema violation.
+Token set is defined canonically in the SKF shared feasibility report schema (`_bmad/skf/shared/references/feasibility-report-schema.md` in installed mode; `src/shared/references/feasibility-report-schema.md` in a dev checkout) — the table below restates the same set with this skill's evidence obligations. Tokens are case-sensitive (`Verified`, `Plausible`, `Risky`, `Blocked`); emitting any other token is a schema violation.
 
 | Verdict       | Meaning                                                                                        | Required Evidence                                                                                                                                                                                                                                                   |
 |---------------|------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|

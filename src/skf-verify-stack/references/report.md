@@ -5,7 +5,9 @@
 # so every stage sees the same path.
 outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
 outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.md'
-feasibilitySchemaRef: 'src/shared/references/feasibility-report-schema.md'
+feasibilitySchemaProbeOrder:
+  - '{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md'
+  - '{project-root}/src/shared/references/feasibility-report-schema.md'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
@@ -30,6 +32,8 @@ Present the complete feasibility report to the user. Display the overall verdict
 ### 1. Load Complete Report
 
 Read the entire `{outputFile}` to have all data available for presentation.
+
+**Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback).
 
 Verify all expected sections are present in order per `{feasibilitySchemaRef}`: `## Executive Summary`, `## Coverage Analysis`, `## Integration Verdicts`, `## Recommendations`, `## Evidence Sources`. If any section is missing or out of order, HALT (exit code 5, `halt_reason: "schema-violation"`) and report the schema violation — do not display partial results. In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with `report_path: "{outputFile}"`, `overall_verdict: null`.
 

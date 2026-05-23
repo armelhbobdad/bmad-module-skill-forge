@@ -9,7 +9,7 @@ description: Pre-code stack feasibility verification against architecture and PR
 
 Cross-references generated skills against architecture and PRD documents to produce a feasibility report with evidence-backed integration verdicts, coverage analysis, and requirements mapping. This is a read-only workflow — it never modifies skills or input documents, only reads and produces a feasibility report. Every verdict must cite specific APIs, types, or function signatures from the generated skills.
 
-**Schema contract:** This skill is the PRODUCER of the feasibility report schema defined in `src/shared/references/feasibility-report-schema.md`. All report outputs emit `schemaVersion: "1.0"` in frontmatter, use only the defined verdict tokens (`Verified|Plausible|Risky|Blocked` per pair; `FEASIBLE|CONDITIONALLY_FEASIBLE|NOT_FEASIBLE` overall), follow the fixed section-heading order, and are written through `src/shared/scripts/skf-atomic-write.py write` to both the timestamped file and the stable `-latest.md` copy.
+**Schema contract:** This skill is the PRODUCER of the feasibility report schema defined under the SKF shared references (`_bmad/skf/shared/references/feasibility-report-schema.md` in installed mode; `src/shared/references/feasibility-report-schema.md` in a dev checkout). All report outputs emit `schemaVersion: "1.0"` in frontmatter, use only the defined verdict tokens (`Verified|Plausible|Risky|Blocked` per pair; `FEASIBLE|CONDITIONALLY_FEASIBLE|NOT_FEASIBLE` overall), follow the fixed section-heading order, and are written through `src/shared/scripts/skf-atomic-write.py write` to both the timestamped file and the stable `-latest.md` copy.
 
 ## Conventions
 
@@ -54,7 +54,7 @@ These rules apply to every step in this workflow:
 | **Inputs** | architecture_doc_path [required], prd_path [optional], previous_report_path [optional] |
 | **Flags** | `--headless` / `-H` (auto-resolve all gates); `--architecture-doc <path>` (skip step 1 prompt for the required input); `--prd <path>` (skip step 1 prompt for the optional PRD); `--previous-report <path>` (skip step 1 prompt for delta comparison) |
 | **Gates** | step 1: Input Gate [use args] | step 6: Confirm Gate [C] |
-| **Outputs** | `feasibility-report-{projectSlug}-{timestamp}.md` and `feasibility-report-{projectSlug}-latest.md` (copy, not symlink) per `src/shared/references/feasibility-report-schema.md` — with integration verdicts, coverage analysis, recommendations, and evidence sources; plus `verify-stack-result-{timestamp}.json` and `verify-stack-result-latest.json` |
+| **Outputs** | `feasibility-report-{projectSlug}-{timestamp}.md` and `feasibility-report-{projectSlug}-latest.md` (copy, not symlink) per the SKF shared feasibility report schema (`_bmad/skf/shared/references/feasibility-report-schema.md`; `src/shared/references/…` in a dev checkout) — with integration verdicts, coverage analysis, recommendations, and evidence sources; plus `verify-stack-result-{timestamp}.json` and `verify-stack-result-latest.json` |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. Per-flag args (`--architecture-doc`, `--prd`, `--previous-report`) consumed at the gates that would otherwise prompt. |
 | **Exit codes** | See "Exit Codes" below |
 

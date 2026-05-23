@@ -2,7 +2,9 @@
 nextStepFile: 'requirements.md'
 integrationRulesData: '{integrationRulesPath}'
 coveragePatternsData: '{coveragePatternsPath}'
-feasibilitySchemaRef: 'src/shared/references/feasibility-report-schema.md'
+feasibilitySchemaProbeOrder:
+  - '{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md'
+  - '{project-root}/src/shared/references/feasibility-report-schema.md'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
@@ -25,6 +27,8 @@ Cross-reference API surfaces between library pairs that the architecture documen
 - Every verdict must include evidence citations from the skills
 
 ## MANDATORY SEQUENCE
+
+**Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback) — used by the verdict-cap references and the append step below.
 
 ### 1. Load Integration Verification Rules
 
@@ -78,7 +82,7 @@ For each library in an integration pair, delegate SKILL.md reading to a parallel
 - `data_formats_inferred`: best-effort prose scan — format tokens mentioned in SKILL.md descriptions/examples. NOT a declared field in `metadata.json`
 - If a field has no matches, return an empty array `[]`
 
-**CRITICAL — these fields are inferred, not declared.** `protocols` and `data_formats` do not exist in any skill's `metadata.json`. Treat them as weak evidence from prose scanning only. When either list is used to justify compatibility in Check 2, the per-pair verdict MUST be capped at `Plausible` (see the schema's producer obligations — `src/shared/references/feasibility-report-schema.md`).
+**CRITICAL — these fields are inferred, not declared.** `protocols` and `data_formats` do not exist in any skill's `metadata.json`. Treat them as weak evidence from prose scanning only. When either list is used to justify compatibility in Check 2, the per-pair verdict MUST be capped at `Plausible` (see the schema's producer obligations — `{feasibilitySchemaRef}`).
 
 **Schema validation (parent):** Each subagent response must contain the required keys (`skill_name`, `language`, `exports`). Reject responses missing required keys and exclude that skill from pair evaluation; HALT if more than **20%** (same failure-budget threshold as step 1 §2; see the justification there) of subagent calls return malformed JSON.
 
@@ -122,7 +126,7 @@ For each integration pair `{library_a, library_b}`, apply the verification proto
 - If a literal citation is found in at least one direction → Check 4 PASSES; record the exact cited substring and its location as evidence
 - If neither skill literally cites the other → Check 4 FAILS (weak/missing evidence); per-pair verdict MUST be capped at `Plausible` regardless of Checks 1–3 outcomes
 
-**Assign verdict per pair (per `src/shared/references/feasibility-report-schema.md`):**
+**Assign verdict per pair (per `{feasibilitySchemaRef}`):**
 - **Verified** — Checks 1, 3 pass with declared evidence AND Check 4 passes with a literal substring/name citation recorded in the evidence block. Check 2 is best-effort only; it cannot by itself promote a pair to `Verified`.
 - **Plausible** — Checks pass, but at least one relies on inferred evidence (e.g., Check 2 prose scan) OR Check 4 is weak/missing. This is the cap whenever Check 4 fails.
 - **Risky** — At least one check flags an incompatibility that a workaround may resolve (bridge layer, adapter, serialization shim).
