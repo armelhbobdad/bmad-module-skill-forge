@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "1b2476d1c299",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-qmd-classify-collection-list-parsing",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/skf-qmd-classify-collections.py",
+    "test/test-skf-qmd-classify-collections.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/1b/2476d1c299/0/metadata.json",
+      "transcript": "/1b/2476d1c299/0/full.jsonl",
+      "context": "/1b/2476d1c299/0/context.md",
+      "content_hash": "/1b/2476d1c299/0/content_hash.txt",
+      "prompt": "/1b/2476d1c299/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 38,
+    "cache_creation_tokens": 146124,
+    "cache_read_tokens": 2681831,
+    "output_tokens": 14884,
+    "api_call_count": 19
+  }
+}

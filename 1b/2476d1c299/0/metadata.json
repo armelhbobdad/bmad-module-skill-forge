@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "1b2476d1c299",
+  "session_id": "d3522dbf-ac94-4433-8bcc-aee028c86703",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-23T11:44:15.387285482Z",
+  "branch": "fix/skf-qmd-classify-collection-list-parsing",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/skf-qmd-classify-collections.py",
+    "test/test-skf-qmd-classify-collections.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "2075e9f464ed",
+  "checkpoint_transcript_start": 251,
+  "transcript_lines_at_start": 251,
+  "token_usage": {
+    "input_tokens": 38,
+    "cache_creation_tokens": 146124,
+    "cache_read_tokens": 2681831,
+    "output_tokens": 14884,
+    "api_call_count": 19
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-23T11:44:14.993903361Z",
+    "agent_lines": 104,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 104,
+    "agent_percentage": 100
+  }
+}
