@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "8739e26450e3",
+  "session_id": "01dbb013-399d-44f2-b6f9-423b0b370f8e",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-23T18:03:38.807920242Z",
+  "branch": "fix/skf-test-skill-stack-coverage-branches",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-test-skill/references/coverage-check.md",
+    "src/skf-test-skill/references/score.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "1507fb28df6f",
+  "token_usage": {
+    "input_tokens": 38,
+    "cache_creation_tokens": 79927,
+    "cache_read_tokens": 1311531,
+    "output_tokens": 32227,
+    "api_call_count": 19
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-23T18:03:38.531835424Z",
+    "agent_lines": 13,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 13,
+    "agent_percentage": 100
+  }
+}
