@@ -276,31 +276,37 @@ After user confirms with 'C', resolve the helpers in parallel — these are inde
 
 If any helper has no existing candidate, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) and emit the error envelope per SKILL.md "Result Contract (Headless)" — the rewrite's safety guarantees depend on these helpers and a fall-through to LLM-driven writes would silently regress atomicity, marker preservation, and the Case 4 malformed-marker HARD HALT contract.
 
+**Stage content via a shell-safe channel (all cases).** Managed-section snippets routinely contain backticks and `$` — API names like `` `Room::connect(...)` ``, tokens like `$threshold` and `${…}`. Inlining them as a double-quoted shell argument (`--content "…"`) or via `echo "…"` lets bash run command substitution and variable expansion, silently corrupting the written bytes — and because the helper's byte-identity verify runs against the already-corrupted string, it would still report success. No quoting style is safe (content can also contain single quotes, e.g. `'eager' | 'on-demand'`), so **never** inline the section into the command. Instead write the assembled section to a staging file with your file-write tool (which performs no shell interpretation), then feed it to the helper via stdin redirection — the helper reads stdin whenever `--content` is absent:
+
+- For **Cases 2 and 3**, write `{managed_section_inner}` to `{target-file}.skf-content` with **no trailing newline** (the helper appends `\n<!-- SKF:END -->` itself; a trailing newline would insert a blank line before the end marker).
+- For **Case 1**, write `{managed_section_full}` to `{target-file}.skf-content` followed by a single trailing newline (matches the verbatim file-end newline convention).
+- After the helper reports success, delete `{target-file}.skf-content`.
+
 For each target context file, dispatch by case:
 
 **Case 1 (Create — file does not exist):**
 
 ```bash
-echo "{managed_section_full}" | python3 {atomicWriteHelper} write --target "{target-file}"
+python3 {atomicWriteHelper} write --target "{target-file}" < "{target-file}.skf-content"
 ```
 
-The helper stages the content into `<target>.skf-tmp`, fsyncs, and atomically renames into place. This path writes verbatim, so it takes the **marker-bearing** `{managed_section_full}`.
+The helper stages the content into `<target>.skf-tmp`, fsyncs, and atomically renames into place. This path writes verbatim, so the staging file holds the **marker-bearing** `{managed_section_full}`.
 
 **Case 2 (Append — file exists, no `<!-- SKF:BEGIN` marker):**
 
 ```bash
-python3 {rebuildManagedSectionsHelper} {target-file} insert --content "{managed_section_inner}"
+python3 {rebuildManagedSectionsHelper} {target-file} insert < "{target-file}.skf-content"
 ```
 
-The helper appends the managed section to the end of the file via the same atomic temp-file + rename pattern. Pass the **inner-only** `{managed_section_inner}` — the helper adds the markers and `updated:` timestamp itself; passing marker-bearing text double-wraps them.
+The helper appends the managed section to the end of the file via the same atomic temp-file + rename pattern. The staging file holds the **inner-only** `{managed_section_inner}` — the helper adds the markers and `updated:` timestamp itself; marker-bearing text double-wraps them.
 
 **Case 3 (Regenerate — file contains `<!-- SKF:BEGIN` and `<!-- SKF:END -->`):**
 
 ```bash
-python3 {rebuildManagedSectionsHelper} {target-file} replace --content "{managed_section_inner}"
+python3 {rebuildManagedSectionsHelper} {target-file} replace < "{target-file}.skf-content"
 ```
 
-The helper performs the surgical between-marker swap with post-write verification (markers present, content outside markers byte-identical). Pass the **inner-only** `{managed_section_inner}` — as with `insert`, the helper supplies the markers; marker-bearing text double-wraps them.
+The helper performs the surgical between-marker swap with post-write verification (markers present, content outside markers byte-identical). The staging file holds the **inner-only** `{managed_section_inner}` — as with `insert`, the helper supplies the markers; marker-bearing text double-wraps them.
 
 **Case 4 (malformed markers — already HALTed in §6):** never reaches here.
 
