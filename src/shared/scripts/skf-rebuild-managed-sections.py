@@ -58,8 +58,12 @@ def _atomic_write(file_path, text):
     """
     path = Path(file_path)
     tmp = path.with_name(path.name + ".skf-tmp")
+    # O_BINARY (Windows only; 0 elsewhere) suppresses the text-mode \n -> \r\n
+    # translation that would otherwise diverge the on-disk bytes from the staged
+    # string and trip the byte-identity verify below.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0)
     try:
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        fd = os.open(tmp, flags, 0o644)
         try:
             os.write(fd, text.encode("utf-8"))
             os.fsync(fd)
