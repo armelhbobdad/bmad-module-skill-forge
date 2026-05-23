@@ -226,3 +226,70 @@ class TestEmptyContentGuard:
         assert "Fresh body." in updated
         assert "Old skill snippets" not in updated
         Path(fp).unlink()
+
+
+class TestAtomicWrite:
+    """Suite 10: replace/insert/clear write atomically and verify the result.
+
+    The marker-surgery actions stage to <file>.skf-tmp + os.replace, then
+    re-read to confirm on-disk bytes match what was staged. These tests assert
+    no temp file is left behind and that out-of-marker content is preserved
+    byte-for-byte.
+    """
+
+    def _tmp_sibling(self, fp):
+        p = Path(fp)
+        return p.with_name(p.name + ".skf-tmp")
+
+    def test_replace_leaves_no_temp_file(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(SAMPLE_FILE)
+            fp = f.name
+        r = mod.cmd_replace(fp, "New body.")
+        assert r["status"] == "ok"
+        assert not self._tmp_sibling(fp).exists()
+        Path(fp).unlink()
+
+    def test_insert_leaves_no_temp_file(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write("# My Project\n\nExisting content.\n")
+            fp = f.name
+        r = mod.cmd_insert(fp, "Inserted body.")
+        assert r["status"] == "ok"
+        assert not self._tmp_sibling(fp).exists()
+        Path(fp).unlink()
+
+    def test_clear_leaves_no_temp_file(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(SAMPLE_FILE)
+            fp = f.name
+        r = mod.cmd_clear(fp)
+        assert r["status"] == "ok"
+        assert not self._tmp_sibling(fp).exists()
+        Path(fp).unlink()
+
+    def test_replace_preserves_out_of_marker_bytes(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(SAMPLE_FILE)
+            fp = f.name
+        before = Path(fp).read_text(encoding="utf-8")
+        match = mod.find_managed_section(before)
+        prefix, suffix = before[: match.start()], before[match.end():]
+        r = mod.cmd_replace(fp, "New body.")
+        assert r["status"] == "ok"
+        after = Path(fp).read_text(encoding="utf-8")
+        match2 = mod.find_managed_section(after)
+        assert after[: match2.start()] == prefix
+        assert after[match2.end():] == suffix
+        Path(fp).unlink()
+
+    def test_verify_helper_reports_present_section(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(SAMPLE_FILE)
+            fp = f.name
+        updated = "# X\n\n<!-- SKF:BEGIN updated:2026-05-23 -->\nbody\n<!-- SKF:END -->\n"
+        assert mod._write_and_verify(fp, updated, expect_section=True) is None
+        # expecting absence when a section is present must fail verification
+        err = mod._write_and_verify(fp, updated, expect_section=False)
+        assert err is not None and "still present" in err
+        Path(fp).unlink()
