@@ -97,13 +97,17 @@ from pathlib import Path
 
 # These mirror the canonical synonyms documented in
 # `src/skf-test-skill/references/coherence-check.md` §2.1, with the
-# SKF-template-specific headings (`Quick Start`, `Common Workflows`,
-# `Key API Summary`) folded in so they are first-class matches rather
-# than literal-name misses (per the §2.1 "Note" paragraph).
+# SKF-template-specific headings folded in so they are first-class
+# matches rather than literal-name misses (per the §2.1 "Note"
+# paragraph). The set covers both the Deep/create-skill template
+# (`Quick Start`, `Common Workflows`, `Key API Summary`, `Key Types`)
+# and the quick-skill template (`Usage Patterns`, `Key Exports`), since
+# headings are matched on the full heading text, not a substring.
 REQUIRED_SYNONYMS: dict[str, list[str]] = {
     "description": ["Description", "Overview", "Purpose", "Summary"],
     "usage": [
         "Usage",
+        "Usage Patterns",
         "Examples",
         "How to use",
         "Quickstart",
@@ -115,6 +119,7 @@ REQUIRED_SYNONYMS: dict[str, list[str]] = {
         "API",
         "API Surface",
         "Exports",
+        "Key Exports",
         "Public API",
         "Interface",
         "Reference",

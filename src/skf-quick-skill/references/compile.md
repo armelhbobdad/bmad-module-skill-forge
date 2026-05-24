@@ -75,11 +75,13 @@ Otherwise, create context-snippet.md in Vercel-aligned indexed format (~80-120 t
 ```
 [{skill_name} v{version}]|root: skills/{skill_name}/
 |IMPORTANT: {skill_name} v{version} — read SKILL.md before writing {skill_name} code. Do NOT rely on training data.
-|quick-start:{SKILL.md#quick-start}
+|quick-start:{SKILL.md#usage-patterns}
 |api: {top-5 exports with () for functions}
-|key-types:{SKILL.md#key-types} — {inline summary of most important type values}
+|key-types:{SKILL.md#key-exports} — {inline summary of most important type values}
 |gotchas: {2-3 most critical pitfalls or breaking changes, inline}
 ```
+
+The anchors point to the QS template's actual headings — `#usage-patterns` (Usage Patterns) and `#key-exports` (Key Exports). The QS template has no `## Quick Start` / `## Key Types` headings (those are Deep-tier sections), so the Deep-tier anchors `#quick-start` / `#key-types` would dangle. If the assembled SKILL.md is missing the referenced heading, omit that line rather than emit a dangling anchor.
 
 **If fewer than 5 exports:** Use all available exports.
 **If no exports:** Omit the api line.
