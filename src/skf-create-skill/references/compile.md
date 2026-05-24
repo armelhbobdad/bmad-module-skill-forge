@@ -100,6 +100,7 @@ Following the structure from the skill-sections data file:
 - Set `generation_date` to current ISO-8601 timestamp
 - Set `source_commit` from resolved source (if available)
 - Set `source_ref` from resolved source ref (tag name, branch, or `HEAD`; null if unavailable)
+- Set `scope_type` from the brief's `scope.type` value verbatim (`full-library`, `specific-modules`, `public-api`, `component-library`, `reference-app`, or `docs-only`). **Always emit this field.** `skf-test-skill` keys reference-app handling on `metadata.json.scope_type == "reference-app"` — both the scoring redistribution (Signature Accuracy / Type Coverage marked N/A) and the coverage-check §4b count-coherence skip. Omitting it silently mis-scores a reference-app skill as a library (zero-export barrel HALT or false metadata-drift findings), which is why it previously had to be hand-added during test-skill. The value is informational for the other scope types (consumers only branch on `reference-app`), but emit it for all so the producer/consumer contract holds.
 - Set `stats` from extraction aggregate counts:
   - `exports_documented`: count of exports with documentation in the assembled SKILL.md
   - `exports_public_api`: count of exports from public entry points (`__init__.py`, `index.ts`, `lib.rs`, or equivalent) — derive this from step 3's entry-point validation (section 4b), NOT from the provenance-map entry count (which may be incomplete if extraction patterns missed some export types)

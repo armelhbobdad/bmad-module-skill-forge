@@ -1238,5 +1238,68 @@
       "result": "PASS",
       "weightSum": 100.01
     }
+  },
+  {
+    "name": "suite_v_reference_app_deep",
+    "input": {
+      "mode": "contextual",
+      "tier": "Deep",
+      "referenceApp": true,
+      "scores": {
+        "exportCoverage": 90,
+        "signatureAccuracy": null,
+        "typeCoverage": null,
+        "coherence": 85,
+        "externalValidation": 80
+      }
+    },
+    "expected_output": {
+      "input": {
+        "mode": "contextual",
+        "tier": "Deep",
+        "docsOnly": false,
+        "state2": false,
+        "stackSkill": false,
+        "threshold": 80,
+        "scores": {
+          "exportCoverage": 90,
+          "signatureAccuracy": null,
+          "typeCoverage": null,
+          "coherence": 85,
+          "externalValidation": 80
+        }
+      },
+      "activeCategories": [
+        "exportCoverage",
+        "coherence",
+        "externalValidation"
+      ],
+      "skippedCategories": [
+        "signatureAccuracy",
+        "typeCoverage"
+      ],
+      "skipReasons": {
+        "signatureAccuracy": "reference-app (no library export signatures)",
+        "typeCoverage": "reference-app (no library export signatures)"
+      },
+      "weights": {
+        "exportCoverage": 56.25,
+        "signatureAccuracy": 0,
+        "typeCoverage": 0,
+        "coherence": 28.13,
+        "externalValidation": 15.63
+      },
+      "weightedScores": {
+        "exportCoverage": 50.63,
+        "signatureAccuracy": 0,
+        "typeCoverage": 0,
+        "coherence": 23.91,
+        "externalValidation": 12.5
+      },
+      "totalScore": 87.04,
+      "threshold": 80,
+      "result": "PASS",
+      "weightSum": 100.01
+    }
   }
 ]
