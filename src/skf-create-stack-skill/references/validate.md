@@ -55,7 +55,7 @@ timeout 10s npx --no-install skill-check -h
 
 **If available**, run: `npx skill-check check <skill-dir> --fix --format json --no-security-scan`
 
-This validates frontmatter, description, body limits, links, formatting — and auto-fixes deterministic issues. Parse JSON for `qualityScore`, `diagnostics[]`, `fixed[]`.
+This validates frontmatter, description, body limits, links, formatting — and auto-fixes deterministic issues. Parse JSON for `scores[].score` (match the entry by `relativePath`/`skillId`; falls back to a top-level `qualityScore` on older skill-check builds), `diagnostics[]`, `fixed[]`.
 
 **Post-fix provenance drift guard (S15):** If `fixed[]` is non-empty, `skill-check --fix` has modified `SKILL.md` after step 7 wrote it. The safe default for v1.0 is to emit a **WARNING** finding listing each auto-fix (`"skill-check --fix modified SKILL.md: {fix_description} — metadata.json hashes/provenance may be out of date"`). Do NOT silently accept the fixes without surfacing the drift. If the caller wants authoritative metadata, they should re-run the workflow.
 

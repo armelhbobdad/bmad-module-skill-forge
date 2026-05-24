@@ -76,7 +76,7 @@ npx skill-check check <staging-skill-dir> --fix --format json {security_scan_fla
 
 This performs frontmatter validation, description quality checks, body limit enforcement, local link resolution, file formatting, auto-fix of deterministic issues, and quality scoring (0-100) across five weighted categories.
 
-**Parse the JSON output** for: `qualityScore` (0-100), `diagnostics[]` (remaining issues), `fixed[]` (auto-corrected issues).
+**Parse the JSON output** for: `scores[].score` (0-100 — match the entry by `relativePath`/`skillId`; falls back to a top-level `qualityScore` on older skill-check builds), `diagnostics[]` (remaining issues), `fixed[]` (auto-corrected issues).
 
 **Description Guard Protocol:** This invocation may modify SKILL.md (especially when `fixed[]` is non-empty). Wrap the `skill-check check --fix` call in the four-phase guard defined in §0 by invoking `{descriptionGuardHelper}` at the capture and verify-restore points:
 
@@ -94,7 +94,7 @@ uv run {descriptionGuardHelper} verify-restore <staging-skill-dir>/SKILL.md \
 
 If `restored: true` in the verify-restore output, apply §0's post-restore re-validation hook. If `fixed[]` was non-empty in the skill-check output, also re-read the modified SKILL.md to sync the in-context copy before proceeding — this prevents silent divergence between the in-context and on-disk versions that step 7 will use for artifact generation.
 
-**Note:** `skill-check` may return non-zero exit code even when `errorCount` is 0. Always rely on parsed JSON, not the shell exit code.
+**Note:** `skill-check` may return non-zero exit code even when `summary.errorCount` is 0. Always rely on parsed JSON, not the shell exit code.
 
 - **Score ≥ 70:** Record "Schema: PASS (score: {score}/100)" in evidence-report
 - **Score < 70:** Log remaining diagnostics as warnings, record "Schema: WARN — score {score}/100, {count} remaining issues", proceed

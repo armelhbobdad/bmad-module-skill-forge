@@ -84,7 +84,7 @@ npx skill-check check {skill_package} --fix --format json
 This validates frontmatter, description, body limits, links, and formatting; runs the security scan; and auto-fixes deterministic issues (field ordering, slug format, required fields, trailing newlines).
 
 **Parse JSON output** to extract:
-- `qualityScore` — overall score (0-100)
+- `scores[].score` — overall score (0-100); match the entry by `relativePath`/`skillId` (older skill-check builds exposed this as a top-level `qualityScore`)
 - `diagnostics[]` — remaining issues after auto-fix
 - `fixed[]` — issues automatically corrected
 - `security[]` (when present) — security findings, recorded as advisory warnings (security issues do not block output)
