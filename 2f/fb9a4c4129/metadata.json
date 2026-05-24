@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "2ffb9a4c4129",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-test-skill-ts-barrel-multiline",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-test-skill/references/source-access-protocol.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2f/fb9a4c4129/0/metadata.json",
+      "transcript": "/2f/fb9a4c4129/0/full.jsonl",
+      "context": "/2f/fb9a4c4129/0/context.md",
+      "content_hash": "/2f/fb9a4c4129/0/content_hash.txt",
+      "prompt": "/2f/fb9a4c4129/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 28,
+    "cache_creation_tokens": 82651,
+    "cache_read_tokens": 799749,
+    "output_tokens": 29741,
+    "api_call_count": 14
+  }
+}
