@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "f0a2c5d8088c",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-quick-frontmatter-validator-uv-run",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-quick-skill/references/write-and-validate.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f0/a2c5d8088c/0/metadata.json",
+      "transcript": "/f0/a2c5d8088c/0/full.jsonl",
+      "context": "/f0/a2c5d8088c/0/context.md",
+      "content_hash": "/f0/a2c5d8088c/0/content_hash.txt",
+      "prompt": "/f0/a2c5d8088c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 36,
+    "cache_creation_tokens": 22371,
+    "cache_read_tokens": 2686726,
+    "output_tokens": 13114,
+    "api_call_count": 18
+  }
+}

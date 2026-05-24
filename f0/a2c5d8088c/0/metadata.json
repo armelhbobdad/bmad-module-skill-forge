@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "f0a2c5d8088c",
+  "session_id": "ec0a291e-d843-412b-b9a0-617b18426a27",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-24T17:04:20.037625785Z",
+  "branch": "fix/skf-quick-frontmatter-validator-uv-run",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-quick-skill/references/write-and-validate.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "1026a7329048",
+  "checkpoint_transcript_start": 364,
+  "transcript_lines_at_start": 364,
+  "token_usage": {
+    "input_tokens": 36,
+    "cache_creation_tokens": 22371,
+    "cache_read_tokens": 2686726,
+    "output_tokens": 13114,
+    "api_call_count": 18
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-24T17:04:19.587932388Z",
+    "agent_lines": 1,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1,
+    "agent_percentage": 100
+  }
+}
