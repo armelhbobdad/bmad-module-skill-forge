@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "b1b30512dea5",
+  "session_id": "01dbb013-399d-44f2-b6f9-423b0b370f8e",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-24T07:28:21.196801863Z",
+  "branch": "fix/skf-test-skill-stack-coverage-coherence",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-test-skill/references/coverage-check.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "ef65ec18e686",
+  "token_usage": {
+    "input_tokens": 2052,
+    "cache_creation_tokens": 155325,
+    "cache_read_tokens": 5376701,
+    "output_tokens": 79952,
+    "api_call_count": 48
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-24T07:28:20.446860805Z",
+    "agent_lines": 0,
+    "human_added": 128,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 128,
+    "agent_percentage": 0
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "b1b30512dea5",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-test-skill-stack-coverage-coherence",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-test-skill/references/coverage-check.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b1/b30512dea5/0/metadata.json",
+      "transcript": "/b1/b30512dea5/0/full.jsonl",
+      "context": "/b1/b30512dea5/0/context.md",
+      "content_hash": "/b1/b30512dea5/0/content_hash.txt",
+      "prompt": "/b1/b30512dea5/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 2052,
+    "cache_creation_tokens": 155325,
+    "cache_read_tokens": 5376701,
+    "output_tokens": 79952,
+    "api_call_count": 48
+  }
+}
