@@ -79,10 +79,11 @@ For each IDE in `config.yaml.ides`:
 Resolve the skill's versioned path before loading artifacts:
 
 1. Read `{skills_output_folder}/.export-manifest.json` and look up `{skill-name}` in `exports` to get `active_version`
-2. If found: resolve to `{skill_package}` = `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/`
-3. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill-name}/active` — resolve to `{skill_group}/active/{skill-name}/`
-4. If neither: fall back to flat path `{skills_output_folder}/{skill-name}/`. If SKILL.md exists at the flat path, auto-migrate per `knowledge/version-paths.md` migration rules
-5. Store the resolved path as `{resolved_skill_package}` for all subsequent artifact loading
+2. **Manifest-lag guard.** If the skill is in the manifest, also read the `active` symlink target at `{skills_output_folder}/{skill-name}/active`. If that symlink resolves to a *different* version than `active_version`, prefer the **symlink target** as `{resolved_version}` and emit an Info note: "manifest active_version {M} lags the active symlink {N} — exporting the symlink target (the just-forged version); the manifest active_version advances to {N} on this export." This is the canonical SS→TS→EX case: create-stack-skill flipped `active` to the new version, but the manifest only advances when *this* export runs. A bare manifest-first resolution would re-export the *previously exported* version, and step 4 §4b/step-5 (`update-context.md`) — which derives the published version from `{resolved_skill_package}/metadata.json` — would then write that stale version straight back as `active_version`, so the forged version could never be published. Resolving to the symlink target here makes this export publish {N} and reconcile the manifest. When the symlink matches `active_version` (or no `active` symlink exists), use `active_version`. See `knowledge/version-paths.md` "Reading Workflows".
+3. If found: resolve to `{skill_package}` = `{skills_output_folder}/{skill-name}/{resolved_version}/{skill-name}/`
+4. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill-name}/active` — resolve to `{skill_group}/active/{skill-name}/`
+5. If neither: fall back to flat path `{skills_output_folder}/{skill-name}/`. If SKILL.md exists at the flat path, auto-migrate per `knowledge/version-paths.md` migration rules
+6. Store the resolved path as `{resolved_skill_package}` for all subsequent artifact loading
 
 Load all files from `{resolved_skill_package}`:
 
