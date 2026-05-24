@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "015445d84b7a",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-stack-precommit-frontmatter-gate",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-stack-skill/references/generate-output.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/01/5445d84b7a/0/metadata.json",
+      "transcript": "/01/5445d84b7a/0/full.jsonl",
+      "context": "/01/5445d84b7a/0/context.md",
+      "content_hash": "/01/5445d84b7a/0/content_hash.txt",
+      "prompt": "/01/5445d84b7a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 40,
+    "cache_creation_tokens": 40260,
+    "cache_read_tokens": 2250358,
+    "output_tokens": 22506,
+    "api_call_count": 20
+  }
+}
