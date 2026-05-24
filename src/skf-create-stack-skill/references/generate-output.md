@@ -11,9 +11,9 @@ atomicWriteProbeOrder:
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 # Resolve `{frontmatterValidator}` by probing `{frontmatterValidatorProbeOrder}`
 # in order (installed SKF module path first, src/ dev-checkout fallback); first
-# existing path wins. Used by the §8 pre-commit frontmatter gate. If neither
-# resolves, the gate degrades to a WARNING — step 8 (validate.md) still runs the
-# full post-commit check.
+# existing path wins. Used by the §8 pre-commit frontmatter + body-size gate
+# (`--max-body-lines`). If neither resolves, the gate degrades to a WARNING —
+# step 8 (validate.md) still runs the full post-commit check.
 frontmatterValidatorProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py'
   - '{project-root}/src/shared/scripts/skf-validate-frontmatter.py'
@@ -222,22 +222,26 @@ Use the schema from `{provenanceMapSchemaPath}` — see that asset for the canon
 - Warnings and failures encountered
 - Confidence tier distribution
 
-### 8. Pre-Commit Frontmatter Gate
+### 8. Pre-Commit Frontmatter & Body-Size Gate
 
-The full schema/frontmatter validation runs in step 8 (`validate.md`) — but that runs *after* commit-dir and flip-link have already published the package. A non-auto-fixable frontmatter error (most commonly a `description` over the 1024-char limit, which `skill-check --fix` cannot trim for you) would therefore only surface on an already-committed, symlink-active artifact, forcing edits to the live `SKILL.md`. Catch those errors here, while the package is still in `.skf-tmp`.
+The full schema/frontmatter validation runs in step 8 (`validate.md`) — but that runs *after* commit-dir and flip-link have already published the package. The two most common non-auto-fixable `skill-check` hard rejects — a `description` over the 1024-char limit (which `skill-check --fix` cannot trim for you) and a SKILL.md body over the `body.max_lines` limit (default **500**) — would therefore only surface on an already-committed, symlink-active artifact, forcing edits to the live `SKILL.md`. Additive re-composition of an already-large stack grows the body monotonically, so the body overflow is the likeliest trigger. Catch both here, while the package is still in `.skf-tmp`.
 
-Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}` (first existing path wins). Run it against the **staged** `SKILL.md`, passing the real skill name so the directory-match check is not fooled by the `.skf-tmp` staging suffix:
+Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}` (first existing path wins). Run it against the **staged** `SKILL.md`, passing the real skill name so the directory-match check is not fooled by the `.skf-tmp` staging suffix, and `--max-body-lines 500` to assert the skill-check body limit pre-commit:
 
 ```bash
-uv run {frontmatterValidator} {skill_staging}/SKILL.md --skill-dir-name {project_name}-stack
+uv run {frontmatterValidator} {skill_staging}/SKILL.md --skill-dir-name {project_name}-stack --max-body-lines 500
 ```
 
-The validator emits JSON: `status` (`pass`/`warn`/`fail`), `issues[]` (each with `severity` ∈ `high|medium|low`, `field`, `message`), and `summary`. Disposition:
+The validator emits JSON: `status` (`pass`/`warn`/`fail`), `issues[]` (each with `severity` ∈ `high|medium|low`, `field`, `message`), `body_lines` (the counted body size), and `summary`. Disposition:
 
-- **`status` is `fail`, OR any `issues[]` entry has `severity` `high` or `medium`** — a hard frontmatter violation that `npx skill-check` (step 8) would reject and `--fix` cannot auto-correct (over-long `description`, missing/empty/invalid `name`, over-long `compatibility`). HALT-to-fix **in staging**: trim/correct `{skill_staging}/SKILL.md` (e.g. shorten `description` to ≤ 1024 chars) and re-run the validator until it clears. Do NOT proceed to §9 commit-dir with an unresolved high/medium issue. Note: an over-long `description` is rated `medium` (not `fail`) and the process still exits `0`, so key the HALT on the issue severities above — not on the exit code.
+- **`status` is `fail`, OR any `issues[]` entry has `severity` `high` or `medium`** — a hard violation that `npx skill-check` (step 8) would reject and `--fix` cannot auto-correct. HALT-to-fix **in staging**, then re-run the validator until it clears. Remediate by `field`:
+  - `description` / `name` / `compatibility` — trim/correct `{skill_staging}/SKILL.md` (e.g. shorten `description` to ≤ 1024 chars).
+  - `body` (`body lines N exceeds max 500`) — reduce the staged body: prefer a **selective split** of the largest Tier-2 section(s) into `{skill_staging}/references/`, keeping Tier-1 content inline (mirrors `validate.md` §3); or trim redundant content. Re-run the gate until `body_lines ≤ 500`.
+
+  Do NOT proceed to §9 commit-dir with an unresolved high/medium issue. Note: an over-long `description` is rated `medium` and exits `0`, so key the HALT on the issue severities above — not on the exit code.
 - **Only `low`-severity issues (e.g. an unexpected field)** — record each as a WARNING in the evidence report and proceed; these do not block the commit.
 
-**If `{frontmatterValidator}` does not resolve** (neither probe path exists) **or the invocation cannot run**, emit a WARNING ("pre-commit frontmatter gate skipped — validator unavailable") and proceed. Step 8 (`validate.md`) remains the post-commit backstop; this gate is a best-effort early catch, never a new hard dependency.
+**If `{frontmatterValidator}` does not resolve** (neither probe path exists) **or the invocation cannot run**, emit a WARNING ("pre-commit frontmatter + body-size gate skipped — validator unavailable") and proceed. Step 8 (`validate.md`) remains the post-commit backstop (including the `body.max_lines` split path in its §3); this gate is a best-effort early catch, never a new hard dependency.
 
 ### 9. Commit Staging Directory
 
