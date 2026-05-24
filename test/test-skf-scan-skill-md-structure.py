@@ -118,6 +118,22 @@ class TestRequiredSections:
         assert result["api_surface"]["satisfied"] is True
         assert result["api_surface"]["matched_synonym"] == "Key Exports"
 
+    def test_pattern_surface_satisfies_api_surface(self) -> None:
+        # reference-app assembly override — "Pattern Surface" replaces
+        # "Key API Summary" for Section 4 and must satisfy api_surface.
+        text = "## Description\n## Adoption Steps\n## Pattern Surface\n"
+        result = mod.find_required_sections(text)
+        assert result["api_surface"]["satisfied"] is True
+        assert result["api_surface"]["matched_synonym"] == "Pattern Surface"
+
+    def test_adoption_steps_satisfies_usage(self) -> None:
+        # reference-app assembly override — "Adoption Steps" replaces
+        # "Common Workflows" for Section 3 and must satisfy usage.
+        text = "## Description\n## Adoption Steps\n## Pattern Surface\n"
+        result = mod.find_required_sections(text)
+        assert result["usage"]["satisfied"] is True
+        assert result["usage"]["matched_synonym"] == "Adoption Steps"
+
     def test_quick_skill_template_headings_satisfy_all_families(self) -> None:
         # The quick-skill template's literal headings must satisfy every
         # required family so its output passes the structural-scan gate

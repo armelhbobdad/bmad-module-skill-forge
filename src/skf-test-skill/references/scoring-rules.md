@@ -70,6 +70,18 @@ When `metadata.json.skill_type == "stack"` (set `stackSkill: true` in the scorin
 
 Equivalence-class note: stack skills with `docsOnly:false` / `state2:false` map to the same equivalence class as State 2 contextual rows (class B) or State 2 naive rows (class D) — the redistribution math is identical; only the `skipReasons` string changes.
 
+### Reference-App Skills (Any Tier)
+
+When `metadata.json.scope_type == "reference-app"` (set `referenceApp: true` in the scoring input):
+
+- **Signature Accuracy:** N/A — a reference app documents wiring patterns (how surfaces are composed), not a library export surface the skill authors. There are no public-export signatures to grade against; the Pattern Surface replaces the Key API Summary (see `skf-create-skill` Reference-App Assembly Overrides).
+- **Type Coverage:** N/A — same rationale; a reference app has no library type surface to cover. Coverage is measured as pattern-surface coverage (`stats.pattern_surfaces_documented`), not export/type coverage.
+- **Weight redistribution:** Same as Quick tier / docs-only / State 2 / stack — Signature Accuracy (22%) and Type Coverage (14%) weights redistributed proportionally to remaining active categories (Export Coverage, Coherence, External Validation).
+- **Applies regardless of detected tier** (Quick, Forge, Forge+, Deep) and is independent of `docsOnly` and `state2`; skip reasons combine additively. `referenceApp` and `stackSkill` are distinct scope/type signals and should not both be set for the same skill.
+- **Detection:** step 5 reads `metadata.json.scope_type` from the skill package. If the value is `"reference-app"`, set `referenceApp: true` in the scoring input JSON. The skip reason recorded is `"reference-app (no library export signatures)"`.
+
+Equivalence-class note: reference-app skills map to the same redistribution equivalence class as stack skills — the math is identical; only the `skipReasons` string changes.
+
 ### State 2 Source Access (Any Tier, Provenance-Map Only)
 
 When source is not locally available and analysis resolves to State 2 (provenance-map baseline per source-access-protocol.md):

@@ -74,6 +74,7 @@ Build a JSON object from the data gathered in steps 1-2:
   "docsOnly": "{true if docs_only_mode detected in step 03, else false}",
   "state2": "{true if analysis_confidence is provenance-map, else false}",
   "stackSkill": "{true if metadata.json.skill_type == 'stack', else false}",
+  "referenceApp": "{true if metadata.json.scope_type == 'reference-app', else false}",
   "scores": {
     "exportCoverage": "{export_coverage_percentage}",
     "signatureAccuracy": "{signature_accuracy_percentage or null if N/A}",
@@ -85,7 +86,7 @@ Build a JSON object from the data gathered in steps 1-2:
 }
 ```
 
-**Important:** Score values must be numbers (not strings). Use `null` (not `"N/A"`) for categories that were not scored. Read `metadata.json.skill_type` from `{resolved_skill_package}/metadata.json`; if the value is `"stack"`, set `stackSkill: true` and pass `null` for `signatureAccuracy` and `typeCoverage` (the categories will be redistributed per `{scoringRulesFile}` Stack Skills rule).
+**Important:** Score values must be numbers (not strings). Use `null` (not `"N/A"`) for categories that were not scored. Read `metadata.json.skill_type` from `{resolved_skill_package}/metadata.json`; if the value is `"stack"`, set `stackSkill: true` and pass `null` for `signatureAccuracy` and `typeCoverage` (the categories will be redistributed per `{scoringRulesFile}` Stack Skills rule). Likewise read `metadata.json.scope_type`; if the value is `"reference-app"`, set `referenceApp: true` and pass `null` for `signatureAccuracy` and `typeCoverage` (redistributed per `{scoringRulesFile}` Reference-App rule — a reference app documents wiring patterns, not library export signatures).
 
 #### 3b. Run the Scoring Script
 
@@ -114,7 +115,7 @@ Use these values for Section 4 (pass/fail/inconclusive) and Section 6 (output fo
 If the script is unavailable or returns an error, fall back to manual calculation:
 
 1. Select the weight table from `{scoringRulesFile}` for the detected mode (naive or contextual)
-2. Determine skip conditions: Quick tier/docsOnly/state2/stackSkill skip Signature Accuracy + Type Coverage; naive mode coherence is already 0; null external validation means skip it
+2. Determine skip conditions: Quick tier/docsOnly/state2/stackSkill/referenceApp skip Signature Accuracy + Type Coverage; naive mode coherence is already 0; null external validation means skip it
 3. For each skipped category, set its weight to 0
 4. Compute sum of active category weights
 5. For each active category: `new_weight = old_weight / sum_active * 100`
