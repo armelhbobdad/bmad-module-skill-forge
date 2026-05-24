@@ -249,7 +249,7 @@ constraints:
 
 **JavaScript/TypeScript — exported functions:**
 
-> **Language selection:** Use `language: typescript` for `.ts` files and `language: tsx` for `.tsx` files. Patterns that work with `typescript` may return zero results with `tsx` and vice versa — they use different tree-sitter parsers. For mixed codebases, run each pattern twice (once per language) and merge results. Note: `export function` patterns may fail with `tsx` on ast-grep 0.41.x (see Known Limitations #5) — use source reading as fallback for those.
+> **Language selection:** Use `language: typescript` for `.ts` files and `language: tsx` for `.tsx` files. Patterns that work with `typescript` may return zero results with `tsx` and vice versa — they use different tree-sitter parsers. For mixed codebases, run each pattern twice (once per language) and merge results. Note: the `export function $NAME($$$PARAMS)` pattern returns **zero** with `tsx` on ast-grep 0.41.x (see Known Limitation #5) **and** with plain `typescript` on 0.42.x (see Known Limitation #9) — use source reading as the fallback for `export function` on both.
 
 ```yaml
 id: js-exported-functions
@@ -278,16 +278,16 @@ rule:
 
 > **JS/TS Pattern Merging:** Modern TypeScript codebases often use `export const` exclusively for all exports (arrow functions, objects, constants). Run ALL four JS/TS patterns (functions, arrow functions, constants, classes) and merge results by `$NAME`. Priority when deduplicating: arrow function match > function declaration match > constant match. Arrow function matches capture parameters directly; constant matches require inspecting `$VALUE` to extract signatures.
 
-**JavaScript/TypeScript — exported classes (use `find_code`, not `find_code_by_rule`):**
+**JavaScript/TypeScript — exported classes:**
 
 ```yaml
 id: js-exported-classes
 language: typescript
 rule:
-  pattern: 'export class $NAME'
+  pattern: 'export class $NAME { $$$ }'
 ```
 
-> **Important:** For class patterns, use `find_code()` rather than `find_code_by_rule()`. The `find_code_by_rule` API requires explicit AST `kind` rules for class exports, which adds complexity. The simpler `find_code()` pattern approach works reliably for class detection.
+> **Important:** The body (`{ $$$ }`) is required on ast-grep 0.42.x. The bare `export class $NAME` pattern returns zero matches — and emits a `Pattern contains an ERROR node` warning — through **both** `find_code()` and the CLI, because an incomplete class declaration does not parse as a complete statement (see Known Limitation #9). With the body present, the simple `find_code()` pattern detects class exports reliably; `find_code_by_rule` would additionally require an explicit AST `kind` rule.
 
 **JavaScript/TypeScript — re-export detection (use `find_code`):**
 
@@ -383,7 +383,7 @@ Unlinked Props interfaces are included as standalone type exports. Unlinked comp
 
 When using ast-grep for extraction, be aware of these documented limitations:
 
-1. **`find_code_by_rule` requires explicit `kind` for class exports:** The `export class $NAME` pattern needs a `kind` rule specifying the tree-sitter node type when used with `find_code_by_rule`. Use the simpler `find_code()` API instead for class detection.
+1. **`export class $NAME` needs a body on 0.42.x; `find_code_by_rule` needs explicit `kind`:** The bare `export class $NAME` pattern returns zero through **both** `find_code()` and the CLI on ast-grep 0.42.x — add the body, `export class $NAME { $$$ }` (see #9). With `find_code_by_rule`, a class export additionally needs a `kind` rule for the tree-sitter node type; the simpler `find_code()` with the body-form pattern is the lighter path.
 
 2. **Re-export patterns produce multiple AST nodes:** `export { A, B, C } from './module'` decomposes into multiple metavariable bindings for `$$$NAMES`. Results require post-processing to split comma-separated names.
 
@@ -401,6 +401,15 @@ When using ast-grep for extraction, be aware of these documented limitations:
 7. **Python class patterns with bases/colon return zero (ast-grep 0.42.x):** The patterns `class $NAME($$$BASES)` and `class $NAME($$$BASES):` return zero matches on real Python sources with ast-grep 0.42.0, even on files containing dozens of subclassed public classes. `find_code_by_rule` also rejects the bare inline rule without `kind` as `Rule must specify a set of AST kinds to match. Try adding \`kind\` rule.` **Workaround:** Use the minimal `class $NAME` pattern with `kind: class_definition` (YAML) or `ast-grep run -p 'class $NAME' -l python --json=stream` (CLI), then post-filter names via the `^[^_]` regex. The `^[^_]` constraint enforces the "public" filter since ast-grep's base-match rule is what's broken, not the name-match rule. See the Python — public classes recipe above.
 
 8. **Rust `pub fn` any-pattern returns zero; bare `pub fn $NAME` over-captures (ast-grep 0.42.x):** The `rust-public-functions` recipe's `any:` of `pub fn $NAME($$$PARAMS) -> $RET` / `pub fn $NAME($$$PARAMS)` returns "No matches found" on real Rust sources with ast-grep 0.42.2, even on crates containing 200+ public functions. Dropping to the bare `pub fn $NAME` pattern matches, but over-captures restricted-visibility functions such as `pub(crate) fn` / `pub(super) fn`, which are **not** public API. **Workaround:** Prefer a visibility-constrained source grep — `rg '^\s*pub fn ' <src>` filtered to exclude lines beginning `pub(` — cross-checked against the AN-verified public surface, at T1-low confidence. Never silently accept zero results for Rust public functions, and never treat a bare `pub fn $NAME` match set as the public API without stripping `pub(...)`-restricted items. See the Rust — public functions recipe above.
+
+9. **Plain `language: typescript` declaration patterns without a body return zero (ast-grep 0.42.x):** For `language: typescript` on ast-grep 0.42.2, the incomplete-statement patterns `export class $NAME`, `export function $NAME($$$PARAMS)`, `export type $NAME`, and `export enum $NAME` all return **zero** matches against real `.ts` sources — `export class` / `export type` / `export enum` additionally print `Pattern contains an ERROR node`. This affects the CLI (`ast-grep run -p ... -l typescript`) and the MCP `find_code()` API **identically** — `find_code()` is not a workaround. Only `export const $NAME = $VALUE` matches as documented. The cause is that a declaration pattern missing its body/initializer does not parse as a complete statement. **Workarounds (verified on 0.42.2 via both CLI and `find_code`):**
+   - **class:** add the body — `export class $NAME { $$$ }` matches.
+   - **enum:** add the body — `export enum $NAME { $$$ }` matches.
+   - **type alias:** drop `export` and include the initializer — `type $NAME = $T` matches (and captures both `export type` and bare `type` declarations).
+   - **interface:** `export interface $NAME { $$$ }` already carries a body and **works** for plain interfaces — but it misses generic (`interface $NAME<T>`) and `extends` forms; source-read those at T1-low.
+   - **function:** the body form `export function $NAME($$$PARAMS) { $$$ }` matches only functions with no return-type annotation and no `async` modifier, so it is unreliable. Prefer a source-read fallback (or a barrel cross-check) at T1-low for `export function`, mirroring the tsx guidance in #5.
+
+   Never silently accept zero results for a declaration form the source language commonly uses.
 
 ### Component Library Demo/Example Auto-Exclusion
 
