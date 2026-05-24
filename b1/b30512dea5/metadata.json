@@ -3,8 +3,9 @@
   "checkpoint_id": "b1b30512dea5",
   "strategy": "manual-commit",
   "branch": "fix/skf-test-skill-stack-coverage-coherence",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
+    "src/skf-test-skill/references/coherence-check.md",
     "src/skf-test-skill/references/coverage-check.md"
   ],
   "sessions": [
@@ -14,13 +15,20 @@
       "context": "/b1/b30512dea5/0/context.md",
       "content_hash": "/b1/b30512dea5/0/content_hash.txt",
       "prompt": "/b1/b30512dea5/0/prompt.txt"
+    },
+    {
+      "metadata": "/b1/b30512dea5/1/metadata.json",
+      "transcript": "/b1/b30512dea5/1/full.jsonl",
+      "context": "/b1/b30512dea5/1/context.md",
+      "content_hash": "/b1/b30512dea5/1/content_hash.txt",
+      "prompt": "/b1/b30512dea5/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 2052,
-    "cache_creation_tokens": 155325,
-    "cache_read_tokens": 5376701,
-    "output_tokens": 79952,
-    "api_call_count": 48
+    "input_tokens": 2102,
+    "cache_creation_tokens": 252288,
+    "cache_read_tokens": 7155430,
+    "output_tokens": 120366,
+    "api_call_count": 73
   }
 }
