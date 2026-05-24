@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "49d9a637bf4f",
+  "session_id": "cbd80857-bd22-4dae-92d0-bce37ea493be",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-24T18:39:30.463248874Z",
+  "branch": "fix/skf-reference-app-toolchain-wiring",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-analyze-source/assets/skill-brief-schema.md",
+    "src/skf-analyze-source/references/generate-briefs.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "c8db2389bb07",
+  "token_usage": {
+    "input_tokens": 130,
+    "cache_creation_tokens": 142601,
+    "cache_read_tokens": 6456801,
+    "output_tokens": 62413,
+    "api_call_count": 65
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-24T18:39:29.900043842Z",
+    "agent_lines": 10,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 10,
+    "agent_percentage": 100
+  }
+}

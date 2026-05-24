@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "49d9a637bf4f",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-reference-app-toolchain-wiring",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-analyze-source/assets/skill-brief-schema.md",
+    "src/skf-analyze-source/references/generate-briefs.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/49/d9a637bf4f/0/metadata.json",
+      "transcript": "/49/d9a637bf4f/0/full.jsonl",
+      "context": "/49/d9a637bf4f/0/context.md",
+      "content_hash": "/49/d9a637bf4f/0/content_hash.txt",
+      "prompt": "/49/d9a637bf4f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 130,
+    "cache_creation_tokens": 142601,
+    "cache_read_tokens": 6456801,
+    "output_tokens": 62413,
+    "api_call_count": 65
+  }
+}
