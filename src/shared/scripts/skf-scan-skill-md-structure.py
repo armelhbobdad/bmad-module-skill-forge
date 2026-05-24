@@ -99,10 +99,13 @@ from pathlib import Path
 # `src/skf-test-skill/references/coherence-check.md` §2.1, with the
 # SKF-template-specific headings folded in so they are first-class
 # matches rather than literal-name misses (per the §2.1 "Note"
-# paragraph). The set covers both the Deep/create-skill template
-# (`Quick Start`, `Common Workflows`, `Key API Summary`, `Key Types`)
-# and the quick-skill template (`Usage Patterns`, `Key Exports`), since
-# headings are matched on the full heading text, not a substring.
+# paragraph). The set covers the Deep/create-skill template
+# (`Quick Start`, `Common Workflows`, `Key API Summary`, `Key Types`),
+# the quick-skill template (`Usage Patterns`, `Key Exports`), and the
+# reference-app assembly overrides (`Adoption Steps` replaces Common
+# Workflows for usage; `Pattern Surface` replaces Key API Summary for
+# api_surface), since headings are matched on the full heading text,
+# not a substring.
 REQUIRED_SYNONYMS: dict[str, list[str]] = {
     "description": ["Description", "Overview", "Purpose", "Summary"],
     "usage": [
@@ -114,6 +117,7 @@ REQUIRED_SYNONYMS: dict[str, list[str]] = {
         "Quick Start",
         "Getting Started",
         "Common Workflows",
+        "Adoption Steps",
     ],
     "api_surface": [
         "API",
@@ -124,6 +128,7 @@ REQUIRED_SYNONYMS: dict[str, list[str]] = {
         "Interface",
         "Reference",
         "Key API Summary",
+        "Pattern Surface",
     ],
 }
 
