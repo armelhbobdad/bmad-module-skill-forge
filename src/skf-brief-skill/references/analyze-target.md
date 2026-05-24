@@ -32,9 +32,15 @@ To analyze the target repository by resolving its location, reading its structur
 ### 1. Resolve Target Location
 
 **For GitHub URLs:**
+
+**Resolve the analysis ref first.** `{analysis_ref}` is the git ref every GitHub-API fetch in this step (tree, manifests, contents) reads from — resolve it before fetching anything so the analyzed structure matches the version being skilled:
+- If neither `target_ref` nor `target_version` was set in step 01: `{analysis_ref}` = `HEAD` (default branch). This is the common case — skip straight to the probes below with no extra call.
+- If `target_ref` is set (an explicit ref the user stated verbatim, highest priority): use it directly as `{analysis_ref}` — no tag lookup.
+- If `target_version` is set: resolve it to a tag via `gh api repos/{owner}/{repo}/git/refs/tags` (paginate if the repo has many tags), matching in priority order — exact `{target_version}`, then `v{target_version}`. This mirrors the clone-path tag matching in `skf-create-skill/references/source-resolution-protocols.md` (see that file for the full monorepo-tag priority if the simple forms miss). On a single match, set `{analysis_ref}` to that tag. On **multiple matches**, present them and ask which to use (headless: take the exact match, else the `v`-prefixed one). On **zero matches**, warn `"No git tag matches version {target_version}; analyzing the default branch (HEAD) instead — structure and exports may not match the pinned version."`, set `{analysis_ref}` = `HEAD`, and record the fallback in the §5 analysis summary.
+
 - Issue both probes in **one message with two parallel Bash calls** — they are independent:
   - `gh api repos/{owner}/{repo}` (verify repo exists)
-  - `gh api repos/{owner}/{repo}/git/trees/HEAD?recursive=1` (fetch file tree)
+  - `gh api repos/{owner}/{repo}/git/trees/{analysis_ref}?recursive=1` (fetch file tree at the resolved ref)
 - If the repo-existence probe fails, fall through to the failure-class triage below; the tree response from the parallel call is discarded in that case.
 
 **Truncation detection:** After receiving the tree response, check the `truncated` field in the JSON output. If `truncated: true`:
@@ -73,8 +79,8 @@ echo '{"tree": [<flat list of repo-relative file paths>], "manifests": {"package
   uv run {detectWorkspacesHelper}
 ```
 
-- **`tree`** — pass the flat list of repo-relative file paths already fetched in §1 (for GitHub: the `path` values from the `gh api .../git/trees/HEAD?recursive=1` response; for local: the equivalent listing).
-- **`manifests`** — only the root manifests need contents; child-workspace manifests are looked up from the tree by the script. Include any of `package.json`, `Cargo.toml`, `pnpm-workspace.yaml`, `lerna.json` that appears at the repo root. Fetch them in **one message with N parallel Bash calls** (`gh api .../contents/{path}` for GitHub, file reads for local), then base64-decode together. Per-workspace manifest contents (e.g. `packages/foo/package.json`) are optional — including them populates the workspace `name` field with the manifest's declared package name; omitting them falls back to the directory basename.
+- **`tree`** — pass the flat list of repo-relative file paths already fetched in §1 (for GitHub: the `path` values from the `gh api .../git/trees/{analysis_ref}?recursive=1` response; for local: the equivalent listing).
+- **`manifests`** — only the root manifests need contents; child-workspace manifests are looked up from the tree by the script. Include any of `package.json`, `Cargo.toml`, `pnpm-workspace.yaml`, `lerna.json` that appears at the repo root. Fetch them in **one message with N parallel Bash calls** (`gh api .../contents/{path}?ref={analysis_ref}` for GitHub, file reads for local), then base64-decode together. Per-workspace manifest contents (e.g. `packages/foo/package.json`) are optional — including them populates the workspace `name` field with the manifest's declared package name; omitting them falls back to the directory basename.
 
 The script returns a JSON envelope: `{is_monorepo, manifest_kind, workspaces[], warnings[]}`. Apply the result deterministically — see `src/shared/scripts/schemas/workspace-detection.v1.json` for the full contract.
 
@@ -146,7 +152,7 @@ This section runs exactly one of §4.1 (script path) or §4.2 (fallback path) ba
 
 #### 4.1 Procedure — script-supported languages
 
-1. Read the relevant files into memory (no parsing yet — just collect content). For GitHub sources, issue **all N `gh api repos/{owner}/{repo}/contents/{file}` calls in a single message with N parallel Bash calls** (one per manifest + each entry point), then base64-decode the responses together — these are 2-4 independent fetches per typical run. For local sources read directly (also parallelisable, but local reads are fast enough that serial Read tool calls are acceptable).
+1. Read the relevant files into memory (no parsing yet — just collect content). For GitHub sources, issue **all N `gh api repos/{owner}/{repo}/contents/{file}?ref={analysis_ref}` calls in a single message with N parallel Bash calls** (one per manifest + each entry point), then base64-decode the responses together — these are 2-4 independent fetches per typical run. Carrying `{analysis_ref}` through here is what keeps the analyzed exports/version aligned with the pinned tag rather than HEAD. For local sources read directly (also parallelisable, but local reads are fast enough that serial Read tool calls are acceptable).
 
    | Language | Manifest | Entry points (mode=quick) |
    |----------|----------|--------------------------|
@@ -258,6 +264,10 @@ Present the complete analysis:
 - Docs: {found/not found — location}
 - Config: {list of config files found}
 - Version: {detected version or "Not detected — defaulting to 1.0.0"}
+{If the target was a GitHub URL:}
+- Analysis ref: {analysis_ref} {append " (resolved from target_version {target_version})" when a tag was matched, or " (no tag matched {target_version} — analyzed default branch)" on the zero-match fallback}
+
+Store `{analysis_ref}` in workflow context — step 03 (`scope-definition.md`) reuses it for any further `contents/` fetches so scope analysis reads the same ref as this step.
 
 ---
 
