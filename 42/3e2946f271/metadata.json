@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "423e2946f271",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-reference-app-toolchain-wiring",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-skill/assets/compile-assembly-rules.md",
+    "src/skf-create-skill/references/compile.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/42/3e2946f271/0/metadata.json",
+      "transcript": "/42/3e2946f271/0/full.jsonl",
+      "context": "/42/3e2946f271/0/context.md",
+      "content_hash": "/42/3e2946f271/0/content_hash.txt",
+      "prompt": "/42/3e2946f271/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 130,
+    "cache_creation_tokens": 142601,
+    "cache_read_tokens": 6456801,
+    "output_tokens": 62413,
+    "api_call_count": 65
+  }
+}
