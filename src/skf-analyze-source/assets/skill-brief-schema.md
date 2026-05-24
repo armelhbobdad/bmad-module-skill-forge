@@ -88,8 +88,10 @@ scope:
 | specific-modules  | Selected components or packages                                                      |
 | public-api        | Only exported interfaces                                                             |
 | component-library | UI component libraries with registries, props-based APIs, and design system variants |
-| reference-app     | Whole app whose value is wiring patterns, not public exports (embedded sidecars, CLI demos, integration-pattern demonstrators) |
+| reference-app     | Whole app whose value is wiring patterns, not public exports (embedded sidecars, CLI demos, integration-pattern demonstrators). Also the home for **language / spec references** — engine- or spec-versioned query languages, grammars, or DSLs (e.g. SurrealQL) whose value is construct idioms, not exports. These have no separate scope type; they ride `reference-app` as a sub-shape (see `skf-create-skill` Language / spec-reference sub-shape) |
 | docs-only         | When source_type is docs-only — no source code available, all content from doc_urls  |
+
+> **Documented vs source language.** The `language` field records the language the skill *documents*. For a language / spec reference this may differ from the source language it is extracted from — e.g. a SurrealQL reference extracted from a Rust engine records `language: surrealql`, not `rust`. Use the documented language and a matching code-fence default (e.g. ` ```surql `) throughout the brief.
 
 ## YAML Template
 
