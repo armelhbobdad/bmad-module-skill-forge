@@ -13,7 +13,7 @@ For the detected source language, attempt the lookups in order. Stop at the firs
 - **Rust:** `Cargo.toml` `[package] version` (static). If `version = { workspace = true }`, resolve from workspace root `Cargo.toml` → `git describe --tags --abbrev=0`.
 - **Go:** version tag from `go.mod`, or `git describe --tags --abbrev=0`.
 
-For remote GitHub sources, fetch version-bearing files via `gh api repos/{owner}/{repo}/contents/{file}` (decode base64). For local sources, read the file directly.
+For remote GitHub sources, fetch version-bearing files via `gh api repos/{owner}/{repo}/contents/{file}?ref={analysis_ref}` (decode base64) — `{analysis_ref}` is the ref resolved in step 02 §1, defaulting to `HEAD` when no `target_ref`/`target_version` was pinned; reading at the pinned ref keeps the "Detected version" consistent with the version being skilled. For local sources, read the file directly.
 
 If every step fails or returns a non-semver value, the detected version is `null` — the resolver below falls back to `"1.0.0"`.
 
