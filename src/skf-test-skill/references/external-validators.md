@@ -66,11 +66,11 @@ timeout 120s npx skill-check check {skillDir} --format json --no-security-scan
 If the command exits non-zero AND the exit code is `124` (GNU timeout's signal for the 120s wall-clock expiring), record `skill_check_score: N/A` with reason `timeout-120s`, log a warning, and skip to section 3. Other non-zero exits fall through to the regular JSON-parse path per the note below.
 
 **Parse JSON output** to extract:
-- `qualityScore` — overall score (0-100)
+- `scores[].score` — overall score (0-100); match the entry by `relativePath` (or `skillId`) to the validated skill dir. Older skill-check builds exposed this as a top-level `qualityScore` — fall back to that if `scores[]` is absent.
 - `diagnostics[]` — any remaining issues
-- `errorCount` and `warningCount`
+- `summary.errorCount` and `summary.warningCount` — issue counts (the counts live under `summary`, not at the top level)
 
-**Note:** `skill-check` may return a non-zero exit code even when `errorCount` is 0. Always rely on the parsed JSON output, not the shell exit code.
+**Note:** `skill-check` may return a non-zero exit code even when `summary.errorCount` is 0. Always rely on the parsed JSON output, not the shell exit code.
 
 Store in context: `skill_check_score`, `skill_check_diagnostics`
 
