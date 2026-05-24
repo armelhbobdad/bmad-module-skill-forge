@@ -337,6 +337,112 @@ class TestUnknownFields:
 
 
 # --------------------------------------------------------------------------
+# from_brief ratify route
+# --------------------------------------------------------------------------
+
+
+class TestFromBrief:
+    def test_from_brief_alone_is_valid(self):
+        # Ratify route: from_brief is the source of truth; target_repo and
+        # skill_name are derived from the brief, so neither is required.
+        out = mod.validate({"from_brief": "/forge-data/marked/skill-brief.yaml"})
+        assert out["valid"] is True
+        assert out["errors"] == []
+        assert out["halt_reason"] is None
+
+    def test_from_brief_is_a_known_field(self):
+        # Recognized → no unrecognized-field warning.
+        out = mod.validate({"from_brief": "/x/skill-brief.yaml"})
+        assert not any(w["field"] == "from_brief" for w in out["warnings"])
+
+    def test_from_brief_preserved_in_normalized(self):
+        out = mod.validate({"from_brief": "/x/skill-brief.yaml"})
+        assert out["normalized"]["from_brief"] == "/x/skill-brief.yaml"
+
+    def test_from_brief_directory_path_is_valid(self):
+        # A directory containing skill-brief.yaml is an accepted shape — the
+        # GATE resolves <dir>/skill-brief.yaml; the validator only checks shape.
+        out = mod.validate({"from_brief": "/forge-data/marked"})
+        assert out["valid"] is True
+
+    def test_empty_from_brief_halts_input_missing(self):
+        out = mod.validate({"from_brief": ""})
+        assert out["valid"] is False
+        assert any(e["field"] == "from_brief" for e in out["errors"])
+        assert out["halt_reason"] == "input-missing"
+
+    def test_whitespace_from_brief_halts_input_missing(self):
+        out = mod.validate({"from_brief": "   "})
+        assert out["valid"] is False
+        assert any(e["field"] == "from_brief" for e in out["errors"])
+        assert out["halt_reason"] == "input-missing"
+
+    def test_non_string_from_brief_halts_input_invalid(self):
+        out = mod.validate({"from_brief": 123})
+        assert out["valid"] is False
+        assert any(e["field"] == "from_brief" for e in out["errors"])
+        assert out["halt_reason"] == "input-invalid"
+
+    def test_null_from_brief_treated_as_absent(self):
+        # from_brief: null → not a ratify run → derive-route requirements apply.
+        out = mod.validate({"from_brief": None})
+        assert out["valid"] is False
+        fields = {e["field"] for e in out["errors"]}
+        assert {"target_repo", "skill_name"}.issubset(fields)
+        assert out["halt_reason"] == "input-missing"
+
+    def test_from_brief_precedence_warns_on_target_repo(self):
+        out = mod.validate(
+            {"from_brief": "/x/skill-brief.yaml", "target_repo": "https://github.com/foo/bar"}
+        )
+        assert out["valid"] is True
+        assert any(
+            w["field"] == "target_repo" and "ignored" in w["message"]
+            for w in out["warnings"]
+        )
+
+    def test_from_brief_precedence_warns_on_skill_name(self):
+        out = mod.validate(
+            {"from_brief": "/x/skill-brief.yaml", "skill_name": "foo-bar"}
+        )
+        assert out["valid"] is True
+        assert any(
+            w["field"] == "skill_name" and "ignored" in w["message"]
+            for w in out["warnings"]
+        )
+
+    def test_from_brief_ignores_non_kebab_skill_name(self):
+        # skill_name is derived from the brief on the ratify route, so a
+        # malformed value passed alongside from_brief is ignored, not an error.
+        out = mod.validate(
+            {"from_brief": "/x/skill-brief.yaml", "skill_name": "Not_Kebab"}
+        )
+        assert out["valid"] is True
+        assert not any(e["field"] == "skill_name" for e in out["errors"])
+
+    def test_from_brief_with_docs_only_arg_does_not_require_doc_urls(self):
+        # On the ratify route the brief on disk is the source of truth for
+        # source_type/doc_urls — a redundant `source_type: docs-only` arg must
+        # not HALT a run whose doc_urls live in the brief, not the args.
+        out = mod.validate(
+            {"from_brief": "/x/skill-brief.yaml", "source_type": "docs-only"}
+        )
+        assert out["valid"] is True
+        assert not any(e["field"] == "doc_urls" for e in out["errors"])
+
+    def test_from_brief_with_garbage_target_repo_no_shape_warning(self):
+        # target_repo is ignored on the ratify route — only the single "ignored"
+        # warning fires, not the additional URL/path shape warning.
+        out = mod.validate(
+            {"from_brief": "/x/skill-brief.yaml", "target_repo": "blarg"}
+        )
+        assert out["valid"] is True
+        tr_warnings = [w for w in out["warnings"] if w["field"] == "target_repo"]
+        assert len(tr_warnings) == 1
+        assert "ignored" in tr_warnings[0]["message"]
+
+
+# --------------------------------------------------------------------------
 # CLI integration (subprocess)
 # --------------------------------------------------------------------------
 
@@ -385,3 +491,14 @@ class TestCLI:
         )
         assert code == 0
         assert out["valid"] is True
+
+    def test_cli_from_brief_exits_0(self):
+        code, out = self._run({"from_brief": "/forge-data/marked/skill-brief.yaml"})
+        assert code == 0
+        assert out["valid"] is True
+
+    def test_cli_empty_from_brief_exits_1(self):
+        code, out = self._run({"from_brief": ""})
+        assert code == 1
+        assert out["valid"] is False
+        assert out["halt_reason"] == "input-missing"

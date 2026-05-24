@@ -54,7 +54,7 @@ Before writing, check whether the resolved target path already exists.
 
 **Ratify path (`ratify_mode: true` in workflow context):**
 
-The user already confirmed overwrite up-front at step 1 §3.1a when they chose `[R] Ratify` against the same file. Skip the interactive prompt below; log a single-line `brief-skill: ratify-mode auto-overwriting existing brief at {path}` and proceed to §3. Resuming the prompt would be friction — the user has by now also reviewed and approved the brief at step 4. This auto-accept does not apply to headless mode (handled below) nor to the standard interactive path (also below).
+The overwrite was already authorized when ratify mode was entered — interactively at step 1 §3.1a (`[R] Ratify` against the same file, then reviewed and approved at step 4), or headlessly at the step 1 §8 GATE `from_brief` route (the operator pointed the run at a brief to ratify). Either way, skip the interactive prompt below; log a single-line `brief-skill: ratify-mode auto-overwriting existing brief at {path}` and proceed to §3. **This ratify branch takes precedence over both the interactive and headless branches below** — when `ratify_mode` is set, neither of those runs. In particular, a headless ratify (`from_brief`) auto-overwrites the brief in place without requiring `force`; `force` governs only the derive route, where overwriting a pre-existing brief is a genuine clobber the operator must opt into.
 
 **Interactive (`{headless_mode}` is false, `ratify_mode` not set):**
 
@@ -102,6 +102,8 @@ Assemble the brief context as a **flat** JSON object — every approved value is
   "source_authority": null | "{official|community|internal}"
 }
 ```
+
+**Ratify mode (`ratify_mode: true`):** this path never ran step 2, so the version was not re-derived — it was hydrated from the upstream brief at step 1 §3.1a (interactive) or the §8 GATE `from_brief` route (headless). Add a `version_resolved` key set to that hydrated `version`; the writer's precedence checks `version_resolved` first, so this pins the output to the brief's authored version. **Without it**, `target_version` and `detected_version` are both null on a ratify run and the writer falls through to the `1.0.0` default, silently discarding the upstream version. Keep `target_version` set to the brief's `target_version` (null if it had none) so the writer's `target_version == version` invariant still holds.
 
 Pipe it into the writer script with the `--from-flat` flag:
 

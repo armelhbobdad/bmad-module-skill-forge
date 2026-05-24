@@ -14,9 +14,19 @@ CLI:
   echo '{...}' | uv run skf-validate-brief-inputs.py
 
 Input (JSON object on stdin or via --json):
-  Required:
+  Required (derive route — deriving a new brief from a repo/docs target):
     target_repo  — string (URL or path); error if absent
     skill_name   — string (kebab-case); error if absent or malformed
+
+  Ratify route (ratifying a pre-authored brief):
+    from_brief   — string path to an existing skill-brief.yaml (file or
+                   containing directory). When supplied, the run ratifies
+                   that brief instead of deriving one: target_repo and
+                   skill_name become optional (derived from the brief) and
+                   are ignored with a warning if also passed. The path's
+                   existence and the brief's schema are checked downstream
+                   by skf-validate-brief-schema.py — this validator only
+                   enforces that from_brief is a non-empty string.
 
   Optional with enum constraints:
     source_type      — "source" | "docs-only" (default "source")
@@ -63,6 +73,7 @@ from typing import Any
 KNOWN_FIELDS = {
     "target_repo",
     "skill_name",
+    "from_brief",
     "source_type",
     "source_authority",
     "scope_type",
@@ -113,23 +124,68 @@ def validate(inp: dict[str, Any]) -> dict[str, Any]:
     errors: list[dict[str, str]] = []
     warnings: list[dict[str, str]] = []
 
-    # Required: target_repo, skill_name
     target_repo = inp.get("target_repo")
     skill_name = inp.get("skill_name")
-    if not target_repo:
-        errors.append(_err("target_repo", "missing required argument target_repo"))
-    if not skill_name:
-        errors.append(_err("skill_name", "missing required argument skill_name"))
 
-    # skill_name format
-    if skill_name and isinstance(skill_name, str) and not KEBAB_RE.match(skill_name):
-        errors.append(
-            _err(
-                "skill_name",
-                f"skill_name must be kebab-case (lowercase letters/digits/hyphens, "
-                f"no leading or trailing hyphen). Got: {skill_name!r}",
+    # Ratify route: `from_brief` points at a pre-authored brief to ratify. When
+    # supplied it is the source of truth — target_repo / skill_name are derived
+    # from the brief, so they are neither required nor format-checked here, and
+    # are ignored (with a warning) if also passed. A null `from_brief` is treated
+    # as "absent" so callers can pass it unconditionally.
+    from_brief = inp.get("from_brief")
+    ratify_route = from_brief is not None
+    if ratify_route:
+        if not isinstance(from_brief, str):
+            errors.append(
+                _err(
+                    "from_brief",
+                    f"from_brief must be a string path to a skill-brief.yaml. "
+                    f"Got type {type(from_brief).__name__}",
+                )
             )
-        )
+        elif not from_brief.strip():
+            errors.append(
+                _err(
+                    "from_brief",
+                    "from_brief is required but was empty — supply a path to a "
+                    "skill-brief.yaml (file or containing directory)",
+                )
+            )
+        else:
+            # Valid from_brief value — flag any redundant derive-route args.
+            if target_repo:
+                warnings.append(
+                    _err(
+                        "target_repo",
+                        "target_repo is ignored when from_brief is supplied — the "
+                        "ratify route derives the target from the brief",
+                    )
+                )
+            if skill_name:
+                warnings.append(
+                    _err(
+                        "skill_name",
+                        "skill_name is ignored when from_brief is supplied — the "
+                        "ratify route derives the name from the brief",
+                    )
+                )
+
+    # Required (derive route only): target_repo, skill_name
+    if not ratify_route:
+        if not target_repo:
+            errors.append(_err("target_repo", "missing required argument target_repo"))
+        if not skill_name:
+            errors.append(_err("skill_name", "missing required argument skill_name"))
+
+        # skill_name format
+        if skill_name and isinstance(skill_name, str) and not KEBAB_RE.match(skill_name):
+            errors.append(
+                _err(
+                    "skill_name",
+                    f"skill_name must be kebab-case (lowercase letters/digits/hyphens, "
+                    f"no leading or trailing hyphen). Got: {skill_name!r}",
+                )
+            )
 
     # source_type enum
     source_type_raw = inp.get("source_type", "source")
@@ -186,15 +242,20 @@ def validate(inp: dict[str, Any]) -> dict[str, Any]:
                 )
             )
 
-    # docs-only requires doc_urls
+    # docs-only requires doc_urls — derive route only. On the ratify route the
+    # brief on disk is the source of truth for source_type/doc_urls, so a
+    # redundant `source_type: docs-only` arg must not HALT a run whose doc_urls
+    # live in the brief rather than the args.
     doc_urls = inp.get("doc_urls")
-    if source_type == "docs-only" and not doc_urls:
+    if not ratify_route and source_type == "docs-only" and not doc_urls:
         errors.append(
             _err("doc_urls", "doc_urls is required when source_type is docs-only")
         )
 
-    # target_repo shape (warning only — script doesn't HEAD-check)
-    if isinstance(target_repo, str) and target_repo:
+    # target_repo shape (warning only — script doesn't HEAD-check). Skipped on
+    # the ratify route, where target_repo is already flagged as ignored above —
+    # a second "doesn't look like a URL" warning would just be noise.
+    if not ratify_route and isinstance(target_repo, str) and target_repo:
         looks_like_url = URL_RE.match(target_repo) is not None
         looks_like_path = (
             target_repo.startswith("/")

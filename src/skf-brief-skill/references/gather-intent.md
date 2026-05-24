@@ -114,7 +114,7 @@ Wait for user response. Branch on the response:
 
 #### 3.1a Branch — Ratify existing brief
 
-This branch handles the AN→BS handoff: another workflow (typically `skf-analyze-source`) has already produced a `skill-brief.yaml`, and the user wants to review and confirm it without re-running gather-intent / analyze-target / scope-definition. **This branch is interactive-only** — headless mode reaches step 1 via §8's GATE with `target_repo`/`skill_name` args, not via this §3.1a path. (A headless ratify equivalent could be added later via a `from_brief` argument; out of scope here.)
+This branch handles the AN→BS handoff: another workflow (typically `skf-analyze-source`) has already produced a `skill-brief.yaml`, and the user wants to review and confirm it without re-running gather-intent / analyze-target / scope-definition. **This §3.1a path is reached only interactively** — it is entered by typing a brief path at the §3.1 prompt, which headless mode never does. The headless equivalent is the §8 GATE `from_brief` route: it consumes a `from_brief` argument, runs the same schema validation, sets the same `ratify_mode`, hydrates from the same parsed payload, and jumps to step 4 exactly as `[R]` does below — see §8. Keep the two paths' hydration in sync.
 
 Resolve the path:
 
@@ -369,7 +369,7 @@ Display: "**Select:** [C] Continue to Target Analysis · [X] Cancel and exit"
 
 - **GATE [default: use args]** — If `{headless_mode}`, consume pre-supplied arguments and auto-proceed. The full argument set (required/optional, defaults, halt codes, enum values) is documented in `{headlessArgsFile}` — load it now if you need to look up a specific argument. Validation is delegated to `{validateBriefInputsHelper}`; the table is the canonical operator-facing documentation, the script enforces it.
 
-  **Preset merge (before validation).** If the headless args include a `preset` field, load `{sidecar_path}/brief-presets/{preset}.yaml` and merge its contents as defaults — explicit args override preset values, key by key. The preset file is YAML; if it does not exist, log `"warn: preset '{name}' not found at {path} — proceeding without preset"` and continue (do not HALT). If it parses but contains unknown fields, log per-field warnings and pass through unchanged (the validator's KNOWN_FIELDS check will catch any that survive). Drop the `preset` key itself from the merged dict before passing to the validator (it is consumed at this level and is not a brief field).
+  **Preset merge (before validation).** Skip this merge entirely when a `from_brief` argument is present — presets seed a *derived* brief and have no meaning on the ratify route below. Otherwise: if the headless args include a `preset` field, load `{sidecar_path}/brief-presets/{preset}.yaml` and merge its contents as defaults — explicit args override preset values, key by key. The preset file is YAML; if it does not exist, log `"warn: preset '{name}' not found at {path} — proceeding without preset"` and continue (do not HALT). If it parses but contains unknown fields, log per-field warnings and pass through unchanged (the validator's KNOWN_FIELDS check will catch any that survive). Drop the `preset` key itself from the merged dict before passing to the validator (it is consumed at this level and is not a brief field).
 
   **Delegate validation to `{validateBriefInputsHelper}`** instead of reasoning through the table rules in prose:
 
@@ -384,7 +384,16 @@ Display: "**Select:** [C] Continue to Target Analysis · [X] Cancel and exit"
 
   The script's `KNOWN_FIELDS` set must stay in sync with the table in `{headlessArgsFile}`.
 
-  **Headless source-authority detection.** After consuming `normalized`, if `source_authority` is absent AND `source_type=source` AND `target_repo` is a GitHub URL, load `{headlessSourceAuthorityDetectionFile}` and follow the procedure there. Otherwise (precondition unmet, value already supplied, docs-only, or local-path) skip the load — `community` is the implicit default for the unmet branches.
+  **Ratify route — `from_brief` present.** After a `valid: true` result, branch on `normalized.from_brief`. When it is set, this run ratifies a pre-authored brief instead of deriving one — the headless mirror of the interactive §3.1a `[R]` branch. Take this route *before* the source-authority detection and analyze-target routing below (both belong to the derive path and do not apply here):
+
+  1. **Resolve the brief path.** If `normalized.from_brief` ends in `skill-brief.yaml`, that is the path; otherwise treat it as a directory and use `<from_brief>/skill-brief.yaml`.
+  2. **Schema-validate.** Resolve `{validateBriefSchemaHelper}` from `{validateBriefSchemaProbeOrder}` (first existing path wins; HALT if no candidate exists), then run `uv run {validateBriefSchemaHelper} <resolved-brief-path>`. The script returns `{valid, errors[], warnings[], halt_reason, brief}`. Apply it — and note that, unlike the interactive §3.1a branch (which re-prompts because the operator might have a corrected path to offer), headless has no second chance, so an unusable brief is terminal:
+     - **`valid: false`** with `halt_reason: "brief-missing"` (path absent / unreadable) — emit the error envelope per **step 5 §4b** with `halt_reason: "input-missing"`, surface `errors[]` to the operator log, HALT (exit 2).
+     - **`valid: false`** with any other `halt_reason` (`brief-malformed` / `brief-invalid`) — emit the error envelope with `halt_reason: "input-invalid"`, surface `errors[]`, HALT (exit 2).
+     - **`valid: true`** — surface any non-empty `warnings[]` to the operator log and proceed with the parsed `brief` payload.
+  3. **Hydrate and route.** Store `ratify_mode: true` and `ratify_source_path: <resolved-brief-path>` in workflow context, then hydrate the brief context variables from the parsed `brief` payload exactly as the §3.1a `[R]` branch does (the identical field-mapping list: `name`/`version`/`target_version`, `source_repo`/`source_type`/`source_authority`/`doc_urls`, `language`/`description`/`forge_tier`, `created`/`created_by`, `scope.type`/`scope.include`/`scope.exclude`/`scope.notes`/`scope.rationale`, `scripts_intent`/`assets_intent`). Load, read entirely, and execute `{ratifyTargetFile}` — bypassing step 2 (analyze-target) and step 3 (scope-definition), both of which would re-derive fields already on disk. The forward chain resumes at step 4 (confirm-brief), which auto-confirms `[C]` under headless and proceeds to step 5's write (the step 5 §2b ratify branch auto-overwrites in place). Do **not** run the source-authority detection or the `[C] → {nextStepFile}` routing below — they belong to the derive path.
+
+  **Headless source-authority detection (derive route only — no `from_brief`).** After consuming `normalized`, if `source_authority` is absent AND `source_type=source` AND `target_repo` is a GitHub URL, load `{headlessSourceAuthorityDetectionFile}` and follow the procedure there. Otherwise (precondition unmet, value already supplied, docs-only, or local-path) skip the load — `community` is the implicit default for the unmet branches.
 
 - ONLY proceed to next step when user selects 'C'
 
