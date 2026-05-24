@@ -43,6 +43,7 @@ Compile all gathered data from steps 01-03 into the complete brief:
 - **scope.include:** {include patterns from step 03}
 - **scope.exclude:** {exclude patterns from step 03}
 - **scope.notes:** {any scope notes from step 03}
+- **scope.tier_a_include:** {tier-A authoring-surface patterns from step 03 §3c — omit if unset}
 - **scope.rationale:** {recommended -> chosen, reason — from step 03}
 - **source_type:** {source or docs-only, from step 01}
 - **doc_urls:** {collected documentation URLs with labels, from steps 01/03 — include if source_type is "docs-only" or supplemental URLs were collected}
@@ -71,6 +72,7 @@ Scope: {scope.type}
   Include: {scope.include patterns, one per line}
   Exclude: {scope.exclude patterns, one per line}
   Notes:   {scope.notes}
+  Tier-A:  {scope.tier_a_include patterns, one per line — omit this line entirely if scope.tier_a_include unset}
   Rationale: {chosen} chosen over {recommended} — {reason}
              {omit this line entirely if scope.rationale absent}
 
