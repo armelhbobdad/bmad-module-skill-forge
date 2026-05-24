@@ -26,6 +26,8 @@ To present the complete skill brief in human-readable format, highlighting all f
 
 Use the values already accepted in steps 01-03 directly — do not re-load `{briefSchemaPath}` here. The 18 fields below are all in conversation; the schema is only consulted in §4 if an inline adjustment needs a specific field's validation rule cited.
 
+**Ratify run (`ratify_mode: true`):** steps 2-3 were skipped (interactive `[R]` at gather-intent §3.1a, or the headless §8 GATE `from_brief` route), so there is no fresh steps 01-03 output to compile. Use the brief context variables **hydrated from the parsed brief** at step 1 in place of that output — the hydrated variable names match the field references below one-for-one. `detected_version` is absent on this path; rely on the hydrated `version` (step 5 pins it via `version_resolved`).
+
 Compile all gathered data from steps 01-03 into the complete brief:
 
 - **name:** {skill name from step 01}
