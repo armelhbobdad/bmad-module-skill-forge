@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "21a26cd72153",
+  "session_id": "ec0a291e-d843-412b-b9a0-617b18426a27",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-24T16:36:57.870030114Z",
+  "branch": "fix/skf-skill-check-json-field-paths",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-skill/references/validate.md",
+    "src/skf-create-stack-skill/references/validate.md",
+    "src/skf-quick-skill/references/write-and-validate.md",
+    "src/skf-test-skill/references/external-validators.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "1d6af95d1ed2",
+  "token_usage": {
+    "input_tokens": 48,
+    "cache_creation_tokens": 88174,
+    "cache_read_tokens": 1559413,
+    "output_tokens": 40145,
+    "api_call_count": 24
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-24T16:36:57.617042471Z",
+    "agent_lines": 7,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 7,
+    "agent_percentage": 100
+  }
+}
