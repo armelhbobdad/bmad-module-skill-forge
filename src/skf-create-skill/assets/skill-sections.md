@@ -192,6 +192,7 @@ Indexed pipe-delimited format for CLAUDE.md managed section (~80-120 tokens per 
   "name": "{skill-name}",
   "version": "{source-version}",
   "skill_type": "single",
+  "scope_type": "{full-library|specific-modules|public-api|component-library|reference-app|docs-only}",
   "source_authority": "{official|community|internal}",
   "source_repo": "{github-url}",
   "source_root": "{resolved-source-path}",
