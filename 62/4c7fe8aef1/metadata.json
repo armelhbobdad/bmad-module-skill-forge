@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "624c7fe8aef1",
+  "strategy": "manual-commit",
+  "branch": "feat/skf-brief-skill-from-brief-headless",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/shared/scripts/skf-validate-brief-inputs.py",
+    "src/skf-brief-skill/SKILL.md",
+    "src/skf-brief-skill/references/gather-intent.md",
+    "src/skf-brief-skill/references/headless-args.md",
+    "src/skf-brief-skill/references/write-brief.md",
+    "test/test-skf-validate-brief-inputs.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/62/4c7fe8aef1/0/metadata.json",
+      "transcript": "/62/4c7fe8aef1/0/full.jsonl",
+      "context": "/62/4c7fe8aef1/0/context.md",
+      "content_hash": "/62/4c7fe8aef1/0/content_hash.txt",
+      "prompt": "/62/4c7fe8aef1/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 62,
+    "cache_creation_tokens": 262884,
+    "cache_read_tokens": 4010399,
+    "output_tokens": 65858,
+    "api_call_count": 31
+  }
+}
