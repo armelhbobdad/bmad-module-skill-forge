@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "b0c4ec8d0a80",
+  "session_id": "eff51d93-8963-4a25-9084-42935fc0ca45",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-24T11:43:01.921343577Z",
+  "branch": "feat/skf-brief-skill-from-brief-headless",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/shared/scripts/skf-validate-brief-inputs.py",
+    "src/skf-brief-skill/SKILL.md",
+    "src/skf-brief-skill/references/gather-intent.md",
+    "src/skf-brief-skill/references/headless-args.md",
+    "src/skf-brief-skill/references/write-brief.md",
+    "test/test-skf-validate-brief-inputs.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "8ecdd4ff3769",
+  "checkpoint_transcript_start": 274,
+  "transcript_lines_at_start": 274,
+  "token_usage": {
+    "input_tokens": 20,
+    "cache_creation_tokens": 34099,
+    "cache_read_tokens": 2004108,
+    "output_tokens": 22353,
+    "api_call_count": 10
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-24T11:43:01.32461705Z",
+    "agent_lines": 0,
+    "human_added": 28,
+    "human_modified": 4,
+    "human_removed": 0,
+    "total_committed": 28,
+    "agent_percentage": 0
+  }
+}

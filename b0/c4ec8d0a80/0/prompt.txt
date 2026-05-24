@@ -1,0 +1,146 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-help
+
+# BMad Help
+
+## Purpose
+
+Help the user understand where they are in their BMad workflow and what to do next, and also answer broader questions when asked that could be augmented with remote sources such as module documentation sources.
+
+## Desired Outcomes
+
+When this skill completes, the user should:
+
+1. **Know where they are** — which module and phase they're in, what's already been completed
+2. **Know what to do next** — the next recommended and/or required step, with clear reasoning
+3. **Know how to invoke it** — skill name, menu code, action context, and any args that shortcut the conversation
+4. **Get offered a quick start** — when a single skill is the clear next step, offer to run it for the user right now rather than just listing it
+5. **Feel oriented, not overwhelmed** — surface only what's relevant to their current position; don't dump the entire catalog
+6. **Get answers to general questions** — when the question doesn't map to a specific skill, use the module's registered documentation to give a grounded answer
+
+## Data Sources
+
+- **Catalog**: `{project-root}/_bmad/_config/bmad-help.csv` — assembled manifest of all installed module skills
+- **Config**: `config.yaml` and `user-config.yaml` files in `{project-root}/_bmad/` and its subfolders — resolve `output-location` variables, provide `communication_language` and `project_knowledge`
+- **Artifacts**: Files matching `outputs` patterns at resolved `output-location` paths reveal which steps are possibly completed; their content may also provide grounding context for recommendations
+- **Project knowledge**: If `project_knowledge` resolves to an existing path, read it for grounding context. Never fabricate project-specific details.
+- **Module docs**: Rows with `_meta` in the `skill` column carry a URL or path in `output-location` pointing to the module's documentation (e.g., llms.txt). Fetch and use these to answer general questions about that module.
+
+## CSV Interpretation
+
+The catalog uses this format:
+
+```
+module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs
+```
+
+**Phases** determine the high-level flow:
+- `anytime` — available regardless of workflow state
+- Numbered phases (`1-analysis`, `2-planning`, etc.) flow in order; naming varies by module
+
+**Sequencing** determines recommended ordering within and across phases (these are soft suggestions, not hard gates — see `required` for gating):
+- `preceded-by` — skills that should ideally complete before this one
+- `followed-by` — skills that should ideally run after this one
+- Format: `skill-name` for single-action skills, `skill-name:action` for multi-action skills
+
+**Required gates**:
+- `required=true` items must complete before the user can meaningfully proceed to later phases
+- A phase with no required items is entirely optional — recommend it but be clear about what's actually required next
+
+**Completion detection**:
+- Search resolved output paths for `outputs` patterns
+- Fuzzy-match found files to catalog rows
+- User may also state completion explicitly, or it may be evident from the current conversation
+
+**Descriptions carry routing context** — some contain cycle info and alternate paths (e.g., "back to DS if fixes needed"). Read them as navigation hints, not just display text.
+
+## Response Format
+
+For each recommended item, present:
+- `[menu-code]` **Display name** — e.g., "[PR] PRD"
+- Skill name in backticks — e.g., `bmad-prd`
+- For multi-action skills: action invocation context — e.g., "tech-writer lets create a mermaid diagram!"
+- Description if present in CSV; otherwise your existing knowledge of the skill suffices
+- Args if available
+
+**Ordering**: Show optional items first, then the next required item. Make it clear which is which.
+
+## Constraints
+
+- Present all output in `{communication_language}`
+- Recommend running each skill in a **fresh context window**
+- Match the user's tone — conversational when they're casual, structured when they want specifics
+- If the active module is ambiguous, retrieve all meta rows remote sources to find relevant info also to help answer their question
+
+
+ARGUMENTS: I want to Implement the `from_brief` headless argument for skf-brief-skill, tracked in
+  GitHub issue #383 of this repo (armelhbobdad/bmad-module-skill-forge). Repo
+  root: /home/armel/Projects/OSS/bmad-module-skill-forge (source repo, v1.6.0).
+
+  START by reading issue #383 for the full spec:  gh issue view 383
+
+  ## Goal
+  skf-brief-skill's §3.1a "ratify existing brief" path (review + rewrite a brief
+  produced by another workflow, e.g. skf-analyze-source, WITHOUT re-deriving its
+  fields) is currently interactive-only. Headless mode's §8 GATE only accepts
+  target_repo/skill_name and routes to analyze-target, which re-derives scope and
+  discards the upstream-authored scope.notes/rationale. Add a `from_brief <path>`
+  headless argument that gives headless mode a ratify route mirroring the
+  interactive §3.1a [R] branch, so a fully headless analyze→brief→create pipeline
+  can ratify an upstream brief without losing its authored scope.
+  ## Investigate first (do NOT edit yet)
+  Read and map the current behavior before touching anything:
+  - src/skf-brief-skill/references/gather-intent.md 
+    - §3.1a (interactive ratify branch — the behavior to mirror)
+    - §8 "Present MENU OPTIONS" → the headless GATE (`GATE [default: use args]`)
+    - frontmatter path vars at top (headlessArgsFile, validateBriefInputs*, etc.)
+  - src/skf-brief-skill/references/headless-args.md  (the operator-facing arg contract table)
+  - src/shared/scripts/skf-validate-brief-inputs.py  (KNOWN_FIELDS, validation, halt codes)
+  - src/shared/scripts/skf-validate-brief-schema.py  (already used by §3.1a to validate a brief)
+  - src/shared/scripts/skf-write-skill-brief.py      (canonical brief writer)
+  - src/skf-brief-skill/references/write-brief.md     (step 4/5 write path)
+  - src/skf-brief-skill/references/qmd-collection-registration.md  (§5 QMD registration)
+  - src/skf-brief-skill/SKILL.md                       (Invocation Contract)
+  - test/test-skf-validate-brief-inputs.py             (extend this for new cases)
+  
+  ## Design (confirm against the code, then implement)
+  A headless `from_brief <path>` route that:
+  1. Loads + schema-validates the brief via skf-validate-brief-schema.py (reuse,
+     don't reinvent — same helper §3.1a uses).
+  2. Skips steps 2-3 (analyze-target / scope-definition) — NO re-derivation.
+  3. Hydrates brief context from the parsed payload (same field set step 4 expects),
+     jumps to step 4/5, and writes through skf-write-skill-brief.py with the same
+     overwrite-in-place semantics as the interactive [R] branch.
+  4. Runs §5 QMD registration.
+  Decide and document arg precedence: when `from_brief` is supplied it is the
+  source of truth; target_repo/skill_name become optional/derived-from-brief.
+  Define halt codes consistent with the existing validator (input-missing when the
+  path is absent/unreadable, input-invalid when the brief fails schema).
+  
+  ## Required edits
+  - skf-validate-brief-inputs.py: add `from_brief` to KNOWN_FIELDS, validate the
+    path + mutual exclusivity/precedence with target_repo, return proper halt_reason.
+  - headless-args.md: add the `from_brief` row (required/optional, default, halt codes).
+  - gather-intent.md §8 GATE: route to the headless ratify path when from_brief is
+    present (before the target_repo branch); keep §3.1a's interactive comment honest
+    (it currently says this is "out of scope here" — update it).
+  - SKILL.md Invocation Contract: document the new arg.
+  - test/test-skf-validate-brief-inputs.py: add cases (valid from_brief, missing
+    path, invalid/non-existent path, precedence vs target_repo).
+    
+  ## Guardrails (important)
+  - Tests: run the FULL suite (`npm test`) and confirm green BEFORE committing. The
+    test:python script in package.json enumerates each test path explicitly — if you
+    add a NEW test file, add its path there too (existing test-skf-validate-brief-inputs.py
+    is already enumerated). Use POSIX-form paths in assertions and byte-exact writes
+    (Windows CI is the gatekeeper).
+  - Validate empirically, not just via unit tests: run one real headless `from_brief`
+    invocation against a sample skill-brief.yaml and confirm it ratifies (writes
+    through the canonical writer, preserves scope.notes) without re-deriving.
+  - Single focused PR. Branch: feat/skf-brief-skill-from-brief-headless.
+    Commit: `feat(skf-brief-skill): ...` with a `Fixes #383` line and trailer
+    `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`.
+  - Commit/PR text must reference ONLY same-repo artifacts. Never include health-check
+    fingerprints, run-ids, or any `forge-data/` / consumer-repo paths.
+  - DO NOT push or open a PR without my explicit approval. Prepare the branch + commit
+    locally, then show me the diff and the full-suite result and stop.
+. Review all the changes for any breaking changes, or missing impacts/bugs/regressions and ect... DO NOT HALLUCINATE. Activate party mode and/or advanced elicitation only if it is necessary.
