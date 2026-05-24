@@ -44,14 +44,19 @@ Context payload shape (consumed by `write`):
       "type":    "full-library" | ...,
       "include": ["src/**/*.ts"],
       "exclude": ["**/*.test.*"],
-      "notes":   ""
+      "notes":   "",
+      # Conditionally present (preserved verbatim on a ratify/re-write):
+      "tier_a_include": ["code/core/src/**"],   # stratified-scope monorepos
+      "amendments":     [{...}]                 # post-authoring audit log
     },
 
     # Conditionally present:
     "doc_urls":         [{"url": "...", "label": "..."}],
     "scripts_intent":   "detect" | "none" | free-text,
     "assets_intent":    "detect" | "none" | free-text,
-    "source_authority": "official" | "community" | "internal"
+    "source_authority": "official" | "community" | "internal",
+    "target_ref":       "livekit/v0.7.42",   # monorepo tag escape hatch
+    "source_ref":       "v0.5.0"             # auto-resolved git ref
   }
 
 Version precedence (resolved into the rendered YAML's `version` field):
@@ -84,14 +89,18 @@ Flat input form (`--from-flat`):
     "forge_tier":       "Quick",
     "created":          "2026-05-02",
     "created_by":       "armel",
-    "scope_type":       "full-library",
-    "scope_include":    ["src/**/*.ts"],
-    "scope_exclude":    ["**/*.test.*"],
-    "scope_notes":      "",
-    "doc_urls":         null | [...],
-    "scripts_intent":   null | "detect" | "none" | "...",
-    "assets_intent":    null | "detect" | "none" | "...",
-    "source_authority": null | "official" | "community" | "internal"
+    "scope_type":           "full-library",
+    "scope_include":        ["src/**/*.ts"],
+    "scope_exclude":        ["**/*.test.*"],
+    "scope_notes":          "",
+    "scope_tier_a_include": null | ["code/core/src/**"],
+    "scope_amendments":     null | [{...}],
+    "doc_urls":             null | [...],
+    "scripts_intent":       null | "detect" | "none" | "...",
+    "assets_intent":        null | "detect" | "none" | "...",
+    "source_authority":     null | "official" | "community" | "internal",
+    "target_ref":           null | "livekit/v0.7.42",
+    "source_ref":           null | "v0.5.0"
   }
 
 Output (success):
@@ -293,6 +302,42 @@ def validate_context(ctx: dict[str, Any]) -> list[str]:
                     field=f"scope.rationale.{rk}",
                 )
 
+    # scope.tier_a_include — optional narrower tier-A include list for
+    # stratified-scope monorepos (read by skf-test-skill for the coverage
+    # denominator). Absent/None → key omitted. When present it must be a list
+    # of glob strings; the writer preserves it verbatim so a ratify/re-write
+    # does not silently drop it.
+    tier_a_include = scope.get("tier_a_include")
+    if tier_a_include is not None:
+        if not isinstance(tier_a_include, list):
+            _die("scope.tier_a_include must be an array of glob strings", field="scope.tier_a_include")
+        for i, pat in enumerate(tier_a_include):
+            if not isinstance(pat, str) or not pat:
+                _die(
+                    f"scope.tier_a_include[{i}] must be a non-empty glob string",
+                    field="scope.tier_a_include",
+                )
+
+    # scope.amendments — optional additive audit log written post-authoring by
+    # skf-create-skill / skf-update-skill. The writer is not the amendments
+    # schema authority (those workflows own the entry shape); it only preserves
+    # the log verbatim on re-write. Light check: a list of objects.
+    amendments = scope.get("amendments")
+    if amendments is not None:
+        if not isinstance(amendments, list):
+            _die("scope.amendments must be an array of amendment objects", field="scope.amendments")
+        for i, entry in enumerate(amendments):
+            if not isinstance(entry, dict):
+                _die(f"scope.amendments[{i}] must be an object", field="scope.amendments")
+
+    # target_ref / source_ref — optional git refs (top-level). target_ref is a
+    # remote-monorepo tag escape hatch; source_ref is the auto-resolved ref.
+    # Both must round-trip on a ratify/re-write rather than being dropped.
+    for ref_field in ("target_ref", "source_ref"):
+        ref_val = ctx.get(ref_field)
+        if ref_val is not None and (not isinstance(ref_val, str) or not ref_val):
+            _die(f"{ref_field} must be a non-empty string when present", field=ref_field)
+
     # target_version semver shape (when present)
     tv = ctx.get("target_version")
     if tv is not None:
@@ -320,6 +365,19 @@ def assemble_brief(ctx: dict[str, Any], resolved_version: str) -> dict[str, Any]
     if source_type == "docs-only":
         source_authority = "community"  # forced
 
+    # Build the scope sub-object. tier_a_include (when present) sits between
+    # exclude and notes, matching the schema doc's illustrative order. Absent →
+    # the key is omitted, so briefs without it render byte-identically to before.
+    scope_obj: dict[str, Any] = {
+        "type": ctx["scope"]["type"],
+        "include": list(ctx["scope"]["include"]),
+        "exclude": list(ctx["scope"]["exclude"]),
+    }
+    scope_tier_a = ctx["scope"].get("tier_a_include")
+    if scope_tier_a is not None:
+        scope_obj["tier_a_include"] = list(scope_tier_a)
+    scope_obj["notes"] = ctx["scope"]["notes"]
+
     brief: dict[str, Any] = {
         "name": ctx["name"],
         "version": resolved_version,
@@ -330,12 +388,7 @@ def assemble_brief(ctx: dict[str, Any], resolved_version: str) -> dict[str, Any]
         "forge_tier": ctx["forge_tier"],
         "created": ctx["created"],
         "created_by": ctx["created_by"],
-        "scope": {
-            "type": ctx["scope"]["type"],
-            "include": list(ctx["scope"]["include"]),
-            "exclude": list(ctx["scope"]["exclude"]),
-            "notes": ctx["scope"]["notes"],
-        },
+        "scope": scope_obj,
     }
 
     # Conditional: scope.rationale — canonical position is after `notes` and
@@ -353,6 +406,13 @@ def assemble_brief(ctx: dict[str, Any], resolved_version: str) -> dict[str, Any]
             "recorded": scope_rationale["recorded"],
         }
 
+    # Conditional: scope.amendments — additive audit log, emitted verbatim after
+    # rationale (matches the schema doc order). The writer preserves it as-is;
+    # the writing authority for entry shape is skf-create-skill / skf-update-skill.
+    scope_amendments = ctx["scope"].get("amendments")
+    if scope_amendments is not None:
+        brief["scope"]["amendments"] = scope_amendments
+
     # Conditional: target_version (must equal version)
     tv = ctx.get("target_version")
     if tv is not None:
@@ -363,6 +423,14 @@ def assemble_brief(ctx: dict[str, Any], resolved_version: str) -> dict[str, Any]
                 field="target_version",
             )
         brief["target_version"] = tv
+
+    # Conditional: target_ref / source_ref git refs — preserved verbatim when
+    # present (monorepo tag escape hatch + auto-resolved ref). Emitted after
+    # target_version so a ratify/re-write does not strip them.
+    for ref_field in ("target_ref", "source_ref"):
+        ref_val = ctx.get(ref_field)
+        if ref_val is not None:
+            brief[ref_field] = ref_val
 
     # Conditional: doc_urls (always emitted when present)
     doc_urls = ctx.get("doc_urls")
@@ -442,6 +510,8 @@ _FLAT_SCOPE_KEYS = (
     "scope_exclude",
     "scope_notes",
     "scope_rationale",
+    "scope_tier_a_include",
+    "scope_amendments",
 )
 
 
@@ -496,6 +566,13 @@ def flat_to_nested(flat: dict[str, Any]) -> dict[str, Any]:
         # six-subkey object validated by validate_context.
         if "scope_rationale" in flat and flat["scope_rationale"] is not None:
             scope["rationale"] = flat["scope_rationale"]
+        # Optional stratified-scope tier-A include list and post-authoring
+        # amendments log. Same null-drop semantics — preserved on a ratify
+        # re-write so the brief's authored surface and audit trail survive.
+        if "scope_tier_a_include" in flat and flat["scope_tier_a_include"] is not None:
+            scope["tier_a_include"] = flat["scope_tier_a_include"]
+        if "scope_amendments" in flat and flat["scope_amendments"] is not None:
+            scope["amendments"] = flat["scope_amendments"]
         nested["scope"] = scope
     return nested
 

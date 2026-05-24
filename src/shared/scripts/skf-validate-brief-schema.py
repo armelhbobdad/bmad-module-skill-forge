@@ -46,6 +46,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import sys
 from pathlib import Path
@@ -133,6 +134,18 @@ def _translate_jsonschema_error(err) -> dict:
             ),
         }
     if validator == "type":
+        # A bare YAML date/datetime scalar (e.g. `created: 2026-05-01` without
+        # quotes) parses as a Python date, not a string. Give an actionable
+        # "quote it" hint instead of the opaque "has type `date`" message.
+        if isinstance(inst, datetime.date) and err.validator_value == "string":
+            return {
+                "field": field,
+                "message": (
+                    f"Brief validation failed: `{field}` was parsed as a YAML date, "
+                    f"not a string. Quote it (e.g. `'2026-05-01'`) so it is stored as "
+                    f"text. Update your skill-brief.yaml and re-run."
+                ),
+            }
         expected = err.validator_value
         actual = type(inst).__name__
         return {
@@ -207,6 +220,33 @@ def _docs_only_rules(brief: dict) -> tuple[list[dict], list[dict]]:
     return errors, warnings
 
 
+def _target_version_matches_version_rule(brief: dict) -> list[dict]:
+    """`target_version`, when present, must equal `version` (writer invariant).
+
+    The JSON schema constrains both fields to the semver pattern independently
+    but cannot express their cross-field equality. Without this check, a brief
+    with mismatched `target_version`/`version` passes schema validation (the
+    ratify gate) and only fails later at the writer's `assemble_brief`
+    invariant. Surfacing it here turns that into a clean `brief-invalid` at the
+    validation step. Non-string values are left to the schema's pattern/type
+    rules — we only compare when both are strings.
+    """
+    tv = brief.get("target_version")
+    v = brief.get("version")
+    if isinstance(tv, str) and isinstance(v, str) and tv != v:
+        return [
+            {
+                "field": "target_version",
+                "message": (
+                    f"Brief validation failed: `target_version` (`{tv}`) must equal "
+                    f"`version` (`{v}`). When `target_version` is set it becomes the "
+                    f"skill's version. Update your skill-brief.yaml and re-run."
+                ),
+            }
+        ]
+    return []
+
+
 def _version_non_empty_rule(brief: dict) -> list[dict]:
     """The §3 prose calls out version-whitespace-only as a hard error."""
     version = brief.get("version")
@@ -246,6 +286,7 @@ def validate_brief(brief: dict) -> dict:
     warnings.extend(cond_warnings)
 
     errors.extend(_version_non_empty_rule(brief))
+    errors.extend(_target_version_matches_version_rule(brief))
 
     return {
         "valid": not errors,
@@ -260,7 +301,12 @@ def validate_brief(brief: dict) -> dict:
 
 
 def _emit(envelope: dict) -> None:
-    json.dump(envelope, sys.stdout, indent=2)
+    # default=str keeps the echoed `brief` serializable even when it contains
+    # non-JSON scalars (e.g. a YAML date object from an unquoted `created:`
+    # field). Without it, emitting the invalid-brief envelope would crash with
+    # `TypeError: Object of type date is not JSON serializable` instead of
+    # returning the graded brief-invalid result.
+    json.dump(envelope, sys.stdout, indent=2, default=str)
     sys.stdout.write("\n")
 
 
