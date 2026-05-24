@@ -56,7 +56,7 @@
 
   **Confidence:** leave `analysis_confidence` unchanged (still `full` or `provenance-map` per the waterfall). Pattern-reference does not degrade confidence — the surface is smaller than a library barrel, not lower quality. Annotate the coverage report with: `Pattern-reference — denominator: {tier_a_include union | canonicalized provenance-map count} ({N} pattern surfaces)`.
 
-  **When this clause does NOT apply:** any repo with a non-empty barrel file, any monorepo (use the stratified-scope clause), or any single-package repo whose `scope.type` is explicitly `public-api` / `specific-modules` / `component-library` / `docs-only` (those scope types have their own denominator semantics). Also does NOT apply if `scope.type: "reference-app"` exists in the enum (pending upgrade in `skf-create-skill/references/extract.md`) — in that case the brief speaks for itself and this clause's filesystem trigger is moot.
+  **When this clause does NOT apply:** any repo with a non-empty barrel file, any monorepo (use the stratified-scope clause), or any single-package repo whose `scope.type` is explicitly `public-api` / `specific-modules` / `component-library` / `docs-only` (those scope types have their own denominator semantics). Also does NOT apply when `scope.type: "reference-app"` — that scope type carries its own pattern-surface denominator semantics (the brief speaks for itself), so this clause's filesystem trigger is moot.
 
 Internal module symbols are **excluded** from the coverage denominator unless they are explicitly documented in SKILL.md (in which case they count as documented extras, not missing coverage).
 

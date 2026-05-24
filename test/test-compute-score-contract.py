@@ -92,3 +92,67 @@ class TestComputeScoreContract:
             + "\n".join(diffs[:10])
             + (f"\n... and {len(diffs) - 10} more differences" if len(diffs) > 10 else "")
         )
+
+
+class TestReferenceAppSkip:
+    """Behavioral tests for the `referenceApp` skip flag.
+
+    A reference-app skill documents wiring patterns, not a library export
+    surface, so Signature Accuracy + Type Coverage are skipped — the same
+    redistribution path as a stack skill, with a distinct skip reason. See
+    scoring-rules.md "Reference-App Skills" and compute-score.py skip set.
+    """
+
+    # Mirror of the `suite_u_stack_skill_deep` fixture so the equivalence-class
+    # comparison below is anchored on already-validated stack-skill math.
+    BASE_INPUT = {
+        "mode": "contextual",
+        "tier": "Deep",
+        "scores": {
+            "exportCoverage": 90,
+            "signatureAccuracy": None,
+            "typeCoverage": None,
+            "coherence": 85,
+            "externalValidation": 80,
+        },
+    }
+
+    def test_reference_app_skips_signature_and_type(self):
+        out = compute_score({**self.BASE_INPUT, "referenceApp": True})
+        assert set(out["skippedCategories"]) >= {"signatureAccuracy", "typeCoverage"}
+        assert out["weights"]["signatureAccuracy"] == 0
+        assert out["weights"]["typeCoverage"] == 0
+        reason = "reference-app (no library export signatures)"
+        assert out["skipReasons"]["signatureAccuracy"] == reason
+        assert out["skipReasons"]["typeCoverage"] == reason
+
+    def test_reference_app_redistribution_matches_stack_skill(self):
+        """`referenceApp` and `stackSkill` share one redistribution equivalence
+        class: identical weights/scores/result; only the skipReasons differ."""
+        ref = compute_score({**self.BASE_INPUT, "referenceApp": True})
+        stack = compute_score({**self.BASE_INPUT, "stackSkill": True})
+        for key in (
+            "weights", "weightedScores", "totalScore", "result", "weightSum",
+            "activeCategories", "skippedCategories",
+        ):
+            assert ref[key] == stack[key], f"{key} diverged from stack-skill baseline"
+        assert ref["skipReasons"]["signatureAccuracy"] == "reference-app (no library export signatures)"
+        assert stack["skipReasons"]["signatureAccuracy"] == "stack skill (external type surface)"
+
+    def test_absent_reference_app_keeps_sig_type_active(self):
+        """Omitting the flag must not silently skip — proves the change is additive."""
+        inp = {
+            "mode": "contextual",
+            "tier": "Deep",
+            "scores": {
+                "exportCoverage": 90,
+                "signatureAccuracy": 88,
+                "typeCoverage": 85,
+                "coherence": 85,
+                "externalValidation": 80,
+            },
+        }
+        out = compute_score(inp)
+        assert "signatureAccuracy" not in out["skippedCategories"]
+        assert "typeCoverage" not in out["skippedCategories"]
+        assert out.get("skipReasons", {}).get("signatureAccuracy") is None
