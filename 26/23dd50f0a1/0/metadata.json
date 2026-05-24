@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "2623dd50f0a1",
+  "session_id": "5c0a7c21-62fa-4cd0-aee7-362d680b03ae",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-24T10:51:29.852652477Z",
+  "branch": "fix/skf-create-skill-exports-map-entrypoints",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-skill/references/extract.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "0cbd82ef1b4e",
+  "token_usage": {
+    "input_tokens": 30,
+    "cache_creation_tokens": 84787,
+    "cache_read_tokens": 891052,
+    "output_tokens": 30531,
+    "api_call_count": 15
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-24T10:51:29.553278571Z",
+    "agent_lines": 5,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 5,
+    "agent_percentage": 100
+  }
+}

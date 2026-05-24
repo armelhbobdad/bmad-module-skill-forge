@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "2623dd50f0a1",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-create-skill-exports-map-entrypoints",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-skill/references/extract.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/26/23dd50f0a1/0/metadata.json",
+      "transcript": "/26/23dd50f0a1/0/full.jsonl",
+      "context": "/26/23dd50f0a1/0/context.md",
+      "content_hash": "/26/23dd50f0a1/0/content_hash.txt",
+      "prompt": "/26/23dd50f0a1/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 30,
+    "cache_creation_tokens": 84787,
+    "cache_read_tokens": 891052,
+    "output_tokens": 30531,
+    "api_call_count": 15
+  }
+}
