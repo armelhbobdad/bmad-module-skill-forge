@@ -50,6 +50,7 @@ For EACH unit in `confirmed_units`, construct a skill-brief.yaml using:
 | scope.type | Scope type from step 05 recommendation card |
 | scope.include | Include patterns from step 05 recommendation card |
 | scope.exclude | Inferred from heuristics (test files, generated code) |
+| scope.tier_a_include | Optional — narrower tier-A surface for stratified-scope monorepos and `reference-app` pattern surfaces; usually left to skf-brief-skill to refine |
 | scope.notes | Rationale from step 05 recommendation card |
 | description | Description from step 05 recommendation card |
 | forge_tier | `{forge_tier}` from frontmatter |
@@ -63,7 +64,7 @@ For each generated brief, check against {schemaFile} validation rules:
 1. **Name uniqueness** — no duplicate names within the batch or existing skills
 2. **Source accessible** — project_path exists
 3. **Language recognized** — valid programming language identifier
-4. **Scope type valid** — matches `full-library`, `specific-modules`, `public-api`, or `component-library`
+4. **Scope type valid** — matches `full-library`, `specific-modules`, `public-api`, `component-library`, `reference-app`, or `docs-only`
 5. **Include patterns** — at least one glob pattern present
 6. **Forge tier match** — matches forge_tier from config
 
@@ -124,6 +125,7 @@ For each generated brief, recommend the appropriate next workflow:
 | Brief has `scope.type: component-library` and registry defines boundaries | create-skill — component boundaries defined by registry |
 | Brief has `scope.type: specific-modules` or scope needs refinement | brief-skill — refine scope before creating skill |
 | Brief has `scope.type: public-api` or complex interface | brief-skill — detailed scoping needed |
+| Brief has `scope.type: reference-app` | brief-skill — refine the pattern surface and capture `tier_a_include` before creating skill |
 | Unit flagged as stack skill candidate | create-stack-skill — after individual skills exist |
 | Unit flagged as already-skilled | update-skill — refresh existing skill |
 

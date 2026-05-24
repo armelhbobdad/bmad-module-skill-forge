@@ -60,11 +60,15 @@ The create-skill workflow (extract) also performs version reconciliation at extr
 
 ```yaml
 scope:
-  type: full-library | specific-modules | public-api | component-library | docs-only
+  type: full-library | specific-modules | public-api | component-library | reference-app | docs-only
   include:
     - 'src/**/*.ts'          # At least one required
   exclude:
     - 'src/**/*.test.ts'     # Optional
+  # Optional: narrower tier-A include list for stratified-scope monorepos
+  # and reference-app pattern surfaces (refined later by skf-brief-skill)
+  # tier_a_include:
+  #   - 'code/core/src/manager-api/**'
   notes: 'Optional rationale for scope decision'
   # Additional fields when scope.type is "component-library":
   # registry_path: "path/to/registry.ts"  # Optional — auto-detected if omitted
@@ -84,6 +88,7 @@ scope:
 | specific-modules  | Selected components or packages                                                      |
 | public-api        | Only exported interfaces                                                             |
 | component-library | UI component libraries with registries, props-based APIs, and design system variants |
+| reference-app     | Whole app whose value is wiring patterns, not public exports (embedded sidecars, CLI demos, integration-pattern demonstrators) |
 | docs-only         | When source_type is docs-only — no source code available, all content from doc_urls  |
 
 ## YAML Template
@@ -112,7 +117,7 @@ created_by: '{user_name}'
 1. **Name uniqueness**: No duplicate names within forge_data_folder
 2. **Source accessibility**: source_repo path must exist or be reachable
 3. **Language recognized**: Must be a known programming language
-4. **Scope type valid**: Must match one of the five defined types (full-library, specific-modules, public-api, component-library, docs-only)
+4. **Scope type valid**: Must match one of the six defined types (full-library, specific-modules, public-api, component-library, reference-app, docs-only)
 5. **Include patterns**: At least one include glob pattern required (exception: `docs-only` scope, where include patterns are optional since no source code is available)
 6. **Forge tier match**: Must match value in forge-tier.yaml
 7. **Docs-only mode**: When `source_type: "docs-only"`, `doc_urls` required (>= 1), `source_repo` optional
