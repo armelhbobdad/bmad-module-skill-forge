@@ -270,3 +270,68 @@ class TestEdgeCases:
         content = f"---\nname: my-skill\ndescription: {desc}\n---\n"
         r = validate_frontmatter(content, "my-skill")
         assert r["status"] == "pass"
+
+
+def _skill_md_with_body(n_body_lines: int) -> str:
+    """Build a valid SKILL.md whose body is exactly `n_body_lines` lines."""
+    body = "\n".join(["x"] * n_body_lines) + "\n"
+    return f"---\nname: my-skill\ndescription: hello\n---\n{body}"
+
+
+class TestBodyLineCount:
+    def test_body_lines_present_in_output(self):
+        """body_lines is an additive output field (backward-compatible)."""
+        r = validate_frontmatter(VALID_SKILL_MD, "my-skill")
+        assert "body_lines" in r
+        assert isinstance(r["body_lines"], int)
+
+    def test_body_lines_exact_count(self):
+        r = validate_frontmatter(_skill_md_with_body(5), "my-skill")
+        assert r["body_lines"] == 5
+
+    def test_body_lines_none_without_closing_delimiter(self):
+        r = validate_frontmatter("---\nname: foo\n", "foo")
+        assert r["body_lines"] is None
+
+    def test_body_lines_none_without_opening_delimiter(self):
+        r = validate_frontmatter("name: foo\n---\nbody\n", "foo")
+        assert r["body_lines"] is None
+
+    def test_body_lines_handles_crlf(self):
+        content = "---\r\nname: my-skill\r\ndescription: hello\r\n---\r\nx\r\ny\r\n"
+        r = validate_frontmatter(content, "my-skill")
+        assert r["body_lines"] == 2
+
+
+class TestBodyMaxLinesGate:
+    def test_no_check_when_flag_unset(self):
+        """Opt-in: an oversized body is ignored when max_body_lines is None,
+        so the other validator consumers are unaffected."""
+        r = validate_frontmatter(_skill_md_with_body(600), "my-skill")
+        assert r["status"] == "pass"
+        assert not any(i["field"] == "body" for i in r["issues"])
+
+    def test_exceeds_max_emits_high_body_issue(self):
+        r = validate_frontmatter(_skill_md_with_body(501), "my-skill", max_body_lines=500)
+        assert r["status"] == "fail"
+        body_issues = [i for i in r["issues"] if i["field"] == "body"]
+        assert len(body_issues) == 1
+        assert body_issues[0]["severity"] == "high"
+        assert "exceeds max 500" in body_issues[0]["message"]
+
+    def test_at_limit_passes(self):
+        """Strict `>`: a body exactly at the limit does not trip the gate."""
+        r = validate_frontmatter(_skill_md_with_body(500), "my-skill", max_body_lines=500)
+        assert r["status"] == "pass"
+        assert not any(i["field"] == "body" for i in r["issues"])
+
+    def test_under_limit_passes(self):
+        r = validate_frontmatter(_skill_md_with_body(10), "my-skill", max_body_lines=500)
+        assert r["status"] == "pass"
+        assert not any(i["field"] == "body" for i in r["issues"])
+
+    def test_undefined_body_does_not_trip_gate(self):
+        """No closing delimiter → body_lines None → no body issue (the
+        missing-delimiter error is reported by frontmatter parsing instead)."""
+        r = validate_frontmatter("---\nname: foo\n", "foo", max_body_lines=500)
+        assert not any(i["field"] == "body" for i in r["issues"])

@@ -20,17 +20,24 @@ system-wide:
 
   uv run skf-validate-frontmatter.py <skill-md-path>
   uv run skf-validate-frontmatter.py <skill-md-path> --skill-dir-name <name>
+  uv run skf-validate-frontmatter.py <skill-md-path> --max-body-lines 500
 
 Input:
   Path to a SKILL.md file.
   Optional --skill-dir-name: expected directory name for name-match check.
   If omitted, derived from the parent directory of the SKILL.md path.
+  Optional --max-body-lines N: when set, emit a high-severity `body` issue
+  if the SKILL.md body (lines after the closing frontmatter delimiter)
+  exceeds N lines. Opt-in — when omitted, body size is never checked and
+  the verdict is unchanged. Callers pass the skill-check `body.max_lines`
+  default (500) to pre-catch that hard reject before commit.
 
 Output:
   JSON object:
     status:     "pass" | "fail" | "warn"
     issues:     list of { severity, field, message }
     frontmatter: parsed frontmatter dict (if parseable)
+    body_lines: int body-line count, or null when delimiters are absent
     summary:    { total, high, medium, low }
 
 Exit codes:
@@ -122,6 +129,31 @@ def parse_frontmatter(content: str) -> tuple[dict | None, list[dict]]:
     return fm, issues
 
 
+def body_line_count(content: str) -> int | None:
+    """Count the SKILL.md body lines — every line after the closing
+    frontmatter delimiter.
+
+    Mirrors skill-check's `body.max_lines` definition (body = content past
+    the frontmatter block) so a pre-commit gate keyed on this count agrees
+    with the post-commit `npx skill-check` verdict. Returns None when the
+    frontmatter delimiters are absent or unclosed — the body boundary is
+    then undefined and size cannot be assessed. Uses splitlines() to match
+    the line-counting convention used elsewhere in the SKF scripts (handles
+    LF/CRLF, no trailing-newline phantom line).
+    """
+    if not content.startswith("---\n") and not content.startswith("---\r\n"):
+        return None
+    lines = content.splitlines()
+    closing = -1
+    for i in range(1, len(lines)):
+        if lines[i] == "---":
+            closing = i
+            break
+    if closing == -1:
+        return None
+    return len(lines) - (closing + 1)
+
+
 def _validate_name(name: str, skill_dir_name: str | None) -> list[dict]:
     """Validate skill name format. Aligned with canonical validator.py."""
     issues: list[dict] = []
@@ -187,12 +219,25 @@ def _validate_name(name: str, skill_dir_name: str | None) -> list[dict]:
 def validate_frontmatter(
     content: str,
     skill_dir_name: str | None = None,
+    max_body_lines: int | None = None,
 ) -> dict:
     """Validate SKILL.md frontmatter against agentskills.io spec.
 
-    Returns a result dict with status, issues, frontmatter, and summary.
+    When `max_body_lines` is set, additionally emit a high-severity `body`
+    issue if the body exceeds that many lines (opt-in — the verdict is
+    unchanged when it is None, so the other consumers of this validator are
+    unaffected). Returns a result dict with status, issues, frontmatter,
+    body_lines, and summary.
     """
     fm, issues = parse_frontmatter(content)
+
+    body_lines = body_line_count(content)
+    if max_body_lines is not None and body_lines is not None and body_lines > max_body_lines:
+        issues.append({
+            "severity": "high",
+            "field": "body",
+            "message": f"body lines {body_lines} exceeds max {max_body_lines}",
+        })
 
     if fm is not None:
         # Name validation
@@ -255,6 +300,7 @@ def validate_frontmatter(
         "status": status,
         "issues": issues,
         "frontmatter": fm,
+        "body_lines": body_lines,
         "summary": {
             "total": len(issues),
             **severity_counts,
@@ -289,6 +335,17 @@ def main() -> int:
         help="expected skill directory name (default: derived from parent directory)",
     )
     parser.add_argument(
+        "--max-body-lines",
+        metavar="N",
+        type=int,
+        default=None,
+        help=(
+            "when set, emit a high-severity 'body' issue if the SKILL.md body "
+            "exceeds N lines (opt-in; omitted = body size not checked). Pass "
+            "the skill-check body.max_lines default (500) to pre-catch that reject."
+        ),
+    )
+    parser.add_argument(
         "-o", "--output",
         metavar="FILE",
         help="write JSON output to FILE instead of stdout",
@@ -302,12 +359,13 @@ def main() -> int:
             "status": "fail",
             "issues": [{"severity": "high", "field": "file", "message": f"File not found: {skill_md_path}"}],
             "frontmatter": None,
+            "body_lines": None,
             "summary": {"total": 1, "high": 1, "medium": 0, "low": 0},
         }
     else:
         content = skill_md_path.read_text(encoding="utf-8")
         skill_dir_name = args.skill_dir_name or skill_md_path.parent.name
-        result = validate_frontmatter(content, skill_dir_name)
+        result = validate_frontmatter(content, skill_dir_name, args.max_body_lines)
 
     output_text = json.dumps(result, indent=2)
 
