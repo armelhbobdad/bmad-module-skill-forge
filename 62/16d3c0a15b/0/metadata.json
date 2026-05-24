@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "6216d3c0a15b",
+  "session_id": "7818c56a-191e-41ed-86e8-af576fb39389",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-24T21:46:39.127298234Z",
+  "branch": "fix/skf-reference-app-scope-type-metadata",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-create-skill/assets/skill-sections.md",
+    "src/skf-create-skill/references/compile.md",
+    "src/skf-test-skill/references/coverage-check.md",
+    "test/fixtures/compute-score-contract.json"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "b40f1852f2ad",
+  "token_usage": {
+    "input_tokens": 62,
+    "cache_creation_tokens": 119358,
+    "cache_read_tokens": 3010582,
+    "output_tokens": 43833,
+    "api_call_count": 31
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-24T21:46:38.769768417Z",
+    "agent_lines": 67,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 67,
+    "agent_percentage": 100
+  }
+}
