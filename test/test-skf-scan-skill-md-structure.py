@@ -104,6 +104,35 @@ class TestRequiredSections:
         result = mod.find_required_sections(text)
         assert result["usage"]["matched_synonym"] == "Common Workflows"
 
+    def test_usage_patterns_satisfies_usage(self) -> None:
+        # quick-skill template heading — full-text match, not a substring of "Usage".
+        text = "## Description\n## Usage Patterns\n## API\n"
+        result = mod.find_required_sections(text)
+        assert result["usage"]["satisfied"] is True
+        assert result["usage"]["matched_synonym"] == "Usage Patterns"
+
+    def test_key_exports_satisfies_api_surface(self) -> None:
+        # quick-skill template heading — distinct from the bare "Exports" synonym.
+        text = "## Description\n## Usage\n## Key Exports\n"
+        result = mod.find_required_sections(text)
+        assert result["api_surface"]["satisfied"] is True
+        assert result["api_surface"]["matched_synonym"] == "Key Exports"
+
+    def test_quick_skill_template_headings_satisfy_all_families(self) -> None:
+        # The quick-skill template's literal headings must satisfy every
+        # required family so its output passes the structural-scan gate
+        # without per-skill heading edits.
+        text = (
+            "## Overview\nblah\n\n"
+            "## Description\nblah\n\n"
+            "## Key Exports\nblah\n\n"
+            "## Usage Patterns\nblah\n"
+        )
+        result = mod.find_required_sections(text)
+        assert all(
+            result[f]["satisfied"] for f in ("description", "usage", "api_surface")
+        )
+
     def test_case_insensitive(self) -> None:
         text = "## description\n## USAGE\n## api\n"
         result = mod.find_required_sections(text)
