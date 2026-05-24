@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "7f92bf076c72",
+  "session_id": "766bdbbc-01a5-471a-9091-815b02d3c28d",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-24T15:25:08.050548664Z",
+  "branch": "fix/skf-create-ccc-index-verification",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-create-skill/references/generate-artifacts.md",
+    "src/skf-create-skill/references/extract.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "6acdc233abc3",
+  "checkpoint_transcript_start": 197,
+  "transcript_lines_at_start": 197,
+  "token_usage": {
+    "input_tokens": 20,
+    "cache_creation_tokens": 21782,
+    "cache_read_tokens": 1258159,
+    "output_tokens": 16312,
+    "api_call_count": 10
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-24T15:25:07.766076825Z",
+    "agent_lines": 4,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 4,
+    "agent_percentage": 100
+  }
+}
