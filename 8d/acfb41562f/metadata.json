@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "8dacfb41562f",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-prefer-active-symlink-on-manifest-lag",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/knowledge/version-paths.md",
+    "src/skf-export-skill/references/load-skill.md",
+    "src/skf-test-skill/references/init.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/8d/acfb41562f/0/metadata.json",
+      "transcript": "/8d/acfb41562f/0/full.jsonl",
+      "context": "/8d/acfb41562f/0/context.md",
+      "content_hash": "/8d/acfb41562f/0/content_hash.txt",
+      "prompt": "/8d/acfb41562f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 34,
+    "cache_creation_tokens": 33159,
+    "cache_read_tokens": 2487877,
+    "output_tokens": 20818,
+    "api_call_count": 17
+  }
+}
