@@ -3,7 +3,7 @@ name: 'health-check'
 description: 'Workflow self-improvement health check — captures real friction as GitHub issues'
 # No nextStepFile — this is always the terminal step
 healthCheckRepo: '{health_check_repo}'
-localFallbackFolder: '{output_folder}/improvement-queue'
+localFallbackFolder: '{forge_data_folder}/improvement-queue'  # forge workspace artifact — use forge_data_folder (single, unambiguous SKF var), NOT output_folder (a Core Config var that resolves differently across co-installed BMad modules)
 seenCachePath: '$HOME/.skf/health-check-seen.json'
 liveSubmitSeverities: ['bug']  # friction/gap go local-queue-default with explicit opt-in
 ---
