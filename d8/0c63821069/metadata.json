@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d80c63821069",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-health-check-queue-path",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/workflows.md",
+    "src/shared/health-check.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d8/0c63821069/0/metadata.json",
+      "transcript": "/d8/0c63821069/0/full.jsonl",
+      "context": "/d8/0c63821069/0/context.md",
+      "content_hash": "/d8/0c63821069/0/content_hash.txt",
+      "prompt": "/d8/0c63821069/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 50,
+    "cache_creation_tokens": 40611,
+    "cache_read_tokens": 3073451,
+    "output_tokens": 14326,
+    "api_call_count": 25
+  }
+}
