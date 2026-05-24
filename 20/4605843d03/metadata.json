@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "204605843d03",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-brief-analysis-ref",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-brief-skill/references/analyze-target.md",
+    "src/skf-brief-skill/references/scope-definition.md",
+    "src/skf-brief-skill/references/version-resolution.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/20/4605843d03/0/metadata.json",
+      "transcript": "/20/4605843d03/0/full.jsonl",
+      "context": "/20/4605843d03/0/context.md",
+      "content_hash": "/20/4605843d03/0/content_hash.txt",
+      "prompt": "/20/4605843d03/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 66,
+    "cache_creation_tokens": 135694,
+    "cache_read_tokens": 2226597,
+    "output_tokens": 39831,
+    "api_call_count": 33
+  }
+}
