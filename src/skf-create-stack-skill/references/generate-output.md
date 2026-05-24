@@ -9,6 +9,14 @@ provenanceMapSchemaPath: 'assets/provenance-map-schema.md'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# Resolve `{frontmatterValidator}` by probing `{frontmatterValidatorProbeOrder}`
+# in order (installed SKF module path first, src/ dev-checkout fallback); first
+# existing path wins. Used by the §8 pre-commit frontmatter gate. If neither
+# resolves, the gate degrades to a WARNING — step 8 (validate.md) still runs the
+# full post-commit check.
+frontmatterValidatorProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py'
+  - '{project-root}/src/shared/scripts/skf-validate-frontmatter.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
@@ -214,7 +222,24 @@ Use the schema from `{provenanceMapSchemaPath}` — see that asset for the canon
 - Warnings and failures encountered
 - Confidence tier distribution
 
-### 8. Commit Staging Directory
+### 8. Pre-Commit Frontmatter Gate
+
+The full schema/frontmatter validation runs in step 8 (`validate.md`) — but that runs *after* commit-dir and flip-link have already published the package. A non-auto-fixable frontmatter error (most commonly a `description` over the 1024-char limit, which `skill-check --fix` cannot trim for you) would therefore only surface on an already-committed, symlink-active artifact, forcing edits to the live `SKILL.md`. Catch those errors here, while the package is still in `.skf-tmp`.
+
+Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}` (first existing path wins). Run it against the **staged** `SKILL.md`, passing the real skill name so the directory-match check is not fooled by the `.skf-tmp` staging suffix:
+
+```bash
+uv run {frontmatterValidator} {skill_staging}/SKILL.md --skill-dir-name {project_name}-stack
+```
+
+The validator emits JSON: `status` (`pass`/`warn`/`fail`), `issues[]` (each with `severity` ∈ `high|medium|low`, `field`, `message`), and `summary`. Disposition:
+
+- **`status` is `fail`, OR any `issues[]` entry has `severity` `high` or `medium`** — a hard frontmatter violation that `npx skill-check` (step 8) would reject and `--fix` cannot auto-correct (over-long `description`, missing/empty/invalid `name`, over-long `compatibility`). HALT-to-fix **in staging**: trim/correct `{skill_staging}/SKILL.md` (e.g. shorten `description` to ≤ 1024 chars) and re-run the validator until it clears. Do NOT proceed to §9 commit-dir with an unresolved high/medium issue. Note: an over-long `description` is rated `medium` (not `fail`) and the process still exits `0`, so key the HALT on the issue severities above — not on the exit code.
+- **Only `low`-severity issues (e.g. an unexpected field)** — record each as a WARNING in the evidence report and proceed; these do not block the commit.
+
+**If `{frontmatterValidator}` does not resolve** (neither probe path exists) **or the invocation cannot run**, emit a WARNING ("pre-commit frontmatter gate skipped — validator unavailable") and proceed. Step 8 (`validate.md`) remains the post-commit backstop; this gate is a best-effort early catch, never a new hard dependency.
+
+### 9. Commit Staging Directory
 
 After all staged writes in sections 2–6 completed successfully, atomically swap the staging dir into place:
 
@@ -224,7 +249,7 @@ python3 {atomicWriteHelper} commit-dir --target {skill_package}
 
 The helper moves any existing `{skill_package}` aside to a `.skf-rollback-<pid>` dir before the swap. On failure the helper restores the prior target and exits non-zero — in that case invoke the rollback contract from §1 and HALT.
 
-### 9. Flip Active Symlink
+### 10. Flip Active Symlink
 
 ONLY AFTER `commit-dir` succeeds, flip the `{skill_group}/active` symlink to point at `{version}`:
 
@@ -236,7 +261,7 @@ The helper holds an flock on `{skill_group}/active.skf-lock` and refuses to repl
 
 If `flip-link` fails, emit a warning (the committed package is still valid), note the symlink-flip failure in the evidence report, and continue.
 
-### 10. Display Write Summary
+### 11. Display Write Summary
 
 "**Output files written.**
 
@@ -257,7 +282,7 @@ If `flip-link` fails, emit a warning (the committed package is still valid), not
 
 **Proceeding to validation...**"
 
-### 11. Auto-Proceed to Next Step
+### 12. Auto-Proceed to Next Step
 
 Load, read the full file and then execute `{nextStepFile}`.
 
