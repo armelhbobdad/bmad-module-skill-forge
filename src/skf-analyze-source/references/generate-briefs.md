@@ -49,7 +49,7 @@ For EACH unit in `confirmed_units`, construct a skill-brief.yaml using:
 | name | Confirmed name from step 05 recommendation card |
 | version | Auto-detect from source (see schema Version Detection), fall back to `1.0.0` |
 | source_repo | `{project_paths[0]}` from frontmatter (or per-unit path if multi-repo) |
-| language | Primary language detected in step 03 |
+| language | Language the skill **documents** (primary language detected in step 03). For a language / spec reference this is the *documented* language, which may differ from the source language it is extracted from — e.g. a SurrealQL reference extracted from a Rust engine records `surrealql`, not `rust` (see {schemaFile} "Documented vs source language") |
 | scope.type | Scope type from step 05 recommendation card |
 | scope.include | Include patterns from step 05 recommendation card |
 | scope.exclude | Inferred from heuristics (test files, generated code) |

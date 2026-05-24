@@ -270,6 +270,24 @@ Replace per-function subsections with `references/pattern-*.md` groupings: one r
 - Do NOT fabricate signature / type-coverage data from pattern surfaces. skf-test-skill will skip those categories when metadata flags a reference-app (same skip path as `stackSkill` once that flag is wired — see scoring-rules.md).
 - Do NOT emit `effective_denominator` for reference-app scope, even when the source is a monorepo. `effective_denominator` counts public exports from the authoring-surface barrel — a library concept that `pattern_surfaces_documented` already replaces here. A reference-app-in-monorepo literally satisfies `compile.md` §4's emit-conditions (monorepo + non-`full-library` + stratified `scope.notes`), so this carve-out takes precedence: pattern-surface coverage is the reference-app basis, and skf-test-skill skips library-export coverage for it.
 
+**Language / spec-reference sub-shape:** A reference app that documents an engine- or spec-versioned **language** — a query language, grammar, or DSL (e.g. SurrealQL @ SurrealDB) whose value is construct idioms rather than wiring or exports — is a recognized reference-app sub-shape. Keep `scope.type: "reference-app"` (there is no separate enum value), so every carve-out above applies unchanged (`pattern_surfaces_documented` proxy, no `effective_denominator`, test-skill signature/type skip). Adapt the three overrides to the language's surface instead of app wiring:
+
+- **Section 4 (Pattern Surface)** becomes a **construct-area map**, not a wiring list. Each row is a language construct area, where it lives in the source, and what the user writes there:
+
+  ```markdown
+  ## Pattern Surface
+
+  | # | Construct Area | Where in Source | Purpose |
+  |---|----------------|-----------------|---------|
+  | 1 | {statements / DDL} | {sql::statements} | {what the user writes} |
+  | 2 | {operators} | {sql::operator} | {…} |
+  | … | … | … | … |
+  ```
+
+- **Section 3 (Adoption Steps)** becomes **production-task workflows** — ordered tasks a user performs *in the language* (define a schema, write a query, call a built-in function), each with a minimal snippet — not a copy-this-wiring narrative.
+- **Tier 2** groups `references/*.md` by **language concern** (e.g. `statements.md`, `functions.md`, `types.md`) — one file per construct family — instead of `pattern-*.md` wiring concerns.
+- **metadata.json:** `pattern_surfaces_documented` counts the documented construct areas; the no-`effective_denominator` carve-out applies (a language has no export barrel). The brief's `language` field records the **documented** language (e.g. `surrealql`), which may differ from the source language it was extracted from (e.g. `rust`) — see `skf-analyze-source/assets/skill-brief-schema.md`.
+
 **When this clause does NOT apply:** `full-library`, `specific-modules`, `public-api`, `component-library`, or `docs-only`. Those scope types have their own assembly semantics and export-count conventions — do not mix.
 
 ### Assembly Rules
