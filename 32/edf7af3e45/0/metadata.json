@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "32edf7af3e45",
+  "session_id": "766bdbbc-01a5-471a-9091-815b02d3c28d",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-24T15:21:21.126167475Z",
+  "branch": "fix/skf-brief-monorepo-subpackage-convention",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-brief-skill/references/scope-definition.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "6acdc233abc3",
+  "token_usage": {
+    "input_tokens": 56,
+    "cache_creation_tokens": 194650,
+    "cache_read_tokens": 2035133,
+    "output_tokens": 45913,
+    "api_call_count": 28
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-24T15:21:20.835292169Z",
+    "agent_lines": 10,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 10,
+    "agent_percentage": 100
+  }
+}
