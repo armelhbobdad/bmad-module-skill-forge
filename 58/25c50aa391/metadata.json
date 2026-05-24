@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "5825c50aa391",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-create-stack-precommit-body-gate",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/shared/scripts/skf-validate-frontmatter.py",
+    "src/skf-create-stack-skill/references/generate-output.md",
+    "test/test-skf-validate-frontmatter.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/58/25c50aa391/0/metadata.json",
+      "transcript": "/58/25c50aa391/0/full.jsonl",
+      "context": "/58/25c50aa391/0/context.md",
+      "content_hash": "/58/25c50aa391/0/content_hash.txt",
+      "prompt": "/58/25c50aa391/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 68,
+    "cache_creation_tokens": 122655,
+    "cache_read_tokens": 3344483,
+    "output_tokens": 43626,
+    "api_call_count": 34
+  }
+}

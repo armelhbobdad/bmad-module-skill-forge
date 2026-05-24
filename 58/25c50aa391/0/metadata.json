@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "5825c50aa391",
+  "session_id": "7dc9c78d-e767-4e9d-9bfe-621fc59e19f3",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-24T19:45:16.14557593Z",
+  "branch": "fix/skf-create-stack-precommit-body-gate",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/shared/scripts/skf-validate-frontmatter.py",
+    "src/skf-create-stack-skill/references/generate-output.md",
+    "test/test-skf-validate-frontmatter.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "7b5b52fd8ca6",
+  "token_usage": {
+    "input_tokens": 68,
+    "cache_creation_tokens": 122655,
+    "cache_read_tokens": 3344483,
+    "output_tokens": 43626,
+    "api_call_count": 34
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-24T19:45:15.775892356Z",
+    "agent_lines": 139,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 139,
+    "agent_percentage": 100
+  }
+}
