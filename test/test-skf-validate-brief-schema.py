@@ -14,6 +14,7 @@ Covers:
 
 from __future__ import annotations
 
+import datetime
 import importlib.util
 import json
 import subprocess
@@ -381,3 +382,85 @@ class TestScopeRationaleSchema:
         brief["scope"]["rationale"] = r
         result = mod.validate_brief(brief)
         assert result["valid"] is False
+
+
+# --------------------------------------------------------------------------
+# target_version == version cross-field rule (issue #385)
+# --------------------------------------------------------------------------
+
+
+class TestTargetVersionMatchesVersion:
+    def test_matching_target_version_passes(self) -> None:
+        brief = _valid_brief()
+        brief["version"] = "2.0.0"
+        brief["target_version"] = "2.0.0"
+        result = mod.validate_brief(brief)
+        assert result["valid"] is True, result["errors"]
+
+    def test_mismatched_target_version_fails(self) -> None:
+        # Schema-valid in isolation (both match the semver pattern) but the
+        # cross-field rule must reject the inconsistency at the validation gate
+        # instead of deferring it to the writer's invariant.
+        brief = _valid_brief()
+        brief["version"] = "2.0.0"
+        brief["target_version"] = "1.5.0"
+        result = mod.validate_brief(brief)
+        assert result["valid"] is False
+        assert any(
+            e["field"] == "target_version" and "must equal" in e["message"]
+            for e in result["errors"]
+        )
+
+    def test_absent_target_version_no_check(self) -> None:
+        brief = _valid_brief()
+        assert "target_version" not in brief
+        result = mod.validate_brief(brief)
+        assert result["valid"] is True
+
+
+# --------------------------------------------------------------------------
+# Date-scalar guard (issue #385) — unquoted YAML dates must not crash
+# --------------------------------------------------------------------------
+
+
+class TestDateScalarGuard:
+    def test_unquoted_date_object_yields_brief_invalid(self) -> None:
+        # A YAML date object in `created` (what an unquoted `created: 2026-05-01`
+        # parses to) must produce a graded brief-invalid with an actionable
+        # message — not an opaque type error and not a crash.
+        brief = _valid_brief()
+        brief["created"] = datetime.date(2026, 5, 1)
+        result = mod.validate_brief(brief)
+        assert result["valid"] is False
+        err = next(e for e in result["errors"] if e["field"] == "created")
+        assert "YAML date" in err["message"]
+        assert "Quote it" in err["message"]
+
+    def test_cli_unquoted_date_returns_brief_invalid_not_crash(self, tmp_path: Path) -> None:
+        # The regression: emitting the invalid-brief envelope used to crash with
+        # `TypeError: Object of type date is not JSON serializable`. It must now
+        # return a parseable brief-invalid JSON payload (exit 1), not a traceback.
+        brief_path = tmp_path / "skill-brief.yaml"
+        brief_path.write_text(
+            "name: my-skill\n"
+            "version: 1.0.0\n"
+            "source_repo: https://github.com/foo/bar\n"
+            "language: python\n"
+            "description: Compiles things from sources.\n"
+            "forge_tier: Forge\n"
+            "created: 2026-05-15\n"  # UNQUOTED → parses as a YAML date object
+            "created_by: armel\n"
+            "scope:\n"
+            "  type: public-api\n"
+            "  include: ['src/**']\n"
+            "  exclude: []\n"
+            "  notes: ''\n",
+            encoding="utf-8",
+        )
+        result = _run_cli(str(brief_path))
+        assert result.returncode == 1
+        assert "Traceback" not in result.stderr
+        payload = json.loads(result.stdout)  # would raise if the process crashed
+        assert payload["valid"] is False
+        assert payload["halt_reason"] == "brief-invalid"
+        assert any(e["field"] == "created" for e in payload["errors"])

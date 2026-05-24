@@ -726,6 +726,203 @@ class TestCLIWriteFlatScopeRationale:
         assert "rationale" not in parsed["scope"]
 
 
+# --------------------------------------------------------------------------
+# Round-trip fields (issue #385): target_ref / source_ref /
+# scope.tier_a_include / scope.amendments must survive a ratify/re-write.
+# --------------------------------------------------------------------------
+
+
+def _amendment() -> dict:
+    """A representative auth-doc amendment entry."""
+    return {
+        "path": "apps/docs/public/llms.txt",
+        "action": "promoted",
+        "category": "auth-doc",
+        "reason": "authoritative AI docs — only source for canonical install command",
+        "heuristic": "llms.txt",
+        "date": "2026-04-11",
+        "workflow": "skf-create-skill",
+    }
+
+
+class TestRoundTripFieldsValidation:
+    """validate_context — the four fields are optional but light-checked."""
+
+    def test_tier_a_include_must_be_list(self):
+        ctx = _baseline_ctx()
+        ctx["scope"]["tier_a_include"] = "code/core/src/**"  # string, not list
+        with pytest.raises(SystemExit):
+            mod.validate_context(ctx)
+
+    def test_tier_a_include_entries_must_be_nonempty_strings(self):
+        ctx = _baseline_ctx()
+        ctx["scope"]["tier_a_include"] = ["ok", ""]
+        with pytest.raises(SystemExit):
+            mod.validate_context(ctx)
+
+    def test_valid_tier_a_include_passes(self):
+        ctx = _baseline_ctx()
+        ctx["scope"]["tier_a_include"] = ["code/core/src/**"]
+        assert mod.validate_context(ctx) == []
+
+    def test_amendments_must_be_list(self):
+        ctx = _baseline_ctx()
+        ctx["scope"]["amendments"] = {"not": "a list"}
+        with pytest.raises(SystemExit):
+            mod.validate_context(ctx)
+
+    def test_amendments_entries_must_be_objects(self):
+        ctx = _baseline_ctx()
+        ctx["scope"]["amendments"] = ["not-an-object"]
+        with pytest.raises(SystemExit):
+            mod.validate_context(ctx)
+
+    def test_valid_amendments_pass(self):
+        ctx = _baseline_ctx()
+        ctx["scope"]["amendments"] = [_amendment()]
+        assert mod.validate_context(ctx) == []
+
+    @pytest.mark.parametrize("field", ["target_ref", "source_ref"])
+    def test_ref_empty_string_rejected(self, field):
+        ctx = _baseline_ctx()
+        ctx[field] = ""
+        with pytest.raises(SystemExit):
+            mod.validate_context(ctx)
+
+    @pytest.mark.parametrize("field", ["target_ref", "source_ref"])
+    def test_ref_non_string_rejected(self, field):
+        ctx = _baseline_ctx()
+        ctx[field] = 123
+        with pytest.raises(SystemExit):
+            mod.validate_context(ctx)
+
+
+class TestRoundTripFieldsAssembly:
+    """assemble_brief — canonical positions; omitted when absent (no churn)."""
+
+    def test_absent_by_default_no_key_churn(self):
+        brief = mod.assemble_brief(_baseline_ctx(), "1.0.0")
+        assert "tier_a_include" not in brief["scope"]
+        assert "amendments" not in brief["scope"]
+        assert "target_ref" not in brief
+        assert "source_ref" not in brief
+        # Existing scope key order is unchanged when the new fields are absent
+        assert list(brief["scope"].keys()) == ["type", "include", "exclude", "notes"]
+
+    def test_tier_a_include_sits_between_exclude_and_notes(self):
+        ctx = _baseline_ctx()
+        ctx["scope"]["tier_a_include"] = ["code/core/src/**"]
+        brief = mod.assemble_brief(ctx, "1.0.0")
+        assert list(brief["scope"].keys()) == [
+            "type", "include", "exclude", "tier_a_include", "notes",
+        ]
+        assert brief["scope"]["tier_a_include"] == ["code/core/src/**"]
+
+    def test_amendments_after_rationale(self):
+        ctx = _baseline_ctx()
+        ctx["scope"]["rationale"] = _rationale()
+        ctx["scope"]["amendments"] = [_amendment()]
+        brief = mod.assemble_brief(ctx, "1.0.0")
+        assert list(brief["scope"].keys()) == [
+            "type", "include", "exclude", "notes", "rationale", "amendments",
+        ]
+        assert brief["scope"]["amendments"] == [_amendment()]
+
+    def test_refs_emitted_after_target_version(self):
+        ctx = _baseline_ctx()
+        ctx["target_version"] = "1.0.0"
+        ctx["target_ref"] = "livekit/v0.7.42"
+        ctx["source_ref"] = "v0.5.0"
+        brief = mod.assemble_brief(ctx, "1.0.0")
+        keys = list(brief.keys())
+        assert keys.index("target_ref") > keys.index("target_version")
+        assert keys.index("source_ref") > keys.index("target_ref")
+        assert brief["target_ref"] == "livekit/v0.7.42"
+        assert brief["source_ref"] == "v0.5.0"
+
+    def test_all_four_round_trip_through_yaml(self):
+        ctx = _baseline_ctx()
+        ctx["target_ref"] = "livekit/v0.7.42"
+        ctx["source_ref"] = "v0.5.0"
+        ctx["scope"]["tier_a_include"] = ["code/core/src/**"]
+        ctx["scope"]["amendments"] = [_amendment()]
+        parsed = yaml.safe_load(mod.render_yaml(mod.assemble_brief(ctx, "1.0.0")))
+        assert parsed["target_ref"] == "livekit/v0.7.42"
+        assert parsed["source_ref"] == "v0.5.0"
+        assert parsed["scope"]["tier_a_include"] == ["code/core/src/**"]
+        assert parsed["scope"]["amendments"] == [_amendment()]
+
+
+class TestRoundTripFieldsFlatTranslation:
+    """flat_to_nested — scope_* map into scope; refs pass through; null drops."""
+
+    def test_flat_scope_fields_mapped(self):
+        flat = _baseline_flat()
+        flat["scope_tier_a_include"] = ["code/core/src/**"]
+        flat["scope_amendments"] = [_amendment()]
+        nested = mod.flat_to_nested(flat)
+        assert nested["scope"]["tier_a_include"] == ["code/core/src/**"]
+        assert nested["scope"]["amendments"] == [_amendment()]
+        assert "scope_tier_a_include" not in nested
+        assert "scope_amendments" not in nested
+
+    def test_flat_scope_fields_null_dropped(self):
+        flat = _baseline_flat()
+        flat["scope_tier_a_include"] = None
+        flat["scope_amendments"] = None
+        nested = mod.flat_to_nested(flat)
+        assert "tier_a_include" not in nested["scope"]
+        assert "amendments" not in nested["scope"]
+
+    def test_flat_refs_pass_through(self):
+        flat = _baseline_flat()
+        flat["target_ref"] = "livekit/v0.7.42"
+        flat["source_ref"] = "v0.5.0"
+        nested = mod.flat_to_nested(flat)
+        assert nested["target_ref"] == "livekit/v0.7.42"
+        assert nested["source_ref"] == "v0.5.0"
+
+    def test_flat_refs_null_dropped(self):
+        flat = _baseline_flat()
+        flat["target_ref"] = None
+        flat["source_ref"] = None
+        nested = mod.flat_to_nested(flat)
+        assert "target_ref" not in nested
+        assert "source_ref" not in nested
+
+
+class TestCLIWriteFlatRoundTripFields:
+    """End-to-end flat CLI write preserving all four fields (the ratify path)."""
+
+    def _write_flat(self, target: Path, flat: dict):
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "write", "--target", str(target), "--from-flat"],
+            input=json.dumps(flat),
+            capture_output=True,
+            text=True,
+        )
+        out = json.loads(proc.stdout) if proc.stdout.strip() else {}
+        return proc.returncode, out, proc.stderr
+
+    def test_flat_write_preserves_all_round_trip_fields(self, tmp_target):
+        flat = _baseline_flat()
+        flat["target_ref"] = "livekit/v0.7.42"
+        flat["source_ref"] = "v0.5.0"
+        flat["scope_tier_a_include"] = ["code/core/src/**"]
+        flat["scope_amendments"] = [_amendment()]
+        code, response, stderr = self._write_flat(tmp_target, flat)
+        assert code == 0, stderr
+        # Read as UTF-8 explicitly: the writer emits UTF-8 (allow_unicode=True),
+        # and the amendment `reason` carries an em-dash. read_text() without an
+        # encoding uses the platform default (cp1252 on Windows), which would
+        # mojibake the em-dash and fail the comparison — the windows-latest gate.
+        parsed = yaml.safe_load(tmp_target.read_text(encoding="utf-8"))
+        assert parsed["target_ref"] == "livekit/v0.7.42"
+        assert parsed["source_ref"] == "v0.5.0"
+        assert parsed["scope"]["tier_a_include"] == ["code/core/src/**"]
+        assert parsed["scope"]["amendments"] == [_amendment()]
+
+
 class TestAtomicWriteBinary:
     """atomic_write persists content verbatim — no CRLF injection on Windows."""
 

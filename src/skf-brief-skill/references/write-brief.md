@@ -96,14 +96,18 @@ Assemble the brief context as a **flat** JSON object — every approved value is
   "scope_exclude":    ["{approved exclude patterns}"],
   "scope_notes":      "{approved scope notes or empty string}",
   "scope_rationale":  null | {"recommended":"...","chosen":"...","accepted_recommendation":true|false,"heuristic":"...","reason":"...","recorded":"YYYY-MM-DD"},
+  "scope_tier_a_include": null | ["{tier-A include patterns — ratify only}"],
+  "scope_amendments":     null | [{"path":"...","action":"...","reason":"...","date":"YYYY-MM-DD","workflow":"..."}],
   "doc_urls":         null | [{"url": "...", "label": "..."}],
   "scripts_intent":   null | "{detect|none|free-text}",
   "assets_intent":    null | "{detect|none|free-text}",
-  "source_authority": null | "{official|community|internal}"
+  "source_authority": null | "{official|community|internal}",
+  "target_ref":       null | "{explicit git ref — ratify only}",
+  "source_ref":       null | "{resolved git ref — ratify only}"
 }
 ```
 
-**Ratify mode (`ratify_mode: true`):** this path never ran step 2, so the version was not re-derived — it was hydrated from the upstream brief at step 1 §3.1a (interactive) or the §8 GATE `from_brief` route (headless). Add a `version_resolved` key set to that hydrated `version`; the writer's precedence checks `version_resolved` first, so this pins the output to the brief's authored version. **Without it**, `target_version` and `detected_version` are both null on a ratify run and the writer falls through to the `1.0.0` default, silently discarding the upstream version. Keep `target_version` set to the brief's `target_version` (null if it had none) so the writer's `target_version == version` invariant still holds.
+**Ratify mode (`ratify_mode: true`):** this path never ran step 2, so the version was not re-derived — it was hydrated from the upstream brief at step 1 §3.1a (interactive) or the §8 GATE `from_brief` route (headless). Add a `version_resolved` key set to that hydrated `version`; the writer's precedence checks `version_resolved` first, so this pins the output to the brief's authored version. **Without it**, `target_version` and `detected_version` are both null on a ratify run and the writer falls through to the `1.0.0` default, silently discarding the upstream version. Keep `target_version` set to the brief's `target_version` (null if it had none) so the writer's `target_version == version` invariant still holds. Likewise carry `target_ref`/`source_ref` and `scope_tier_a_include`/`scope_amendments` from the hydrated brief (all null on a derive run) so the writer round-trips the monorepo git ref, the stratified tier-A surface, and the amendment audit log instead of dropping them.
 
 Pipe it into the writer script with the `--from-flat` flag:
 
