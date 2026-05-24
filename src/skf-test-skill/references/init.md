@@ -45,10 +45,11 @@ Provide the skill path or name. I'll search in `{skillsOutputFolder}`.
 Resolve the skill path using version-aware resolution (see `{versionPathsKnowledge}`):
 
 1. Read `{skillsOutputFolder}/.export-manifest.json` and look up the skill name in `exports` to get `active_version`
-2. If found: resolve to `{skill_package}` = `{skillsOutputFolder}/{skill_name}/{active_version}/{skill_name}/`
-3. If not in manifest: check for `active` symlink at `{skillsOutputFolder}/{skill_name}/active` — resolve to `{skill_group}/active/{skill_name}/`
-4. If neither: fall back to flat path `{skillsOutputFolder}/{skill_name}/`. If SKILL.md exists at the flat path, auto-migrate per `{versionPathsKnowledge}` migration rules
-5. Store the resolved path as `{resolved_skill_package}`
+2. **Manifest-lag guard.** If the skill is in the manifest, also read the `active` symlink target at `{skillsOutputFolder}/{skill_name}/active`. If that symlink resolves to a *different* version than `active_version`, prefer the **symlink target** as `{resolved_version}` and emit an Info note: "manifest active_version {M} lags the active symlink {N} — testing the symlink target (the just-forged version); run export-skill to reconcile the manifest." This is the canonical SS→TS→EX case: create-stack-skill flipped `active` to the new version, but the manifest only advances when export-skill runs — so a bare manifest-first resolution would test the *previously exported* version and report a PASS for the wrong version (silent false confidence). When the symlink matches `active_version` (or no `active` symlink exists), use `active_version`. See `{versionPathsKnowledge}` "Reading Workflows".
+3. If found: resolve to `{skill_package}` = `{skillsOutputFolder}/{skill_name}/{resolved_version}/{skill_name}/`
+4. If not in manifest: check for `active` symlink at `{skillsOutputFolder}/{skill_name}/active` — resolve to `{skill_group}/active/{skill_name}/`
+5. If neither: fall back to flat path `{skillsOutputFolder}/{skill_name}/`. If SKILL.md exists at the flat path, auto-migrate per `{versionPathsKnowledge}` migration rules
+6. Store the resolved path as `{resolved_skill_package}`
 
 Check that the skill package contains required files:
 

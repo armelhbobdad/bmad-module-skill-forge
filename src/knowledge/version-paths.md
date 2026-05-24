@@ -119,9 +119,10 @@ When reading artifacts, resolve the skill path using the export manifest:
 1. Read `{skills_output_folder}/.export-manifest.json`
 2. Look up the skill name in `exports`
 3. Read `active_version` to get the target version
-4. Resolve to `{skill_package}` using the active version
-5. If manifest does not contain the skill: check for `active` symlink at `{skill_group}/active`
-6. If neither manifest nor symlink: fall back to flat-path resolution (migration — see below)
+4. **Manifest-lag guard.** If the `active` symlink at `{skill_group}/active` resolves to a *different* version than the manifest's `active_version`, prefer the **symlink target** and emit an Info note. The manifest `active_version` only advances when `export-skill` runs, but the `active` symlink is flipped forward by every writing workflow (CS/QS/SS/US) the instant it commits a new version. So in the canonical SS→TS→EX order the manifest lags the just-forged version in the window between forge and export — a manifest-first read would otherwise resolve the *previously exported* version. Preferring the symlink target closes this gap (and, for `export-skill`, makes that export publish the forged version and reconcile the manifest). This guard never overrides legitimate state: `drop-skill` — the only workflow that switches the active version — repoints the symlink to the manifest's `active_version` (it never leaves them diverged), and no workflow flips the symlink *backward*, so the only divergence that can occur is exactly this forge→export lag.
+5. Resolve to `{skill_package}` using the chosen version — the symlink target when it diverges per step 4, otherwise `active_version`
+6. If manifest does not contain the skill: check for `active` symlink at `{skill_group}/active`
+7. If neither manifest nor symlink: fall back to flat-path resolution (migration — see below)
 
 ### Manifest-Driven Snippet Scanning (EX Step-04)
 
