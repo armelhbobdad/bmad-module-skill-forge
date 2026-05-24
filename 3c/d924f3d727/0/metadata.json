@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "3cd924f3d727",
+  "session_id": "ab1f1e60-7579-4329-b149-bf4dc045e0e7",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-24T09:35:34.535606369Z",
+  "branch": "fix/skf-quick-skill-heading-vocabulary",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-quick-skill/references/compile.md",
+    "src/skf-quick-skill/assets/skill-template.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "d68b8508c792",
+  "token_usage": {
+    "input_tokens": 36,
+    "cache_creation_tokens": 81723,
+    "cache_read_tokens": 1010294,
+    "output_tokens": 31963,
+    "api_call_count": 18
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-24T09:35:34.262145075Z",
+    "agent_lines": 6,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 6,
+    "agent_percentage": 100
+  }
+}

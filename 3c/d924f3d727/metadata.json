@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "3cd924f3d727",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-quick-skill-heading-vocabulary",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-quick-skill/assets/skill-template.md",
+    "src/skf-quick-skill/references/compile.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/3c/d924f3d727/0/metadata.json",
+      "transcript": "/3c/d924f3d727/0/full.jsonl",
+      "context": "/3c/d924f3d727/0/context.md",
+      "content_hash": "/3c/d924f3d727/0/content_hash.txt",
+      "prompt": "/3c/d924f3d727/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 36,
+    "cache_creation_tokens": 81723,
+    "cache_read_tokens": 1010294,
+    "output_tokens": 31963,
+    "api_call_count": 18
+  }
+}
