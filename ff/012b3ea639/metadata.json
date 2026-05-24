@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "ff012b3ea639",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-reference-app-toolchain-wiring",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-test-skill/references/score.md",
+    "src/skf-test-skill/references/scoring-rules.md",
+    "src/skf-test-skill/references/source-access-protocol.md",
+    "src/skf-test-skill/scripts/compute-score.py",
+    "test/test-compute-score-contract.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ff/012b3ea639/0/metadata.json",
+      "transcript": "/ff/012b3ea639/0/full.jsonl",
+      "context": "/ff/012b3ea639/0/context.md",
+      "content_hash": "/ff/012b3ea639/0/content_hash.txt",
+      "prompt": "/ff/012b3ea639/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 132,
+    "cache_creation_tokens": 146155,
+    "cache_read_tokens": 6608054,
+    "output_tokens": 63463,
+    "api_call_count": 66
+  }
+}
