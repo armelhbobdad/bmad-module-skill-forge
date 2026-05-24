@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "27cd315d5980",
+  "session_id": "cbd80857-bd22-4dae-92d0-bce37ea493be",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-24T18:40:04.563953924Z",
+  "branch": "fix/skf-reference-app-toolchain-wiring",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/skf-scan-skill-md-structure.py",
+    "src/skf-test-skill/references/coherence-check.md",
+    "test/test-skf-scan-skill-md-structure.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "c8db2389bb07",
+  "token_usage": {
+    "input_tokens": 132,
+    "cache_creation_tokens": 146155,
+    "cache_read_tokens": 6608054,
+    "output_tokens": 63463,
+    "api_call_count": 66
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-24T18:40:04.041617156Z",
+    "agent_lines": 28,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 28,
+    "agent_percentage": 100
+  }
+}
