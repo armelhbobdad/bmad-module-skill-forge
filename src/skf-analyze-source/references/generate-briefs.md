@@ -1,6 +1,9 @@
 ---
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 schemaFile: 'assets/skill-brief-schema.md'
+validateBriefSchemaProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-schema.py'
+  - '{project-root}/src/shared/scripts/skf-validate-brief-schema.py'
 nextStepFile: 'health-check.md'
 ---
 
@@ -54,23 +57,39 @@ For EACH unit in `confirmed_units`, construct a skill-brief.yaml using:
 | scope.notes | Rationale from step 05 recommendation card |
 | description | Description from step 05 recommendation card |
 | forge_tier | `{forge_tier}` from frontmatter |
-| created | Current date (ISO format YYYY-MM-DD) |
+| created | Current date as a **quoted** string in ISO format `'YYYY-MM-DD'` — quote it so YAML stores it as text, not a parsed date object (the schema, and the §3a gate, require a string) |
 | created_by | `{user_name}` from frontmatter |
 
 ### 3. Validate Each Brief
 
-For each generated brief, check against {schemaFile} validation rules:
+Validation has two parts: a **deterministic schema gate** (authoritative for structure) and **semantic cross-checks** the schema cannot express. Run the schema gate first.
+
+**3a. Deterministic schema gate.** Resolve `{validateBriefSchemaHelper}` from `{validateBriefSchemaProbeOrder}` (first existing path wins; HALT with a clear message if no candidate exists). For each generated brief, pipe the *exact* assembled YAML to the helper:
+
+```bash
+uv run {validateBriefSchemaHelper} - <<'YAML'
+{assembled-brief-yaml}
+YAML
+```
+
+The script returns JSON `{valid, errors[], warnings[], halt_reason, brief}` — the same validator and contract `skf-brief-skill` runs at consumption time, so a brief that passes here will not be rejected there for structural reasons. Apply the result:
+
+- **`valid: false`** — the `errors[]` name the offending field (e.g. a `description` mis-indented under `scope:`, which leaves the required top-level `description` absent). Repair the assembled YAML and re-run the helper until `valid: true`. **Never write a brief that has not passed this gate.**
+- **`valid: true`** — carry any non-empty `warnings[]` into the §4 preview, then proceed.
+
+This catches structural YAML errors where they are created, rather than letting them surface downstream as a HALT in `skf-brief-skill`'s ratify path.
+
+**3b. Semantic cross-checks** (not expressible in the JSON schema — apply in addition to 3a):
 
 1. **Name uniqueness** — no duplicate names within the batch or existing skills
 2. **Source accessible** — project_path exists
 3. **Language recognized** — valid programming language identifier
-4. **Scope type valid** — matches `full-library`, `specific-modules`, `public-api`, `component-library`, `reference-app`, or `docs-only`
-5. **Include patterns** — at least one glob pattern present
-6. **Forge tier match** — matches forge_tier from config
+4. **Include patterns** — at least one glob pattern present (the schema requires the `scope.include` key but does not enforce a non-empty list)
+5. **Forge tier match** — matches forge_tier from config
 
-**If validation fails for any brief:**
+**If any check fails:**
 - Document the failure with specific field and reason
-- Present to user for correction before writing
+- Repair (3a structural errors) or present to user for correction (3b semantic issues) before writing
 - Do NOT write invalid briefs
 
 ### 4. Present Generation Preview
@@ -100,7 +119,7 @@ Wait for explicit user confirmation before writing files.
 
 For each confirmed brief:
 1. Create directory `{forge_data_folder}/{unit-name}/` if it does not exist
-2. Write `skill-brief.yaml` to `{forge_data_folder}/{unit-name}/skill-brief.yaml`
+2. Write `skill-brief.yaml` to `{forge_data_folder}/{unit-name}/skill-brief.yaml` — write the exact YAML that passed the §3a schema gate verbatim; do not re-serialize, so the bytes on disk are the bytes that validated
 3. Verify file was written successfully
 
 **IF user modifies (M):**
