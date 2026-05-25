@@ -49,6 +49,36 @@ description: >
 - {convention_2}
 ```
 
+## Sizing Guidance for Large Stacks
+
+A stack capstone grows monotonically as patterns and libraries are added, so a
+mature stack eventually pushes SKILL.md past skill-check's `body.max_lines`
+budget (default **500**) and/or the `description` past 1024 chars. Pre-empt both
+ceilings at compile time:
+
+- **Catalog placement.** The `Library Reference Index` table and `Per-Library
+  Summaries` are the largest, most reference-like sections. For a **large stack**
+  (heuristic: **> 6 libraries OR > 6 integration patterns**, the point at which
+  the inline catalog crowds the 500-line budget), author both into
+  `references/stack-catalog.md` and leave only an inline pointer in SKILL.md (see
+  below). For a **small stack**, keep them inline — inline passive context yields
+  higher task accuracy than on-demand retrieval, and small stacks fit comfortably.
+  Integration Patterns and Conventions stay inline regardless (Tier 1, load-bearing).
+- **Inline pointer form** (replaces the two sections above when extracted):
+
+  ```markdown
+  ## Library Catalog
+
+  {lib_count} libraries indexed in [references/stack-catalog.md](references/stack-catalog.md) —
+  reference-index table + per-library summaries. Load it for a specific library's exports or role.
+  ```
+
+- **Description cap.** Keep `description` ≤ 1024 chars. Do NOT enumerate every
+  library by name; the generic "{lib_count} libraries with {integration_count}
+  integration patterns" form already scales. If a per-library parenthetical is
+  used, cap it to the top libraries by import/export count with a `+{N} more`
+  suffix — the full list lives in `metadata.json` `libraries[]` and the catalog.
+
 ## context-snippet.md Format (Vercel-Aligned)
 
 Indexed format targeting ~80-120 tokens per stack:
@@ -105,6 +135,32 @@ Indexed format targeting ~80-120 tokens per stack:
   "dependencies": [],
   "compatibility": "{semver-range}"
 }
+```
+
+## references/stack-catalog.md Structure
+
+Written **only for large stacks** (see Sizing Guidance) when the catalog is
+extracted out of SKILL.md. Holds the two sections verbatim from the inline form:
+
+```markdown
+# {project_name} Stack — Library Catalog
+
+> Reference index + per-library summaries extracted from SKILL.md to keep the
+> capstone under the body-size budget. See SKILL.md for integration patterns.
+
+## Library Reference Index
+
+| Library | Imports | Key Exports | Confidence | Reference |
+|---------|---------|-------------|------------|-----------|
+| {name} | {count} | {top_exports} | {tier} | [ref](references/{name}.md) |
+
+## Per-Library Summaries
+
+### {library_name}
+**Role in stack:** {one-line description of what this library does in this project}
+**Key exports used:** {comma-separated list}
+**Usage pattern:** {brief pattern description}
+**Confidence:** {T1/T1-low/T2}
 ```
 
 ## references/{library}.md Structure

@@ -41,7 +41,7 @@ description: >
 **Frontmatter rules:**
 
 - `name`: lowercase alphanumeric + hyphens only, must match skill output directory name. **Stack skills MUST end in `-stack`** (e.g., `{project_name}-stack`) — this is how consumers (skf-verify-stack, skf-test-skill) detect stack vs individual skills.
-- `description`: non-empty, max 1024 chars, trigger-optimized for agent discovery. MUST use third-person voice ("Processes..." not "I can..." or "You can...").
+- `description`: non-empty, max 1024 chars, trigger-optimized for agent discovery. MUST use third-person voice ("Processes..." not "I can..." or "You can..."). **Do NOT enumerate every library by name** — a 12+ library stack overruns 1024 chars. Keep the generic "{lib_count} libraries with {integration_count} integration patterns" form; if a per-library parenthetical is used, cap it to the top libraries by import/export count with a `+{N} more` suffix (full list lives in `metadata.json` `libraries[]`). See "Sizing Guidance for Large Stacks" in `{stackSkillTemplate}`.
 - No other frontmatter fields — only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted by spec
 
 ### 3. Compile Integration Layer
@@ -68,6 +68,16 @@ description: >
 
 ### 4. Compile Per-Library Sections
 
+**Catalog placement (decide once, applies to this section and §6).** The
+`Per-Library Summaries` and `Library Reference Index` are the largest sections
+and grow with the stack. For a **large stack** (heuristic: **> 6 libraries OR
+> 6 integration patterns**), author both into `references/stack-catalog.md`
+(structure in `{stackSkillTemplate}`) and place only the inline pointer from the
+template's "Sizing Guidance" in SKILL.md — this keeps the body under the 500-line
+`body.max_lines` budget that step 08 enforces. For a **small stack**, keep both
+inline (inline passive context yields higher task accuracy). Either way, step 08's
+body-size gate is the backstop; step 08 (`validate.md` §4) accepts both forms.
+
 For each confirmed library (ordered by integration connectivity, then import count — **in compose-mode**, order by integration connectivity, then skill confidence tier since import counts are not available):
 
 - Role in stack (one-line description)
@@ -86,7 +96,8 @@ Extract project-specific conventions from the extractions:
 
 ### 6. Compile Library Reference Index
 
-Create the reference index table:
+Place per the §4 catalog-placement decision (inline for small stacks; in
+`references/stack-catalog.md` for large stacks). Create the reference index table:
 
 | Library | Imports | Key Exports | Confidence | Reference |
 |---------|---------|-------------|------------|-----------|

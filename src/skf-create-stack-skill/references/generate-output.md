@@ -109,6 +109,8 @@ Load structure from `{stackSkillTemplate}` references section:
 - Usage patterns with file:line citations (**in compose-mode**: usage patterns from source skill SKILL.md)
 - Confidence tier label
 
+**If the catalog was extracted** (large stack — step 06 §4 placed the `Library Reference Index` + `Per-Library Summaries` out of SKILL.md), also write `{skill_staging}/references/stack-catalog.md` using the structure in `{stackSkillTemplate}`, and confirm SKILL.md carries the inline pointer instead of the two sections. Small stacks keep the catalog inline and write no `stack-catalog.md`.
+
 ### 4. Stage Integration Pair Reference Files
 
 For each detected integration pair, write `{skill_staging}/references/integrations/{libraryA}-{libraryB}.md`:
