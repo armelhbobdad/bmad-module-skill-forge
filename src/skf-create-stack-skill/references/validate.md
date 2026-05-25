@@ -59,7 +59,7 @@ This validates frontmatter, description, body limits, links, formatting — and 
 
 **Post-fix provenance drift guard (S15):** If `fixed[]` is non-empty, `skill-check --fix` has modified `SKILL.md` after step 7 wrote it. The safe default for v1.0 is to emit a **WARNING** finding listing each auto-fix (`"skill-check --fix modified SKILL.md: {fix_description} — metadata.json hashes/provenance may be out of date"`). Do NOT silently accept the fixes without surfacing the drift. If the caller wants authoritative metadata, they should re-run the workflow.
 
-**If `body.max_lines` reported**, prefer selective split: extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 content inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). Fall back to `npx skill-check split-body <skill-dir> --write` if not feasible. Verify `#quick-start` and `#key-types` anchors still resolve after split. Then re-validate.
+**If `body.max_lines` reported**, prefer selective split: extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 content inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). For a stack capstone the canonical split is the catalog (`Library Reference Index` + `Per-Library Summaries`) → `references/stack-catalog.md`, leaving an inline pointer (see `{stackSkillTemplate}` "Sizing Guidance"). This is the **intended** large-stack layout, not a violation: §4 below accepts the pointer form, so clearing the skill-check body ERROR this way does not also trip the structure check. Fall back to `npx skill-check split-body <skill-dir> --write` if not feasible. Verify any in-SKILL.md anchor links (e.g. to the catalog/pointer or other moved sections) still resolve after the split. Then re-validate.
 
 **If unavailable**, perform manual frontmatter check:
 - [ ] Frontmatter present with `---` delimiters
@@ -75,11 +75,14 @@ Load `{stackSkillTemplate}` and verify SKILL.md contains expected sections:
 
 - [ ] Header with project name, library count, integration count, forge tier
 - [ ] Integration Patterns section (before per-library summaries)
-- [ ] Library Reference Index table
-- [ ] Per-Library Summaries section
 - [ ] Conventions section
+- [ ] **Catalog** — `Library Reference Index` table + `Per-Library Summaries`, in **either** form:
+  - *Inline* (small stacks): both sections present in SKILL.md, **or**
+  - *Pointer* (large stacks): a `Library Catalog` pointer to `references/stack-catalog.md`, **and** that file exists and contains both sections.
 
-Record missing sections as **WARNING** findings.
+  Accept either form — do not WARN when the catalog has been extracted to clear the `body.max_lines` budget (§3). Only record a **WARNING** when *neither* the inline sections *nor* a pointer-plus-`stack-catalog.md` is present, or when the pointer's target file is missing.
+
+Record other missing sections (Header, Integration Patterns, Conventions) as **WARNING** findings.
 
 ### 5. Validate metadata.json Fields
 
