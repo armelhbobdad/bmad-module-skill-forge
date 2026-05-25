@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [1.8.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.7.0...v1.8.0) (2026-05-25)
+
+### Features
+
+* **skf-analyze-source:** support composite sources and composite unit merges ([3158b14](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/3158b14aacd42895dc4d05737e4c6292f022407c)), closes [#405](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/405) [#406](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/406)
+
+### Bug Fixes
+
+* **shared/scripts:** close three health-check gaps (CCC registry, token gate, specific-modules) ([5470ba9](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/5470ba951e7b1147e7021dd0789243e1731ac527))
 ## [1.7.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.6.0...v1.7.0) (2026-05-25)
 
 ### Features
