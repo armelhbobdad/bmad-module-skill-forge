@@ -58,6 +58,20 @@
 
   **When this clause does NOT apply:** any repo with a non-empty barrel file, any monorepo (use the stratified-scope clause), or any single-package repo whose `scope.type` is explicitly `public-api` / `specific-modules` / `component-library` / `docs-only` (those scope types have their own denominator semantics). Also does NOT apply when `scope.type: "reference-app"` — that scope type carries its own pattern-surface denominator semantics (the brief speaks for itself), so this clause's filesystem trigger is moot.
 
+- **Single-crate curated subset (`scope.type: "specific-modules"`):** If the source is a single-package (non-monorepo) repo whose skill brief sets `scope.type: "specific-modules"` and uses `scope.include`/`scope.exclude` to carve a subset of the crate's public surface, the coverage denominator is the **in-scope reachable barrel** — not the full barrel.
+
+  **Resolution:** Derive the barrel as normal for the language (e.g., Rust: `pub use` chain from `lib.rs`), then filter:
+
+  1. **Exclude** any modules or items that fall under `scope.exclude` patterns.
+  2. **Include only** items reachable from the modules listed in `scope.include`.
+  3. **Respect module visibility:** items behind `mod` (not `pub mod`) boundaries that are not re-exported through the barrel are unreachable and excluded. For Rust: count only unrestricted, module-level (column-0) `pub` item declarations in barrel-reachable modules; exclude `pub(crate)` / `pub(super)` / `pub(in …)` restricted items.
+
+  The resulting count is the denominator. Annotate the coverage report with: `Specific-modules subset — denominator: in-scope reachable barrel ({N} items from {M} modules, after scope.include/exclude filtering)`.
+
+  **When `effective_denominator` is present:** prefer `metadata.json.stats.effective_denominator` (same priority-1 rule as the stratified-scope clause), subject to the same deflation guard.
+
+  **When this clause does NOT apply:** monorepo packages (use the stratified-scope clause), `scope.type: "full-library"` (use the standard barrel), or empty-barrel packages (use the empty-barrel clause). This clause is specifically for single-crate repos where the brief intentionally documents a curated subset rather than the full public surface.
+
 Internal module symbols are **excluded** from the coverage denominator unless they are explicitly documented in SKILL.md (in which case they count as documented extras, not missing coverage).
 
 This matches the extraction-patterns.md convention used during skill creation: coverage measures how well SKILL.md documents what users actually import, not the entire internal codebase.

@@ -195,19 +195,14 @@ Ensure the source path used for extraction is indexed by ccc and registered in t
 
 **Registry update:**
 
-Read `{forgeTierConfig}` and update the `ccc_index_registry` array **under an exclusive `flock` on `{sidecar_path}/forge-tier.yaml.lock`** (same pattern as §6 — acquire lock → read → modify → atomic write via `skf-atomic-write.py write` → release). If `flock` is unavailable, fall back to read-CAS-by-mtime.
+Register the indexed source path via `register-ccc-index` (comment-preserving round-trip, same pattern as §6's `register-qmd-collection`). Acquire an exclusive `flock` on `{sidecar_path}/forge-tier.yaml.lock`, then:
 
-Deduplicate by `source_repo` + `skill_name` (NOT local `path`, which may be ephemeral). Replace existing match or append:
-
-```yaml
-  - source_repo: "{brief.source_repo}"
-    path: "{source_root}"
-    skill_name: "{name}"
-    indexed_at: "{current ISO date}"
-    source_workflow: "create-skill"
+```bash
+echo '{"source_repo":"{brief.source_repo}","path":"{source_root}","skill_name":"{name}","indexed_at":"{current ISO date}","source_workflow":"create-skill"}' \
+  | uv run {forgeTierRw} register-ccc-index --target {forgeTierConfig}
 ```
 
-Write the updated forge-tier.yaml.
+Deduplicates by `source_repo` + `skill_name` (NOT local `path`, which may be ephemeral). Release the lock after the command completes. If `flock` is unavailable, fall back to read-CAS-by-mtime.
 
 **Error handling:** If ccc indexing or registry update fails, log and continue — do NOT fail the workflow.
 
