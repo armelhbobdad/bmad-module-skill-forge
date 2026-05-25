@@ -135,13 +135,17 @@ def cmd_set(manifest_path, skill_name, version, ides=None):
     existing = exports.get(skill_name, {})
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    # Preserve existing versions dict, archive the previously-active version
+    # Preserve existing versions dict, archive every *other* still-active version.
+    # Archiving by status (rather than only the entry matching the prior
+    # active_version) keeps a single active version even when active_version was
+    # advanced to this version before set() ran — otherwise the genuine prior
+    # version would stay active, breaking the single-active invariant. Idempotent.
     versions = existing.get("versions", {})
     if isinstance(versions, list):
         versions = {}  # Safety: handle any residual v1 data
-    old_active = existing.get("active_version")
-    if old_active and old_active in versions and old_active != version:
-        versions[old_active]["status"] = "archived"
+    for other_version, other_entry in versions.items():
+        if other_version != version and other_entry.get("status") == "active":
+            other_entry["status"] = "archived"
 
     # Add or update the new active version. Absent --ides preserves the
     # existing ides/platforms list verbatim (backward-compatible). When
