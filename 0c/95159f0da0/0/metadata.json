@@ -3,7 +3,7 @@
   "checkpoint_id": "0c95159f0da0",
   "session_id": "2a9481d0-bfd3-4bea-ac47-22a4147fc156",
   "strategy": "manual-commit",
-  "created_at": "2026-05-25T04:02:32.894632051Z",
+  "created_at": "2026-05-25T04:06:53.854614929Z",
   "branch": "fix/skf-stack-catalog-extraction",
   "checkpoints_count": 0,
   "files_touched": [
@@ -14,22 +14,22 @@
   ],
   "agent": "Claude Code",
   "turn_id": "70b5586e71ed",
-  "checkpoint_transcript_start": 112,
-  "transcript_lines_at_start": 112,
+  "checkpoint_transcript_start": 241,
+  "transcript_lines_at_start": 241,
   "token_usage": {
-    "input_tokens": 42,
-    "cache_creation_tokens": 45698,
-    "cache_read_tokens": 2041205,
-    "output_tokens": 23837,
-    "api_call_count": 21
+    "input_tokens": 12,
+    "cache_creation_tokens": 12717,
+    "cache_read_tokens": 740101,
+    "output_tokens": 7832,
+    "api_call_count": 6
   },
   "initial_attribution": {
-    "calculated_at": "2026-05-25T04:02:32.564134952Z",
-    "agent_lines": 78,
-    "human_added": 4,
-    "human_modified": 0,
+    "calculated_at": "2026-05-25T04:06:53.417756396Z",
+    "agent_lines": 0,
+    "human_added": 0,
+    "human_modified": 1,
     "human_removed": 0,
-    "total_committed": 82,
-    "agent_percentage": 95.1219512195122
+    "total_committed": 0,
+    "agent_percentage": 0
   }
 }
