@@ -226,19 +226,19 @@ Use the schema from `{provenanceMapSchemaPath}` — see that asset for the canon
 
 ### 8. Pre-Commit Frontmatter & Body-Size Gate
 
-The full schema/frontmatter validation runs in step 8 (`validate.md`) — but that runs *after* commit-dir and flip-link have already published the package. The two most common non-auto-fixable `skill-check` hard rejects — a `description` over the 1024-char limit (which `skill-check --fix` cannot trim for you) and a SKILL.md body over the `body.max_lines` limit (default **500**) — would therefore only surface on an already-committed, symlink-active artifact, forcing edits to the live `SKILL.md`. Additive re-composition of an already-large stack grows the body monotonically, so the body overflow is the likeliest trigger. Catch both here, while the package is still in `.skf-tmp`.
+The full schema/frontmatter validation runs in step 8 (`validate.md`) — but that runs *after* commit-dir and flip-link have already published the package. The most common non-auto-fixable `skill-check` hard rejects — a `description` over the 1024-char limit (which `skill-check --fix` cannot trim for you), a SKILL.md body over the `body.max_lines` limit (default **500**), and a body exceeding the `body.max_tokens` limit (default **5000**) — would therefore only surface on an already-committed, symlink-active artifact, forcing edits to the live `SKILL.md`. Additive re-composition of an already-large stack grows the body monotonically, so body overflow (lines or tokens) is the likeliest trigger. Catch all three here, while the package is still in `.skf-tmp`.
 
-Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}` (first existing path wins). Run it against the **staged** `SKILL.md`, passing the real skill name so the directory-match check is not fooled by the `.skf-tmp` staging suffix, and `--max-body-lines 500` to assert the skill-check body limit pre-commit:
+Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}` (first existing path wins). Run it against the **staged** `SKILL.md`, passing the real skill name so the directory-match check is not fooled by the `.skf-tmp` staging suffix, `--max-body-lines 500` to assert the skill-check body-line limit, and `--max-body-tokens 5000` to assert the skill-check body-token limit pre-commit:
 
 ```bash
-uv run {frontmatterValidator} {skill_staging}/SKILL.md --skill-dir-name {project_name}-stack --max-body-lines 500
+uv run {frontmatterValidator} {skill_staging}/SKILL.md --skill-dir-name {project_name}-stack --max-body-lines 500 --max-body-tokens 5000
 ```
 
-The validator emits JSON: `status` (`pass`/`warn`/`fail`), `issues[]` (each with `severity` ∈ `high|medium|low`, `field`, `message`), `body_lines` (the counted body size), and `summary`. Disposition:
+The validator emits JSON: `status` (`pass`/`warn`/`fail`), `issues[]` (each with `severity` ∈ `high|medium|low`, `field`, `message`), `body_lines` (the counted body size), `body_tokens` (the estimated token count), and `summary`. Disposition:
 
 - **`status` is `fail`, OR any `issues[]` entry has `severity` `high` or `medium`** — a hard violation that `npx skill-check` (step 8) would reject and `--fix` cannot auto-correct. HALT-to-fix **in staging**, then re-run the validator until it clears. Remediate by `field`:
   - `description` / `name` / `compatibility` — trim/correct `{skill_staging}/SKILL.md` (e.g. shorten `description` to ≤ 1024 chars).
-  - `body` (`body lines N exceeds max 500`) — reduce the staged body: prefer a **selective split** of the largest Tier-2 section(s) into `{skill_staging}/references/`, keeping Tier-1 content inline (mirrors `validate.md` §3); or trim redundant content. Re-run the gate until `body_lines ≤ 500`.
+  - `body` (`body lines N exceeds max 500` or `body token estimate N exceeds max 5000`) — reduce the staged body: prefer a **selective split** of the largest Tier-2 section(s) into `{skill_staging}/references/`, keeping Tier-1 content inline (mirrors `validate.md` §3); or trim redundant content. Re-run the gate until both `body_lines ≤ 500` and `body_tokens ≤ 5000`.
 
   Do NOT proceed to §9 commit-dir with an unresolved high/medium issue. Note: an over-long `description` is rated `medium` and exits `0`, so key the HALT on the issue severities above — not on the exit code.
 - **Only `low`-severity issues (e.g. an unexpected field)** — record each as a WARNING in the evidence report and proceed; these do not block the commit.

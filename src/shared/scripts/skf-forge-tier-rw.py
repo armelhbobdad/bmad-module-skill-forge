@@ -42,6 +42,17 @@ Subcommands:
                 collections without re-rendering the whole file in
                 prose.
 
+  register-ccc-index
+                Append-or-replace a single entry in the
+                `ccc_index_registry` array. Reads the entry as JSON on
+                stdin (must include `source_repo` and `skill_name`;
+                composite key `source_repo`+`skill_name` is the upsert
+                key — existing entry with the same composite key is
+                replaced, otherwise appended). All other forge-tier
+                state is preserved verbatim. Used by skf-create-skill
+                §6b to register CCC-indexed source paths without
+                re-rendering the whole file in prose.
+
   clean-stale   Two cleanup operations gated by flags:
                   --qmd-live-names a,b,c — remove qmd_collections
                     entries whose `name` is not in the comma-separated
@@ -74,6 +85,7 @@ system-wide:
   uv run skf-forge-tier-rw.py read --target /path/forge-tier.yaml
   echo '{...}' | uv run skf-forge-tier-rw.py write-tools --target /path/forge-tier.yaml
   uv run skf-forge-tier-rw.py init-prefs --target /path/preferences.yaml
+  echo '{...}' | uv run skf-forge-tier-rw.py register-ccc-index --target /path/forge-tier.yaml
   uv run skf-forge-tier-rw.py clean-stale --target /path/forge-tier.yaml \\
       --qmd-live-names foo-brief,bar-extraction --prune-missing-ccc-paths
 """
@@ -373,6 +385,61 @@ def cmd_register_qmd_collection(target: Path) -> None:
     })
 
 
+def cmd_register_ccc_index(target: Path) -> None:
+    raw = sys.stdin.read()
+    if not raw.strip():
+        _die(1, "register-ccc-index: empty stdin (expected JSON entry)")
+    try:
+        entry = json.loads(raw)
+    except json.JSONDecodeError as e:
+        _die(1, f"register-ccc-index: invalid JSON on stdin: {e}")
+
+    if not isinstance(entry, dict):
+        _die(1, "register-ccc-index: entry must be a JSON object")
+    source_repo = entry.get("source_repo")
+    skill_name = entry.get("skill_name")
+    if not source_repo or not isinstance(source_repo, str):
+        _die(1, "register-ccc-index: entry must include a non-empty 'source_repo' string")
+    if not skill_name or not isinstance(skill_name, str):
+        _die(1, "register-ccc-index: entry must include a non-empty 'skill_name' string")
+
+    data = _read_yaml(target)
+    if data is None:
+        _die(1, f"register-ccc-index: target does not exist: {target}. "
+                f"Run setup workflow first to create forge-tier.yaml.")
+
+    registry = list(data.get("ccc_index_registry") or [])
+    replaced = False
+    for i, existing in enumerate(registry):
+        if (isinstance(existing, dict)
+                and existing.get("source_repo") == source_repo
+                and existing.get("skill_name") == skill_name):
+            registry[i] = entry
+            replaced = True
+            break
+    if not replaced:
+        registry.append(entry)
+
+    payload = {
+        "tools": data.get("tools", {}),
+        "tier": data.get("tier", "Quick"),
+        "tier_detected_at": data.get("tier_detected_at",
+                                     datetime.now(timezone.utc).isoformat()),
+        "ccc_index": data.get("ccc_index", {}),
+        "ccc_index_registry": registry,
+        "qmd_collections": data.get("qmd_collections", []),
+    }
+    rendered = render_forge_tier_yaml(payload)
+    _atomic_write(target, rendered)
+    _ok({
+        "source_repo": source_repo,
+        "skill_name": skill_name,
+        "action": "replaced" if replaced else "appended",
+        "ccc_index_registry_count": len(registry),
+        "wrote": str(target),
+    })
+
+
 def cmd_clean_stale(target: Path, qmd_live_names: list[str] | None,
                     prune_missing_ccc_paths: bool) -> None:
     data = _read_yaml(target)
@@ -468,6 +535,10 @@ def main() -> None:
                                 help="Append-or-replace a single qmd_collections entry by name")
     p_register.add_argument("--target", type=Path, required=True)
 
+    p_ccc = sub.add_parser("register-ccc-index",
+                           help="Append-or-replace a single ccc_index_registry entry by source_repo+skill_name")
+    p_ccc.add_argument("--target", type=Path, required=True)
+
     args = parser.parse_args()
 
     if args.cmd == "read":
@@ -483,6 +554,8 @@ def main() -> None:
         cmd_clean_stale(args.target, live, args.prune_missing_ccc_paths)
     elif args.cmd == "register-qmd-collection":
         cmd_register_qmd_collection(args.target)
+    elif args.cmd == "register-ccc-index":
+        cmd_register_ccc_index(args.target)
 
 
 if __name__ == "__main__":

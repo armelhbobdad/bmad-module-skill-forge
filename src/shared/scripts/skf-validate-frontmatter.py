@@ -21,6 +21,7 @@ system-wide:
   uv run skf-validate-frontmatter.py <skill-md-path>
   uv run skf-validate-frontmatter.py <skill-md-path> --skill-dir-name <name>
   uv run skf-validate-frontmatter.py <skill-md-path> --max-body-lines 500
+  uv run skf-validate-frontmatter.py <skill-md-path> --max-body-lines 500 --max-body-tokens 5000
 
 Input:
   Path to a SKILL.md file.
@@ -31,6 +32,11 @@ Input:
   exceeds N lines. Opt-in — when omitted, body size is never checked and
   the verdict is unchanged. Callers pass the skill-check `body.max_lines`
   default (500) to pre-catch that hard reject before commit.
+  Optional --max-body-tokens N: when set, emit a high-severity `body`
+  issue if the estimated body token count exceeds N. Token count is
+  estimated as ceil(character_count / 4). Callers pass the skill-check
+  `body.max_tokens` default (5000) to pre-catch that soft/hard reject
+  before commit.
 
 Output:
   JSON object:
@@ -154,6 +160,28 @@ def body_line_count(content: str) -> int | None:
     return len(lines) - (closing + 1)
 
 
+def body_token_estimate(content: str) -> int | None:
+    """Estimate the SKILL.md body token count as ceil(char_count / 4).
+
+    Returns None when the frontmatter delimiters are absent or unclosed
+    (same boundary condition as body_line_count). The heuristic matches
+    the agentskills.io spec's token estimation convention.
+    """
+    if not content.startswith("---\n") and not content.startswith("---\r\n"):
+        return None
+    lines = content.splitlines()
+    closing = -1
+    for i in range(1, len(lines)):
+        if lines[i] == "---":
+            closing = i
+            break
+    if closing == -1:
+        return None
+    body = "\n".join(lines[closing + 1:])
+    char_count = len(body)
+    return -(-char_count // 4)  # ceil division
+
+
 def _validate_name(name: str, skill_dir_name: str | None) -> list[dict]:
     """Validate skill name format. Aligned with canonical validator.py."""
     issues: list[dict] = []
@@ -220,14 +248,16 @@ def validate_frontmatter(
     content: str,
     skill_dir_name: str | None = None,
     max_body_lines: int | None = None,
+    max_body_tokens: int | None = None,
 ) -> dict:
     """Validate SKILL.md frontmatter against agentskills.io spec.
 
     When `max_body_lines` is set, additionally emit a high-severity `body`
-    issue if the body exceeds that many lines (opt-in — the verdict is
-    unchanged when it is None, so the other consumers of this validator are
-    unaffected). Returns a result dict with status, issues, frontmatter,
-    body_lines, and summary.
+    issue if the body exceeds that many lines. When `max_body_tokens` is
+    set, emit a high-severity `body` issue if the estimated token count
+    exceeds that limit. Both are opt-in — the verdict is unchanged when
+    they are None. Returns a result dict with status, issues, frontmatter,
+    body_lines, body_tokens, and summary.
     """
     fm, issues = parse_frontmatter(content)
 
@@ -237,6 +267,14 @@ def validate_frontmatter(
             "severity": "high",
             "field": "body",
             "message": f"body lines {body_lines} exceeds max {max_body_lines}",
+        })
+
+    body_tokens = body_token_estimate(content)
+    if max_body_tokens is not None and body_tokens is not None and body_tokens > max_body_tokens:
+        issues.append({
+            "severity": "high",
+            "field": "body",
+            "message": f"body token estimate {body_tokens} exceeds max {max_body_tokens}",
         })
 
     if fm is not None:
@@ -301,6 +339,7 @@ def validate_frontmatter(
         "issues": issues,
         "frontmatter": fm,
         "body_lines": body_lines,
+        "body_tokens": body_tokens,
         "summary": {
             "total": len(issues),
             **severity_counts,
@@ -346,6 +385,18 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--max-body-tokens",
+        metavar="N",
+        type=int,
+        default=None,
+        help=(
+            "when set, emit a high-severity 'body' issue if the estimated body "
+            "token count exceeds N (opt-in; omitted = body tokens not checked). "
+            "Token estimate uses ceil(char_count / 4). Pass the skill-check "
+            "body.max_tokens default (5000) to pre-catch that reject."
+        ),
+    )
+    parser.add_argument(
         "-o", "--output",
         metavar="FILE",
         help="write JSON output to FILE instead of stdout",
@@ -365,7 +416,7 @@ def main() -> int:
     else:
         content = skill_md_path.read_text(encoding="utf-8")
         skill_dir_name = args.skill_dir_name or skill_md_path.parent.name
-        result = validate_frontmatter(content, skill_dir_name, args.max_body_lines)
+        result = validate_frontmatter(content, skill_dir_name, args.max_body_lines, args.max_body_tokens)
 
     output_text = json.dumps(result, indent=2)
 

@@ -335,3 +335,78 @@ class TestBodyMaxLinesGate:
         missing-delimiter error is reported by frontmatter parsing instead)."""
         r = validate_frontmatter("---\nname: foo\n", "foo", max_body_lines=500)
         assert not any(i["field"] == "body" for i in r["issues"])
+
+
+def _skill_md_with_dense_body(n_chars: int) -> str:
+    """Build a valid SKILL.md whose body is short in lines but dense in chars."""
+    body = "x" * n_chars + "\n"
+    return f"---\nname: my-skill\ndescription: hello\n---\n{body}"
+
+
+class TestBodyTokenEstimate:
+    def test_body_tokens_present_in_output(self):
+        """body_tokens is an additive output field (backward-compatible)."""
+        r = validate_frontmatter(VALID_SKILL_MD, "my-skill")
+        assert "body_tokens" in r
+        assert isinstance(r["body_tokens"], int)
+
+    def test_body_tokens_calculation(self):
+        """Token estimate = ceil(char_count / 4)."""
+        content = _skill_md_with_dense_body(100)
+        r = validate_frontmatter(content, "my-skill")
+        assert r["body_tokens"] == 25  # ceil(100/4) — 100 x-chars
+
+    def test_body_tokens_none_without_closing_delimiter(self):
+        r = validate_frontmatter("---\nname: foo\n", "foo")
+        assert r["body_tokens"] is None
+
+    def test_body_tokens_none_without_opening_delimiter(self):
+        r = validate_frontmatter("name: foo\n---\nbody\n", "foo")
+        assert r["body_tokens"] is None
+
+
+class TestBodyMaxTokensGate:
+    def test_no_check_when_flag_unset(self):
+        """Opt-in: an over-token body is ignored when max_body_tokens is None."""
+        r = validate_frontmatter(_skill_md_with_dense_body(25000), "my-skill")
+        assert r["status"] == "pass"
+        assert not any(i["field"] == "body" for i in r["issues"])
+
+    def test_exceeds_max_emits_high_body_issue(self):
+        content = _skill_md_with_dense_body(20100)  # ceil(20101/4) = 5026 > 5000
+        r = validate_frontmatter(content, "my-skill", max_body_tokens=5000)
+        assert r["status"] == "fail"
+        body_issues = [i for i in r["issues"] if i["field"] == "body"]
+        assert len(body_issues) == 1
+        assert body_issues[0]["severity"] == "high"
+        assert "token estimate" in body_issues[0]["message"]
+        assert "exceeds max 5000" in body_issues[0]["message"]
+
+    def test_at_limit_passes(self):
+        """Strict `>`: a body exactly at the limit does not trip the gate."""
+        content = _skill_md_with_dense_body(19999)  # ceil(20000/4) = 5000 == 5000
+        r = validate_frontmatter(content, "my-skill", max_body_tokens=5000)
+        assert not any(i["field"] == "body" for i in r["issues"])
+
+    def test_under_limit_passes(self):
+        content = _skill_md_with_dense_body(100)  # 26 tokens
+        r = validate_frontmatter(content, "my-skill", max_body_tokens=5000)
+        assert r["status"] == "pass"
+        assert not any(i["field"] == "body" for i in r["issues"])
+
+    def test_undefined_body_does_not_trip_token_gate(self):
+        """No closing delimiter → body_tokens None → no body issue."""
+        r = validate_frontmatter("---\nname: foo\n", "foo", max_body_tokens=5000)
+        assert not any(i["field"] == "body" for i in r["issues"])
+
+    def test_dense_body_under_line_limit_but_over_token_limit(self):
+        """The exact scenario from fp-b842e0e: under 500 lines but over 5000 tokens."""
+        lines = ["x" * 120] * 200
+        body = "\n".join(lines) + "\n"
+        content = f"---\nname: my-skill\ndescription: hello\n---\n{body}"
+        r = validate_frontmatter(content, "my-skill", max_body_lines=500, max_body_tokens=5000)
+        assert r["body_lines"] == 200  # under 500 line limit
+        assert r["body_tokens"] > 5000  # over token limit
+        body_issues = [i for i in r["issues"] if i["field"] == "body"]
+        assert len(body_issues) == 1  # only token issue fires, not line
+        assert "token estimate" in body_issues[0]["message"]

@@ -564,6 +564,125 @@ def test_register_qmd_missing_target_is_user_error(tmp_target):
     assert "does not exist" in stderr
 
 
+# ─── End-to-end: register-ccc-index subcommand via subprocess ────────────────
+
+
+def _register_ccc(target: Path, entry: dict) -> tuple[int, dict, str]:
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "register-ccc-index",
+         "--target", str(target)],
+        input=json.dumps(entry),
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    payload = json.loads(result.stdout) if result.stdout.strip() else {}
+    return result.returncode, payload, result.stderr
+
+
+def test_register_ccc_appends_when_key_is_new(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    code, response, _ = _register_ccc(tmp_target, {
+        "source_repo": "https://github.com/test/repo",
+        "skill_name": "test-skill",
+        "path": "/tmp/test",
+        "indexed_at": "2026-05-25T14:00:00Z",
+        "source_workflow": "create-skill",
+    })
+    assert code == 0
+    assert response["action"] == "appended"
+    assert response["ccc_index_registry_count"] == 1
+
+    persisted = _read_yaml_file(tmp_target)
+    assert len(persisted["ccc_index_registry"]) == 1
+    assert persisted["ccc_index_registry"][0]["skill_name"] == "test-skill"
+
+
+def test_register_ccc_replaces_when_composite_key_collides(tmp_target):
+    payload = _baseline_payload()
+    payload["ccc_index_registry"] = [
+        {"source_repo": "https://github.com/test/repo", "skill_name": "test-skill",
+         "path": "/old/path", "indexed_at": "2025-01-01"},
+        {"source_repo": "https://github.com/other/repo", "skill_name": "other-skill",
+         "path": "/other", "indexed_at": "2025-01-01"},
+    ]
+    _write_tools(tmp_target, payload)
+
+    code, response, _ = _register_ccc(tmp_target, {
+        "source_repo": "https://github.com/test/repo",
+        "skill_name": "test-skill",
+        "path": "/new/path",
+        "indexed_at": "2026-05-25T15:00:00Z",
+        "source_workflow": "create-skill",
+    })
+    assert code == 0
+    assert response["action"] == "replaced"
+    assert response["ccc_index_registry_count"] == 2
+
+    persisted = _read_yaml_file(tmp_target)
+    by_skill = {e["skill_name"]: e for e in persisted["ccc_index_registry"]}
+    assert by_skill["test-skill"]["path"] == "/new/path"
+    assert by_skill["other-skill"]["path"] == "/other"
+
+
+def test_register_ccc_preserves_unrelated_state(tmp_target):
+    payload = _baseline_payload()
+    payload["qmd_collections"] = [{"name": "foo-brief", "type": "brief"}]
+    payload["ccc_index"]["staleness_threshold_hours"] = 99
+    _write_tools(tmp_target, payload)
+
+    _register_ccc(tmp_target, {
+        "source_repo": "https://github.com/x/y",
+        "skill_name": "x",
+        "path": "/x",
+        "indexed_at": "2026-05-25",
+        "source_workflow": "create-skill",
+    })
+
+    persisted = _read_yaml_file(tmp_target)
+    assert persisted["qmd_collections"] == [{"name": "foo-brief", "type": "brief"}]
+    assert persisted["ccc_index"]["staleness_threshold_hours"] == 99
+    assert persisted["tier"] == payload["tier"]
+
+
+def test_register_ccc_rejects_missing_source_repo(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    code, _, stderr = _register_ccc(tmp_target, {"skill_name": "x", "path": "/x"})
+    assert code == 1
+    assert "source_repo" in stderr
+
+
+def test_register_ccc_rejects_missing_skill_name(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    code, _, stderr = _register_ccc(tmp_target, {"source_repo": "https://github.com/x/y", "path": "/x"})
+    assert code == 1
+    assert "skill_name" in stderr
+
+
+def test_register_ccc_rejects_empty_stdin(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "register-ccc-index",
+         "--target", str(tmp_target)],
+        input="",
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 1
+    assert "empty stdin" in result.stderr
+
+
+def test_register_ccc_missing_target_is_user_error(tmp_target):
+    code, _, stderr = _register_ccc(tmp_target, {
+        "source_repo": "https://github.com/x/y",
+        "skill_name": "x",
+        "path": "/x",
+        "indexed_at": "2026-05-25",
+        "source_workflow": "create-skill",
+    })
+    assert code == 1
+    assert "does not exist" in stderr
+
+
 class TestAtomicWriteBinary:
     """_atomic_write persists content verbatim — no CRLF injection on Windows."""
 
