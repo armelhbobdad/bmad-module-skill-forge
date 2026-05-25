@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "a5ce08fc2b25",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-manifest-ops-archive-stranded-active",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/shared/scripts/skf-manifest-ops.py",
+    "test/test-skf-manifest-ops.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a5/ce08fc2b25/0/metadata.json",
+      "transcript": "/a5/ce08fc2b25/0/full.jsonl",
+      "context": "/a5/ce08fc2b25/0/context.md",
+      "content_hash": "/a5/ce08fc2b25/0/content_hash.txt",
+      "prompt": "/a5/ce08fc2b25/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 26,
+    "cache_creation_tokens": 62663,
+    "cache_read_tokens": 653220,
+    "output_tokens": 20230,
+    "api_call_count": 13
+  }
+}

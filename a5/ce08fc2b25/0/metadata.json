@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "a5ce08fc2b25",
+  "session_id": "2a9481d0-bfd3-4bea-ac47-22a4147fc156",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-25T03:56:45.777757249Z",
+  "branch": "fix/skf-manifest-ops-archive-stranded-active",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/shared/scripts/skf-manifest-ops.py",
+    "test/test-skf-manifest-ops.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "70b5586e71ed",
+  "token_usage": {
+    "input_tokens": 26,
+    "cache_creation_tokens": 62663,
+    "cache_read_tokens": 653220,
+    "output_tokens": 20230,
+    "api_call_count": 13
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-25T03:56:45.567055252Z",
+    "agent_lines": 58,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 58,
+    "agent_percentage": 100
+  }
+}
