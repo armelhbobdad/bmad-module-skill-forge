@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "88c72260bd82",
+  "strategy": "manual-commit",
+  "branch": "fix/improvement-queue-batch-20260525",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/shared/scripts/skf-forge-tier-rw.py",
+    "src/shared/scripts/skf-validate-frontmatter.py",
+    "src/skf-create-skill/references/generate-artifacts.md",
+    "src/skf-create-stack-skill/references/generate-output.md",
+    "src/skf-test-skill/references/source-access-protocol.md",
+    "test/test-skf-forge-tier-rw.py",
+    "test/test-skf-validate-frontmatter.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/88/c72260bd82/0/metadata.json",
+      "transcript": "/88/c72260bd82/0/full.jsonl",
+      "context": "/88/c72260bd82/0/context.md",
+      "content_hash": "/88/c72260bd82/0/content_hash.txt",
+      "prompt": "/88/c72260bd82/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 784,
+    "cache_creation_tokens": 88211,
+    "cache_read_tokens": 3708863,
+    "output_tokens": 24728,
+    "api_call_count": 47
+  }
+}
