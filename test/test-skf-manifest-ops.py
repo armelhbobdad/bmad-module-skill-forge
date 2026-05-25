@@ -226,6 +226,56 @@ class TestManifestOps:
         entry = mod.cmd_get(manifest_path, "cocoindex")["entry"]["versions"]["2.0.0"]
         assert entry["ides"] == ["claude-code", "cursor"]
 
+    def test_set_archives_stranded_active_when_active_version_pre_advanced(self, manifest_path):
+        """S18: set archives any *other* still-active version, even when active_version
+        was advanced to the new version before set ran. Guards the single-active invariant
+        against a pre-advanced active_version (the genuine prior version must not stay active)."""
+        data = {
+            "schema_version": "2",
+            "exports": {
+                "cocoindex": {
+                    "active_version": "2.1.0",  # advanced to the new version before set ran
+                    "versions": {
+                        "2.0.0": {
+                            "ides": ["claude-code"],
+                            "last_exported": "2026-05-01",
+                            "status": "active",
+                        }
+                    },
+                }
+            },
+        }
+        manifest_path.write_text(json.dumps(data), encoding="utf-8")
+        mod.cmd_set(manifest_path, "cocoindex", "2.1.0")
+        entry = mod.cmd_get(manifest_path, "cocoindex")["entry"]
+        versions = entry["versions"]
+        assert entry["active_version"] == "2.1.0"
+        assert versions["2.1.0"]["status"] == "active"
+        assert versions["2.0.0"]["status"] == "archived"
+        # Exactly one active version remains.
+        assert [v for v, e in versions.items() if e["status"] == "active"] == ["2.1.0"]
+
+    def test_set_does_not_touch_deprecated_versions(self, manifest_path):
+        """S19: archiving other actives leaves deprecated versions untouched."""
+        data = {
+            "schema_version": "2",
+            "exports": {
+                "cocoindex": {
+                    "active_version": "2.0.0",
+                    "versions": {
+                        "1.0.0": {"ides": [], "last_exported": "2026-01-01", "status": "deprecated"},
+                        "2.0.0": {"ides": [], "last_exported": "2026-04-01", "status": "active"},
+                    },
+                }
+            },
+        }
+        manifest_path.write_text(json.dumps(data), encoding="utf-8")
+        mod.cmd_set(manifest_path, "cocoindex", "2.1.0")
+        versions = mod.cmd_get(manifest_path, "cocoindex")["entry"]["versions"]
+        assert versions["1.0.0"]["status"] == "deprecated"
+        assert versions["2.0.0"]["status"] == "archived"
+        assert versions["2.1.0"]["status"] == "active"
+
     def test_cli_set_parses_ides_flag(self, manifest_path):
         """S17: the `set ... --ides a,b` CLI dispatch path parses and unions the list."""
         script = Path(__file__).parent.parent / "src" / "shared" / "scripts" / "skf-manifest-ops.py"
