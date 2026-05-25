@@ -28,6 +28,7 @@ To map the complete project structure by scanning directory trees, detecting ser
 
 Read {outputFile} frontmatter to obtain:
 - `project_paths[]` — the root(s) to scan (one or more paths/URLs)
+- `constituent_refs` — optional per-path git ref overrides (present only when `project_paths` has multiple entries and explicit refs were supplied via `--target-refs`)
 - `forge_tier` — determines scanning depth
 - Scope hints (if any were provided in step 01)
 
@@ -37,14 +38,16 @@ Load {heuristicsFile} for reference on detection signals.
 
 **Resolve `{scanManifestsHelper}`** from `{scanManifestsProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
-**For each path in `project_paths[]`**, launch a subprocess that scans the project directory structure (aggregate results across all repos with clear repo-level grouping):
+**For each path in `project_paths[]`**, resolve the constituent ref (if any) and launch a subprocess that scans the project directory structure (aggregate results across all repos with clear repo-level grouping):
+
+**Per-path ref resolution:** If `constituent_refs` is present and contains an entry for the current path, use that ref. For remote paths, this means cloning or fetching at the specified ref (`git clone --branch {ref} --depth 1` or `git show {ref}:<subpath>` for off-HEAD access). For local paths with a non-HEAD ref, check out or read from the specified ref using `git show {ref}:<path>`. When no `constituent_refs` entry exists for a path, use default ref resolution (HEAD for local, latest tag or HEAD for remote).
 
 1. Map the top-level directory tree (2-3 levels deep)
 2. Identify workspace configuration files (pnpm-workspace.yaml, lerna.json, Cargo.toml [workspace], go.work, etc.)
 3. Enumerate package manifests deterministically — invoke `uv run {scanManifestsHelper} scan {path}` and parse the JSON envelope. The script returns `{manifests[], total_unique, monorepo, warnings?}` covering npm/python/rust/go/maven/gradle/ruby/composer/swift; record each `{path, ecosystem}` for the manifests catalog in §4 and capture `monorepo` for the boundary-signal pass in §3
 4. Locate entry point files (index.ts, main.ts, app.ts, main.go, main.rs, __init__.py, etc.)
 5. Detect service configuration (Dockerfile, docker-compose.yml, kubernetes manifests, serverless.yml) — keep this step LLM-driven; file glob + presence check is sufficient, no parsing required
-6. Return structured findings — file paths and types only, not contents
+6. Return structured findings — file paths and types only, not contents. When `constituent_refs` was used, include the resolved ref in each repo-level result group: `{path, ref, manifests[], monorepo, warnings?}`
 
 **If subprocess unavailable:** Perform directory scanning in main thread using file I/O tools.
 

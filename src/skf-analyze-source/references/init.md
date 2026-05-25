@@ -50,6 +50,8 @@ Look for {outputFile}.
 
 **Headless flag consumption:** If `project_paths[]` is already populated (e.g. collected by the section-1 stale-collision guard) OR `--project-path <path>` was passed at invocation, set/keep `project_paths[]` (comma-split the flag value if multiple paths were supplied), skip the prompt below, and proceed to validation. Otherwise prompt as today.
 
+**Per-path ref overrides (`--target-refs`):** If `--target-refs <mapping>` was passed at invocation, parse it as a comma-separated list of `path:ref` pairs (e.g., `owner/repo:v1.0.0,owner/repo2:main`). Build a `constituent_refs` map from the pairs. Each key must match an entry in `project_paths[]` (validated after path collection). When `--target-refs` is absent but multiple `project_paths` exist, set `constituent_refs` to `{}` (empty — all paths use default ref resolution). When only a single path exists, omit `constituent_refs` entirely (use `target_ref` if set on the brief). `constituent_refs` and `target_ref` are mutually exclusive — if both are supplied, HALT with: "`--target-refs` and `--target-ref` are mutually exclusive. Use `--target-refs` for multi-path analysis, or `--target-ref` for single-path."
+
 "**Welcome to Analyze Source — the SKF decomposition engine.**
 
 I'll analyze your project to identify discrete skillable units and produce skill-brief.yaml files for each recommended unit.
@@ -71,6 +73,7 @@ Wait for user input.
 - For each provided path/URL: check that it exists (local) or is accessible (remote)
 - **IF any invalid:** "Path `{path}` doesn't appear to be valid. Please correct it."
 - Store as `project_paths[]` array in report frontmatter (single path stored as 1-element array for consistency)
+- **IF `constituent_refs` was built from `--target-refs`:** Validate that every key in the map matches an entry in `project_paths[]`. If any key has no matching path, HALT: "constituent_refs key `{key}` does not match any entry in project_paths."
 
 **Collect intent hint** (drives recommendation ranking in Step 5):
 
@@ -127,6 +130,7 @@ date: '{current_date}'
 user_name: '{user_name}'
 project_name: '{project_name}'
 project_paths: ['{provided_project_path}']
+constituent_refs: {map from --target-refs, or omit if single path}
 forge_tier: '{detected_tier}'
 existing_skills: [{list of existing skill names}]
 intent_hint: '{intent_hint or empty string}'
@@ -135,6 +139,8 @@ confirmed_units: []
 stack_skill_candidates: []
 nextWorkflow: ''
 ```
+
+**`constituent_refs` presence rules:** Include the field only when `project_paths` has more than one entry. When present, keys are path strings matching `project_paths[]` entries, values are explicit git refs (tag/branch/commit). Paths with no explicit ref have no entry in the map (default ref resolution applies). Downstream steps (scan-project, brief generation) read this map to resolve per-constituent refs when cloning or reading off-HEAD constituents.
 
 "**Initialization complete.**
 
