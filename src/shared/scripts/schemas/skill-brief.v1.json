@@ -24,7 +24,12 @@
     "target_ref": {
       "type": "string",
       "minLength": 1,
-      "description": "Optional explicit git ref (tag or branch) used verbatim as source_ref, bypassing version-to-tag matching. Escape hatch for monorepo crate tags whose prefix differs from the skill name (e.g. tag livekit/v0.7.42 for skill livekit-rust). Remote sources only."
+      "description": "Optional explicit git ref (tag or branch) used verbatim as source_ref, bypassing version-to-tag matching. Escape hatch for monorepo crate tags whose prefix differs from the skill name (e.g. tag livekit/v0.7.42 for skill livekit-rust). Remote sources only. Mutually exclusive with constituent_refs."
+    },
+    "constituent_refs": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "description": "Per-constituent git ref overrides for composite (multi-repo or multi-ref) sources. Keys must match entries in the analyze-source project_paths array. When absent, a single target_ref or auto-detected ref applies to all paths. Mutually exclusive with target_ref."
     },
     "source_type": {
       "type": "string",

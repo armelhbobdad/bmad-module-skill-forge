@@ -48,6 +48,7 @@ For EACH detected boundary from the scan:
 - Package Boundary — workspace member or independently versioned
 - Module Boundary — logical grouping within a package
 - Library Boundary — third-party with significant project-specific usage
+- Composite Boundary — ≥2 boundaries that only deliver value together (detected in §3b below; not assigned during initial per-boundary classification)
 
 **Step C — Assign scope type:**
 - `full-library` — entire codebase of the unit
@@ -105,9 +106,28 @@ For disqualified candidates, note reason:
 |------|--------|
 | {path} | {disqualification reason} |
 
+### 3b. Detect Composite Unit Merges
+
+After building the classification table, apply the Composite Boundary detection heuristic from {heuristicsFile} against the qualifying units:
+
+1. **Scan for merge candidates:** Among the qualifying units (from `kept[]`), find groups of ≥2 Package or Module boundaries that meet EITHER trigger:
+   - **Mutual hard dependency:** Every constituent imports from at least one other constituent in the group, AND no constituent's public API is self-contained
+   - **Shared integration surface:** Constituents share types/traits defined in one constituent but consumed by all others, AND the consuming constituents have no independent barrel
+
+2. **If candidate groups are found**, propose each merge:
+   - Derive a composite name from the common namespace prefix or repo name
+   - List the constituents (boundary names and paths being merged)
+   - State the triggering heuristic and evidence
+
+3. **If no candidate groups are found**, skip to §4.
+
+**Merge does NOT fire for:** Units already flagged as Stack Skill Candidates in step 4 (map-and-detect §5) — those are multi-unit groupings that deliver value *separately* but are *also* useful together. Composite merges are for units that are *only* useful together (the key distinction). If a group of units is independently useful but commonly combined, it remains as separate units and is flagged as a stack skill candidate later.
+
+**This step is a recommendation — not automatic.** Merges are presented to the user in §5 for confirmation (see "Composite Merge Proposals" below). If the user rejects a merge, the constituents remain as separate units in the classification table.
+
 ### 4. Detect Primary Language Per Unit
 
-For each qualifying unit, determine the primary programming language based on:
+For each qualifying unit (including any approved composites from §3b), determine the primary programming language based on:
 - File extensions in the unit directory
 - Manifest file type (package.json → JS/TS, Cargo.toml → Rust, go.mod → Go, etc.)
 - Entry point file extension
@@ -126,20 +146,34 @@ For each qualifying unit, determine the primary programming language based on:
 **Already-Skilled Units:** {count from existing_skills match}
 {List with recommendation to run update-skill if source has changed}
 
+{IF composite merge proposals exist from §3b:}
+
+**Composite Merge Proposals:** {count}
+
+| # | Composite Name | Constituents | Heuristic | Evidence |
+|---|----------------|--------------|-----------|----------|
+| 1 | {name} | {list of constituent unit names} | {mutual hard dependency / shared integration surface} | {brief evidence} |
+
+If approved, each composite replaces its constituents in the classification table as a single Composite Boundary unit. The constituents are recorded in the composite's metadata for downstream workflows (create-skill reads constituents to scope extraction across all member paths).
+
+{END IF}
+
 **Notes:**
 - {Any observations about project structure patterns}
 - {Any ambiguous boundaries that need user clarification}
 
-Do these classifications look correct? Should any units be added, removed, or reclassified?"
+Do these classifications look correct? Should any units be added, removed, or reclassified?
+{IF composites proposed:} Are the composite merge proposals correct? (Accept/reject each individually.)"
 
-Wait for user feedback. Adjust classifications based on user input.
+Wait for user feedback. Adjust classifications based on user input. For approved composites: remove the constituent rows from the qualifying units table and add a single composite row with `Boundary Type: Composite`, scope type inherited from the dominant constituent, and confidence reflecting the merge heuristic strength.
 
 ### 6. Append to Report
 
 Append the complete "## Identified Units" section to {outputFile}:
 
 Replace the placeholder `[Appended by identify-units]` with:
-- Classification table (qualifying units)
+- Classification table (qualifying units, including approved composites)
+- Composite merge details (if any): composite name, constituents list, heuristic, evidence
 - Disqualification table
 - Already-skilled units list
 - Language detection results
@@ -149,7 +183,10 @@ Update {outputFile} frontmatter:
 ```yaml
 stepsCompleted: [append 'identify-units' to existing array]
 lastStep: 'identify-units'
+confirmed_composites: [{list of approved composite merge objects: {name, constituents[], heuristic}}]
 ```
+
+(`confirmed_composites` is an empty array when no composites were proposed or all were rejected.)
 
 ### 7. Present MENU OPTIONS
 

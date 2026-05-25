@@ -70,6 +70,22 @@ Rules for identifying discrete skillable units within a project. A "skillable un
 - Props interfaces outnumber function signatures as primary API surface
 - Scope type: `component-library`
 
+### Composite Boundary
+- Two or more Package or Module boundaries that only deliver value together (no constituent is independently useful to the skill consumer)
+- Hard cross-boundary dependency: constituents share types, traits, or interfaces that are not re-exported through a single barrel — consumers must import from multiple constituents to use the integration
+- Common pattern: a set of crates/packages in the same repo that implement a protocol together (e.g., plugin crates for a framework, verification + encoding halves of a cryptographic library)
+- Scope type: inherits from the dominant constituent (typically `full-library` or `specific-modules`)
+
+**Detection heuristic (apply after initial classification, before user confirmation):**
+1. Among the qualifying units, find groups of ≥2 boundaries where EITHER:
+   - **Mutual hard dependency:** Every constituent imports from at least one other constituent in the group, AND no constituent's public API is self-contained (removing any one breaks the others)
+   - **Shared integration surface:** Constituents share types/traits defined in one constituent but consumed by all others, AND the consuming constituents have no independent barrel (their value depends on the shared definitions)
+2. For each detected group, propose merging into a single composite unit:
+   - Name: `{common-prefix}` or `{integration-name}` (derive from shared namespace or repo name)
+   - Constituents: list of merged boundary names and paths
+   - Rationale: which heuristic triggered (mutual hard dependency or shared integration surface)
+3. The merge is a **recommendation** — present to user for confirmation in identify-units §3b
+
 ## Disqualification Rules
 
 Do NOT recommend as a skillable unit if:
