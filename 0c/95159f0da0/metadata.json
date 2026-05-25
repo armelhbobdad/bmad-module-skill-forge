@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0c95159f0da0",
+  "strategy": "manual-commit",
+  "branch": "fix/skf-stack-catalog-extraction",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-create-stack-skill/assets/stack-skill-template.md",
+    "src/skf-create-stack-skill/references/compile-stack.md",
+    "src/skf-create-stack-skill/references/generate-output.md",
+    "src/skf-create-stack-skill/references/validate.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0c/95159f0da0/0/metadata.json",
+      "transcript": "/0c/95159f0da0/0/full.jsonl",
+      "context": "/0c/95159f0da0/0/context.md",
+      "content_hash": "/0c/95159f0da0/0/content_hash.txt",
+      "prompt": "/0c/95159f0da0/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 42,
+    "cache_creation_tokens": 45698,
+    "cache_read_tokens": 2041205,
+    "output_tokens": 23837,
+    "api_call_count": 21
+  }
+}
