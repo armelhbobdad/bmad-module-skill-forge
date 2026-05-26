@@ -3,7 +3,7 @@
   "checkpoint_id": "befb51250665",
   "strategy": "manual-commit",
   "branch": "deepwiki-zero-ceremony-skill-creation",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "docs/bmad-synergy.md",
     "docs/deepwiki.md",
@@ -24,13 +24,20 @@
       "context": "/be/fb51250665/1/context.md",
       "content_hash": "/be/fb51250665/1/content_hash.txt",
       "prompt": "/be/fb51250665/1/prompt.txt"
+    },
+    {
+      "metadata": "/be/fb51250665/2/metadata.json",
+      "transcript": "/be/fb51250665/2/full.jsonl",
+      "context": "/be/fb51250665/2/context.md",
+      "content_hash": "/be/fb51250665/2/content_hash.txt",
+      "prompt": "/be/fb51250665/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 4080,
-    "cache_creation_tokens": 68231,
-    "cache_read_tokens": 2570312,
-    "output_tokens": 13952,
-    "api_call_count": 33
+    "input_tokens": 9910,
+    "cache_creation_tokens": 133209,
+    "cache_read_tokens": 3815301,
+    "output_tokens": 27784,
+    "api_call_count": 53
   }
 }
