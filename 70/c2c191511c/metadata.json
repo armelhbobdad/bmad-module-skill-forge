@@ -3,7 +3,7 @@
   "checkpoint_id": "70c2c191511c",
   "strategy": "manual-commit",
   "branch": "campaign-orchestration",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "src/skf-campaign/references/step-01-setup.md",
     "src/skf-campaign/templates/.gitkeep",
@@ -23,13 +23,20 @@
       "context": "/70/c2c191511c/1/context.md",
       "content_hash": "/70/c2c191511c/1/content_hash.txt",
       "prompt": "/70/c2c191511c/1/prompt.txt"
+    },
+    {
+      "metadata": "/70/c2c191511c/2/metadata.json",
+      "transcript": "/70/c2c191511c/2/full.jsonl",
+      "context": "/70/c2c191511c/2/context.md",
+      "content_hash": "/70/c2c191511c/2/content_hash.txt",
+      "prompt": "/70/c2c191511c/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 28,
-    "cache_creation_tokens": 68666,
-    "cache_read_tokens": 1859323,
-    "output_tokens": 22051,
-    "api_call_count": 27
+    "input_tokens": 48,
+    "cache_creation_tokens": 126368,
+    "cache_read_tokens": 2926399,
+    "output_tokens": 30541,
+    "api_call_count": 46
   }
 }
