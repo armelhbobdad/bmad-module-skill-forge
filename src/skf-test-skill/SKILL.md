@@ -41,6 +41,7 @@ These rules apply to every step in this workflow:
 | 3 | Coverage Check | references/coverage-check.md | Yes |
 | 4 | Coherence Check | references/coherence-check.md | Yes |
 | 4b | External Validators | references/external-validators.md | Yes |
+| 4c | Hard Gate | references/step-hard-gate.md | Yes |
 | 5 | Score | references/score.md | Yes |
 | 6 | Report | references/report.md | No (confirm) |
 | 7 | Workflow Health Check | references/health-check.md | Yes |
@@ -62,7 +63,7 @@ Every terminal state in this workflow exits with a stable code so headless autom
 | Code | Meaning              | Raised by                                                                                  |
 | ---- | -------------------- | ------------------------------------------------------------------------------------------ |
 | 0    | success / PASS       | step 6 §6b — `testResult: 'pass'` (after the result contract is written in §4c)            |
-| 2    | fail / FAIL          | step 6 §6b — `testResult: 'fail'` (after the result contract is written in §4c)            |
+| 2    | fail / FAIL          | step 4c §3 — hard gate blocked (`halt_reason: "hard-gate-blocked"`); step 6 §6b — `testResult: 'fail'` (after the result contract is written in §4c) |
 | 3    | inconclusive         | step 6 §6b — `testResult: 'inconclusive'` (distinct from fail so orchestrators can route to manual-review queues) |
 | 4    | pass-with-drift      | step 6 §6b — `testResult: 'pass-with-drift'` (distinct from clean pass — `--allow-workspace-drift` was in effect; orchestrators MUST route to re-test-against-pinned-commit queues and refuse export; never exit 0 under drift override) |
 
@@ -74,7 +75,7 @@ When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **st
 SKF_TEST_RESULT_JSON: {"status":"success|error","skill_name":"…","verdict":"PASS|FAIL|INCONCLUSIVE|pass-with-drift","score":N,"threshold":N,"report_path":"…|null","next_workflow":"export-skill|update-skill|null","exit_code":0,"halt_reason":null}
 ```
 
-`status` is `"success"` on the terminal happy path (any of PASS / FAIL / INCONCLUSIVE / pass-with-drift — the workflow completed), `"error"` on any HARD HALT before §4c. `verdict` is the canonical result string. `next_workflow` is `"export-skill"` only when `verdict == "PASS"`; `"update-skill"` for `FAIL` or `pass-with-drift`; `null` for `INCONCLUSIVE` (manual review). `halt_reason` is `null` on the terminal path or one of the workflow-defined halt strings (`"forge-tier-missing"`, `"target-inaccessible"`, `"write-failed"`, `"step-completeness-violation"`, `"report-anchor-missing"`, `"health-check-missing"`, `"atomic-writer-missing"`). `exit_code` matches the table above.
+`status` is `"success"` on the terminal happy path (any of PASS / FAIL / INCONCLUSIVE / pass-with-drift — the workflow completed), `"error"` on any HARD HALT before §4c. `verdict` is the canonical result string. `next_workflow` is `"export-skill"` only when `verdict == "PASS"`; `"update-skill"` for `FAIL` or `pass-with-drift`; `null` for `INCONCLUSIVE` (manual review). `halt_reason` is `null` on the terminal path or one of the workflow-defined halt strings (`"forge-tier-missing"`, `"target-inaccessible"`, `"write-failed"`, `"step-completeness-violation"`, `"report-anchor-missing"`, `"health-check-missing"`, `"atomic-writer-missing"`, `"hard-gate-blocked"`). `exit_code` matches the table above.
 
 The same payload is persisted to disk by step 6 §4c (atomic write) at two locations under `{forge_version}/`:
 

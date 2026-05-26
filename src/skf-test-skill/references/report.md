@@ -173,6 +173,7 @@ Run it with a bounded timeout (default 60s). On success: log Info note "on_compl
  'coverage-check',
  'coherence-check',
  'external-validators',
+ 'hard-gate',
  'score',
  'report']
 ```

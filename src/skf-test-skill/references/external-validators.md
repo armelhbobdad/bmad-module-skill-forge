@@ -1,5 +1,5 @@
 ---
-nextStepFile: 'score.md'
+nextStepFile: 'step-hard-gate.md'
 outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
 ---
 
