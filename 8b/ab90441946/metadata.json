@@ -5,6 +5,12 @@
   "branch": "source-intelligence-foundation",
   "checkpoints_count": 1,
   "files_touched": [
+    "package.json",
+    "src/skf-audit-skill/SKILL.md",
+    "src/skf-audit-skill/assets/drift-report-template.md",
+    "src/skf-audit-skill/references/report.md",
+    "src/skf-audit-skill/references/severity-classify.md",
+    "src/skf-audit-skill/references/step-doc-drift.md",
     "test/test-skf-step-doc-drift.py"
   ],
   "sessions": [
@@ -14,13 +20,20 @@
       "context": "/8b/ab90441946/0/context.md",
       "content_hash": "/8b/ab90441946/0/content_hash.txt",
       "prompt": "/8b/ab90441946/0/prompt.txt"
+    },
+    {
+      "metadata": "/8b/ab90441946/1/metadata.json",
+      "transcript": "/8b/ab90441946/1/full.jsonl",
+      "context": "/8b/ab90441946/1/context.md",
+      "content_hash": "/8b/ab90441946/1/content_hash.txt",
+      "prompt": "/8b/ab90441946/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 18,
-    "cache_creation_tokens": 65297,
-    "cache_read_tokens": 972598,
-    "output_tokens": 10383,
-    "api_call_count": 17
+    "input_tokens": 41,
+    "cache_creation_tokens": 74521,
+    "cache_read_tokens": 3249400,
+    "output_tokens": 16493,
+    "api_call_count": 40
   }
 }
