@@ -5,6 +5,9 @@
   "branch": "quality-scale-and-workaround-automation",
   "checkpoints_count": 1,
   "files_touched": [
+    "package.json",
+    "src/shared/_known-workarounds.yaml",
+    "src/shared/scripts/skf-preapply.py",
     "test/test-skf-preapply.py"
   ],
   "sessions": [
@@ -14,13 +17,20 @@
       "context": "/c4/416668c5cb/0/context.md",
       "content_hash": "/c4/416668c5cb/0/content_hash.txt",
       "prompt": "/c4/416668c5cb/0/prompt.txt"
+    },
+    {
+      "metadata": "/c4/416668c5cb/1/metadata.json",
+      "transcript": "/c4/416668c5cb/1/full.jsonl",
+      "context": "/c4/416668c5cb/1/context.md",
+      "content_hash": "/c4/416668c5cb/1/content_hash.txt",
+      "prompt": "/c4/416668c5cb/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 9,
-    "cache_creation_tokens": 46333,
-    "cache_read_tokens": 324000,
-    "output_tokens": 8137,
-    "api_call_count": 8
+    "input_tokens": 138,
+    "cache_creation_tokens": 118791,
+    "cache_read_tokens": 47088231,
+    "output_tokens": 54479,
+    "api_call_count": 137
   }
 }
