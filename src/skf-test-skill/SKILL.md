@@ -41,6 +41,7 @@ These rules apply to every step in this workflow:
 | 3 | Coverage Check | references/coverage-check.md | Yes |
 | 4 | Coherence Check | references/coherence-check.md | Yes |
 | 4b | External Validators | references/external-validators.md | Yes |
+| 4c | Hard Gate | references/step-hard-gate.md | Yes |
 | 5 | Score | references/score.md | Yes |
 | 6 | Report | references/report.md | No (confirm) |
 | 7 | Workflow Health Check | references/health-check.md | Yes |
@@ -49,9 +50,9 @@ These rules apply to every step in this workflow:
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | skill_name [required]; optional flags: `--allow-workspace-drift`, `--no-discovery` (skip §4b Discovery Testing), `--no-health-check` (skip §7 health-check dispatch), `--tier=<Quick\|Forge\|Forge+\|Deep>` (bypass forge-tier.yaml sidecar requirement), `--threshold=<N>` (override pass threshold; CLI wins over `workflow.default_threshold` scalar) |
+| **Inputs** | skill_name [required]; optional flags: `--allow-workspace-drift`, `--no-discovery` (skip §4b Discovery Testing), `--no-health-check` (skip §7 health-check dispatch), `--tier=<Quick\|Forge\|Forge+\|Deep>` (bypass forge-tier.yaml sidecar requirement), `--threshold=<N>` (override pass threshold; CLI wins over per-pipeline defaults and `workflow.default_threshold` scalar) |
 | **Gates** | step 6: Confirm Gate [C] |
-| **Outputs** | per-run `test-report-{skill_name}-{run_id}.md` with completeness score and result (PASS/FAIL); per-run `skf-test-skill-result-{run_id}.json` and `skf-test-skill-result-latest.json` written atomically under `{forge_version}/` — downstream consumers (export-skill, update-skill `--from-test-report`) glob `test-report-{skill_name}-*.md` and pick newest by parsed ISO timestamp |
+| **Outputs** | per-run `test-report-{skill_name}-{run_id}.md` with completeness score and result (PASS/FAIL); per-run `skf-test-skill-result-{run_id}.json` and `skf-test-skill-result-latest.json` written atomically under `{forge_version}/`; `evidence-report-fallback.md` written under `{forge_version}/` when threshold fallback occurs (score between 80% and target threshold) — downstream consumers (export-skill, update-skill `--from-test-report`) glob `test-report-{skill_name}-*.md` and pick newest by parsed ISO timestamp |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 | **Exit codes** | See "Exit Codes" below |
 
@@ -62,7 +63,7 @@ Every terminal state in this workflow exits with a stable code so headless autom
 | Code | Meaning              | Raised by                                                                                  |
 | ---- | -------------------- | ------------------------------------------------------------------------------------------ |
 | 0    | success / PASS       | step 6 §6b — `testResult: 'pass'` (after the result contract is written in §4c)            |
-| 2    | fail / FAIL          | step 6 §6b — `testResult: 'fail'` (after the result contract is written in §4c)            |
+| 2    | fail / FAIL          | step 4c §3 — hard gate blocked (`halt_reason: "hard-gate-blocked"`); step 6 §6b — `testResult: 'fail'` (after the result contract is written in §4c) |
 | 3    | inconclusive         | step 6 §6b — `testResult: 'inconclusive'` (distinct from fail so orchestrators can route to manual-review queues) |
 | 4    | pass-with-drift      | step 6 §6b — `testResult: 'pass-with-drift'` (distinct from clean pass — `--allow-workspace-drift` was in effect; orchestrators MUST route to re-test-against-pinned-commit queues and refuse export; never exit 0 under drift override) |
 
@@ -71,10 +72,10 @@ Every terminal state in this workflow exits with a stable code so headless autom
 When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **stdout** before chaining to step 7, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
 
 ```
-SKF_TEST_RESULT_JSON: {"status":"success|error","skill_name":"…","verdict":"PASS|FAIL|INCONCLUSIVE|pass-with-drift","score":N,"threshold":N,"report_path":"…|null","next_workflow":"export-skill|update-skill|null","exit_code":0,"halt_reason":null}
+SKF_TEST_RESULT_JSON: {"status":"success|error","skill_name":"…","verdict":"PASS|FAIL|INCONCLUSIVE|pass-with-drift","score":N,"threshold":N,"report_path":"…|null","next_workflow":"export-skill|update-skill|null","exit_code":0,"halt_reason":null,"threshold_fallback":true,"original_threshold":90}
 ```
 
-`status` is `"success"` on the terminal happy path (any of PASS / FAIL / INCONCLUSIVE / pass-with-drift — the workflow completed), `"error"` on any HARD HALT before §4c. `verdict` is the canonical result string. `next_workflow` is `"export-skill"` only when `verdict == "PASS"`; `"update-skill"` for `FAIL` or `pass-with-drift`; `null` for `INCONCLUSIVE` (manual review). `halt_reason` is `null` on the terminal path or one of the workflow-defined halt strings (`"forge-tier-missing"`, `"target-inaccessible"`, `"write-failed"`, `"step-completeness-violation"`, `"report-anchor-missing"`, `"health-check-missing"`, `"atomic-writer-missing"`). `exit_code` matches the table above.
+`status` is `"success"` on the terminal happy path (any of PASS / FAIL / INCONCLUSIVE / pass-with-drift — the workflow completed), `"error"` on any HARD HALT before §4c. `verdict` is the canonical result string. `next_workflow` is `"export-skill"` only when `verdict == "PASS"`; `"update-skill"` for `FAIL` or `pass-with-drift`; `null` for `INCONCLUSIVE` (manual review). `halt_reason` is `null` on the terminal path or one of the workflow-defined halt strings (`"forge-tier-missing"`, `"target-inaccessible"`, `"write-failed"`, `"step-completeness-violation"`, `"report-anchor-missing"`, `"health-check-missing"`, `"atomic-writer-missing"`, `"hard-gate-blocked"`). `exit_code` matches the table above. When threshold fallback occurred, the envelope includes `"threshold_fallback":true` and `"original_threshold":N`; these fields are omitted when no fallback occurred.
 
 The same payload is persisted to disk by step 6 §4c (atomic write) at two locations under `{forge_version}/`:
 
@@ -83,7 +84,7 @@ The same payload is persisted to disk by step 6 §4c (atomic write) at two locat
 | `skf-test-skill-result-{run_id}.json`         | Per-run record. `{run_id}` carries UTC timestamp + PID + random suffix.    |
 | `skf-test-skill-result-latest.json`           | Latest copy — stable path for pipeline consumers (copy, not symlink).      |
 
-The on-disk payload is the richer form: it adds `outputs[]` (report-path entries), `summary` (`score`, `threshold`, `result`, `testMode`, `activeCategories[]`, `inconclusiveReasons[]` when present), `runId`, and `healthCheckDispatched`. The stdout envelope is the compact subset documented above.
+The on-disk payload is the richer form: it adds `outputs[]` (report-path entries), `summary` (`score`, `threshold`, `result`, `testMode`, `activeCategories[]`, `inconclusiveReasons[]` when present, `threshold_fallback`, `original_threshold`, `evidence_report_path` when threshold fallback occurred), `runId`, and `healthCheckDispatched`. The stdout envelope is the compact subset documented above.
 
 ## On Activation
 
@@ -113,7 +114,7 @@ The on-disk payload is the richer form: it adds `outputs[]` (report-path entries
    - `{testReportTemplatePath}` ← `workflow.test_report_template_path` if non-empty, else `templates/test-report-template.md`
    - `{outputFormatsPath}` ← `workflow.output_formats_path` if non-empty, else `assets/output-section-formats.md`
    - `{scoringRulesPath}` ← `workflow.scoring_rules_path` if non-empty, else `references/scoring-rules.md`
-   - `{defaultThreshold}` ← `workflow.default_threshold` if non-empty/non-null, else `80`. CLI `--threshold=<N>` (when present) wins over the scalar at the usage site in `references/score.md`.
+   - `{defaultThreshold}` ← `workflow.default_threshold` if non-empty/non-null, else `80`. CLI `--threshold=<N>` wins over per-pipeline defaults (from init.md §1b) which win over this scalar at the usage site in `references/score.md`.
    - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string. When empty, the post-finalization hook in `references/report.md` is a no-op.
 
    Stash all five as workflow-context variables. Stage files reference `{testReportTemplatePath}` / `{outputFormatsPath}` / `{scoringRulesPath}` / `{defaultThreshold}` / `{onCompleteCommand}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies without forking the skill.

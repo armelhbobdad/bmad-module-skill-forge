@@ -1,5 +1,5 @@
 ---
-nextStepFile: 'validate.md'
+nextStepFile: 'step-auto-shard.md'
 ---
 
 <!-- Config: communicate in {communication_language}. -->

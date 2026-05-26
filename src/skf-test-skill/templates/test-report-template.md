@@ -28,6 +28,7 @@ Anchor / Step mapping:
   Coverage Analysis  → coverage-check
   Coherence Analysis → coherence-check
   External Validation→ external-validators
+  (hard gate)        → step-hard-gate (reads findings, blocks or passes; no report section)
   Completeness Score → score
   Gap Report         → report (includes Discovery Quality subsection)
 -->
