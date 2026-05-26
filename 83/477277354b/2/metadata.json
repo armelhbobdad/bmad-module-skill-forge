@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "83477277354b",
+  "session_id": "d37d8ee1-16de-4a3b-833e-c0f2d9e5ef54",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T19:44:43.491089716Z",
+  "branch": "quality-scale-and-workaround-automation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "test/test-skf-auto-shard.py",
+    "test/test-skf-step-doc-rot.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "5e63b119af63",
+  "token_usage": {
+    "input_tokens": 15,
+    "cache_creation_tokens": 63062,
+    "cache_read_tokens": 799945,
+    "output_tokens": 9610,
+    "api_call_count": 14
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T19:44:43.155624235Z",
+    "agent_lines": 546,
+    "human_added": 112,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 658,
+    "agent_percentage": 82.97872340425532
+  }
+}
