@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d9695aef19ce",
+  "session_id": "3088bda7-6e98-4abf-a476-df4211470c6c",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T23:08:26.52096901Z",
+  "branch": "campaign-orchestration",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-campaign/references/step-05-skill-loop.md",
+    "src/skf-campaign/scripts/campaign-deps.py",
+    "test/test-skf-campaign-deps.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "a5ce662e9c9f",
+  "token_usage": {
+    "input_tokens": 21,
+    "cache_creation_tokens": 66080,
+    "cache_read_tokens": 1274040,
+    "output_tokens": 16174,
+    "api_call_count": 20
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T23:08:26.104542501Z",
+    "agent_lines": 683,
+    "human_added": 1,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 684,
+    "agent_percentage": 99.85380116959064
+  }
+}

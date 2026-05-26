@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d9695aef19ce",
+  "strategy": "manual-commit",
+  "branch": "campaign-orchestration",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-campaign/references/step-05-skill-loop.md",
+    "src/skf-campaign/scripts/campaign-deps.py",
+    "test/test-skf-campaign-deps.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d9/695aef19ce/0/metadata.json",
+      "transcript": "/d9/695aef19ce/0/full.jsonl",
+      "context": "/d9/695aef19ce/0/context.md",
+      "content_hash": "/d9/695aef19ce/0/content_hash.txt",
+      "prompt": "/d9/695aef19ce/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 21,
+    "cache_creation_tokens": 66080,
+    "cache_read_tokens": 1274040,
+    "output_tokens": 16174,
+    "api_call_count": 20
+  }
+}
