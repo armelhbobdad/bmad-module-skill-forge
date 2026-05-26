@@ -94,7 +94,7 @@ When the user provides multiple workflow codes (e.g., `BS CS TS EX`, `QS TS EX`,
 4. **Execute left to right** — for each workflow in the sequence:
    - a. **Report start**: "Pipeline [{current}/{total}]: Starting {code} ({description})..."
    - b. **Resolve inputs** from the previous workflow's output using the Data Flow table in pipeline-contracts.md. If the previous workflow produced a `skill_name`, `brief_path`, or other handoff data, pass it as the input argument.
-   - c. **Invoke the workflow** with `{headless_mode}` = true and any resolved arguments.
+   - c. **Invoke the workflow** with `{headless_mode}` = true, `{pipeline_alias}` set to the alias name (`deepwiki`, `forge`, `forge-quick`, `onboard`, `maintain`, or `null` for ad-hoc sequences), and any resolved arguments.
    - d. **Check circuit breaker** after completion. Load the output artifact and validate against the threshold (default or user-specified via `[min:N]`). If the check fails: halt the pipeline, report what completed and what remains.
    - e. **Report completion**: "Pipeline [{current}/{total}]: {code} complete — {brief summary of output}."
 5. **Pipeline summary** — after all workflows complete (or on halt), present a summary:

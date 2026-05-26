@@ -43,7 +43,8 @@ test_report_template_path = ""
 output_formats_path = ""
 scoring_rules_path = ""
 
-# Pass threshold (percent). CLI `--threshold=<N>` wins over this scalar.
+# Pass threshold (percent). Precedence: CLI `--threshold=<N>` > per-pipeline
+# defaults (from init.md §1b lookup table) > this scalar > bundled fallback 80.
 # Override here to change the org-wide default without forking the skill.
 default_threshold = 80
 

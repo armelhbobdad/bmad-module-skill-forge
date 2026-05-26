@@ -50,7 +50,7 @@ These rules apply to every step in this workflow:
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | skill_name [required]; optional flags: `--allow-workspace-drift`, `--no-discovery` (skip §4b Discovery Testing), `--no-health-check` (skip §7 health-check dispatch), `--tier=<Quick\|Forge\|Forge+\|Deep>` (bypass forge-tier.yaml sidecar requirement), `--threshold=<N>` (override pass threshold; CLI wins over `workflow.default_threshold` scalar) |
+| **Inputs** | skill_name [required]; optional flags: `--allow-workspace-drift`, `--no-discovery` (skip §4b Discovery Testing), `--no-health-check` (skip §7 health-check dispatch), `--tier=<Quick\|Forge\|Forge+\|Deep>` (bypass forge-tier.yaml sidecar requirement), `--threshold=<N>` (override pass threshold; CLI wins over per-pipeline defaults and `workflow.default_threshold` scalar) |
 | **Gates** | step 6: Confirm Gate [C] |
 | **Outputs** | per-run `test-report-{skill_name}-{run_id}.md` with completeness score and result (PASS/FAIL); per-run `skf-test-skill-result-{run_id}.json` and `skf-test-skill-result-latest.json` written atomically under `{forge_version}/` — downstream consumers (export-skill, update-skill `--from-test-report`) glob `test-report-{skill_name}-*.md` and pick newest by parsed ISO timestamp |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
@@ -114,7 +114,7 @@ The on-disk payload is the richer form: it adds `outputs[]` (report-path entries
    - `{testReportTemplatePath}` ← `workflow.test_report_template_path` if non-empty, else `templates/test-report-template.md`
    - `{outputFormatsPath}` ← `workflow.output_formats_path` if non-empty, else `assets/output-section-formats.md`
    - `{scoringRulesPath}` ← `workflow.scoring_rules_path` if non-empty, else `references/scoring-rules.md`
-   - `{defaultThreshold}` ← `workflow.default_threshold` if non-empty/non-null, else `80`. CLI `--threshold=<N>` (when present) wins over the scalar at the usage site in `references/score.md`.
+   - `{defaultThreshold}` ← `workflow.default_threshold` if non-empty/non-null, else `80`. CLI `--threshold=<N>` wins over per-pipeline defaults (from init.md §1b) which win over this scalar at the usage site in `references/score.md`.
    - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string. When empty, the post-finalization hook in `references/report.md` is a no-op.
 
    Stash all five as workflow-context variables. Stage files reference `{testReportTemplatePath}` / `{outputFormatsPath}` / `{scoringRulesPath}` / `{defaultThreshold}` / `{onCompleteCommand}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies without forking the skill.

@@ -20,13 +20,16 @@ Load `{scoringRulesFile}` to get:
 - Category weights (naive vs contextual distribution)
 - Tier-dependent scoring adjustments
 
-**Resolve the pass threshold (precedence: CLI > scalar > bundled fallback):**
+**Resolve the pass threshold (precedence: CLI > pipeline default > scalar > bundled fallback):**
 
-1. If the workflow received `--threshold=<N>` on invocation, use that integer as `effective_threshold` (CLI wins).
-2. Else if the resolved `{defaultThreshold}` workflow-context variable (from SKILL.md On Activation §3 — `workflow.default_threshold` scalar, default `80`) is set, use it as `effective_threshold`.
-3. Else fall back to `80` (the bundled default — this branch should be unreachable when SKILL.md resolution ran correctly, but keeps the step robust if customize.toml resolution failed silently).
+1. If the workflow received `--threshold=<N>` on invocation, use that integer as `effective_threshold` (CLI wins). Set `threshold_source` = `"CLI override ({N}%)"`.
+2. Else if `{pipeline_default_threshold}` is set in workflow context (resolved by init.md §1b from the per-pipeline threshold lookup table when `{pipeline_alias}` is present), use it as `effective_threshold`. Set `threshold_source` = `"pipeline default ({pipeline_alias} → {N}%)"`.
+3. Else if the resolved `{defaultThreshold}` workflow-context variable (from SKILL.md On Activation §3 — `workflow.default_threshold` scalar, default `80`) is set, use it as `effective_threshold`. Set `threshold_source` = `"workflow default ({N}%)"`.
+4. Else fall back to `80` (the bundled default — this branch should be unreachable when SKILL.md resolution ran correctly, but keeps the step robust if customize.toml resolution failed silently). Set `threshold_source` = `"bundled fallback (80%)"`.
 
-Pass `effective_threshold` into the scoring-input JSON's `threshold` field in §3a (the compute-score.py script already honors this field). The CLI flag and the scalar feed the same downstream field; the script does not need to know which layer supplied the value.
+Store `threshold_source` in workflow context for use in the score report section.
+
+Pass `effective_threshold` into the scoring-input JSON's `threshold` field in §3a (the compute-score.py script already honors this field). The CLI flag, pipeline default, and the scalar all feed the same downstream field; the script does not need to know which layer supplied the value.
 
 **Docs-only mode check:** If the Coverage Analysis section in `{outputFile}` notes docs-only mode (set by step 3 for skills with all `[EXT:...]` citations and no local source), apply Quick-tier weight redistribution: Signature Accuracy and Type Coverage are not scored, their weights (22% + 14%) are redistributed proportionally to remaining active categories. Coverage score is based on documentation completeness rather than source coverage (as calculated by step 3).
 
@@ -82,7 +85,7 @@ Build a JSON object from the data gathered in steps 1-2:
     "coherence": "{combined_coherence_percentage or null if naive mode}",
     "externalValidation": "{external_validation_score or null if N/A}"
   },
-  "threshold": "{effective_threshold from §1 — CLI --threshold wins, then workflow.default_threshold scalar, then 80}"
+  "threshold": "{effective_threshold from §1 — CLI --threshold wins, then pipeline default, then workflow.default_threshold scalar, then 80}"
 }
 ```
 
@@ -203,6 +206,7 @@ Append the **Completeness Score** section to `{outputFile}`:
 **Inconclusive Reasons:**
 {bulleted list from script `inconclusiveReasons`}
 
+**Threshold Source:** {threshold_source}
 **Weight Distribution:** {naive (redistributed) | contextual (full)}
 **Tier Adjustment:** {none | Quick tier — signature and type coverage not scored}
 **External Validators:** {both available | skill-check only | tessl only | none — weight redistributed}
@@ -225,6 +229,7 @@ Update `{outputFile}` frontmatter:
 - `testResult: '{pass|pass-with-drift|fail|inconclusive}'` (lowercase; mirrors script `result`, with `pass-with-drift` substituted for `pass` when `allow_workspace_drift` was set and drift was observed — see §5 drift override)
 - `score: '{total}%'`
 - `threshold: '{threshold}%'`
+- `thresholdSource: '{threshold_source}'`
 - `analysisConfidence: '{full|degraded|provenance-map|metadata-only|remote-only|docs-only}'`
 - `nextWorkflow: '{export-skill|update-skill|manual-review}'`
 - Append `'score'` to `stepsCompleted`

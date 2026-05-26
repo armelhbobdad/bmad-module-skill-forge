@@ -63,7 +63,7 @@ Circuit breakers halt the pipeline when a workflow's output doesn't meet a quali
 |----------|-------|-------------------|----------------|
 | AN | recommended units count | min: 1 | Zero skillable units found |
 | CS | compilation success | must complete | Hard error during compilation |
-| TS | completeness score | min: 60 | Score below threshold |
+| TS | completeness score | min: 60 (per-pipeline defaults apply — see init.md §1b) | Score below threshold |
 | AS | drift score | not CRITICAL | Critical drift found |
 | VS | feasibility verdict | not BLOCKED | All integrations blocked |
 
@@ -85,12 +85,14 @@ The forger tracks pipeline state in memory during execution:
 
 ```yaml
 pipeline:
+  alias: "forge"          # pipeline alias name, or null for ad-hoc sequences
   workflows: [AN, CS, TS, EX]
   current_index: 1
   completed:
     - {code: AN, status: ok, output: {units: 3, briefs: [...]}}
   pending: [CS, TS, EX]
   data:
+    pipeline_alias: "forge" # forwarded to each workflow's data context (consumed by TS init.md §1b for per-pipeline threshold lookup)
     skill_name: "cocoindex"
     brief_path: "/path/to/skill-brief.yaml"
     target: "cocoindex"
