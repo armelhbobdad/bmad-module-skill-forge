@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "58a938187e43",
+  "strategy": "manual-commit",
+  "branch": "quality-scale-and-workaround-automation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-test-skill/SKILL.md",
+    "src/skf-test-skill/references/external-validators.md",
+    "src/skf-test-skill/references/report.md",
+    "src/skf-test-skill/references/step-hard-gate.md",
+    "src/skf-test-skill/templates/test-report-template.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/58/a938187e43/0/metadata.json",
+      "transcript": "/58/a938187e43/0/full.jsonl",
+      "context": "/58/a938187e43/0/context.md",
+      "content_hash": "/58/a938187e43/0/content_hash.txt",
+      "prompt": "/58/a938187e43/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 29,
+    "cache_creation_tokens": 68767,
+    "cache_read_tokens": 1781443,
+    "output_tokens": 11330,
+    "api_call_count": 28
+  }
+}
