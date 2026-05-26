@@ -1,0 +1,39 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-story-automator
+
+Follow the instructions in ./workflow.md.
+
+---
+
+C
+
+---
+
+Y
+
+---
+
+4.1–4.12
+
+---
+
+DO NOT HALLUCINATE
+
+---
+
+what are the best choices according to our stories?
+
+---
+
+Go with taht
+
+---
+
+I want to chose N 1 in the previous step. Then L
+
+---
+
+1
+
+---
+
+I want to revert back Y 1 then Y
