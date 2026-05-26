@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [1.9.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.8.0...v1.9.0) (2026-05-26)
+
+### Features
+
+* auto-brief generation for BS ([bf48982](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/bf48982f50ce5257bfcd2ef1611c8ea3fc4af29f))
+* auto-brief validation with progressive fallback ([a364395](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/a3643956036c42f91b204b70c59a2d8bcd692e76))
+* auto-decomposition for massive repos ([b2fcf51](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/b2fcf5163b6eb3e17dd08b757f1e0e0e941eabd3))
+* auto-scope mode for AN ([b8c3e77](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/b8c3e77928fbdc204b9ff3b0e585dd35b47222f2))
+* auto-shard at 400-line ceiling ([0c46c52](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/0c46c529cc024e24ceed7e51da3fd7a7e49e43e9))
+* coexistence detection ([31e2b57](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/31e2b5784a1a0c1af88c7e8ad18f0bddcd144639))
+* deepwiki pipeline alias + onboard deprecation ([e562f4d](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/e562f4d1f61507830a5b1847bad09e91c609289a))
+* doc detection chain shared module ([d8d69ac](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/d8d69ac693eefc106de4531f098511ec7fc014a2))
+* doc drift detection in audit ([31e1e73](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/31e1e736af44ca009d0b1e90bbbd6c162bcbf1d0))
+* doc tracking at compile time ([d2160bb](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/d2160bb4e3f41a952d9b2569fa84d499baaccee0))
+* doc-rot correction hooks ([f00f4c6](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/f00f4c63a7045365a60991606fe6db206be3e9e2))
+* docs-only deepwiki path ([d04959e](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/d04959e270a498e4c0e8803a4352ed45515a3c26))
+* evidence report on threshold fallback ([b8bd574](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/b8bd5747f704328b045be56a74003b9cff11a909))
+* per-pipeline quality thresholds ([72f18da](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/72f18da0c4df34340d98f1aef0f91853480ca131))
+* pre-apply workaround registry ([0fb270e](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/0fb270e6ba83b69f98bb7cdef9c3f2bbc90ecdc2))
+* **skf-shape-detect:** add shared shape-detection script for repo classification ([439c6de](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/439c6de3e64ae78f51671fa4e6153267b888bf27))
+* SS active_version manifest-state bugfix ([8b60e0c](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/8b60e0c78979890c716241aaf849ad5a25c0109f))
+* tiered quality gate — hard gate ([4475344](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/44753442a2549d2a8ea9183db424a47b776b2066))
+* v1.9 documentation ([272bf5a](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/272bf5ad2db61fe4189fb14728fe34f317df80e5))
+* version pinning for deepwiki ([2cfe27e](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/2cfe27e353356c38cc2cfcffebf0d08ecbe3035d))
 ## [1.8.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.7.0...v1.8.0) (2026-05-25)
 
 ### Features
