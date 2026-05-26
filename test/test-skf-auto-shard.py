@@ -18,6 +18,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 CS_DIR = REPO_ROOT / "src" / "skf-create-skill"
 STEP_AUTO_SHARD = CS_DIR / "references" / "step-auto-shard.md"
 STEP_DOC_SOURCES = CS_DIR / "references" / "step-doc-sources.md"
+STEP_DOC_ROT = CS_DIR / "references" / "step-doc-rot.md"
 VALIDATE_FILE = CS_DIR / "references" / "validate.md"
 CS_SKILL_MD = CS_DIR / "SKILL.md"
 
@@ -53,9 +54,9 @@ class TestStepAutoShardFrontmatter:
     def text(self) -> str:
         return _read(STEP_AUTO_SHARD)
 
-    def test_next_step_file_is_validate(self, text: str) -> None:
-        assert re.search(r"nextStepFile:\s*['\"]?validate\.md['\"]?", text), (
-            "step-auto-shard.md nextStepFile must be validate.md"
+    def test_next_step_file_is_doc_rot(self, text: str) -> None:
+        assert re.search(r"nextStepFile:\s*['\"]?step-doc-rot\.md['\"]?", text), (
+            "step-auto-shard.md nextStepFile must be step-doc-rot.md"
         )
 
 
@@ -393,9 +394,14 @@ class TestProhibitionConstraints:
 
 
 class TestChainTargetResolution:
+    def test_doc_rot_file_exists(self) -> None:
+        assert STEP_DOC_ROT.exists(), (
+            "step-doc-rot.md must exist as auto-shard's direct nextStepFile target"
+        )
+
     def test_validate_file_exists(self) -> None:
         assert VALIDATE_FILE.exists(), (
-            "validate.md must exist at the chain target path from step-auto-shard.md"
+            "validate.md must exist as downstream chain target (step-doc-rot → validate)"
         )
 
 

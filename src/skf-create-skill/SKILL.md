@@ -45,6 +45,7 @@ These rules apply to every step in this workflow:
 | 5 | Compile | references/compile.md | Yes |
 | 5a | Doc Sources | references/step-doc-sources.md | Yes |
 | 5b | Auto-Shard | references/step-auto-shard.md | Yes |
+| 5c | Doc-Rot | references/step-doc-rot.md | Yes |
 | 6 | Validate | references/validate.md | Conditional |
 | 7 | Generate Artifacts | references/generate-artifacts.md | Yes |
 | 8 | Report | references/report.md | Yes |

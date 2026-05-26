@@ -1,5 +1,5 @@
 ---
-nextStepFile: 'validate.md'
+nextStepFile: 'step-doc-rot.md'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
