@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "4af6deb564e8",
+  "strategy": "manual-commit",
+  "branch": "quality-scale-and-workaround-automation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "test/test-skf-evidence-report-fallback.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/4a/f6deb564e8/0/metadata.json",
+      "transcript": "/4a/f6deb564e8/0/full.jsonl",
+      "context": "/4a/f6deb564e8/0/context.md",
+      "content_hash": "/4a/f6deb564e8/0/content_hash.txt",
+      "prompt": "/4a/f6deb564e8/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 12,
+    "cache_creation_tokens": 74382,
+    "cache_read_tokens": 614843,
+    "output_tokens": 11720,
+    "api_call_count": 11
+  }
+}
