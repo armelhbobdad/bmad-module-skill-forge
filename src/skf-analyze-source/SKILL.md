@@ -34,7 +34,7 @@ These rules apply to every step in this workflow:
 | # | Step | File | Auto-proceed | Condition |
 |---|------|------|--------------|-----------|
 | 1 | Initialize | references/init.md | Yes | Always |
-| 1a | Auto-Scope | references/step-auto-scope.md | Yes | `[auto]` mode only. Includes §0c coexistence detection — checks for existing skills before proceeding. Includes §0 docs-only URL detection — doc URLs short-circuit auto-scope entirely |
+| 1a | Auto-Scope | references/step-auto-scope.md | Yes | `[auto]` mode only. Includes §0b pin resolution — validates and resolves version pin before scoping. Includes §0c coexistence detection — checks for existing skills before proceeding. Includes §0 docs-only URL detection — doc URLs short-circuit auto-scope entirely |
 | 1b | Continue (session resume) | references/continue.md | Yes | Always |
 | 2 | Scan Project | references/scan-project.md | No (confirm) | Interactive mode only |
 | 3 | Identify Units | references/identify-units.md | No (confirm) | Interactive mode only |
@@ -43,7 +43,7 @@ These rules apply to every step in this workflow:
 | 6 | Generate Briefs | references/generate-briefs.md | Yes | Interactive mode only |
 | 7 | Workflow Health Check | references/health-check.md | Yes | Always |
 
-**Auto mode path:** When `[auto]` flag is present, init (step 1) routes directly to step 1a, which performs manifest scan → shape detection → scope generation → brief write → health check, bypassing steps 2–6. After URL type detection (§0), coexistence detection (§0c) checks for existing skills matching the target. If found, the user chooses alongside/merge/skip. Headless mode auto-selects alongside. Auto-scope may produce N > 1 confirmed units when decomposition thresholds are met (`export_count > 500` `[PENDING VALIDATION]` or `package_count > 3` `[PENDING VALIDATION]`), resulting in N briefs and N `brief_paths` in the envelope. When the target is a documentation URL (not a GitHub repo or local path), auto-scope detects the docs-only input at §0, validates URL reachability, writes a docs-only brief, and emits the envelope without performing source analysis.
+**Auto mode path:** When `[auto]` flag is present, init (step 1) routes directly to step 1a, which performs manifest scan → shape detection → scope generation → brief write → health check, bypassing steps 2–6. After URL type detection (§0), pin resolution (§0b) validates the `--pin` argument (or resolves the latest release tag) and stores the resolved ref for downstream brief writes. Coexistence detection (§0c) then checks for existing skills matching the target. If found, the user chooses alongside/merge/skip. Headless mode auto-selects alongside. Auto-scope may produce N > 1 confirmed units when decomposition thresholds are met (`export_count > 500` `[PENDING VALIDATION]` or `package_count > 3` `[PENDING VALIDATION]`), resulting in N briefs and N `brief_paths` in the envelope. When the target is a documentation URL (not a GitHub repo or local path), auto-scope detects the docs-only input at §0, validates URL reachability, writes a docs-only brief, and emits the envelope without performing source analysis.
 
 **Shape detection reference:** `references/step-shape-detect.md` — loaded by step 1a as a reference doc (not a chained step).
 
@@ -52,7 +52,7 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | project_path [required], scope_hint [optional]. `project_path` can be a GitHub repo URL, a local filesystem path, or a documentation URL for docs-only mode. The URL type heuristic at §0 determines the mode. |
-| **Headless inputs** | `--project-path <path>` (skip Step 1 project-path prompt; accepts documentation URLs for docs-only mode), `--scope-hint <text>` (skip Step 1 scope-hint prompt), `--intent-hint <text>` (pre-supply analysis intent; drives recommendation ranking in Step 5) |
+| **Headless inputs** | `--project-path <path>` (skip Step 1 project-path prompt; accepts documentation URLs for docs-only mode), `--scope-hint <text>` (skip Step 1 scope-hint prompt), `--intent-hint <text>` (pre-supply analysis intent; drives recommendation ranking in Step 5), `--pin <version>` (pin to a specific version tag or branch; accepts semver tags, git tags, and branch names; when absent, resolves to the latest release tag) |
 | **Headless flag** | `--headless` / `-H` flips every confirm gate to auto-proceed |
 | **Auto flag** | `[auto]` bracket modifier — activates auto-scope mode (step 1a). Pipelines pass this as `AN[auto]`. When active, init routes to `step-auto-scope.md` which performs shape detection → scope generation → brief write, bypassing interactive steps 2–6. Requires `--project-path`. |
 | **Gates** | step 2: Confirm Gate [C] | step 3: Confirm Gate [C] | step 5: Confirm Gate [C] (all skipped in auto mode) |
@@ -68,7 +68,7 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 | ---- | -------------------- | ------------------------------------------------------------------------------------------ |
 | 0    | success / skipped / redirect | step 7 (terminal — health check completion); also covers coexistence `"skipped"` and `"redirect"` statuses from §0c |
 | 2    | input-missing        | step 1 §2-3 — required config absent (config.yaml not loadable, project path empty/invalid in headless mode); step 1 §2b — auto mode without `--project-path` |
-| 3    | resolution-failure   | step 1 §2 (`forge-tier.yaml` missing at `{sidecar_path}/forge-tier.yaml`); step 1 §3 (project path does not exist or remote URL inaccessible); step 1a §0a (docs-only URL unreachable); step 1a §3 (shape detection script error, exit code 2) |
+| 3    | resolution-failure   | step 1 §2 (`forge-tier.yaml` missing at `{sidecar_path}/forge-tier.yaml`); step 1 §3 (project path does not exist or remote URL inaccessible); step 1a §0a (docs-only URL unreachable); step 1a §0b (pin validation failure — `halt_reason: "pin-invalid"` when the supplied `--pin` does not match any tag or branch); step 1a §3 (shape detection script error, exit code 2) |
 | 4    | write-failure        | step 1 §6 (analysis report write failed); step 6 §5 (skill-brief.yaml write failed); step 6 §9 (result contract write failed) |
 | 6    | user-cancelled       | any interactive menu in steps 2/3/5/6 (user selected `[X]` Cancel and exit)               |
 
@@ -80,7 +80,7 @@ When `{headless_mode}` is true, step 6 (interactive) or step 1a (auto) emits a s
 SKF_ANALYZE_RESULT_JSON: {"status":"success|error","report_path":"…|null","brief_paths":["…"],"unit_counts":{"confirmed":N,"skipped":N,"maybe":N},"exit_code":0,"halt_reason":null,"mode":"interactive|auto"}
 ```
 
-`status` is `"success"` on the terminal happy path, `"error"` on any HALT, `"redirect"` when coexistence detection routes to US (merge), or `"skipped"` when the user skips a conflicting target. `halt_reason` is one of: `null` (success), `"input-missing"`, `"forge-tier-missing"`, `"path-invalid"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above. `brief_paths` is an array of absolute paths to every generated `skill-brief.yaml` (empty array if none were generated). `unit_counts` reports confirmed/skipped/maybe counts from step 5's user decisions. `mode` is `"auto"` when the `[auto]` flag was active, `"interactive"` otherwise (omitting `mode` is equivalent to `"interactive"` for backward compatibility). The `coexistence` field (present when §0c triggers) is `"alongside"`, `"merge"`, or `"skip"`, indicating the user's coexistence decision.
+`status` is `"success"` on the terminal happy path, `"error"` on any HALT, `"redirect"` when coexistence detection routes to US (merge), or `"skipped"` when the user skips a conflicting target. `halt_reason` is one of: `null` (success), `"input-missing"`, `"forge-tier-missing"`, `"path-invalid"`, `"pin-invalid"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above. `brief_paths` is an array of absolute paths to every generated `skill-brief.yaml` (empty array if none were generated). `unit_counts` reports confirmed/skipped/maybe counts from step 5's user decisions. `mode` is `"auto"` when the `[auto]` flag was active, `"interactive"` otherwise (omitting `mode` is equivalent to `"interactive"` for backward compatibility). The `coexistence` field (present when §0c triggers) is `"alongside"`, `"merge"`, or `"skip"`, indicating the user's coexistence decision. The `pinned_ref` and `pinned_version` fields (present when §0b resolves a pin) record the resolved git ref and extracted semver version for provenance tracking.
 
 ## On Activation
 

@@ -36,7 +36,42 @@ Apply the following heuristic to classify the input:
 | Any other `https://` or `http://` URL | Documentation URL | §0a (docs-only) |
 | Anything else (SSH URLs, `git://`, bare hostnames, etc.) | Unclassified | §1 (standard auto-scope) |
 
-Store the classification result (documentation URL vs. repo/local/other). For all input types, continue to §0c (Coexistence Detection).
+Store the classification result (documentation URL vs. repo/local/other). For all input types, continue to §0b (Pin Resolution).
+
+### 0b. Pin Resolution
+
+This section validates and resolves version pins. It runs for repo URLs and local paths only — skip for documentation URLs (doc URLs have no git repo to pin against). Initialize `{pinned_ref}`, `{pinned_ref_type}`, and `{pinned_version}` as null.
+
+**For documentation URLs:** Skip this section entirely. Continue to §0c.
+
+**For local paths when `--pin` is provided:** Emit a warning: "**Local source may not match pinned version {pin_value}.** Ensure you've checked out the correct version locally, or use a remote GitHub URL so SKF can clone from the git tag automatically." Store `{pinned_ref}` = `{pin_value}`, `{pinned_ref_type}` = `"local"`, `{pinned_version}` = `{pin_value}`. Continue to §0c without running `skf-validate-pins.py`.
+
+**For repo URLs when `--pin` is provided:**
+
+```bash
+uv run python src/shared/scripts/skf-validate-pins.py --repo-url {project_path} --pin {pin_value}
+```
+
+Handle exit codes:
+
+- **Exit 0** (`status: "valid"`): Store `{pinned_ref}` = `resolved_ref`, `{pinned_ref_type}` = `ref_type`, `{pinned_version}` = `version`. Continue to §0c.
+- **Exit 1** (`status: "invalid"`): HARD HALT with exit code 3 (`resolution-failure`). Emit error: `"Version pin '{pin_value}' not found in {project_path}. Available matches: {suggestions}. Use a valid tag, branch, or omit --pin for latest."` Emit error envelope:
+  ```
+  SKF_ANALYZE_RESULT_JSON: {"status":"error","report_path":null,"brief_paths":[],"unit_counts":{"confirmed":0,"skipped":0,"maybe":0},"exit_code":3,"halt_reason":"pin-invalid","mode":"auto"}
+  ```
+- **Exit 2** (error): HARD HALT with exit code 3 (`resolution-failure`). Emit error envelope with `halt_reason: "resolution-failure"`.
+
+**For repo URLs when `--pin` is NOT provided (default):**
+
+```bash
+uv run python src/shared/scripts/skf-validate-pins.py --repo-url {project_path}
+```
+
+Handle exit codes:
+
+- **Exit 0** (`status: "resolved"`): Store `{pinned_ref}` = `resolved_ref`, `{pinned_ref_type}` = `ref_type`, `{pinned_version}` = `version`. Log: "Default pin resolved: {resolved_ref}". Continue to §0c.
+- **Exit 1** (no releases found): Set `{pinned_ref}` = null, `{pinned_ref_type}` = null, `{pinned_version}` = null. Log: "No release tags found — using HEAD." Continue to §0c without pinning.
+- **Exit 2**: Log warning, continue without pinning (same as exit 1 behavior).
 
 ### 0c. Coexistence Detection
 
@@ -341,6 +376,8 @@ Include decomposition metadata in `scope.notes`: "Decomposed from {project_name}
 
 Determine each boundary's skill name from the boundary-derived name (kebab-case, lowercase). If `{coexistence_suffix}` is non-empty, append it to each skill name. Detect the primary language from each boundary's manifest ecosystem (same rules as §6).
 
+**Pin data (from §0b):** All N decomposed briefs share the same pin — the pin targets a repo-level ref, not a package-level version. Apply the same `target_version`/`target_ref` values from §0b to all N boundaries at brief write time (§8).
+
 After building all N scopes, continue to §7 with the full set of boundaries.
 
 ### 7. Write Analysis Report
@@ -449,6 +486,16 @@ Loop over all N boundaries. For each boundary:
 
 **Version detection:** Attempt to auto-detect the source version per the version detection rules in `assets/skill-brief-schema.md`. Fall back to `1.0.0` if detection fails.
 
+**Pin data (from §0b):** When `{pinned_ref}` is non-null, enrich the brief with pin data:
+
+- If `{pinned_ref_type}` is `"tag"`: set `target_version` = `{pinned_version}`, `target_ref` = `{pinned_ref}`, `version` = `{pinned_version}`.
+- If `{pinned_ref_type}` is `"branch"`: set `target_ref` = `{pinned_ref}`, leave `target_version` = null, `version` = auto-detected or `1.0.0`.
+- If `{pinned_ref_type}` is `"local"`: set `target_version` = `{pinned_version}`, `target_ref` = null, `version` = `{pinned_version}`.
+
+When `{pinned_ref}` is null (no pin, no releases): leave `target_version` = null, `target_ref` = null — existing version detection applies unchanged.
+
+In the docs-only path (§0a), `--pin` is ignored (already skipped at §0b). No changes to §0a.
+
 ### 9. Emit Result Envelope
 
 Emit the `SKF_ANALYZE_RESULT_JSON` envelope on stdout:
@@ -460,6 +507,8 @@ SKF_ANALYZE_RESULT_JSON: {"status":"success","report_path":"{outputFile_path}","
 `brief_paths` contains N paths (one per confirmed unit). `unit_counts.confirmed` is N. The envelope JSON format is structurally unchanged — `brief_paths` was already an array and `unit_counts.confirmed` was already a number. No breaking change for downstream consumers.
 
 If `{coexistence_suffix}` is non-empty (i.e., [A]longside was selected in §0c), include `"coexistence":"alongside"` in the envelope.
+
+When `{pinned_ref}` is non-null, include `"pinned_ref":"{pinned_ref}"` and `"pinned_version":"{pinned_version}"` in the envelope. These flow downstream to BS/CS for provenance recording. When `{pinned_ref}` is null, omit these fields (backward-compatible — existing consumers don't expect them).
 
 ### 10. Write Result Contract
 
