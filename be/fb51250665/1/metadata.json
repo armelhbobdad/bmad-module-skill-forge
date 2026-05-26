@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "befb51250665",
+  "session_id": "5e2be675-822b-4f05-af61-aea6242737bf",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T15:34:17.512390103Z",
+  "branch": "deepwiki-zero-ceremony-skill-creation",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "website/astro.config.mjs",
+    "docs/bmad-synergy.md",
+    "docs/deepwiki.md",
+    "docs/workflows.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "27634736e9aa",
+  "checkpoint_transcript_start": 563,
+  "transcript_lines_at_start": 563,
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 3666,
+    "cache_read_tokens": 1148378,
+    "output_tokens": 2760,
+    "api_call_count": 10
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T15:34:17.218968698Z",
+    "agent_lines": 119,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 119,
+    "agent_percentage": 100
+  }
+}
