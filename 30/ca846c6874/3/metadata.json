@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "30ca846c6874",
+  "session_id": "584cc747-18b9-443c-91c3-b82c18dc935b",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T17:46:52.686660297Z",
+  "branch": "quality-scale-and-workaround-automation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-test-skill/references/score.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "ca1e7f082137",
+  "token_usage": {
+    "input_tokens": 417,
+    "cache_creation_tokens": 68353,
+    "cache_read_tokens": 737063,
+    "output_tokens": 7841,
+    "api_call_count": 12
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T17:46:52.300914257Z",
+    "agent_lines": 11,
+    "human_added": 531,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 542,
+    "agent_percentage": 2.029520295202952
+  }
+}
