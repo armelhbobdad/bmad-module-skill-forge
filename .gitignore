@@ -66,3 +66,4 @@ skills
 # Skill quality-analysis artifacts and per-skill decision logs (local-only)
 **/.analysis
 **/.decision-log.md
+.claude/.story-automator-active
