@@ -3,7 +3,7 @@
   "checkpoint_id": "7394aafaca22",
   "strategy": "manual-commit",
   "branch": "campaign-orchestration",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "package.json",
     "src/skf-campaign/references/step-03-pins.md",
@@ -24,13 +24,20 @@
       "context": "/73/94aafaca22/1/context.md",
       "content_hash": "/73/94aafaca22/1/content_hash.txt",
       "prompt": "/73/94aafaca22/1/prompt.txt"
+    },
+    {
+      "metadata": "/73/94aafaca22/2/metadata.json",
+      "transcript": "/73/94aafaca22/2/full.jsonl",
+      "context": "/73/94aafaca22/2/context.md",
+      "content_hash": "/73/94aafaca22/2/content_hash.txt",
+      "prompt": "/73/94aafaca22/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 26,
-    "cache_creation_tokens": 59986,
-    "cache_read_tokens": 1583669,
-    "output_tokens": 13310,
-    "api_call_count": 25
+    "input_tokens": 59,
+    "cache_creation_tokens": 127999,
+    "cache_read_tokens": 3781252,
+    "output_tokens": 26210,
+    "api_call_count": 57
   }
 }
