@@ -3,7 +3,7 @@
   "checkpoint_id": "3989d392eb11",
   "strategy": "manual-commit",
   "branch": "campaign-orchestration",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "src/skf-campaign/assets/campaign-state-schema.json",
     "src/skf-campaign/references/step-02-strategy.md",
@@ -24,13 +24,20 @@
       "context": "/39/89d392eb11/1/context.md",
       "content_hash": "/39/89d392eb11/1/content_hash.txt",
       "prompt": "/39/89d392eb11/1/prompt.txt"
+    },
+    {
+      "metadata": "/39/89d392eb11/2/metadata.json",
+      "transcript": "/39/89d392eb11/2/full.jsonl",
+      "context": "/39/89d392eb11/2/context.md",
+      "content_hash": "/39/89d392eb11/2/content_hash.txt",
+      "prompt": "/39/89d392eb11/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 25,
-    "cache_creation_tokens": 68492,
-    "cache_read_tokens": 1622741,
-    "output_tokens": 18199,
-    "api_call_count": 24
+    "input_tokens": 49,
+    "cache_creation_tokens": 134539,
+    "cache_read_tokens": 2996341,
+    "output_tokens": 30174,
+    "api_call_count": 47
   }
 }
