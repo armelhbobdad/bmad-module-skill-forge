@@ -60,12 +60,20 @@ For each ready Tier A skill:
 
 1. **Activate** — set `status` to `"active"`, set `started_at` to current ISO-8601 with timezone. Backup and write state.
 2. **Execute pipeline:**
-   - Pre-apply (`skf-preapply.py` via campaign wrapper) — apply known workarounds.
-   - Kickoff emit — generate fresh-context handoff from `{kickoffTemplate}`.
-   - AN → BS → CS → TS — standard forge pipeline for this skill.
+   - **Pre-apply** (`skf-preapply.py` via campaign wrapper) — apply known workarounds. Capture the list of applied workarounds from output.
+   - **Kickoff emit** — read `{kickoffTemplate}` and substitute placeholders from campaign state, brief, directive, and pre-apply output:
+     - From campaign state: `{{campaign_name}}` = `campaign.name`, `{{current_stage}}` = `campaign.current_stage`, `{{quality_gate_summary}}` = formatted `campaign.quality_gate` as `"Hard: {hard} | Soft: {soft_target} (fallback: {soft_fallback})"`.
+     - From skill state: `{{skill_name}}` = `skills[current].name`, `{{skill_tier}}` = `skills[current].tier`, `{{pin}}` = `skills[current].pin` (or "latest" if null), `{{commit_sha}}` = `skills[current].commit_sha`.
+     - From brief: `{{repo_url}}` = `targets[skill_name].repo_url`, `{{brief_summary}}` = read the file at `skills[current].brief_path` and insert its content or a concise summary.
+     - From directive file: `{{directive_content}}` = raw content of file at `campaign.directive_path`, or "No directive configured" if unset/missing.
+     - From pre-apply output: `{{workarounds_list}}` = formatted list of applied workarounds for this skill, or "None" if empty.
+     - `{{dependency_status_table}}` = table built from `skills[current].depends_on`, listing each dependency with its current status (completed/failed/skipped).
+     Present the filled kickoff message as the context for the skill's pipeline run.
+   - **AN → BS → CS → TS** — standard forge pipeline for this skill.
+   - **Doc-rot check** — grep feeder artifacts for corrections emitted during the pipeline run. Append any doc-rot findings to the skill's `workarounds_applied` array (prefixed with `[doc-rot]`) so they survive state write and are available for §6 propagation.
 3. **Record results:**
    - On success: set `status` to `"completed"`, set `completed_at` to current ISO-8601 with timezone, record `quality_score`. Backup and write state.
-   - On failure: set `status` to `"failed"`. Backup and write state.
+   - On failure: set `status` to `"failed"`. Backup and write state. Downstream skills whose `depends_on` does NOT include the failed skill continue processing normally; those that DO depend on it are blocked at §4's dependency gate.
 
 ### §6 — Propagate Findings
 
