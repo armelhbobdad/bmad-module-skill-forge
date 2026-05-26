@@ -1,0 +1,155 @@
+version: 1
+workarounds:
+  - fingerprint: "```api\nGET /api/v1/skills/compile"
+    fix: "```\nskf compile --target <skill-dir>"
+    source: gmc-batch-2024-q4
+    severity: high
+    description: Hallucinated REST API endpoint replaced with correct CLI invocation
+
+  - fingerprint: 'requires-python = ">=3.8"'
+    fix: 'requires-python = ">=3.9"'
+    source: gmc-batch-2024-q4
+    severity: medium
+    description: Stale Python 3.8 minimum version updated to 3.9 baseline
+
+  - fingerprint: "## outputs\n\n## steps"
+    fix: "## Outputs\n\n## Steps"
+    source: gmc-batch-2025-q1
+    severity: high
+    description: Lowercase heading violates skill-sections spec capitalization rules
+
+  - fingerprint: "confidence: unverified"
+    fix: "confidence: T1-inferred"
+    source: gmc-batch-2025-q1
+    severity: medium
+    description: Missing provenance tier replaced with correct T1 annotation
+
+  - fingerprint: "[source: unknown]"
+    fix: "[source: repo-readme]"
+    source: gmc-batch-2024-q4
+    severity: low
+    description: Placeholder source attribution replaced with actual provenance
+
+  - fingerprint: "See [API Reference](./api-reference.md)"
+    fix: "See the API reference in the repository documentation."
+    source: gmc-batch-2025-q1
+    severity: high
+    description: Broken cross-reference to non-existent api-reference.md file
+
+  - fingerprint: "## Steps\n## Outputs"
+    fix: "## Steps\n\n## Outputs"
+    source: gmc-batch-2024-q4
+    severity: low
+    description: Missing blank line between heading sections fails markdown lint
+
+  - fingerprint: "(v1.0.0+)"
+    fix: ""
+    source: gmc-batch-2025-q1
+    severity: low
+    description: Inline version stamp removed per documentation conventions
+
+  - fingerprint: "tier: gold"
+    fix: "tier: verified"
+    source: gmc-batch-2024-q4
+    severity: medium
+    description: Non-standard tier label replaced with canonical tier vocabulary
+
+  - fingerprint: "```javascript\nfetch('/api/skill"
+    fix: "```bash\nskf"
+    source: gmc-batch-2025-q1
+    severity: high
+    description: Hallucinated JavaScript fetch call replaced with CLI command
+
+  - fingerprint: "## References\n## Steps"
+    fix: "## Steps"
+    source: gmc-batch-2024-q4
+    severity: high
+    description: References section misplaced before Steps violates section ordering
+
+  - fingerprint: "source: (generated)"
+    fix: "source: compilation-output"
+    source: gmc-batch-2025-q1
+    severity: low
+    description: Vague generated marker replaced with specific compilation-output source
+
+  - fingerprint: "# Skill Name\n# Overview"
+    fix: "# Skill Name\n\n## Overview"
+    source: gmc-batch-2024-q4
+    severity: high
+    description: Duplicate H1 heading replaced with correct H2 for Overview section
+
+  - fingerprint: "[ref: SKILL-SPEC-2.0](./spec.md)"
+    fix: "See the skill specification."
+    source: gmc-batch-2025-q1
+    severity: medium
+    description: Broken spec reference link to non-existent file
+
+  - fingerprint: "version: 0.9-draft"
+    fix: "version: 1"
+    source: gmc-batch-2024-q4
+    severity: medium
+    description: Draft version string replaced with release version
+
+  - fingerprint: "\\bconfidence:\\s*(?:none|n/a|unset)\\b"
+    fix: "confidence: T1-inferred"
+    source: gmc-batch-2025-q1
+    severity: medium
+    description: Empty or null confidence values normalized to T1-inferred
+    regex: true
+
+  - fingerprint: "  - tool: compile-skill\n    endpoint: /compile"
+    fix: "  - tool: skf-compile\n    invocation: CLI"
+    source: gmc-batch-2024-q4
+    severity: high
+    description: Hallucinated tool entry with REST endpoint replaced with correct CLI tool
+
+  - fingerprint: "## setup\n"
+    fix: "## Setup\n"
+    source: gmc-batch-2025-q1
+    severity: low
+    description: Lowercase Setup heading fails skill-check validation
+
+  - fingerprint: "\\[citation needed\\]"
+    fix: ""
+    source: gmc-batch-2024-q4
+    severity: low
+    description: Wikipedia-style citation placeholder removed from compiled output
+    regex: true
+
+  - fingerprint: "Last updated: 2023"
+    fix: ""
+    source: gmc-batch-2025-q1
+    severity: low
+    description: Stale 2023 date stamp removed from compiled skill content
+
+  - fingerprint: "## Inputs\n## inputs"
+    fix: "## Inputs"
+    source: gmc-batch-2024-q4
+    severity: medium
+    description: Duplicate Inputs section with inconsistent casing collapsed
+
+  - fingerprint: "\\bsee also:\\s*\\[.*\\]\\(https?://internal\\..*\\)"
+    fix: ""
+    source: gmc-batch-2025-q1
+    severity: high
+    description: Internal-only URL references removed from public skill output
+    regex: true
+
+  - fingerprint: "provenance: []\n"
+    fix: "provenance:\n  - source: compilation-output\n    confidence: T1-inferred\n"
+    source: gmc-batch-2024-q4
+    severity: medium
+    description: Empty provenance array populated with minimal compilation metadata
+
+  - fingerprint: "## Steps\n\n\n\n## Outputs"
+    fix: "## Steps\n\n## Outputs"
+    source: gmc-batch-2025-q1
+    severity: low
+    description: Excessive blank lines between sections reduced to standard single blank
+
+  - fingerprint: "\\|\\s*Step\\s*\\|\\s*Status\\s*\\|\\n\\|[-\\s|]+\\|\\n(?=\\|\\s*Step)"
+    fix: ""
+    source: gmc-batch-2024-q4
+    severity: medium
+    description: Duplicated markdown table header removed from compiled output
+    regex: true

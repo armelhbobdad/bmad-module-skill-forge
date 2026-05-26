@@ -84,13 +84,17 @@ When the user provides multiple workflow codes (e.g., `BS CS TS EX`, `QS TS EX`,
 
 **Pipeline activation:**
 
-1. **Parse the sequence** — split codes, expand aliases (`forge` → `BS CS TS EX`, `forge-quick` → `QS TS EX`, `onboard` → `AN CS TS EX`, `maintain` → `AS US TS EX`), extract any bracket arguments (`CS[cocoindex]`, `TS[min:80]`)
+1. **Parse the sequence** — split codes, expand aliases (`deepwiki` → `AN[auto] BS[auto] CS TS[min:90] EX`, `forge` → `BS CS TS EX`, `forge-quick` → `QS TS EX`, `onboard` → `AN CS TS EX`, `maintain` → `AS US TS EX`), extract any bracket arguments (`CS[cocoindex]`, `TS[min:80]`)
+   **Alias lifecycle:** When the parsed alias is `onboard`, emit a deprecation notice **before** expanding the alias and **before** pipeline progress reporting begins. Emit on **every** invocation — this is not a one-time warning. After emitting the notice, expand `onboard` → `AN CS TS EX` as normal (no behavioral change — existing 80% default threshold applies):
+
+   > ⚠️ **onboard is deprecated — use deepwiki instead.** The onboard pipeline (AN CS TS EX at 80% threshold) still runs, but will be removed in v2.0. To migrate: replace `onboard` with `deepwiki <repo-url>`. deepwiki adds auto-brief generation (BS[auto]) and a 90% quality threshold.
+
 2. **Validate the sequence** — check for anti-patterns (EX before TS, CS without BS, duplicates). If found, warn the user and ask to confirm or adjust. In `{headless_mode}`, warn but proceed.
 3. **Set `{headless_mode}` = true** — pipelines auto-activate headless mode for all workflows in the chain. The user committed to the sequence by providing it.
 4. **Execute left to right** — for each workflow in the sequence:
    - a. **Report start**: "Pipeline [{current}/{total}]: Starting {code} ({description})..."
    - b. **Resolve inputs** from the previous workflow's output using the Data Flow table in pipeline-contracts.md. If the previous workflow produced a `skill_name`, `brief_path`, or other handoff data, pass it as the input argument.
-   - c. **Invoke the workflow** with `{headless_mode}` = true and any resolved arguments.
+   - c. **Invoke the workflow** with `{headless_mode}` = true, `{pipeline_alias}` set to the alias name (`deepwiki`, `forge`, `forge-quick`, `onboard`, `maintain`, or `null` for ad-hoc sequences), and any resolved arguments.
    - d. **Check circuit breaker** after completion. Load the output artifact and validate against the threshold (default or user-specified via `[min:N]`). If the check fails: halt the pipeline, report what completed and what remains.
    - e. **Report completion**: "Pipeline [{current}/{total}]: {code} complete — {brief summary of output}."
 5. **Pipeline summary** — after all workflows complete (or on halt), present a summary:
@@ -99,6 +103,8 @@ When the user provides multiple workflow codes (e.g., `BS CS TS EX`, `QS TS EX`,
    - Remaining workflows that were not executed
    - Next steps recommendation
 6. **Result Contract** — write the pipeline result contract per `shared/references/output-contract-schema.md`: the per-run record at `{sidecar_path}/pipeline-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{sidecar_path}/pipeline-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include one entry per completed workflow in `outputs` (referencing each workflow's own `-latest.json` result record); include per-step status and the overall pipeline status in `summary`.
+
+**deepwiki pipeline note:** `deepwiki <repo-url> --pin <version>` — the `--pin` argument is passed to AN's pipeline data context alongside the `[auto]` flag. AN's `step-auto-scope.md §0b` consumes it for pin resolution.
 
 **Special pipeline behaviors:**
 - `AN` in a pipeline with `CS`: if AN produces multiple recommended briefs, auto-select all and process sequentially in batch mode. If only one unit found, auto-select it.

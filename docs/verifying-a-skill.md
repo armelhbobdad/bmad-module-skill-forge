@@ -156,16 +156,22 @@ Your forge tier determines which categories can be scored:
 
 When categories are skipped, their combined weight is redistributed proportionally to the remaining active categories. A Quick-tier skill and a Deep-tier skill both pass at the same 80% threshold — the score reflects what your tier can actually measure.
 
+### Hard gate
+
+Before scoring, a hard gate scans all findings for **Critical** and **High** severity. If any are present, the pipeline blocks immediately — no score is computed and the skill cannot pass regardless of coverage percentage. Medium, Low, and Info findings pass through to scoring.
+
 ### Pass/fail
 
 ```
-threshold = custom_threshold OR 80% (default)
+threshold = pipeline_default OR custom_threshold OR 80% (default)
 
 score >= threshold  →  PASS  →  Recommend export-skill
 score <  threshold  →  FAIL  →  Recommend update-skill
 ```
 
-The default is 80%. You can override it by specifying a custom threshold when invoking the workflow (e.g., "test this skill with a 70% threshold").
+The default threshold is **80%**. Pipeline aliases declare their own defaults: `deepwiki` targets **90%**, `forge` and `forge-quick` target **80%**. You can override any default with a custom threshold (e.g., `TS[min:85]`).
+
+When a skill scores between 80% and its target threshold (e.g., 82% against a 90% target), the soft gate falls back to the 80% floor — the skill passes, but an evidence report is written to `forge-data/{skill}/{version}/evidence-report-fallback.md` documenting the quality compromise.
 
 ### Gap severities
 

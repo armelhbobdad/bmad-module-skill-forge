@@ -52,7 +52,7 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 
 **When to Use:** After Brief Skill, or with an existing skill-brief.yaml.
 
-**Key Steps:** Load brief → Ecosystem check → Extract (AST + scripts/assets) → QMD enrich (Deep) → Compile → Validate → Generate
+**Key Steps:** Load brief → Ecosystem check → Extract (AST + scripts/assets) → QMD enrich (Deep) → Compile → Doc sources → Auto-shard → Doc-rot → Validate → Generate
 
 **Agent:** Ferris (Architect mode)
 
@@ -141,7 +141,7 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 
 **When to Use:** To check if a skill has fallen out of date with its source code. Works for both individual skills and stack skills.
 
-**Key Steps:** Load skill → Re-index source → Structural diff (incl. script/asset drift) → Semantic diff (Deep) → Classify severity → Report
+**Key Steps:** Load skill → Re-index source → Structural diff (incl. script/asset drift) → Semantic diff (Deep) → Classify severity → Doc drift → Report
 
 **Stack skill support:** Code-mode stacks are audited per-library against their sources. Compose-mode stacks check constituent freshness via metadata hash comparison — if a constituent skill was updated after the stack was composed, audit flags it as constituent drift. Stack skills that need updating are redirected to `@Ferris SS` for re-composition (surgical update is not supported for stacks).
 
@@ -157,9 +157,9 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 
 **When to Use:** After creating or updating a skill, before exporting.
 
-**Key Steps:** Load skill → Detect mode → Coverage check → Coherence check → External validation (skill-check, tessl) → Score → Gap report
+**Key Steps:** Load skill → Detect mode → Coverage check → Coherence check → External validation (skill-check, tessl) → Hard gate → Score → Gap report
 
-**Scored Categories:** Export Coverage (36%), Signature Accuracy (22%), Type Coverage (14%), Coherence (18%), External Validation (10%). Default pass threshold: **80%**. Pass routes to Export Skill; fail routes to Update Skill with a gap report. See [Completeness Scoring](../verifying-a-skill/#how-the-score-is-computed) for the full formula and tier adjustments.
+**Scored Categories:** Export Coverage (36%), Signature Accuracy (22%), Type Coverage (14%), Coherence (18%), External Validation (10%). Default pass threshold: **80%** (per-pipeline defaults: deepwiki 90%, forge 80%). Pass routes to Export Skill; fail routes to Update Skill with a gap report. See [Completeness Scoring](../verifying-a-skill/#how-the-score-is-computed) for the full formula and tier adjustments.
 
 **Agent:** Ferris (Audit mode)
 
@@ -289,7 +289,7 @@ flowchart TD
 | Category                  | Workflows      | Description                                                                                                                      |
 | ------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Core                      | SF, BS, CS, US | Setup, brief, create, and update skills                                                                                          |
-| Feature                   | QS, SS, AN     | Quick skill, stack skill, and analyze source                                                                                     |
+| Feature                   | QS, SS, AN     | Quick skill, stack skill, and analyze source — the [`deepwiki`](#pipeline-aliases) alias chains AN + BS + CS + TS + EX for zero-ceremony wiki-skill creation |
 | Quality                   | AS, TS         | Detect skill drift (AS) and verify skill completeness (TS)                                                                       |
 | Architecture Verification | VS, RA         | Pre-code architecture feasibility and refinement                                                                                 |
 | Management                | RS, DS         | Rename and drop skill versions with transactional safety                                                                         |
@@ -313,12 +313,15 @@ Instead of running one workflow per session, you can chain multiple workflows in
 
 ### Pipeline Aliases
 
-| Alias         | Expands To    | First Workflow | Required Target                              |
-| ------------- | ------------- | -------------- | -------------------------------------------- |
-| `forge`       | `BS CS TS EX` | BS             | GitHub URL or local path **+** skill name    |
-| `forge-quick` | `QS TS EX`    | QS             | GitHub URL **or** package name               |
-| `onboard`     | `AN CS TS EX` | AN             | Project path (defaults to current directory) |
-| `maintain`    | `AS US TS EX` | AS             | Existing skill name                          |
+The `deepwiki` alias is the recommended way to create wiki skills — one command, zero configuration. It chains five workflows with auto-mode flags so you get a verified skill without touching a brief or scope file.
+
+| Alias         | Expands To                             | First Workflow | Required Target                              |
+| ------------- | -------------------------------------- | -------------- | -------------------------------------------- |
+| `deepwiki`    | `AN[auto] BS[auto] CS TS[min:90] EX`  | AN             | GitHub URL, doc URL, or `--pin <version>`    |
+| `forge`       | `BS CS TS EX`                          | BS             | GitHub URL or local path **+** skill name    |
+| `forge-quick` | `QS TS EX`                            | QS             | GitHub URL **or** package name               |
+| `onboard`     | `AN CS TS EX` *(deprecated — use deepwiki)* | AN        | Project path (defaults to current directory) |
+| `maintain`    | `AS US TS EX`                          | AS             | Existing skill name                          |
 
 **The first workflow's input contract defines what arguments the pipeline needs.** A bare package name works for `forge-quick` (QS resolves packages via the registry) but **not** for `forge` — BS requires both an unambiguous target (URL or path) and a skill name.
 
@@ -334,6 +337,9 @@ Instead of running one workflow per session, you can chain multiple workflows in
 ### Examples
 
 ```
+@Ferris deepwiki https://github.com/honojs/hono                     — zero-ceremony wiki skill
+@Ferris deepwiki https://docs.example.com                            — docs-only wiki skill
+@Ferris deepwiki https://github.com/honojs/hono --pin v4.6.0         — pinned version
 @Ferris forge-quick @tanstack/query                                  — QS + TS + EX for TanStack Query
 @Ferris forge https://github.com/topoteretes/cognee cognee           — BS + CS + TS + EX, explicit URL + name
 @Ferris forge https://github.com/topoteretes/cognee cognee "public API only"   — with scope hint

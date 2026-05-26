@@ -19,9 +19,10 @@ The forger also accepts common pipeline aliases:
 
 | Alias | Expands To | Description |
 |-------|-----------|-------------|
+| `deepwiki` | `AN[auto] BS[auto] CS TS[min:90] EX` | Full zero-ceremony wiki-skill pipeline |
 | `forge` | `BS CS TS EX` | Full skill creation pipeline (brief through export) |
 | `forge-quick` | `QS TS EX` | Quick skill pipeline |
-| `onboard` | `AN CS TS EX` | Full brownfield onboarding (AN generates briefs, CS consumes them directly) |
+| `onboard` | `AN CS TS EX` | Full brownfield onboarding (deprecated — use deepwiki) |
 | `maintain` | `AS US TS EX` | Maintenance cycle (audit → update → test → export) |
 
 ## Pipeline Rules
@@ -33,12 +34,17 @@ The forger also accepts common pipeline aliases:
 5. **Error halts propagate** — if any workflow hard-halts, the pipeline stops immediately
 6. **Progress reporting** — the forger reports completion of each workflow before starting the next
 
+## Pipeline Arguments
+
+Pipeline-level arguments (e.g., `--pin <version>`) are passed to the first workflow's data context. The workflow decides how to consume them. For the `deepwiki` pipeline, `--pin` flows to AN, where `step-auto-scope.md §0b` uses it for pin resolution.
+
 ## Data Flow
 
 How outputs from one workflow become inputs to the next:
 
 | From | To | Data Passed | How |
 |------|-----|------------|-----|
+| AN | BS | `brief_path` from generated brief | Forger passes the `brief_path` from AN's output to BS[auto], which loads and enriches the brief |
 | AN | CS | `skill-brief.yaml` paths from generated briefs | Forger passes each `brief_path` written by AN to CS; in batch mode, CS processes all sequentially |
 | BS | CS | `skill-brief.yaml` path | Forger passes the brief path written by BS as `brief_path` to CS |
 | CS | TS | skill name (derived from brief) | Forger passes the `skill_name` from the completed CS to TS |
@@ -57,7 +63,7 @@ Circuit breakers halt the pipeline when a workflow's output doesn't meet a quali
 |----------|-------|-------------------|----------------|
 | AN | recommended units count | min: 1 | Zero skillable units found |
 | CS | compilation success | must complete | Hard error during compilation |
-| TS | completeness score | min: 60 | Score below threshold |
+| TS | completeness score | min: 60 (per-pipeline defaults apply — see init.md §1b) | Score below 80% floor (scores between 80% and per-pipeline threshold produce a fallback PASS with evidence report — pipeline continues) |
 | AS | drift score | not CRITICAL | Critical drift found |
 | VS | feasibility verdict | not BLOCKED | All integrations blocked |
 
@@ -68,6 +74,7 @@ Override syntax: `TS[min:80]` sets the test-skill threshold to 80 for this pipel
 Brackets after a workflow code (`CODE[value]`) are parsed as follows:
 
 - **Circuit breaker override**: `min:N` where N is a number — e.g., `TS[min:80]` sets the threshold for that workflow
+- **Mode flag**: `auto` — e.g., `AN[auto]` activates auto mode for that workflow. The workflow's first step reads the flag from pipeline data context and routes to the appropriate auto-mode step file.
 - **Target argument**: any other value — e.g., `CS[cocoindex]` passes "cocoindex" as the target to CS
 
 Only workflows with a circuit breaker entry (AN, CS, TS, AS, VS) accept `min:N` overrides. All other workflows ignore `min:N` brackets. Target arguments are valid for any workflow that accepts a named input (CS, QS, BS, US, etc.).
@@ -78,12 +85,14 @@ The forger tracks pipeline state in memory during execution:
 
 ```yaml
 pipeline:
+  alias: "forge"          # pipeline alias name, or null for ad-hoc sequences
   workflows: [AN, CS, TS, EX]
   current_index: 1
   completed:
     - {code: AN, status: ok, output: {units: 3, briefs: [...]}}
   pending: [CS, TS, EX]
   data:
+    pipeline_alias: "forge" # forwarded to each workflow's data context (consumed by TS init.md §1b for per-pipeline threshold lookup)
     skill_name: "cocoindex"
     brief_path: "/path/to/skill-brief.yaml"
     target: "cocoindex"

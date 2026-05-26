@@ -44,7 +44,8 @@ Context payload shape (consumed by `emit`):
     "halt_reason": null | "input-missing" | "input-invalid" |
                    "forge-tier-missing" | "target-inaccessible" |
                    "gh-auth-failed" | "write-failed" |
-                   "overwrite-cancelled" | "user-cancelled"
+                   "overwrite-cancelled" | "user-cancelled",
+    "mode":        null | "auto"
   }
 
 The caller does NOT supply exit_code — the script derives it from
@@ -105,6 +106,8 @@ HALT_TO_EXIT = {
     "user-cancelled": 6,
 }
 
+VALID_MODES = {None, "auto"}
+
 # Envelope key order — fixed so byte-stable diffs are possible.
 KEY_ORDER = [
     "status",
@@ -115,6 +118,7 @@ KEY_ORDER = [
     "scope_type",
     "exit_code",
     "halt_reason",
+    "mode",
 ]
 
 
@@ -152,6 +156,10 @@ def assemble(ctx: dict[str, Any]) -> dict[str, Any]:
     if not skill_name or not isinstance(skill_name, str):
         _die(f"skill_name is required and must be a non-empty string; got {skill_name!r}")
 
+    mode = ctx.get("mode")
+    if mode not in VALID_MODES:
+        _die(f"mode must be one of {sorted(m for m in VALID_MODES if m is not None)} or null; got {mode!r}")
+
     envelope = {
         "status": status,
         "brief_path": ctx.get("brief_path"),
@@ -161,6 +169,7 @@ def assemble(ctx: dict[str, Any]) -> dict[str, Any]:
         "scope_type": scope_type,
         "exit_code": HALT_TO_EXIT[halt_reason],
         "halt_reason": halt_reason,
+        "mode": mode,
     }
     # Re-emit in canonical key order
     return {k: envelope[k] for k in KEY_ORDER}
@@ -181,6 +190,8 @@ def validate(envelope: dict[str, Any]) -> None:
         _die(f"halt_reason invalid: {envelope.get('halt_reason')!r}")
     if envelope.get("scope_type") not in VALID_SCOPE_TYPES:
         _die(f"scope_type invalid: {envelope.get('scope_type')!r}")
+    if envelope.get("mode") not in VALID_MODES:
+        _die(f"mode invalid: {envelope.get('mode')!r}")
     if envelope.get("exit_code") not in {0, 2, 3, 4, 5, 6}:
         _die(f"exit_code invalid: {envelope.get('exit_code')!r}")
     expected_exit = HALT_TO_EXIT[envelope.get("halt_reason")]

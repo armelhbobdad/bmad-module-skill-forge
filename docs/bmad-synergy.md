@@ -25,6 +25,22 @@ When a BMAD agent runs a workflow, that workflow can consult SKF content skills 
 
 ---
 
+## SKF Without BMM
+
+SKF works standalone — no BMAD installation required. If you found this page from a search and don't use the BMAD Method, this section is for you.
+
+The fastest way to start is [`deepwiki`](../deepwiki/). One command produces a verified wiki skill in 3–5 minutes with zero configuration:
+
+```
+@Ferris deepwiki https://github.com/honojs/hono
+```
+
+That's it. No brief file, no scope decisions, no multi-step pipeline to learn. deepwiki handles analysis, scoping, compilation, testing (with a 90% quality gate), and export automatically. See the [deepwiki guide](../deepwiki/) for the full syntax and input types.
+
+If you later adopt the BMAD Method, the skills you created via deepwiki integrate seamlessly into BMM phases — they become the verified content skills that BMAD workflows consult during planning and implementation. The [phase-by-phase playbook](#skf-and-bmm-phase-by-phase-playbook) below shows exactly where each SKF workflow fits.
+
+---
+
 ## SKF and BMM: Phase-by-Phase Playbook
 
 BMM is BMAD's core [4-phase workflow](https://docs.bmad-method.org/) (Analysis → Planning → Solutioning → Implementation). SKF has five concrete entry points across those phases. The diagram below shows the end-to-end picture; the subsections that follow give the trigger, command, and artifact flow for each phase.

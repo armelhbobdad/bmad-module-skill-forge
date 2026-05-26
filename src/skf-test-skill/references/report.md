@@ -149,7 +149,7 @@ cat payload.json | python3 {atomicWriteHelper} write --target {forge_version}/sk
 
 Payload contents:
 - `outputs[]` — include the test report path at `{outputFile}` with its `{run_id}` suffix
-- `summary` — `score`, `threshold`, `result` (`"PASS"`, `"PASS_WITH_DRIFT"`, `"FAIL"`, or **`"INCONCLUSIVE"`**), `testMode` (naive/contextual), `activeCategories[]`, `inconclusiveReasons[]` (when present). `PASS_WITH_DRIFT` is set when the workflow observed workspace drift and the user passed `--allow-workspace-drift` — see step 5 §5 drift override. Downstream consumers MUST treat `PASS_WITH_DRIFT` as a non-exportable result: re-run against the pinned commit before export.
+- `summary` — `score`, `threshold`, `result` (`"PASS"`, `"PASS_WITH_DRIFT"`, `"FAIL"`, or **`"INCONCLUSIVE"`**), `testMode` (naive/contextual), `activeCategories[]`, `inconclusiveReasons[]` (when present). `PASS_WITH_DRIFT` is set when the workflow observed workspace drift and the user passed `--allow-workspace-drift` — see step 5 §5 drift override. Downstream consumers MUST treat `PASS_WITH_DRIFT` as a non-exportable result: re-run against the pinned commit before export. When threshold fallback occurred, add `threshold_fallback: true`, `original_threshold: {N}`, and `evidence_report_path: '{path}'` to the summary — these fields are absent (not `false`/`null`) when no fallback occurred.
 - `runId` — the workflow's `{run_id}` for downstream correlation
 - `healthCheckDispatched` — boolean, set by §7 after the dispatch decision
 
@@ -173,6 +173,7 @@ Run it with a bounded timeout (default 60s). On success: log Info note "on_compl
  'coverage-check',
  'coherence-check',
  'external-validators',
+ 'hard-gate',
  'score',
  'report']
 ```
@@ -210,6 +211,9 @@ skipped its append.
 ---
 
 **Result:** **{PASS|PASS_WITH_DRIFT|FAIL|INCONCLUSIVE}** — **{score}%** (threshold: {threshold}%)
+
+{If `thresholdFallback` is present in output frontmatter:}
+**Threshold fallback:** scored {score}% against {originalThreshold} target — accepted at 80% floor. Evidence report: {evidenceReportPath}
 
 **Gaps Found:** {total_gaps}
 - Critical: {N}

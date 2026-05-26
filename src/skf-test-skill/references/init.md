@@ -30,7 +30,7 @@ If skill path was provided as workflow argument, use it directly.
 - `--no-discovery` — skip the §4b Discovery Testing block in step 6 (report). Store `no_discovery: true` in workflow context when present.
 - `--no-health-check` — skip the §7 health-check dispatch in step 6 (report). Store `no_health_check: true` in workflow context when present.
 - `--tier=<Quick|Forge|Forge+|Deep>` — bypass the §4 forge-tier.yaml sidecar HALT. Store `tier_flag: '<value>'` in workflow context when present; §4 will set `detected_tier` directly from this value and skip the sidecar probe.
-- `--threshold=<N>` — override the pass threshold for this run. Consumed by `references/score.md` §1; CLI wins over the `workflow.default_threshold` scalar.
+- `--threshold=<N>` — override the pass threshold for this run. Consumed by `references/score.md` §1; CLI wins over per-pipeline defaults (§1b) and the `workflow.default_threshold` scalar.
 
 If no path provided, ask:
 
@@ -39,6 +39,21 @@ If no path provided, ask:
 Provide the skill path or name. I'll search in `{skillsOutputFolder}`.
 
 **Path or name:**"
+
+### 1b. Resolve Per-Pipeline Quality Threshold
+
+If `{pipeline_alias}` is set in the workflow data context (forwarded by the forger when TS runs inside a pipeline — see `shared/references/pipeline-contracts.md` Pipeline State), look up the alias in the per-pipeline threshold defaults table:
+
+| Pipeline Alias | Default Threshold |
+|----------------|-------------------|
+| `deepwiki`     | 90                |
+| `forge`        | 80                |
+| `forge-quick`  | 80                |
+| `campaign`     | 90                |
+
+- **If `{pipeline_alias}` is present AND found in the table:** store the corresponding value as `{pipeline_default_threshold}` in workflow context. This variable is consumed by `references/score.md` §1 as a precedence layer between CLI `--threshold` and `{defaultThreshold}`.
+- **If `{pipeline_alias}` is present but NOT in the table:** `{pipeline_default_threshold}` remains unset. Score.md falls through to `{defaultThreshold}`.
+- **If `{pipeline_alias}` is absent** (standalone TS invocation, not running inside a pipeline): `{pipeline_default_threshold}` remains unset. Score.md falls through to `{defaultThreshold}`.
 
 ### 2. Validate Skill Exists (version-aware)
 
