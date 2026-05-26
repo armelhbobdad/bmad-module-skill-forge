@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0adfe2eafcef",
+  "strategy": "manual-commit",
+  "branch": "source-intelligence-foundation",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "test/test-skf-manifest-ops.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0a/dfe2eafcef/0/metadata.json",
+      "transcript": "/0a/dfe2eafcef/0/full.jsonl",
+      "context": "/0a/dfe2eafcef/0/context.md",
+      "content_hash": "/0a/dfe2eafcef/0/content_hash.txt",
+      "prompt": "/0a/dfe2eafcef/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 13,
+    "cache_creation_tokens": 4687,
+    "cache_read_tokens": 1381634,
+    "output_tokens": 3755,
+    "api_call_count": 13
+  }
+}
