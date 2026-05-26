@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "4af6deb564e8",
+  "session_id": "9b1bdf34-6de9-49eb-88ea-f86b72ea3322",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T18:31:54.126458127Z",
+  "branch": "quality-scale-and-workaround-automation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "package.json",
+    "src/shared/references/pipeline-contracts.md",
+    "src/skf-test-skill/SKILL.md",
+    "src/skf-test-skill/references/report.md",
+    "src/skf-test-skill/references/score.md",
+    "test/test-skf-evidence-report-fallback.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "bf790bbb81b3",
+  "token_usage": {
+    "input_tokens": 34,
+    "cache_creation_tokens": 82634,
+    "cache_read_tokens": 2473042,
+    "output_tokens": 17670,
+    "api_call_count": 33
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T18:31:53.588807976Z",
+    "agent_lines": 705,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 705,
+    "agent_percentage": 100
+  }
+}
