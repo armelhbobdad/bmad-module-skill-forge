@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "8bab90441946",
+  "session_id": "ad993fd3-acd9-41bf-b4ba-eb6d8f82b4e9",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T10:25:43.481699341Z",
+  "branch": "source-intelligence-foundation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "package.json",
+    "src/skf-audit-skill/SKILL.md",
+    "src/skf-audit-skill/assets/drift-report-template.md",
+    "src/skf-audit-skill/references/report.md",
+    "src/skf-audit-skill/references/severity-classify.md",
+    "src/skf-audit-skill/references/step-doc-drift.md",
+    "test/test-skf-step-doc-drift.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "9c859a32409a",
+  "token_usage": {
+    "input_tokens": 1321,
+    "cache_creation_tokens": 72769,
+    "cache_read_tokens": 1863504,
+    "output_tokens": 13006,
+    "api_call_count": 28
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T10:25:43.019015886Z",
+    "agent_lines": 555,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 555,
+    "agent_percentage": 100
+  }
+}

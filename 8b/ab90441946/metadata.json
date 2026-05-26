@@ -3,7 +3,7 @@
   "checkpoint_id": "8bab90441946",
   "strategy": "manual-commit",
   "branch": "source-intelligence-foundation",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     "package.json",
     "src/skf-audit-skill/SKILL.md",
@@ -34,13 +34,20 @@
       "context": "/8b/ab90441946/2/context.md",
       "content_hash": "/8b/ab90441946/2/content_hash.txt",
       "prompt": "/8b/ab90441946/2/prompt.txt"
+    },
+    {
+      "metadata": "/8b/ab90441946/3/metadata.json",
+      "transcript": "/8b/ab90441946/3/full.jsonl",
+      "context": "/8b/ab90441946/3/context.md",
+      "content_hash": "/8b/ab90441946/3/content_hash.txt",
+      "prompt": "/8b/ab90441946/3/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 280,
-    "cache_creation_tokens": 141326,
-    "cache_read_tokens": 3966968,
-    "output_tokens": 29169,
-    "api_call_count": 53
+    "input_tokens": 1601,
+    "cache_creation_tokens": 214095,
+    "cache_read_tokens": 5830472,
+    "output_tokens": 42175,
+    "api_call_count": 81
   }
 }
