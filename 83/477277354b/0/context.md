@@ -44,3 +44,8 @@ N 1
 
 Y
 
+### Prompt 11
+
+Stop hook feedback:
+Story Automator active (6 stories remaining). Read .claude/skills/bmad-story-automator/data/stop-hook-recovery.md
+
