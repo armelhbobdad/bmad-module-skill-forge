@@ -57,12 +57,28 @@ Parse the JSON output: `{shape, signals, confidence, export_count, package_count
 
 **Handle exit codes:**
 
-- **Exit 0 (shape classified):** Continue to §4.
+- **Exit 0 (shape classified):** Continue to §3a.
 - **Exit 1 (unknown shape):** Emit fallback message: "**Auto-scope could not classify this repo — switching to interactive mode.**" Load, read fully, then execute `references/scan-project.md`. **STOP HERE.**
 - **Exit 2 (error):** HARD HALT with exit code 3 (`resolution-failure`). Emit the error envelope:
   ```
   SKF_ANALYZE_RESULT_JSON: {"status":"error","report_path":null,"brief_paths":[],"unit_counts":{"confirmed":0,"skipped":0,"maybe":0},"exit_code":3,"halt_reason":"resolution-failure","mode":"auto"}
   ```
+
+### 3a. Check Decomposition Thresholds
+
+Evaluate the shape detection output to determine whether this repo should be decomposed into multiple skills.
+
+**Threshold conditions** (both constants are `[PENDING VALIDATION]` — subject to empirical tuning):
+
+| Threshold | Condition | Signal |
+|-----------|-----------|--------|
+| Large export surface | `export_count > 500` `[PENDING VALIDATION]` | Single skill covering 500+ exports produces unwieldy output |
+| Monorepo / multi-package | `package_count > 3` `[PENDING VALIDATION]` | 4+ packages are almost always multi-concern |
+
+**Decision:**
+
+- **Neither threshold met** → Continue to §4 (single-scope flow, entirely unchanged).
+- **Either or both thresholds met** → Route to §4a (multi-scope decomposition flow). Log: "Auto-decomposition triggered: {reason} ({value} exceeds threshold {threshold} `[PENDING VALIDATION]`)" where reason is `export_threshold`, `package_threshold`, or `both`.
 
 ### 4. Map Shape to Scope
 
@@ -74,7 +90,7 @@ Apply the shape→scope.type mapping:
 | `library-API` | `public-api` | export_count > 200 |
 | `reference-app` | `reference-app` | — |
 | `language-reference` | `full-library` | — |
-| `stack-compose` | `full-library` | Single scope for now |
+| `stack-compose` | `full-library` | Multi-scope via §3a when `package_count > 3` `[PENDING VALIDATION]` |
 
 ### 5. Generate Include/Exclude Patterns
 
@@ -114,6 +130,42 @@ Detect the primary language from the manifest ecosystem:
 - `python` → `python`
 - `rust` → `rust`
 
+### 4a. Multi-Scope Decomposition
+
+This section is reached only from §3a when one or both decomposition thresholds are met. It replaces §4→§5→§6 for repos that will produce N > 1 skills.
+
+**Determine decomposition path:**
+
+- **Monorepo path** (`package_count > 3`): Use workspace package discovery from §2 manifest scan results. Each workspace package with its own manifest becomes a separate skill boundary. Name each skill as `{project_name}-{package_name}` (kebab-case). Trivial workspace members (no source files, no exports) are excluded.
+- **Large-export path** (`export_count > 500`, single package): Group by top-level source directory modules (e.g., `src/auth/`, `src/core/`, `src/api/`). Each directory subtree with a meaningful export surface becomes a separate skill boundary. Candidate boundaries with fewer than ~50 exports `[PENDING VALIDATION]` should be merged into an "other" catch-all skill rather than becoming standalone skills. Name each skill as `{project_name}-{module_name}` (kebab-case). If no clear module structure exists (flat `src/` with all files at root level), **do not force decomposition** — fall back to single-scope flow at §4.
+- **Combined path** (both thresholds met): Use the monorepo path. Package boundaries are explicit and take priority over export-count grouping (which is heuristic).
+
+**Per-boundary shape→scope mapping:**
+
+For each decomposed boundary, apply the shape→scope mapping from §4 independently — the boundary's local characteristics determine its scope.type:
+
+| Decomposition Type | Per-Boundary Shape Mapping |
+|--------------------|---------------------------|
+| Monorepo (`package_count > 3`) | Re-run the shape→scope heuristic ladder from `step-shape-detect.md` per package using each package's own manifest data. Packages may have different shapes (e.g., a `library-API` core + a `reference-app` CLI). |
+| Large-export (`export_count > 500`) | All boundaries inherit the parent shape. scope.type varies by per-boundary export count (e.g., ≤200 → `full-library`, >200 → `public-api`). |
+
+### 5a. Generate Multi-Scope Patterns
+
+For each decomposed boundary, generate include/exclude patterns using the same language-aware rules as §5, but scoped to the boundary's source paths.
+
+- Monorepo boundaries: patterns are rooted at the package path (e.g., `packages/auth/src/**/*.ts` instead of `src/**/*.ts`)
+- Large-export boundaries: patterns are rooted at the module directory (e.g., `src/auth/**/*.ts`)
+
+### 6a. Build Multi-Scope
+
+For each boundary, build a scope object following the same structure as §6.
+
+Include decomposition metadata in `scope.notes`: "Decomposed from {project_name} — boundary {i}/{N} ({reason})"
+
+Determine each boundary's skill name from the boundary-derived name (kebab-case, lowercase). Detect the primary language from each boundary's manifest ecosystem (same rules as §6).
+
+After building all N scopes, continue to §7 with the full set of boundaries.
+
 ### 7. Write Analysis Report
 
 Update {outputFile} with auto-scope results.
@@ -128,10 +180,27 @@ confirmed_units:
     confidence: {confidence}
     export_count: {export_count}
     package_count: {package_count}
+    boundary_path: '{boundary_path}'  # present only for decomposed units
+  # ... N entries when decomposition is active
 ```
 
-**Append body section** — replace the placeholder sections with a single auto-scope section:
+**When decomposition was triggered (N > 1 units):**
 
+Add `decomposition` to frontmatter:
+```yaml
+decomposition:
+  triggered: true
+  reason: 'export_threshold' | 'package_threshold' | 'both'
+  boundary_count: N
+```
+
+Each `confirmed_units` entry includes `boundary_path` — the relative path to the boundary's root (e.g., `packages/core` for monorepo, `src/auth` for large-export). Omit the `decomposition` key entirely when single-scope (N = 1).
+
+**When single-scope (N = 1):** No `decomposition` key. `confirmed_units` contains a single entry (existing behavior).
+
+**Append body section:**
+
+For single-scope (unchanged):
 ```markdown
 ## Auto-Scope Analysis
 
@@ -145,7 +214,30 @@ confirmed_units:
 **Exclude Patterns:** {exclude patterns}
 ```
 
+For multi-scope (N > 1):
+```markdown
+## Auto-Scope Analysis — Decomposition ({N} skills)
+
+**Mode:** auto
+**Decomposition:** {reason} ({N} boundaries)
+**Parent Shape:** {shape} (confidence: {confidence})
+**Export Count:** {export_count}
+**Package Count:** {package_count}
+
+### Boundary 1: {boundary_name}
+**Scope Type:** {scope_type}
+**Boundary Path:** {boundary_path}
+**Include Patterns:** {include patterns}
+**Exclude Patterns:** {exclude patterns}
+**Rationale:** {boundary_rationale}
+
+### Boundary 2: {boundary_name}
+...
+```
+
 ### 8. Write Skill Brief
+
+**For each confirmed unit** (1 for single-scope, N for decomposition):
 
 Create directory `{forge_data_folder}/{skill_name}/` if it does not exist.
 
@@ -169,6 +261,15 @@ created: '{current_date}'
 created_by: '{user_name}'
 ```
 
+**When decomposition is active (N > 1 units):**
+
+Loop over all N boundaries. For each boundary:
+- `name` is the boundary-derived skill name (e.g., `my-monorepo-core`)
+- `include`/`exclude` patterns are boundary-scoped (from §5a)
+- `scope.notes` includes decomposition context: "Decomposed from {project_name} ({N} skills) — boundary {i}/{N}: {boundary_description}"
+- `description` references the parent project and boundary role (e.g., "Core library package of the my-monorepo project, providing...")
+- All N briefs share the same `version`, `source_repo`, `language`, `forge_tier`, `created`, `created_by` values as the parent project
+
 **Version detection:** Attempt to auto-detect the source version per the version detection rules in `assets/skill-brief-schema.md`. Fall back to `1.0.0` if detection fails.
 
 ### 9. Emit Result Envelope
@@ -176,12 +277,14 @@ created_by: '{user_name}'
 Emit the `SKF_ANALYZE_RESULT_JSON` envelope on stdout:
 
 ```
-SKF_ANALYZE_RESULT_JSON: {"status":"success","report_path":"{outputFile_path}","brief_paths":["{brief_path}"],"unit_counts":{"confirmed":1,"skipped":0,"maybe":0},"exit_code":0,"halt_reason":null,"mode":"auto"}
+SKF_ANALYZE_RESULT_JSON: {"status":"success","report_path":"{outputFile_path}","brief_paths":["{brief_path_1}","{brief_path_2}",...,"{brief_path_N}"],"unit_counts":{"confirmed":N,"skipped":0,"maybe":0},"exit_code":0,"halt_reason":null,"mode":"auto"}
 ```
+
+`brief_paths` contains N paths (one per confirmed unit). `unit_counts.confirmed` is N. The envelope JSON format is structurally unchanged — `brief_paths` was already an array and `unit_counts.confirmed` was already a number. No breaking change for downstream consumers.
 
 ### 10. Write Result Contract
 
-Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{forge_data_folder}/analyze-source-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_data_folder}/analyze-source-result-latest.json`. Include the generated `skill-brief.yaml` path in `outputs` and brief count in `summary`.
+Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{forge_data_folder}/analyze-source-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_data_folder}/analyze-source-result-latest.json`. `outputs` lists all N brief paths and `summary` includes the brief count N.
 
 If `{onCompleteCommand}` is non-empty, invoke it now with `--result-path={result_json_path}`.
 

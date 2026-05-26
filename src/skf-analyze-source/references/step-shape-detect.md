@@ -50,8 +50,23 @@ On exit code 2, error details are written to stderr as JSON: `{"error": "message
 | `library-API` | `public-api` | export_count > 200 (surface too large for full coverage) |
 | `reference-app` | `reference-app` | Direct mapping — apps, CLIs, demos |
 | `language-reference` | `full-library` | Language tools/parsers are library-shaped from a skill perspective |
-| `stack-compose` | `full-library` | Single scope for now; multi-skill decomposition deferred to Story 2.4 |
+| `stack-compose` | `full-library` | Multi-skill decomposition when `package_count > 3` `[PENDING VALIDATION]` — see step-auto-scope.md §3a |
 | `unknown` | N/A | Triggers fallback to interactive mode |
+
+## Decomposition Thresholds
+
+When auto-scope detects a repo exceeding complexity thresholds, it recommends multi-skill decomposition instead of producing a single unwieldy skill. The thresholds are evaluated in step-auto-scope.md §3a.
+
+| Threshold | Value | Signal | Decomposition Path |
+|-----------|-------|--------|-------------------|
+| Large export surface | `export_count > 500` `[PENDING VALIDATION]` | Shape detection `export_count` | Group by top-level source directory modules |
+| Multi-package / monorepo | `package_count > 3` `[PENDING VALIDATION]` | Shape detection `package_count` | One skill per workspace package |
+
+Both thresholds are marked `[PENDING VALIDATION]` — no empirical data exists yet for real-world repos. Expected tuning: after running deepwiki against 5–10 real repos, adjust thresholds based on whether decomposition produces useful skill boundaries or noise.
+
+When both thresholds are met simultaneously, the monorepo path takes priority (package boundaries are explicit; export-count grouping is heuristic).
+
+When neither threshold is met, the single-scope flow proceeds unchanged.
 
 ## Heuristic Ladder
 

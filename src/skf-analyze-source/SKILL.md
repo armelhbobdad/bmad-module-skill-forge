@@ -43,7 +43,7 @@ These rules apply to every step in this workflow:
 | 6 | Generate Briefs | references/generate-briefs.md | Yes | Interactive mode only |
 | 7 | Workflow Health Check | references/health-check.md | Yes | Always |
 
-**Auto mode path:** When `[auto]` flag is present, init (step 1) routes directly to step 1a, which performs manifest scan → shape detection → scope generation → brief write → health check, bypassing steps 2–6.
+**Auto mode path:** When `[auto]` flag is present, init (step 1) routes directly to step 1a, which performs manifest scan → shape detection → scope generation → brief write → health check, bypassing steps 2–6. Auto-scope may produce N > 1 confirmed units when decomposition thresholds are met (`export_count > 500` `[PENDING VALIDATION]` or `package_count > 3` `[PENDING VALIDATION]`), resulting in N briefs and N `brief_paths` in the envelope.
 
 **Shape detection reference:** `references/step-shape-detect.md` — loaded by step 1a as a reference doc (not a chained step).
 
