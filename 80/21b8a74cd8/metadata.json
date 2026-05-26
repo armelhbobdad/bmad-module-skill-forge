@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "8021b8a74cd8",
+  "strategy": "manual-commit",
+  "branch": "skill-shape-detection-shared-module",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "package.json",
+    "src/shared/scripts/skf-shape-detect.py",
+    "test/test-skf-shape-detect.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/80/21b8a74cd8/0/metadata.json",
+      "transcript": "/80/21b8a74cd8/0/full.jsonl",
+      "context": "/80/21b8a74cd8/0/context.md",
+      "content_hash": "/80/21b8a74cd8/0/content_hash.txt",
+      "prompt": "/80/21b8a74cd8/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 23,
+    "cache_creation_tokens": 94953,
+    "cache_read_tokens": 1760195,
+    "output_tokens": 45274,
+    "api_call_count": 22
+  }
+}

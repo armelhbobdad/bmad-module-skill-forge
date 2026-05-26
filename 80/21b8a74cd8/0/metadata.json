@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "8021b8a74cd8",
+  "session_id": "bd81bc21-e53e-47bd-8db7-c82c90c1e806",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T07:16:42.168671329Z",
+  "branch": "skill-shape-detection-shared-module",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "package.json",
+    "src/shared/scripts/skf-shape-detect.py",
+    "test/test-skf-shape-detect.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "b274950a4f0e",
+  "token_usage": {
+    "input_tokens": 23,
+    "cache_creation_tokens": 94953,
+    "cache_read_tokens": 1760195,
+    "output_tokens": 45274,
+    "api_call_count": 22
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T07:16:41.533896033Z",
+    "agent_lines": 1146,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1146,
+    "agent_percentage": 100
+  }
+}
