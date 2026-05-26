@@ -52,7 +52,7 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 
 **When to Use:** After Brief Skill, or with an existing skill-brief.yaml.
 
-**Key Steps:** Load brief → Ecosystem check → Extract (AST + scripts/assets) → QMD enrich (Deep) → Compile → Validate → Generate
+**Key Steps:** Load brief → Ecosystem check → Extract (AST + scripts/assets) → QMD enrich (Deep) → Compile → Doc sources → Validate → Generate
 
 **Agent:** Ferris (Architect mode)
 
@@ -141,7 +141,7 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 
 **When to Use:** To check if a skill has fallen out of date with its source code. Works for both individual skills and stack skills.
 
-**Key Steps:** Load skill → Re-index source → Structural diff (incl. script/asset drift) → Semantic diff (Deep) → Classify severity → Report
+**Key Steps:** Load skill → Re-index source → Structural diff (incl. script/asset drift) → Semantic diff (Deep) → Classify severity → Doc drift → Report
 
 **Stack skill support:** Code-mode stacks are audited per-library against their sources. Compose-mode stacks check constituent freshness via metadata hash comparison — if a constituent skill was updated after the stack was composed, audit flags it as constituent drift. Stack skills that need updating are redirected to `@Ferris SS` for re-composition (surgical update is not supported for stacks).
 

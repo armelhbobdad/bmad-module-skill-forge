@@ -1,5 +1,5 @@
 ---
-nextStepFile: 'report.md'
+nextStepFile: 'step-doc-drift.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
 severityRulesFile: 'references/severity-rules.md'
 ---

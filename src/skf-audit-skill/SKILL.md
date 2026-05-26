@@ -40,6 +40,7 @@ These rules apply to every step in this workflow:
 | 3 | Structural Diff | references/structural-diff.md | Yes |
 | 4 | Semantic Diff | references/semantic-diff.md | Yes (skip at non-Deep) |
 | 5 | Severity Classification | references/severity-classify.md | Yes |
+| 5a | Doc Drift | references/step-doc-drift.md | Yes |
 | 6 | Report | references/report.md | Yes |
 | 7 | Workflow Health Check | references/health-check.md | Yes |
 

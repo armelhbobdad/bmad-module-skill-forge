@@ -27,6 +27,10 @@ Update the ## Audit Summary section at the top of {outputFile} with final calcul
 - Fill in severity count table from Step 05 classification summary
 - Set overall drift score
 - Add total findings count
+- Include doc drift summary from `doc_drift_summary` context (set by step 5a):
+  - If `changed > 0`: "**Doc Drift:** {changed} of {total_tracked} tracked doc(s) have changed since compile. Consider re-running CS to update doc_sources."
+  - If `fetch_failed > 0`: "{fetch_failed} doc URL(s) could not be reached during audit."
+  - If `skipped_entirely`: no mention in summary (already noted in the doc drift section)
 
 ### 2. Generate Remediation Suggestions
 
