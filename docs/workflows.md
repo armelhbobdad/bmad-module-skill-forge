@@ -52,7 +52,7 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 
 **When to Use:** After Brief Skill, or with an existing skill-brief.yaml.
 
-**Key Steps:** Load brief → Ecosystem check → Extract (AST + scripts/assets) → QMD enrich (Deep) → Compile → Doc sources → Validate → Generate
+**Key Steps:** Load brief → Ecosystem check → Extract (AST + scripts/assets) → QMD enrich (Deep) → Compile → Doc sources → Auto-shard → Doc-rot → Validate → Generate
 
 **Agent:** Ferris (Architect mode)
 
@@ -157,9 +157,9 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 
 **When to Use:** After creating or updating a skill, before exporting.
 
-**Key Steps:** Load skill → Detect mode → Coverage check → Coherence check → External validation (skill-check, tessl) → Score → Gap report
+**Key Steps:** Load skill → Detect mode → Coverage check → Coherence check → External validation (skill-check, tessl) → Hard gate → Score → Gap report
 
-**Scored Categories:** Export Coverage (36%), Signature Accuracy (22%), Type Coverage (14%), Coherence (18%), External Validation (10%). Default pass threshold: **80%**. Pass routes to Export Skill; fail routes to Update Skill with a gap report. See [Completeness Scoring](../verifying-a-skill/#how-the-score-is-computed) for the full formula and tier adjustments.
+**Scored Categories:** Export Coverage (36%), Signature Accuracy (22%), Type Coverage (14%), Coherence (18%), External Validation (10%). Default pass threshold: **80%** (per-pipeline defaults: deepwiki 90%, forge 80%). Pass routes to Export Skill; fail routes to Update Skill with a gap report. See [Completeness Scoring](../verifying-a-skill/#how-the-score-is-computed) for the full formula and tier adjustments.
 
 **Agent:** Ferris (Audit mode)
 
