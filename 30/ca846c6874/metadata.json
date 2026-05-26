@@ -3,7 +3,7 @@
   "checkpoint_id": "30ca846c6874",
   "strategy": "manual-commit",
   "branch": "quality-scale-and-workaround-automation",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "package.json",
     "src/shared/references/pipeline-contracts.md",
@@ -28,13 +28,20 @@
       "context": "/30/ca846c6874/1/context.md",
       "content_hash": "/30/ca846c6874/1/content_hash.txt",
       "prompt": "/30/ca846c6874/1/prompt.txt"
+    },
+    {
+      "metadata": "/30/ca846c6874/2/metadata.json",
+      "transcript": "/30/ca846c6874/2/full.jsonl",
+      "context": "/30/ca846c6874/2/context.md",
+      "content_hash": "/30/ca846c6874/2/content_hash.txt",
+      "prompt": "/30/ca846c6874/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 362,
-    "cache_creation_tokens": 119830,
-    "cache_read_tokens": 20186951,
-    "output_tokens": 39113,
-    "api_call_count": 136
+    "input_tokens": 1620,
+    "cache_creation_tokens": 193323,
+    "cache_read_tokens": 22326352,
+    "output_tokens": 50910,
+    "api_call_count": 168
   }
 }
