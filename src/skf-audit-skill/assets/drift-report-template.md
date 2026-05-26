@@ -52,6 +52,12 @@ previousWorkflow: 'create-skill'
 
 ---
 
+## Documentation Drift
+
+<!-- Appended by step-doc-drift -->
+
+---
+
 ## Remediation Suggestions
 
 <!-- Appended by report -->
