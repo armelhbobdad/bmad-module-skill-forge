@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "5f5ca9551e5a",
+  "session_id": "f19de850-85e5-4ef3-8e42-b5f43444d9f4",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T09:26:57.877756004Z",
+  "branch": "source-intelligence-foundation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-skill/SKILL.md",
+    "src/skf-create-skill/assets/skill-sections.md",
+    "src/skf-create-skill/references/compile.md",
+    "src/skf-create-skill/references/step-doc-sources.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "4a34c6dac9fc",
+  "token_usage": {
+    "input_tokens": 17,
+    "cache_creation_tokens": 64098,
+    "cache_read_tokens": 938588,
+    "output_tokens": 9528,
+    "api_call_count": 16
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T09:26:57.439224549Z",
+    "agent_lines": 118,
+    "human_added": 251,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 369,
+    "agent_percentage": 31.978319783197833
+  }
+}
