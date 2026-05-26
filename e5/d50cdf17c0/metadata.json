@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e5d50cdf17c0",
+  "strategy": "manual-commit",
+  "branch": "source-intelligence-foundation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "test/test-skf-detect-docs.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e5/d50cdf17c0/0/metadata.json",
+      "transcript": "/e5/d50cdf17c0/0/full.jsonl",
+      "context": "/e5/d50cdf17c0/0/context.md",
+      "content_hash": "/e5/d50cdf17c0/0/content_hash.txt",
+      "prompt": "/e5/d50cdf17c0/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 12,
+    "cache_creation_tokens": 57126,
+    "cache_read_tokens": 564949,
+    "output_tokens": 9438,
+    "api_call_count": 11
+  }
+}

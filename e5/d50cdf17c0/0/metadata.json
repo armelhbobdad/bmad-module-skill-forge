@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e5d50cdf17c0",
+  "session_id": "48ae3560-75f1-4c5d-ae64-36b9bf9c36c0",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T09:00:35.701285307Z",
+  "branch": "source-intelligence-foundation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "test/test-skf-detect-docs.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "7e2495114bba",
+  "token_usage": {
+    "input_tokens": 12,
+    "cache_creation_tokens": 57126,
+    "cache_read_tokens": 564949,
+    "output_tokens": 9438,
+    "api_call_count": 11
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T09:00:35.163376441Z",
+    "agent_lines": 896,
+    "human_added": 414,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1310,
+    "agent_percentage": 68.3969465648855
+  }
+}
