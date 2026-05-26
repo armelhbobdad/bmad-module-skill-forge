@@ -5,6 +5,11 @@
   "branch": "quality-scale-and-workaround-automation",
   "checkpoints_count": 1,
   "files_touched": [
+    "package.json",
+    "src/shared/references/pipeline-contracts.md",
+    "src/skf-test-skill/SKILL.md",
+    "src/skf-test-skill/references/report.md",
+    "src/skf-test-skill/references/score.md",
     "test/test-skf-evidence-report-fallback.py"
   ],
   "sessions": [
@@ -14,13 +19,20 @@
       "context": "/4a/f6deb564e8/0/context.md",
       "content_hash": "/4a/f6deb564e8/0/content_hash.txt",
       "prompt": "/4a/f6deb564e8/0/prompt.txt"
+    },
+    {
+      "metadata": "/4a/f6deb564e8/1/metadata.json",
+      "transcript": "/4a/f6deb564e8/1/full.jsonl",
+      "context": "/4a/f6deb564e8/1/context.md",
+      "content_hash": "/4a/f6deb564e8/1/content_hash.txt",
+      "prompt": "/4a/f6deb564e8/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 12,
-    "cache_creation_tokens": 74382,
-    "cache_read_tokens": 614843,
-    "output_tokens": 11720,
-    "api_call_count": 11
+    "input_tokens": 197,
+    "cache_creation_tokens": 123858,
+    "cache_read_tokens": 39656381,
+    "output_tokens": 48629,
+    "api_call_count": 196
   }
 }
