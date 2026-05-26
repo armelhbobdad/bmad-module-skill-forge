@@ -5,11 +5,13 @@
   "branch": "quality-scale-and-workaround-automation",
   "checkpoints_count": 1,
   "files_touched": [
+    "package.json",
     "src/skf-test-skill/SKILL.md",
     "src/skf-test-skill/references/external-validators.md",
     "src/skf-test-skill/references/report.md",
     "src/skf-test-skill/references/step-hard-gate.md",
-    "src/skf-test-skill/templates/test-report-template.md"
+    "src/skf-test-skill/templates/test-report-template.md",
+    "test/test-skf-step-hard-gate.py"
   ],
   "sessions": [
     {
@@ -18,13 +20,20 @@
       "context": "/58/a938187e43/0/context.md",
       "content_hash": "/58/a938187e43/0/content_hash.txt",
       "prompt": "/58/a938187e43/0/prompt.txt"
+    },
+    {
+      "metadata": "/58/a938187e43/1/metadata.json",
+      "transcript": "/58/a938187e43/1/full.jsonl",
+      "context": "/58/a938187e43/1/context.md",
+      "content_hash": "/58/a938187e43/1/content_hash.txt",
+      "prompt": "/58/a938187e43/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 29,
-    "cache_creation_tokens": 68767,
-    "cache_read_tokens": 1781443,
-    "output_tokens": 11330,
-    "api_call_count": 28
+    "input_tokens": 434,
+    "cache_creation_tokens": 208331,
+    "cache_read_tokens": 40764544,
+    "output_tokens": 78450,
+    "api_call_count": 414
   }
 }
