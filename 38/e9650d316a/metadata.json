@@ -5,7 +5,23 @@
   "branch": "campaign-orchestration",
   "checkpoints_count": 1,
   "files_touched": [
+    "package.json",
+    "src/skf-campaign/SKILL.md",
     "src/skf-campaign/assets/campaign-state-schema.json",
+    "src/skf-campaign/manifest.yaml",
+    "src/skf-campaign/references/step-01-setup.md",
+    "src/skf-campaign/references/step-02-strategy.md",
+    "src/skf-campaign/references/step-03-pins.md",
+    "src/skf-campaign/references/step-04-provenance.md",
+    "src/skf-campaign/references/step-05-skill-loop.md",
+    "src/skf-campaign/references/step-06-batch.md",
+    "src/skf-campaign/references/step-07-capstone.md",
+    "src/skf-campaign/references/step-08-verify.md",
+    "src/skf-campaign/references/step-09-refine.md",
+    "src/skf-campaign/references/step-10-export.md",
+    "src/skf-campaign/references/step-11-maintenance.md",
+    "src/skf-campaign/scripts/.gitkeep",
+    "src/skf-campaign/templates/.gitkeep",
     "test/test-skf-campaign-state.py"
   ],
   "sessions": [
@@ -15,13 +31,20 @@
       "context": "/38/e9650d316a/0/context.md",
       "content_hash": "/38/e9650d316a/0/content_hash.txt",
       "prompt": "/38/e9650d316a/0/prompt.txt"
+    },
+    {
+      "metadata": "/38/e9650d316a/1/metadata.json",
+      "transcript": "/38/e9650d316a/1/full.jsonl",
+      "context": "/38/e9650d316a/1/context.md",
+      "content_hash": "/38/e9650d316a/1/content_hash.txt",
+      "prompt": "/38/e9650d316a/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 13,
-    "cache_creation_tokens": 63682,
-    "cache_read_tokens": 664744,
-    "output_tokens": 12772,
-    "api_call_count": 12
+    "input_tokens": 92,
+    "cache_creation_tokens": 133714,
+    "cache_read_tokens": 4153210,
+    "output_tokens": 31100,
+    "api_call_count": 72
   }
 }
