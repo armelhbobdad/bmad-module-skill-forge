@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "e932c699e99f",
+  "strategy": "manual-commit",
+  "branch": "deepwiki-zero-ceremony-skill-creation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-analyze-source/SKILL.md",
+    "src/skf-analyze-source/references/step-auto-scope.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e9/32c699e99f/0/metadata.json",
+      "transcript": "/e9/32c699e99f/0/full.jsonl",
+      "context": "/e9/32c699e99f/0/context.md",
+      "content_hash": "/e9/32c699e99f/0/content_hash.txt",
+      "prompt": "/e9/32c699e99f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 19,
+    "cache_creation_tokens": 76153,
+    "cache_read_tokens": 1189814,
+    "output_tokens": 19034,
+    "api_call_count": 18
+  }
+}
