@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "534d94227689",
+  "session_id": "5e2be675-822b-4f05-af61-aea6242737bf",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T15:07:37.134384614Z",
+  "branch": "deepwiki-zero-ceremony-skill-creation",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/shared/references/pipeline-contracts.md",
+    "src/skf-forger/SKILL.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "27634736e9aa",
+  "checkpoint_transcript_start": 535,
+  "transcript_lines_at_start": 535,
+  "token_usage": {
+    "input_tokens": 7,
+    "cache_creation_tokens": 2781,
+    "cache_read_tokens": 781753,
+    "output_tokens": 2211,
+    "api_call_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T15:07:36.793337448Z",
+    "agent_lines": 15,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 15,
+    "agent_percentage": 100
+  }
+}
