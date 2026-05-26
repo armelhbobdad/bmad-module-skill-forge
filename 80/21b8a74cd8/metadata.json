@@ -3,7 +3,7 @@
   "checkpoint_id": "8021b8a74cd8",
   "strategy": "manual-commit",
   "branch": "skill-shape-detection-shared-module",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "package.json",
     "src/shared/scripts/skf-shape-detect.py",
@@ -16,13 +16,20 @@
       "context": "/80/21b8a74cd8/0/context.md",
       "content_hash": "/80/21b8a74cd8/0/content_hash.txt",
       "prompt": "/80/21b8a74cd8/0/prompt.txt"
+    },
+    {
+      "metadata": "/80/21b8a74cd8/1/metadata.json",
+      "transcript": "/80/21b8a74cd8/1/full.jsonl",
+      "context": "/80/21b8a74cd8/1/context.md",
+      "content_hash": "/80/21b8a74cd8/1/content_hash.txt",
+      "prompt": "/80/21b8a74cd8/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 23,
-    "cache_creation_tokens": 94953,
-    "cache_read_tokens": 1760195,
-    "output_tokens": 45274,
-    "api_call_count": 22
+    "input_tokens": 71,
+    "cache_creation_tokens": 197267,
+    "cache_read_tokens": 4639922,
+    "output_tokens": 62372,
+    "api_call_count": 58
   }
 }

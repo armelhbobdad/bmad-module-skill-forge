@@ -1,0 +1,588 @@
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-code-review
+
+# Code Review Workflow
+
+**Goal:** Review code changes adversarially using parallel review layers and structured triage.
+
+**Your Role:** You are an elite code reviewer. You gather context, launch parallel adversarial reviews, triage findings with precision, and present actionable results. No noise, no filler.
+
+## Conventions
+
+- Bare paths (e.g. `checklist.md`) resolve from the skill root.
+- `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives).
+- `{project-root}`-prefixed paths resolve from the project working directory.
+- `{skill-name}` resolves to the skill directory's basename.
+
+## On Activation
+
+### Step 1: Resolve the Workflow Block
+
+Run: `python3 {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --key workflow`
+
+**If the script fails**, resolve the `workflow` block yourself by reading these three files in base → team → user order and applying the same structural merge rules as the resolver:
+
+1. `{skill-root}/customize.toml` — defaults
+2. `{project-root}/_bmad/custom/{skill-name}.toml` — team overrides
+3. `{project-root}/_bmad/custom/{skill-name}.user.toml` — personal overrides
+
+Any missing file is skipped. Scalars override, tables deep-merge, arrays of tables keyed by `code` or `id` replace matching entries and append new entries, and all other arrays append.
+
+### Step 2: Execute Prepend Steps
+
+Execute each entry in `{workflow.activation_steps_prepend}` in order before proceeding.
+
+### Step 3: Load Persistent Facts
+
+Treat every entry in `{workflow.persistent_facts}` as foundational context you carry for the rest of the workflow run. Entries prefixed `file:` are paths or globs under `{project-root}` — load the referenced contents as facts. All other entries are facts verbatim.
+
+### Step 4: Load Config
+
+Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
+
+- `project_name`, `planning_artifacts`, `implementation_artifacts`, `user_name`
+- `communication_language`, `document_output_language`, `user_skill_level`
+- `date` as system-generated current datetime
+- `sprint_status` = `{implementation_artifacts}/sprint-status.yaml`
+- `project_context` = `**/project-context.md` (load if exists)
+- CLAUDE.md / memory files (load if exist)
+- YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
+
+### Step 5: Greet the User
+
+Greet `{user_name}`, speaking in `{communication_language}`.
+
+### Step 6: Execute Append Steps
+
+Execute each entry in `{workflow.activation_steps_append}` in order.
+
+Activation is complete. Begin the workflow below.
+
+## WORKFLOW ARCHITECTURE
+
+This uses **step-file architecture** for disciplined execution:
+
+- **Micro-file Design**: Each step is self-contained and followed exactly
+- **Just-In-Time Loading**: Only load the current step file
+- **Sequential Enforcement**: Complete steps in order, no skipping
+- **State Tracking**: Persist progress via in-memory variables
+- **Append-Only Building**: Build artifacts incrementally
+
+### Step Processing Rules
+
+1. **READ COMPLETELY**: Read the entire step file before acting
+2. **FOLLOW SEQUENCE**: Execute sections in order
+3. **WAIT FOR INPUT**: Halt at checkpoints and wait for human
+4. **LOAD NEXT**: When directed, read fully and follow the next step file
+
+### Critical Rules (NO EXCEPTIONS)
+
+- **NEVER** load multiple step files simultaneously
+- **ALWAYS** read entire step file before execution
+- **NEVER** skip steps or optimize the sequence
+- **ALWAYS** follow the exact instructions in the step file
+- **ALWAYS** halt at checkpoints and wait for human input
+
+## FIRST STEP
+
+Read fully and follow: `./steps/step-01-gather-context.md`
+
+
+ARGUMENTS: 1-1-skill-shape-detection-shared-module
+
+---
+
+<task-notification>
+<task-id>a9c28f636a82292b8</task-id>
+<tool-use-id>toolu_01JJnuZp6fVoQV52Z1oR5vzV</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/e3283608-a194-4ffa-893d-a37a05b4664e/tasks/a9c28f636a82292b8.output</output-file>
+<status>completed</status>
+<summary>Agent "Blind Hunter adversarial review" completed</summary>
+<result>Now I have the full diff. Let me analyze it carefully for bugs, logic errors, security issues, and code quality problems.
+
+## Blind Hunter Adversarial Review
+
+### Finding 1: `_parse_manifest` returns `None` after `_die()` but caller uses return value unconditionally
+
+- **File**: `src/shared/scripts/skf-shape-detect.py`, line 438-439 (diff lines 454-455)
+- **Severity**: medium
+- **Evidence**:
+  ```python
+  def _parse_manifest(path: Path) -&gt; dict[str, Any]:
+      parser = _PARSERS.get(path.name)
+      if parser is None:
+          _die(f"Unsupported manifest type: {path.name}", "UNSUPPORTED_MANIFEST")
+      return parser(path)
+  ```
+- **Why it's a problem**: If `_die` is somehow mocked, overridden, or if this function is refactored, `parser` will be `None` and `parser(path)` will raise `TypeError: 'NoneType' object is not callable`. The function has no `return` after `_die()`, and type checkers will flag `parser` as potentially `None` at the call site. Practically safe because `_die` calls `sys.exit(2)`, but fragile under test isolation -- a test that patches `sys.exit` to not actually exit would hit this.
+
+---
+
+### Finding 2: `tomllib.loads()` requires `str` on Python 3.11+ but some builds require `bytes`
+
+- **File**: `src/shared/scripts/skf-shape-detect.py`, line 288 (diff line 304)
+- **Severity**: critical
+- **Evidence**:
+  ```python
+  def _parse_toml(content: str) -&gt; dict[str, Any]:
+      if tomllib is not None:
+          return tomllib.loads(content)
+      return _loads_toml_fallback(content)
+  ```
+- **Why it's a problem**: `tomllib.loads()` was introduced in Python 3.11 and **only accepts `str`**. Wait -- actually, `tomllib.loads()` accepts `str` in Python 3.11+. Let me re-check. Actually, `tomllib.loads(s)` takes a `str` argument. This is correct. ~~Withdrawn.~~ Actually no: `tomllib` only has `load()` (takes a binary file object) and `loads()` (takes `str`). `tomllib.loads()` does accept `str`. This is fine. **Retracted.**
+
+---
+
+### Finding 3: Fallback TOML parser does not handle escape sequences in strings
+
+- **File**: `src/shared/scripts/skf-shape-detect.py`, lines 176-179 (diff lines 192-195)
+- **Severity**: medium
+- **Evidence**:
+  ```python
+  if len(s) &gt;= 2 and s[0] == '"' and s[-1] == '"':
+      return s[1:-1]
+  if len(s) &gt;= 2 and s[0] == "'" and s[-1] == "'":
+      return s[1:-1]
+  ```
+- **Why it's a problem**: TOML strings can contain escape sequences like `\"`, `\\`, `\n`, etc. A value like `"path\\to\\file"` would be returned as `path\\to\\file` (literal backslashes preserved as double-backslash) rather than `path\to\file`. More critically, a string containing `"she said \"hello\""` would not be parsed correctly since the `\"` would cause the `s[-1] == '"'` check to match the wrong closing quote. This is the Python &lt;3.11 fallback path, so any CI running 3.9 or 3.10 hits this.
+
+---
+
+### Finding 4: Fallback TOML parser `_split_preserving_nesting` does not handle escaped quotes in strings
+
+- **File**: `src/shared/scripts/skf-shape-detect.py`, lines 143-149 (diff lines 159-165)
+- **Severity**: medium
+- **Evidence**:
+  ```python
+  if in_str:
+      buf.append(ch)
+      if ch == in_str:
+          in_str = ""
+      continue
+  ```
+- **Why it's a problem**: An escaped quote inside a string (e.g., `"key with \" inside"`) will prematurely close the string tracking, causing subsequent commas inside the string to be treated as separators, corrupting the parse. This affects array and inline-table parsing on Python &lt;3.11.
+
+---
+
+### Finding 5: `_decode_toml_value` parses numeric strings containing `e` or hex as integers
+
+- **File**: `src/shared/scripts/skf-shape-detect.py`, lines 209-212 (diff lines 225-228)
+- **Severity**: low
+- **Evidence**:
+  ```python
+  try:
+      return int(s) if "." not in s else float(s)
+  except ValueError:
+      return s
+  ```
+- **Why it's a problem**: TOML bare values like `0x1A` or `1_000` or `inf`/`nan` are valid TOML but will either be misinterpreted or fall through to the string return. `int("0x1A")` raises `ValueError` in base-10, so it falls through to `return s` (returning a string instead of an integer). Not likely to affect manifest fields, but shows the fallback parser's incompleteness.
+
+---
+
+### Finding 6: `path_to_manifest_name` called before definition in `detect()`
+
+- **File**: `src/shared/scripts/skf-shape-detect.py`, line 468 (diff line 484)
+- **Severity**: low (Python resolves at call time, not definition time)
+- **Evidence**:
+  ```python
+  signals.append(f"has_{path_to_manifest_name(eco)}")
+  ```
+  The function `path_to_manifest_name` is defined at line 547 (diff line 563), well after `detect()`.
+- **Why it's a problem**: Not a runtime bug in Python (functions are resolved at call time), but it signals the function was added as an afterthought and could confuse readers/tooling.
+
+---
+
+### Finding 7: `export_count` for `package.json` with `exports: {}` and `main` field returns 0, not 1
+
+- **File**: `src/shared/scripts/skf-shape-detect.py`, lines 310-315 (diff lines 326-331)
+- **Severity**: medium
+- **Evidence**:
+  ```python
+  exports_field = data.get("exports")
+  export_count = 0
+  if isinstance(exports_field, dict):
+      export_count = len(exports_field)
+  elif data.get("main") or data.get("module"):
+      export_count = 1
+  ```
+- **Why it's a problem**: When `exports` is an empty dict `{}`, `isinstance(exports_field, dict)` is `True`, so `export_count = len({}) = 0`. The `elif` branch for `main`/`module` is skipped. So a `package.json` with `"exports": {}, "main": "index.js"` reports 0 exports despite having a `main` entry point. The test at line 1016-1017 (diff) actually **asserts this broken behavior**: `assert result["export_count"] == 0`. This means a library with an empty exports map but a valid `main` is undercounted, potentially pushing it toward "unknown" instead of "library-API" if the `has_library_structure` check also fails.
+
+---
+
+### Finding 8: `has_library_structure` includes `exports_field` even when it's an empty dict
+
+- **File**: `src/shared/scripts/skf-shape-detect.py`, lines 317-319 (diff lines 333-335)
+- **Severity**: low
+- **Evidence**:
+  ```python
+  "has_library_structure": bool(
+      data.get("main") or data.get("module") or exports_field
+  ),
+  ```
+- **Why it's a problem**: `bool({})` is `False`, so an empty `exports` field correctly does NOT set `has_library_structure` -- unless `main` or `module` is set. Actually this is fine. **Retracted.**
+
+---
+
+### Finding 9: `library-API` confidence can exceed documented bounds via double-increment
+
+- **File**: `src/shared/scripts/skf-shape-detect.py`, lines 528-540 (diff lines 544-556)
+- **Severity**: low
+- **Evidence**:
+  ```python
+  base = 0.60
+  if has_library_structure:
+      base = 0.75
+  if total_exports &gt; 50:
+      base = max(base, 0.85)
+  elif total_exports &gt; 10:
+      base = max(base, 0.75)
+  if not has_bin:
+      base += 0.05
+  confidence = _clamp(base, 0.60, 0.95)
+  ```
+- **Why it's a problem**: With `has_library_structure=True`, `total_exports &gt; 50`, and `not has_bin`, `base` becomes `0.85 + 0.05 = 0.90`. The clamp to 0.95 handles this. However, if `has_bin` is `False` here, we already know (from the ladder) that we passed the reference-app check, meaning `has_bin` was `False` AND `has_framework` was `False`. So `not has_bin` is always `True` at this point in the ladder, making the conditional dead -- it always adds 0.05. Not a bug per se, but dead logic.
+
+---
+
+### Finding 10: Trailing comment stripping is incomplete -- misses `\t#` comments
+
+- **File**: `src/shared/scripts/skf-shape-detect.py`, lines 268-271 (diff lines 284-287)
+- **Severity**: low
+- **Evidence**:
+  ```python
+  if val_str and val_str[0] not in ('"', "'", "[", "{"):
+      ci = val_str.find(" #")
+      if ci &gt;= 0:
+          val_str = val_str[:ci].strip()
+  ```
+- **Why it's a problem**: Only looks for ` #` (space-hash). A TOML comment preceded by a tab (`\t#`) or multiple spaces followed by `#` at the start of the remaining value won't be stripped. Minor, but could cause parse errors on edge-case TOML files on the fallback path.
+
+---
+
+### Finding 11: `_die` writes JSON to stderr but does not flush -- potential truncation on abrupt exit
+
+- **File**: `src/shared/scripts/skf-shape-detect.py`, lines 126-128 (diff lines 142-144)
+- **Severity**: low
+- **Evidence**:
+  ```python
+  def _die(message: str, code: str = "INTERNAL_ERROR") -&gt; None:
+      json.dump({"error": message, "code": code}, sys.stderr, ensure_ascii=False)
+      sys.stderr.write("\n")
+      sys.exit(2)
+  ```
+- **Why it's a problem**: `sys.exit(2)` raises `SystemExit`, which Python handles by flushing stdio buffers during interpreter shutdown. In practice this is fine. However, `_die` is not annotated with `-&gt; NoReturn`, which means type checkers won't flag code after `_die()` calls as unreachable, leading to the Finding 1 issue.
+
+---
+
+### Finding 12: Multi-line array collection in fallback TOML parser uses `]` presence check, not balanced bracket tracking
+
+- **File**: `src/shared/scripts/skf-shape-detect.py`, lines 275-280 (diff lines 291-296)
+- **Severity**: medium
+- **Evidence**:
+  ```python
+  if val_str.startswith("[") and "]" not in val_str:
+      while i &lt; len(lines):
+          val_str += " " + lines[i].strip()
+          i += 1
+          if "]" in val_str:
+              break
+  ```
+- **Why it's a problem**: If any element in the multi-line array contains a `]` character (e.g., a string value like `"foo]bar"` or a nested array), the loop will terminate prematurely at the wrong `]`. For example:
+  ```toml
+  deps = [
+      "package[extras]",
+      "other-package"
+  ]
+  ```
+  The `]` in `"package[extras]"` would cause early termination, losing `"other-package"`. PEP 508 extras syntax (`package[extra]`) is common in Python dependency lists, making this a realistic failure mode in `pyproject.toml` files.
+
+---
+
+### Finding 13: `_dep_name_from_pep508` splits on `[` which is wrong for packages with brackets in name
+
+- **File**: `src/shared/scripts/skf-shape-detect.py`, lines 329-332 (diff lines 345-348)
+- **Severity**: low
+- **Evidence**:
+  ```python
+  def _dep_name_from_pep508(spec: str) -&gt; str:
+      for ch in ("&gt;", "&lt;", "=", "!", "[", ";", " "):
+          spec = spec.split(ch, 1)[0]
+      return spec.strip().lower()
+  ```
+- **Why it's a problem**: This is actually correct -- PEP 508 package names cannot contain `[`, and `[` introduces extras. The split order doesn't matter since each iteration works on the already-split result. This is fine. **Retracted.**
+
+---
+
+### Finding 14: `_parse_cargo_toml` does not check workspace-level dependencies
+
+- **File**: `src/shared/scripts/skf-shape-detect.py`, lines 398-402 (diff lines 414-418)
+- **Severity**: medium
+- **Evidence**:
+  ```python
+  deps: set[str] = set()
+  for dep_key in ("dependencies", "dev-dependencies", "build-dependencies"):
+      section = data.get(dep_key, {})
+      if isinstance(section, dict):
+          deps.update(k.lower() for k in section)
+  ```
+- **Why it's a problem**: Modern Cargo workspaces define dependencies under `[workspace.dependencies]`, and member crates reference them with `package.workspace = true`. When a workspace `Cargo.toml` is parsed, it has no top-level `[dependencies]` section -- the parser finds zero deps, missing parser/framework signals. This means a Rust workspace with `pest` under `[workspace.dependencies]` would be classified as `unknown` or `library-API` instead of `language-reference`.
+
+---
+
+### Finding 15: Test `test_invalid_toml_manifest` may not trigger exit code 2 on Python 3.11+
+
+- **File**: `test/test-skf-shape-detect.py`, lines 994-999 (diff lines 1000-1005)
+- **Severity**: medium
+- **Evidence**:
+  ```python
+  def test_invalid_toml_manifest(self, tmp_path):
+      p = tmp_path / "pyproject.toml"
+      p.write_text("[[invalid\nbroken = ", encoding="utf-8")
+      with pytest.raises(SystemExit) as exc_info:
+          mod.detect(REPO_URL, [str(p)])
+      assert exc_info.value.code == 2
+  ```
+- **Why it's a problem**: On Python 3.11+, `tomllib.loads()` is used. The content `"[[invalid\nbroken = "` is invalid TOML and `tomllib.loads()` will raise `tomllib.TOMLDecodeError`. The handler in `_parse_pyproject_toml` catches `Exception` in the second except clause, so it will be caught. This is actually fine. **Retracted.**
+
+---
+
+### Finding 16: `not has_bin` is always `True` in the library-API branch -- dead conditional
+
+- **File**: `src/shared/scripts/skf-shape-detect.py`, line 536 (diff line 552)
+- **Severity**: low
+- **Evidence**:
+  ```python
+  # 3. reference-app
+  if has_bin or has_framework:
+      ...
+  # 4. library-API
+  if has_library_structure or total_exports &gt; 0:
+      ...
+      if not has_bin:
+          base += 0.05
+  ```
+- **Why it's a problem**: If `has_bin` were `True`, the code would have matched step 3 (reference-app) and returned already. So at step 4, `has_bin` is always `False`, making `if not has_bin` always `True`. The `+= 0.05` always fires. This is dead logic that obscures the actual confidence calculation. A future maintainer might think removing the check changes behavior, when it doesn't.
+
+---
+
+## Summary of confirmed findings
+
+| # | Title | Severity | File |
+|---|-------|----------|------|
+| 1 | `_parse_manifest` has no guard after `_die()` -- `None` callable if `sys.exit` is mocked | medium | skf-shape-detect.py:438 |
+| 3 | Fallback TOML parser does not handle escape sequences in strings | medium | skf-shape-detect.py:176 |
+| 4 | `_split_preserving_nesting` does not handle escaped quotes | medium | skf-shape-detect.py:143 |
+| 5 | Numeric parsing in fallback TOML mishandles hex/underscore/special floats | low | skf-shape-detect.py:209 |
+| 7 | `export_count` is 0 when `exports: {}` + `main` exists; test enshrines the bug | medium | skf-shape-detect.py:310 |
+| 9 | `not has_bin` always True in library-API branch -- dead conditional | low | skf-shape-detect.py:536 |
+| 10 | Trailing comment stripping misses tab-prefixed comments | low | skf-shape-detect.py:268 |
+| 12 | Multi-line array collection breaks on `]` inside string values (PEP 508 extras) | medium | skf-shape-detect.py:275 |
+| 14 | Cargo workspace-level dependencies are ignored | medium | skf-shape-detect.py:398 |
+| 16 | Dead conditional `if not has_bin` in library-API branch | low | skf-shape-detect.py:536 |</result>
+<usage><total_tokens>36473</total_tokens><tool_uses>1</tool_uses><duration_ms>114992</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aef3c3c2ebef3dc88</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/e3283608-a194-4ffa-893d-a37a05b4664e/tasks/aef3c3c2ebef3dc88.output</output-file>
+<status>completed</status>
+<summary>Agent "Acceptance Auditor review" completed</summary>
+<result>Now I have a thorough understanding of the implementation. Here are my findings:
+
+---
+
+## Acceptance Audit Findings
+
+### 1. library-API confidence lower bound is below the spec range
+
+- **Violates:** Spec Dev Notes table -- library-API confidence range is `0.85-0.95`
+- **Evidence:** `_clamp(base, 0.60, 0.95)` at line 519 allows confidence as low as 0.60. For a library with `has_library_structure=True` and `total_exports &lt;= 10`, confidence is 0.80. For a library with `has_library_structure=False` (e.g., `{"main": "index.js"}` with no `name`), confidence is 0.65. The clamp lower bound is 0.60, far below 0.85.
+- **Expected per spec:** library-API confidence should be clamped to the 0.85-0.95 range. The implementation intentionally widened this to accommodate edge-case libraries with weak signals -- the completion notes call this "shape-specific base + signal-strength bonuses, clamped to documented ranges" but the actual clamp range (0.60-0.95) contradicts the documented range (0.85-0.95).
+- **Severity:** Medium. The spec table is advisory ("the dev agent should refine"), and the completion notes acknowledge this was an intentional design choice. The tests validate against `&gt;= 0.75` and `&gt;= 0.85` for different sub-cases rather than `&gt;= 0.85` uniformly. The deviation is defensible for weak-signal libraries but should be acknowledged explicitly.
+
+### 2. Unused `import re` statement
+
+- **Violates:** General code quality / lint expectations
+- **Evidence:** Line 51: `import re` -- but `re.` is never referenced anywhere in the script.
+- **Expected:** Remove the dead import. This will likely trigger a lint failure if the project has an import-order or unused-import linter.
+- **Severity:** Low. No behavioral impact but may cause CI lint failures.
+
+### 3. reference-app confidence lower bound is correct (no finding -- for completeness)
+
+- The spec says 0.80-0.90. The implementation uses `_clamp(0.80 + (strength - 1) * 0.05, 0.80, 0.90)` which produces exactly the 0.80-0.90 range. This matches.
+
+### 4. language-reference confidence range matches spec (no finding -- for completeness)
+
+- The spec says 0.75-0.85. The implementation uses `_clamp(0.75 + len(parser_deps) * 0.05, 0.75, 0.85)`. With 1 parser dep = 0.80, with 2+ = 0.85 (capped). This matches.
+
+### 5. stack-compose confidence range matches spec (no finding -- for completeness)
+
+- The spec says 0.80-0.90. The implementation uses `_clamp(0.80 + (len(ecosystems) - 2) * 0.05, 0.80, 0.90)`. With 2 ecosystems = 0.80, with 3 = 0.85, with 4+ = 0.90 (capped). This matches.
+
+### 6. unknown confidence is 0.0 -- within spec range but always at the floor
+
+- **Violates:** Minor deviation from spec intent
+- **Evidence:** Line 524: `"confidence": 0.0` -- hardcoded rather than computed from signal quality. The spec says 0.0-0.3 for unknown, allowing some graduation based on "conflicting signals" or "insufficient data."
+- **Expected per spec:** Unknown shape confidence should potentially vary (e.g., 0.1 if some weak signals exist, 0.2 for conflicting signals). Currently always 0.0.
+- **Severity:** Very low. The spec says "0.0-0.3" and 0.0 is within range. The constant value is defensible for an `unknown` fallback.
+
+### 7. AC1 -- PASS
+
+- The output schema `{shape, signals, confidence, export_count, package_count}` is correct. Shape enum values match. Exit code 0 for classified shapes. CLI syntax matches exactly.
+
+### 8. AC2 -- PASS
+
+- Unknown shape returns exit code 1. Tested in both pure-function (`TestUnknown`) and subprocess (`test_cli_unknown_exit_1`) tests.
+
+### 9. AC3 -- PASS
+
+- Invalid repo URL (missing `--repo-url`) and missing manifest paths produce stderr JSON `{"error": "...", "code": "ERROR_TYPE"}` with exit code 2. Tested via `TestErrors` class and `test_cli_error_exit_2`, `test_cli_missing_repo_url`, `test_cli_missing_manifests`.
+
+### 10. AC4 -- PASS
+
+- Test file is at `test/test-skf-shape-detect.py`. It is registered in `package.json`'s `test:python` script (appended at the end of the test path list). 40 tests cover all shapes, errors, edge cases, and 6 subprocess CLI tests.
+
+### 11. Heuristic ladder order matches spec -- PASS
+
+- Order: (1) language-reference, (2) stack-compose, (3) reference-app, (4) library-API, (5) unknown. Matches the spec's five-shape ladder. Tests explicitly verify precedence (`test_parser_dep_beats_framework_dep`, `test_stack_compose_beats_reference_app`).
+
+### 12. Manifest parsing extracts all specified fields -- PASS
+
+- **package.json:** `name`, `version` (via `data.get`), `main`, `module`, `exports`, `bin`, `dependencies`, `devDependencies`, `peerDependencies` -- all extracted.
+- **pyproject.toml:** `[project]` name/version/dependencies, `[tool.poetry.dependencies]` -- all extracted. `[project.scripts]` and `[project.gui-scripts]` used for export count.
+- **Cargo.toml:** `[package]` name/version, `[dependencies]`/`[dev-dependencies]`/`[build-dependencies]`, `[workspace]` members, `[lib]`, `[[bin]]` -- all extracted.
+
+### 13. Export count computation matches spec -- PASS
+
+- **npm:** Keys in `exports` field; fallback to 1 if `main`/`module` present. Matches.
+- **Python:** `[project.scripts]` + `[project.gui-scripts]` count; fallback to 1 if package name present. Matches.
+- **Rust:** `[lib]` (1) + `[[bin]]` targets count. Matches.
+
+### 14. Cross-platform requirements -- PASS
+
+- `encoding="utf-8"` on all `read_text()` and `write_text()` calls (both script and tests). 
+- `Path.as_posix()` used in error messages (lines 282, 302, 341, 345, 369, 391, 436).
+- No file writing in the script itself, so `O_BINARY` is not applicable.
+
+### 15. Python `[project.scripts]` intentionally not treated as `has_bin` -- ACCEPTABLE DEVIATION
+
+- **Relates to:** Spec Dev Notes "reference-app" shape signals
+- **Evidence:** `_parse_pyproject_toml` returns `"has_bin": False` unconditionally. The completion notes explain: "Python `[project.scripts]` entries intentionally NOT treated as `has_bin` -- they contribute to export_count only, avoiding false reference-app classification for library CLIs (e.g. pytest)."
+- **Assessment:** This is a reasonable domain-specific refinement. The spec's "reference-app" signals list does not explicitly mention Python scripts/console_scripts as bin signals, and the heuristic table's `has_bin` refers to npm's `bin` field. The decision is documented.
+
+### 16. `cargo.toml` (lowercase) manifests not recognized
+
+- **Violates:** Potential cross-platform issue (not explicitly in spec, but related to robustness)
+- **Evidence:** `_PARSERS` dict uses `"Cargo.toml"` as the key. `_parse_manifest` does `_PARSERS.get(path.name)`, which is case-sensitive. On case-insensitive filesystems (macOS/Windows), the actual filename might be `Cargo.toml`, but if a caller passes a path with `cargo.toml`, it would be rejected as unsupported.
+- **Expected:** This matches Rust convention -- `Cargo.toml` is always capitalized. Not a real issue.
+- **Severity:** None (informational only).
+
+---
+
+## Summary
+
+**Blocking findings: 0**
+
+**Non-blocking findings:**
+
+1. **library-API confidence lower bound (0.60) deviates from spec table (0.85)** -- Medium severity. Intentional widening to handle weak-signal libraries, documented in completion notes. The spec table says "the dev agent should refine," so this is within the agent's discretion, but the clamp range (0.60-0.95) is notably broader than the spec's 0.85-0.95.
+
+2. **Unused `import re`** -- Low severity. Dead import, may trigger lint. Should be removed.
+
+3. **Unknown confidence always 0.0** -- Very low severity. Within the 0.0-0.3 spec range but does not graduate based on signal quality. Acceptable for MVP.
+
+All four acceptance criteria are met. The heuristic ladder order, manifest parsing, export count computation, cross-platform requirements, test coverage (40 tests including 6 subprocess tests), and `package.json` registration all conform to the spec.</result>
+<usage><total_tokens>56209</total_tokens><tool_uses>8</tool_uses><duration_ms>112819</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>abea7d37464b1b356</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/e3283608-a194-4ffa-893d-a37a05b4664e/tasks/abea7d37464b1b356.output</output-file>
+<status>completed</status>
+<summary>Agent "Edge Case Hunter review" completed</summary>
+<result>Now I have a thorough understanding of all the edge cases. Let me compile the findings.
+
+---
+
+## Edge Case Findings for `skf-shape-detect.py`
+
+- **1. Unhandled non-object JSON root in package.json crashes with AttributeError**
+  - File: `src/shared/scripts/skf-shape-detect.py`, line 279 (`data.get(...)`)
+  - Severity: **high**
+  - Scenario: A `package.json` containing a JSON array (`[1,2,3]`) or `null` at the root level passes `json.loads` successfully but then crashes on `data.get("dependencies")` with an `AttributeError` because lists and `NoneType` have no `.get()` method. The `except` clause on line 281 only catches `OSError` and `json.JSONDecodeError`, not `AttributeError`.
+  - Expected: `_die()` with exit code 2 and a `MANIFEST_PARSE_ERROR` JSON error on stderr.
+  - Actual: Unhandled `AttributeError` traceback on stderr, exit code 1 (Python's default for unhandled exceptions).
+  - Test covers it: **no**
+
+- **2. Unused `import re` -- dead code**
+  - File: `src/shared/scripts/skf-shape-detect.py`, line 51
+  - Severity: **low**
+  - Scenario: The `re` module is imported but never referenced anywhere in the script. This is likely leftover from an earlier draft or copied from `skf-recommend-scope-type.py` (which does use `re`).
+  - Expected: No unused imports.
+  - Actual: `import re` has no references. A linter would flag this.
+  - Test covers it: **no**
+
+- **3. Python CLI projects with `[project.scripts]` are never classified as `reference-app`**
+  - File: `src/shared/scripts/skf-shape-detect.py`, line 359 (`"has_bin": False` hardcoded)
+  - Severity: **medium**
+  - Scenario: A Python project that is purely a CLI tool (e.g. `[project.scripts] my-cli = "pkg:main"`) with no framework deps (no fastapi/flask/django) will never hit the `reference-app` heuristic because `has_bin` is hardcoded to `False` for all Python manifests. It falls through to `library-API` instead.
+  - Expected: A Python CLI tool should arguably be classified as `reference-app`, consistent with how npm `"bin"` and Rust `[[bin]]` are treated.
+  - Actual: Always classified as `library-API` with confidence 0.80 (no way to reach `reference-app` without a framework dep).
+  - Test covers it: **no** (no test for a Python project with scripts but no framework deps)
+
+- **4. String-valued `"exports"` field yields `export_count=0` despite being a valid Node.js exports declaration**
+  - File: `src/shared/scripts/skf-shape-detect.py`, lines 291-296
+  - Severity: **low**
+  - Scenario: Node.js allows `"exports": "./index.js"` (a string, not an object). The code only counts exports when `isinstance(exports_field, dict)`. A string exports field sets `export_count=0` but still sets `has_library_structure=True` (because the string is truthy). The shape classification is correct (`library-API`), but `export_count` is inaccurate.
+  - Expected: `export_count` should be 1 for a string exports field.
+  - Actual: `export_count` is 0. The final shape is still correct because `has_library_structure` is True.
+  - Test covers it: **no**
+
+- **5. TOML fallback parser truncates multi-line arrays when a comment contains `]`**
+  - File: `src/shared/scripts/skf-shape-detect.py`, lines 256-260
+  - Severity: **low** (only affects Python &lt; 3.11 where `tomllib` is unavailable; CI runs 3.12)
+  - Scenario: A multi-line array like `dependencies = [\n "requests", # version [2.28]\n "flask",\n]` causes the fallback parser to stop accumulating at the `]` inside the comment on line 2, producing `["requests"]` instead of `["requests", "flask"]`. The comment-stripping logic on lines 249-252 is intentionally skipped for values starting with `[`.
+  - Expected: All items in the multi-line array are parsed.
+  - Actual: Items after a comment containing `]` are silently dropped. This can cause missing dependency detection and misclassification on Python 3.9/3.10.
+  - Test covers it: **no**
+
+- **6. CLI `--manifests` splitting on comma breaks paths that contain commas**
+  - File: `src/shared/scripts/skf-shape-detect.py`, line 548 (`args.manifests.split(",")`)
+  - Severity: **low** (commas in filesystem paths are rare but not impossible)
+  - Scenario: A manifest path like `/tmp/my,project/package.json` would be split into `["/tmp/my", "project/package.json"]`, both of which are invalid paths, producing a `MANIFEST_NOT_FOUND` error that is misleading about the cause.
+  - Expected: The path is treated as a single manifest.
+  - Actual: The path is split into two invalid paths. The error message says "Manifest not found" without indicating the comma-splitting is the cause.
+  - Test covers it: **no**
+
+- **7. `_split_preserving_nesting` depth can go negative on unbalanced closing braces**
+  - File: `src/shared/scripts/skf-shape-detect.py`, lines 139-140
+  - Severity: **low** (only triggered by malformed TOML values, and only on Python &lt; 3.11 fallback path)
+  - Scenario: A TOML value with unbalanced closing braces (e.g. `}a, b}`) causes `depth` to go below 0, which means subsequent commas at depth -1 are not treated as separators. The function returns the entire string as one element instead of splitting it.
+  - Expected: Either graceful handling (clamp depth to 0) or a parse error.
+  - Actual: Silent misparse -- commas stop being recognized as separators after an unbalanced `}` or `]`. In practice, `_decode_toml_value` would receive the unsplit string and interpret it as a bare string, which would then be stored as a dep key. Unlikely to cause a shape misclassification but could produce garbage dep names.
+  - Test covers it: **no**
+
+- **8. Empty exports dict with `main` field reports `export_count=0` when logically there is 1 export**
+  - File: `src/shared/scripts/skf-shape-detect.py`, lines 291-296
+  - Severity: **low**
+  - Scenario: `{"exports": {}, "main": "index.js"}` -- the `isinstance(exports_field, dict)` check is true so `export_count = len({}) = 0`. The `elif` branch that would check for `main`/`module` and set `export_count=1` is never reached. The `has_library_structure` is still truthy (because `main` is truthy), so the final shape is correct. But the reported `export_count` is inaccurate.
+  - Expected: `export_count=1` since `main` declares an export.
+  - Actual: `export_count=0`. The test at line 430 explicitly asserts this value, confirming it is the intended behavior, though it is semantically surprising.
+  - Test covers it: **yes** (the test asserts the current behavior; this is a design note, not a bug)</result>
+<usage><total_tokens>76303</total_tokens><tool_uses>46</tool_uses><duration_ms>347835</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b81ifv7ds</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/e3283608-a194-4ffa-893d-a37a05b4664e/tasks/b81ifv7ds.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full test suite to verify no regressions" completed (exit code 0)</summary>
+</task-notification>
