@@ -22,6 +22,122 @@ To automatically scope a repo using shape detection and export surface analysis,
 
 ## MANDATORY SEQUENCE
 
+### 0. URL Type Detection
+
+Read the target URL or path from the pipeline context (`{project_path}` or the first entry in `project_paths[]`).
+
+Apply the following heuristic to classify the input:
+
+| Input Pattern | Classification | Route |
+|---------------|---------------|-------|
+| `github.com/{owner}/{repo}` (with or without `.git` suffix, with or without scheme prefix) | GitHub repo | §1 (standard auto-scope) |
+| `gitlab.com/...`, `bitbucket.org/...` | Git hosting | §1 (standard auto-scope) |
+| Starts with `/`, `./`, `~/`, or `~` | Local filesystem path | §1 (standard auto-scope) |
+| Any other `https://` or `http://` URL | Documentation URL | §0a (docs-only) |
+| Anything else (SSH URLs, `git://`, bare hostnames, etc.) | Unclassified | §1 (standard auto-scope) |
+
+If the input is classified as a documentation URL, continue to §0a.
+
+For all other classifications (repo URL, local path, or unclassified), continue to §1 without further action.
+
+### 0a. Docs-Only Short-Circuit
+
+This section handles documentation URLs that are not GitHub repos or local paths. It validates the URL, writes a minimal brief and analysis report, emits the envelope, and chains directly to health-check — skipping §1 through §11 entirely.
+
+**1. Validate URL reachability:**
+
+```bash
+curl -sI --max-time 5 {url}
+```
+
+- On **2xx/3xx** response: URL is reachable. Continue.
+- On **4xx/5xx**, DNS failure, or timeout: HARD HALT with exit code 3 (`resolution-failure`). Emit error message: `"Documentation URL unreachable: {url} — {status or error}"`. Emit error envelope:
+  ```
+  SKF_ANALYZE_RESULT_JSON: {"status":"error","report_path":null,"brief_paths":[],"unit_counts":{"confirmed":0,"skipped":0,"maybe":0},"exit_code":3,"halt_reason":"path-invalid","mode":"auto","source_type":"docs-only"}
+  ```
+
+**2. Derive skill name from URL domain:**
+
+Extract the hostname from the URL (e.g., `docs.example.com` from `https://docs.example.com/guide/intro`), convert to kebab-case (replace `.` with `-`), yielding e.g. `docs-example-com`.
+
+**3. Write analysis report:**
+
+Update {outputFile} with docs-only results.
+
+**Update frontmatter:**
+```yaml
+stepsCompleted: ['init', 'auto-scope']
+lastStep: 'auto-scope'
+source_type: docs-only
+confirmed_units:
+  - name: '{skill_name}'
+    shape: 'docs-only'
+    confidence: 1.0
+    export_count: 0
+    package_count: 0
+```
+
+**Append body section:**
+```markdown
+## Auto-Scope Analysis
+
+**Mode:** auto (docs-only short-circuit)
+**Source Type:** docs-only
+**Documentation URL:** {url}
+**Skill Name:** {skill_name}
+```
+
+**4. Write skill brief via canonical writer:**
+
+Create directory `{forge_data_folder}/{skill_name}/` if it does not exist.
+
+Write `{forge_data_folder}/{skill_name}/skill-brief.yaml` through the canonical writer (`skf-write-skill-brief.py`) with the following context:
+
+```json
+{
+  "name":             "{skill_name}",
+  "target_version":   null,
+  "detected_version": null,
+  "source_type":      "docs-only",
+  "source_repo":      "{url}",
+  "language":         "",
+  "description":      "Skill created from documentation at {url}",
+  "forge_tier":       "{forge_tier}",
+  "created":          "{current_date}",
+  "created_by":       "{user_name}",
+  "scope_type":       "docs-only",
+  "scope_include":    [],
+  "scope_exclude":    [],
+  "scope_notes":      "Docs-only skill created from documentation URL",
+  "scope_rationale":  null,
+  "scope_tier_a_include": null,
+  "scope_amendments":     null,
+  "doc_urls":         [{"url": "{url}", "label": "Primary Documentation"}],
+  "scripts_intent":   null,
+  "assets_intent":    null,
+  "source_authority": "community",
+  "target_ref":       null,
+  "source_ref":       null,
+  "version_resolved": "1.0.0"
+}
+```
+
+**5. Emit success envelope:**
+
+```
+SKF_ANALYZE_RESULT_JSON: {"status":"success","report_path":"{outputFile_path}","brief_paths":["{brief_path}"],"unit_counts":{"confirmed":1,"skipped":0,"maybe":0},"exit_code":0,"halt_reason":null,"mode":"auto","source_type":"docs-only"}
+```
+
+The `source_type` field signals downstream consumers (BS) to skip repo-based enrichment.
+
+**6. Write result contract** per `shared/references/output-contract-schema.md`: the per-run record and latest copy, same as §10.
+
+If `{onCompleteCommand}` is non-empty, invoke it now with `--result-path={result_json_path}`.
+
+**7. Chain to health check:**
+
+Load, read fully, then execute {nextStepFile} to run the shared workflow health check. **Skip §1 through §11 entirely.**
+
 ### 1. Load Context
 
 Read {outputFile} frontmatter to obtain:

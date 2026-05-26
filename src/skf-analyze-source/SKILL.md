@@ -34,7 +34,7 @@ These rules apply to every step in this workflow:
 | # | Step | File | Auto-proceed | Condition |
 |---|------|------|--------------|-----------|
 | 1 | Initialize | references/init.md | Yes | Always |
-| 1a | Auto-Scope | references/step-auto-scope.md | Yes | `[auto]` mode only |
+| 1a | Auto-Scope | references/step-auto-scope.md | Yes | `[auto]` mode only. Includes §0 docs-only URL detection — doc URLs short-circuit auto-scope entirely |
 | 1b | Continue (session resume) | references/continue.md | Yes | Always |
 | 2 | Scan Project | references/scan-project.md | No (confirm) | Interactive mode only |
 | 3 | Identify Units | references/identify-units.md | No (confirm) | Interactive mode only |
@@ -43,7 +43,7 @@ These rules apply to every step in this workflow:
 | 6 | Generate Briefs | references/generate-briefs.md | Yes | Interactive mode only |
 | 7 | Workflow Health Check | references/health-check.md | Yes | Always |
 
-**Auto mode path:** When `[auto]` flag is present, init (step 1) routes directly to step 1a, which performs manifest scan → shape detection → scope generation → brief write → health check, bypassing steps 2–6. Auto-scope may produce N > 1 confirmed units when decomposition thresholds are met (`export_count > 500` `[PENDING VALIDATION]` or `package_count > 3` `[PENDING VALIDATION]`), resulting in N briefs and N `brief_paths` in the envelope.
+**Auto mode path:** When `[auto]` flag is present, init (step 1) routes directly to step 1a, which performs manifest scan → shape detection → scope generation → brief write → health check, bypassing steps 2–6. Auto-scope may produce N > 1 confirmed units when decomposition thresholds are met (`export_count > 500` `[PENDING VALIDATION]` or `package_count > 3` `[PENDING VALIDATION]`), resulting in N briefs and N `brief_paths` in the envelope. When the target is a documentation URL (not a GitHub repo or local path), auto-scope detects the docs-only input at §0, validates URL reachability, writes a docs-only brief, and emits the envelope without performing source analysis.
 
 **Shape detection reference:** `references/step-shape-detect.md` — loaded by step 1a as a reference doc (not a chained step).
 
@@ -51,8 +51,8 @@ These rules apply to every step in this workflow:
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | project_path [required], scope_hint [optional] |
-| **Headless inputs** | `--project-path <path>` (skip Step 1 project-path prompt), `--scope-hint <text>` (skip Step 1 scope-hint prompt), `--intent-hint <text>` (pre-supply analysis intent; drives recommendation ranking in Step 5) |
+| **Inputs** | project_path [required], scope_hint [optional]. `project_path` can be a GitHub repo URL, a local filesystem path, or a documentation URL for docs-only mode. The URL type heuristic at §0 determines the mode. |
+| **Headless inputs** | `--project-path <path>` (skip Step 1 project-path prompt; accepts documentation URLs for docs-only mode), `--scope-hint <text>` (skip Step 1 scope-hint prompt), `--intent-hint <text>` (pre-supply analysis intent; drives recommendation ranking in Step 5) |
 | **Headless flag** | `--headless` / `-H` flips every confirm gate to auto-proceed |
 | **Auto flag** | `[auto]` bracket modifier — activates auto-scope mode (step 1a). Pipelines pass this as `AN[auto]`. When active, init routes to `step-auto-scope.md` which performs shape detection → scope generation → brief write, bypassing interactive steps 2–6. Requires `--project-path`. |
 | **Gates** | step 2: Confirm Gate [C] | step 3: Confirm Gate [C] | step 5: Confirm Gate [C] (all skipped in auto mode) |
@@ -68,7 +68,7 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 | ---- | -------------------- | ------------------------------------------------------------------------------------------ |
 | 0    | success              | step 7 (terminal — health check completion)                                               |
 | 2    | input-missing        | step 1 §2-3 — required config absent (config.yaml not loadable, project path empty/invalid in headless mode); step 1 §2b — auto mode without `--project-path` |
-| 3    | resolution-failure   | step 1 §2 (`forge-tier.yaml` missing at `{sidecar_path}/forge-tier.yaml`); step 1 §3 (project path does not exist or remote URL inaccessible); step 1a §3 (shape detection script error, exit code 2) |
+| 3    | resolution-failure   | step 1 §2 (`forge-tier.yaml` missing at `{sidecar_path}/forge-tier.yaml`); step 1 §3 (project path does not exist or remote URL inaccessible); step 1a §0a (docs-only URL unreachable); step 1a §3 (shape detection script error, exit code 2) |
 | 4    | write-failure        | step 1 §6 (analysis report write failed); step 6 §5 (skill-brief.yaml write failed); step 6 §9 (result contract write failed) |
 | 6    | user-cancelled       | any interactive menu in steps 2/3/5/6 (user selected `[X]` Cancel and exit)               |
 

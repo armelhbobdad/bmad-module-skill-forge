@@ -65,6 +65,8 @@ Extract from the parsed brief:
 - All scope fields: `scope.include`, `scope.exclude`, `scope.notes`, `scope.rationale`, `scope.amendments`, `scope.tier_a_include`
 - Optional fields: `source_type`, `source_authority`, `doc_urls`, `target_version`, `target_ref`, `source_ref`, `scripts_intent`, `assets_intent`
 
+**Docs-only check:** If `source_type` is `docs-only` in the parsed brief, skip §2 (Run Doc Detection) and §3 (Enrich Brief with Detected Docs) — the doc URL is already in the brief's `doc_urls`. Log: "Docs-only brief — skipping repo-based doc detection. Doc URLs provided by upstream." Proceed directly to §4 (Validate Enriched Brief). All brief fields (`source_type`, `source_authority`, `doc_urls`, `scope_type`) must pass through unmodified.
+
 ### 2. Run Doc Detection
 
 Invoke doc detection to discover documentation URLs for the source repo:
