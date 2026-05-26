@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "befb51250665",
+  "session_id": "00d89f9b-5405-4bcc-b524-e394dc84603e",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T15:34:08.467003515Z",
+  "branch": "deepwiki-zero-ceremony-skill-creation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/bmad-synergy.md",
+    "docs/deepwiki.md",
+    "docs/workflows.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "64ce3b7cd695",
+  "token_usage": {
+    "input_tokens": 4070,
+    "cache_creation_tokens": 64565,
+    "cache_read_tokens": 1421934,
+    "output_tokens": 11192,
+    "api_call_count": 23
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T15:34:08.087894907Z",
+    "agent_lines": 118,
+    "human_added": 1,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 119,
+    "agent_percentage": 99.15966386554622
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "befb51250665",
+  "strategy": "manual-commit",
+  "branch": "deepwiki-zero-ceremony-skill-creation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/bmad-synergy.md",
+    "docs/deepwiki.md",
+    "docs/workflows.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/be/fb51250665/0/metadata.json",
+      "transcript": "/be/fb51250665/0/full.jsonl",
+      "context": "/be/fb51250665/0/context.md",
+      "content_hash": "/be/fb51250665/0/content_hash.txt",
+      "prompt": "/be/fb51250665/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 4070,
+    "cache_creation_tokens": 64565,
+    "cache_read_tokens": 1421934,
+    "output_tokens": 11192,
+    "api_call_count": 23
+  }
+}
