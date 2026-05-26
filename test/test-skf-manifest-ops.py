@@ -287,3 +287,138 @@ class TestManifestOps:
         assert proc.returncode == 0, proc.stderr
         entry = mod.cmd_get(manifest_path, "cocoindex")["entry"]["versions"]["2.0.0"]
         assert entry["ides"] == ["claude-code", "cursor"]
+
+    def test_set_archives_double_stranded_active_versions(self, manifest_path):
+        """S20: two stranded active versions exist; setting a new version archives both."""
+        data = {
+            "schema_version": "2",
+            "exports": {
+                "cocoindex": {
+                    "active_version": "3.0.0",
+                    "versions": {
+                        "1.0.0": {"ides": ["cursor"], "last_exported": "2026-01-01", "status": "active"},
+                        "2.0.0": {"ides": ["claude-code"], "last_exported": "2026-03-01", "status": "active"},
+                        "3.0.0": {"ides": [], "last_exported": "2026-05-01", "status": "archived"},
+                    },
+                }
+            },
+        }
+        manifest_path.write_text(json.dumps(data), encoding="utf-8")
+        mod.cmd_set(manifest_path, "cocoindex", "4.0.0")
+        entry = mod.cmd_get(manifest_path, "cocoindex")["entry"]
+        versions = entry["versions"]
+        assert entry["active_version"] == "4.0.0"
+        assert versions["1.0.0"]["status"] == "archived"
+        assert versions["2.0.0"]["status"] == "archived"
+        assert versions["3.0.0"]["status"] == "archived"
+        assert versions["4.0.0"]["status"] == "active"
+        active = [v for v, e in versions.items() if e["status"] == "active"]
+        assert active == ["4.0.0"]
+
+    def test_set_same_version_idempotent(self, manifest_path):
+        """S21: setting the same version twice is idempotent — single active, no state change."""
+        mod.cmd_set(manifest_path, "cocoindex", "2.0.0")
+        mod.cmd_set(manifest_path, "cocoindex", "2.0.0")
+        entry = mod.cmd_get(manifest_path, "cocoindex")["entry"]
+        versions = entry["versions"]
+        assert entry["active_version"] == "2.0.0"
+        assert versions["2.0.0"]["status"] == "active"
+        active = [v for v, e in versions.items() if e["status"] == "active"]
+        assert active == ["2.0.0"]
+
+    def test_set_first_version_on_empty_skill(self, manifest_path):
+        """S22: set on a skill with zero prior versions creates the first version correctly."""
+        manifest_path.write_text(json.dumps({"schema_version": "2", "exports": {}}), encoding="utf-8")
+        mod.cmd_set(manifest_path, "newskill", "1.0.0")
+        entry = mod.cmd_get(manifest_path, "newskill")["entry"]
+        versions = entry["versions"]
+        assert entry["active_version"] == "1.0.0"
+        assert len(versions) == 1
+        assert versions["1.0.0"]["status"] == "active"
+
+    def test_cli_set_stranded_active_version(self, manifest_path):
+        """S23: CLI E2E — subprocess set on pre-advanced manifest archives the stranded version."""
+        data = {
+            "schema_version": "2",
+            "exports": {
+                "cocoindex": {
+                    "active_version": "2.1.0",
+                    "versions": {
+                        "2.0.0": {"ides": ["claude-code"], "last_exported": "2026-05-01", "status": "active"},
+                    },
+                }
+            },
+        }
+        manifest_path.write_text(json.dumps(data), encoding="utf-8")
+        script = Path(__file__).parent.parent / "src" / "shared" / "scripts" / "skf-manifest-ops.py"
+        proc = subprocess.run(
+            [sys.executable, str(script), str(manifest_path.parent), "set", "cocoindex", "2.1.0"],
+            capture_output=True, text=True, timeout=30,
+        )
+        assert proc.returncode == 0, proc.stderr
+        result = json.loads(proc.stdout)
+        assert result["status"] == "ok"
+        entry = mod.cmd_get(manifest_path, "cocoindex")["entry"]
+        assert entry["active_version"] == "2.1.0"
+        assert entry["versions"]["2.0.0"]["status"] == "archived"
+        assert entry["versions"]["2.1.0"]["status"] == "active"
+        active = [v for v, e in entry["versions"].items() if e["status"] == "active"]
+        assert active == ["2.1.0"]
+
+    def test_set_multi_skill_isolation(self, manifest_path):
+        """S24: archiving actives in one skill does not affect another skill's versions."""
+        mod.cmd_set(manifest_path, "alpha", "1.0.0")
+        mod.cmd_set(manifest_path, "beta", "1.0.0")
+        mod.cmd_set(manifest_path, "alpha", "2.0.0")
+        alpha = mod.cmd_get(manifest_path, "alpha")["entry"]
+        beta = mod.cmd_get(manifest_path, "beta")["entry"]
+        assert alpha["active_version"] == "2.0.0"
+        assert alpha["versions"]["1.0.0"]["status"] == "archived"
+        assert alpha["versions"]["2.0.0"]["status"] == "active"
+        assert beta["active_version"] == "1.0.0"
+        assert beta["versions"]["1.0.0"]["status"] == "active"
+
+    def test_set_after_deprecate_all(self, manifest_path):
+        """S25: setting a new version after deprecating all versions activates it correctly."""
+        mod.cmd_set(manifest_path, "cocoindex", "1.0.0")
+        mod.cmd_deprecate(manifest_path, "cocoindex")
+        mod.cmd_set(manifest_path, "cocoindex", "2.0.0")
+        entry = mod.cmd_get(manifest_path, "cocoindex")["entry"]
+        assert entry["active_version"] == "2.0.0"
+        assert entry["versions"]["1.0.0"]["status"] == "deprecated"
+        assert entry["versions"]["2.0.0"]["status"] == "active"
+
+    def test_set_on_v1_migrated_manifest(self, manifest_path):
+        """S26: set on a freshly-migrated v1 manifest archives the old active correctly."""
+        v1_data = {
+            "exports": {
+                "cocoindex": {
+                    "active_version": "1.0.0",
+                    "versions": ["1.0.0", "0.9.0"],
+                    "deprecated": False,
+                }
+            },
+            "updated_at": "2026-01-01T00:00:00+00:00",
+        }
+        manifest_path.write_text(json.dumps(v1_data), encoding="utf-8")
+        mod.cmd_set(manifest_path, "cocoindex", "2.0.0")
+        entry = mod.cmd_get(manifest_path, "cocoindex")["entry"]
+        assert entry["active_version"] == "2.0.0"
+        assert entry["versions"]["1.0.0"]["status"] == "archived"
+        assert entry["versions"]["0.9.0"]["status"] == "archived"
+        assert entry["versions"]["2.0.0"]["status"] == "active"
+        active = [v for v, e in entry["versions"].items() if e["status"] == "active"]
+        assert active == ["2.0.0"]
+
+    def test_read_manifest_single_active_invariant(self, manifest_path):
+        """S27: full manifest read after multiple operations shows single-active per skill."""
+        mod.cmd_set(manifest_path, "alpha", "1.0.0")
+        mod.cmd_set(manifest_path, "alpha", "2.0.0")
+        mod.cmd_set(manifest_path, "beta", "1.0.0")
+        mod.cmd_deprecate(manifest_path, "beta", "1.0.0")
+        mod.cmd_set(manifest_path, "beta", "2.0.0")
+        result = mod.cmd_read(manifest_path)
+        assert result["status"] == "ok"
+        for skill_name, entry in result["manifest"]["exports"].items():
+            active = [v for v, e in entry["versions"].items() if e["status"] == "active"]
+            assert len(active) == 1, f"{skill_name} has {len(active)} active versions: {active}"
