@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "ff499338aca2",
+  "session_id": "fd0a7dfb-b142-4bd6-8dda-0350369f8bb6",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T14:51:02.738472804Z",
+  "branch": "deepwiki-zero-ceremony-skill-creation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/skf-validate-pins.py",
+    "test/test-skf-validate-pins.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "cbeb2d41fced",
+  "token_usage": {
+    "input_tokens": 15,
+    "cache_creation_tokens": 72683,
+    "cache_read_tokens": 929940,
+    "output_tokens": 13465,
+    "api_call_count": 14
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T14:51:02.414579962Z",
+    "agent_lines": 758,
+    "human_added": 56,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 814,
+    "agent_percentage": 93.12039312039312
+  }
+}
