@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "7394aafaca22",
+  "session_id": "648b7ea2-961b-46c4-8d8d-de7ad8842cd1",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T22:44:25.986987111Z",
+  "branch": "campaign-orchestration",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "package.json",
+    "src/skf-campaign/references/step-03-pins.md",
+    "src/skf-campaign/scripts/campaign-validate-pins.py",
+    "test/test-skf-campaign-pins.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "c5985794e8dd",
+  "checkpoint_transcript_start": 412,
+  "transcript_lines_at_start": 412,
+  "token_usage": {
+    "input_tokens": 5,
+    "cache_creation_tokens": 3194,
+    "cache_read_tokens": 474321,
+    "output_tokens": 3087,
+    "api_call_count": 5
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T22:44:25.637259367Z",
+    "agent_lines": 577,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 577,
+    "agent_percentage": 100
+  }
+}
