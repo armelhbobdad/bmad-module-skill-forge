@@ -3,7 +3,7 @@
   "checkpoint_id": "c4416668c5cb",
   "strategy": "manual-commit",
   "branch": "quality-scale-and-workaround-automation",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     "package.json",
     "src/shared/_known-workarounds.yaml",
@@ -31,13 +31,20 @@
       "context": "/c4/416668c5cb/2/context.md",
       "content_hash": "/c4/416668c5cb/2/content_hash.txt",
       "prompt": "/c4/416668c5cb/2/prompt.txt"
+    },
+    {
+      "metadata": "/c4/416668c5cb/3/metadata.json",
+      "transcript": "/c4/416668c5cb/3/full.jsonl",
+      "context": "/c4/416668c5cb/3/context.md",
+      "content_hash": "/c4/416668c5cb/3/content_hash.txt",
+      "prompt": "/c4/416668c5cb/3/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 245,
-    "cache_creation_tokens": 187837,
-    "cache_read_tokens": 49195499,
-    "output_tokens": 72616,
-    "api_call_count": 170
+    "input_tokens": 2121,
+    "cache_creation_tokens": 250814,
+    "cache_read_tokens": 50304781,
+    "output_tokens": 86736,
+    "api_call_count": 189
   }
 }
