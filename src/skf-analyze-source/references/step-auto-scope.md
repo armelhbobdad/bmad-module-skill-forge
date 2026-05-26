@@ -36,9 +36,68 @@ Apply the following heuristic to classify the input:
 | Any other `https://` or `http://` URL | Documentation URL | §0a (docs-only) |
 | Anything else (SSH URLs, `git://`, bare hostnames, etc.) | Unclassified | §1 (standard auto-scope) |
 
-If the input is classified as a documentation URL, continue to §0a.
+Store the classification result (documentation URL vs. repo/local/other). For all input types, continue to §0c (Coexistence Detection).
 
-For all other classifications (repo URL, local path, or unclassified), continue to §1 without further action.
+### 0c. Coexistence Detection
+
+This section checks for existing skills matching the target before proceeding. It runs for all input types (repo URLs, doc URLs, and local paths). Initialize `{coexistence_suffix}` as empty.
+
+**1. Load skill inventory:**
+
+```bash
+uv run python src/shared/scripts/skf-skill-inventory.py {skills_output_folder}
+```
+
+Parse the JSON output. If the exit code is non-zero or the `skills` array is empty, skip coexistence detection silently (no existing skills to conflict with) and continue to the next section: §0a for documentation URLs, §1 for all other input types.
+
+**2. Match target against existing skills:**
+
+For each skill in the inventory, check two match conditions (either triggers a hit):
+
+- **URL match:** Normalize both the target URL/path and the skill's `metadata.source_repo` — strip scheme (`http://`, `https://`), strip trailing `.git`, strip trailing `/`, compare case-insensitively. A match on the normalized values is a hit.
+- **Name match:** Derive the expected skill name from the target (same logic as §6 for repo URLs, §0a for doc URLs — kebab-case from the project/domain name), then compare against each skill's `name`.
+
+**3. If zero matches:**
+
+Complete silently. Continue to §0a for documentation URLs, §1 for all other input types. No user output.
+
+**4. If one or more matches — coexistence gate:**
+
+Present the user with the coexistence decision:
+
+```
+⚠️ Existing skill(s) found for {target_name}:
+
+  • {skill_name} (v{version}) — source: {source_repo}
+  [repeat for each match]
+
+Actions:
+  [A]longside — Create a new wiki skill with "-wiki" suffix (existing skill untouched)
+  [M]erge     — Update the existing skill via US workflow (wiki data enriches it)
+  [S]kip      — Do not create or modify any skill for this library
+
+Choose [A/M/S]:
+```
+
+In headless mode (`{headless_mode}` is true): auto-select `[A]longside` and log: "Headless: coexistence detected for {target_name}, auto-selecting [A]longside"
+
+**5. Handle user selection:**
+
+- **[A]longside:** Set `{coexistence_suffix}` to `-wiki`. Continue to §0a for documentation URLs, §1 for all other input types. The existing skill is untouched.
+
+- **[M]erge:** If multiple skills match, prompt the user to select which one to merge into before proceeding. Emit a redirect envelope signaling the forger to route to the US workflow for the selected skill:
+  ```
+  SKF_ANALYZE_RESULT_JSON: {"status":"redirect","redirect_to":"US","skill_name":"{matched_skill_name}","skill_path":"{matched_active_path}","exit_code":0,"halt_reason":null,"mode":"auto","coexistence":"merge"}
+  ```
+  Write the result contract per `shared/references/output-contract-schema.md` with `status: "redirect"`.
+  Chain to {nextStepFile} (health-check.md). **STOP HERE — do not proceed to §0a or §1.**
+
+- **[S]kip:** Emit a skip envelope:
+  ```
+  SKF_ANALYZE_RESULT_JSON: {"status":"skipped","report_path":null,"brief_paths":[],"unit_counts":{"confirmed":0,"skipped":1,"maybe":0},"exit_code":0,"halt_reason":null,"mode":"auto","coexistence":"skip","skipped_reason":"Existing skill for {matched_skill_name}"}
+  ```
+  Write the result contract with `status: "skipped"`.
+  Chain to {nextStepFile} (health-check.md). **STOP HERE — do not proceed to §0a or §1.**
 
 ### 0a. Docs-Only Short-Circuit
 
@@ -58,7 +117,7 @@ curl -sI --max-time 5 {url}
 
 **2. Derive skill name from URL domain:**
 
-Extract the hostname from the URL (e.g., `docs.example.com` from `https://docs.example.com/guide/intro`), convert to kebab-case (replace `.` with `-`), yielding e.g. `docs-example-com`.
+Extract the hostname from the URL (e.g., `docs.example.com` from `https://docs.example.com/guide/intro`), convert to kebab-case (replace `.` with `-`), yielding e.g. `docs-example-com`. If `{coexistence_suffix}` is non-empty, append it to the skill name (e.g., `docs-example-com-wiki`).
 
 **3. Write analysis report:**
 
@@ -127,6 +186,8 @@ Write `{forge_data_folder}/{skill_name}/skill-brief.yaml` through the canonical 
 ```
 SKF_ANALYZE_RESULT_JSON: {"status":"success","report_path":"{outputFile_path}","brief_paths":["{brief_path}"],"unit_counts":{"confirmed":1,"skipped":0,"maybe":0},"exit_code":0,"halt_reason":null,"mode":"auto","source_type":"docs-only"}
 ```
+
+If `{coexistence_suffix}` is non-empty (i.e., [A]longside was selected in §0c), include `"coexistence":"alongside"` in the envelope.
 
 The `source_type` field signals downstream consumers (BS) to skip repo-based enrichment.
 
@@ -239,7 +300,7 @@ scope:
   notes: 'Auto-scoped from shape detection (shape: {shape}, confidence: {confidence})'
 ```
 
-Determine the skill name from the project name or package name (kebab-case, lowercase). Use the manifest `name` field if available, otherwise derive from the project directory name.
+Determine the skill name from the project name or package name (kebab-case, lowercase). Use the manifest `name` field if available, otherwise derive from the project directory name. If `{coexistence_suffix}` is non-empty, append it to the skill name.
 
 Detect the primary language from the manifest ecosystem:
 - `npm` → `typescript` (or `javascript` if no `.ts` files in includes)
@@ -252,8 +313,8 @@ This section is reached only from §3a when one or both decomposition thresholds
 
 **Determine decomposition path:**
 
-- **Monorepo path** (`package_count > 3`): Use workspace package discovery from §2 manifest scan results. Each workspace package with its own manifest becomes a separate skill boundary. Name each skill as `{project_name}-{package_name}` (kebab-case). Trivial workspace members (no source files, no exports) are excluded.
-- **Large-export path** (`export_count > 500`, single package): Group by top-level source directory modules (e.g., `src/auth/`, `src/core/`, `src/api/`). Each directory subtree with a meaningful export surface becomes a separate skill boundary. Candidate boundaries with fewer than ~50 exports `[PENDING VALIDATION]` should be merged into an "other" catch-all skill rather than becoming standalone skills. Name each skill as `{project_name}-{module_name}` (kebab-case). If no clear module structure exists (flat `src/` with all files at root level), **do not force decomposition** — fall back to single-scope flow at §4.
+- **Monorepo path** (`package_count > 3`): Use workspace package discovery from §2 manifest scan results. Each workspace package with its own manifest becomes a separate skill boundary. Name each skill as `{project_name}-{package_name}` (kebab-case); if `{coexistence_suffix}` is non-empty, append it. Trivial workspace members (no source files, no exports) are excluded.
+- **Large-export path** (`export_count > 500`, single package): Group by top-level source directory modules (e.g., `src/auth/`, `src/core/`, `src/api/`). Each directory subtree with a meaningful export surface becomes a separate skill boundary. Candidate boundaries with fewer than ~50 exports `[PENDING VALIDATION]` should be merged into an "other" catch-all skill rather than becoming standalone skills. Name each skill as `{project_name}-{module_name}` (kebab-case); if `{coexistence_suffix}` is non-empty, append it. If no clear module structure exists (flat `src/` with all files at root level), **do not force decomposition** — fall back to single-scope flow at §4.
 - **Combined path** (both thresholds met): Use the monorepo path. Package boundaries are explicit and take priority over export-count grouping (which is heuristic).
 
 **Per-boundary shape→scope mapping:**
@@ -278,7 +339,7 @@ For each boundary, build a scope object following the same structure as §6.
 
 Include decomposition metadata in `scope.notes`: "Decomposed from {project_name} — boundary {i}/{N} ({reason})"
 
-Determine each boundary's skill name from the boundary-derived name (kebab-case, lowercase). Detect the primary language from each boundary's manifest ecosystem (same rules as §6).
+Determine each boundary's skill name from the boundary-derived name (kebab-case, lowercase). If `{coexistence_suffix}` is non-empty, append it to each skill name. Detect the primary language from each boundary's manifest ecosystem (same rules as §6).
 
 After building all N scopes, continue to §7 with the full set of boundaries.
 
@@ -397,6 +458,8 @@ SKF_ANALYZE_RESULT_JSON: {"status":"success","report_path":"{outputFile_path}","
 ```
 
 `brief_paths` contains N paths (one per confirmed unit). `unit_counts.confirmed` is N. The envelope JSON format is structurally unchanged — `brief_paths` was already an array and `unit_counts.confirmed` was already a number. No breaking change for downstream consumers.
+
+If `{coexistence_suffix}` is non-empty (i.e., [A]longside was selected in §0c), include `"coexistence":"alongside"` in the envelope.
 
 ### 10. Write Result Contract
 
