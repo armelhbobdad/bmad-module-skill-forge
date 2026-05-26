@@ -3,7 +3,7 @@
   "checkpoint_id": "70540efa4569",
   "strategy": "manual-commit",
   "branch": "quality-scale-and-workaround-automation",
-  "checkpoints_count": 0,
+  "checkpoints_count": 1,
   "files_touched": [
     "docs/verifying-a-skill.md",
     "docs/workflows.md"
@@ -15,13 +15,20 @@
       "context": "/70/540efa4569/0/context.md",
       "content_hash": "/70/540efa4569/0/content_hash.txt",
       "prompt": "/70/540efa4569/0/prompt.txt"
+    },
+    {
+      "metadata": "/70/540efa4569/1/metadata.json",
+      "transcript": "/70/540efa4569/1/full.jsonl",
+      "context": "/70/540efa4569/1/context.md",
+      "content_hash": "/70/540efa4569/1/content_hash.txt",
+      "prompt": "/70/540efa4569/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 91,
-    "cache_creation_tokens": 489866,
-    "cache_read_tokens": 37369508,
-    "output_tokens": 13807,
-    "api_call_count": 80
+    "input_tokens": 115,
+    "cache_creation_tokens": 621067,
+    "cache_read_tokens": 40053215,
+    "output_tokens": 28958,
+    "api_call_count": 103
   }
 }
