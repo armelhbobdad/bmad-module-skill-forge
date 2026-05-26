@@ -52,7 +52,7 @@ These rules apply to every step in this workflow:
 |--------|--------|
 | **Inputs** | skill_name [required]; optional flags: `--allow-workspace-drift`, `--no-discovery` (skip §4b Discovery Testing), `--no-health-check` (skip §7 health-check dispatch), `--tier=<Quick\|Forge\|Forge+\|Deep>` (bypass forge-tier.yaml sidecar requirement), `--threshold=<N>` (override pass threshold; CLI wins over per-pipeline defaults and `workflow.default_threshold` scalar) |
 | **Gates** | step 6: Confirm Gate [C] |
-| **Outputs** | per-run `test-report-{skill_name}-{run_id}.md` with completeness score and result (PASS/FAIL); per-run `skf-test-skill-result-{run_id}.json` and `skf-test-skill-result-latest.json` written atomically under `{forge_version}/` — downstream consumers (export-skill, update-skill `--from-test-report`) glob `test-report-{skill_name}-*.md` and pick newest by parsed ISO timestamp |
+| **Outputs** | per-run `test-report-{skill_name}-{run_id}.md` with completeness score and result (PASS/FAIL); per-run `skf-test-skill-result-{run_id}.json` and `skf-test-skill-result-latest.json` written atomically under `{forge_version}/`; `evidence-report-fallback.md` written under `{forge_version}/` when threshold fallback occurs (score between 80% and target threshold) — downstream consumers (export-skill, update-skill `--from-test-report`) glob `test-report-{skill_name}-*.md` and pick newest by parsed ISO timestamp |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 | **Exit codes** | See "Exit Codes" below |
 
@@ -72,10 +72,10 @@ Every terminal state in this workflow exits with a stable code so headless autom
 When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **stdout** before chaining to step 7, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
 
 ```
-SKF_TEST_RESULT_JSON: {"status":"success|error","skill_name":"…","verdict":"PASS|FAIL|INCONCLUSIVE|pass-with-drift","score":N,"threshold":N,"report_path":"…|null","next_workflow":"export-skill|update-skill|null","exit_code":0,"halt_reason":null}
+SKF_TEST_RESULT_JSON: {"status":"success|error","skill_name":"…","verdict":"PASS|FAIL|INCONCLUSIVE|pass-with-drift","score":N,"threshold":N,"report_path":"…|null","next_workflow":"export-skill|update-skill|null","exit_code":0,"halt_reason":null,"threshold_fallback":true,"original_threshold":90}
 ```
 
-`status` is `"success"` on the terminal happy path (any of PASS / FAIL / INCONCLUSIVE / pass-with-drift — the workflow completed), `"error"` on any HARD HALT before §4c. `verdict` is the canonical result string. `next_workflow` is `"export-skill"` only when `verdict == "PASS"`; `"update-skill"` for `FAIL` or `pass-with-drift`; `null` for `INCONCLUSIVE` (manual review). `halt_reason` is `null` on the terminal path or one of the workflow-defined halt strings (`"forge-tier-missing"`, `"target-inaccessible"`, `"write-failed"`, `"step-completeness-violation"`, `"report-anchor-missing"`, `"health-check-missing"`, `"atomic-writer-missing"`, `"hard-gate-blocked"`). `exit_code` matches the table above.
+`status` is `"success"` on the terminal happy path (any of PASS / FAIL / INCONCLUSIVE / pass-with-drift — the workflow completed), `"error"` on any HARD HALT before §4c. `verdict` is the canonical result string. `next_workflow` is `"export-skill"` only when `verdict == "PASS"`; `"update-skill"` for `FAIL` or `pass-with-drift`; `null` for `INCONCLUSIVE` (manual review). `halt_reason` is `null` on the terminal path or one of the workflow-defined halt strings (`"forge-tier-missing"`, `"target-inaccessible"`, `"write-failed"`, `"step-completeness-violation"`, `"report-anchor-missing"`, `"health-check-missing"`, `"atomic-writer-missing"`, `"hard-gate-blocked"`). `exit_code` matches the table above. When threshold fallback occurred, the envelope includes `"threshold_fallback":true` and `"original_threshold":N`; these fields are omitted when no fallback occurred.
 
 The same payload is persisted to disk by step 6 §4c (atomic write) at two locations under `{forge_version}/`:
 
@@ -84,7 +84,7 @@ The same payload is persisted to disk by step 6 §4c (atomic write) at two locat
 | `skf-test-skill-result-{run_id}.json`         | Per-run record. `{run_id}` carries UTC timestamp + PID + random suffix.    |
 | `skf-test-skill-result-latest.json`           | Latest copy — stable path for pipeline consumers (copy, not symlink).      |
 
-The on-disk payload is the richer form: it adds `outputs[]` (report-path entries), `summary` (`score`, `threshold`, `result`, `testMode`, `activeCategories[]`, `inconclusiveReasons[]` when present), `runId`, and `healthCheckDispatched`. The stdout envelope is the compact subset documented above.
+The on-disk payload is the richer form: it adds `outputs[]` (report-path entries), `summary` (`score`, `threshold`, `result`, `testMode`, `activeCategories[]`, `inconclusiveReasons[]` when present, `threshold_fallback`, `original_threshold`, `evidence_report_path` when threshold fallback occurred), `runId`, and `healthCheckDispatched`. The stdout envelope is the compact subset documented above.
 
 ## On Activation
 

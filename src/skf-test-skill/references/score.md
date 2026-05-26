@@ -153,6 +153,85 @@ IF score < threshold        → FAIL
 
 **Tooling-degraded cap:** If the `analysisConfidence` in output frontmatter is `degraded` (python3 missing, frontmatter validator missing, or other degraded state flagged in step 1), the step MUST cap the score at `threshold - 1` BEFORE the PASS/FAIL comparison. This forces a deterministic FAIL until tooling is restored. Do NOT override an INCONCLUSIVE result with the cap — INCONCLUSIVE remains the verdict.
 
+### 4b. Threshold Fallback and Evidence Report
+
+After §4 determines the result but before §5 recommends the next workflow, check whether a threshold fallback applies. The fallback converts a FAIL into a PASS at the 80% floor when the score is between 80% and the effective threshold, and documents the quality compromise in an evidence report.
+
+**Fallback trigger conditions:**
+
+```
+IF result == "FAIL"
+  AND totalScore >= 80
+  AND effective_threshold > 80
+THEN
+  → THRESHOLD FALLBACK triggered
+```
+
+**Do NOT trigger fallback when:**
+- `result == "INCONCLUSIVE"` — the evidence-floor verdict is never overridden by fallback
+- `totalScore < 80` — that is a genuine FAIL (floor not met)
+- `effective_threshold == 80` — there is nothing to fall back from
+
+**When fallback triggers:**
+
+1. Record `threshold_fallback: true`, `original_threshold: {effective_threshold}`, `fallback_threshold: 80` in workflow context.
+2. Override `result` to `"PASS"`.
+3. Set `effective_threshold = 80` for use by §5/§6/§7/§8.
+4. Generate the evidence report (§4b.1 below).
+
+#### 4b.1 Generate Evidence Report
+
+Write the evidence report to `{forge_version}/evidence-report-fallback.md`. The report documents the quality compromise for audit purposes.
+
+**Read gap entries:** extract findings from the Coverage Analysis and Coherence Analysis sections in `{outputFile}` — list each gap with severity (Critical through Low).
+
+**Check for prior remediation:** glob `{forge_version}/test-report-{skill_name}-*.md` for a prior test report. If found, note the path — this implies remediation was attempted between runs. If not found, note "first test run — no prior remediation cycle".
+
+**Check for post-score cap:** if Cap 1 or Cap 2 (§3d) fired, note the cap reason in the remediation section: "Score capped due to {cap_reason} — address tooling to test at the higher threshold."
+
+**Evidence report template:**
+
+```markdown
+# Evidence Report: Threshold Fallback
+
+**Skill:** {skill_name}
+**Date:** {ISO-8601 timestamp}
+**Run ID:** {run_id}
+
+## Threshold Summary
+
+| Field | Value |
+|-------|-------|
+| Attempted Threshold | {original_threshold}% |
+| Achieved Score | {totalScore}% |
+| Threshold Source | {threshold_source} |
+| Final Accepted Threshold | 80% |
+
+## Findings Preventing Higher Threshold
+
+{For each gap entry from Coverage Analysis and Coherence Analysis:}
+- **{GAP-NNN}: {title}** — Severity: {severity}, Category: {category}
+
+{Count: N critical, M high, P medium, Q low, R info findings}
+
+## Remediation Context
+
+{If prior test report exists:}
+A prior test run was found at `{prior_report_path}`, indicating remediation was attempted between runs.
+
+{If no prior test report:}
+No prior test report found for this skill version — this is the first test run.
+
+{If post-score cap was active:}
+**Note:** Score was capped due to {cap_reason}. Address tooling limitations to test at the higher threshold.
+
+## Conclusion
+
+Skill accepted at 80% floor (original target: {original_threshold}%). The {N} findings above prevented meeting the higher threshold. Review and address findings before the next pipeline run to achieve the {original_threshold}% target.
+```
+
+Record `evidence_report_path: '{forge_version}/evidence-report-fallback.md'` in workflow context for use by §6/§7/§8 and by report.md.
+
 ### 5. Determine Next Workflow Recommendation
 
 Based on test result:
@@ -207,6 +286,8 @@ Append the **Completeness Score** section to `{outputFile}`:
 {bulleted list from script `inconclusiveReasons`}
 
 **Threshold Source:** {threshold_source}
+{If threshold_fallback is true:}
+**Threshold Fallback:** scored {totalScore}% against {original_threshold}% target — accepted at 80% floor. Evidence report: {evidence_report_path}
 **Weight Distribution:** {naive (redistributed) | contextual (full)}
 **Tier Adjustment:** {none | Quick tier — signature and type coverage not scored}
 **External Validators:** {both available | skill-check only | tessl only | none — weight redistributed}
@@ -230,6 +311,7 @@ Update `{outputFile}` frontmatter:
 - `score: '{total}%'`
 - `threshold: '{threshold}%'`
 - `thresholdSource: '{threshold_source}'`
+- When `threshold_fallback` is true, add: `thresholdFallback: true`, `originalThreshold: '{original_threshold}%'`, `evidenceReportPath: '{evidence_report_path}'`
 - `analysisConfidence: '{full|degraded|provenance-map|metadata-only|remote-only|docs-only}'`
 - `nextWorkflow: '{export-skill|update-skill|manual-review}'`
 - Append `'score'` to `stepsCompleted`
@@ -249,6 +331,8 @@ Update `{outputFile}` frontmatter:
 | External Validation | {N}% | {WS}% |
 
 **Threshold:** {threshold}%
+{If threshold_fallback is true:}
+**Threshold fallback:** scored {totalScore}% against {original_threshold}% target — accepted at 80% floor. Evidence report: {evidence_report_path}
 **Recommendation:** {export-skill if pass | update-skill if fail}
 
 **Proceeding to gap report...**"

@@ -63,7 +63,7 @@ Circuit breakers halt the pipeline when a workflow's output doesn't meet a quali
 |----------|-------|-------------------|----------------|
 | AN | recommended units count | min: 1 | Zero skillable units found |
 | CS | compilation success | must complete | Hard error during compilation |
-| TS | completeness score | min: 60 (per-pipeline defaults apply — see init.md §1b) | Score below threshold |
+| TS | completeness score | min: 60 (per-pipeline defaults apply — see init.md §1b) | Score below 80% floor (scores between 80% and per-pipeline threshold produce a fallback PASS with evidence report — pipeline continues) |
 | AS | drift score | not CRITICAL | Critical drift found |
 | VS | feasibility verdict | not BLOCKED | All integrations blocked |
 
