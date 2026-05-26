@@ -46,6 +46,36 @@ Look for {outputFile}.
 
 "**Forge tier detected:** {tier} — analysis depth will be calibrated accordingly."
 
+### 2b. Auto Mode Check
+
+**Check for `[auto]` flag:** If `[auto]` was passed as a bracket modifier in the pipeline context (e.g., `AN[auto]`), set `{auto_mode}` = true.
+
+**IF `{auto_mode}` is true:**
+
+1. **Resolve project path:** If `project_paths[]` is already populated (from §1 continuation detection or `--project-path` arg), use it. Otherwise, if `--project-path <path>` was passed at invocation, set `project_paths[]` from it (comma-split if multiple). If neither is available, HARD HALT with exit code 2 (`input-missing`): "**Auto mode requires `--project-path` — no project path available.**"
+2. **Validate the path(s):** For each provided path/URL, check that it exists (local) or is accessible (remote). If any invalid: HARD HALT with exit code 3 (`resolution-failure`): "**Path `{path}` doesn't appear to be valid.**"
+3. **Create the analysis report** from {templateFile}. Populate frontmatter:
+   ```yaml
+   stepsCompleted: ['init']
+   lastStep: 'init'
+   lastContinued: ''
+   date: '{current_date}'
+   user_name: '{user_name}'
+   project_name: '{project_name}'
+   project_paths: ['{provided_project_path}']
+   forge_tier: '{detected_tier}'
+   existing_skills: []
+   confirmed_units: []
+   stack_skill_candidates: []
+   nextWorkflow: ''
+   mode: 'auto'
+   ```
+4. "**Auto mode activated — bypassing interactive analysis.**"
+5. **Route to auto-scope:** Load, read fully, then execute `references/step-auto-scope.md`. **STOP HERE** — do not continue to §3 or any subsequent section.
+
+**IF `{auto_mode}` is NOT true:**
+Continue to §3 as normal — the entire interactive flow below is unchanged.
+
 ### 3. Collect Project Path
 
 **Headless flag consumption:** If `project_paths[]` is already populated (e.g. collected by the section-1 stale-collision guard) OR `--project-path <path>` was passed at invocation, set/keep `project_paths[]` (comma-split the flag value if multiple paths were supplied), skip the prompt below, and proceed to validation. Otherwise prompt as today.

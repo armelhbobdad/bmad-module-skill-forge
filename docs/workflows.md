@@ -289,7 +289,7 @@ flowchart TD
 | Category                  | Workflows      | Description                                                                                                                      |
 | ------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Core                      | SF, BS, CS, US | Setup, brief, create, and update skills                                                                                          |
-| Feature                   | QS, SS, AN     | Quick skill, stack skill, and analyze source                                                                                     |
+| Feature                   | QS, SS, AN     | Quick skill, stack skill, and analyze source — the [`deepwiki`](#pipeline-aliases) alias chains AN + BS + CS + TS + EX for zero-ceremony wiki-skill creation |
 | Quality                   | AS, TS         | Detect skill drift (AS) and verify skill completeness (TS)                                                                       |
 | Architecture Verification | VS, RA         | Pre-code architecture feasibility and refinement                                                                                 |
 | Management                | RS, DS         | Rename and drop skill versions with transactional safety                                                                         |
@@ -313,12 +313,15 @@ Instead of running one workflow per session, you can chain multiple workflows in
 
 ### Pipeline Aliases
 
-| Alias         | Expands To    | First Workflow | Required Target                              |
-| ------------- | ------------- | -------------- | -------------------------------------------- |
-| `forge`       | `BS CS TS EX` | BS             | GitHub URL or local path **+** skill name    |
-| `forge-quick` | `QS TS EX`    | QS             | GitHub URL **or** package name               |
-| `onboard`     | `AN CS TS EX` | AN             | Project path (defaults to current directory) |
-| `maintain`    | `AS US TS EX` | AS             | Existing skill name                          |
+The `deepwiki` alias is the recommended way to create wiki skills — one command, zero configuration. It chains five workflows with auto-mode flags so you get a verified skill without touching a brief or scope file.
+
+| Alias         | Expands To                             | First Workflow | Required Target                              |
+| ------------- | -------------------------------------- | -------------- | -------------------------------------------- |
+| `deepwiki`    | `AN[auto] BS[auto] CS TS[min:90] EX`  | AN             | GitHub URL, doc URL, or `--pin <version>`    |
+| `forge`       | `BS CS TS EX`                          | BS             | GitHub URL or local path **+** skill name    |
+| `forge-quick` | `QS TS EX`                            | QS             | GitHub URL **or** package name               |
+| `onboard`     | `AN CS TS EX` *(deprecated — use deepwiki)* | AN        | Project path (defaults to current directory) |
+| `maintain`    | `AS US TS EX`                          | AS             | Existing skill name                          |
 
 **The first workflow's input contract defines what arguments the pipeline needs.** A bare package name works for `forge-quick` (QS resolves packages via the registry) but **not** for `forge` — BS requires both an unambiguous target (URL or path) and a skill name.
 
@@ -334,6 +337,9 @@ Instead of running one workflow per session, you can chain multiple workflows in
 ### Examples
 
 ```
+@Ferris deepwiki https://github.com/honojs/hono                     — zero-ceremony wiki skill
+@Ferris deepwiki https://docs.example.com                            — docs-only wiki skill
+@Ferris deepwiki https://github.com/honojs/hono --pin v4.6.0         — pinned version
 @Ferris forge-quick @tanstack/query                                  — QS + TS + EX for TanStack Query
 @Ferris forge https://github.com/topoteretes/cognee cognee           — BS + CS + TS + EX, explicit URL + name
 @Ferris forge https://github.com/topoteretes/cognee cognee "public API only"   — with scope hint

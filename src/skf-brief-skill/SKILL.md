@@ -73,17 +73,21 @@ These rules apply to every step in this workflow:
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
 | 1 | Gather Intent | references/gather-intent.md | No (interactive) |
+| 1a | Auto-Brief Generation (auto mode only) | references/step-auto-brief.md | Yes |
+| 1b | Auto-Brief Validation (auto mode only) | references/step-auto-validate.md | No (interactive gate — headless auto-approves) |
 | 2 | Analyze Target | references/analyze-target.md | Yes |
 | 3 | Scope Definition | references/scope-definition.md | No (interactive) |
 | 4 | Confirm Brief | references/confirm-brief.md | No (confirm) |
 | 5 | Write Brief | references/write-brief.md | Yes |
 | 6 | Workflow Health Check (terminal) | references/health-check.md | Yes |
 
+Stages 1a-1b are conditional — they replace stages 2-5 when BS is invoked with the `[auto]` flag via pipeline context. The routing decision is made in stage 1 (gather-intent.md §1b). In auto mode, the chain is: gather-intent.md §1 (forge tier) → §1b (auto check) → step-auto-brief.md → step-auto-validate.md → health-check.md (on [A]pprove or [E]dit) or → confirm-brief.md → write-brief.md → health-check.md (on [R]eject).
+
 ## Invocation Contract
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | `target_repo` [required], `skill_name` [required], `scope_hint` [optional], `language_hint` [optional], `target_version` [optional], `source_authority` [optional: official/community/internal, default community], `source_type` [optional: source/docs-only, default source], `doc_urls` [optional: list of `url[,label]` for source_type=docs-only or supplemental], `scope_type` [optional: full-library/specific-modules/public-api/component-library/reference-app/docs-only], `include` [optional: comma-separated globs], `exclude` [optional: comma-separated globs], `scripts_intent` [optional: detect/none/free-text, default detect], `assets_intent` [optional: detect/none/free-text, default detect], `intent` [optional: free-text used to derive description], `force` [optional: overwrite existing brief without prompting], `from_brief` [optional: path to a pre-authored `skill-brief.yaml` to *ratify* — when supplied it is the source of truth, `target_repo`/`skill_name` become optional/derived-from-brief, and the run mirrors the interactive §3.1a ratify path: schema-validate, skip analyze-target/scope-definition, write through the canonical writer in place] |
+| **Inputs** | `target_repo` [required], `skill_name` [required], `scope_hint` [optional], `language_hint` [optional], `target_version` [optional], `source_authority` [optional: official/community/internal, default community], `source_type` [optional: source/docs-only, default source], `doc_urls` [optional: list of `url[,label]` for source_type=docs-only or supplemental], `scope_type` [optional: full-library/specific-modules/public-api/component-library/reference-app/docs-only], `include` [optional: comma-separated globs], `exclude` [optional: comma-separated globs], `scripts_intent` [optional: detect/none/free-text, default detect], `assets_intent` [optional: detect/none/free-text, default detect], `intent` [optional: free-text used to derive description], `force` [optional: overwrite existing brief without prompting], `from_brief` [optional: path to a pre-authored `skill-brief.yaml` to *ratify* — when supplied it is the source of truth, `target_repo`/`skill_name` become optional/derived-from-brief, and the run mirrors the interactive §3.1a ratify path: schema-validate, skip analyze-target/scope-definition, write through the canonical writer in place], `[auto]` [optional: bracket modifier passed via pipeline context — when present, BS loads the upstream brief from `brief_path` in pipeline data, enriches it with doc detection, and writes through the canonical writer; requires `brief_path` from AN's `SKF_ANALYZE_RESULT_JSON`] |
 | **Gates** | step 1: Input Gate [use args] | step 3: Confirm Gate [C] | step 4: Confirm Gate [C] |
 | **Outputs** | `skill-brief.yaml` at `{forge_data_folder}/{skill-name}/skill-brief.yaml`; final `SKF_BRIEF_RESULT_JSON` line on stdout when `{headless_mode}` is true |
 | **Headless** | All gates auto-resolve with heuristic-driven or default action when `{headless_mode}` is true; pre-supplied inputs consumed at the gates that would otherwise prompt; absent `source_authority` and `scope_type` are resolved by signal-driven detection (see `references/headless-args.md`); existing briefs are preserved unless `--force` was supplied (HALT with `overwrite-cancelled` otherwise); supplying `from_brief <path>` instead routes the step 1 GATE to a ratify path that schema-validates the pre-authored brief, skips analyze-target/scope-definition, and writes through the canonical writer (overwriting in place, no `--force` needed) rather than deriving a new brief |
@@ -108,7 +112,7 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 When `{headless_mode}` is true, step 5 emits a single-line JSON envelope on **stdout** before chaining to step 6, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
 
 ```
-SKF_BRIEF_RESULT_JSON: {"status":"success|error","brief_path":"…|null","skill_name":"…","version":"…|null","language":"…|null","scope_type":"…|null","exit_code":0,"halt_reason":null}
+SKF_BRIEF_RESULT_JSON: {"status":"success|error","brief_path":"…|null","skill_name":"…","version":"…|null","language":"…|null","scope_type":"…|null","exit_code":0,"halt_reason":null,"mode":"auto|null"}
 ```
 
-`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"forge-tier-missing"`, `"target-inaccessible"`, `"gh-auth-failed"`, `"write-failed"`, `"overwrite-cancelled"`, `"user-cancelled"`. `exit_code` matches the table above.
+`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"forge-tier-missing"`, `"target-inaccessible"`, `"gh-auth-failed"`, `"write-failed"`, `"overwrite-cancelled"`, `"user-cancelled"`. `exit_code` matches the table above. `mode` is `"auto"` when BS was invoked with the `[auto]` flag (pipeline auto-brief generation), `null` otherwise (interactive or headless-without-auto).

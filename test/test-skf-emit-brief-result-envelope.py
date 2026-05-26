@@ -55,7 +55,29 @@ class TestAssemble:
             "scope_type": "public-api",
             "exit_code": 0,
             "halt_reason": None,
+            "mode": None,
         }
+
+    def test_auto_mode_envelope(self):
+        env = mod.assemble({
+            "status": "success",
+            "brief_path": "/abs/x/skill-brief.yaml",
+            "skill_name": "marked",
+            "version": "1.2.3",
+            "language": "javascript",
+            "scope_type": "public-api",
+            "halt_reason": None,
+            "mode": "auto",
+        })
+        assert env["mode"] == "auto"
+
+    def test_mode_defaults_to_null(self):
+        env = mod.assemble({
+            "status": "success",
+            "skill_name": "foo",
+            "halt_reason": None,
+        })
+        assert env["mode"] is None
 
     def test_key_order_is_canonical(self):
         env = mod.assemble({
@@ -67,6 +89,7 @@ class TestAssemble:
         assert list(env.keys()) == [
             "status", "brief_path", "skill_name", "version",
             "language", "scope_type", "exit_code", "halt_reason",
+            "mode",
         ]
 
     @pytest.mark.parametrize(
@@ -154,6 +177,15 @@ class TestAssembleValidation:
                 "scope_type": "made-up-scope",
             })
 
+    def test_mode_invalid(self):
+        with pytest.raises(SystemExit):
+            mod.assemble({
+                "status": "success",
+                "skill_name": "foo",
+                "halt_reason": None,
+                "mode": "manual",
+            })
+
 
 # --------------------------------------------------------------------------
 # validate()
@@ -171,6 +203,7 @@ class TestValidate:
             "scope_type": "full-library",
             "exit_code": 0,
             "halt_reason": None,
+            "mode": None,
         }
 
     def test_canonical_envelope_passes(self):
@@ -205,6 +238,7 @@ class TestValidate:
             "scope_type": None,
             "exit_code": 3,
             "halt_reason": "target-inaccessible",
+            "mode": None,
         }
         mod.validate(env)
 
@@ -218,8 +252,20 @@ class TestValidate:
             "scope_type": None,
             "exit_code": 6,
             "halt_reason": "user-cancelled",
+            "mode": None,
         }
         mod.validate(env)  # must not raise — user-cancelled→6 is canonical
+
+    def test_mode_auto_validates(self):
+        env = self._good()
+        env["mode"] = "auto"
+        mod.validate(env)
+
+    def test_mode_invalid_fails(self):
+        env = self._good()
+        env["mode"] = "manual"
+        with pytest.raises(SystemExit):
+            mod.validate(env)
 
 
 # --------------------------------------------------------------------------
@@ -328,6 +374,7 @@ class TestCLIValidate:
             "scope_type": "full-library",
             "exit_code": 0,
             "halt_reason": None,
+            "mode": None,
         }
         proc = subprocess.run(
             [sys.executable, str(SCRIPT_PATH), "validate"],
@@ -355,6 +402,7 @@ class TestCLIValidate:
             "scope_type": "full-library",
             "exit_code": 2,  # wrong: should be 0 for halt_reason=null
             "halt_reason": None,
+            "mode": None,
         }
         proc = subprocess.run(
             [sys.executable, str(SCRIPT_PATH), "validate"],

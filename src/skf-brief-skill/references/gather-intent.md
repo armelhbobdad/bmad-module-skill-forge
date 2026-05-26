@@ -63,6 +63,20 @@ Attempt to load `{forgeTierFile}`:
 - "**Cannot proceed.** forge-tier.yaml not found at `{forgeTierFile}`. Run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
 - HALT (exit code 3, `halt_reason: "forge-tier-missing"`) — do not proceed.
 
+### 1b. Auto Mode Check
+
+**Check for `[auto]` flag:** If `[auto]` was passed as a bracket modifier in the pipeline context (e.g., `BS[auto]`), set `{auto_mode}` = true.
+
+**IF `{auto_mode}` is true:**
+
+1. **Load upstream brief path:** Read `brief_path` from the pipeline data context (passed by the forger from AN's `SKF_ANALYZE_RESULT_JSON` `brief_paths[]`). If `brief_path` is not available, HARD HALT with exit code 2 (`input-missing`): "**Auto mode requires `brief_path` in pipeline context — AN must run before BS[auto].**"
+2. **Load source repo:** Read `source_repo` from the pipeline data context (the target repo URL or path, forwarded by the forger). If not available, attempt to extract it from the upstream brief at `brief_path`.
+3. "**Auto mode activated — bypassing interactive brief workflow.**"
+4. **Route to auto-brief:** Load, read fully, then execute `references/step-auto-brief.md`. **STOP HERE** — do not continue to §2 or any subsequent section.
+
+**IF `{auto_mode}` is NOT true:**
+Continue to §2 as normal — the entire interactive flow below is unchanged.
+
 ### 2. Welcome and Explain
 
 "**Welcome to Brief Skill — the skill scoping workflow.**

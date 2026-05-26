@@ -5,7 +5,7 @@
   "description": "Single-line JSON document emitted by skf-brief-skill step 5 §4b when {headless_mode} is true, prefixed with the literal 'SKF_BRIEF_RESULT_JSON: '. Pipelines grep one line out of the workflow log to branch on the brief outcome without parsing prose. Schema mirrors the contract in src/skf-brief-skill/SKILL.md Result Contract section.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["status", "brief_path", "skill_name", "version", "language", "scope_type", "exit_code", "halt_reason"],
+  "required": ["status", "brief_path", "skill_name", "version", "language", "scope_type", "exit_code", "halt_reason", "mode"],
   "properties": {
     "status": {
       "type": "string",
@@ -53,6 +53,11 @@
         "user-cancelled"
       ],
       "description": "Null on success. One of the documented HALT classes on error. Pipelines branch on this to surface the right operator message without grepping the prose error."
+    },
+    "mode": {
+      "type": ["string", "null"],
+      "enum": ["auto", null],
+      "description": "'auto' when BS was invoked with the [auto] bracket modifier (pipeline auto-brief generation). Null otherwise (interactive or headless-without-auto)."
     }
   }
 }
