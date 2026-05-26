@@ -31,16 +31,21 @@ These rules apply to every step in this workflow:
 
 ## Stages
 
-| # | Step | File | Auto-proceed |
-|---|------|------|--------------|
-| 1 | Initialize | references/init.md | Yes |
-| 1b | Continue (session resume) | references/continue.md | Yes |
-| 2 | Scan Project | references/scan-project.md | No (confirm) |
-| 3 | Identify Units | references/identify-units.md | No (confirm) |
-| 4 | Map & Detect | references/map-and-detect.md | Yes |
-| 5 | Recommend | references/recommend.md | No (confirm) |
-| 6 | Generate Briefs | references/generate-briefs.md | Yes |
-| 7 | Workflow Health Check | references/health-check.md | Yes |
+| # | Step | File | Auto-proceed | Condition |
+|---|------|------|--------------|-----------|
+| 1 | Initialize | references/init.md | Yes | Always |
+| 1a | Auto-Scope | references/step-auto-scope.md | Yes | `[auto]` mode only |
+| 1b | Continue (session resume) | references/continue.md | Yes | Always |
+| 2 | Scan Project | references/scan-project.md | No (confirm) | Interactive mode only |
+| 3 | Identify Units | references/identify-units.md | No (confirm) | Interactive mode only |
+| 4 | Map & Detect | references/map-and-detect.md | Yes | Interactive mode only |
+| 5 | Recommend | references/recommend.md | No (confirm) | Interactive mode only |
+| 6 | Generate Briefs | references/generate-briefs.md | Yes | Interactive mode only |
+| 7 | Workflow Health Check | references/health-check.md | Yes | Always |
+
+**Auto mode path:** When `[auto]` flag is present, init (step 1) routes directly to step 1a, which performs manifest scan → shape detection → scope generation → brief write → health check, bypassing steps 2–6.
+
+**Shape detection reference:** `references/step-shape-detect.md` — loaded by step 1a as a reference doc (not a chained step).
 
 ## Invocation Contract
 
@@ -49,8 +54,9 @@ These rules apply to every step in this workflow:
 | **Inputs** | project_path [required], scope_hint [optional] |
 | **Headless inputs** | `--project-path <path>` (skip Step 1 project-path prompt), `--scope-hint <text>` (skip Step 1 scope-hint prompt), `--intent-hint <text>` (pre-supply analysis intent; drives recommendation ranking in Step 5) |
 | **Headless flag** | `--headless` / `-H` flips every confirm gate to auto-proceed |
-| **Gates** | step 2: Confirm Gate [C] | step 3: Confirm Gate [C] | step 5: Confirm Gate [C] |
-| **Outputs** | analysis-report.md, skill-brief.yaml files (one per recommended unit); final `SKF_ANALYZE_RESULT_JSON` line on stdout when `{headless_mode}` is true |
+| **Auto flag** | `[auto]` bracket modifier — activates auto-scope mode (step 1a). Pipelines pass this as `AN[auto]`. When active, init routes to `step-auto-scope.md` which performs shape detection → scope generation → brief write, bypassing interactive steps 2–6. Requires `--project-path`. |
+| **Gates** | step 2: Confirm Gate [C] | step 3: Confirm Gate [C] | step 5: Confirm Gate [C] (all skipped in auto mode) |
+| **Outputs** | analysis-report.md, skill-brief.yaml files (one per recommended unit); final `SKF_ANALYZE_RESULT_JSON` line on stdout when `{headless_mode}` is true. In auto mode, the envelope includes `"mode":"auto"`. |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 | **Exit codes** | See "Exit Codes" below |
 
@@ -61,20 +67,20 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 | Code | Meaning              | Raised by                                                                                  |
 | ---- | -------------------- | ------------------------------------------------------------------------------------------ |
 | 0    | success              | step 7 (terminal — health check completion)                                               |
-| 2    | input-missing        | step 1 §2-3 — required config absent (config.yaml not loadable, project path empty/invalid in headless mode) |
-| 3    | resolution-failure   | step 1 §2 (`forge-tier.yaml` missing at `{sidecar_path}/forge-tier.yaml`); step 1 §3 (project path does not exist or remote URL inaccessible) |
+| 2    | input-missing        | step 1 §2-3 — required config absent (config.yaml not loadable, project path empty/invalid in headless mode); step 1 §2b — auto mode without `--project-path` |
+| 3    | resolution-failure   | step 1 §2 (`forge-tier.yaml` missing at `{sidecar_path}/forge-tier.yaml`); step 1 §3 (project path does not exist or remote URL inaccessible); step 1a §3 (shape detection script error, exit code 2) |
 | 4    | write-failure        | step 1 §6 (analysis report write failed); step 6 §5 (skill-brief.yaml write failed); step 6 §9 (result contract write failed) |
 | 6    | user-cancelled       | any interactive menu in steps 2/3/5/6 (user selected `[X]` Cancel and exit)               |
 
 ## Result Contract (Headless)
 
-When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **stdout** before chaining to step 7, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
+When `{headless_mode}` is true, step 6 (interactive) or step 1a (auto) emits a single-line JSON envelope on **stdout** before chaining to step 7, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
 
 ```
-SKF_ANALYZE_RESULT_JSON: {"status":"success|error","report_path":"…|null","brief_paths":["…"],"unit_counts":{"confirmed":N,"skipped":N,"maybe":N},"exit_code":0,"halt_reason":null}
+SKF_ANALYZE_RESULT_JSON: {"status":"success|error","report_path":"…|null","brief_paths":["…"],"unit_counts":{"confirmed":N,"skipped":N,"maybe":N},"exit_code":0,"halt_reason":null,"mode":"interactive|auto"}
 ```
 
-`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"forge-tier-missing"`, `"path-invalid"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above. `brief_paths` is an array of absolute paths to every generated `skill-brief.yaml` (empty array if none were generated). `unit_counts` reports confirmed/skipped/maybe counts from step 5's user decisions.
+`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"forge-tier-missing"`, `"path-invalid"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above. `brief_paths` is an array of absolute paths to every generated `skill-brief.yaml` (empty array if none were generated). `unit_counts` reports confirmed/skipped/maybe counts from step 5's user decisions. `mode` is `"auto"` when the `[auto]` flag was active, `"interactive"` otherwise (omitting `mode` is equivalent to `"interactive"` for backward compatibility).
 
 ## On Activation
 
