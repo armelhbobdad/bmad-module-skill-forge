@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "campaign-state",
+  "description": "Schema for _campaign-state.yaml — single source of truth for campaign orchestration state",
+  "type": "object",
+  "required": ["campaign", "skills", "dependency_graph"],
+  "additionalProperties": false,
+  "properties": {
+    "campaign": {
+      "type": "object",
+      "required": ["name", "started_at", "last_updated", "current_stage", "quality_gate", "health_findings_queue"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "last_updated": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "current_stage": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "directive_path": {
+          "type": "string"
+        },
+        "quality_gate": {
+          "type": "object",
+          "required": ["hard", "soft_target", "soft_fallback"],
+          "additionalProperties": false,
+          "properties": {
+            "hard": {
+              "type": "string"
+            },
+            "soft_target": {
+              "type": "number"
+            },
+            "soft_fallback": {
+              "type": "number"
+            }
+          }
+        },
+        "health_findings_queue": {
+          "type": "string",
+          "enum": ["local", "improvement"]
+        }
+      }
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "tier"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "active", "completed", "failed", "skipped"]
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tier": {
+            "type": "string",
+            "enum": ["A", "B"]
+          },
+          "pin": {
+            "type": ["string", "null"]
+          },
+          "brief_path": {
+            "type": ["string", "null"]
+          },
+          "skill_path": {
+            "type": ["string", "null"]
+          },
+          "quality_score": {
+            "type": ["number", "null"]
+          },
+          "workarounds_applied": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "started_at": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "completed_at": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "dependency_graph": {
+      "type": "object",
+      "required": ["execution_order", "circular_deps_detected"],
+      "additionalProperties": false,
+      "properties": {
+        "execution_order": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "circular_deps_detected": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

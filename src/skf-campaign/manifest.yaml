@@ -1,0 +1,11 @@
+code: CA
+name: skf-campaign
+description: "Campaign orchestration — multi-library skill production with dependency tracking"
+version: "2.0.0"
+trigger: campaign
+parent_module: skf
+
+config:
+  state_file: "_campaign-state.yaml"
+  backup_file: "_campaign-state.yaml.bak"
+  directive_file: "_campaign-directive.md"
