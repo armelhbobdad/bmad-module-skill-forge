@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "3989d392eb11",
+  "session_id": "648b7ea2-961b-46c4-8d8d-de7ad8842cd1",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T22:25:59.121480951Z",
+  "branch": "campaign-orchestration",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-campaign/references/step-04-provenance.md",
+    "test/test-skf-campaign-state.py",
+    "src/skf-campaign/assets/campaign-state-schema.json",
+    "src/skf-campaign/references/step-02-strategy.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "c5985794e8dd",
+  "checkpoint_transcript_start": 382,
+  "transcript_lines_at_start": 382,
+  "token_usage": {
+    "input_tokens": 6,
+    "cache_creation_tokens": 3760,
+    "cache_read_tokens": 550411,
+    "output_tokens": 2795,
+    "api_call_count": 6
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T22:25:58.573120667Z",
+    "agent_lines": 179,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 179,
+    "agent_percentage": 100
+  }
+}
