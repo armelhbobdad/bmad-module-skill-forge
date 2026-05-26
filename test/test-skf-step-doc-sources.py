@@ -63,12 +63,12 @@ class TestPipelineChain:
     def test_compile_points_to_step_doc_sources(self) -> None:
         assert _next_step_value(COMPILE_FILE) == "step-doc-sources.md"
 
-    def test_step_doc_sources_points_to_validate(self) -> None:
-        assert _next_step_value(STEP_FILE) == "validate.md"
+    def test_step_doc_sources_points_to_auto_shard(self) -> None:
+        assert _next_step_value(STEP_FILE) == "step-auto-shard.md"
 
-    def test_validate_exists(self) -> None:
-        target = (STEP_FILE.parent / "validate.md").resolve()
-        assert target.exists(), "validate.md must exist for the chain to complete"
+    def test_auto_shard_exists(self) -> None:
+        target = (STEP_FILE.parent / "step-auto-shard.md").resolve()
+        assert target.exists(), "step-auto-shard.md must exist for the chain to complete"
 
 
 # ---------------------------------------------------------------------------
