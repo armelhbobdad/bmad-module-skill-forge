@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0e2f013b149a",
+  "session_id": "5e2be675-822b-4f05-af61-aea6242737bf",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T12:07:55.446800086Z",
+  "branch": "deepwiki-zero-ceremony-skill-creation",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-analyze-source/SKILL.md",
+    "src/skf-analyze-source/references/init.md",
+    "src/skf-analyze-source/references/step-auto-scope.md",
+    "src/skf-analyze-source/references/step-shape-detect.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "27634736e9aa",
+  "token_usage": {
+    "input_tokens": 60,
+    "cache_creation_tokens": 75190,
+    "cache_read_tokens": 3474307,
+    "output_tokens": 18183,
+    "api_call_count": 59
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T12:07:55.232573755Z",
+    "agent_lines": 311,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 311,
+    "agent_percentage": 100
+  }
+}
