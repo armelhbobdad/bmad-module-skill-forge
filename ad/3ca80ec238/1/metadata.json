@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "ad3ca80ec238",
+  "session_id": "762c9364-ef7f-4cf7-bf15-f8b3e33bf1e6",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T12:31:45.186481066Z",
+  "branch": "deepwiki-zero-ceremony-skill-creation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/schemas/skf-brief-result-envelope.v1.json",
+    "src/shared/scripts/skf-emit-brief-result-envelope.py",
+    "src/skf-brief-skill/references/step-auto-brief.md",
+    "test/test-skf-emit-brief-result-envelope.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "84fd963bc0ee",
+  "token_usage": {
+    "input_tokens": 3843,
+    "cache_creation_tokens": 95749,
+    "cache_read_tokens": 4149437,
+    "output_tokens": 23301,
+    "api_call_count": 47
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T12:31:44.691406968Z",
+    "agent_lines": 244,
+    "human_added": 20,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 264,
+    "agent_percentage": 92.42424242424242
+  }
+}
