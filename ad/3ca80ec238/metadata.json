@@ -3,7 +3,7 @@
   "checkpoint_id": "ad3ca80ec238",
   "strategy": "manual-commit",
   "branch": "deepwiki-zero-ceremony-skill-creation",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "src/shared/scripts/schemas/skf-brief-result-envelope.v1.json",
     "src/shared/scripts/skf-emit-brief-result-envelope.py",
@@ -26,13 +26,20 @@
       "context": "/ad/3ca80ec238/1/context.md",
       "content_hash": "/ad/3ca80ec238/1/content_hash.txt",
       "prompt": "/ad/3ca80ec238/1/prompt.txt"
+    },
+    {
+      "metadata": "/ad/3ca80ec238/2/metadata.json",
+      "transcript": "/ad/3ca80ec238/2/full.jsonl",
+      "context": "/ad/3ca80ec238/2/context.md",
+      "content_hash": "/ad/3ca80ec238/2/content_hash.txt",
+      "prompt": "/ad/3ca80ec238/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 3855,
-    "cache_creation_tokens": 99973,
-    "cache_read_tokens": 5225292,
-    "output_tokens": 26586,
-    "api_call_count": 59
+    "input_tokens": 7424,
+    "cache_creation_tokens": 198812,
+    "cache_read_tokens": 7192077,
+    "output_tokens": 41585,
+    "api_call_count": 82
   }
 }
