@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "70540efa4569",
+  "session_id": "2eef3e0c-7530-4b4b-9849-b0793931097f",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T20:21:49.866194189Z",
+  "branch": "quality-scale-and-workaround-automation",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/verifying-a-skill.md",
+    "docs/workflows.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "71158dc7118f",
+  "checkpoint_transcript_start": 3975,
+  "transcript_lines_at_start": 3975,
+  "token_usage": {
+    "input_tokens": 91,
+    "cache_creation_tokens": 489866,
+    "cache_read_tokens": 37369508,
+    "output_tokens": 13807,
+    "api_call_count": 80
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T20:21:48.554372218Z",
+    "agent_lines": 11,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 11,
+    "agent_percentage": 100
+  }
+}
