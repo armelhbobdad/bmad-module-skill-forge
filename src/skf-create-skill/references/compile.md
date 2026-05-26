@@ -1,5 +1,5 @@
 ---
-nextStepFile: 'validate.md'
+nextStepFile: 'step-doc-sources.md'
 skillSectionsData: 'assets/skill-sections.md'
 assemblyRulesData: 'assets/compile-assembly-rules.md'
 ---

@@ -230,6 +230,8 @@ Indexed pipe-delimited format for CLAUDE.md managed section (~80-120 tokens per 
   // scripts[] and assets[] — include ONLY when inventories are non-empty; omit entirely otherwise
   // "scripts": [{ "file": "scripts/{name}", "purpose": "{description}", "source_file": "{source-path}", "confidence": "T1-low" }],
   // "assets": [{ "file": "assets/{name}", "purpose": "{description}", "source_file": "{source-path}", "confidence": "T1-low" }],
+  // doc_sources[] — include ONLY when doc detection ran; omit if detection was skipped entirely
+  // "doc_sources": [{ "url": "https://...", "detected_via": "homepageUrl|readme_link|pages_api|docs_folder|readme_always", "content_hash": "sha256:{hex}|null", "recorded_at": "ISO-8601" }],
   "generated_by": "{quick-skill|create-skill}",
   "dependencies": [],
   "compatibility": "{semver-range}"
