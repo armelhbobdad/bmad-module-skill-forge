@@ -3,7 +3,7 @@
   "checkpoint_id": "e5d50cdf17c0",
   "strategy": "manual-commit",
   "branch": "source-intelligence-foundation",
-  "checkpoints_count": 2,
+  "checkpoints_count": 3,
   "files_touched": [
     ".gitignore",
     "package.json",
@@ -31,13 +31,20 @@
       "context": "/e5/d50cdf17c0/2/context.md",
       "content_hash": "/e5/d50cdf17c0/2/content_hash.txt",
       "prompt": "/e5/d50cdf17c0/2/prompt.txt"
+    },
+    {
+      "metadata": "/e5/d50cdf17c0/3/metadata.json",
+      "transcript": "/e5/d50cdf17c0/3/full.jsonl",
+      "context": "/e5/d50cdf17c0/3/context.md",
+      "content_hash": "/e5/d50cdf17c0/3/content_hash.txt",
+      "prompt": "/e5/d50cdf17c0/3/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 127,
-    "cache_creation_tokens": 233244,
-    "cache_read_tokens": 5977602,
-    "output_tokens": 45659,
-    "api_call_count": 103
+    "input_tokens": 140,
+    "cache_creation_tokens": 299578,
+    "cache_read_tokens": 6652060,
+    "output_tokens": 58011,
+    "api_call_count": 115
   }
 }
