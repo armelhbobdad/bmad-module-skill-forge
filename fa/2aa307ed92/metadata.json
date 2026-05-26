@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "fa2aa307ed92",
+  "strategy": "manual-commit",
+  "branch": "source-intelligence-foundation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/workflows.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fa/2aa307ed92/0/metadata.json",
+      "transcript": "/fa/2aa307ed92/0/full.jsonl",
+      "context": "/fa/2aa307ed92/0/context.md",
+      "content_hash": "/fa/2aa307ed92/0/content_hash.txt",
+      "prompt": "/fa/2aa307ed92/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 116541,
+    "cache_read_tokens": 1749944,
+    "output_tokens": 12986,
+    "api_call_count": 17
+  }
+}
