@@ -3,7 +3,7 @@
   "checkpoint_id": "0adfe2eafcef",
   "strategy": "manual-commit",
   "branch": "source-intelligence-foundation",
-  "checkpoints_count": 0,
+  "checkpoints_count": 1,
   "files_touched": [
     "test/test-skf-manifest-ops.py"
   ],
@@ -14,13 +14,20 @@
       "context": "/0a/dfe2eafcef/0/context.md",
       "content_hash": "/0a/dfe2eafcef/0/content_hash.txt",
       "prompt": "/0a/dfe2eafcef/0/prompt.txt"
+    },
+    {
+      "metadata": "/0a/dfe2eafcef/1/metadata.json",
+      "transcript": "/0a/dfe2eafcef/1/full.jsonl",
+      "context": "/0a/dfe2eafcef/1/context.md",
+      "content_hash": "/0a/dfe2eafcef/1/content_hash.txt",
+      "prompt": "/0a/dfe2eafcef/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 13,
-    "cache_creation_tokens": 4687,
-    "cache_read_tokens": 1381634,
-    "output_tokens": 3755,
-    "api_call_count": 13
+    "input_tokens": 1332,
+    "cache_creation_tokens": 57057,
+    "cache_read_tokens": 2594418,
+    "output_tokens": 11753,
+    "api_call_count": 36
   }
 }
