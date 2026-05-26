@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "58a938187e43",
+  "session_id": "773589d0-48c0-4559-99b6-6631d9b1ba76",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-26T17:21:25.890642277Z",
+  "branch": "quality-scale-and-workaround-automation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "package.json",
+    "test/test-skf-step-hard-gate.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "4c3765a4f9d1",
+  "token_usage": {
+    "input_tokens": 20,
+    "cache_creation_tokens": 71477,
+    "cache_read_tokens": 1211442,
+    "output_tokens": 11843,
+    "api_call_count": 19
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-26T17:21:25.448324128Z",
+    "agent_lines": 435,
+    "human_added": 79,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 514,
+    "agent_percentage": 84.63035019455253
+  }
+}
