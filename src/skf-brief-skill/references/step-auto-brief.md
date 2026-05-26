@@ -1,5 +1,5 @@
 ---
-nextStepFile: 'health-check.md'
+nextStepFile: 'step-auto-validate.md'
 validateBriefSchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-schema.py'
   - '{project-root}/src/shared/scripts/skf-validate-brief-schema.py'
@@ -18,7 +18,7 @@ detectDocsScript: 'src/shared/scripts/skf-detect-docs.py'
 
 ## STEP GOAL:
 
-To enrich an upstream skill brief (produced by AN auto-scope) with documentation URLs discovered via `skf-detect-docs.py`, validate the enriched brief, write it through the canonical writer, and emit the headless result envelope. This step replaces the interactive gather-intent → analyze-target → scope-definition → confirm-brief → write-brief chain when `[auto]` mode is active.
+To enrich an upstream skill brief (produced by AN auto-scope) with documentation URLs discovered via `skf-detect-docs.py`, validate the enriched brief, and write it through the canonical writer. Envelope emission is deferred to step-auto-validate.md, which presents the brief for user approval before continuing. This step replaces the interactive gather-intent → analyze-target → scope-definition → confirm-brief → write-brief chain when `[auto]` mode is active.
 
 ## Rules
 
@@ -37,7 +37,7 @@ Read the upstream brief path from `{brief_path}` (passed by the forger from AN's
 
 **IF `{brief_path}` is not set or the file does not exist:**
 - HARD HALT with exit code 2 (`input-missing`): "**Auto-brief requires an upstream brief — `brief_path` is missing or the file does not exist at `{brief_path}`.**"
-- Emit error envelope per §7 with `halt_reason: "input-missing"`.
+- Emit error envelope per §6 with `halt_reason: "input-missing"`.
 
 **Resolve `{validateBriefSchemaHelper}`** from `{validateBriefSchemaProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
@@ -49,7 +49,7 @@ uv run {validateBriefSchemaHelper} {brief_path}
 
 The script returns JSON `{valid, errors[], warnings[], halt_reason, brief}`.
 
-- **`valid: false`** — the upstream brief is malformed. HARD HALT with exit code 2 (`input-invalid`): "**Upstream brief at `{brief_path}` is invalid: {first error message}.**" Emit error envelope per §7 with `halt_reason: "input-invalid"`.
+- **`valid: false`** — the upstream brief is malformed. HARD HALT with exit code 2 (`input-invalid`): "**Upstream brief at `{brief_path}` is invalid: {first error message}.**" Emit error envelope per §6 with `halt_reason: "input-invalid"`.
 - **`valid: true`** — proceed with the parsed `brief` payload. Surface any non-empty `warnings[]` to the log.
 
 Extract from the parsed brief:
@@ -144,35 +144,26 @@ echo '<context-json>' | uv run {writeSkillBriefHelper} write --target {forge_dat
 ```
 
 **On script failure (non-zero exit):**
-- Exit 1 (validation/invariant): Emit error envelope per §7 with `halt_reason: "input-invalid"`, then HARD HALT.
-- Exit 2 (I/O failure): Emit error envelope per §7 with `halt_reason: "write-failed"`, then HARD HALT.
+- Exit 1 (validation/invariant): Emit error envelope per §6 with `halt_reason: "input-invalid"`, then HARD HALT.
+- Exit 2 (I/O failure): Emit error envelope per §6 with `halt_reason: "write-failed"`, then HARD HALT.
 
-**On success:** Capture `brief_path` and `version` from the response envelope for §6.
+**On success:** Capture `brief_path` and `version` from the response envelope for step-auto-validate's envelope emission.
 
-### 6. Emit Result Envelope
-
-**Resolve `{emitBriefEnvelopeHelper}`** from `{emitBriefEnvelopeProbeOrder}`; first existing path wins. HALT if no candidate exists.
-
-Emit the `SKF_BRIEF_RESULT_JSON` envelope with `mode: "auto"`:
-
-```bash
-echo '{"status":"success","brief_path":"{brief_path from §5}","skill_name":"{skill_name}","version":"{version from §5}","language":"{language}","scope_type":"{scope_type}","halt_reason":null,"mode":"auto"}' | \
-  uv run {emitBriefEnvelopeHelper} emit
-```
-
-### 7. Error Envelope (Canonical)
+### 6. Error Envelope (Canonical)
 
 Every HARD HALT in this step emits the error envelope on stderr:
+
+**Resolve `{emitBriefEnvelopeHelper}`** from `{emitBriefEnvelopeProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
 ```bash
 echo '{"status":"error","skill_name":"{skill_name or unknown}","halt_reason":"{reason}","mode":"auto"}' | \
   uv run {emitBriefEnvelopeHelper} emit --target stderr
 ```
 
-### 8. Chain to Health Check
+### 7. Chain to Auto-Validate
 
-Load, read fully, then execute {nextStepFile} to run the shared workflow health check.
+Load, read fully, then execute {nextStepFile} to present the auto-brief validation gate, where the user can approve, edit, or reject the brief before the pipeline continues.
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY WHEN the enriched brief has been written, validated, and the result envelope emitted will you load and read fully {nextStepFile} to begin the health check.
+ONLY WHEN the enriched brief has been written and validated will you load and read fully {nextStepFile} to begin the auto-brief validation gate.

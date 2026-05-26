@@ -74,13 +74,14 @@ These rules apply to every step in this workflow:
 |---|------|------|--------------|
 | 1 | Gather Intent | references/gather-intent.md | No (interactive) |
 | 1a | Auto-Brief Generation (auto mode only) | references/step-auto-brief.md | Yes |
+| 1b | Auto-Brief Validation (auto mode only) | references/step-auto-validate.md | No (interactive gate — headless auto-approves) |
 | 2 | Analyze Target | references/analyze-target.md | Yes |
 | 3 | Scope Definition | references/scope-definition.md | No (interactive) |
 | 4 | Confirm Brief | references/confirm-brief.md | No (confirm) |
 | 5 | Write Brief | references/write-brief.md | Yes |
 | 6 | Workflow Health Check (terminal) | references/health-check.md | Yes |
 
-Stage 1a is conditional — it replaces stages 2-5 when BS is invoked with the `[auto]` flag via pipeline context. The routing decision is made in stage 1 (gather-intent.md §1b). In auto mode, the chain is: gather-intent.md §1 (forge tier) → §1b (auto check) → step-auto-brief.md → health-check.md.
+Stages 1a-1b are conditional — they replace stages 2-5 when BS is invoked with the `[auto]` flag via pipeline context. The routing decision is made in stage 1 (gather-intent.md §1b). In auto mode, the chain is: gather-intent.md §1 (forge tier) → §1b (auto check) → step-auto-brief.md → step-auto-validate.md → health-check.md (on [A]pprove or [E]dit) or → confirm-brief.md → write-brief.md → health-check.md (on [R]eject).
 
 ## Invocation Contract
 
