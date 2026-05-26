@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "ff499338aca2",
+  "strategy": "manual-commit",
+  "branch": "deepwiki-zero-ceremony-skill-creation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "package.json",
+    "src/shared/scripts/skf-validate-pins.py",
+    "src/skf-analyze-source/SKILL.md",
+    "src/skf-analyze-source/references/step-auto-scope.md",
+    "test/test-skf-validate-pins.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ff/499338aca2/0/metadata.json",
+      "transcript": "/ff/499338aca2/0/full.jsonl",
+      "context": "/ff/499338aca2/0/context.md",
+      "content_hash": "/ff/499338aca2/0/content_hash.txt",
+      "prompt": "/ff/499338aca2/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 79,
+    "cache_creation_tokens": 109468,
+    "cache_read_tokens": 8064364,
+    "output_tokens": 25655,
+    "api_call_count": 78
+  }
+}
