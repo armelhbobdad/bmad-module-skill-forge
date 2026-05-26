@@ -3,7 +3,7 @@
   "checkpoint_id": "d9695aef19ce",
   "strategy": "manual-commit",
   "branch": "campaign-orchestration",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "package.json",
     "src/skf-campaign/references/step-05-skill-loop.md",
@@ -24,13 +24,20 @@
       "context": "/d9/695aef19ce/1/context.md",
       "content_hash": "/d9/695aef19ce/1/content_hash.txt",
       "prompt": "/d9/695aef19ce/1/prompt.txt"
+    },
+    {
+      "metadata": "/d9/695aef19ce/2/metadata.json",
+      "transcript": "/d9/695aef19ce/2/full.jsonl",
+      "context": "/d9/695aef19ce/2/context.md",
+      "content_hash": "/d9/695aef19ce/2/content_hash.txt",
+      "prompt": "/d9/695aef19ce/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 157,
-    "cache_creation_tokens": 104214,
-    "cache_read_tokens": 17137131,
-    "output_tokens": 43404,
-    "api_call_count": 156
+    "input_tokens": 4760,
+    "cache_creation_tokens": 175491,
+    "cache_read_tokens": 18491182,
+    "output_tokens": 58009,
+    "api_call_count": 178
   }
 }
