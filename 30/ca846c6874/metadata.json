@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "30ca846c6874",
+  "strategy": "manual-commit",
+  "branch": "quality-scale-and-workaround-automation",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "package.json",
+    "src/shared/references/pipeline-contracts.md",
+    "src/skf-forger/SKILL.md",
+    "src/skf-test-skill/SKILL.md",
+    "src/skf-test-skill/customize.toml",
+    "src/skf-test-skill/references/init.md",
+    "src/skf-test-skill/references/score.md",
+    "test/test-skf-per-pipeline-thresholds.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/30/ca846c6874/0/metadata.json",
+      "transcript": "/30/ca846c6874/0/full.jsonl",
+      "context": "/30/ca846c6874/0/context.md",
+      "content_hash": "/30/ca846c6874/0/content_hash.txt",
+      "prompt": "/30/ca846c6874/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 108,
+    "cache_creation_tokens": 32855,
+    "cache_read_tokens": 18258355,
+    "output_tokens": 24496,
+    "api_call_count": 108
+  }
+}
