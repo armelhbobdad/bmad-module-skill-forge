@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "8bab90441946",
+  "strategy": "manual-commit",
+  "branch": "source-intelligence-foundation",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "test/test-skf-step-doc-drift.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/8b/ab90441946/0/metadata.json",
+      "transcript": "/8b/ab90441946/0/full.jsonl",
+      "context": "/8b/ab90441946/0/context.md",
+      "content_hash": "/8b/ab90441946/0/content_hash.txt",
+      "prompt": "/8b/ab90441946/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 65297,
+    "cache_read_tokens": 972598,
+    "output_tokens": 10383,
+    "api_call_count": 17
+  }
+}
