@@ -76,6 +76,7 @@ VALID_FULL_STATE: dict = {
             "workarounds_applied": ["fp-abc123"],
             "started_at": "2026-05-27T00:10:00Z",
             "completed_at": "2026-05-27T00:30:00Z",
+            "commit_sha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
         },
         {
             "name": "data-layer",
@@ -89,6 +90,7 @@ VALID_FULL_STATE: dict = {
             "workarounds_applied": [],
             "started_at": None,
             "completed_at": None,
+            "commit_sha": None,
         },
     ],
     "dependency_graph": {
@@ -420,6 +422,34 @@ class TestBackupBehavior:
             backup_data = yaml.safe_load(backup_content)
             assert backup_data["campaign"]["current_stage"] == 0
             assert backup_data["campaign"]["last_updated"] == "2026-05-27T00:00:00Z"
+
+
+# ---------------------------------------------------------------------------
+# Task 4 (Story 4.3) — commit_sha field validation
+# ---------------------------------------------------------------------------
+
+
+class TestCommitShaField:
+    def test_commit_sha_string_passes(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_FULL_STATE)
+        state["skills"][0]["commit_sha"] = "abc123def456"
+        validate(instance=state, schema=schema)
+
+    def test_commit_sha_null_passes(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_FULL_STATE)
+        state["skills"][0]["commit_sha"] = None
+        validate(instance=state, schema=schema)
+
+    def test_commit_sha_absent_passes(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_FULL_STATE)
+        state["skills"][0].pop("commit_sha", None)
+        validate(instance=state, schema=schema)
+
+    def test_commit_sha_invalid_type_fails(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_FULL_STATE)
+        state["skills"][0]["commit_sha"] = 12345
+        with pytest.raises(ValidationError):
+            validate(instance=state, schema=schema)
 
 
 # ---------------------------------------------------------------------------

@@ -101,6 +101,9 @@
           "completed_at": {
             "type": ["string", "null"],
             "format": "date-time"
+          },
+          "commit_sha": {
+            "type": ["string", "null"]
           }
         }
       }
