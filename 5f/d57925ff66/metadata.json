@@ -3,7 +3,7 @@
   "checkpoint_id": "5fd57925ff66",
   "strategy": "manual-commit",
   "branch": "campaign-orchestration",
-  "checkpoints_count": 0,
+  "checkpoints_count": 1,
   "files_touched": [
     "package.json",
     "src/skf-campaign/references/health-check.md",
@@ -20,13 +20,20 @@
       "context": "/5f/d57925ff66/0/context.md",
       "content_hash": "/5f/d57925ff66/0/content_hash.txt",
       "prompt": "/5f/d57925ff66/0/prompt.txt"
+    },
+    {
+      "metadata": "/5f/d57925ff66/1/metadata.json",
+      "transcript": "/5f/d57925ff66/1/full.jsonl",
+      "context": "/5f/d57925ff66/1/context.md",
+      "content_hash": "/5f/d57925ff66/1/content_hash.txt",
+      "prompt": "/5f/d57925ff66/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 322,
-    "cache_creation_tokens": 112867,
-    "cache_read_tokens": 123702953,
-    "output_tokens": 72631,
-    "api_call_count": 322
+    "input_tokens": 343,
+    "cache_creation_tokens": 178782,
+    "cache_read_tokens": 124822418,
+    "output_tokens": 88550,
+    "api_call_count": 342
   }
 }
