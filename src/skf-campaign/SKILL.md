@@ -62,9 +62,9 @@ These rules apply to every step in this workflow:
 
 On invocation:
 
-1. **`campaign resume [--from=<skill>]`** — load `_campaign-state.yaml`, validate integrity against schema, skip to `current_stage`. If `--from=<skill>` is provided, override the resume point to the named skill.
-2. **`campaign`** (new) — run from stage 0 (Setup). If `_campaign-state.yaml` already exists, offer the user a choice: resume existing campaign or overwrite with a new one.
-3. **`campaign`** (without args, state exists) — detect existing `_campaign-state.yaml` and prompt: resume or overwrite.
+1. **`campaign resume [--from=<skill>]`** — load `references/step-resume.md`. Validates state integrity, checks backup consistency, and chains to the appropriate stage step file. If `--from=<skill>` is provided, override the resume point to the named skill.
+2. **`campaign`** (new) — run from stage 0 (Setup). If `_campaign-state.yaml` already exists, offer the user a choice: resume via `references/step-resume.md` or overwrite with a new campaign.
+3. **`campaign`** (without args, state exists) — detect existing `_campaign-state.yaml` and prompt: resume via `references/step-resume.md` or overwrite.
 
 ## Resume Detection
 
