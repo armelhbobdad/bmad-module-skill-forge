@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "50f7f729ea98",
+  "session_id": "648b7ea2-961b-46c4-8d8d-de7ad8842cd1",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-27T01:29:17.330110263Z",
+  "branch": "campaign-orchestration",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-campaign/SKILL.md",
+    "src/skf-campaign/references/step-resume.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "c5985794e8dd",
+  "checkpoint_transcript_start": 4088,
+  "transcript_lines_at_start": 4088,
+  "token_usage": {
+    "input_tokens": 146,
+    "cache_creation_tokens": 61738,
+    "cache_read_tokens": 68706862,
+    "output_tokens": 37709,
+    "api_call_count": 146
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-27T01:29:16.14020721Z",
+    "agent_lines": 113,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 113,
+    "agent_percentage": 100
+  }
+}
