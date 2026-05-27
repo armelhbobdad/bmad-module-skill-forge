@@ -3,7 +3,7 @@
   "checkpoint_id": "1cdac80ff2d1",
   "strategy": "manual-commit",
   "branch": "campaign-orchestration",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "docs/bmad-synergy.md",
     "docs/campaign.md",
@@ -26,13 +26,20 @@
       "context": "/1c/dac80ff2d1/1/context.md",
       "content_hash": "/1c/dac80ff2d1/1/content_hash.txt",
       "prompt": "/1c/dac80ff2d1/1/prompt.txt"
+    },
+    {
+      "metadata": "/1c/dac80ff2d1/2/metadata.json",
+      "transcript": "/1c/dac80ff2d1/2/full.jsonl",
+      "context": "/1c/dac80ff2d1/2/context.md",
+      "content_hash": "/1c/dac80ff2d1/2/content_hash.txt",
+      "prompt": "/1c/dac80ff2d1/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 6375,
-    "cache_creation_tokens": 134156,
-    "cache_read_tokens": 87710363,
-    "output_tokens": 44262,
-    "api_call_count": 176
+    "input_tokens": 6388,
+    "cache_creation_tokens": 204216,
+    "cache_read_tokens": 88450651,
+    "output_tokens": 57775,
+    "api_call_count": 188
   }
 }
