@@ -1,0 +1,13 @@
+# Session Context
+
+## User Prompts
+
+### Prompt 1
+
+Execute the BMAD dev-story workflow for story 4.11.
+
+READ this skill first: .claude/skills/bmad-dev-story/SKILL.md
+Validate with: .claude/skills/bmad-dev-story/checklist.md
+Story file: _bmad-output/implementation-artifacts/4-11-*.md
+Implement all tasks marked [ ]. Run tests. Update checkboxes.
+
