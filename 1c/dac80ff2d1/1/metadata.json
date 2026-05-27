@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "1cdac80ff2d1",
+  "session_id": "88ba40a9-e971-4b1b-9655-6cb39f079449",
+  "strategy": "manual-commit",
+  "created_at": "2026-05-27T02:09:10.680100766Z",
+  "branch": "campaign-orchestration",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/bmad-synergy.md",
+    "docs/campaign.md",
+    "docs/deepwiki.md",
+    "docs/workflows.md",
+    "src/shared/references/pipeline-contracts.md",
+    "src/skf-forger/SKILL.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "31bf3728a556",
+  "token_usage": {
+    "input_tokens": 6229,
+    "cache_creation_tokens": 83369,
+    "cache_read_tokens": 2220274,
+    "output_tokens": 17183,
+    "api_call_count": 30
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-05-27T02:09:10.301111188Z",
+    "agent_lines": 179,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 179,
+    "agent_percentage": 100
+  }
+}
