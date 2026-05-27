@@ -33,7 +33,11 @@ Load `{stateFile}`. Validate the loaded state against `{stateSchemaFile}`. HALT 
 
 Copy `{stateFile}` to `{backupFile}` before any modification.
 
-### §3 — Compute Execution Order
+### §3 — Read Directive
+
+If `campaign.directive_path` is set in state, load the file at that path. Apply directive contents as campaign-wide context for this stage's processing. If the file is not found, continue without error (directive is optional).
+
+### §4 — Compute Execution Order
 
 Extract `skills[]` and their `depends_on` edges. Perform a topological sort (Kahn's algorithm):
 
@@ -49,15 +53,15 @@ Extract `skills[]` and their `depends_on` edges. Perform a topological sort (Kah
 6. If all skills are placed → valid execution order, set `circular_deps_detected` to `false`.
 7. If any skills remain unplaced → circular dependency detected, set `circular_deps_detected` to `true`.
 
-### §4 — Handle Circular Dependencies
+### §5 — Handle Circular Dependencies
 
 If `circular_deps_detected` is `true`, HALT with a clear error listing the cycle — identify the unplaced skills and their mutual `depends_on` edges. Do NOT proceed — circular dependencies make execution order impossible.
 
-### §5 — Write State
+### §6 — Write State
 
 Set `dependency_graph.execution_order` to the computed order. Set `dependency_graph.circular_deps_detected` to the detection result. Set `campaign.current_stage` to `1`. Set `campaign.last_updated` to current ISO-8601 with timezone. Write to `{stateFile}`.
 
-### §6 — Present Strategy View
+### §7 — Present Strategy View
 
 Display a human-readable strategy summary to the operator (not written to a file — display only):
 

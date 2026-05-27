@@ -28,11 +28,15 @@ Present all completed skills for operator review and gate the export behind expl
 
 Load `{stateFile}`. Validate the loaded state against `{stateSchemaFile}`. HALT on any schema validation error with the specific violation.
 
-### §2 — Collect Export Candidates
+### §2 — Read Directive
+
+If `campaign.directive_path` is set in state, load the file at that path. Apply directive contents as campaign-wide context for this stage's processing. If the file is not found, continue without error (directive is optional).
+
+### §3 — Collect Export Candidates
 
 Gather all skills from `skills[]` with `status == "completed"`. These are the export candidates.
 
-If no completed skills exist, display a warning and proceed directly to §5 (stage completion) — there is nothing to export.
+If no completed skills exist, display a warning and proceed directly to §6 (stage completion) — there is nothing to export.
 
 Present a summary table of export candidates:
 
@@ -43,7 +47,7 @@ Present a summary table of export candidates:
 
 Display: "**{N} skill(s) ready for export.**"
 
-### §3 — Write-Gate HALT
+### §4 — Write-Gate HALT
 
 Present the export confirmation gate:
 
@@ -51,7 +55,7 @@ Present the export confirmation gate:
 
 {N} completed skill(s) will be exported via `skf-export-skill`:
 
-{summary table from §2}
+{summary table from §3}
 
 - **[E]xport all** — invoke `skf-export-skill` for each completed skill
 - **[C]ancel** — halt the campaign gracefully (no files written, resume later)
@@ -70,11 +74,11 @@ HALT the campaign. Do NOT mark the campaign as failed — the operator may resum
 
 #### On `[E]xport`:
 
-Proceed to §4.
+Proceed to §5.
 
-### §4 — Invoke EX
+### §5 — Invoke EX
 
-For each completed skill (from §2), invoke `skf-export-skill` in headless mode:
+For each completed skill (from §3), invoke `skf-export-skill` in headless mode:
 
 ```
 skf-export-skill {skill_name} --headless
@@ -93,7 +97,7 @@ After all exports complete, display a summary:
 - Failed: {fail_count} skill(s)
 {list of failed skills if any}"
 
-### §5 — Stage Completion
+### §6 — Stage Completion
 
 Set `campaign.current_stage` to `9`. Update `campaign.last_updated` to current ISO-8601 with timezone. Backup `{stateFile}` to `{backupFile}`, then write the updated state.
 

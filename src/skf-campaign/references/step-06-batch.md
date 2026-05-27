@@ -30,13 +30,17 @@ Batch all Tier B skills through QS `--batch` mode, recording per-skill results i
 
 Load `{stateFile}`. Validate the loaded state against `{stateSchemaFile}`. HALT on any schema validation error with the specific violation.
 
-### §2 — Identify Tier B Skills
+### §2 — Read Directive
+
+If `campaign.directive_path` is set in state, load the file at that path. Apply directive contents as campaign-wide context for this stage's processing. If the file is not found, continue without error (directive is optional).
+
+### §3 — Identify Tier B Skills
 
 Filter `skills[]` for entries where `tier == "B"` and `status == "pending"`. Skip skills with status `"completed"`, `"failed"`, or `"skipped"` (resume support — a previous run may have partially completed the batch).
 
-If no Tier B skills need processing, skip to §6 (Stage Completion) — the batch stage completes immediately when all Tier B skills are already handled.
+If no Tier B skills need processing, skip to §7 (Stage Completion) — the batch stage completes immediately when all Tier B skills are already handled.
 
-### §3 — Generate Batch File
+### §4 — Generate Batch File
 
 Load `{briefFile}` to look up `repo_url` for each Tier B skill (repo URLs are in the brief's `targets[]`, not in the state schema).
 
@@ -48,7 +52,7 @@ Write a batch input file listing Tier B skills for QS `--batch` consumption. For
 
 Place the batch file at `{batchFile}`.
 
-### §4 — Execute QS Batch
+### §5 — Execute QS Batch
 
 Set each pending Tier B skill to `status: "active"` and `started_at` to current ISO-8601 with timezone. Backup `{stateFile}` to `{backupFile}`, then write the updated state.
 
@@ -60,7 +64,7 @@ skf-quick-skill --batch {batchFile}
 
 QS `--batch` implies `--headless`. Capture per-skill results from the QS batch output — each target reports success/failure, skill path, and quality score.
 
-### §5 — Record Results
+### §6 — Record Results
 
 For each Tier B skill in the batch:
 
@@ -74,7 +78,7 @@ For each Tier B skill in the batch:
 
 After all updates: backup `{stateFile}` to `{backupFile}`, then write the updated state.
 
-### §6 — Stage Completion
+### §7 — Stage Completion
 
 Set `campaign.current_stage` to `5`. Update `campaign.last_updated` to current ISO-8601 with timezone. Backup `{stateFile}` to `{backupFile}`, then write the updated state.
 
