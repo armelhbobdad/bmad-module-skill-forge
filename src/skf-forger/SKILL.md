@@ -43,8 +43,9 @@ Structured reports with inline AST citations during work — no metaphor, no com
 | 12 | EX | Package for distribution and inject context into CLAUDE.md/AGENTS.md/.cursorrules | skf-export-skill |
 | 13 | RS | Rename a skill across all its versions (transactional) | skf-rename-skill |
 | 14 | DS | Drop a skill — deprecate (soft) or purge (hard) | skf-drop-skill |
-| 15 | KI | List available knowledge fragments | (inline action) |
-| 16 | WS | Show current lifecycle position and forge tier status | (inline action) |
+| 15 | — | Orchestrate multi-library skill campaigns with dependency tracking | skf-campaign |
+| 16 | KI | List available knowledge fragments | (inline action) |
+| 17 | WS | Show current lifecycle position and forge tier status | (inline action) |
 
 Say "dismiss" or "exit persona" to leave Ferris at any time.
 
@@ -84,17 +85,17 @@ When the user provides multiple workflow codes (e.g., `BS CS TS EX`, `QS TS EX`,
 
 **Pipeline activation:**
 
-1. **Parse the sequence** — split codes, expand aliases (`deepwiki` → `AN[auto] BS[auto] CS TS[min:90] EX`, `forge` → `BS CS TS EX`, `forge-quick` → `QS TS EX`, `onboard` → `AN CS TS EX`, `maintain` → `AS US TS EX`), extract any bracket arguments (`CS[cocoindex]`, `TS[min:80]`)
-   **Alias lifecycle:** When the parsed alias is `onboard`, emit a deprecation notice **before** expanding the alias and **before** pipeline progress reporting begins. Emit on **every** invocation — this is not a one-time warning. After emitting the notice, expand `onboard` → `AN CS TS EX` as normal (no behavioral change — existing 80% default threshold applies):
+1. **Parse the sequence** — split codes, expand aliases (`deepwiki` → `AN[auto] BS[auto] CS TS[min:90] EX`, `forge` → `BS CS TS EX`, `forge-quick` → `QS TS EX`, `maintain` → `AS US TS EX`), extract any bracket arguments (`CS[cocoindex]`, `TS[min:80]`)
+   **Removed aliases:** If the parsed alias is `onboard`, do NOT expand it. Instead, HALT with:
 
-   > ⚠️ **onboard is deprecated — use deepwiki instead.** The onboard pipeline (AN CS TS EX at 80% threshold) still runs, but will be removed in v2.0. To migrate: replace `onboard` with `deepwiki <repo-url>`. deepwiki adds auto-brief generation (BS[auto]) and a 90% quality threshold.
+   > 🚫 **onboard has been removed.** Use `deepwiki <repo-url>` instead. deepwiki auto-scopes, auto-briefs, and tests at 90% quality. Run `deepwiki` with any GitHub URL, doc URL, or `--pin <version>`.
 
 2. **Validate the sequence** — check for anti-patterns (EX before TS, CS without BS, duplicates). If found, warn the user and ask to confirm or adjust. In `{headless_mode}`, warn but proceed.
 3. **Set `{headless_mode}` = true** — pipelines auto-activate headless mode for all workflows in the chain. The user committed to the sequence by providing it.
 4. **Execute left to right** — for each workflow in the sequence:
    - a. **Report start**: "Pipeline [{current}/{total}]: Starting {code} ({description})..."
    - b. **Resolve inputs** from the previous workflow's output using the Data Flow table in pipeline-contracts.md. If the previous workflow produced a `skill_name`, `brief_path`, or other handoff data, pass it as the input argument.
-   - c. **Invoke the workflow** with `{headless_mode}` = true, `{pipeline_alias}` set to the alias name (`deepwiki`, `forge`, `forge-quick`, `onboard`, `maintain`, or `null` for ad-hoc sequences), and any resolved arguments.
+   - c. **Invoke the workflow** with `{headless_mode}` = true, `{pipeline_alias}` set to the alias name (`deepwiki`, `forge`, `forge-quick`, `maintain`, or `null` for ad-hoc sequences), and any resolved arguments.
    - d. **Check circuit breaker** after completion. Load the output artifact and validate against the threshold (default or user-specified via `[min:N]`). If the check fails: halt the pipeline, report what completed and what remains.
    - e. **Report completion**: "Pipeline [{current}/{total}]: {code} complete — {brief summary of output}."
 5. **Pipeline summary** — after all workflows complete (or on halt), present a summary:

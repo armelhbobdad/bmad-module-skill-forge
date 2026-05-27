@@ -76,9 +76,9 @@ A typical library (50–200 exports) takes **3–5 minutes** end to end. Factors
 
 ## Migration from onboard
 
-deepwiki replaces the older `onboard` alias. `onboard` still works but shows a deprecation notice on every invocation and will be removed in v2.0.
+deepwiki replaces the older `onboard` alias. `onboard` has been removed — running it returns an error directing you to deepwiki.
 
-The key difference: `onboard` runs `AN CS TS EX` with standard (interactive) modes. deepwiki adds auto-scope, auto-brief, a stricter quality gate (90% vs 80%), and accepts repo URLs and doc URLs — not just project paths.
+The key differences from the old alias: `onboard` ran `AN CS TS EX` with standard (interactive) modes at an 80% quality threshold. deepwiki adds auto-scope, auto-brief, a stricter quality gate (90% vs 80%), and accepts repo URLs and doc URLs — not just project paths.
 
 ---
 
