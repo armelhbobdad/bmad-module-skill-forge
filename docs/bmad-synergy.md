@@ -45,6 +45,8 @@ If you later adopt the BMAD Method, the skills you created via deepwiki integrat
 
 BMM is BMAD's core [4-phase workflow](https://docs.bmad-method.org/) (Analysis → Planning → Solutioning → Implementation). SKF has five concrete entry points across those phases. The diagram below shows the end-to-end picture; the subsections that follow give the trigger, command, and artifact flow for each phase.
 
+> **Atomic workflows vs pipeline aliases.** The playbook below maps each phase to an *atomic* SKF workflow (`AN`, `BS`, `QS`, `VS`, `CS`…) on purpose — in BMM you often want only part of the chain (a brief to feed a risk register, a quick reference for acceptance criteria). When you instead want the *finished, exported skill* in one command, reach for a pipeline alias: [`deepwiki`](../deepwiki/) collapses `AN → BS → CS → TS → EX` for a single library, and [`campaign`](../campaign/) orchestrates that whole chain across many dependencies. Rule of thumb: **atomic when you want a stage's artifact; alias when you want the verified skill.**
+
 ```mermaid
 flowchart TD
     P1[BMM Phase 1: Analysis<br/>product-brief · research] -.->|unfamiliar deps| AN[SKF: Analyze Source]
@@ -54,12 +56,16 @@ flowchart TD
     P1 --> P2[BMM Phase 2: Planning<br/>create-prd]
     P2 -.->|uncertain API| QS[SKF: Quick Skill]
     QS -.->|verified API ref| P2
+    P2 -.->|"one command → exported skill (alias)"| DW[SKF: deepwiki]
+    DW -.->|verified skill| P2
 
     P2 --> P3[BMM Phase 3: Solutioning<br/>create-architecture]
     P3 -.->|declared stack| VS[SKF: Verify Stack]
     VS --> RA[SKF: Refine Architecture]
     RA -.->|refined arch| P3b[BMM: check-implementation-readiness]
     P3 --> P3b
+    P3 -.->|"15+ deps (alias)"| CAMP[SKF: Campaign Orchestration]
+    CAMP -.->|verified stack| P3b
 
     P3b --> P4[BMM Phase 4: Implementation<br/>create-story · dev-story]
     P4 -.->|story libs| CS[SKF: Create Skill / Stack Skill]
@@ -89,6 +95,8 @@ flowchart TD
 **What flows back:** A verified skill you can cite directly in acceptance criteria. PM and architect read the same source.
 
 **Why now, not later:** Quick Skill is cheap insurance. It takes under a minute and prevents a whole class of "actually that function doesn't exist" moments during story writing.
+
+**Want more than a quick reference?** When the PRD leans heavily on one library and you'd rather have a thorough, doc-enriched skill behind a 90% quality gate than a fast QS pass, run [`@Ferris deepwiki <repo>`](../deepwiki/) instead — one command produces the finished, exported skill (auto-scope, auto-brief, test, export) ready for BMM workflows to consult.
 
 ### Phase 3 — Solutioning
 
@@ -133,7 +141,7 @@ Two distinct triggers fire during Implementation, one at the start of each story
 
 **Trigger A (before `create-story`):** The story touches a library whose API isn't already in a content skill.
 
-**SKF command:** `@Ferris CS` for a single library, or `@Ferris SS` when the story spans several dependencies.
+**SKF command:** `@Ferris CS` for a single library, or `@Ferris SS` when the story spans several dependencies. If there's no brief yet and you want the skill in one shot, [`@Ferris deepwiki <repo>`](../deepwiki/) runs the full analyze → brief → compile → test → export chain from just the repo URL.
 
 **What flows back:** A verified content skill the `dev-story` workflow can consult during implementation — no training-data guessing about function signatures.
 
@@ -206,5 +214,7 @@ For long-running BMAD projects, `@Ferris RS` (rename) and `@Ferris DS` (drop) ke
 ## Where to Go Next
 
 - [BMAD docs](https://docs.bmad-method.org/) — canonical reference for BMM phases, TEA workflows, BMB / GDS / CIS details, and the full module list
+- [Deepwiki](../deepwiki/) — the one-command alias that collapses analyze → brief → compile → test → export for a single library
+- [Campaign](../campaign/) — orchestrate the full pipeline across many declared dependencies with dependency ordering and resume
 - [Workflows](../workflows/) — complete SKF workflow reference with commands and connection diagrams
 - [Examples](../examples/) — concrete scenarios including the BMM retrospective loop and greenfield architecture verification
