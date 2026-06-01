@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0b643a6f2eab",
+  "session_id": "6f290fda-8776-49b3-9c82-013fa78c06dd",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-01T18:05:07.083720015Z",
+  "branch": "surface-deepwiki-in-setup",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/skf-setup/references/report.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "8b3775da7186",
+  "token_usage": {
+    "input_tokens": 45670,
+    "cache_creation_tokens": 490931,
+    "cache_read_tokens": 52252759,
+    "output_tokens": 201444,
+    "api_call_count": 193
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-01T18:05:05.874306607Z",
+    "agent_lines": 1,
+    "human_added": 2,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 3,
+    "agent_percentage": 33.33333333333333
+  }
+}
