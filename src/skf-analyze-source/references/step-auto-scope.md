@@ -2,6 +2,9 @@
 nextStepFile: 'health-check.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 shapeDetectScript: 'src/shared/scripts/skf-shape-detect.py'
+scanManifestsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-scan-manifests.py'
+  - '{project-root}/src/shared/scripts/skf-scan-manifests.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -245,16 +248,23 @@ Load `references/step-shape-detect.md` as reference for shape detection invocati
 
 ### 2. Manifest Scan
 
-Perform a lightweight manifest scan — find standard package manifests in the project root and workspace paths. Do NOT crawl the full directory tree.
+Enumerate package manifests **deterministically** — do not hand-scan. Resolve `{scanManifestsHelper}` as the first path in `{scanManifestsProbeOrder}` that exists. This is the same helper the interactive `scan-project.md` uses, so the auto and interactive paths discover manifests identically.
 
 **For each path in `project_paths[]`:**
 
-1. Check the project root for: `package.json`, `pyproject.toml`, `Cargo.toml`
-2. If a workspace configuration exists (e.g., `pnpm-workspace.yaml`, Cargo.toml `[workspace].members`), scan workspace member paths for additional manifests
-3. Record each discovered manifest as `{path, type}` pairs
+```bash
+uv run {scanManifestsHelper} scan {path}
+```
 
-**IF no manifests found:**
-- Emit fallback message: "**Auto-scope could not find any package manifests — switching to interactive mode.**"
+Parse the JSON envelope: `{manifests: [{path, ecosystem, ...}], total_unique, monorepo, warnings?}`. The scanner walks the project root plus monorepo `packages/*` members and recognizes npm/pnpm/yarn `workspaces`, Cargo `[workspace]`, and other ecosystems — so workspace member manifests are discovered without hand-listing each workspace convention.
+
+From the envelope, record:
+
+1. **Supported manifest paths** — filter `manifests[].path` to the types `skf-shape-detect.py` accepts (`package.json`, `pyproject.toml`, `Cargo.toml`). This filtered, comma-joined list is fed to shape detection in §3. For a monorepo, it includes each workspace member's manifest, so the package surface is classified accurately rather than from a bare (and often export-less) repo root. The scanner also discovers ecosystems shape detection does not yet classify (e.g. Go `go.mod`, Maven, Gradle); those are excluded here, so a repo with no supported manifest falls back to interactive at the next check rather than auto-scoping.
+2. **`monorepo` flag** and the count of discovered supported packages — carried forward as a signal for the decomposition decision in §3a.
+
+**IF no supported manifests are found** (the filtered list is empty):
+- Emit fallback message: "**Auto-scope could not find any supported package manifests — switching to interactive mode.**"
 - Load, read fully, then execute `references/scan-project.md`. **STOP HERE.**
 
 ### 3. Invoke Shape Detection
@@ -308,11 +318,10 @@ Apply the shape→scope.type mapping:
 
 Generate `scope.include` and `scope.exclude` arrays from the detected language and project structure.
 
-**Detect primary language** from manifest type:
+**Detect primary language** from manifest type (the same set shape detection classifies):
 - `package.json` → TypeScript/JavaScript
 - `pyproject.toml` → Python
 - `Cargo.toml` → Rust
-- `go.mod` → Go
 
 **Default patterns (adjust based on actual project structure):**
 
