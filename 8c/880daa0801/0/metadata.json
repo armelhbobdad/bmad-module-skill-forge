@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "8c880daa0801",
+  "session_id": "6f290fda-8776-49b3-9c82-013fa78c06dd",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-01T17:29:49.361933922Z",
+  "branch": "fix-autoscope-monorepo-discovery",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "src/skf-analyze-source/references/step-auto-scope.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "5a8288f42d2d",
+  "token_usage": {
+    "input_tokens": 45007,
+    "cache_creation_tokens": 449733,
+    "cache_read_tokens": 40461091,
+    "output_tokens": 179136,
+    "api_call_count": 165
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-01T17:29:48.330338525Z",
+    "agent_lines": 16,
+    "human_added": 79,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 95,
+    "agent_percentage": 16.842105263157894
+  }
+}
