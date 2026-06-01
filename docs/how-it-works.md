@@ -41,7 +41,7 @@ await cognee.search(  # [AST:cognee/api/v1/search/search.py:L26]
 
 That tag means: *this came from AST extraction of this exact file at this exact line.* You can click through to the upstream source at the pinned commit and see it yourself.
 
-### 5. You get two files
+### 5. You get a skill package
 
 Ferris writes a `SKILL.md` (the full instruction manual your agent loads on demand) and a `context-snippet.md` (an 80–120 token index). The snippet gets injected into your platform context file (`CLAUDE.md`, `AGENTS.md`, or `.cursorrules`) as an always-on reminder: *"This skill exists; read it before writing cognee code."* Both halves are load-bearing — see the [Dual-Output Strategy](../skill-model/#dual-output-strategy) for why.
 

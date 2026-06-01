@@ -89,6 +89,13 @@ This detects your tools, sets your capability tier, and initializes the forge en
 
 ### 2. Generate your first skill
 
+**Zero-ceremony path (deepwiki):**
+```
+@Ferris deepwiki https://github.com/honojs/hono
+```
+
+One command turns a repo URL (or a doc URL) into a verified wiki skill — auto-scope, auto-brief, a 90% quality gate, and export, with no configuration. If you only read one thing, [start with deepwiki](../deepwiki/).
+
 **Fastest path (Quick Skill):**
 ```
 @Ferris QS https://github.com/bmad-code-org/BMAD-METHOD
@@ -183,6 +190,8 @@ Runtime configuration (tool detection, tier, and collection state) is managed by
 
 ## What's next?
 
+- [Deepwiki](../deepwiki/) — the zero-ceremony path: one command from repo or doc URL to a verified skill
+- [Campaign](../campaign/) — orchestrate many coordinated skills across sessions with dependency tracking and resume
 - [Agents](../agents/) — learn about Ferris
 - [Workflows](../workflows/) — the full command reference
 - [Examples](../examples/) — real-world scenarios with transcripts

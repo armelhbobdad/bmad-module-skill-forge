@@ -80,6 +80,8 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 
 **Purpose:** Brief-less fast skill with package-to-repo resolution.
 
+**Note:** QS is **tier-unaware** — it always runs at community tier and does not use ast-grep, CCC, or QMD even when your forge is configured at Forge+/Deep. For tier-aware compilation, use `BS → CS`, `forge`, or `deepwiki`. See [Skill Model](../skill-model/).
+
 **When to Use:** When you need a skill quickly — no brief needed. Accepts package names or GitHub URLs. Append `@version` to target a specific version (e.g., `@Ferris QS cognee@1.0.0`).
 
 **Key Steps:** Resolve target → Ecosystem check → Quick extract → Compile → Validate → Write

@@ -73,8 +73,11 @@ You'll be prompted for project name, output folders, and IDE configuration. When
 ## Quick Start
 
 1. **Set up your environment:** `@Ferris SF` _(Setup Forge)_ — detects your tools and sets your capability tier
-2. **Generate your first skill:** `@Ferris QS <package-name>` _(Quick Skill)_ — creates a verified skill in under a minute
-3. **Full quality path:** `@Ferris forge <your-library>` chains Brief → Create → Test → Export automatically — or run manually: `@Ferris BS` → clear session → `@Ferris CS` for maximum control
+2. **Zero-ceremony path:** `@Ferris deepwiki <repo-or-doc-url>` _(Deepwiki)_ — one command turns a repo or doc URL into a verified wiki skill (auto-scope, auto-brief, 90% quality gate, export)
+3. **Fast path:** `@Ferris QS <package-name>` _(Quick Skill)_ — creates a verified skill in under a minute
+4. **Full quality path:** `@Ferris forge <your-library>` chains Brief → Create → Test → Export automatically — or run manually: `@Ferris BS` → clear session → `@Ferris CS` for maximum control
+
+For producing **many coordinated skills** across sessions, `@Ferris campaign` _(Campaign)_ orchestrates the whole set with dependency tracking and resume.
 
 > **Tip:** Start a fresh conversation before each workflow, or use pipeline mode to chain them automatically. SKF workflows load significant context; clearing between them prevents interference.
 
@@ -143,9 +146,10 @@ The docs are organized into three buckets — **Why** (start here), **Try** (do 
 **Try**
 
 - **[Getting Started](https://armelhbobdad.github.io/bmad-module-skill-forge/getting-started/)** — Install, first skill, prereqs, and config
+- **[Deepwiki](https://armelhbobdad.github.io/bmad-module-skill-forge/deepwiki/)** — The zero-ceremony path: one command from a repo or doc URL to a verified skill
 - **[How It Works](https://armelhbobdad.github.io/bmad-module-skill-forge/how-it-works/)** — Plain-English walkthrough of one skill being built, end to end
 - **[Examples](https://armelhbobdad.github.io/bmad-module-skill-forge/examples/)** — Real-world scenarios with full command transcripts
-- **[Workflows](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/)** — All 14 workflows with commands and connection diagrams
+- **[Workflows](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/)** — All 15 workflows with commands and connection diagrams
 
 **Reference**
 

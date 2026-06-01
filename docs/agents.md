@@ -34,7 +34,7 @@ Ferris handles all SKF workflows. You always interact with Ferris — he switche
 | **Surgeon** | Precise, semantic diffing, preserves [MANUAL] | US |
 | **Audit** | Judgmental, drift reports, completeness scoring | AS, TS, VS |
 | **Delivery** | Packaging, platform-aware, ecosystem-ready | EX |
-| **Management** | Transactional rename/drop with platform context rebuild | RS, DS |
+| **Management** | Transactional rename/drop and multi-skill campaign orchestration with platform context rebuild | RS, DS, Campaign |
 
 **Communication Style:**
 - During work: structured reports with AST citations, no metaphor
@@ -75,11 +75,18 @@ MANAGE:
 
 [WS] Workflow Status — Show current lifecycle position
 [KI] Knowledge Index — List available knowledge fragments
+
+PIPELINE ALIASES:
+  [deepwiki] Zero-ceremony wiki skill from a repo or doc URL
+  [forge] Brief → Create → Test → Export
+  [forge-quick] Quick Skill → Test → Export
+  [maintain] Audit → Update → Test → Export
+  [campaign] Orchestrate many coordinated skills across sessions
 ```
 
 **Pipeline Aliases:**
 
-Ferris chains multiple workflows in one command via named aliases (`forge`, `forge-quick`, `onboard`, `maintain`). The full alias table, expansion rules, and target-resolution contract live in [Workflows → Pipeline Mode](../workflows/#pipeline-mode) — the canonical source. Example: `@Ferris forge-quick cognee` chains Quick → Test → Export with automatic data forwarding.
+Ferris chains multiple workflows in one command via named aliases (`deepwiki`, `forge`, `forge-quick`, `maintain`, `campaign`). The full alias table, expansion rules, and target-resolution contract live in [Workflows → Pipeline Mode](../workflows/#pipeline-mode) — the canonical source. Example: `@Ferris forge-quick cognee` chains Quick → Test → Export with automatic data forwarding.
 
 **Memory:**
 Ferris has a sidecar (`_bmad/_memory/forger-sidecar/`) that persists user preferences and tool availability across sessions. Set `headless_mode: true` in preferences to make headless the default.

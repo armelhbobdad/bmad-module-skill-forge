@@ -1,5 +1,5 @@
 ---
-title: deepwiki
+title: Deepwiki
 description: Zero-ceremony wiki-skill creation — one command turns a GitHub repo, doc URL, or pinned version into a verified wiki skill
 ---
 
@@ -27,7 +27,7 @@ Three input types, one command pattern:
 
 ## Pipeline Stages
 
-deepwiki expands to `AN[auto] BS[auto] CS TS[min:90] EX`. Each stage runs in [headless mode](../workflows/#headless-mode) — no confirmation gates, no interactive prompts.
+deepwiki expands to `AN[auto] BS[auto] CS TS[min:90] EX`. The two analysis stages (AN, BS) run in [headless mode](../workflows/#headless-mode) via their `[auto]` flags — no confirmation gates, no interactive prompts. The compile, test, and export stages then proceed with their standard behaviors once the analysis context is ready.
 
 | Stage | Workflow | Mode | What Happens |
 |-------|----------|------|-------------|
