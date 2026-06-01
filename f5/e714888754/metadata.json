@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "f5e714888754",
+  "strategy": "manual-commit",
+  "branch": "campaign-orchestration",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "package.json",
+    "test/test-skf-campaign-stepfiles.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f5/e714888754/0/metadata.json",
+      "transcript": "/f5/e714888754/0/full.jsonl",
+      "context": "/f5/e714888754/0/context.md",
+      "content_hash": "/f5/e714888754/0/content_hash.txt",
+      "prompt": "/f5/e714888754/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 18717,
+    "cache_creation_tokens": 247051,
+    "cache_read_tokens": 7035379,
+    "output_tokens": 58256,
+    "api_call_count": 52
+  }
+}
