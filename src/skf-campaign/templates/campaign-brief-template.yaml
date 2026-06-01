@@ -25,5 +25,10 @@ quality_gate:
 # Where health findings are routed: "local" (project-local) or "improvement" (shared queue)
 health_findings_queue: "local"
 
+# Optional path to the architecture document the verify (Stage 7) and refine
+# (Stage 8) stages consume. Empty string means those stages discover it at
+# runtime (docs/architecture.md, then _bmad-output/planning-artifacts/architecture.md).
+architecture_doc_path: ""
+
 # Operator-provided context or directives for this campaign
 notes: ""

@@ -36,6 +36,7 @@ Accept from the operator (or from arguments in headless mode):
   - `pin` — version pin (string) or `null` for latest
   - `depends_on` — array of skill names this target depends on (may be empty)
 - `directive_path` (optional) — path to a `_campaign-directive.md` file with operator directives
+- `architecture_doc_path` (optional) — path to the architecture document the verify (Stage 7) and refine (Stage 8) stages consume. If omitted here, those stages discover it at runtime (`docs/architecture.md`, then `_bmad-output/planning-artifacts/architecture.md`). Capturing it now persists the choice across resume and avoids re-prompting.
 
 If headless, all inputs come from arguments — no interactive prompts.
 
@@ -63,6 +64,7 @@ campaign:
   last_updated: "{current_iso8601_with_tz}"
   current_stage: 0
   directive_path: "{directive_path or omit if not provided}"
+  architecture_doc_path: "{architecture_doc_path or omit if not provided}"
   quality_gate:
     hard: "zero-critical-high"
     soft_target: 90
@@ -112,6 +114,7 @@ Fill in:
 - `targets` — array of target entries with `name`, `repo_url`, `tier`, `pin`, `depends_on`
 - `quality_gate` — use defaults: `hard: "zero-critical-high"`, `soft_target: 90`, `soft_fallback: 80`
 - `health_findings_queue` — from the §2 preference decision
+- `architecture_doc_path` — from collected input, or empty string if not provided
 - `notes` — operator-provided context, or empty string
 
 The brief is a machine-readable snapshot enabling fresh-context resume (FR-35).

@@ -45,17 +45,18 @@ Capture the result: stack skill path and quality score from the SS result output
 
 ### §4 — Record Capstone Results
 
-Record the capstone outcome in the OUTPUT section:
+Persist the capstone outcome to `campaign.capstone` in the state (campaign-level summary; the composed skill itself lives at `skill_path`):
 
-- Stack skill path (from SS result)
-- Quality score (from SS result)
-- List of constituent skills included in the stack
+- `campaign.capstone.skill_path` — stack skill path (from SS result)
+- `campaign.capstone.quality_score` — quality score (from SS result)
+- `campaign.capstone.verified` — `null` for now; set by the verify stage (step-08) once the stack is checked
+- `campaign.capstone.completed_at` — current ISO-8601 with timezone
 
-The capstone is a derived artifact — it is not tracked as a skill entry in the `skills[]` array. Its results are reported in the step output and available for downstream steps (verify, refine).
+The capstone is a derived artifact — it is **not** tracked as a skill entry in the `skills[]` array. Its campaign-level summary lives in `campaign.capstone`; the constituent skill list and any verbose detail are reported in the step output and are available to downstream steps (verify, refine).
 
 ### §5 — Stage Completion
 
-Set `campaign.current_stage` to `6`. Update `campaign.last_updated` to current ISO-8601 with timezone. Backup `{stateFile}` to `{backupFile}`, then write the updated state.
+Set `campaign.current_stage` to `6`. Update `campaign.last_updated` to current ISO-8601 with timezone. Backup `{stateFile}` to `{backupFile}`, then write the updated state (including `campaign.capstone` from §4).
 
 ## OUTPUT
 

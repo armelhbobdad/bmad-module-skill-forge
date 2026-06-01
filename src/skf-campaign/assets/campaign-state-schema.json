@@ -49,6 +49,69 @@
         "health_findings_queue": {
           "type": "string",
           "enum": ["local", "improvement"]
+        },
+        "architecture_doc_path": {
+          "type": ["string", "null"],
+          "description": "Path to the architecture document consumed by the verify (Stage 7) and refine (Stage 8) stages. Sourced at setup; null when the campaign runs no verification."
+        },
+        "capstone": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Tier-B capstone (stack) outcome. Campaign-level summary; the composed skill itself lives at skill_path.",
+          "properties": {
+            "skill_path": {
+              "type": ["string", "null"]
+            },
+            "quality_score": {
+              "type": ["number", "null"]
+            },
+            "verified": {
+              "type": ["boolean", "null"]
+            },
+            "completed_at": {
+              "type": ["string", "null"],
+              "format": "date-time"
+            }
+          }
+        },
+        "verification": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Stage 7 verify-stack summary. Detailed findings live in the external report at report_path.",
+          "properties": {
+            "report_path": {
+              "type": ["string", "null"]
+            },
+            "overall_verdict": {
+              "type": ["string", "null"],
+              "enum": ["Verified", "Plausible", "Risky", "Blocked", null]
+            },
+            "coverage_percentage": {
+              "type": ["number", "null"]
+            },
+            "recommendation_count": {
+              "type": ["integer", "null"]
+            }
+          }
+        },
+        "refinement": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Stage 8 refine-architecture summary. The refined document lives at refined_path.",
+          "properties": {
+            "refined_path": {
+              "type": ["string", "null"]
+            },
+            "gap_count": {
+              "type": ["integer", "null"]
+            },
+            "issue_count": {
+              "type": ["integer", "null"]
+            },
+            "improvement_count": {
+              "type": ["integer", "null"]
+            }
+          }
         }
       }
     },

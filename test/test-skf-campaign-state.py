@@ -453,6 +453,108 @@ class TestCommitShaField:
 
 
 # ---------------------------------------------------------------------------
+# Campaign-level result fields — architecture_doc_path, capstone,
+# verification, refinement (optional summary outcomes persisted to state)
+# ---------------------------------------------------------------------------
+
+
+class TestArchitectureDocPath:
+    def test_string_passes(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["architecture_doc_path"] = "docs/architecture.md"
+        validate(instance=state, schema=schema)
+
+    def test_null_passes(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["architecture_doc_path"] = None
+        validate(instance=state, schema=schema)
+
+    def test_absent_passes(self, schema: dict) -> None:
+        validate(instance=VALID_MINIMAL_STATE, schema=schema)
+
+    def test_invalid_type_fails(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["architecture_doc_path"] = 123
+        with pytest.raises(ValidationError):
+            validate(instance=state, schema=schema)
+
+
+class TestCapstoneField:
+    def test_full_capstone_passes(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["capstone"] = {
+            "skill_path": "forge-data/skills/stack/",
+            "quality_score": 91.0,
+            "verified": True,
+            "completed_at": "2026-05-27T04:00:00Z",
+        }
+        validate(instance=state, schema=schema)
+
+    def test_null_capstone_passes(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["capstone"] = None
+        validate(instance=state, schema=schema)
+
+    def test_extra_capstone_property_rejected(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["capstone"] = {"skill_path": "x", "extra": "no"}
+        with pytest.raises(ValidationError, match="Additional properties"):
+            validate(instance=state, schema=schema)
+
+
+class TestVerificationField:
+    def test_full_verification_passes(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["verification"] = {
+            "report_path": "forge-data/feasibility-report-latest.md",
+            "overall_verdict": "Verified",
+            "coverage_percentage": 87.5,
+            "recommendation_count": 3,
+        }
+        validate(instance=state, schema=schema)
+
+    def test_null_verification_passes(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["verification"] = None
+        validate(instance=state, schema=schema)
+
+    def test_invalid_verdict_enum_fails(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["verification"] = {"overall_verdict": "Maybe"}
+        with pytest.raises(ValidationError):
+            validate(instance=state, schema=schema)
+
+    def test_extra_verification_property_rejected(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["verification"] = {"overall_verdict": "Risky", "extra": 1}
+        with pytest.raises(ValidationError, match="Additional properties"):
+            validate(instance=state, schema=schema)
+
+
+class TestRefinementField:
+    def test_full_refinement_passes(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["refinement"] = {
+            "refined_path": "docs/architecture.md",
+            "gap_count": 2,
+            "issue_count": 1,
+            "improvement_count": 5,
+        }
+        validate(instance=state, schema=schema)
+
+    def test_null_refinement_passes(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["refinement"] = None
+        validate(instance=state, schema=schema)
+
+    def test_extra_refinement_property_rejected(self, schema: dict) -> None:
+        state = copy.deepcopy(VALID_MINIMAL_STATE)
+        state["campaign"]["refinement"] = {"gap_count": 0, "extra": "no"}
+        with pytest.raises(ValidationError, match="Additional properties"):
+            validate(instance=state, schema=schema)
+
+
+# ---------------------------------------------------------------------------
 # Task 5.15–5.18 — SKILL.md structural tests
 # ---------------------------------------------------------------------------
 
