@@ -356,8 +356,9 @@ class UI {
         `${chalk.white.bold('Get Started')}`,
         `1. Open this folder in ${ideDisplay}`,
         `2. Activate Ferris:  ${activateLine}`,
-        '3. Ferris (your Skill Architect) will guide you through',
-        '   setting up and forging your first agent skill',
+        '3. Ferris (your Skill Architect) guides you through forge setup',
+        `4. Fastest first skill — ask Ferris to run ${brand.gold('deepwiki <repo-or-doc-url>')}:`,
+        '   one command auto-scopes, compiles, tests, and exports a verified skill',
       ].join('\n');
     }
 
