@@ -110,9 +110,22 @@ flowchart TD
     VS -->|fail / gaps| RA[SKF: Refine Architecture]
     RA -.->|refined draft| VS
     RA --> READY
+
+    ARCH -.->|15+ dependencies| CAMPAIGN[SKF: Campaign Orchestration]
+    CAMPAIGN -->|"automates the full pipeline<br/>for all dependencies"| READY
 ```
 
 The "Pre-Code Architecture Verification — Greenfield Confidence" scenario in [Examples](../examples/) walks through a concrete case of this loop.
+
+#### Campaign Orchestration
+
+**Trigger:** The architecture declares 15+ dependencies — too many for manual one-at-a-time pipeline runs.
+
+**SKF command:** `@Ferris campaign`
+
+**What flows back:** All declared dependencies are skilled in dependency order, verified for cross-skill consistency, and exported as a cohesive set. A campaign report summarizes per-skill quality scores and the overall outcome.
+
+**Why now, not later:** Campaign automates at scale what the VS → RA → SS loop does for individual libraries. Running it during Solutioning means the entire stack is verified before implementation begins — no surprise API gaps mid-sprint.
 
 ### Phase 4 — Implementation
 

@@ -1,0 +1,34 @@
+# Machine-generated campaign brief — resume context for fresh sessions (FR-35)
+# Populated by step-01-setup.md from operator inputs
+
+# Campaign identifier
+campaign_name: ""
+
+# ISO-8601 timestamp of campaign creation
+created_at: ""
+
+# Target skills for this campaign run
+targets: []
+# Each target entry:
+#   name: ""
+#   repo_url: ""
+#   tier: "A"           # A (full pipeline) or B (batch)
+#   pin: null            # version pin, or null for latest
+#   depends_on: []       # list of skill names this target depends on
+
+# Quality thresholds applied to all skills in this campaign
+quality_gate:
+  hard: "zero-critical-high"
+  soft_target: 90
+  soft_fallback: 80
+
+# Where health findings are routed: "local" (project-local) or "improvement" (shared queue)
+health_findings_queue: "local"
+
+# Optional path to the architecture document the verify (Stage 7) and refine
+# (Stage 8) stages consume. Empty string means those stages discover it at
+# runtime (docs/architecture.md, then _bmad-output/planning-artifacts/architecture.md).
+architecture_doc_path: ""
+
+# Operator-provided context or directives for this campaign
+notes: ""

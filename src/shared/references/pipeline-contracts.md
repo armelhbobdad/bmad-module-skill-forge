@@ -22,8 +22,9 @@ The forger also accepts common pipeline aliases:
 | `deepwiki` | `AN[auto] BS[auto] CS TS[min:90] EX` | Full zero-ceremony wiki-skill pipeline |
 | `forge` | `BS CS TS EX` | Full skill creation pipeline (brief through export) |
 | `forge-quick` | `QS TS EX` | Quick skill pipeline |
-| `onboard` | `AN CS TS EX` | Full brownfield onboarding (deprecated — use deepwiki) |
 | `maintain` | `AS US TS EX` | Maintenance cycle (audit → update → test → export) |
+
+**Note:** `campaign` is a standalone workflow invoked via `@Ferris campaign`, not a pipeline alias. It orchestrates its own multi-stage pipeline internally with dependency tracking and resume.
 
 ## Pipeline Rules
 

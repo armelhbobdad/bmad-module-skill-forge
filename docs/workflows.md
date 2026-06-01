@@ -1,6 +1,6 @@
 ---
 title: Workflows
-description: All 14 SKF workflows with commands, steps, and connection diagram
+description: All 15 SKF workflows with commands, steps, and connection diagram
 ---
 
 Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../concepts/) for definitions.
@@ -211,6 +211,22 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 
 ---
 
+## Orchestration Workflows
+
+### Campaign Orchestration
+
+**Command:** `@Ferris campaign`
+
+**Purpose:** Orchestrate multi-library skill production across sessions with dependency tracking and resume.
+
+**When to Use:** When you need to produce 15+ coordinated skills with dependency ordering — too many for manual one-at-a-time pipeline runs.
+
+**Key Steps:** Setup → Strategy → Pin Validation → Provenance → Skill Loop → Tier B Batch → Capstone → Verify → Refine → Export → Maintenance
+
+**Agent:** Ferris (Management mode)
+
+---
+
 ## Management Workflows
 
 ### Rename Skill (RS)
@@ -280,21 +296,36 @@ flowchart TD
     TS --> EX[Export Skill]
 ```
 
-> **One workflow per session** (unless using pipeline mode). Each arrow in the diagrams above represents a new conversation session. Clear your context between workflows for best results — or use pipeline mode to chain them automatically. See [Pipeline Mode](#pipeline-mode) below.
+**Campaign orchestration path:**
+
+```mermaid
+flowchart TD
+    CAMPAIGN[Campaign Orchestration] --> SETUP[Setup + Strategy]
+    SETUP --> PINS[Pin Validation + Provenance]
+    PINS --> LOOP["Skill Loop<br/>(BS → CS → TS → EX per skill)"]
+    LOOP --> BATCH[Tier B Batch]
+    BATCH --> CAP[Capstone — Stack Skill]
+    CAP --> VER[Verify + Refine]
+    VER --> EXPORT[Export — write-gate HALT]
+    EXPORT --> MAINT[Maintenance + Campaign Report]
+```
+
+> **One workflow per session** (unless using pipeline mode or campaign). Each arrow in the standard and compose-mode diagrams represents a new conversation session. Campaign manages its own multi-session orchestration internally — see [Campaign Orchestration](../campaign/). Clear your context between workflows for best results — or use pipeline mode to chain them automatically. See [Pipeline Mode](#pipeline-mode) below.
 
 ---
 
 ## Workflow Categories
 
-| Category                  | Workflows      | Description                                                                                                                      |
-| ------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Core                      | SF, BS, CS, US | Setup, brief, create, and update skills                                                                                          |
-| Feature                   | QS, SS, AN     | Quick skill, stack skill, and analyze source — the [`deepwiki`](#pipeline-aliases) alias chains AN + BS + CS + TS + EX for zero-ceremony wiki-skill creation |
-| Quality                   | AS, TS         | Detect skill drift (AS) and verify skill completeness (TS)                                                                       |
-| Architecture Verification | VS, RA         | Pre-code architecture feasibility and refinement                                                                                 |
-| Management                | RS, DS         | Rename and drop skill versions with transactional safety                                                                         |
-| Utility                   | EX             | Package and export for consumption                                                                                               |
-| In-Agent                  | WS, KI         | WS: show lifecycle position, active briefs, and forge tier; KI: list knowledge fragments (both in-agent, no file-based workflow) |
+| Category                  | Workflows         | Description                                                                                                                      |
+| ------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Core                      | SF, BS, CS, US    | Setup, brief, create, and update skills                                                                                          |
+| Feature                   | QS, SS, AN        | Quick skill, stack skill, and analyze source                                                                                     |
+| Quality                   | AS, TS            | Detect skill drift (AS) and verify skill completeness (TS)                                                                       |
+| Architecture Verification | VS, RA            | Pre-code architecture feasibility and refinement                                                                                 |
+| Orchestration             | Campaign          | Multi-library skill production with dependency tracking and resume                                                               |
+| Management                | RS, DS            | Rename and drop skill versions with transactional safety                                                                         |
+| Utility                   | EX                | Package and export for consumption                                                                                               |
+| In-Agent                  | WS, KI            | WS: show lifecycle position, active briefs, and forge tier; KI: list knowledge fragments (both in-agent, no file-based workflow) |
 
 ---
 
@@ -320,7 +351,6 @@ The `deepwiki` alias is the recommended way to create wiki skills — one comman
 | `deepwiki`    | `AN[auto] BS[auto] CS TS[min:90] EX`  | AN             | GitHub URL, doc URL, or `--pin <version>`    |
 | `forge`       | `BS CS TS EX`                          | BS             | GitHub URL or local path **+** skill name    |
 | `forge-quick` | `QS TS EX`                            | QS             | GitHub URL **or** package name               |
-| `onboard`     | `AN CS TS EX` *(deprecated — use deepwiki)* | AN        | Project path (defaults to current directory) |
 | `maintain`    | `AS US TS EX`                          | AS             | Existing skill name                          |
 
 **The first workflow's input contract defines what arguments the pipeline needs.** A bare package name works for `forge-quick` (QS resolves packages via the registry) but **not** for `forge` — BS requires both an unambiguous target (URL or path) and a skill name.
@@ -344,7 +374,6 @@ The `deepwiki` alias is the recommended way to create wiki skills — one comman
 @Ferris forge https://github.com/topoteretes/cognee cognee           — BS + CS + TS + EX, explicit URL + name
 @Ferris forge https://github.com/topoteretes/cognee cognee "public API only"   — with scope hint
 @Ferris maintain cocoindex                                           — AS + US + TS + EX for an existing cocoindex skill
-@Ferris onboard                                                      — AN + CS + TS + EX on the current project
 ```
 
 ---
@@ -419,7 +448,7 @@ Parent skills and CI pipelines `grep` one line out of the workflow log to learn 
 
 ## Terminal Step: Health Check
 
-All 14 workflows above share the same final step — a **health check** defined in [`src/shared/health-check.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/shared/health-check.md). This isn't a workflow you invoke directly; there's no command code and no menu entry. Each workflow ends with a dedicated local `step-NN-health-check.md` whose `nextStepFile` points at the shared file, so the health check fires automatically once the main work is done. After the main work is done, Ferris reflects internally on the execution:
+All 15 workflows above share the same final step — a **health check** defined in [`src/shared/health-check.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/shared/health-check.md). This isn't a workflow you invoke directly; there's no command code and no menu entry. Each workflow ends with a dedicated local `step-NN-health-check.md` whose `nextStepFile` points at the shared file, so the health check fires automatically once the main work is done. After the main work is done, Ferris reflects internally on the execution:
 
 - Did any step instruction lead the agent astray or cause unnecessary back-and-forth?
 - Was any step ambiguous, forcing the agent to guess?
