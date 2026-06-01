@@ -175,6 +175,7 @@ src/
 ├── skf-export-skill/
 ├── skf-rename-skill/
 ├── skf-drop-skill/
+├── skf-campaign/             # Multi-skill campaign orchestration (15th workflow)
 ├── forger/
 │   ├── forge-tier.yaml
 │   ├── preferences.yaml

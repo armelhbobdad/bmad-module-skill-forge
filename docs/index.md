@@ -60,8 +60,9 @@ npx bmad-module-skill-forge install
 Then generate your first skill:
 
 ```
-@Ferris SF              # Set up your forge
-@Ferris QS <package>    # Generate a skill in under a minute
+@Ferris SF                       # Set up your forge
+@Ferris deepwiki <repo-or-url>   # Zero-ceremony: a repo or doc URL → verified skill
+@Ferris QS <package>             # Or a fast skill from a package name in under a minute
 ```
 
-See [Getting Started](./getting-started/) for platform support, tier selection, and troubleshooting.
+[deepwiki](./deepwiki/) is the recommended starting point — one command, no configuration. See [Getting Started](./getting-started/) for platform support, tier selection, and troubleshooting.

@@ -101,9 +101,9 @@ Need a specific version? Append `@version`:
 Alex, a platform engineer, adopts BMAD for 10 microservices spanning TypeScript, Go, and Rust.
 
 ```
-@Ferris SF          # Setup — Deep tier detected
+@Ferris SF                                              # Setup — Deep tier detected
 # — clear session —
-@Ferris onboard     # Analyze → Create → Test → Export in one pipeline
+@Ferris deepwiki https://github.com/acme/auth-service   # one service: Analyze → Brief → Create → Test → Export
 ```
 
 Or one workflow per session:

@@ -41,6 +41,18 @@ Quick tier reads source without AST analysis, so signatures are read directly fr
 
 Install [cocoindex-code](https://github.com/cocoindex-io/cocoindex-code) to unlock the Forge+ tier. CCC indexes your codebase and pre-ranks files by semantic relevance before AST extraction, improving coverage on projects with 500+ files.
 
+### `@Ferris onboard` returns an error
+
+The `onboard` alias was removed. Its replacement is [`deepwiki`](../deepwiki/), which does everything `onboard` did plus auto-scope, auto-brief, and a stricter 90% quality gate. Run `@Ferris deepwiki <repo-or-doc-url>` instead.
+
+### deepwiki halted at the Test stage
+
+deepwiki runs Test Skill with a stricter **90% quality threshold** (vs the default 80%), so a skill that scores below 90% halts at TS with a gap report rather than exporting a weak skill. Run `@Ferris US` to address the gaps it lists, then `@Ferris TS EX` to re-test and export. If 90% is stricter than you need, run the individual workflows or `forge` instead, which use the default threshold.
+
+### My campaign stopped partway — how do I resume?
+
+Campaign is designed for exactly this. State lives in `_campaign-state.yaml` on disk, so context death, a session timeout, or a machine restart loses nothing. Run `@Ferris campaign resume` — Ferris validates the state file, skips completed skills, and picks up from the next incomplete skill in dependency order. If the state file is corrupted, Ferris falls back to the `.bak` copy automatically. To re-process one specific skill, use `@Ferris campaign resume --from=<skill>`.
+
 ---
 
 ## Still stuck?

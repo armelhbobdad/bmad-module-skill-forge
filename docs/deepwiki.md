@@ -1,9 +1,9 @@
 ---
-title: deepwiki
+title: Deepwiki
 description: Zero-ceremony wiki-skill creation — one command turns a GitHub repo, doc URL, or pinned version into a verified wiki skill
 ---
 
-deepwiki is a [pipeline alias](../workflows/#pipeline-aliases) that chains five workflows into a single command. Give it a repo URL, a documentation URL, or a pinned version, and it produces a verified wiki skill in 3–5 minutes with zero configuration.
+Deepwiki is a [pipeline alias](../workflows/#pipeline-aliases) that chains five workflows into a single command. Give it a repo URL, a documentation URL, or a pinned version, and it produces a verified wiki skill in 3–5 minutes with zero configuration.
 
 If you're new to SKF and want to try it without reading anything else, start here.
 
@@ -27,7 +27,7 @@ Three input types, one command pattern:
 
 ## Pipeline Stages
 
-deepwiki expands to `AN[auto] BS[auto] CS TS[min:90] EX`. Each stage runs in [headless mode](../workflows/#headless-mode) — no confirmation gates, no interactive prompts.
+deepwiki expands to `AN[auto] BS[auto] CS TS[min:90] EX`. The two analysis stages (AN, BS) run in [headless mode](../workflows/#headless-mode) via their `[auto]` flags — no confirmation gates, no interactive prompts. The compile, test, and export stages then proceed with their standard behaviors once the analysis context is ready.
 
 | Stage | Workflow | Mode | What Happens |
 |-------|----------|------|-------------|
