@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "547bf7be4e5d",
+  "session_id": "6f290fda-8776-49b3-9c82-013fa78c06dd",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-01T15:52:24.344334206Z",
+  "branch": "campaign-orchestration",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-campaign/templates/campaign-brief-template.yaml",
+    "test/test-skf-campaign-state.py",
+    "src/skf-campaign/assets/campaign-state-schema.json",
+    "src/skf-campaign/references/step-01-setup.md",
+    "src/skf-campaign/references/step-07-capstone.md",
+    "src/skf-campaign/references/step-08-verify.md",
+    "src/skf-campaign/references/step-09-refine.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "a8c061614df0",
+  "token_usage": {
+    "input_tokens": 18717,
+    "cache_creation_tokens": 247051,
+    "cache_read_tokens": 7035379,
+    "output_tokens": 58256,
+    "api_call_count": 52
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-01T15:52:23.372842948Z",
+    "agent_lines": 0,
+    "human_added": 186,
+    "human_modified": 24,
+    "human_removed": 0,
+    "total_committed": 186,
+    "agent_percentage": 0
+  }
+}
