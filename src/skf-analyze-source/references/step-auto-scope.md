@@ -260,7 +260,7 @@ Parse the JSON envelope: `{manifests: [{path, ecosystem, ...}], total_unique, mo
 
 From the envelope, record:
 
-1. **Supported manifest paths** — filter `manifests[].path` to the types `skf-shape-detect.py` accepts (`package.json`, `pyproject.toml`, `Cargo.toml`). This filtered, comma-joined list is fed to shape detection in §3. For a monorepo, it includes each workspace member's manifest, so the package surface is classified accurately rather than from a bare (and often export-less) repo root.
+1. **Supported manifest paths** — filter `manifests[].path` to the types `skf-shape-detect.py` accepts (`package.json`, `pyproject.toml`, `Cargo.toml`). This filtered, comma-joined list is fed to shape detection in §3. For a monorepo, it includes each workspace member's manifest, so the package surface is classified accurately rather than from a bare (and often export-less) repo root. The scanner also discovers ecosystems shape detection does not yet classify (e.g. Go `go.mod`, Maven, Gradle); those are excluded here, so a repo with no supported manifest falls back to interactive at the next check rather than auto-scoping.
 2. **`monorepo` flag** and the count of discovered supported packages — carried forward as a signal for the decomposition decision in §3a.
 
 **IF no supported manifests are found** (the filtered list is empty):
@@ -318,11 +318,10 @@ Apply the shape→scope.type mapping:
 
 Generate `scope.include` and `scope.exclude` arrays from the detected language and project structure.
 
-**Detect primary language** from manifest type:
+**Detect primary language** from manifest type (the same set shape detection classifies):
 - `package.json` → TypeScript/JavaScript
 - `pyproject.toml` → Python
 - `Cargo.toml` → Rust
-- `go.mod` → Go
 
 **Default patterns (adjust based on actual project structure):**
 
