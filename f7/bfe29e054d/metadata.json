@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "f7bfe29e054d",
+  "strategy": "manual-commit",
+  "branch": "surface-deepwiki-in-setup",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "tools/cli/lib/ui.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f7/bfe29e054d/0/metadata.json",
+      "transcript": "/f7/bfe29e054d/0/full.jsonl",
+      "context": "/f7/bfe29e054d/0/context.md",
+      "content_hash": "/f7/bfe29e054d/0/content_hash.txt",
+      "prompt": "/f7/bfe29e054d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 45670,
+    "cache_creation_tokens": 490931,
+    "cache_read_tokens": 52252759,
+    "output_tokens": 201444,
+    "api_call_count": 193
+  }
+}
