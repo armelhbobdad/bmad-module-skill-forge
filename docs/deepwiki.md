@@ -3,7 +3,7 @@ title: Deepwiki
 description: Zero-ceremony wiki-skill creation — one command turns a GitHub repo, doc URL, or pinned version into a verified wiki skill
 ---
 
-deepwiki is a [pipeline alias](../workflows/#pipeline-aliases) that chains five workflows into a single command. Give it a repo URL, a documentation URL, or a pinned version, and it produces a verified wiki skill in 3–5 minutes with zero configuration.
+Deepwiki is a [pipeline alias](../workflows/#pipeline-aliases) that chains five workflows into a single command. Give it a repo URL, a documentation URL, or a pinned version, and it produces a verified wiki skill in 3–5 minutes with zero configuration.
 
 If you're new to SKF and want to try it without reading anything else, start here.
 
