@@ -105,6 +105,19 @@ The Export stage (stage 9) is the only non-auto-proceed stage. Ferris presents a
 
 ---
 
+## Timing
+
+Campaign duration scales with the number of declared dependencies — each Tier A skill runs a full `BS → CS → TS → EX` pipeline, and Tier B skills run in batch. A campaign is explicitly designed to **span multiple sessions**: file-based state means you can stop after any skill and resume later without losing progress. Factors that affect total time:
+
+- **Skill count and tier mix** — Tier A skills (a full pipeline each) dominate; Tier B batch processing is lighter per skill.
+- **Dependency depth** — deep graphs serialize more work (downstream skills wait on upstream APIs); wide, shallow graphs spread more naturally across sessions.
+- **Capstone breadth** — stack-skill composition (stage 6) grows with the number of constituent skills.
+- **Forge tier** — Deep-tier projects (with QMD and CCC) spend more time per skill on enrichment.
+
+Plan a campaign as multi-session work rather than a single sitting — the resume design above exists precisely so that context death between skills is a non-event.
+
+---
+
 ## Related
 
 - [Workflows](../workflows/) — pipeline mode mechanics, headless mode, circuit breakers

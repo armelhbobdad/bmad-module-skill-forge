@@ -112,6 +112,7 @@ export default defineConfig({
           items: [
             { label: 'Getting Started', slug: 'getting-started' },
             { label: 'Deepwiki', slug: 'deepwiki' },
+            { label: 'Campaign', slug: 'campaign' },
             { label: 'How It Works', slug: 'how-it-works' },
             { label: 'Examples', slug: 'examples' },
             { label: 'Workflows', slug: 'workflows' },

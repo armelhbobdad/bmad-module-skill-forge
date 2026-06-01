@@ -147,6 +147,7 @@ The docs are organized into three buckets — **Why** (start here), **Try** (do 
 
 - **[Getting Started](https://armelhbobdad.github.io/bmad-module-skill-forge/getting-started/)** — Install, first skill, prereqs, and config
 - **[Deepwiki](https://armelhbobdad.github.io/bmad-module-skill-forge/deepwiki/)** — The zero-ceremony path: one command from a repo or doc URL to a verified skill
+- **[Campaign](https://armelhbobdad.github.io/bmad-module-skill-forge/campaign/)** — Orchestrate many coordinated skills across sessions with dependency tracking and resume
 - **[How It Works](https://armelhbobdad.github.io/bmad-module-skill-forge/how-it-works/)** — Plain-English walkthrough of one skill being built, end to end
 - **[Examples](https://armelhbobdad.github.io/bmad-module-skill-forge/examples/)** — Real-world scenarios with full command transcripts
 - **[Workflows](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/)** — All 15 workflows with commands and connection diagrams
