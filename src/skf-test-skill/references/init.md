@@ -46,7 +46,7 @@ If `{pipeline_alias}` is set in the workflow data context (forwarded by the forg
 
 | Pipeline Alias | Default Threshold |
 |----------------|-------------------|
-| `deepwiki`     | 90                |
+| `forge-auto`   | 90                |
 | `forge`        | 80                |
 | `forge-quick`  | 80                |
 | `campaign`     | 90                |

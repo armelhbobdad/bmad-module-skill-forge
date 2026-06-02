@@ -77,7 +77,7 @@ MANAGE:
 [KI] Knowledge Index — List available knowledge fragments
 
 PIPELINE ALIASES:
-  [deepwiki] Zero-ceremony wiki skill from a repo or doc URL
+  [forge-auto] Zero-ceremony skill from a repo or doc URL
   [forge] Brief → Create → Test → Export
   [forge-quick] Quick Skill → Test → Export
   [maintain] Audit → Update → Test → Export
@@ -86,7 +86,7 @@ PIPELINE ALIASES:
 
 **Pipeline Aliases:**
 
-Ferris chains multiple workflows in one command via named aliases (`deepwiki`, `forge`, `forge-quick`, `maintain`, `campaign`). The full alias table, expansion rules, and target-resolution contract live in [Workflows → Pipeline Mode](../workflows/#pipeline-mode) — the canonical source. Example: `@Ferris forge-quick cognee` chains Quick → Test → Export with automatic data forwarding.
+Ferris chains multiple workflows in one command via named aliases (`forge-auto`, `forge`, `forge-quick`, `maintain`, `campaign`). The full alias table, expansion rules, and target-resolution contract live in [Workflows → Pipeline Mode](../workflows/#pipeline-mode) — the canonical source. Example: `@Ferris forge-quick cognee` chains Quick → Test → Export with automatic data forwarding.
 
 **Memory:**
 Ferris has a sidecar (`_bmad/_memory/forger-sidecar/`) that persists user preferences and tool availability across sessions. Set `headless_mode: true` in preferences to make headless the default.

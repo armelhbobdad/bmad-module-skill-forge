@@ -169,7 +169,7 @@ score >= threshold  →  PASS  →  Recommend export-skill
 score <  threshold  →  FAIL  →  Recommend update-skill
 ```
 
-The default threshold is **80%**. Pipeline aliases declare their own defaults: `deepwiki` targets **90%**, `forge` and `forge-quick` target **80%**. You can override any default with a custom threshold (e.g., `TS[min:85]`).
+The default threshold is **80%**. Pipeline aliases declare their own defaults: `forge-auto` targets **90%**, `forge` and `forge-quick` target **80%**. You can override any default with a custom threshold (e.g., `TS[min:85]`).
 
 When a skill scores between 80% and its target threshold (e.g., 82% against a 90% target), the soft gate falls back to the 80% floor — the skill passes, but an evidence report is written to `forge-data/{skill}/{version}/evidence-report-fallback.md` documenting the quality compromise.
 

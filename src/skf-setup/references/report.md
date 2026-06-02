@@ -137,7 +137,7 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 ═══════════════════════════════════════
 
 {if {headless_mode} is false:}
-  Next: the fastest start is `@Ferris deepwiki <repo-or-doc-url>` — one command auto-scopes, briefs, compiles, tests at a 90% quality gate, and exports a verified skill with zero configuration. Prefer to scope by hand? `/skf-brief-skill` scopes your first compilation target, or `/skf-quick-skill` is a fast template-driven path. Already have a skill? `/skf-audit-skill` drift-checks an existing skill against current sources.
+  Next: the fastest start is `@Ferris forge-auto <repo-or-doc-url>` — one command auto-scopes, briefs, compiles, tests at a 90% quality gate, and exports a verified skill with zero configuration. Prefer to scope by hand? `/skf-brief-skill` scopes your first compilation target, or `/skf-quick-skill` is a fast template-driven path. Already have a skill? `/skf-audit-skill` drift-checks an existing skill against current sources.
 ```
 
 All re-run-delta context flags (`{tools_added}`, `{tools_removed}`, `{tier_changed}`) come from the detector's `deltas` block bound in stage 1 — no LLM-side recomputation, no set arithmetic in prose.

@@ -21,7 +21,7 @@ Record detected documentation pages and README with content hashes in metadata.j
 
 ### 1. Check for Upstream Doc Detection Results
 
-Check if `doc_detection_results` is already populated in the workflow context (set by BS auto-brief in the deepwiki pipeline).
+Check if `doc_detection_results` is already populated in the workflow context (set by BS auto-brief in the forge-auto pipeline).
 
 - **If upstream results exist:** use them directly, skip to step 3.
 - **If no upstream results:** continue to step 2.

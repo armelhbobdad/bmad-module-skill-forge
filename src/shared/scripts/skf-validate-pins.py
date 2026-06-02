@@ -5,7 +5,7 @@
 """SKF Validate Pins — resolve and validate version pins for a GitHub repository.
 
 Shared pin validation script consumed by skf-analyze-source (AN auto-scope,
-deepwiki --pin) and campaign workflows.  Validates that a user-supplied --pin
+forge-auto --pin) and campaign workflows.  Validates that a user-supplied --pin
 resolves to an existing tag or branch, or auto-resolves the latest release tag
 when no --pin is provided.
 
