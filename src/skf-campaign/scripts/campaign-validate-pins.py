@@ -9,7 +9,7 @@ Reads the campaign state and brief, validates every skill's pin against
 real GitHub releases/tags, and outputs consolidated JSON.
 
 CLI:
-  uv run python src/skf-campaign/scripts/campaign-validate-pins.py \
+  uv run src/skf-campaign/scripts/campaign-validate-pins.py \
       --state-file <path> --brief-file <path>
 
 Input:

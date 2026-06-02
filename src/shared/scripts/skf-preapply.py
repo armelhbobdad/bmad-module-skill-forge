@@ -9,7 +9,7 @@ registry, then scans target directory files for fingerprint matches and applies
 the corresponding fixes.
 
 CLI:
-  uv run python src/shared/scripts/skf-preapply.py \
+  uv run src/shared/scripts/skf-preapply.py \
       --target-dir <path> [--registry <path>] [--local-registry <path>] [--log-dir <path>]
 
 Input:

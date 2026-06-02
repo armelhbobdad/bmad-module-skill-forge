@@ -16,7 +16,7 @@ Detection chain (all four methods attempted, results aggregated):
   4. docs_folder    — markdown files in the repo's docs/ directory
 
 CLI:
-  uv run python src/shared/scripts/skf-detect-docs.py \\
+  uv run src/shared/scripts/skf-detect-docs.py \\
       --repo-url <url> [--local-path <path>] [--skip-pages-api]
 
 Input:
