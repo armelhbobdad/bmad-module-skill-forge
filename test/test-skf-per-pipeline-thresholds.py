@@ -67,7 +67,7 @@ class TestInitPipelineThresholdSection:
     @pytest.mark.parametrize(
         "alias,threshold",
         [
-            ("deepwiki", "90"),
+            ("forge-auto", "90"),
             ("forge", "80"),
             ("forge-quick", "80"),
             ("campaign", "90"),
@@ -338,7 +338,7 @@ class TestForgerPipelineAlias:
         )
 
     def test_step_4c_lists_alias_names(self, pipeline_section: str) -> None:
-        for alias in ("deepwiki", "forge", "forge-quick", "onboard", "maintain"):
+        for alias in ("forge-auto", "forge", "forge-quick", "maintain"):
             assert alias in pipeline_section, (
                 f"Pipeline Mode §4.c must list '{alias}' as a possible alias value"
             )
@@ -472,14 +472,14 @@ class TestCrossFileConsistency:
             "init.md --threshold flag description must reference per-pipeline defaults"
         )
 
-    def test_deepwiki_alias_threshold_matches_lookup_table(self) -> None:
+    def test_forge_auto_alias_threshold_matches_lookup_table(self) -> None:
         forger_text = _read(FORGER_MD)
         assert re.search(r"TS\[min:90\]", forger_text), (
-            "deepwiki alias expansion must include TS[min:90]"
+            "forge-auto alias expansion must include TS[min:90]"
         )
         init_text = _read(INIT_FILE)
-        assert re.search(r"\|\s*`deepwiki`\s*\|\s*90\s*\|", init_text), (
-            "init.md lookup table must map deepwiki → 90 matching the forger alias"
+        assert re.search(r"\|\s*`forge-auto`\s*\|\s*90\s*\|", init_text), (
+            "init.md lookup table must map forge-auto → 90 matching the forger alias"
         )
 
     def test_forge_alias_has_no_min_override(self) -> None:

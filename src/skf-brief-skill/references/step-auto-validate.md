@@ -75,7 +75,7 @@ Scope:        {scope_type} ({N} include, {M} exclude patterns)
 Docs:         {doc_urls count} sources detected | "None detected"
 Version:      {version}
 Forge Tier:   {forge_tier}
-Quality:      90% target (deepwiki pipeline)
+Quality:      90% target (forge-auto pipeline)
 Description:  "{description}"
 ```
 

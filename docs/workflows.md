@@ -80,7 +80,7 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 
 **Purpose:** Brief-less fast skill with package-to-repo resolution.
 
-**Note:** QS is **tier-unaware** — it always runs at community tier and does not use ast-grep, CCC, or QMD even when your forge is configured at Forge+/Deep. For tier-aware compilation, use `BS → CS`, `forge`, or `deepwiki`. See [Skill Model](../skill-model/).
+**Note:** QS is **tier-unaware** — it always runs at community tier and does not use ast-grep, CCC, or QMD even when your forge is configured at Forge+/Deep. For tier-aware compilation, use `BS → CS`, `forge`, or `forge-auto`. See [Skill Model](../skill-model/).
 
 **When to Use:** When you need a skill quickly — no brief needed. Accepts package names or GitHub URLs. Append `@version` to target a specific version (e.g., `@Ferris QS cognee@1.0.0`).
 
@@ -161,7 +161,7 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 
 **Key Steps:** Load skill → Detect mode → Coverage check → Coherence check → External validation (skill-check, tessl) → Hard gate → Score → Gap report
 
-**Scored Categories:** Export Coverage (36%), Signature Accuracy (22%), Type Coverage (14%), Coherence (18%), External Validation (10%). Default pass threshold: **80%** (per-pipeline defaults: deepwiki 90%, forge 80%). Pass routes to Export Skill; fail routes to Update Skill with a gap report. See [Completeness Scoring](../verifying-a-skill/#how-the-score-is-computed) for the full formula and tier adjustments.
+**Scored Categories:** Export Coverage (36%), Signature Accuracy (22%), Type Coverage (14%), Coherence (18%), External Validation (10%). Default pass threshold: **80%** (per-pipeline defaults: forge-auto 90%, forge 80%). Pass routes to Export Skill; fail routes to Update Skill with a gap report. See [Completeness Scoring](../verifying-a-skill/#how-the-score-is-computed) for the full formula and tier adjustments.
 
 **Agent:** Ferris (Audit mode)
 
@@ -346,11 +346,11 @@ Instead of running one workflow per session, you can chain multiple workflows in
 
 ### Pipeline Aliases
 
-The `deepwiki` alias is the recommended way to create wiki skills — one command, zero configuration. It chains five workflows with auto-mode flags so you get a verified skill without touching a brief or scope file.
+The `forge-auto` alias is the recommended way to create skills — one command, zero configuration. It chains five workflows with auto-mode flags so you get a verified skill without touching a brief or scope file.
 
 | Alias         | Expands To                             | First Workflow | Required Target                              |
 | ------------- | -------------------------------------- | -------------- | -------------------------------------------- |
-| `deepwiki`    | `AN[auto] BS[auto] CS TS[min:90] EX`  | AN             | GitHub URL, doc URL, or `--pin <version>`    |
+| `forge-auto`    | `AN[auto] BS[auto] CS TS[min:90] EX`  | AN             | GitHub URL, doc URL, or `--pin <version>`    |
 | `forge`       | `BS CS TS EX`                          | BS             | GitHub URL or local path **+** skill name    |
 | `forge-quick` | `QS TS EX`                            | QS             | GitHub URL **or** package name               |
 | `maintain`    | `AS US TS EX`                          | AS             | Existing skill name                          |
@@ -369,9 +369,9 @@ The `deepwiki` alias is the recommended way to create wiki skills — one comman
 ### Examples
 
 ```
-@Ferris deepwiki https://github.com/honojs/hono                     — zero-ceremony wiki skill
-@Ferris deepwiki https://docs.example.com                            — docs-only wiki skill
-@Ferris deepwiki https://github.com/honojs/hono --pin v4.6.0         — pinned version
+@Ferris forge-auto https://github.com/honojs/hono                     — zero-ceremony skill
+@Ferris forge-auto https://docs.example.com                            — docs-only skill
+@Ferris forge-auto https://github.com/honojs/hono --pin v4.6.0         — pinned version
 @Ferris forge-quick @tanstack/query                                  — QS + TS + EX for TanStack Query
 @Ferris forge https://github.com/topoteretes/cognee cognee           — BS + CS + TS + EX, explicit URL + name
 @Ferris forge https://github.com/topoteretes/cognee cognee "public API only"   — with scope hint

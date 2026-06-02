@@ -41,13 +41,17 @@ Quick tier reads source without AST analysis, so signatures are read directly fr
 
 Install [cocoindex-code](https://github.com/cocoindex-io/cocoindex-code) to unlock the Forge+ tier. CCC indexes your codebase and pre-ranks files by semantic relevance before AST extraction, improving coverage on projects with 500+ files.
 
+### `@Ferris deepwiki` shows a deprecation notice
+
+The auto pipeline was briefly named `deepwiki`; it's now [`forge-auto`](../forge-auto/) — renamed to avoid confusion with the DeepWiki MCP, since the pipeline compiles a verified skill from source and does **not** call that MCP. `deepwiki` still works (it resolves to `forge-auto`) but prints a one-time notice. Switch your commands to `@Ferris forge-auto <repo-or-doc-url>`.
+
 ### `@Ferris onboard` returns an error
 
-The `onboard` alias was removed. Its replacement is [`deepwiki`](../deepwiki/), which does everything `onboard` did plus auto-scope, auto-brief, and a stricter 90% quality gate. Run `@Ferris deepwiki <repo-or-doc-url>` instead.
+The `onboard` alias was removed. Its replacement is [`forge-auto`](../forge-auto/), which does everything `onboard` did plus auto-scope, auto-brief, and a stricter 90% quality gate. Run `@Ferris forge-auto <repo-or-doc-url>` instead.
 
-### deepwiki halted at the Test stage
+### forge-auto halted at the Test stage
 
-deepwiki runs Test Skill with a stricter **90% quality threshold** (vs the default 80%), so a skill that scores below 90% halts at TS with a gap report rather than exporting a weak skill. Run `@Ferris US` to address the gaps it lists, then `@Ferris TS EX` to re-test and export. If 90% is stricter than you need, run the individual workflows or `forge` instead, which use the default threshold.
+forge-auto runs Test Skill with a stricter **90% quality threshold** (vs the default 80%), so a skill that scores below 90% halts at TS with a gap report rather than exporting a weak skill. Run `@Ferris US` to address the gaps it lists, then `@Ferris TS EX` to re-test and export. If 90% is stricter than you need, run the individual workflows or `forge` instead, which use the default threshold.
 
 ### My campaign stopped partway — how do I resume?
 

@@ -59,7 +59,7 @@ Example:
 ## Pipeline Flags
 
 - Use `--pin main` for all unpinned skills
-- Force deepwiki mode for large-repo-z
+- Force forge-auto mode for large-repo-z
 ```
 
 ### `## Notes`

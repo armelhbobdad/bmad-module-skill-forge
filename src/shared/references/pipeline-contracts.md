@@ -19,10 +19,12 @@ The forger also accepts common pipeline aliases:
 
 | Alias | Expands To | Description |
 |-------|-----------|-------------|
-| `deepwiki` | `AN[auto] BS[auto] CS TS[min:90] EX` | Full zero-ceremony wiki-skill pipeline |
+| `forge-auto` | `AN[auto] BS[auto] CS TS[min:90] EX` | Zero-ceremony auto-compile pipeline (bare repo/doc URL → verified skill) |
 | `forge` | `BS CS TS EX` | Full skill creation pipeline (brief through export) |
 | `forge-quick` | `QS TS EX` | Quick skill pipeline |
 | `maintain` | `AS US TS EX` | Maintenance cycle (audit → update → test → export) |
+
+**Deprecated alias:** `deepwiki` resolves to `forge-auto` (renamed to avoid collision with the DeepWiki MCP — the pipeline auto-forges a verified skill and does not call that MCP). It still works but emits a one-time deprecation notice.
 
 **Note:** `campaign` is a standalone workflow invoked via `@Ferris campaign`, not a pipeline alias. It orchestrates its own multi-stage pipeline internally with dependency tracking and resume.
 
@@ -37,7 +39,7 @@ The forger also accepts common pipeline aliases:
 
 ## Pipeline Arguments
 
-Pipeline-level arguments (e.g., `--pin <version>`) are passed to the first workflow's data context. The workflow decides how to consume them. For the `deepwiki` pipeline, `--pin` flows to AN, where `step-auto-scope.md §0b` uses it for pin resolution.
+Pipeline-level arguments (e.g., `--pin <version>`) are passed to the first workflow's data context. The workflow decides how to consume them. For the `forge-auto` pipeline, `--pin` flows to AN, where `step-auto-scope.md §0b` uses it for pin resolution.
 
 ## Data Flow
 

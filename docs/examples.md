@@ -103,7 +103,7 @@ Alex, a platform engineer, adopts BMAD for 10 microservices spanning TypeScript,
 ```
 @Ferris SF                                              # Setup — Deep tier detected
 # — clear session —
-@Ferris deepwiki https://github.com/acme/auth-service   # one service: Analyze → Brief → Create → Test → Export
+@Ferris forge-auto https://github.com/acme/auth-service   # one service: Analyze → Brief → Create → Test → Export
 ```
 
 Or one workflow per session:

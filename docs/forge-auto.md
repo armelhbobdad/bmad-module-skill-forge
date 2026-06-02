@@ -1,9 +1,9 @@
 ---
-title: Deepwiki
-description: Zero-ceremony wiki-skill creation — one command turns a GitHub repo, doc URL, or pinned version into a verified wiki skill
+title: Forge-Auto
+description: Zero-ceremony skill creation — one command turns a GitHub repo, doc URL, or pinned version into a verified skill
 ---
 
-Deepwiki is a [pipeline alias](../workflows/#pipeline-aliases) that chains five workflows into a single command. Give it a repo URL, a documentation URL, or a pinned version, and it produces a verified wiki skill in 3–5 minutes with zero configuration.
+Forge-Auto is a [pipeline alias](../workflows/#pipeline-aliases) that chains five workflows into a single command. Give it a repo URL, a documentation URL, or a pinned version, and it produces a verified skill in 3–5 minutes with zero configuration.
 
 If you're new to SKF and want to try it without reading anything else, start here.
 
@@ -14,12 +14,12 @@ If you're new to SKF and want to try it without reading anything else, start her
 Three input types, one command pattern:
 
 ```
-@Ferris deepwiki https://github.com/honojs/hono                  — repo URL
-@Ferris deepwiki https://docs.example.com                         — doc URL (docs-only)
-@Ferris deepwiki https://github.com/honojs/hono --pin v4.6.0      — pinned version
+@Ferris forge-auto https://github.com/honojs/hono                  — repo URL
+@Ferris forge-auto https://docs.example.com                         — doc URL (docs-only)
+@Ferris forge-auto https://github.com/honojs/hono --pin v4.6.0      — pinned version
 ```
 
-- **Repo URL** — analyzes the full source repository, extracts exports, and compiles a wiki skill from code + docs.
+- **Repo URL** — analyzes the full source repository, extracts exports, and compiles a skill from code + docs.
 - **Doc URL** — skips source analysis entirely and builds the skill from documentation alone. Useful for closed-source libraries or when the docs are the canonical reference.
 - **`--pin <version>`** — targets a specific release. The version tag is resolved during analysis so the resulting skill is locked to that exact API surface.
 
@@ -27,7 +27,7 @@ Three input types, one command pattern:
 
 ## Pipeline Stages
 
-deepwiki expands to `AN[auto] BS[auto] CS TS[min:90] EX`. The two analysis stages (AN, BS) run in [headless mode](../workflows/#headless-mode) via their `[auto]` flags — no confirmation gates, no interactive prompts. The compile, test, and export stages then proceed with their standard behaviors once the analysis context is ready.
+forge-auto expands to `AN[auto] BS[auto] CS TS[min:90] EX`. The two analysis stages (AN, BS) run in [headless mode](../workflows/#headless-mode) via their `[auto]` flags — no confirmation gates, no interactive prompts. The compile, test, and export stages then proceed with their standard behaviors once the analysis context is ready.
 
 | Stage | Workflow | Mode | What Happens |
 |-------|----------|------|-------------|
@@ -43,20 +43,20 @@ Data flows automatically between stages — the brief path from AN feeds BS, the
 
 ## Automatic Behaviors
 
-deepwiki's `[auto]` flags activate several behaviors that normally require manual input:
+forge-auto's `[auto]` flags activate several behaviors that normally require manual input:
 
 - **Auto-scope** — shape detection (library, framework, tool, application) drives scope decisions. No interactive scope confirmation.
 - **Auto-brief** — the brief is generated and enriched with doc-detection results in one pass, without the interactive discovery flow that `BS` uses standalone.
-- **Coexistence detection** — if a skill for the same target already exists, deepwiki detects it and offers three options: create alongside (new version), merge into the existing skill, or skip.
+- **Coexistence detection** — if a skill for the same target already exists, forge-auto detects it and offers three options: create alongside (new version), merge into the existing skill, or skip.
 - **Auto-decomposition** — for massive repos (>500 exports or >3 packages), AN automatically decomposes into multiple analysis units before proceeding.
 
 ---
 
 ## Expected Output
 
-A successful deepwiki run produces a complete skill package in your forge data directory, exported and ready for use. The skill includes:
+A successful forge-auto run produces a complete skill package in your forge data directory, exported and ready for use. The skill includes:
 
-- `SKILL.md` — the compiled wiki skill with provenance-cited instructions
+- `SKILL.md` — the compiled skill with provenance-cited instructions
 - `metadata.json` — version, source, confidence tier breakdown
 - Context snippet injected into your IDE context file (CLAUDE.md, .cursorrules, AGENTS.md, etc.)
 
@@ -74,11 +74,11 @@ A typical library (50–200 exports) takes **3–5 minutes** end to end. Factors
 
 ---
 
-## Migration from onboard
+## Migration from `deepwiki` and `onboard`
 
-deepwiki replaces the older `onboard` alias. `onboard` has been removed — running it returns an error directing you to deepwiki.
+This pipeline was briefly named `deepwiki`. It was renamed to **`forge-auto`** to avoid confusion with the [DeepWiki MCP](https://deepwiki.com) — `forge-auto` compiles a verified skill from source and **does not** call that MCP or ingest a generated wiki. `deepwiki` still works as a **deprecated alias** (it resolves to `forge-auto` and prints a one-time notice); prefer `forge-auto` going forward.
 
-The key differences from the old alias: `onboard` ran `AN CS TS EX` with standard (interactive) modes at an 80% quality threshold. deepwiki adds auto-scope, auto-brief, a stricter quality gate (90% vs 80%), and accepts repo URLs and doc URLs — not just project paths.
+Before that, the auto pipeline replaced the older `onboard` alias. `onboard` has been removed — running it returns an error directing you to `forge-auto`. The key differences from `onboard`: it ran `AN CS TS EX` with standard (interactive) modes at an 80% quality threshold, whereas `forge-auto` adds auto-scope, auto-brief, a stricter quality gate (90% vs 80%), and accepts repo URLs and doc URLs — not just project paths.
 
 ---
 
@@ -86,4 +86,4 @@ The key differences from the old alias: `onboard` ran `AN CS TS EX` with standar
 
 - [Workflows](../workflows/) — pipeline mode mechanics, headless mode, circuit breakers
 - [Concepts](../concepts/) — provenance, confidence tiers, drift, version pinning
-- [BMAD Synergy](../bmad-synergy/) — how deepwiki fits into BMAD phases, and standalone SKF usage
+- [BMAD Synergy](../bmad-synergy/) — how forge-auto fits into BMAD phases, and standalone SKF usage

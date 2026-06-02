@@ -61,8 +61,8 @@ Then generate your first skill:
 
 ```
 @Ferris SF                       # Set up your forge
-@Ferris deepwiki <repo-or-url>   # Zero-ceremony: a repo or doc URL → verified skill
+@Ferris forge-auto <repo-or-url>   # Zero-ceremony: a repo or doc URL → verified skill
 @Ferris QS <package>             # Or a fast skill from a package name in under a minute
 ```
 
-[deepwiki](./deepwiki/) is the recommended starting point — one command, no configuration. See [Getting Started](./getting-started/) for platform support, tier selection, and troubleshooting.
+[forge-auto](./forge-auto/) is the recommended starting point — one command, no configuration. See [Getting Started](./getting-started/) for platform support, tier selection, and troubleshooting.

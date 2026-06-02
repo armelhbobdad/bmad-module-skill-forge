@@ -73,7 +73,7 @@ Campaign sorts skills topologically by their dependency graph. If skill B depend
 Campaign enforces two types of quality gates:
 
 - **Hard gate** — zero critical or high-severity issues allowed. Any skill that fails the hard gate is flagged for manual intervention and blocks the campaign from proceeding past that skill.
-- **Soft gate** — per-pipeline quality thresholds (e.g., 80% for forge, 90% for deepwiki). Skills that score between the hard floor (60%) and the per-pipeline threshold receive a fallback PASS with an evidence report, and the campaign continues.
+- **Soft gate** — per-pipeline quality thresholds (e.g., 80% for forge, 90% for forge-auto). Skills that score between the hard floor (60%) and the per-pipeline threshold receive a fallback PASS with an evidence report, and the campaign continues.
 
 ---
 
@@ -121,5 +121,5 @@ Plan a campaign as multi-session work rather than a single sitting — the resum
 ## Related
 
 - [Workflows](../workflows/) — pipeline mode mechanics, headless mode, circuit breakers
-- [deepwiki](../deepwiki/) — zero-ceremony single-skill creation (campaign orchestrates many of these)
+- [forge-auto](../forge-auto/) — zero-ceremony single-skill creation (campaign orchestrates many of these)
 - [BMAD Synergy](../bmad-synergy/) — how campaign fits into BMAD Phase 3 as an orchestration layer

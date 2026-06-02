@@ -111,7 +111,7 @@ export default defineConfig({
           label: 'Try',
           items: [
             { label: 'Getting Started', slug: 'getting-started' },
-            { label: 'Deepwiki', slug: 'deepwiki' },
+            { label: 'Forge-Auto', slug: 'forge-auto' },
             { label: 'Campaign', slug: 'campaign' },
             { label: 'How It Works', slug: 'how-it-works' },
             { label: 'Examples', slug: 'examples' },
