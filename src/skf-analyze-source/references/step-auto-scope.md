@@ -248,19 +248,33 @@ Load `references/step-shape-detect.md` as reference for shape detection invocati
 
 ### 2. Manifest Scan
 
-Enumerate package manifests **deterministically** — do not hand-scan. Resolve `{scanManifestsHelper}` as the first path in `{scanManifestsProbeOrder}` that exists. This is the same helper the interactive `scan-project.md` uses, so the auto and interactive paths discover manifests identically.
+Enumerate package manifests **deterministically** via `{scanManifestsHelper}` (the same helper the interactive `scan-project.md` uses) — do not hand-scan. Resolve `{scanManifestsHelper}` as the first path in `{scanManifestsProbeOrder}` that exists. The scanner reads a **local directory**, so how you point it at the target depends on the input form classified in §0:
 
 **For each path in `project_paths[]`:**
 
-```bash
-uv run {scanManifestsHelper} scan {path}
-```
+- **Local filesystem path** (starts with `/`, `./`, `~/`, `~`, or is an existing directory) — scan it directly:
 
-Parse the JSON envelope: `{manifests: [{path, ecosystem, ...}], total_unique, monorepo, warnings?}`. The scanner walks the project root plus monorepo `packages/*` members and recognizes npm/pnpm/yarn `workspaces`, Cargo `[workspace]`, and other ecosystems — so workspace member manifests are discovered without hand-listing each workspace convention.
+  ```bash
+  uv run {scanManifestsHelper} scan {path}
+  ```
+
+- **Remote git URL** (e.g. `github.com/{owner}/{repo}`) — auto-scope has no working tree yet and the scanner cannot read a URL. Fetch **just the manifests** first (blobless + sparse + depth-1 — no source blobs, typically KB–MB even for large monorepos), then scan that tree:
+
+  ```bash
+  tmp="$(mktemp -d)"
+  git clone --filter=blob:none --no-checkout --depth 1 {pinned_branch_flag} {path} "$tmp"
+  git -C "$tmp" sparse-checkout set --no-cone '**/package.json' '**/Cargo.toml' '**/pyproject.toml' 'pnpm-workspace.yaml' '**/pnpm-workspace.yaml'
+  git -C "$tmp" checkout
+  uv run {scanManifestsHelper} scan "$tmp"
+  ```
+
+  where `{pinned_branch_flag}` is `--branch {pinned_ref}` when a pin was resolved in §0b (so manifests match the target version), otherwise omitted. **Retain `"$tmp"` through §3** — shape detection reads the discovered manifest files from it — then it may be discarded.
+
+Parse the JSON envelope: `{manifests: [{path, ecosystem, ...}], total_unique, monorepo, warnings?}`. The scanner discovers the project root plus monorepo workspace members (npm/pnpm/yarn `workspaces`, Cargo `[workspace]`, and other ecosystems) and sets the `monorepo` flag — so members are found without hand-listing each workspace convention, for both local trees and remote fetches.
 
 From the envelope, record:
 
-1. **Supported manifest paths** — filter `manifests[].path` to the types `skf-shape-detect.py` accepts (`package.json`, `pyproject.toml`, `Cargo.toml`). This filtered, comma-joined list is fed to shape detection in §3. For a monorepo, it includes each workspace member's manifest, so the package surface is classified accurately rather than from a bare (and often export-less) repo root. The scanner also discovers ecosystems shape detection does not yet classify (e.g. Go `go.mod`, Maven, Gradle); those are excluded here, so a repo with no supported manifest falls back to interactive at the next check rather than auto-scoping.
+1. **Supported manifest paths** — filter `manifests[].path` to the types `skf-shape-detect.py` accepts (`package.json`, `pyproject.toml`, `Cargo.toml`). Each `manifests[].path` is **relative to the scan root**, so resolve them against that root (`{path}` for a local scan, `"$tmp"` for a remote fetch) before use. This filtered, comma-joined list of resolved paths is fed to shape detection in §3. For a monorepo, it includes each workspace member's manifest, so the package surface is classified accurately rather than from a bare (and often export-less) repo root. The scanner also discovers ecosystems shape detection does not yet classify (e.g. Go `go.mod`, Maven, Gradle); those are excluded here, so a repo with no supported manifest falls back to interactive at the next check rather than auto-scoping.
 2. **`monorepo` flag** and the count of discovered supported packages — carried forward as a signal for the decomposition decision in §3a.
 
 **IF no supported manifests are found** (the filtered list is empty):
