@@ -52,7 +52,7 @@ This section validates and resolves version pins. It runs for repo URLs and loca
 **For repo URLs when `--pin` is provided:**
 
 ```bash
-uv run python src/shared/scripts/skf-validate-pins.py --repo-url {project_path} --pin {pin_value}
+uv run src/shared/scripts/skf-validate-pins.py --repo-url {project_path} --pin {pin_value}
 ```
 
 Handle exit codes:
@@ -67,7 +67,7 @@ Handle exit codes:
 **For repo URLs when `--pin` is NOT provided (default):**
 
 ```bash
-uv run python src/shared/scripts/skf-validate-pins.py --repo-url {project_path}
+uv run src/shared/scripts/skf-validate-pins.py --repo-url {project_path}
 ```
 
 Handle exit codes:
@@ -83,7 +83,7 @@ This section checks for existing skills matching the target before proceeding. I
 **1. Load skill inventory:**
 
 ```bash
-uv run python src/shared/scripts/skf-skill-inventory.py {skills_output_folder}
+uv run src/shared/scripts/skf-skill-inventory.py {skills_output_folder}
 ```
 
 Parse the JSON output. If the exit code is non-zero or the `skills` array is empty, skip coexistence detection silently (no existing skills to conflict with) and continue to the next section: §0a for documentation URLs, §1 for all other input types.
@@ -286,7 +286,7 @@ From the envelope, record:
 Invoke the shape detection script with discovered manifests:
 
 ```
-uv run python {shapeDetectScript} --repo-url <project_path_or_url> --manifests <comma_separated_manifest_paths>
+uv run {shapeDetectScript} --repo-url <project_path_or_url> --manifests <comma_separated_manifest_paths>
 ```
 
 Parse the JSON output: `{shape, signals, confidence, export_count, package_count}`

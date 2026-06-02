@@ -40,7 +40,7 @@ Check that `{source_repo}` is available from the skill brief.
 Invoke the detect-docs script:
 
 ```bash
-uv run python src/shared/scripts/skf-detect-docs.py \
+uv run src/shared/scripts/skf-detect-docs.py \
   --repo-url {source_repo} \
   [--local-path {source_path}] \
   [--skip-pages-api]

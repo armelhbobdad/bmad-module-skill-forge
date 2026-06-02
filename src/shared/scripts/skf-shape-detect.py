@@ -23,7 +23,7 @@ The five-shape heuristic ladder (apply in order, first match wins):
   5. unknown           — no heuristic matched
 
 CLI:
-  uv run python src/shared/scripts/skf-shape-detect.py \\
+  uv run src/shared/scripts/skf-shape-detect.py \\
       --repo-url <url> --manifests <path1,path2,...>
 
 Input:

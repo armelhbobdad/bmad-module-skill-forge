@@ -35,7 +35,7 @@ Load `{stateFile}`. Validate the loaded state against `{stateSchemaFile}`. HALT 
 Invoke the campaign report script:
 
 ```
-uv run python {reportScript} \
+uv run {reportScript} \
     --state-file {stateFile} \
     --template-file {reportTemplate} \
     --output-file forge-data/_campaign/campaign-report.md

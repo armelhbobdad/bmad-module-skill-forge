@@ -5,7 +5,7 @@
 """Campaign Report — generate a markdown report from campaign state + template.
 
 CLI:
-  uv run python campaign-report.py \
+  uv run campaign-report.py \
       --state-file <path> --template-file <path> --output-file <path>
 
 Output (JSON on stdout):

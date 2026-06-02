@@ -8,7 +8,7 @@ Reference document for invoking `skf-shape-detect.py` — the shared shape class
 
 **Command:**
 ```
-uv run python src/shared/scripts/skf-shape-detect.py --repo-url <url> --manifests <path1,path2,...>
+uv run src/shared/scripts/skf-shape-detect.py --repo-url <url> --manifests <path1,path2,...>
 ```
 
 **Arguments:**

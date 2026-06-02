@@ -9,9 +9,9 @@ Two modes:
   --check:   verify a single skill's dependencies are satisfied
 
 CLI:
-  uv run python campaign-deps.py --compute --state-file <path>
-  uv run python campaign-deps.py --check --state-file <path> --skill <name>
-  uv run python campaign-deps.py --check --state-file <path> --skill <name> --force
+  uv run campaign-deps.py --compute --state-file <path>
+  uv run campaign-deps.py --check --state-file <path> --skill <name>
+  uv run campaign-deps.py --check --state-file <path> --skill <name> --force
 
 Output (JSON on stdout):
   --compute:

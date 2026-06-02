@@ -41,7 +41,7 @@ Copy `{stateFile}` to `{backupFile}` before any modification.
 
 ### §4 — Validate Pins
 
-Run `uv run python {pinScript} --state-file {stateFile} --brief-file {briefFile}`. Parse the JSON output. For each result: if `status` is `"valid"` or `"resolved"`, the pin is good; if `"invalid"`, collect the failure with suggestions.
+Run `uv run {pinScript} --state-file {stateFile} --brief-file {briefFile}`. Parse the JSON output. For each result: if `status` is `"valid"` or `"resolved"`, the pin is good; if `"invalid"`, collect the failure with suggestions.
 
 ### §5 — Handle Invalid Pins
 

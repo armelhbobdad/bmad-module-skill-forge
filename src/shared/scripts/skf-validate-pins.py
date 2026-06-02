@@ -17,7 +17,7 @@ Tag matching priority mirrors source-resolution-protocols.md:
   4. Crate prefix:  {name}/v{pin}, {name}/{pin}, {name}-v{pin}
 
 CLI:
-  uv run python src/shared/scripts/skf-validate-pins.py \\
+  uv run src/shared/scripts/skf-validate-pins.py \\
       --repo-url <url> [--pin <version>] [--format tag|branch|any]
 
 Input:
