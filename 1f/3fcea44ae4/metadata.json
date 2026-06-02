@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "1f3fcea44ae4",
+  "strategy": "manual-commit",
+  "branch": "rename-deepwiki-to-forge-auto",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "README.md",
+    "docs/agents.md",
+    "docs/bmad-synergy.md",
+    "docs/campaign.md",
+    "docs/deepwiki.md",
+    "docs/examples.md",
+    "docs/getting-started.md",
+    "docs/index.md",
+    "docs/troubleshooting.md",
+    "docs/workflows.md",
+    "src/skf-analyze-source/references/step-shape-detect.md",
+    "src/skf-create-skill/references/step-doc-sources.md",
+    "src/skf-setup/references/report.md",
+    "tools/cli/lib/ui.js",
+    "website/astro.config.mjs"
+  ],
+  "sessions": [
+    {
+      "metadata": "/1f/3fcea44ae4/0/metadata.json",
+      "transcript": "/1f/3fcea44ae4/0/full.jsonl",
+      "context": "/1f/3fcea44ae4/0/context.md",
+      "content_hash": "/1f/3fcea44ae4/0/content_hash.txt",
+      "prompt": "/1f/3fcea44ae4/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 59783,
+    "cache_creation_tokens": 2373109,
+    "cache_read_tokens": 170160649,
+    "output_tokens": 499016,
+    "api_call_count": 382
+  }
+}
