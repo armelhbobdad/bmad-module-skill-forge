@@ -580,3 +580,106 @@ class TestCLI:
             capture_output=True, text=True, timeout=15,
         )
         assert proc.returncode == 2
+
+
+# --------------------------------------------------------------------------
+# Monorepo: app-shape signals must not leak from non-product members
+# (examples / devtools / dev-deps / peer-deps / coordinator root).
+# --------------------------------------------------------------------------
+
+
+def _write(tmp_path: Path, rel: str, data: dict) -> str:
+    p = tmp_path / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data), encoding="utf-8")
+    return str(p)
+
+
+class TestMonorepoAppSignals:
+    def test_library_monorepo_with_example_app_is_library(self, tmp_path):
+        # Core lib packages + an examples/ app that depends on a framework.
+        core_a = _write(tmp_path, "packages/core/package.json",
+                        {"name": "@scope/core", "exports": {".": "./i.js"}})
+        core_b = _write(tmp_path, "packages/utils/package.json",
+                        {"name": "@scope/utils", "main": "u.js"})
+        example = _write(tmp_path, "examples/demo/package.json",
+                         {"name": "demo", "dependencies": {"next": "14"}})
+        result = mod.detect(REPO_URL, [core_a, core_b, example])
+        assert result["shape"] == "library-API"
+        assert "framework_dep_noncore:next" in result["signals"]
+
+    def test_devtools_member_with_framework_is_library(self, tmp_path):
+        core = _write(tmp_path, "packages/lib/package.json",
+                      {"name": "thing", "exports": {".": "./i.js"}})
+        devtools = _write(tmp_path, "packages/thing-devtools/package.json",
+                          {"name": "thing-devtools",
+                           "dependencies": {"electron": "30"}})
+        result = mod.detect(REPO_URL, [core, devtools])
+        assert result["shape"] == "library-API"
+
+    def test_lone_bin_in_library_monorepo_is_library(self, tmp_path):
+        # A tooling package with a bin among libraries must not flip the repo.
+        core = _write(tmp_path, "packages/lib/package.json",
+                      {"name": "lib", "main": "i.js", "exports": {".": "./i.js"}})
+        cli = _write(tmp_path, "packages/lib-healthcheck/package.json",
+                     {"name": "lib-healthcheck", "bin": {"hc": "./hc.js"},
+                      "main": "hc.js"})
+        result = mod.detect(REPO_URL, [core, cli])
+        assert result["shape"] == "library-API"
+
+    def test_dev_dependency_framework_is_not_app(self, tmp_path):
+        path = write_package_json(tmp_path, {
+            "name": "lib", "exports": {".": "./i.js"},
+            "devDependencies": {"express": "4"},
+        })
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] == "library-API"
+        assert "framework_dep_dev:express" in result["signals"]
+
+    def test_peer_dependency_framework_is_not_app(self, tmp_path):
+        # An adapter library peer-depends on the framework it integrates with.
+        path = write_package_json(tmp_path, {
+            "name": "lib-next-adapter", "exports": {".": "./i.js"},
+            "peerDependencies": {"next": "14"},
+        })
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] == "library-API"
+
+    def test_coordinator_root_framework_excluded(self, tmp_path):
+        # Private root coordinator (no library structure) carries express for
+        # scripts; the members are libraries.
+        root = _write(tmp_path, "package.json",
+                      {"name": "root", "private": True,
+                       "dependencies": {"express": "4"}})
+        member = _write(tmp_path, "packages/lib/package.json",
+                        {"name": "lib", "exports": {".": "./i.js"}})
+        result = mod.detect(REPO_URL, [root, member])
+        assert result["shape"] == "library-API"
+        assert "monorepo_root_coordinator_excluded" in result["signals"]
+
+    def test_root_that_is_the_library_stays_in(self, tmp_path):
+        # Root IS the published library (has exports) + benchmark members; the
+        # root must not be excluded, and benchmark frameworks must not leak.
+        root = _write(tmp_path, "package.json",
+                      {"name": "weblib", "exports": {".": "./i.js"}})
+        bench = _write(tmp_path, "benchmarks/x/package.json",
+                       {"name": "bench-x", "dependencies": {"express": "4"}})
+        result = mod.detect(REPO_URL, [root, bench])
+        assert result["shape"] == "library-API"
+
+    def test_genuine_app_still_reference_app(self, tmp_path):
+        # A single package that depends on a framework at runtime is an app.
+        path = write_package_json(tmp_path, {
+            "name": "my-app", "dependencies": {"next": "14"},
+        })
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] == "reference-app"
+
+    def test_genuine_monorepo_app_member_still_reference_app(self, tmp_path):
+        # A core (non-example) member that runtime-depends on a framework.
+        root = _write(tmp_path, "package.json",
+                      {"name": "root", "private": True})
+        app = _write(tmp_path, "apps/web/package.json",
+                     {"name": "web", "dependencies": {"next": "14"}})
+        result = mod.detect(REPO_URL, [root, app])
+        assert result["shape"] == "reference-app"

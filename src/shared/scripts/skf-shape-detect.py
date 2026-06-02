@@ -99,6 +99,46 @@ _ALL_FRAMEWORK_DEPS = _FRAMEWORK_DEPS_NPM | _FRAMEWORK_DEPS_PYTHON | _FRAMEWORK_
 
 
 # ---------------------------------------------------------------------------
+# Core vs non-core members
+#
+# In a monorepo, a `bin` field or framework dependency from an examples /
+# devtools / tooling member must NOT flip the whole repo to `reference-app`.
+# A manifest is "non-core" when it lives under a non-core directory or its
+# package name marks it as a demo / example / dev-tool. Only core members
+# drive the app-shape (`reference-app`) signals; library detection still uses
+# every manifest.
+# ---------------------------------------------------------------------------
+
+_NON_CORE_PATH_SEGMENTS = frozenset({
+    "example", "examples", "demo", "demos", "sample", "samples",
+    "playground", "playgrounds", "e2e", "benchmark", "benchmarks", "bench",
+    "fixture", "fixtures", "website", "websites", "www",
+    "docs", "doc", "scripts", "tools", "tooling", "devtools", "dev-tools",
+    "test", "tests", "__tests__", "integration", "smoke",
+})
+
+_NON_CORE_NAME_FRAGMENTS = (
+    "devtools", "dev-tools", "example", "playground", "benchmark",
+    "fixture", "e2e", "codemod", "upgrade", "eslint-plugin", "eslint-config",
+)
+
+
+def is_core_manifest(rel_path: str, pkg_name: str) -> bool:
+    """Whether a manifest counts toward app-shape (`reference-app`) signals.
+
+    Non-core when any path segment is a known non-core directory, or the
+    package name contains a dev/demo/tooling fragment. Keeps a single CLI,
+    example, or devtools package in a library monorepo from masquerading the
+    whole repo as an application.
+    """
+    for seg in Path(rel_path).parts:
+        if seg.lower() in _NON_CORE_PATH_SEGMENTS:
+            return False
+    name = (pkg_name or "").lower()
+    return not any(frag in name for frag in _NON_CORE_NAME_FRAGMENTS)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -286,10 +326,16 @@ def _parse_package_json(path: Path) -> dict[str, Any]:
         return {}  # unreachable
 
     deps: set[str] = set()
+    runtime_deps: set[str] = set()
     for key in ("dependencies", "devDependencies", "peerDependencies"):
         section = data.get(key)
         if isinstance(section, dict):
             deps.update(section)
+            # Only hard `dependencies` signal app-ness: a framework in
+            # devDependencies means "tested against", in peerDependencies means
+            # "this is an adapter for it" — both are library behaviour.
+            if key == "dependencies":
+                runtime_deps.update(section)
 
     exports_field = data.get("exports")
     export_count = 0
@@ -304,6 +350,7 @@ def _parse_package_json(path: Path) -> dict[str, Any]:
         "ecosystem": "npm",
         "name": data.get("name", ""),
         "deps": deps,
+        "runtime_deps": runtime_deps,
         "has_bin": bool(data.get("bin")),
         "has_library_structure": bool(
             data.get("main") or data.get("module") or exports_field
@@ -360,6 +407,7 @@ def _parse_pyproject_toml(path: Path) -> dict[str, Any]:
         "ecosystem": "python",
         "name": project.get("name", ""),
         "deps": deps,
+        "runtime_deps": set(deps),
         "has_bin": False,
         "has_library_structure": bool(project.get("name")),
         "export_count": export_count,
@@ -382,10 +430,13 @@ def _parse_cargo_toml(path: Path) -> dict[str, Any]:
         pkg = {}
 
     deps: set[str] = set()
+    runtime_deps: set[str] = set()
     for dep_key in ("dependencies", "dev-dependencies", "build-dependencies"):
         section = data.get(dep_key, {})
         if isinstance(section, dict):
             deps.update(k.lower() for k in section)
+            if dep_key == "dependencies":
+                runtime_deps.update(k.lower() for k in section)
 
     has_lib = "lib" in data and isinstance(data["lib"], dict)
     bin_targets = data.get("bin", [])
@@ -405,6 +456,7 @@ def _parse_cargo_toml(path: Path) -> dict[str, Any]:
         "ecosystem": "rust",
         "name": pkg.get("name", ""),
         "deps": deps,
+        "runtime_deps": runtime_deps,
         "has_bin": has_bin,
         "has_library_structure": has_lib or bool(pkg.get("name")),
         "export_count": export_count,
@@ -439,46 +491,95 @@ def detect(repo_url: str, manifest_paths: list[str]) -> dict[str, Any]:
         p = Path(mp)
         if not p.is_file():
             _die(f"Manifest not found: {p.as_posix()}", "MANIFEST_NOT_FOUND")
-        parsed.append(_parse_manifest(p))
+        m = _parse_manifest(p)
+        m["_path"] = mp
+        m["_core"] = is_core_manifest(mp, m.get("name", ""))
+        parsed.append(m)
 
     all_deps: set[str] = set()
+    all_runtime_deps: set[str] = set()
+    core_runtime_deps: set[str] = set()
     ecosystems: set[str] = set()
     total_exports = 0
     signals: list[str] = []
-    has_bin = False
+    has_bin = False         # any manifest
+    core_has_bin = False    # app-eligible manifests only
     has_library_structure = False
 
-    for m in parsed:
+    package_count = len(parsed)
+
+    # In a monorepo, a *coordinator* root (the unique shallowest manifest that has
+    # no library structure of its own) holds build/script deps, not the product —
+    # exclude it from app-shape signals. A root that is itself the published
+    # library (has main/exports) stays in.
+    depths = [len(Path(m["_path"]).parts) for m in parsed]
+    min_depth = min(depths)
+    root_coord_idx = -1
+    if package_count > 1 and depths.count(min_depth) == 1:
+        cand = depths.index(min_depth)
+        if not parsed[cand].get("has_library_structure"):
+            root_coord_idx = cand
+    if root_coord_idx >= 0:
+        signals.append("monorepo_root_coordinator_excluded")
+
+    for idx, m in enumerate(parsed):
         eco = m["ecosystem"]
         ecosystems.add(eco)
         signals.append(f"has_{path_to_manifest_name(eco)}")
         all_deps.update(m.get("deps", set()))
+        all_runtime_deps.update(m.get("runtime_deps", set()))
         total_exports += m.get("export_count", 0)
         if m.get("has_bin"):
             has_bin = True
         if m.get("has_library_structure"):
             has_library_structure = True
+        # App-shape signals: core members, excluding the monorepo root coordinator.
+        if m.get("_core") and idx != root_coord_idx:
+            core_runtime_deps.update(m.get("runtime_deps", set()))
+            if m.get("has_bin"):
+                core_has_bin = True
 
-    package_count = len(parsed)
+    # `reference-app` signals come from core members' RUNTIME deps only: a
+    # framework in devDependencies (testing/building against it), in an
+    # examples/devtools member, or in the monorepo coordinator root does not make
+    # the repo an application.
+    app_has_bin = core_has_bin
+    app_runtime = core_runtime_deps
+    framework_deps = sorted(d for d in app_runtime if d.lower() in _ALL_FRAMEWORK_DEPS)
+    has_framework = len(framework_deps) > 0
+
+    # Excluded app signals are surfaced separately so the classification stays
+    # explainable: non-core runtime frameworks, and dev-only frameworks.
+    noncore_framework = sorted(
+        d for d in (all_runtime_deps - app_runtime) if d.lower() in _ALL_FRAMEWORK_DEPS
+    )
+    dev_framework = sorted(
+        d for d in (all_deps - all_runtime_deps) if d.lower() in _ALL_FRAMEWORK_DEPS
+    )
+    noncore_has_bin = has_bin and not app_has_bin
 
     if total_exports > 50:
         signals.append("exports_count_gt_50")
-    if has_bin:
+    if app_has_bin:
         signals.append("has_bin_field")
     elif has_library_structure:
         signals.append("no_bin_field")
+    if noncore_has_bin:
+        signals.append("has_bin_field_noncore")
     if has_library_structure:
         signals.append("has_library_structure")
 
     # Collect dep-category matches
     parser_deps = sorted(d for d in all_deps if d.lower() in _ALL_PARSER_DEPS)
-    framework_deps = sorted(d for d in all_deps if d.lower() in _ALL_FRAMEWORK_DEPS)
-    has_framework = len(framework_deps) > 0
 
     for d in parser_deps:
         signals.append(f"parser_dep:{d}")
     for d in framework_deps:
         signals.append(f"framework_dep:{d}")
+    for d in noncore_framework:
+        signals.append(f"framework_dep_noncore:{d}")
+    for d in dev_framework:
+        signals.append(f"framework_dep_dev:{d}")
     if len(ecosystems) > 1:
         signals.append("multiple_ecosystems")
         for eco in sorted(ecosystems):
@@ -503,9 +604,12 @@ def detect(repo_url: str, manifest_paths: list[str]) -> dict[str, Any]:
         return {"shape": "stack-compose", "signals": signals,
                 "confidence": round(confidence, 2), **result_base}
 
-    # 3. reference-app
-    if has_bin or has_framework:
-        strength = (1 if has_bin else 0) + (1 if has_framework else 0)
+    # 3. reference-app — an application/CLI built on a framework. In a monorepo
+    # a lone `bin` (a tooling package among libraries) is not enough; require a
+    # core runtime framework. A single-package repo with a bin is an app.
+    app_trigger = has_framework if package_count > 1 else (app_has_bin or has_framework)
+    if app_trigger:
+        strength = (1 if app_has_bin else 0) + (1 if has_framework else 0)
         confidence = _clamp(0.80 + (strength - 1) * 0.05, 0.80, 0.90)
         return {"shape": "reference-app", "signals": signals,
                 "confidence": round(confidence, 2), **result_base}
