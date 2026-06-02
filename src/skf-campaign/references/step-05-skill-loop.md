@@ -46,7 +46,7 @@ For each skill in `dependency_graph.execution_order`, before processing:
 
 1. Skip Tier B skills — they are processed in step-06 via batch mode.
 2. Skip skills whose status is already `"completed"`, `"failed"`, or `"skipped"` (resume support).
-3. Run `uv run python {depsScript} --check --state-file {stateFile} --skill {skill_name}`.
+3. Run `uv run {depsScript} --check --state-file {stateFile} --skill {skill_name}`.
 4. If `ready: true` — proceed to §5 for this skill.
 5. If `ready: false` — present the blocked skill and its unmet dependencies:
    - `[S]kip` — mark skill as `"skipped"`, backup and write state, continue to next skill.

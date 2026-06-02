@@ -72,7 +72,7 @@ Extract from the parsed brief:
 Invoke doc detection to discover documentation URLs for the source repo:
 
 ```bash
-uv run python {project-root}/{detectDocsScript} --repo-url {source_repo}
+uv run {project-root}/{detectDocsScript} --repo-url {source_repo}
 ```
 
 `--repo-url` is always required (the script uses it for GitHub API calls). If a local clone is also available at `{local_clone_path}`, add `--local-path {local_clone_path}` to enable docs-folder scanning in addition to API-based detection.
