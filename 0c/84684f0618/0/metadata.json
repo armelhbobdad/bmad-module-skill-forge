@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0c84684f0618",
+  "session_id": "6f290fda-8776-49b3-9c82-013fa78c06dd",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-02T16:04:33.957197279Z",
+  "branch": "fix-autoscope-remote-manifest-scan",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/skf-analyze-source/references/step-auto-scope.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "7d6ed79470bd",
+  "token_usage": {
+    "input_tokens": 47127,
+    "cache_creation_tokens": 2101115,
+    "cache_read_tokens": 74301393,
+    "output_tokens": 287637,
+    "api_call_count": 242
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-02T16:04:32.450642755Z",
+    "agent_lines": 20,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 20,
+    "agent_percentage": 100
+  }
+}

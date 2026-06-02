@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "0c84684f0618",
+  "strategy": "manual-commit",
+  "branch": "fix-autoscope-remote-manifest-scan",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "src/skf-analyze-source/references/step-auto-scope.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0c/84684f0618/0/metadata.json",
+      "transcript": "/0c/84684f0618/0/full.jsonl",
+      "context": "/0c/84684f0618/0/context.md",
+      "content_hash": "/0c/84684f0618/0/content_hash.txt",
+      "prompt": "/0c/84684f0618/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 47127,
+    "cache_creation_tokens": 2101115,
+    "cache_read_tokens": 74301393,
+    "output_tokens": 287637,
+    "api_call_count": 242
+  }
+}
