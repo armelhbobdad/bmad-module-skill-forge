@@ -27,8 +27,13 @@ CLI:
       --repo-url <url> --manifests <path1,path2,...>
 
 Input:
-  --repo-url   repository URL (required; context only, no cloning)
-  --manifests  comma-separated local file paths to manifest files (required)
+  --repo-url      repository URL (required; context only, no cloning)
+  --manifests     comma-separated local file paths to manifest files (may be
+                  empty when a tree-level signal is supplied instead)
+  --grammar-files comma-separated repo-relative grammar files (*.y, *.g4,
+                  *.pest, Grammar/python.gram, ...); a whole-language signal
+  --tree-paths    comma-separated repo-relative directory/structural signals
+                  harvested from the clone (compiler/ dir, lexer/parser/ast)
 
 Output (JSON on stdout):
   shape         library-API | reference-app | language-reference
@@ -481,9 +486,24 @@ def _parse_manifest(path: Path) -> dict[str, Any]:
 # Core classification
 # ---------------------------------------------------------------------------
 
-def detect(repo_url: str, manifest_paths: list[str]) -> dict[str, Any]:
-    """Classify a repo into a skill shape from its manifest files."""
-    if not manifest_paths:
+def detect(
+    repo_url: str,
+    manifest_paths: list[str],
+    grammar_files: list[str] | None = None,
+    tree_paths: list[str] | None = None,
+) -> dict[str, Any]:
+    """Classify a repo into a skill shape from its manifest files.
+
+    `grammar_files` (grammar files like Grammar/python.gram, *.y, *.g4) and
+    `tree_paths` (repo-relative directory/structural signals) are optional
+    tree-level signals harvested from the clone; they let whole-language repos
+    that carry no parser-generator dependency — and even manifest-less ones —
+    be classified. When all three inputs are empty there is nothing to
+    classify and we error, exactly as before.
+    """
+    grammar_files = grammar_files or []
+    tree_paths = tree_paths or []
+    if not manifest_paths and not grammar_files and not tree_paths:
         _die("--manifests requires at least one path", "MISSING_MANIFESTS")
 
     parsed: list[dict[str, Any]] = []
@@ -513,7 +533,7 @@ def detect(repo_url: str, manifest_paths: list[str]) -> dict[str, Any]:
     # exclude it from app-shape signals. A root that is itself the published
     # library (has main/exports) stays in.
     depths = [len(Path(m["_path"]).parts) for m in parsed]
-    min_depth = min(depths)
+    min_depth = min(depths) if depths else -1
     root_coord_idx = -1
     if package_count > 1 and depths.count(min_depth) == 1:
         cand = depths.index(min_depth)
@@ -674,15 +694,28 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--repo-url", required=True, help="Repository URL")
     parser.add_argument(
         "--manifests", required=True,
-        help="Comma-separated local file paths to manifest files",
+        help="Comma-separated local file paths to manifest files (may be empty "
+             "when --grammar-files or --tree-paths carry the signal)",
+    )
+    parser.add_argument(
+        "--grammar-files", default="",
+        help="Comma-separated repo-relative grammar file paths (*.y, *.g4, "
+             "*.pest, Grammar/python.gram, ...)",
+    )
+    parser.add_argument(
+        "--tree-paths", default="",
+        help="Comma-separated repo-relative directory (trailing /) and "
+             "structural file signals harvested from the clone",
     )
     args = parser.parse_args(argv)
 
     manifest_paths = [p.strip() for p in args.manifests.split(",") if p.strip()]
-    if not manifest_paths:
+    grammar_files = [p.strip() for p in args.grammar_files.split(",") if p.strip()]
+    tree_paths = [p.strip() for p in args.tree_paths.split(",") if p.strip()]
+    if not manifest_paths and not grammar_files and not tree_paths:
         _die("--manifests requires at least one path", "MISSING_MANIFESTS")
 
-    result = detect(args.repo_url, manifest_paths)
+    result = detect(args.repo_url, manifest_paths, grammar_files, tree_paths)
     json.dump(result, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
 

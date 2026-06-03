@@ -425,6 +425,62 @@ name = "compiler_builtins"
 
 
 # --------------------------------------------------------------------------
+# Phase B plumbing (issue #427): optional --grammar-files / --tree-paths args
+# and the relaxed MISSING_MANIFESTS guard. These inputs do not yet change
+# classification (the grammar/tree rungs land in later commits) — this commit
+# only proves the interface is wired and behaviour-neutral on the existing
+# manifest path.
+# --------------------------------------------------------------------------
+
+
+class TestPhaseBPlumbing:
+    def test_existing_two_arg_call_unchanged(self, tmp_path):
+        """The 2-arg detect() signature still works (regression)."""
+        path = write_package_json(tmp_path, {"name": "lib", "main": "index.js"})
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] == "library-API"
+
+    def test_all_inputs_empty_still_errors(self):
+        """The load-bearing pin: every input empty → exit 2, unchanged."""
+        with pytest.raises(SystemExit) as exc_info:
+            mod.detect(REPO_URL, [], [], [])
+        assert exc_info.value.code == 2
+
+    def test_grammar_only_no_longer_errors(self):
+        """Empty manifests but a grammar file present → no longer exit 2.
+
+        Classification is still unknown until the grammar rung lands; the point
+        here is that the manifest-less path stops hard-erroring.
+        """
+        result = mod.detect(REPO_URL, [], ["Grammar/python.gram"], [])
+        assert_result_shape(result)
+        assert result["shape"] == "unknown"
+
+    def test_tree_only_no_longer_errors(self):
+        result = mod.detect(REPO_URL, [], [], ["compiler/"])
+        assert_result_shape(result)
+        assert result["shape"] == "unknown"
+
+    def test_cli_all_empty_exit_2(self):
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--repo-url", REPO_URL,
+             "--manifests", "", "--grammar-files", "", "--tree-paths", ""],
+            capture_output=True, text=True, timeout=15,
+        )
+        assert proc.returncode == 2
+
+    def test_cli_grammar_only_not_exit_2(self):
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--repo-url", REPO_URL,
+             "--manifests", "", "--grammar-files", "Grammar/python.gram"],
+            capture_output=True, text=True, timeout=15,
+        )
+        assert proc.returncode != 2
+        out = json.loads(proc.stdout)
+        assert_result_shape(out)
+
+
+# --------------------------------------------------------------------------
 # Shape: stack-compose
 # --------------------------------------------------------------------------
 
