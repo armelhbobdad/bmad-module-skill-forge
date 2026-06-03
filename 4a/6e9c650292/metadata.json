@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "4a6e9c650292",
+  "strategy": "manual-commit",
+  "branch": "issue-427-language-reference-shape",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/shared/scripts/skf-shape-detect.py",
+    "test/test-skf-shape-detect.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/4a/6e9c650292/0/metadata.json",
+      "transcript": "/4a/6e9c650292/0/full.jsonl",
+      "context": "/4a/6e9c650292/0/context.md",
+      "content_hash": "/4a/6e9c650292/0/content_hash.txt",
+      "prompt": "/4a/6e9c650292/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 18217,
+    "cache_creation_tokens": 353112,
+    "cache_read_tokens": 14521779,
+    "output_tokens": 129044,
+    "api_call_count": 84
+  }
+}
