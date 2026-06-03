@@ -41,13 +41,16 @@ class TestCorporaLookup:
         assert mod.corpora_for("") == []
 
     def test_output_is_brief_contract_shape_only(self):
-        """Each entry is exactly {url, label} — NOT the detect-docs shape with
-        content_type/detected_via, which the brief writer would discard."""
+        """Each entry is exactly {url, label, source} — NOT the detect-docs shape
+        with content_type/detected_via. The `source` field (issue #432) marks
+        these as registry-guaranteed corpora so downstream noise-suppression
+        (#431) and assembly tier-ordering (#430) can branch on provenance."""
         for lang in SEEDED:
             for entry in mod.corpora_for(lang):
-                assert set(entry.keys()) == {"url", "label"}, entry
+                assert set(entry.keys()) == {"url", "label", "source"}, entry
                 assert entry["url"].startswith("http")
                 assert entry["label"]
+                assert entry["source"] == "language-registry"
 
     def test_rust_includes_book_and_std(self):
         urls = [e["url"] for e in mod.corpora_for("rust")]
@@ -77,7 +80,8 @@ class TestCli:
         assert proc.returncode == 0, proc.stderr
         out = json.loads(proc.stdout)
         assert isinstance(out, list) and len(out) >= 1
-        assert set(out[0].keys()) == {"url", "label"}
+        assert set(out[0].keys()) == {"url", "label", "source"}
+        assert out[0]["source"] == "language-registry"
 
     def test_cli_miss_exit_1(self):
         proc = subprocess.run(

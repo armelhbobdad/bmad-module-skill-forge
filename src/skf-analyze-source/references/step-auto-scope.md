@@ -441,7 +441,7 @@ A whole-language skill's value is in the language's **prose** — the guide/Book
    ```bash
    uv run {languageCorporaHelper} --language {corpus_language}
    ```
-   - exit 0 → parse the `[{url, label}]` array → these are `{corpus_seeds}`.
+   - exit 0 → parse the `[{url, label, source}]` array (each seed carries `source: language-registry`) → these are `{corpus_seeds}`.
    - exit 1 → no registry entry (long-tail language) → `{corpus_seeds}` is empty (README detection in brief-skill remains the only source).
    - exit 2 → log a warning and treat as empty (best-effort; never halt).
 3. Record `{N}` = number of seeds and `{corpus_labels}` = comma-joined labels, carried into the brief `doc_urls` (§8) and the honest caveat (§6/§7).
@@ -599,7 +599,7 @@ created_by: '{user_name}'
 
 ```yaml
 doc_urls:
-  - { url: '{seed.url}', label: '{seed.label}' }   # one entry per §6b seed
+  - { url: '{seed.url}', label: '{seed.label}', source: '{seed.source}' }   # one entry per §6b seed; source is 'language-registry'
 ```
 
 These are the brief's *existing* `doc_urls`; brief-skill's README detection then merges additional discovered docs on top (existing entries win). **When `{N}` is 0, omit the `doc_urls` key entirely** — the schema requires at least one entry when the key is present.

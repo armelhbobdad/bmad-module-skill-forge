@@ -195,6 +195,39 @@ class TestDocsOnlyRules:
 
 
 # --------------------------------------------------------------------------
+# doc_urls per-entry `source` provenance (issue #432)
+# --------------------------------------------------------------------------
+
+
+class TestDocUrlsSource:
+    def test_valid_source_value_passes(self) -> None:
+        brief = _valid_brief()
+        brief["doc_urls"] = [
+            {"url": "https://doc.rust-lang.org/book/", "label": "Book",
+             "source": "language-registry"},
+            {"url": "https://docs.rs/x", "source": "readme-detection"},
+        ]
+        result = mod.validate_brief(brief)
+        assert result["valid"] is True, result["errors"]
+
+    def test_out_of_enum_source_value_rejected(self) -> None:
+        brief = _valid_brief()
+        brief["doc_urls"] = [
+            {"url": "https://x.com", "source": "made-up-source"},
+        ]
+        result = mod.validate_brief(brief)
+        assert result["valid"] is False
+        assert any("source" in e["field"] for e in result["errors"])
+
+    def test_doc_urls_without_source_still_valid(self) -> None:
+        # `source` is optional — legacy briefs without it must still validate.
+        brief = _valid_brief()
+        brief["doc_urls"] = [{"url": "https://x.com", "label": "Home"}]
+        result = mod.validate_brief(brief)
+        assert result["valid"] is True, result["errors"]
+
+
+# --------------------------------------------------------------------------
 # Version non-empty rule
 # --------------------------------------------------------------------------
 

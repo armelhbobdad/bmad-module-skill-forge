@@ -97,8 +97,9 @@ For each detected doc entry, create a brief `doc_urls` entry:
     - `"readme_link"` → `"README Link"`
     - `"pages_api"` → `"GitHub Pages"`
     - `"docs_folder"` → `"Docs Folder"`
+- `source` ← coarse provenance derived from `detected_via` (per the `skill-brief.v1.json` `doc_urls[].source` enum): `homepageUrl` → `homepage`, `readme_link` → `readme-detection`, `pages_api` → `pages-api`, `docs_folder` → `docs-folder`. This marks the entry as opportunistically detected, distinct from a registry-guaranteed corpus.
 
-If the upstream brief already has `doc_urls`, merge the detected docs with the existing entries. Deduplicate by **normalized** URL — lowercase the host and strip a trailing `/index.html` and any trailing `/` before comparing — so a seeded `…/book/` and a README's `…/book/index.html` collapse to one entry rather than being fetched twice. Existing (upstream / corpora-seeded) entries take precedence.
+If the upstream brief already has `doc_urls`, merge the detected docs with the existing entries. Deduplicate by **normalized** URL — lowercase the host and strip a trailing `/index.html` and any trailing `/` before comparing — so a seeded `…/book/` and a README's `…/book/index.html` collapse to one entry rather than being fetched twice. Existing (upstream / corpora-seeded) entries take precedence — and an upstream corpus entry **retains its `source: language-registry`** on a collision, so the registry-vs-detected distinction survives the merge.
 
 ### 4. Validate Enriched Brief
 
@@ -123,7 +124,7 @@ Assemble the enriched brief context as a flat JSON object following the write-br
   "scope_rationale":  null,
   "scope_tier_a_include": null,
   "scope_amendments":     null,
-  "doc_urls":         [{"url": "...", "label": "..."}],
+  "doc_urls":         [{"url": "...", "label": "...", "source": "..."}],
   "scripts_intent":   "{scripts_intent or null}",
   "assets_intent":    "{assets_intent or null}",
   "source_authority": "{source_authority or null}",
