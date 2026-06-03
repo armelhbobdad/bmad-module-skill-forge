@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "a0e674da9a86",
+  "strategy": "manual-commit",
+  "branch": "issue-427-language-reference-shape",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-analyze-source/references/step-auto-scope.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a0/e674da9a86/0/metadata.json",
+      "transcript": "/a0/e674da9a86/0/full.jsonl",
+      "context": "/a0/e674da9a86/0/context.md",
+      "content_hash": "/a0/e674da9a86/0/content_hash.txt",
+      "prompt": "/a0/e674da9a86/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 19343,
+    "cache_creation_tokens": 444810,
+    "cache_read_tokens": 29096601,
+    "output_tokens": 186971,
+    "api_call_count": 131
+  }
+}
