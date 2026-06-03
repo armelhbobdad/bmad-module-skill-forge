@@ -413,7 +413,7 @@ scope:
   type: '{mapped_scope_type}'
   include: ['{generated_include_patterns}']
   exclude: ['{generated_exclude_patterns}']
-  notes: 'Auto-scoped from shape detection (shape: {shape}, confidence: {confidence})'
+  notes: 'Auto-scoped from shape detection (shape: {shape}, confidence: {confidence}).{corpus_caveat}'
 ```
 
 Determine the skill name from the project name or package name (kebab-case, lowercase). Use the manifest `name` field if available, otherwise derive from the project directory name. If `{coexistence_suffix}` is non-empty, append it to the skill name.
@@ -445,6 +445,11 @@ A whole-language skill's value is in the language's **prose** — the guide/Book
    - exit 1 → no registry entry (long-tail language) → `{corpus_seeds}` is empty (README detection in brief-skill remains the only source).
    - exit 2 → log a warning and treat as empty (best-effort; never halt).
 3. Record `{N}` = number of seeds and `{corpus_labels}` = comma-joined labels, carried into the brief `doc_urls` (§8) and the honest caveat (§6/§7).
+4. Build `{corpus_caveat}` (appended to `scope.notes` in §6/§8 and surfaced in §7) so the operator knows a code-only whole-language skill is low-value:
+   - `{N}` ≥ 1: `" LANGUAGE-REFERENCE CAVEAT: this skill's value is the {corpus_language} prose (guide/Book + std/library docs), not compiler internals. Seeded {N} corpus URL(s): {corpus_labels}. Assembly ranks code (T1) above docs (T3) — review the forged skill if compiler-internal signatures dominate the prose."`
+   - `{N}` == 0: `" LANGUAGE-REFERENCE CAVEAT: no canonical corpora were found for {corpus_language} (README detection and the registry both came up empty). This skill is LOW-VALUE as code-only — attach the {corpus_language} guide + std/library docs manually (re-run with a doc URL, or enrich via US) before forging."`
+
+   For a parser-library `language-reference` (skipped above) and every other shape, `{corpus_caveat}` is empty.
 
 ### 4a. Multi-Scope Decomposition
 
@@ -532,6 +537,17 @@ For single-scope (unchanged):
 **Exclude Patterns:** {exclude patterns}
 ```
 
+**When the shape is a whole-language `language-reference`** (§6b ran — a `grammar_file:`/`tree_triad:` signal), append a Companion Corpora subsection so the operator sees whether the skill has the prose that makes it useful. The status is computed from the **final** brief `doc_urls` (the entries that will actually be fetched), not the seed count alone:
+
+```markdown
+## Companion Corpora (language-reference)
+
+**Why:** A whole-language skill's value is its prose (guide/Book, std/library docs, idioms), not compiler internals.
+**Corpora in brief doc_urls:** {final_doc_urls_count}
+  - {label}: {url}   # one line per doc_urls entry
+**Status:** {ATTACHED — canonical corpora present | DEGRADED — code-only, no canonical corpora; attach the {corpus_language} guide + std/library docs before forging}
+```
+
 For multi-scope (N > 1):
 ```markdown
 ## Auto-Scope Analysis — Decomposition ({N} skills)
@@ -572,7 +588,7 @@ scope:
     - '{include_patterns}'
   exclude:
     - '{exclude_patterns}'
-  notes: 'Auto-scoped from shape detection (shape: {shape}, confidence: {confidence})'
+  notes: 'Auto-scoped from shape detection (shape: {shape}, confidence: {confidence}).{corpus_caveat}'
 description: '{1-3 sentence description based on shape, language, and manifest name}'
 forge_tier: '{forge_tier}'
 created: '{current_date}'
