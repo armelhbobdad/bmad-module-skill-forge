@@ -304,17 +304,38 @@ Parse the JSON output: `{shape, signals, confidence, export_count, package_count
 
 Evaluate the shape detection output to determine whether this repo should be decomposed into multiple skills.
 
-**Threshold conditions** (both constants are `[PENDING VALIDATION]` — subject to empirical tuning):
+**Threshold conditions:**
 
 | Threshold | Condition | Signal |
 |-----------|-----------|--------|
-| Large export surface | `export_count > 500` `[PENDING VALIDATION]` | Single skill covering 500+ exports produces unwieldy output |
-| Monorepo / multi-package | `package_count > 3` `[PENDING VALIDATION]` | 4+ packages are almost always multi-concern |
+| Large export surface | `export_count > 500` `[PENDING VALIDATION]` | Single skill covering 500+ exports produces unwieldy output (not yet observed firing on a real run) |
+| Monorepo / multi-package | `package_count > 3` | 4+ packages — a decomposition **candidate** (empirically validated: fires on real 15-, 38-, and 442-package workspaces) |
 
 **Decision:**
 
 - **Neither threshold met** → Continue to §4 (single-scope flow, entirely unchanged).
-- **Either or both thresholds met** → Route to §4a (multi-scope decomposition flow). Log: "Auto-decomposition triggered: {reason} ({value} exceeds threshold {threshold} `[PENDING VALIDATION]`)" where reason is `export_threshold`, `package_threshold`, or `both`.
+- **Either or both thresholds met** → this repo is a **decomposition candidate**. A threshold firing means the repo *could* decompose, not that it *should* — continue to §3b to decide merge-vs-split. Log: "Auto-decomposition candidate: {reason} ({value} exceeds threshold {threshold})" where reason is `export_threshold`, `package_threshold`, or `both`.
+
+### 3b. Cohesion Check — Merge to One Skill vs Split into N
+
+Reached only when §3a flagged a decomposition candidate. Most published monorepos are **cohesive** and produce a better single skill than a pile of fragments — empirically, 5/5 real monorepos (animato 15 crates, trpc, react 38 packages, aws-sdk-js-v3 442 packages, plus zod) were best served as one cohesive skill or a curated few, not one-skill-per-package. Decide deliberately:
+
+**Merge into ONE cohesive skill** (override the threshold → continue to §4 single-scope) when **any** of these hold:
+
+- **Umbrella facade** — one package re-exports the members: a root or named package whose dependencies include the other workspace members, or which `pub use` / `export *`s them. The facade *is* the public surface (e.g. animato's `crates/animato` re-exporting its 15 sub-crates).
+- **Shared runtime contract** — the members are consumed together through one entry point, and teaching the shared invariant covers them (e.g. tRPC's adapters around `@trpc/server`; aws-sdk's `new XClient(...) → client.send(new YCommand(...))` shared by every `@aws-sdk/client-*`).
+- **Internal building blocks** — the members are private/internal pieces of one product, not independently meaningful to a consumer.
+
+**Split into N skills** (→ §4a) when:
+
+- The members are **independently published with distinct public surfaces serving different concerns**, **and no umbrella re-exports them** — e.g. `react-dom` and `react-server-dom-*` are separate installs with separate jobs, or a federated SDK where a consumer only ever wants one service. Each genuinely-distinct facet earns its own skill.
+
+If genuinely unsure, **prefer merge** — a too-broad single skill is recoverable with `US`; N fragmented skills are not.
+
+**Facet-coverage guard (merged facet-diverse repos only).** When you merge a repo whose members have genuinely distinct surfaces and you scope to only some of them, record the decision explicitly — never drop a facet silently:
+
+- In `scope.notes`, name the in-scope facets **and** the excluded major facets, e.g. _"Scoped to react + react-dom core; excludes react-server-dom-\* (RSC), the specialized renderers (react-art/native/test), and the compiler — forge a separate skill for those."_
+- Surface the excluded facets in the analysis report (§7) so the operator can re-scope or forge a companion skill.
 
 ### 4. Map Shape to Scope
 
@@ -326,7 +347,7 @@ Apply the shape→scope.type mapping:
 | `library-API` | `public-api` | export_count > 200 |
 | `reference-app` | `reference-app` | — |
 | `language-reference` | `full-library` | — |
-| `stack-compose` | `full-library` | Multi-scope via §3a when `package_count > 3` `[PENDING VALIDATION]` |
+| `stack-compose` | `full-library` | Decomposition candidate when `package_count > 3` — cohesion-checked at §3b |
 
 ### 5. Generate Include/Exclude Patterns
 
@@ -367,7 +388,7 @@ Detect the primary language from the manifest ecosystem:
 
 ### 4a. Multi-Scope Decomposition
 
-This section is reached only from §3a when one or both decomposition thresholds are met. It replaces §4→§5→§6 for repos that will produce N > 1 skills.
+This section is reached only from §3b when the cohesion check decided to **split** (members are independently published with distinct surfaces and no umbrella re-exports them). It replaces §4→§5→§6 for repos that will produce N > 1 skills.
 
 **Determine decomposition path:**
 

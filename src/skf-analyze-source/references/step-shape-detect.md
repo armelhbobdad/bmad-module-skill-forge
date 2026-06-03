@@ -50,7 +50,7 @@ On exit code 2, error details are written to stderr as JSON: `{"error": "message
 | `library-API` | `public-api` | export_count > 200 (surface too large for full coverage) |
 | `reference-app` | `reference-app` | Direct mapping — apps, CLIs, demos |
 | `language-reference` | `full-library` | Language tools/parsers are library-shaped from a skill perspective |
-| `stack-compose` | `full-library` | Multi-skill decomposition when `package_count > 3` `[PENDING VALIDATION]` — see step-auto-scope.md §3a |
+| `stack-compose` | `full-library` | Decomposition candidate when `package_count > 3` — cohesion-checked in step-auto-scope.md §3b |
 | `unknown` | N/A | Triggers fallback to interactive mode |
 
 ## Decomposition Thresholds
@@ -60,9 +60,9 @@ When auto-scope detects a repo exceeding complexity thresholds, it recommends mu
 | Threshold | Value | Signal | Decomposition Path |
 |-----------|-------|--------|-------------------|
 | Large export surface | `export_count > 500` `[PENDING VALIDATION]` | Shape detection `export_count` | Group by top-level source directory modules |
-| Multi-package / monorepo | `package_count > 3` `[PENDING VALIDATION]` | Shape detection `package_count` | One skill per workspace package |
+| Multi-package / monorepo | `package_count > 3` | Shape detection `package_count` | Cohesion check (§3b): merge to one skill or split per package |
 
-Both thresholds are marked `[PENDING VALIDATION]` — no empirical data exists yet for real-world repos. Expected tuning: after running forge-auto against 5–10 real repos, adjust thresholds based on whether decomposition produces useful skill boundaries or noise.
+A threshold firing makes a repo a decomposition **candidate**; step-auto-scope.md §3b then decides merge-vs-split. `package_count > 3` is empirically validated (fires on real 15-, 38-, and 442-package workspaces). `export_count > 500` stays `[PENDING VALIDATION]` — not yet observed firing on a real run.
 
 When both thresholds are met simultaneously, the monorepo path takes priority (package boundaries are explicit; export-count grouping is heuristic).
 
