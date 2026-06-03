@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "623d88f0b099",
+  "strategy": "manual-commit",
+  "branch": "skf-workflows-quality-hardening",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-create-skill/references/health-check.md",
+    "src/skf-update-skill/references/health-check.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/62/3d88f0b099/0/metadata.json",
+      "transcript": "/62/3d88f0b099/0/full.jsonl",
+      "context": "/62/3d88f0b099/0/context.md",
+      "content_hash": "/62/3d88f0b099/0/content_hash.txt",
+      "prompt": "/62/3d88f0b099/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 31734,
+    "cache_creation_tokens": 586904,
+    "cache_read_tokens": 8198201,
+    "output_tokens": 133606,
+    "api_call_count": 61
+  }
+}
