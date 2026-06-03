@@ -1,0 +1,53 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "a7e34eebc81c",
+  "strategy": "manual-commit",
+  "branch": "skf-campaign-quality-hardening",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "package.json",
+    "src/skf-campaign/SKILL.md",
+    "src/skf-campaign/assets/campaign-state-schema.json",
+    "src/skf-campaign/customize.toml",
+    "src/skf-campaign/references/campaign-directive-spec.md",
+    "src/skf-campaign/references/health-check.md",
+    "src/skf-campaign/references/step-01-setup.md",
+    "src/skf-campaign/references/step-02-strategy.md",
+    "src/skf-campaign/references/step-03-pins.md",
+    "src/skf-campaign/references/step-04-provenance.md",
+    "src/skf-campaign/references/step-05-skill-loop.md",
+    "src/skf-campaign/references/step-06-batch.md",
+    "src/skf-campaign/references/step-07-capstone.md",
+    "src/skf-campaign/references/step-08-verify.md",
+    "src/skf-campaign/references/step-09-refine.md",
+    "src/skf-campaign/references/step-10-export.md",
+    "src/skf-campaign/references/step-11-maintenance.md",
+    "src/skf-campaign/references/step-resume.md",
+    "src/skf-campaign/scripts/campaign-parse-manifest.py",
+    "src/skf-campaign/scripts/campaign-provenance.py",
+    "src/skf-campaign/scripts/campaign-render-kickoff.py",
+    "src/skf-campaign/scripts/campaign-report.py",
+    "src/skf-campaign/scripts/campaign-validate-state.py",
+    "src/skf-campaign/templates/kickoff-template.md",
+    "test/test-skf-campaign-parse-manifest.py",
+    "test/test-skf-campaign-provenance.py",
+    "test/test-skf-campaign-render-kickoff.py",
+    "test/test-skf-campaign-validate-state.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a7/e34eebc81c/0/metadata.json",
+      "transcript": "/a7/e34eebc81c/0/full.jsonl",
+      "context": "/a7/e34eebc81c/0/context.md",
+      "content_hash": "/a7/e34eebc81c/0/content_hash.txt",
+      "prompt": "/a7/e34eebc81c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 23708,
+    "cache_creation_tokens": 728097,
+    "cache_read_tokens": 29830474,
+    "output_tokens": 205669,
+    "api_call_count": 125
+  }
+}
