@@ -1,6 +1,7 @@
 module,skill,display-name,menu-code,description,action,args,phase,after,before,required,output-location,outputs
 skf,skf-forger,Ferris — Skill Forge Agent,FF,"Skill compilation specialist — the forge master. Invoke to access all SKF workflows via guided menu.",,,anytime,,,false,,
-skf,skf-setup,Setup Forge,SF,"Initialize forge environment — detect tools and set capability tier (Quick/Forge/Forge+/Deep)",,,anytime,,"skf-analyze-source,skf-brief-skill,skf-quick-skill,skf-verify-stack",false,,forge-tier.yaml
+skf,skf-setup,Setup Forge,SF,"Initialize forge environment — detect tools and set capability tier (Quick/Forge/Forge+/Deep)",,,anytime,,"skf-analyze-source,skf-brief-skill,skf-quick-skill,skf-verify-stack,skf-campaign",false,,forge-tier.yaml
+skf,skf-campaign,Campaign,CA,"Orchestrate multi-library skill production across sessions — dependency tracking, file-based state, and resume",,resume [--from=<skill>],anytime,skf-setup,,false,forge_data_folder,_campaign-state.yaml
 skf,skf-analyze-source,Analyze Source,AN,"Discover what to skill in a large repo — produces recommended skill briefs",,,anytime,skf-setup,skf-brief-skill,false,forge_data_folder,skill-brief.yaml
 skf,skf-brief-skill,Brief Skill,BS,"Design a skill scope through guided discovery",,,anytime,"skf-setup,skf-analyze-source",skf-create-skill,false,forge_data_folder,skill-brief.yaml
 skf,skf-create-skill,Create Skill,CS,"Compile a skill from a brief — supports --batch for multiple briefs",,--batch,anytime,skf-brief-skill,"skf-test-skill,skf-create-stack-skill",false,skills_output_folder,SKILL.md
