@@ -13,13 +13,15 @@ the canonical corpora for well-known languages even when the repo's README
 does not link them.
 
 Pure static lookup over src/shared/data/language-corpora.json — no network,
-no git, no `gh`. Output is the brief `doc_urls` contract (`{url, label}`), so
-the result can be seeded directly into a skill brief.
+no git, no `gh`. Output is the brief `doc_urls` contract (`{url, label,
+source}`), with `source` fixed to `"language-registry"` (issue #432), so the
+result can be seeded directly into a skill brief and later distinguished from
+README-detected docs.
 
 CLI:
   uv run src/shared/scripts/skf-language-corpora.py --language <id>
 
-Output (JSON array on stdout): [{"url": "...", "label": "..."}, ...]
+Output (JSON array on stdout): [{"url": "...", "label": "...", "source": "language-registry"}, ...]
 
 Exit codes:
   0  registry hit — one or more corpora emitted
@@ -56,7 +58,13 @@ def _load_registry() -> dict:
 
 
 def corpora_for(language: str) -> list[dict]:
-    """Return the `{url, label}` corpora for a language id, or [] if none."""
+    """Return the `{url, label, source}` corpora for a language id, or [] if none.
+
+    Every emitted entry is stamped `source: "language-registry"` (issue #432) so
+    downstream — the brief writer, the noise-suppression filter (#431), and the
+    assembly tier-ordering (#430) — can distinguish a registry-guaranteed
+    corpus from an opportunistically README-detected doc.
+    """
     registry = _load_registry()
     entries = registry.get((language or "").strip().lower())
     if not isinstance(entries, list):
@@ -64,7 +72,11 @@ def corpora_for(language: str) -> list[dict]:
     out: list[dict] = []
     for e in entries:
         if isinstance(e, dict) and e.get("url"):
-            out.append({"url": e["url"], "label": e.get("label", "")})
+            out.append({
+                "url": e["url"],
+                "label": e.get("label", ""),
+                "source": "language-registry",
+            })
     return out
 
 

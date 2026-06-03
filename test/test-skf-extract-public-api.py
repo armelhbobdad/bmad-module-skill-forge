@@ -299,6 +299,50 @@ class TestKotlinExportScanner:
         assert names == ["Public", "publicFn", "OpenThing", "Pair"]
 
 
+class TestPackageSwift:
+    def test_extracts_name_and_deps(self):
+        src = (
+            'let package = Package(\n'
+            '    name: "Alamofire",\n'
+            '    dependencies: [\n'
+            '        .package(url: "https://github.com/apple/swift-nio.git", from: "2.0.0"),\n'
+            '    ]\n'
+            ')\n'
+        )
+        out = mod.parse_package_swift(src)
+        assert out["name"] == "Alamofire"
+        assert out["version"] is None  # SwiftPM versions come from git tags
+        assert "swift-nio" in out["dependencies"]
+
+
+class TestSwiftExportScanner:
+    def test_only_public_and_open_emitted(self):
+        src = (
+            "public struct Request {}\n"
+            "struct Internal {}\n"            # default internal — omitted
+            "private class Secret {}\n"
+            "open class Session {}\n"
+            "public func send() {}\n"
+            "public enum Method { case get }\n"
+            "public protocol Codable {}\n"
+            "internal func helper() {}\n"
+            "public final class Manager {}\n"
+            "public var shared = 1\n"
+        )
+        out = mod.scan_exports_swift(src, "Alamofire.swift")
+        names = [e["name"] for e in out]
+        assert names == [
+            "Request", "Session", "send", "Method", "Codable", "Manager", "shared",
+        ]
+        assert {"name": "Request", "type": "struct", "source_file": "Alamofire.swift"} in out
+
+    def test_class_method_does_not_leak_keyword_as_name(self):
+        # `public class func` is a type method — must not emit "func" as a name.
+        src = "public class func makeDefault() {}\n"
+        names = [e["name"] for e in mod.scan_exports_swift(src, "x.swift")]
+        assert "func" not in names
+
+
 # --------------------------------------------------------------------------
 # Orchestrator
 # --------------------------------------------------------------------------

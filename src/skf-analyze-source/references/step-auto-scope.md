@@ -269,7 +269,7 @@ Enumerate package manifests **deterministically** via `{scanManifestsHelper}` (t
   ```bash
   tmp="$(mktemp -d)"
   git clone --filter=blob:none --no-checkout --depth 1 {pinned_branch_flag} {path} "$tmp"
-  git -C "$tmp" sparse-checkout set --no-cone '**/package.json' '**/Cargo.toml' '**/pyproject.toml' '**/go.mod' 'pnpm-workspace.yaml' '**/pnpm-workspace.yaml'
+  git -C "$tmp" sparse-checkout set --no-cone '**/package.json' '**/Cargo.toml' '**/pyproject.toml' '**/go.mod' '**/pom.xml' '**/build.gradle' '**/build.gradle.kts' '**/Package.swift' 'pnpm-workspace.yaml' '**/pnpm-workspace.yaml'
   git -C "$tmp" checkout
   uv run {scanManifestsHelper} scan "$tmp"
   ```
@@ -280,7 +280,7 @@ Parse the JSON envelope: `{manifests: [{path, ecosystem, ...}], total_unique, mo
 
 From the envelope, record:
 
-1. **Supported manifest paths** — filter `manifests[].path` to the types `skf-shape-detect.py` accepts (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`). Each `manifests[].path` is **relative to the scan root**, so resolve them against that root (`{path}` for a local scan, `"$tmp"` for a remote fetch) before use. This filtered, comma-joined list of resolved paths is fed to shape detection in §3. For a monorepo, it includes each workspace member's manifest, so the package surface is classified accurately rather than from a bare (and often export-less) repo root. The scanner also discovers ecosystems shape detection does not yet classify (e.g. Maven, Gradle); those are excluded here, so a repo with no supported manifest falls back to interactive at the next check rather than auto-scoping.
+1. **Supported manifest paths** — filter `manifests[].path` to the types `skf-shape-detect.py` accepts (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `Package.swift`). Each `manifests[].path` is **relative to the scan root**, so resolve them against that root (`{path}` for a local scan, `"$tmp"` for a remote fetch) before use. This filtered, comma-joined list of resolved paths is fed to shape detection in §3. For a monorepo, it includes each workspace member's manifest, so the package surface is classified accurately rather than from a bare (and often export-less) repo root. The scanner may discover ecosystems shape detection does not yet classify; those are excluded here, so a repo with no supported manifest falls back to interactive at the next check rather than auto-scoping.
 2. **`monorepo` flag** and the count of discovered supported packages — carried forward as a signal for the decomposition decision in §3a.
 
 **Harvest tree-level language signals.** A whole-language repo may declare no parser-generator dependency (a hand-written compiler such as rustc, TypeScript, or the Go toolchain) or carry no supported manifest at all (CPython, Ruby). From the **same** fetched tree — no second clone and no blobs, since tree objects are already present in the blobless clone — collect two signals for shape detection. These are pure path listings (`git ls-tree` reads tree objects; no checkout, no blob download):
@@ -393,6 +393,9 @@ Generate `scope.include` and `scope.exclude` arrays from the detected language a
 - `pyproject.toml` → Python
 - `Cargo.toml` → Rust
 - `go.mod` → Go
+- `pom.xml` → Java
+- `build.gradle` / `build.gradle.kts` → Java or Kotlin (Kotlin when a `src/main/kotlin/` tree exists)
+- `Package.swift` → Swift
 
 **Default patterns (adjust based on actual project structure):**
 
@@ -402,6 +405,9 @@ Generate `scope.include` and `scope.exclude` arrays from the detected language a
 | Python | `['src/**/*.py']` or `['{package_name}/**/*.py']` | `['**/*_test.py', '**/test_*.py', '**/tests/**']` |
 | Rust | `['src/**/*.rs']` | `['**/tests/**', '**/benches/**']` |
 | Go | `['**/*.go']` | `['**/*_test.go', '**/vendor/**']` |
+| Java | `['src/main/java/**/*.java']` | `['**/src/test/**']` |
+| Kotlin | `['src/main/kotlin/**/*.kt']` | `['**/src/test/**']` |
+| Swift | `['Sources/**/*.swift']` | `['**/Tests/**']` |
 
 **Adjust for actual layout:** If the project uses a non-standard layout (e.g., `lib/` instead of `src/`, or a named package directory for Python), detect and use the actual paths. Check for the existence of common source directories (`src/`, `lib/`, `pkg/`, the package name directory) and prefer the one that exists.
 
@@ -423,6 +429,9 @@ Detect the primary language from the manifest ecosystem:
 - `python` → `python`
 - `rust` → `rust`
 - `go` → `go`
+- `maven` → `java`
+- `gradle` → `java` (or `kotlin` when a `src/main/kotlin/` tree exists)
+- `swift` → `swift`
 
 ### 6b. Seed Companion Corpora (whole-language references only)
 
@@ -441,12 +450,12 @@ A whole-language skill's value is in the language's **prose** — the guide/Book
    ```bash
    uv run {languageCorporaHelper} --language {corpus_language}
    ```
-   - exit 0 → parse the `[{url, label}]` array → these are `{corpus_seeds}`.
+   - exit 0 → parse the `[{url, label, source}]` array (each seed carries `source: language-registry`) → these are `{corpus_seeds}`.
    - exit 1 → no registry entry (long-tail language) → `{corpus_seeds}` is empty (README detection in brief-skill remains the only source).
    - exit 2 → log a warning and treat as empty (best-effort; never halt).
 3. Record `{N}` = number of seeds and `{corpus_labels}` = comma-joined labels, carried into the brief `doc_urls` (§8) and the honest caveat (§6/§7).
 4. Build `{corpus_caveat}` (appended to `scope.notes` in §6/§8 and surfaced in §7) so the operator knows a code-only whole-language skill is low-value:
-   - `{N}` ≥ 1: `" LANGUAGE-REFERENCE CAVEAT: this skill's value is the {corpus_language} prose (guide/Book + std/library docs), not compiler internals. Seeded {N} corpus URL(s): {corpus_labels}. Assembly ranks code (T1) above docs (T3) — review the forged skill if compiler-internal signatures dominate the prose."`
+   - `{N}` ≥ 1: `" LANGUAGE-REFERENCE CAVEAT: this skill's value is the {corpus_language} prose (guide/Book + std/library docs), not compiler internals. Seeded {N} corpus URL(s): {corpus_labels}. create-skill foregrounds this registry prose as the skill's Language Guide and demotes compiler-internal signatures to a reference-only section — review the forged skill if compiler internals still dominate."`
    - `{N}` == 0: `" LANGUAGE-REFERENCE CAVEAT: no canonical corpora were found for {corpus_language} (README detection and the registry both came up empty). This skill is LOW-VALUE as code-only — attach the {corpus_language} guide + std/library docs manually (re-run with a doc URL, or enrich via US) before forging."`
 
    For a parser-library `language-reference` (skipped above) and every other shape, `{corpus_caveat}` is empty.
@@ -599,7 +608,7 @@ created_by: '{user_name}'
 
 ```yaml
 doc_urls:
-  - { url: '{seed.url}', label: '{seed.label}' }   # one entry per §6b seed
+  - { url: '{seed.url}', label: '{seed.label}', source: '{seed.source}' }   # one entry per §6b seed; source is 'language-registry'
 ```
 
 These are the brief's *existing* `doc_urls`; brief-skill's README detection then merges additional discovered docs on top (existing entries win). **When `{N}` is 0, omit the `doc_urls` key entirely** — the schema requires at least one entry when the key is present.

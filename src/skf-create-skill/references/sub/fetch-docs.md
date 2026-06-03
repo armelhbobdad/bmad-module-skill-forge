@@ -6,6 +6,12 @@ nextStepFile: '../enrich.md'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# Resolve `{deriveAssemblyShapeHelper}` the same way — used in §1 to decide
+# whether this is a whole-language reference (registry-corpora prose retained
+# as a Language Guide) or a standard skill (unchanged behaviour).
+deriveAssemblyShapeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-derive-assembly-shape.py'
+  - '{project-root}/src/shared/scripts/skf-derive-assembly-shape.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -32,6 +38,14 @@ Evaluate the following conditions. **If the condition fails, skip silently to se
 1. **`doc_urls` is present in the brief data:** Check that `doc_urls` contains at least one URL entry from step 1 context. If `doc_urls` is absent or empty, skip silently.
 
 No tier gate — if `doc_urls` are present, this step runs at Quick, Forge, and Deep tiers alike.
+
+**Determine assembly shape (whole-language gate).** Resolve `{deriveAssemblyShapeHelper}` from `{deriveAssemblyShapeProbeOrder}` (first existing path wins) and run it on the brief:
+
+```bash
+uv run {deriveAssemblyShapeHelper} {brief_path}
+```
+
+If the result's `assembly_shape` is `whole-language-reference` (the brief carries ≥1 `doc_urls` entry with `source: language-registry` — a compiler/interpreter repo enriched with the language's canonical prose), set the in-context flag `whole_language_reference: true`. This changes ONLY how the registry-sourced corpora are handled below (§4a): their prose is retained as a **Language Guide** rather than shredded into per-export items. For every other brief the flag is false and this step behaves exactly as before — no change to ordinary skills.
 
 ### 2. Security Notice
 
@@ -122,6 +136,19 @@ Parse the successfully fetched markdown for:
 
 **No hallucination:** If information cannot be found in the fetched content, exclude it. Do not infer or fabricate API details.
 
+**Whole-language references — retain prose, do NOT shred (`whole_language_reference: true`):** For a whole-language reference the registry-sourced corpora (the guide/Book, the standard/library docs) ARE the product, not the compiler's internal exports. Reducing that prose to per-export signature items and then discarding it under the §5 "T3 never overrides T1" rule (the compiler's AST already owns names like `Vec`, `Option`, `HashMap`) would gut exactly the content the skill exists to teach. So for these briefs, skip §4a below for the registry corpora.
+
+### 4a. Retain the Language Guide (whole-language references only)
+
+**Skip this section entirely unless `whole_language_reference: true`.** When it is true, for each `doc_urls` entry whose `source` is `language-registry`:
+
+- Do NOT reduce its fetched markdown to per-export items. Instead retain the cleaned prose as a Language-Guide entry `{url, label, prose}`, where `prose` is the substantive body (narrative, idioms, usage examples, conceptual reference) lightly trimmed of navigation/boilerplate, each block cited `[EXT:{url}]`.
+- Collect these into a `language_guide[]` context artifact, in `doc_urls` order.
+
+This artifact is a **distinct** carrier — it is NOT merged into the extraction inventory and is NOT subject to the §5 conflict rule, so the canonical prose survives intact into step 5 (compile), which foregrounds it as the skill's Language Guide. Non-registry docs (README-detected, homepage, Pages, docs-folder) still flow through §4's normal per-export extraction and the §5 merge unchanged.
+
+**If a registry corpus could not be fetched** (network failure), record it in `language_guide[]` as `{url, label, prose: null}` and warn — step 5 surfaces the gap rather than emitting a thin guide silently.
+
 ### 5. Build Doc-Fetch Inventory
 
 **Mode determines merge behavior:**
@@ -130,6 +157,8 @@ Parse the successfully fetched markdown for:
 - **`source_type: "source"` (supplemental mode)** — Merge T3 items into the existing extraction inventory from step 3.
 
 **Conflict rule:** T3 items NEVER override existing T1, T1-low, or T2 items for the same export. When an export already has a higher-confidence entry, the T3 item is discarded. T3 has the lowest priority.
+
+**Language-Guide carve-out:** the `language_guide[]` artifact from §4a (whole-language references) is NOT part of the export inventory and is therefore NOT subject to this conflict rule — it carries no export key, so it cannot collide with a T1 compiler export and can never be pruned. It is passed separately into step 5, which renders it as the foregrounded Language Guide section. Only the per-export T3 items participate in the T1/T2/T3 merge.
 
 **Edge case — T1-zero supplemental mode:** If T1 extraction produced zero results and `doc_urls` are present in supplemental mode, T3 items should be used as the primary inventory since no T1 data exists to conflict with.
 

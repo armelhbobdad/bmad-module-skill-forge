@@ -257,6 +257,33 @@ class TestAssembleBrief:
         assert brief["doc_urls"][0] == {"url": "https://x.com", "label": "Home"}
         assert brief["doc_urls"][1] == {"url": "https://x.com/api", "label": ""}
 
+    def test_doc_urls_source_preserved_when_present(self):
+        # issue #432 — per-corpus provenance. When a doc_urls entry carries a
+        # `source`, the writer must thread it through so downstream (#431/#430)
+        # can distinguish registry-guaranteed corpora from detected docs.
+        ctx = _baseline_ctx()
+        ctx["doc_urls"] = [
+            {"url": "https://doc.rust-lang.org/book/", "label": "Book",
+             "source": "language-registry"},
+            {"url": "https://docs.rs/x", "label": "Detected",
+             "source": "readme-detection"},
+        ]
+        brief = mod.assemble_brief(ctx, "1.0.0")
+        assert brief["doc_urls"][0] == {
+            "url": "https://doc.rust-lang.org/book/", "label": "Book",
+            "source": "language-registry",
+        }
+        assert brief["doc_urls"][1]["source"] == "readme-detection"
+
+    def test_doc_urls_no_source_key_injected_when_absent(self):
+        # No false drift: an entry without `source` must emit exactly {url,label}
+        # (presence-gated emission, mirroring the source_authority null-drop
+        # discipline). A legacy brief re-write stays byte-identical.
+        ctx = _baseline_ctx()
+        ctx["doc_urls"] = [{"url": "https://x.com", "label": "Home"}]
+        brief = mod.assemble_brief(ctx, "1.0.0")
+        assert set(brief["doc_urls"][0].keys()) == {"url", "label"}
+
     def test_scripts_intent_omitted_when_default_detect(self):
         ctx = _baseline_ctx()
         ctx["scripts_intent"] = "detect"

@@ -261,6 +261,29 @@ def parse_settings_gradle(content: str) -> list[str]:
     return modules
 
 
+def parse_package_swift(content: str) -> dict:
+    """Best-effort parse of a SwiftPM Package.swift manifest.
+
+    SwiftPM has no version field in the manifest (versions come from git tags),
+    so `version` is always None; the brief falls back to target_version / default.
+    """
+    name_m = re.search(r"\bPackage\s*\(\s*name:\s*['\"]([^'\"]+)['\"]", content, re.DOTALL)
+    deps: list[str] = []
+    for m in re.finditer(r"\.package\s*\(\s*url:\s*['\"]([^'\"]+)['\"]", content):
+        seg = m.group(1).rstrip("/").rsplit("/", 1)[-1]
+        if seg.endswith(".git"):
+            seg = seg[: -len(".git")]
+        if seg:
+            deps.append(seg)
+    return {
+        "name": name_m.group(1).strip() if name_m else None,
+        "version": None,
+        "description": None,
+        "dependencies": deps,
+        "modules": [],
+    }
+
+
 # --------------------------------------------------------------------------
 # Export scanners
 # --------------------------------------------------------------------------
@@ -388,6 +411,35 @@ def scan_exports_kotlin(content: str, source_file: str) -> list[dict]:
     return out
 
 
+# Swift declarations are public only when explicitly marked `public`/`open`
+# (the default is internal). The lazy `[^\n]*?` skips intervening modifiers
+# (final/static/class-method/@attributes) between the access keyword and the
+# declaration keyword.
+_SWIFT_DECL_RE = re.compile(
+    r"^\s*(?:public|open)\b[^\n]*?\b"
+    r"(func|class|struct|enum|protocol|actor|typealias|var|let)\s+([A-Za-z_]\w*)",
+    re.MULTILINE,
+)
+_SWIFT_DECL_KEYWORDS = {
+    "func", "class", "struct", "enum", "protocol", "actor", "typealias", "var", "let",
+}
+
+
+def scan_exports_swift(content: str, source_file: str) -> list[dict]:
+    """Swift defaults to internal — emit only public/open declarations."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for m in _SWIFT_DECL_RE.finditer(content):
+        name = m.group(2)
+        # Guard the rare `public class func foo` case where the lazy skip stops
+        # on the `class` modifier and captures the next keyword as the name.
+        if name in _SWIFT_DECL_KEYWORDS or name in seen:
+            continue
+        seen.add(name)
+        out.append({"name": name, "type": m.group(1), "source_file": source_file})
+    return out
+
+
 # --------------------------------------------------------------------------
 # Orchestrator
 # --------------------------------------------------------------------------
@@ -405,6 +457,7 @@ LANGUAGE_DISPATCH: dict[str, tuple[ManifestParser, ExportScanner]] = {
     "go": (parse_go_mod, scan_exports_go),
     "java": (parse_pom_xml, scan_exports_java),
     "kotlin": (parse_gradle, scan_exports_kotlin),
+    "swift": (parse_package_swift, scan_exports_swift),
 }
 
 

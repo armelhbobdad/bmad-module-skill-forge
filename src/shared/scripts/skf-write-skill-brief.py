@@ -51,7 +51,10 @@ Context payload shape (consumed by `write`):
     },
 
     # Conditionally present:
-    "doc_urls":         [{"url": "...", "label": "..."}],
+    "doc_urls":         [{"url": "...", "label": "...", "source": "..."}],
+    #   `source` (optional per #432): language-registry | readme-detection |
+    #   homepage | pages-api | docs-folder. Threaded through when present;
+    #   absent → entry renders as {url, label} only (no false drift).
     "scripts_intent":   "detect" | "none" | free-text,
     "assets_intent":    "detect" | "none" | free-text,
     "source_authority": "official" | "community" | "internal",
@@ -95,7 +98,7 @@ Flat input form (`--from-flat`):
     "scope_notes":          "",
     "scope_tier_a_include": null | ["code/core/src/**"],
     "scope_amendments":     null | [{...}],
-    "doc_urls":             null | [...],
+    "doc_urls":             null | [{"url": "...", "label": "...", "source": "..."}],
     "scripts_intent":       null | "detect" | "none" | "...",
     "assets_intent":        null | "detect" | "none" | "...",
     "source_authority":     null | "official" | "community" | "internal",
@@ -433,11 +436,24 @@ def assemble_brief(ctx: dict[str, Any], resolved_version: str) -> dict[str, Any]
             brief[ref_field] = ref_val
 
     # Conditional: doc_urls (always emitted when present)
+    #
+    # Each entry carries the {url, label} contract plus an OPTIONAL `source`
+    # provenance field (issue #432: language-registry | readme-detection |
+    # homepage | pages-api | docs-folder). `source` is emitted ONLY when present
+    # on the input entry — mirroring the source_authority null-drop discipline
+    # below (lines ~448-454): a legacy/hand-authored entry without `source`
+    # round-trips to exactly {url, label}, so a ratify/re-write of an old brief
+    # stays byte-identical. (An explicit empty-string source is treated as
+    # absent here; the schema enum is the real gate and rejects "" upstream.)
     doc_urls = ctx.get("doc_urls")
     if doc_urls:
-        brief["doc_urls"] = [
-            {"url": e["url"], "label": e.get("label", "")} for e in doc_urls
-        ]
+        rendered_doc_urls: list[dict[str, Any]] = []
+        for e in doc_urls:
+            entry = {"url": e["url"], "label": e.get("label", "")}
+            if e.get("source"):
+                entry["source"] = e["source"]
+            rendered_doc_urls.append(entry)
+        brief["doc_urls"] = rendered_doc_urls
 
     # Conditional: scripts_intent / assets_intent — emit when explicitly non-detect
     for intent_field in ("scripts_intent", "assets_intent"):

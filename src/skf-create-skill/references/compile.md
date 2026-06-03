@@ -54,6 +54,8 @@ This rule applies to ALL sections including Tier 1 Key API Summary, Tier 2 Full 
 
 Assemble each section in order using the assembly rules data file (`{assemblyRulesData}`). The data file specifies frontmatter format, Tier 1 section details (Sections 1-8, including conditional Section 7b for scripts/assets), Tier 2 section details (Sections 9-11), and assembly ordering rules. Follow it exactly. Assemble Section 7b (Scripts & Assets) only if `scripts_inventory` or `assets_inventory` is non-empty.
 
+**Shape-specific overrides:** the assembly-rules file defines gated override blocks for `component-library`, `reference-app`, and **whole-language reference** skills. Apply the override whose gate matches this brief. A whole-language reference is gated on `assembly_shape: "whole-language-reference"` (a `doc_urls` entry with `source: language-registry`, as step 3c §1 determined and as `skf-derive-assembly-shape.py` reports) and uses the `language_guide[]` artifact step 3c §4a retained — it foregrounds the Language Guide and demotes compiler internals. When no override gate matches, assemble the standard library-export layout unchanged.
+
 ### 2a. Description Sanitization Pass
 
 **Before writing SKILL.md frontmatter to disk**, sanitize the assembled `description` string by replacing every `<` with `{` and every `>` with `}`. Apply this pass unconditionally to the final assembled description in context, then write the result to `SKILL.md`.

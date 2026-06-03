@@ -51,7 +51,12 @@
         "required": ["url"],
         "properties": {
           "url": { "type": "string", "minLength": 1 },
-          "label": { "type": "string" }
+          "label": { "type": "string" },
+          "source": {
+            "type": "string",
+            "enum": ["language-registry", "readme-detection", "homepage", "pages-api", "docs-folder"],
+            "description": "Optional per-corpus provenance. `language-registry` marks a registry-guaranteed companion corpus (skf-language-corpora.py); the others mark opportunistically-detected docs by detection method. Absent on legacy/hand-authored entries."
+          }
         }
       },
       "minItems": 1,

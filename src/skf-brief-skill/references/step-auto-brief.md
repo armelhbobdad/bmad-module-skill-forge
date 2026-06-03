@@ -9,6 +9,9 @@ writeSkillBriefProbeOrder:
 emitBriefEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-brief-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
+mergeDocUrlsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-merge-doc-urls.py'
+  - '{project-root}/src/shared/scripts/skf-merge-doc-urls.py'
 detectDocsScript: 'src/shared/scripts/skf-detect-docs.py'
 ---
 
@@ -97,8 +100,18 @@ For each detected doc entry, create a brief `doc_urls` entry:
     - `"readme_link"` → `"README Link"`
     - `"pages_api"` → `"GitHub Pages"`
     - `"docs_folder"` → `"Docs Folder"`
+- `source` ← coarse provenance derived from `detected_via` (per the `skill-brief.v1.json` `doc_urls[].source` enum): `homepageUrl` → `homepage`, `readme_link` → `readme-detection`, `pages_api` → `pages-api`, `docs_folder` → `docs-folder`. This marks the entry as opportunistically detected, distinct from a registry-guaranteed corpus.
 
-If the upstream brief already has `doc_urls`, merge the detected docs with the existing entries. Deduplicate by **normalized** URL — lowercase the host and strip a trailing `/index.html` and any trailing `/` before comparing — so a seeded `…/book/` and a README's `…/book/index.html` collapse to one entry rather than being fetched twice. Existing (upstream / corpora-seeded) entries take precedence.
+**Merge via the canonical helper.** Resolve `{mergeDocUrlsHelper}` from `{mergeDocUrlsProbeOrder}` (first existing path wins; HALT if neither exists). Pass the upstream brief's `doc_urls` as `existing` and the entries just mapped above as `detected`:
+
+```bash
+echo '{"scope_type": "{scope_type}", "existing": {upstream brief doc_urls JSON, [] if none}, "detected": {mapped detected entries JSON}}' \
+  | uv run {mergeDocUrlsHelper}
+```
+
+The helper returns `{"doc_urls": [...], "suppressed": [...]}`. It deduplicates by **normalized** URL (lowercase host, strip a trailing `/index.html` and any trailing `/`), so a seeded `…/book/` and a README's `…/book/index.html` collapse to one entry; existing/corpora-seeded entries always win and keep their `source: language-registry`, so the registry-vs-detected distinction survives the merge. For a **whole-language reference** (`scope_type == "full-library"` AND ≥1 `existing` entry has `source: language-registry`) it additionally suppresses README noise on a corpus host: non-corpus path segments (`/whatsnew/`, `/contribute`, `/wiki/`) and non-primary-locale duplicates of a kept page (`/ja/master/` when `/en/master/` is kept). Ordinary skills (any other `scope_type`, or no registry corpora) pass through with dedup only — no suppression. Use the returned `doc_urls` as the brief's merged list.
+
+**Log suppressed entries.** When `suppressed` is non-empty, log one line per entry — `"info: suppressed {url} ({reason})"` — so the operator can see what the whole-language noise filter dropped (never drop silently). The N==0 DEGRADED case (a whole-language repo whose registry returned no corpora) carries no `language-registry` entry, so suppression stays inactive and its README docs are kept — this is intentional (there is no canonical corpus host to filter against).
 
 ### 4. Validate Enriched Brief
 
@@ -123,7 +136,7 @@ Assemble the enriched brief context as a flat JSON object following the write-br
   "scope_rationale":  null,
   "scope_tier_a_include": null,
   "scope_amendments":     null,
-  "doc_urls":         [{"url": "...", "label": "..."}],
+  "doc_urls":         [{"url": "...", "label": "...", "source": "..."}],
   "scripts_intent":   "{scripts_intent or null}",
   "assets_intent":    "{assets_intent or null}",
   "source_authority": "{source_authority or null}",

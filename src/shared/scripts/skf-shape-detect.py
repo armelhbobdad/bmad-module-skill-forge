@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -657,11 +658,155 @@ def _parse_go_mod(path: Path) -> dict[str, Any]:
     }
 
 
+# Maven build plugins that turn a jar into an executable/deployable app — used
+# to mark a pom.xml as a binary (reference-app) rather than a library.
+_MAVEN_APP_PLUGINS = (
+    "spring-boot-maven-plugin",
+    "maven-shade-plugin",
+    "exec-maven-plugin",
+    "maven-assembly-plugin",
+)
+
+
+def _parse_pom_xml(path: Path) -> dict[str, Any]:
+    """Parse a Maven pom.xml: artifactId (name) and non-test dependency coords.
+
+    The scanner already recognises pom.xml; this mirror lets shape-detect
+    classify Maven repos (most resolve to library-API via the artifactId; an
+    app/exec/assembly plugin or `war` packaging marks a deployable app).
+    """
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        _die(f"Cannot read {path.as_posix()}: {exc}", "MANIFEST_READ_ERROR")
+        return {}  # unreachable
+
+    # Project artifactId: strip <parent>/<dependencies>/<build> first so the
+    # project's own artifactId is matched, not a parent's or a dependency's.
+    trimmed = content
+    for tag in ("parent", "dependencies", "dependencyManagement", "build"):
+        trimmed = re.sub(rf"<{tag}>.*?</{tag}>", "", trimmed, flags=re.DOTALL | re.IGNORECASE)
+    aid = re.search(r"<artifactId>\s*(.*?)\s*</artifactId>", trimmed, re.DOTALL)
+    name = aid.group(1).strip() if aid else ""
+
+    deps: set[str] = set()
+    for block in re.finditer(r"<dependency>(.*?)</dependency>", content, re.DOTALL):
+        body = block.group(1)
+        scope_m = re.search(r"<scope>\s*(.*?)\s*</scope>", body, re.DOTALL)
+        if scope_m and scope_m.group(1).strip().lower() in {"test", "provided", "system"}:
+            continue
+        d_aid = re.search(r"<artifactId>\s*(.*?)\s*</artifactId>", body, re.DOTALL)
+        if d_aid:
+            deps.add(d_aid.group(1).strip().lower())
+
+    pkg_m = re.search(r"<packaging>\s*(.*?)\s*</packaging>", content, re.DOTALL)
+    packaging = pkg_m.group(1).strip().lower() if pkg_m else "jar"
+    lc = content.lower()
+    has_bin = packaging == "war" or any(p in lc for p in _MAVEN_APP_PLUGINS)
+
+    return {
+        "ecosystem": "maven",
+        "name": name,
+        "deps": deps,
+        "runtime_deps": set(deps),
+        "has_bin": has_bin,
+        "has_library_structure": bool(name),
+        "export_count": 0,
+    }
+
+
+def _parse_gradle(path: Path) -> dict[str, Any]:
+    """Parse a Gradle build script (Groovy or Kotlin DSL): dependency coords.
+
+    Gradle scripts rarely declare their own coordinate name, so — like go.mod's
+    bool(module) precedent — a present build script marks a buildable module
+    (has_library_structure=True). An `application` plugin (or an Android/Spring
+    app plugin) marks a deployable app (reference-app).
+    """
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        _die(f"Cannot read {path.as_posix()}: {exc}", "MANIFEST_READ_ERROR")
+        return {}  # unreachable
+
+    deps: set[str] = set()
+    for m in re.finditer(
+        r"(?:implementation|api|compile|runtimeOnly)\s*\(?\s*['\"]([^'\"]+)['\"]",
+        content,
+    ):
+        parts = m.group(1).split(":")
+        if len(parts) >= 2:
+            deps.add((parts[0] + ":" + parts[1]).lower())
+
+    has_bin = bool(
+        re.search(
+            r"id\s*\(?\s*['\"]application['\"]"
+            r"|apply\s+plugin:\s*['\"]application['\"]"
+            r"|^\s*application\s*\{"
+            r"|com\.android\.application"
+            r"|org\.springframework\.boot",
+            content,
+            re.MULTILINE | re.IGNORECASE,
+        )
+    )
+
+    return {
+        "ecosystem": "gradle",
+        "name": "",
+        "deps": deps,
+        "runtime_deps": set(deps),
+        "has_bin": has_bin,
+        "has_library_structure": True,
+        "export_count": 0,
+    }
+
+
+def _parse_package_swift(path: Path) -> dict[str, Any]:
+    """Parse a SwiftPM Package.swift: package name and dependency package names.
+
+    A `.library`/`.target` declaration (or a name) marks a library; an
+    `.executableTarget`/`.executable` product marks a CLI (reference-app).
+    """
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        _die(f"Cannot read {path.as_posix()}: {exc}", "MANIFEST_READ_ERROR")
+        return {}  # unreachable
+
+    name_m = re.search(r"\bPackage\s*\(\s*name:\s*['\"]([^'\"]+)['\"]", content, re.DOTALL)
+    name = name_m.group(1).strip() if name_m else ""
+
+    deps: set[str] = set()
+    for m in re.finditer(r"\.package\s*\(\s*url:\s*['\"]([^'\"]+)['\"]", content):
+        seg = m.group(1).rstrip("/").rsplit("/", 1)[-1]
+        if seg.endswith(".git"):
+            seg = seg[: -len(".git")]
+        if seg:
+            deps.add(seg.lower())
+
+    has_exec = bool(re.search(r"\.executableTarget\s*\(|\.executable\s*\(", content))
+    has_lib = bool(re.search(r"\.library\s*\(|\.target\s*\(", content)) or bool(name)
+
+    return {
+        "ecosystem": "swift",
+        "name": name,
+        "deps": deps,
+        "runtime_deps": set(deps),
+        "has_bin": has_exec,
+        "has_library_structure": has_lib,
+        "export_count": 0,
+    }
+
+
 _PARSERS = {
     "package.json": _parse_package_json,
     "pyproject.toml": _parse_pyproject_toml,
     "Cargo.toml": _parse_cargo_toml,
     "go.mod": _parse_go_mod,
+    "pom.xml": _parse_pom_xml,
+    "build.gradle": _parse_gradle,
+    "build.gradle.kts": _parse_gradle,
+    "Package.swift": _parse_package_swift,
 }
 
 
@@ -921,7 +1066,9 @@ def detect(
 
 def path_to_manifest_name(ecosystem: str) -> str:
     return {"npm": "package_json", "python": "pyproject_toml",
-            "rust": "cargo_toml", "go": "go_mod"}.get(ecosystem, ecosystem)
+            "rust": "cargo_toml", "go": "go_mod",
+            "maven": "pom_xml", "gradle": "build_gradle",
+            "swift": "package_swift"}.get(ecosystem, ecosystem)
 
 
 # ---------------------------------------------------------------------------

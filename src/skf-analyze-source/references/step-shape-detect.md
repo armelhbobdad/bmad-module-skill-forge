@@ -22,7 +22,7 @@ uv run src/shared/scripts/skf-shape-detect.py --repo-url <url> \
 | `--grammar-files` | No | Comma-separated repo-relative grammar files (`*.y`, `*.g4`, `*.pest`, `Grammar/python.gram`, ...) — a whole-language signal |
 | `--tree-paths` | No | Comma-separated repo-relative directory (trailing `/`) and structural file signals harvested from the clone (a `compiler/` dir, a lexer+parser+ast triad) |
 
-**Supported manifests:** `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`
+**Supported manifests:** `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `Package.swift`
 
 ## Output Schema
 

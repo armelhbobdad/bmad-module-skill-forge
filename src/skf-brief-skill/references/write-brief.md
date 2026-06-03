@@ -98,7 +98,7 @@ Assemble the brief context as a **flat** JSON object — every approved value is
   "scope_rationale":  null | {"recommended":"...","chosen":"...","accepted_recommendation":true|false,"heuristic":"...","reason":"...","recorded":"YYYY-MM-DD"},
   "scope_tier_a_include": null | ["{tier-A authoring-surface patterns — from step 03 §3c capture, or hydrated on a ratify run}"],
   "scope_amendments":     null | [{"path":"...","action":"...","reason":"...","date":"YYYY-MM-DD","workflow":"..."}],
-  "doc_urls":         null | [{"url": "...", "label": "..."}],
+  "doc_urls":         null | [{"url": "...", "label": "...", "source": "{optional: language-registry|readme-detection|homepage|pages-api|docs-folder}"}],
   "scripts_intent":   null | "{detect|none|free-text}",
   "assets_intent":    null | "{detect|none|free-text}",
   "source_authority": null | "{official|community|internal}",

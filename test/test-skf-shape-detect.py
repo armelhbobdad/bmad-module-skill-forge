@@ -76,6 +76,26 @@ def write_go_mod(tmp_path: Path, content: str, subdir: str = "") -> str:
     return str(p)
 
 
+def _write_manifest(tmp_path: Path, filename: str, content: str, subdir: str = "") -> str:
+    base = tmp_path / subdir if subdir else tmp_path
+    base.mkdir(parents=True, exist_ok=True)
+    p = base / filename
+    p.write_text(content, encoding="utf-8")
+    return str(p)
+
+
+def write_pom_xml(tmp_path: Path, content: str, subdir: str = "") -> str:
+    return _write_manifest(tmp_path, "pom.xml", content, subdir)
+
+
+def write_gradle(tmp_path: Path, content: str, kts: bool = False, subdir: str = "") -> str:
+    return _write_manifest(tmp_path, "build.gradle.kts" if kts else "build.gradle", content, subdir)
+
+
+def write_package_swift(tmp_path: Path, content: str, subdir: str = "") -> str:
+    return _write_manifest(tmp_path, "Package.swift", content, subdir)
+
+
 # --------------------------------------------------------------------------
 # Shape: library-API
 # --------------------------------------------------------------------------
@@ -717,6 +737,189 @@ require github.com/spf13/pflag v1.0.5
         assert proc.returncode == 0, proc.stderr
         out = json.loads(proc.stdout)
         assert out["shape"] == "library-API"
+
+
+# --------------------------------------------------------------------------
+# Ecosystem reach: Maven / Gradle / Swift (issue #433)
+# --------------------------------------------------------------------------
+
+
+class TestMaven:
+    _LIB_POM = """<?xml version="1.0"?>
+<project>
+  <groupId>com.google.guava</groupId>
+  <artifactId>guava</artifactId>
+  <version>33.0.0</version>
+  <packaging>jar</packaging>
+  <dependencies>
+    <dependency>
+      <groupId>com.google.code.findbugs</groupId>
+      <artifactId>jsr305</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>
+"""
+
+    def test_maven_library_is_library_api(self, tmp_path):
+        path = write_pom_xml(tmp_path, self._LIB_POM)
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] == "library-API"
+        assert "has_pom_xml" in result["signals"]
+
+    def test_maven_does_not_hard_halt(self, tmp_path):
+        path = write_pom_xml(
+            tmp_path,
+            "<project><artifactId>x</artifactId></project>",
+        )
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] in {"library-API", "unknown"}
+
+    def test_maven_spring_boot_app_is_reference_app(self, tmp_path):
+        pom = """<?xml version="1.0"?>
+<project>
+  <artifactId>my-service</artifactId>
+  <version>1.0.0</version>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>
+"""
+        path = write_pom_xml(tmp_path, pom)
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] == "reference-app"
+        assert "has_bin_field" in result["signals"]
+
+    def test_maven_artifact_id_not_taken_from_parent(self, tmp_path):
+        pom = """<?xml version="1.0"?>
+<project>
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.0.0</version>
+  </parent>
+  <artifactId>my-lib</artifactId>
+</project>
+"""
+        path = write_pom_xml(tmp_path, pom)
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] == "library-API"
+
+
+class TestGradle:
+    def test_gradle_groovy_library_is_library_api(self, tmp_path):
+        path = write_gradle(tmp_path, """
+plugins {
+    id 'java-library'
+}
+dependencies {
+    api 'com.google.guava:guava:33.0.0'
+    implementation 'org.slf4j:slf4j-api:2.0.9'
+}
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] == "library-API"
+        assert "has_build_gradle" in result["signals"]
+
+    def test_gradle_kts_library_is_library_api(self, tmp_path):
+        path = write_gradle(tmp_path, """
+plugins {
+    `java-library`
+}
+dependencies {
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.0")
+}
+""", kts=True)
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] == "library-API"
+        assert "has_build_gradle" in result["signals"]
+
+    def test_gradle_application_plugin_is_reference_app(self, tmp_path):
+        path = write_gradle(tmp_path, """
+plugins {
+    id 'application'
+}
+application {
+    mainClass = 'com.example.Main'
+}
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] == "reference-app"
+        assert "has_bin_field" in result["signals"]
+
+
+class TestSwift:
+    def test_swift_library_is_library_api(self, tmp_path):
+        path = write_package_swift(tmp_path, """
+// swift-tools-version:5.9
+import PackageDescription
+
+let package = Package(
+    name: "Alamofire",
+    products: [
+        .library(name: "Alamofire", targets: ["Alamofire"]),
+    ],
+    targets: [
+        .target(name: "Alamofire"),
+    ]
+)
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] == "library-API"
+        assert "has_package_swift" in result["signals"]
+
+    def test_swift_does_not_hard_halt(self, tmp_path):
+        path = write_package_swift(
+            tmp_path, 'let package = Package(name: "x")\n'
+        )
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] in {"library-API", "unknown"}
+
+    def test_swift_executable_is_reference_app(self, tmp_path):
+        path = write_package_swift(tmp_path, """
+// swift-tools-version:5.9
+import PackageDescription
+
+let package = Package(
+    name: "swift-format",
+    products: [
+        .executable(name: "swift-format", targets: ["swift-format"]),
+    ],
+    targets: [
+        .executableTarget(name: "swift-format"),
+    ]
+)
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] == "reference-app"
+        assert "has_bin_field" in result["signals"]
+
+    def test_cli_package_swift_exit_0(self, tmp_path):
+        path = write_package_swift(
+            tmp_path,
+            'let package = Package(name: "Lib", products: [.library(name: "Lib", targets: [])])\n',
+        )
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH),
+             "--repo-url", REPO_URL, "--manifests", path],
+            capture_output=True, text=True, timeout=15,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["shape"] == "library-API"
 
 
 # --------------------------------------------------------------------------
