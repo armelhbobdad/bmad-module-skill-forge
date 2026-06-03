@@ -6,10 +6,17 @@
   "checkpoints_count": 2,
   "files_touched": [
     "src/shared/data/language-corpora.json",
+    "src/shared/scripts/schemas/skill-brief.v1.json",
     "src/shared/scripts/skf-language-corpora.py",
+    "src/shared/scripts/skf-write-skill-brief.py",
+    "src/skf-analyze-source/assets/skill-brief-schema.md",
     "src/skf-analyze-source/references/step-auto-scope.md",
+    "src/skf-brief-skill/assets/skill-brief-schema.md",
     "src/skf-brief-skill/references/step-auto-brief.md",
-    "test/test-skf-language-corpora.py"
+    "src/skf-brief-skill/references/write-brief.md",
+    "test/test-skf-language-corpora.py",
+    "test/test-skf-validate-brief-schema.py",
+    "test/test-skf-write-skill-brief.py"
   ],
   "sessions": [
     {
@@ -25,13 +32,20 @@
       "context": "/3e/26df1a3e5b/1/context.md",
       "content_hash": "/3e/26df1a3e5b/1/content_hash.txt",
       "prompt": "/3e/26df1a3e5b/1/prompt.txt"
+    },
+    {
+      "metadata": "/3e/26df1a3e5b/2/metadata.json",
+      "transcript": "/3e/26df1a3e5b/2/full.jsonl",
+      "context": "/3e/26df1a3e5b/2/context.md",
+      "content_hash": "/3e/26df1a3e5b/2/content_hash.txt",
+      "prompt": "/3e/26df1a3e5b/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 81016,
-    "cache_creation_tokens": 4613522,
-    "cache_read_tokens": 244604388,
-    "output_tokens": 767737,
-    "api_call_count": 589
+    "input_tokens": 105785,
+    "cache_creation_tokens": 4869318,
+    "cache_read_tokens": 258714089,
+    "output_tokens": 839991,
+    "api_call_count": 662
   }
 }
