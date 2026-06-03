@@ -184,7 +184,11 @@ Skills accumulate over sprints. The agent's coverage improves each iteration.
 
 Blondin, a platform lead, needs cross-service knowledge for 10 microservices so agents can navigate shared types and cross-calls.
 
-One forge project, multiple QMD collections, hub-and-spoke skills with integration patterns.
+```
+@Ferris campaign    # Orchestrate all 10 skills across sessions, in dependency order
+```
+
+Campaign reads the dependency graph, sorts the skills topologically, and drives each one through the full pipeline (brief, generate, compile, test) with quality gates enforced. State is written to disk, so Blondin can walk away and `@Ferris campaign resume` after a context death or a session break — picking up exactly where the last session stopped. One forge project, multiple QMD collections, hub-and-spoke skills with integration patterns. See [Campaign Orchestration](../campaign/) for the full stage-by-stage flow.
 
 ### Scenario C: External Dependency
 

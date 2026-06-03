@@ -22,8 +22,8 @@ Each workflow directory contains these files, and each has a specific job:
 | File                      | What it does                                                                                                        | When it loads                                     |
 |---------------------------|---------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|
 | `SKILL.md`                | Human-readable entry point — goals, role definition, initialization sequence, invocation contract, routes to first step | Entry point per workflow                          |
-| `references/*.md`            | **Create** steps — primary execution, 4–10 sequential files per workflow (the last one always chains to the shared health check) | One at a time (just-in-time)                      |
-| `references/*.md`         | Workflow-specific reference data — rules, patterns, protocols                                                       | Read by steps on demand                           |
+| `references/*.md` (step files)    | **Create** steps — primary execution, sequential step files per workflow (the last one always chains to the shared health check) | One at a time (just-in-time)                      |
+| `references/*.md` (reference data) | Workflow-specific reference data — rules, patterns, protocols                                                       | Read by steps on demand                           |
 | `assets/*.md`             | Workflow-specific output formats — schemas, templates, heuristics                                                   | Read by steps on demand                           |
 | `templates/*.md`          | Output skeletons with placeholder vars — steps fill these in to produce the final artifact                          | Read by steps when generating output              |
 | `scripts/*.py`            | Deterministic Python scripts — scoring, validation, structural diffing, manifest operations                         | Invoked by steps via `uv run` for reproducible computation |
@@ -35,7 +35,7 @@ Each workflow directory contains these files, and each has a specific job:
 | `skf-forger/SKILL.md`     | Expert persona — identity, principles, critical actions, menu of triggers                                           | First — always in context                         |
 | `knowledge/skf-knowledge-index.csv` | Knowledge fragment index — id, name, tags, tier, file path                                                          | Read by steps to decide which fragments to load   |
 | `knowledge/*.md`          | 14 reusable fragments + overview.md index — cross-cutting principles and patterns (e.g., `zero-hallucination.md`, `confidence-tiers.md`, `ccc-bridge.md`) | Selectively read into context when a step directs |
-| `shared/scripts/*.py`     | 7 cross-workflow Python scripts — preflight checks, manifest ops, managed-section rebuilds, frontmatter validation, severity classification, structural diffing, skill inventory | Invoked by any workflow that needs deterministic computation |
+| `shared/scripts/*.py`     | Cross-workflow Python scripts — preflight checks, manifest ops, managed-section rebuilds, frontmatter/output validation, severity classification, structural diffing, skill inventory, result-envelope emission, language/docs/tools detection, content hashing, atomic writes (see [`src/shared/scripts/`](https://github.com/armelhbobdad/bmad-module-skill-forge/tree/main/src/shared/scripts)) | Invoked by any workflow that needs deterministic computation |
 
 ```mermaid
 flowchart LR
@@ -71,7 +71,7 @@ Ferris operates in five workflow-driven modes (mode is determined by which workf
 | **Surgeon**   | US                 | Precise, semantic diffing — preserves [MANUAL] sections during regeneration |
 | **Audit**     | AS, TS, VS         | Judgmental, scoring — evaluates quality and detects drift   |
 | **Delivery**  | EX                 | Validates package, generates snippets, injects into context files |
-| **Management** | RS, DS            | Transactional rename/drop — copy-verify-delete with platform context rebuild |
+| **Management** | RS, DS, CA        | Transactional rename/drop — copy-verify-delete with platform context rebuild; campaign orchestration sequences workflows and tracks per-skill state |
 
 ---
 

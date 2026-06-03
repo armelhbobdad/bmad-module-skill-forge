@@ -27,7 +27,7 @@ If setup reports that ast-grep was not detected, install it to unlock the Forge 
 
 ### "No skill brief found"
 
-Run `@Ferris BS` first to create a skill brief, or use `@Ferris QS` for brief-less generation. `CS` requires either a brief or a direct invocation with scope arguments.
+Run `@Ferris BS` first to create a skill brief, or use `@Ferris QS` for brief-less generation. `CS` always requires a brief — either a `skill-brief.yaml` produced by `BS` (or `AN`), or pass the skill name so it resolves one from your forge-data folder. For brief-less generation use `QS`.
 
 ### "Ecosystem check: official skill exists"
 

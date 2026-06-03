@@ -15,11 +15,22 @@ When your architecture declares many dependencies, running individual pipelines 
 @Ferris campaign                           — start a new campaign
 @Ferris campaign resume                    — resume from the last active skill
 @Ferris campaign resume --from=<skill>     — resume from a specific skill
+@Ferris campaign status                    — read-only progress summary
 ```
 
 - **`campaign`** starts a new campaign from stage 0 (Setup). If a `_campaign-state.yaml` already exists, Ferris offers a choice: resume the existing campaign or overwrite with a new one.
 - **`campaign resume`** picks up where the last session left off. State is validated on load — if the state file is corrupted, the `.bak` file is used as a fallback.
+- **`campaign status`** loads and validates the current state, prints the resume-detection summary plus the tail of the decision log, then stops — no backup, no mutation, no chaining. Use it to check on a long-running campaign without advancing it.
 - **`--from=<skill>`** overrides the resume point to the named skill, useful when you want to re-process a specific skill without restarting the entire campaign.
+
+### Override flags
+
+| Flag | Effect |
+|------|--------|
+| `--headless` / `-H` | Auto-proceed every gate with its default action and emit structured output (see [Headless / Automation](#headless--automation)). |
+| `--brief <file>` | Seed targets from a `campaign-brief.yaml` instead of interactive prompts. Implies `--headless`. |
+| `--manifest <file>` | Seed targets from a plain-text `name,repo_url,tier,pin` manifest (one per line; trailing `;dep1,dep2` for `depends_on`). Implies `--headless`. |
+| `--from=<skill>` | Resume override (see above). |
 
 ---
 
@@ -33,7 +44,7 @@ Campaign runs through 11 stages (0–10). All stages auto-proceed except Export,
 | 1 | Strategy | Generate the campaign brief from architecture and dependency analysis | Yes |
 | 2 | Pin Validation | Validate version pins for all declared dependencies | Yes |
 | 3 | Provenance | Establish provenance records for each target library | Yes |
-| 4 | Skill Loop | Drive each Tier A skill through the full pipeline (BS → CS → TS → EX) in dependency order | Yes |
+| 4 | Skill Loop | Drive each Tier A skill through its forge pipeline (AN → BS → CS → TS) in dependency order — export is deferred to the gated Export stage | Yes |
 | 5 | Tier B Batch | Process Tier B skills (lower-priority or transitive dependencies) in batch mode | Yes |
 | 6 | Capstone | Generate stack skill(s) that integrate individual skills into a cohesive project context | Yes |
 | 7 | Verification | Run verification passes across all produced skills for cross-skill consistency | Yes |
@@ -63,8 +74,21 @@ Campaign sorts skills topologically by their dependency graph. If skill B depend
 
 ### Tier A vs Tier B
 
-- **Tier A** — primary dependencies declared in the architecture. Each gets a full individual pipeline run (BS → CS → TS → EX) during the Skill Loop stage.
+- **Tier A** — primary dependencies declared in the architecture. Each gets a full individual pipeline run (AN → BS → CS → TS) during the Skill Loop stage; the tested skills are exported collectively at the gated Export stage.
 - **Tier B** — secondary or transitive dependencies. Processed in batch during the Tier B Batch stage with lighter-touch quality requirements.
+
+### Customization
+
+Campaign ships a `customize.toml` workflow surface you can tune without forking the skill. The resolver merges three layers (scalars override, arrays append): the bundled `customize.toml`, then a committed team override at `_bmad/custom/<skill-name>.toml`, then a personal (gitignored) override at `_bmad/custom/<skill-name>.user.toml` — both under {project-root}. What you can set:
+
+- **Quality-gate scalars** — `quality_gate_hard`, `quality_gate_soft_target`, `quality_gate_soft_fallback` (the thresholds above).
+- **`campaign_workspace_path`** — relocate the entire campaign workspace (state, backup, brief, archive, decision log) to a shared volume without editing any step file; empty means the default `{forge_data_folder}/_campaign`.
+- **`persistent_facts`** — literal sentences or `file:` references (globs supported) injected into every per-skill kickoff, so house style and guardrails reach the whole campaign.
+- **Template overrides** — `report_template_path`, `kickoff_template_path`, `brief_template_path` for house-style copies.
+- **`on_complete`** — a post-completion hook invoked with `--report-path=<…>` after the report finalizes; hook failures are logged but never fail the campaign.
+- **`activation_steps_prepend` / `activation_steps_append`** — org-wide pre-flight or context-load steps around activation.
+
+See the skill's [SKILL.md](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-campaign/SKILL.md) for the full merge contract.
 
 ---
 
@@ -72,8 +96,13 @@ Campaign sorts skills topologically by their dependency graph. If skill B depend
 
 Campaign enforces two types of quality gates:
 
-- **Hard gate** — zero critical or high-severity issues allowed. Any skill that fails the hard gate is flagged for manual intervention and blocks the campaign from proceeding past that skill.
-- **Soft gate** — per-pipeline quality thresholds (e.g., 80% for forge, 90% for forge-auto). Skills that score between the hard floor (60%) and the per-pipeline threshold receive a fallback PASS with an evidence report, and the campaign continues.
+The bar is **campaign-wide** — one set of thresholds applied to every skill, not a per-pipeline split:
+
+- **Hard gate** (`zero-critical-high`) — zero critical or high-severity issues allowed. Any skill that fails the hard gate is flagged for manual intervention and blocks the campaign from proceeding past that skill.
+- **Soft target** (default 90%) — the score a skill should reach.
+- **Soft fallback** (default 80%) — the floor. A skill scoring at or above the fallback but below the target still proceeds; only a skill below the fallback is treated as a soft-gate miss.
+
+All three are tunable via [customization](#customization); the per-campaign brief and any directive `## Quality Overrides` still take precedence at runtime.
 
 ---
 
@@ -90,6 +119,12 @@ When you resume:
 
 Use `--from=<skill>` to override the resume point if you need to re-process a specific skill.
 
+### Re-invocation and recovery
+
+- **`campaign` over an existing state** prompts resume-vs-overwrite. Choosing overwrite first archives the existing `_campaign-state.yaml` and `campaign-brief.yaml` to `archive/{name}-{timestamp}/` and logs it to the decision log, so a new campaign never silently clobbers an old one. In headless mode the default is **resume** — archive-and-overwrite happens only when `--brief`/`--manifest` explicitly seeds a new campaign.
+- **Corrupt primary, valid `.bak`** — resume auto-recovers by restoring the backup over the primary and logging the recovery; if the backup is also unusable it HALTs (exit 9, `corrupt-state`) reporting both errors.
+- **Primary behind the backup** — if the primary looks older than the `.bak` (a possible crash during the last write), Ferris offers `[R]ecover` from the backup or `[K]eep` the primary (the default; headless keeps the primary).
+
 ---
 
 ## Expected Output
@@ -105,9 +140,21 @@ The Export stage (stage 9) is the only non-auto-proceed stage. Ferris presents a
 
 ---
 
+## Headless / Automation
+
+Campaign is a first-class headless front door for unattended, multi-session production. Add `--headless` / `-H` (or set `headless_mode: true` in preferences); `--brief`/`--manifest` imply it and seed targets non-interactively. In headless mode every confirmation gate auto-proceeds with its default action, each step emits a single-line JSON progress event to **stderr** on entry and exit (`{"stage":N,"name":"<slug>","status":"start|done"}`), and the terminal step emits the `SKF_CAMPAIGN_RESULT_JSON` envelope on stdout.
+
+- **Cancel affordance** — at any interactive gate the operator can type `cancel`, `exit`, or `:q` to leave cleanly; the campaign HALTs with exit code 12 (`user-cancelled`), logs the cancellation, and leaves state intact and resumable. The Export gate is the exception: its own `[C]ancel` exits 11 (`export-cancelled`).
+- **Exit codes** — every HARD HALT exits with a stable, documented code so automators branch on the failure class without grepping message text: `0` success, `3` invalid-state, `4` circular-deps, `5` invalid-pin, `6` inaccessible-repo, `7` dependency-deadlock, `8` missing-brief, `9` corrupt-state, `10` report-failure (degraded — the campaign still completes), `11` export-cancelled, `12` user-cancelled.
+- **Error envelope** — on any HARD HALT the `SKF_CAMPAIGN_RESULT_JSON` envelope is emitted on stderr in its error variant, carrying `status: "error"`, `exit_code`, the `phase` (step slug), and an `error` object with `code` and `message`.
+
+The full exit-code table and envelope schema live in the skill's [SKILL.md](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-campaign/SKILL.md) under "Exit Codes" and "Result Contract on HARD HALT".
+
+---
+
 ## Timing
 
-Campaign duration scales with the number of declared dependencies — each Tier A skill runs a full `BS → CS → TS → EX` pipeline, and Tier B skills run in batch. A campaign is explicitly designed to **span multiple sessions**: file-based state means you can stop after any skill and resume later without losing progress. Factors that affect total time:
+Campaign duration scales with the number of declared dependencies — each Tier A skill runs a full `AN → BS → CS → TS` pipeline, and Tier B skills run in batch. A campaign is explicitly designed to **span multiple sessions**: file-based state means you can stop after any skill and resume later without losing progress. Factors that affect total time:
 
 - **Skill count and tier mix** — Tier A skills (a full pipeline each) dominate; Tier B batch processing is lighter per skill.
 - **Dependency depth** — deep graphs serialize more work (downstream skills wait on upstream APIs); wide, shallow graphs spread more naturally across sessions.

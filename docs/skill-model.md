@@ -92,7 +92,7 @@ This is useful for comparing skill quality across tiers for the same target:
 # 4. Reset to tier_override: ~ (auto-detect)
 ```
 
-Set `tier_override` to `Quick`, `Forge`, `Forge+`, or `Deep`. Set to `~` (null) to return to auto-detection. The override is respected by all tier-aware workflows (CS, SS, US, AS, TS).
+Set `tier_override` to `Quick`, `Forge`, `Forge+`, or `Deep`. Set to `~` (null) to return to auto-detection. The override is respected by all tier-aware workflows (AN, BS, CS, SS, US, AS, TS).
 
 ---
 
