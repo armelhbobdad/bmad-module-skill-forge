@@ -492,6 +492,102 @@ crate-type = ["staticlib"]
 
 
 # --------------------------------------------------------------------------
+# language-reference — TREE-TRIAD rung (Rung B, issue #427)
+#
+# Hand-written compilers (rustc, TypeScript, Go) declare no parser-generator
+# dependency and ship no grammar file. They are caught by a dedicated compiler/
+# directory holding a lexer+parser+AST triad plus a codegen/VM/type-checker
+# member. The six false-positive controls (webpack, postcss, prettier,
+# graphql-js, dart-sass, marked) each have a near-miss shape and must stay out.
+# --------------------------------------------------------------------------
+
+# Faithful reconstructions of each repo's real compiler tree.
+RUST_TREE = [
+    "compiler/", "compiler/rustc_lexer/", "compiler/rustc_parse/",
+    "compiler/rustc_ast/", "compiler/rustc_codegen_llvm/",
+]
+TS_TREE = [
+    "src/compiler/", "src/compiler/scanner.ts", "src/compiler/parser.ts",
+    "src/compiler/binder.ts", "src/compiler/checker.ts",
+]
+GO_TREE = [
+    "cmd/compile/", "cmd/compile/internal/syntax/",
+    "cmd/compile/internal/syntax/scanner.go",
+    "cmd/compile/internal/syntax/parser.go",
+    "go/ast/", "go/ast/ast.go", "go/types/", "go/types/check.go",
+]
+
+
+class TestLanguageReferenceTreeTriadRung:
+    def test_rust_compiler_triad(self):
+        result = mod.detect(REPO_URL, [], [], RUST_TREE)
+        assert_result_shape(result)
+        assert result["shape"] == "language-reference"
+        assert any(s.startswith("tree_triad:") for s in result["signals"])
+
+    def test_typescript_triad_outranks_bin(self, tmp_path):
+        """TypeScript ships `tsc` (a bin) — the triad must outrank reference-app."""
+        pkg = write_package_json(tmp_path, {
+            "name": "typescript",
+            "bin": {"tsc": "./bin/tsc.js", "tsserver": "./bin/tsserver.js"},
+        })
+        result = mod.detect(REPO_URL, [pkg], [], TS_TREE)
+        assert result["shape"] == "language-reference"
+
+    def test_go_toolchain_triad(self):
+        result = mod.detect(REPO_URL, [], [], GO_TREE)
+        assert result["shape"] == "language-reference"
+
+    # --- negative controls: each near-miss must stay out ---
+
+    def test_webpack_parser_file_not_dir(self, tmp_path):
+        """lib/Parser.js is a FILE, not a Parser/ dir; plus acorn dep (gate G)."""
+        pkg = write_package_json(tmp_path, {
+            "name": "webpack",
+            "bin": {"webpack": "./bin.js"},
+            "dependencies": {"acorn": "8.0.0"},
+        })
+        result = mod.detect(REPO_URL, [pkg], [], ["lib/", "lib/Parser.js"])
+        assert result["shape"] != "language-reference"
+
+    def test_postcss_no_compiler_dir(self, tmp_path):
+        pkg = write_package_json(tmp_path, {"name": "postcss", "main": "lib/postcss.js"})
+        tree = ["lib/", "lib/tokenize.js", "lib/parser.js", "lib/node.js"]
+        result = mod.detect(REPO_URL, [pkg], [], tree)
+        assert result["shape"] != "language-reference"
+
+    def test_graphql_js_src_language_not_compiler(self, tmp_path):
+        pkg = write_package_json(tmp_path, {"name": "graphql", "main": "index.js"})
+        tree = ["src/language/", "src/language/lexer.ts",
+                "src/language/parser.ts", "src/language/ast.ts"]
+        result = mod.detect(REPO_URL, [pkg], [], tree)
+        assert result["shape"] != "language-reference"
+
+    def test_dart_sass_compiler_is_a_file(self, tmp_path):
+        pkg = write_package_json(tmp_path, {"name": "sass", "main": "sass.dart.js"})
+        tree = ["lib/src/", "lib/src/parse/", "lib/src/compiler.dart",
+                "lib/src/syntax.dart"]
+        result = mod.detect(REPO_URL, [pkg], [], tree)
+        assert result["shape"] != "language-reference"
+
+    def test_marked_bare_src_dir(self, tmp_path):
+        pkg = write_package_json(tmp_path, {"name": "marked", "main": "lib/marked.js"})
+        tree = ["src/", "src/Lexer.ts", "src/Parser.ts", "src/Tokenizer.ts"]
+        result = mod.detect(REPO_URL, [pkg], [], tree)
+        assert result["shape"] != "language-reference"
+
+    def test_w_gate_is_load_bearing(self, tmp_path):
+        """A repo with a real compiler/ dir AND a full lexer+parser+AST triad but
+        NO codegen/VM/type-checker (a markdown-shaped lib) must stay out. Proves
+        gate W, not the compiler-dir alone, is the discriminator."""
+        pkg = write_package_json(tmp_path, {"name": "quaxmark", "main": "index.js"})
+        tree = ["src/compiler/", "src/compiler/lexer.ts",
+                "src/compiler/parser.ts", "src/compiler/ast.ts"]
+        result = mod.detect(REPO_URL, [pkg], [], tree)
+        assert result["shape"] != "language-reference"
+
+
+# --------------------------------------------------------------------------
 # Phase B plumbing (issue #427): optional --grammar-files / --tree-paths args
 # and the relaxed MISSING_MANIFESTS guard. These inputs do not yet change
 # classification (the grammar/tree rungs land in later commits) — this commit

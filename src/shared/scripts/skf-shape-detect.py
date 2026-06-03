@@ -126,6 +126,28 @@ _MARKUP_DSL_NAMES = frozenset({
     "graphql-schema", "json", "yaml", "toml", "xml",
 })
 
+# Dedicated compiler directories — the primary gate for the tree-triad rung
+# (Rung B). Matched on a real DIRECTORY by exact path-tail, never a file and
+# never a bare src/lib/language/parser dir. 'Parser' is case-sensitive
+# (CPython's Parser/) so it does not match a lib/parser/ dir.
+_COMPILER_DIRS = frozenset({
+    "compiler", "src/compiler", "cmd/compile", "internal/syntax",
+})
+_COMPILER_DIRS_CASE = frozenset({"Parser"})
+
+# Triad member name stems. A hand-written compiler spreads a lexer, a parser,
+# and an AST across these conventional file/dir names.
+_LEXER_STEMS = frozenset({"scanner", "lexer", "tokenizer"})
+_PARSER_STEMS = frozenset({"parser", "parse"})
+_AST_STEMS = frozenset({"ast"})
+
+# Corroborating whole-language member (gate W). A markdown/CSS parser ships a
+# lexer+parser+AST but no code generator, VM, or type checker — so requiring one
+# of these excludes a markup library that merely sits under a compiler/ dir.
+_CODEGEN_STEMS = frozenset({"codegen", "compile", "ssagen"})
+_VM_STEMS = frozenset({"interpreter", "vm", "eval", "ceval"})
+_CHECK_STEMS = frozenset({"checker", "check", "binder", "typeck", "typecheck"})
+
 # ---------------------------------------------------------------------------
 # Framework deps that signal reference-app shape
 # ---------------------------------------------------------------------------
@@ -211,6 +233,69 @@ def _is_grammar_file(path: str) -> bool:
     if name in _GRAMMAR_BASENAMES:
         return True
     return Path(name).suffix in _GRAMMAR_EXTS
+
+
+def _whole_language_tree(tree_paths: list[str]) -> tuple[str, str] | None:
+    """Detect a hand-written compiler from directory/structural signals.
+
+    Returns ``(compiler_dir, member_summary)`` when ``tree_paths`` satisfies all
+    three structural gates from issue #427, else ``None``:
+
+      (C) a DEDICATED compiler directory — a real directory (trailing ``/``)
+          whose path-tail is in ``_COMPILER_DIRS`` (case-insensitive) or
+          ``_COMPILER_DIRS_CASE`` (case-sensitive ``Parser``). A file named
+          ``Parser.js`` or ``compiler.dart`` never satisfies this; a bare
+          ``src/`` / ``lib/`` / ``src/language/`` directory never does either.
+      (D) a lexer+parser+AST triad, parser MANDATORY, at least 2 of 3 present.
+      (W) a corroborating codegen / VM / type-checker member, so a markdown or
+          CSS library (lexer+parser+AST only) does not qualify.
+
+    Gates G (delegating consumer) and L (markup identity) depend on manifest
+    data and are applied by the caller.
+    """
+    if not tree_paths:
+        return None
+
+    compiler_dirs: list[str] = []
+    stems: set[str] = set()
+    basenames: set[str] = set()
+    for tp in tree_paths:
+        norm = tp.rstrip("/")
+        if not norm:
+            continue
+        base = norm.rsplit("/", 1)[-1]
+        basenames.add(base)
+        stems.add(base.rsplit(".", 1)[0].lower() if "." in base else base.lower())
+        if tp.endswith("/"):
+            low = norm.lower()
+            if any(low == m or low.endswith("/" + m) for m in _COMPILER_DIRS) or \
+               any(norm == m or norm.endswith("/" + m) for m in _COMPILER_DIRS_CASE):
+                compiler_dirs.append(norm)
+
+    # (C)
+    if not compiler_dirs:
+        return None
+
+    # (D) — triad, parser mandatory, >= 2 of 3
+    lexer = bool(stems & _LEXER_STEMS) or "rustc_lexer" in basenames
+    parser = bool(stems & _PARSER_STEMS) or "rustc_parse" in basenames
+    binder, checker = "binder" in stems, "checker" in stems
+    ast = (bool(stems & _AST_STEMS) or "rustc_ast" in basenames
+           or (binder and checker))
+    if not parser or (lexer + parser + ast) < 2:
+        return None
+
+    # (W) — corroborating compiler-grade member
+    w = bool(stems & (_CODEGEN_STEMS | _VM_STEMS | _CHECK_STEMS)) or \
+        any(b.startswith("rustc_codegen") for b in basenames)
+    if not w:
+        return None
+
+    members = ",".join(
+        m for m, present in (("lexer", lexer), ("parser", parser), ("ast", ast))
+        if present
+    )
+    return compiler_dirs[0], members
 
 
 # ---------------------------------------------------------------------------
@@ -716,6 +801,19 @@ def detect(
     }
 
     # --- Heuristic ladder (first match wins) ---
+
+    # 1a-pre. language-reference — a hand-written compiler detected from tree
+    # structure (issue #427): a dedicated compiler/ directory holding a
+    # lexer+parser+AST triad plus a codegen/VM/type-checker member. This catches
+    # rustc, TypeScript, and the Go toolchain, which declare no parser-generator
+    # dependency and carry no grammar file. Ranked first so it outranks the
+    # bin→reference-app rung (TypeScript ships `tsc`). Gates G and L still apply.
+    tree_triad = _whole_language_tree(tree_paths)
+    if tree_triad and not delegating_consumer and not markup_identity:
+        compiler_dir, members = tree_triad
+        signals.append(f"tree_triad:{compiler_dir}:{members}")
+        return {"shape": "language-reference", "signals": signals,
+                "confidence": 0.85, **result_base}
 
     # 1a. language-reference — a declared grammar file (issue #427). A repo that
     # ships a grammar (Grammar/python.gram, parse.y, a *.g4) authors a language.
