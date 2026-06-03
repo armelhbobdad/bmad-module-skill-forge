@@ -32,9 +32,10 @@ Detection rules (apply in order, first match wins):
   7. build.gradle (Groovy) — check tree:
        src/main/kotlin/  → kotlin (medium)
        else              → java (medium)
-  8. *.csproj | *.sln    → csharp (high)
-  9. Gemfile             → ruby (high)
- 10. Extension-frequency fallback over the full tree.
+  8. Package.swift       → swift (high)
+  9. *.csproj | *.sln    → csharp (high)
+ 10. Gemfile             → ruby (high)
+ 11. Extension-frequency fallback over the full tree.
        dominant extension >= 50% of code files → that language (medium)
        no clear winner                        → unknown (low)
 
@@ -94,6 +95,7 @@ _MANIFEST_RULES: list[tuple[str, str, str]] = [
     ("go.mod", "go", "go.mod present"),
     ("pom.xml", "java", "pom.xml present"),
     ("build.gradle.kts", "kotlin", "build.gradle.kts present"),
+    ("Package.swift", "swift", "Package.swift present"),
     ("Gemfile", "ruby", "Gemfile present"),
 ]
 

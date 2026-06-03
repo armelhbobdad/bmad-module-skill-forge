@@ -154,7 +154,7 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
    - `remote_clone_path = {workspace_repo_path}`
    - `remote_clone_type = "workspace"`
 
-   **Scope filtering:** Since the workspace uses a full checkout (no sparse-checkout), apply `include_patterns` and `exclude_patterns` from the brief as **file-level filters** when building the extraction file list. Always-included root files (`pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `setup.py`, `setup.cfg`, `VERSION`) are exempt from pattern filtering.
+   **Scope filtering:** Since the workspace uses a full checkout (no sparse-checkout), apply `include_patterns` and `exclude_patterns` from the brief as **file-level filters** when building the extraction file list. Always-included root files (`pyproject.toml`, `package.json`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `Package.swift`, `setup.py`, `setup.cfg`, `VERSION`) are exempt from pattern filtering.
 
 5. **Ephemeral fallback (on any workspace failure):**
 

@@ -130,6 +130,7 @@ def test_no_workspace_signal_preserves_legacy_behavior():
         ("go.mod", "go"),
         ("pom.xml", "java"),
         ("build.gradle.kts", "kotlin"),
+        ("Package.swift", "swift"),
         ("Gemfile", "ruby"),
     ],
 )
