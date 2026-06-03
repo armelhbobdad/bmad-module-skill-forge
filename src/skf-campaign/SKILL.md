@@ -35,7 +35,13 @@ Run these steps once, in order, before dispatching to Mode Routing.
    python3 {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --key workflow
    ```
 
-   The script merges three layers (scalars override, arrays append): `{skill-root}/customize.toml` (defaults), `{project-root}/_bmad/custom/skf-campaign.toml` (team), `{project-root}/_bmad/custom/skf-campaign.user.toml` (personal). If it fails or is missing, fall back to `{skill-root}/customize.toml` directly. Apply the fallback for each scalar now so step files never repeat the conditional, and stash as workflow-context variables:
+   The script merges three layers (scalars override, arrays append):
+
+   - `{skill-root}/customize.toml` — bundled defaults
+   - `_bmad/custom/<skill-name>.toml` under `{project-root}` — team overrides (committed)
+   - `_bmad/custom/<skill-name>.user.toml` under `{project-root}` — personal overrides (gitignored)
+
+   If it fails or is missing, fall back to `{skill-root}/customize.toml` directly. Apply the fallback for each scalar now so step files never repeat the conditional, and stash as workflow-context variables:
 
    - `{campaignWorkspacePath}` ← `workflow.campaign_workspace_path` if non-empty, else `{forge_data_folder}/_campaign`
    - `{qualityGateHard}` / `{qualityGateSoftTarget}` / `{qualityGateSoftFallback}` ← the `quality_gate_*` scalars (defaults `zero-critical-high` / `90` / `80`)
