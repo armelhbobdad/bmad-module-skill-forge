@@ -425,6 +425,73 @@ name = "compiler_builtins"
 
 
 # --------------------------------------------------------------------------
+# language-reference — GRAMMAR-FILE rung (Rung A, issue #427)
+#
+# A repo that ships a declared grammar authors a language — even when it has no
+# parser-generator dependency and even when it has NO supported manifest at all
+# (CPython, Ruby). Two guard gates suppress delegating consumers and markup/DSL
+# parsers that merely carry a grammar-ish file.
+# --------------------------------------------------------------------------
+
+
+class TestLanguageReferenceGrammarRung:
+    def test_cpython_grammar_file_no_manifest(self):
+        """python/cpython: PEG grammar at Grammar/python.gram, no manifest."""
+        result = mod.detect(REPO_URL, [], ["Grammar/python.gram"], [])
+        assert_result_shape(result)
+        assert result["shape"] == "language-reference"
+        assert "grammar_file:python.gram" in result["signals"]
+        assert result["confidence"] >= 0.85
+
+    def test_ruby_root_grammar_outranks_jit_cargo(self, tmp_path):
+        """ruby/ruby: root parse.y outranks the Rust JIT Cargo.toml library."""
+        jit = write_cargo_toml(tmp_path, """
+[package]
+name = "yjit"
+version = "0.1.0"
+
+[lib]
+name = "yjit"
+crate-type = ["staticlib"]
+""")
+        result = mod.detect(REPO_URL, [jit], ["parse.y"], [])
+        assert_result_shape(result)
+        assert result["shape"] == "language-reference"
+        assert "grammar_file:parse.y" in result["signals"]
+
+    def test_g4_grammar_fires(self):
+        result = mod.detect(REPO_URL, [], ["src/MyLang.g4"], [])
+        assert result["shape"] == "language-reference"
+
+    def test_grammar_substring_does_not_fire(self):
+        """A file merely named like a grammar (no grammar extension) is inert."""
+        result = mod.detect(REPO_URL, [], ["docs/grammar_overview.md"], [])
+        assert result["shape"] == "unknown"
+
+    def test_delegating_consumer_with_grammar_is_suppressed(self, tmp_path):
+        """A formatter that depends on a real parser must not fire even with a
+        stray grammar file in its tree (gate G)."""
+        pkg = write_package_json(tmp_path, {
+            "name": "prettier",
+            "bin": {"prettier": "./bin.js"},
+            "dependencies": {"@babel/parser": "7.0.0"},
+        })
+        result = mod.detect(REPO_URL, [pkg], ["test/fixtures/x.g4"], [])
+        assert result["shape"] != "language-reference"
+        assert "delegating_consumer" in result["signals"]
+
+    def test_markup_identity_with_grammar_is_suppressed(self, tmp_path):
+        """A repo whose identity is a markup/DSL parser is not a whole-language
+        reference even with a grammar file (gate L)."""
+        pkg = write_package_json(tmp_path, {
+            "name": "graphql",
+            "main": "index.js",
+        })
+        result = mod.detect(REPO_URL, [pkg], ["src/schema.g4"], [])
+        assert result["shape"] != "language-reference"
+
+
+# --------------------------------------------------------------------------
 # Phase B plumbing (issue #427): optional --grammar-files / --tree-paths args
 # and the relaxed MISSING_MANIFESTS guard. These inputs do not yet change
 # classification (the grammar/tree rungs land in later commits) — this commit
@@ -449,15 +516,17 @@ class TestPhaseBPlumbing:
     def test_grammar_only_no_longer_errors(self):
         """Empty manifests but a grammar file present → no longer exit 2.
 
-        Classification is still unknown until the grammar rung lands; the point
-        here is that the manifest-less path stops hard-erroring.
+        With the grammar rung in place a manifest-less grammar repo classifies
+        as language-reference rather than hard-erroring.
         """
         result = mod.detect(REPO_URL, [], ["Grammar/python.gram"], [])
         assert_result_shape(result)
-        assert result["shape"] == "unknown"
+        assert result["shape"] == "language-reference"
 
-    def test_tree_only_no_longer_errors(self):
-        result = mod.detect(REPO_URL, [], [], ["compiler/"])
+    def test_tree_only_inert_until_triad_rung(self):
+        """A lone directory signal does not yet classify (the compiler-triad
+        rung lands in a later commit); the point here is it no longer exit-2s."""
+        result = mod.detect(REPO_URL, [], [], ["some/dir/"])
         assert_result_shape(result)
         assert result["shape"] == "unknown"
 

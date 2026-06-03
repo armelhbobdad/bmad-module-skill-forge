@@ -84,6 +84,49 @@ _PARSER_DEPS_RUST = frozenset({
 _ALL_PARSER_DEPS = _PARSER_DEPS_NPM | _PARSER_DEPS_PYTHON | _PARSER_DEPS_RUST
 
 # ---------------------------------------------------------------------------
+# Tree-level whole-language signals (issue #427)
+#
+# A hand-written compiler (rustc, TypeScript, Go) declares no parser-generator
+# dependency, and a language's own repo may carry no supported manifest at all
+# (CPython, Ruby). These sets drive the grammar-file and compiler-directory
+# rungs that classify such repos from tree evidence rather than manifests.
+# ---------------------------------------------------------------------------
+
+# Declared grammars — the strongest, most intentional whole-language signal.
+# Matched on extension or whole basename, NEVER on substring.
+_GRAMMAR_EXTS = frozenset({
+    ".g4", ".pest", ".lalrpop", ".y", ".gram", ".lark", ".ebnf", ".peg",
+    ".ungram",
+})
+_GRAMMAR_BASENAMES = frozenset({"grammar.js", "grammar.json", "python.gram"})
+
+# Concrete parsers a repo CONSUMES. If a repo's own runtime deps contain one of
+# these it delegates parsing — a formatter/linter/bundler, never a
+# whole-language reference (prettier→@babel/parser, eslint→espree).
+_CONSUMED_PARSERS = frozenset({
+    "espree", "acorn", "@babel/parser", "babel-parser", "flow-parser",
+    "swc_ecma_parser", "deno_ast", "graphql", "remark-parse", "yaml",
+    "esquery", "estree", "@types/estree", "@webassemblyjs/ast", "smol-toml",
+})
+
+# Tools that own a parser-ish module but consume an external parser and are NOT
+# whole-language references — bundlers, formatters, linters, markup/CSS libs.
+_DELEGATING_TOOL_NAMES = frozenset({
+    "prettier", "eslint", "stylelint", "biome", "rome",
+    "webpack", "rollup", "esbuild", "vite", "parcel", "terser",
+    "marked", "remark", "remark-parse", "markdown-it", "micromark", "commonmark",
+    "postcss", "css-tree", "less", "sass", "node-sass",
+})
+
+# Markup / DSL / query languages — a real lexer+parser+AST for a
+# non-general-purpose language (CSS, markdown, GraphQL, JSON). Their identity is
+# a format parser, not a programming-language toolchain.
+_MARKUP_DSL_NAMES = frozenset({
+    "css", "less", "scss", "sass", "html", "markdown", "graphql",
+    "graphql-schema", "json", "yaml", "toml", "xml",
+})
+
+# ---------------------------------------------------------------------------
 # Framework deps that signal reference-app shape
 # ---------------------------------------------------------------------------
 
@@ -155,6 +198,19 @@ def _die(message: str, code: str = "INTERNAL_ERROR") -> None:
 
 def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
+
+
+def _is_grammar_file(path: str) -> bool:
+    """Whether a repo-relative path is a declared grammar file.
+
+    Matched on whole basename (tree-sitter `grammar.js`, CPython
+    `python.gram`) or extension (`.y`, `.g4`, `.pest`, ...) — never substring,
+    so a file merely named `grammar_test_data.txt` does not match.
+    """
+    name = Path(path).name.lower()
+    if name in _GRAMMAR_BASENAMES:
+        return True
+    return Path(name).suffix in _GRAMMAR_EXTS
 
 
 # ---------------------------------------------------------------------------
@@ -615,6 +671,34 @@ def detect(
         signals.append(f"parser_producer:{d}")
     for d in parser_deps:
         signals.append(f"parser_dep:{d}")
+
+    # Tree-level whole-language signals (issue #427). A grammar file is the
+    # strongest, most intentional signal; the compiler-directory triad (a later
+    # rung) catches hand-written compilers. Two guard gates keep formatters,
+    # linters, bundlers, and markup/DSL parsers out.
+    grammar_matches = sorted(
+        {Path(g).name for g in grammar_files if _is_grammar_file(g)}
+    )
+    for g in grammar_matches:
+        signals.append(f"grammar_file:{g}")
+
+    # Gate G — delegating-consumer exclusion. A repo that depends on a concrete
+    # parser (prettier→@babel/parser, eslint→espree) or whose own name is a
+    # known formatter/linter/bundler delegates parsing; never a whole-language
+    # reference, even if it ships a parser-ish module of its own.
+    runtime_deps_lc = {d.lower() for d in all_runtime_deps}
+    delegating_consumer = bool(runtime_deps_lc & _CONSUMED_PARSERS) or bool(
+        own_names & _DELEGATING_TOOL_NAMES
+    )
+    if delegating_consumer:
+        signals.append("delegating_consumer")
+    # Gate L — language identity. A markup/DSL/format parser (postcss, marked,
+    # graphql-js) has a real lexer+parser+AST but is not a general-purpose
+    # programming-language reference.
+    markup_identity = bool(
+        own_names & (_MARKUP_DSL_NAMES | _DELEGATING_TOOL_NAMES)
+    )
+
     for d in framework_deps:
         signals.append(f"framework_dep:{d}")
     for d in noncore_framework:
@@ -633,7 +717,17 @@ def detect(
 
     # --- Heuristic ladder (first match wins) ---
 
-    # 1. language-reference — a parser/grammar producer (own name) or a project
+    # 1a. language-reference — a declared grammar file (issue #427). A repo that
+    # ships a grammar (Grammar/python.gram, parse.y, a *.g4) authors a language.
+    # This is the strongest signal and ranks above the dependency-based rung so
+    # a real grammar outranks an incidental parser dep from a sub-tool. Gate G
+    # excludes delegating consumers; gate L excludes markup/DSL parsers.
+    if grammar_matches and not delegating_consumer and not markup_identity:
+        confidence = _clamp(0.85 + len(grammar_matches) * 0.02, 0.85, 0.90)
+        return {"shape": "language-reference", "signals": signals,
+                "confidence": round(confidence, 2), **result_base}
+
+    # 1b. language-reference — a parser/grammar producer (own name) or a project
     # built on a parser generator (consumer dep).
     if parser_producers or parser_deps:
         # A producer (named itself a grammar tool) is a stronger signal than a
