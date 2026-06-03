@@ -3,7 +3,7 @@
   "checkpoint_id": "bcdc957941bb",
   "strategy": "manual-commit",
   "branch": "issue-430-433-language-reference-followups",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "src/shared/scripts/skf-shape-detect.py",
     "src/skf-analyze-source/references/step-auto-scope.md",
@@ -17,13 +17,20 @@
       "context": "/bc/dc957941bb/0/context.md",
       "content_hash": "/bc/dc957941bb/0/content_hash.txt",
       "prompt": "/bc/dc957941bb/0/prompt.txt"
+    },
+    {
+      "metadata": "/bc/dc957941bb/1/metadata.json",
+      "transcript": "/bc/dc957941bb/1/full.jsonl",
+      "context": "/bc/dc957941bb/1/context.md",
+      "content_hash": "/bc/dc957941bb/1/content_hash.txt",
+      "prompt": "/bc/dc957941bb/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 20193,
-    "cache_creation_tokens": 479134,
-    "cache_read_tokens": 43003968,
-    "output_tokens": 217533,
-    "api_call_count": 169
+    "input_tokens": 81016,
+    "cache_creation_tokens": 4613522,
+    "cache_read_tokens": 244604388,
+    "output_tokens": 767737,
+    "api_call_count": 589
   }
 }
