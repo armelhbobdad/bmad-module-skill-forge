@@ -3,7 +3,7 @@
   "checkpoint_id": "3e26df1a3e5b",
   "strategy": "manual-commit",
   "branch": "issue-430-433-language-reference-followups",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "src/shared/data/language-corpora.json",
     "src/shared/scripts/skf-language-corpora.py",
@@ -18,13 +18,20 @@
       "context": "/3e/26df1a3e5b/0/context.md",
       "content_hash": "/3e/26df1a3e5b/0/content_hash.txt",
       "prompt": "/3e/26df1a3e5b/0/prompt.txt"
+    },
+    {
+      "metadata": "/3e/26df1a3e5b/1/metadata.json",
+      "transcript": "/3e/26df1a3e5b/1/full.jsonl",
+      "context": "/3e/26df1a3e5b/1/context.md",
+      "content_hash": "/3e/26df1a3e5b/1/content_hash.txt",
+      "prompt": "/3e/26df1a3e5b/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 20193,
-    "cache_creation_tokens": 479134,
-    "cache_read_tokens": 43003968,
-    "output_tokens": 217533,
-    "api_call_count": 169
+    "input_tokens": 81016,
+    "cache_creation_tokens": 4613522,
+    "cache_read_tokens": 244604388,
+    "output_tokens": 767737,
+    "api_call_count": 589
   }
 }
