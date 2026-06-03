@@ -278,6 +278,153 @@ pest_derive = "2.0"
 
 
 # --------------------------------------------------------------------------
+# Shape: language-reference — PRODUCERS (issue #427)
+#
+# The pre-#427 heuristic only fired on parser-generator *dependencies*, i.e.
+# *consumers* of parser tooling. A language tool's OWN repo doesn't depend on
+# a parser generator — it IS one (pest's Cargo.toml has no `pest` dep; it
+# declares `[package] name = "pest"`). Tier 1 fix: a repo whose own package
+# name is itself a known parser/grammar tool is a producer and classifies as
+# language-reference. The consumer path is kept (a DSL built on lalrpop is
+# still a language project).
+# --------------------------------------------------------------------------
+
+
+class TestLanguageReferenceProducers:
+    def test_rust_pest_own_repo_is_producer(self, tmp_path):
+        """pest-parser/pest: own name in parser-gen set, no pest dep."""
+        path = write_cargo_toml(tmp_path, """
+[package]
+name = "pest"
+version = "2.7.0"
+
+[lib]
+name = "pest"
+
+[dependencies]
+ucd-trie = "0.1"
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] == "language-reference"
+        assert any("parser_producer" in s for s in result["signals"])
+
+    def test_npm_peggy_own_repo_is_producer(self, tmp_path):
+        """peggy: a parser generator publishing itself, no parser dep."""
+        path = write_package_json(tmp_path, {
+            "name": "peggy",
+            "main": "lib/peg.js",
+        })
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] == "language-reference"
+        assert any("parser_producer" in s for s in result["signals"])
+
+    def test_python_lark_own_repo_is_producer(self, tmp_path):
+        path = write_pyproject_toml(tmp_path, """
+[project]
+name = "lark"
+version = "1.1.0"
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] == "language-reference"
+
+    def test_lalrpop_consumer_still_language_reference(self, tmp_path):
+        """A DSL built ON lalrpop (build-dep) stays language-reference."""
+        path = write_cargo_toml(tmp_path, """
+[package]
+name = "my-query-lang"
+version = "0.1.0"
+
+[lib]
+name = "my_query_lang"
+
+[build-dependencies]
+lalrpop = "0.20"
+
+[dependencies]
+lalrpop-util = "0.20"
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] == "language-reference"
+
+
+# --------------------------------------------------------------------------
+# language-reference NEGATIVE controls (issue #427 ship gate)
+#
+# These must NOT classify as language-reference. They lock in the conservative
+# Tier-1 decision: producer detection keys on own-name ∈ parser-gen-set ONLY,
+# NOT on substring name tokens like "parser"/"lang"/"compiler" — those are
+# false-positive farms (a markdown parser, a CLI arg parser, compiler-builtins
+# are all ordinary libraries, not whole-language references).
+# --------------------------------------------------------------------------
+
+
+class TestLanguageReferenceNegativeControls:
+    def test_clap_arg_parser_is_library(self, tmp_path):
+        path = write_cargo_toml(tmp_path, """
+[package]
+name = "clap"
+version = "4.5.0"
+
+[lib]
+name = "clap"
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] != "language-reference"
+
+    def test_serde_is_library(self, tmp_path):
+        path = write_cargo_toml(tmp_path, """
+[package]
+name = "serde"
+version = "1.0.0"
+
+[lib]
+name = "serde"
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] != "language-reference"
+
+    def test_markdown_lib_is_not_language_reference(self, tmp_path):
+        """comrak: a CommonMark parser library — parses a format, not a lang."""
+        path = write_cargo_toml(tmp_path, """
+[package]
+name = "comrak"
+version = "0.20.0"
+
+[lib]
+name = "comrak"
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] != "language-reference"
+
+    def test_trap_token_parser_in_name_is_not_language_reference(self, tmp_path):
+        """A '*-parser' library parses an existing format; the token is a trap."""
+        path = write_package_json(tmp_path, {
+            "name": "css-parser",
+            "main": "index.js",
+        })
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] != "language-reference"
+
+    def test_trap_token_compiler_substring_is_not_language_reference(self, tmp_path):
+        """compiler-builtins / rustc-demangle: 'compiler'/'rustc' substring,
+        but ordinary libraries. Guards against naive name-token matching."""
+        path = write_cargo_toml(tmp_path, """
+[package]
+name = "compiler-builtins"
+version = "0.1.0"
+
+[lib]
+name = "compiler_builtins"
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] != "language-reference"
+
+
+# --------------------------------------------------------------------------
 # Shape: stack-compose
 # --------------------------------------------------------------------------
 

@@ -569,9 +569,30 @@ def detect(repo_url: str, manifest_paths: list[str]) -> dict[str, Any]:
     if has_library_structure:
         signals.append("has_library_structure")
 
-    # Collect dep-category matches
-    parser_deps = sorted(d for d in all_deps if d.lower() in _ALL_PARSER_DEPS)
+    # Collect parser/grammar signals — both directions of the relationship.
+    #
+    # PRODUCER (issue #427): a repo whose own published package name is itself a
+    # known parser/grammar tool IS language tooling — pest, lalrpop, lark, peggy
+    # name *themselves*. A language tool's repo does not depend on a parser
+    # generator; it is one, so the old dependency-only check never fired for it.
+    # This keys on own-name ∈ parser-gen-set ONLY — never on substring tokens
+    # like "parser"/"compiler"/"lang", which are false-positive farms (a CSS
+    # parser, compiler-builtins, an arg parser are ordinary libraries).
+    #
+    # CONSUMER: a project that depends on a parser generator (a DSL built on
+    # lalrpop) is also a language project. Exclude the repo's own producer name
+    # from the consumer list so a self-reference isn't double-counted as "uses".
+    own_names = {
+        (m.get("name") or "").strip().lower() for m in parsed if m.get("name")
+    }
+    parser_producers = sorted(n for n in own_names if n in _ALL_PARSER_DEPS)
+    parser_deps = sorted(
+        d for d in all_deps
+        if d.lower() in _ALL_PARSER_DEPS and d.lower() not in parser_producers
+    )
 
+    for d in parser_producers:
+        signals.append(f"parser_producer:{d}")
     for d in parser_deps:
         signals.append(f"parser_dep:{d}")
     for d in framework_deps:
@@ -592,9 +613,14 @@ def detect(repo_url: str, manifest_paths: list[str]) -> dict[str, Any]:
 
     # --- Heuristic ladder (first match wins) ---
 
-    # 1. language-reference
-    if parser_deps:
-        confidence = _clamp(0.75 + len(parser_deps) * 0.05, 0.75, 0.85)
+    # 1. language-reference — a parser/grammar producer (own name) or a project
+    # built on a parser generator (consumer dep).
+    if parser_producers or parser_deps:
+        # A producer (named itself a grammar tool) is a stronger signal than a
+        # consumer (merely depends on one).
+        base = 0.80 if parser_producers else 0.75
+        n_sig = len(parser_producers) + len(parser_deps)
+        confidence = _clamp(base + n_sig * 0.05, base, 0.90)
         return {"shape": "language-reference", "signals": signals,
                 "confidence": round(confidence, 2), **result_base}
 
