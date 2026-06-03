@@ -53,7 +53,7 @@ On exit code 2, error details are written to stderr as JSON: `{"error": "message
 | `library-API` | `full-library` | export_count ≤ 200 |
 | `library-API` | `public-api` | export_count > 200 (surface too large for full coverage) |
 | `reference-app` | `reference-app` | Direct mapping — apps, CLIs, demos |
-| `language-reference` | `full-library` | Language tools/parsers are library-shaped from a skill perspective |
+| `language-reference` | `full-library` | Language tools/parsers are library-shaped from a skill perspective. **Corpora-dependent** for a *whole-language* reference (a `grammar_file:`/`tree_triad:` signal — a compiler/interpreter): its value is the language's prose (guide/Book + std/library docs), not compiler internals, so step-auto-scope.md §6b seeds companion corpora and §6/§7 record an honest DEGRADED caveat when none are found (mirrors the §3b facet-coverage guard). A parser *library* (`parser_producer:`/`parser_dep:`) is exempt — its code is the product. |
 | `stack-compose` | `full-library` | Decomposition candidate when `package_count > 3` — cohesion-checked in step-auto-scope.md §3b |
 | `unknown` | N/A | Triggers fallback to interactive mode |
 
