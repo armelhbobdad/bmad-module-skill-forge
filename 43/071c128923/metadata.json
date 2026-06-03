@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "43071c128923",
+  "strategy": "manual-commit",
+  "branch": "register-skf-campaign-help-entry",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/module-help.csv"
+  ],
+  "sessions": [
+    {
+      "metadata": "/43/071c128923/0/metadata.json",
+      "transcript": "/43/071c128923/0/full.jsonl",
+      "context": "/43/071c128923/0/context.md",
+      "content_hash": "/43/071c128923/0/content_hash.txt",
+      "prompt": "/43/071c128923/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 16755,
+    "cache_creation_tokens": 77814,
+    "cache_read_tokens": 1985124,
+    "output_tokens": 32326,
+    "api_call_count": 29
+  }
+}
