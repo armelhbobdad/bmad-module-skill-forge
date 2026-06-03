@@ -8,6 +8,13 @@ forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# Resolve `{forgeTierRwHelper}` by probing `{forgeTierRwProbeOrder}` in order
+# (installed SKF module path first, src/ dev-checkout fallback); first existing
+# path wins. HALT if neither resolves — §6b's ccc-index registry round-trip is
+# comment-preserving and has no prose fallback.
+forgeTierRwProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
+  - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -195,11 +202,13 @@ Ensure the source path used for extraction is indexed by ccc and registered in t
 
 **Registry update:**
 
-Register the indexed source path via `register-ccc-index` (comment-preserving round-trip, same pattern as §6's `register-qmd-collection`). Acquire an exclusive `flock` on `{sidecar_path}/forge-tier.yaml.lock`, then:
+**Resolve `{forgeTierRwHelper}`** from `{forgeTierRwProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
+Register the indexed source path via `register-ccc-index` — a comment-preserving round-trip on `forge-tier.yaml`. This differs from §6, which mutates the registry with an inline read→modify→atomic-write under `flock`; here the helper owns the read→modify→write internally so the `ccc_index_registry` deduplication logic stays in the script. Acquire an exclusive `flock` on `{sidecar_path}/forge-tier.yaml.lock`, then:
 
 ```bash
 echo '{"source_repo":"{brief.source_repo}","path":"{source_root}","skill_name":"{name}","indexed_at":"{current ISO date}","source_workflow":"create-skill"}' \
-  | uv run {forgeTierRw} register-ccc-index --target {forgeTierConfig}
+  | uv run {forgeTierRwHelper} register-ccc-index --target {forgeTierConfig}
 ```
 
 Deduplicates by `source_repo` + `skill_name` (NOT local `path`, which may be ephemeral). Release the lock after the command completes. If `flock` is unavailable, fall back to read-CAS-by-mtime.

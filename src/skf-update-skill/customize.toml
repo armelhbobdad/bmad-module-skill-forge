@@ -33,12 +33,3 @@ activation_steps_append = []
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
-
-# --- Optional gate thresholds ---
-#
-# Override the default thresholds used by detect-changes and merge. Empty
-# string or commented = use the bundled default (50% deletion ratio,
-# 80% rename similarity).
-
-deletion_ratio_threshold = ""
-rename_similarity_threshold = ""

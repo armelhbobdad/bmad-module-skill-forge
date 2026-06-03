@@ -1,6 +1,5 @@
 ---
 nextStepFile: 'confirm-brief.md'
-scopeTemplatesFile: 'assets/scope-templates.md'
 recommendScopeTypeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-recommend-scope-type.py'
   - '{project-root}/src/shared/scripts/skf-recommend-scope-type.py'
@@ -119,6 +118,8 @@ How broadly should this skill cover the library?
 {full menu from `{scopeTemplatesPath}` with the recommended letter marked, e.g. '[F] Full Library', '[M] Specific Modules', '[P] Public API Only ← recommended', '[C] Component Library', '[R] Reference App'}
 
 Press Enter to accept the recommendation, or pick a different letter."
+
+**First-timer reassurance (interactive only, never-briefed user — the §4 first-timer rail fired in step 01).** Append one line so the harder scope-type call doesn't stall a first-timer: "The recommended type is almost always right — accept it and re-scope from step 4 if the analysis surprises you." Repeat users and headless skip this line.
 
 Wait for user selection. Empty input or just Enter accepts the recommendation; any of the five letters overrides.
 

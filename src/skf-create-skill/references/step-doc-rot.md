@@ -23,12 +23,12 @@ Scan feeder artifacts for doc-rot correction indicators and annotate the compile
 
 ### §1. Locate Feeder Artifacts
 
-Identify the feeder artifacts in the staging directory for the current skill:
+Identify the feeder artifacts in the **staging directory** for the current skill. This step (5c) runs **before** step 7 promotes the staging tree to `{forge_data_folder}/{skill-name}/{version}/`, so the feeder artifacts only exist under the staging path compile (step 5 §1a) wrote — reading the not-yet-promoted `{forge_data_folder}` path would make every match a no-op:
 
-1. **Evidence report:** `{forge_data_folder}/{skill-name}/{version}/evidence-report.md`
-2. **Provenance map:** `{forge_data_folder}/{skill-name}/{version}/provenance-map.json` — focus on T2/T3 entries with temporal annotations
+1. **Evidence report:** `_bmad-output/{skill-name}/evidence-report.md`
+2. **Provenance map:** `_bmad-output/{skill-name}/provenance-map.json` — focus on T2/T3 entries with temporal annotations
 3. **Temporal context:** changelogs, migration guides, and issue/PR data fetched by step 3b and enriched by step 4 (available in workflow context)
-4. **Compiled SKILL.md:** the staged SKILL.md itself — check for `[QMD:...]` or `[DOC:...]` annotations referencing corrections
+4. **Compiled SKILL.md:** the staged `_bmad-output/{skill-name}/SKILL.md` itself — check for `[QMD:...]` or `[DOC:...]` annotations referencing corrections
 
 For each artifact, attempt to load its content. If an artifact does not exist or is empty, skip it — this is not an error.
 

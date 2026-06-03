@@ -70,15 +70,15 @@ If any helper has no existing candidate, release the lock and HALT (exit code 4,
 
 **Precondition:** Both `{new_skill_group}` and `{new_forge_group}` must NOT exist (step 1 validated this in the collision check, but verify again before copying).
 
-1. If `{new_skill_group}` or `{new_forge_group}` exists on disk, halt with: "**Collision detected at execution time.** `{new_skill_group}` or `{new_forge_group}` now exists on disk — it did not exist during step 1 selection. Aborting before any files are touched."
+1. If `{new_skill_group}` or `{new_forge_group}` exists on disk: release the lock (`rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`) and halt with "**Collision detected at execution time.** `{new_skill_group}` or `{new_forge_group}` now exists on disk — it did not exist during step 1 selection. Aborting before any files are touched." HALT (exit code 4, `halt_reason: "copy-failed"`). In headless, emit the error envelope.
 
 2. Copy `{old_skill_group}` to `{new_skill_group}` recursively:
    - Preserve file permissions, timestamps, and symlinks
    - Equivalent to `cp -a {old_skill_group} {new_skill_group}` (preserves symlinks) or `cp -r` followed by explicit symlink re-creation in section 4
-   - If the copy fails: halt with "**Copy failed:** `{old_skill_group}` → `{new_skill_group}`: {error}. No files were modified. Old skill is intact."
+   - If the copy fails: release the lock (`rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`) and halt with "**Copy failed:** `{old_skill_group}` → `{new_skill_group}`: {error}. No files were modified. Old skill is intact." HALT (exit code 4, `halt_reason: "copy-failed"`). In headless, emit the error envelope.
 
 3. Copy `{old_forge_group}` to `{new_forge_group}` the same way:
-   - If the copy fails: **rollback** by deleting `{new_skill_group}` (just created in step 2), then halt with "**Copy failed:** `{old_forge_group}` → `{new_forge_group}`: {error}. Rolled back new skill_group. Old skill is intact."
+   - If the copy fails: **rollback** by deleting `{new_skill_group}` (just created in step 2), release the lock (`rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`), then halt with "**Copy failed:** `{old_forge_group}` → `{new_forge_group}`: {error}. Rolled back new skill_group. Old skill is intact." HALT (exit code 4, `halt_reason: "copy-failed"`). In headless, emit the error envelope.
 
 **Rollback procedure for this section:** `rm -rf {new_skill_group}` and `rm -rf {new_forge_group}` (whichever exist). Old skill is untouched.
 
@@ -96,7 +96,8 @@ For each version `v` in `affected_versions`:
 **Rollback on any rename failure:**
 
 - `rm -rf {new_skill_group}` and `rm -rf {new_forge_group}`
-- Halt with: "**Inner directory rename failed** at `{v}/{old_name}`: {error}. Rolled back both new directories. Old skill is intact."
+- Release the lock: `rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`
+- Halt with: "**Inner directory rename failed** at `{v}/{old_name}`: {error}. Rolled back both new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`). In headless, emit the error envelope.
 
 Report: "**Renamed {count} inner directories** to `{new_name}/`."
 

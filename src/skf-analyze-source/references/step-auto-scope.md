@@ -1,7 +1,15 @@
 ---
 nextStepFile: 'health-check.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-shapeDetectScript: 'src/shared/scripts/skf-shape-detect.py'
+shapeDetectProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-shape-detect.py'
+  - '{project-root}/src/shared/scripts/skf-shape-detect.py'
+validatePinsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-pins.py'
+  - '{project-root}/src/shared/scripts/skf-validate-pins.py'
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 scanManifestsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-scan-manifests.py'
   - '{project-root}/src/shared/scripts/skf-scan-manifests.py'
@@ -57,8 +65,10 @@ This section validates and resolves version pins. It runs for repo URLs and loca
 
 **For repo URLs when `--pin` is provided:**
 
+**Resolve `{validatePinsHelper}`** from `{validatePinsProbeOrder}`; first existing path wins; HALT if neither resolves.
+
 ```bash
-uv run src/shared/scripts/skf-validate-pins.py --repo-url {project_path} --pin {pin_value}
+uv run {validatePinsHelper} --repo-url {project_path} --pin {pin_value}
 ```
 
 Handle exit codes:
@@ -72,8 +82,10 @@ Handle exit codes:
 
 **For repo URLs when `--pin` is NOT provided (default):**
 
+Using the same `{validatePinsHelper}` resolved above:
+
 ```bash
-uv run src/shared/scripts/skf-validate-pins.py --repo-url {project_path}
+uv run {validatePinsHelper} --repo-url {project_path}
 ```
 
 Handle exit codes:
@@ -88,8 +100,10 @@ This section checks for existing skills matching the target before proceeding. I
 
 **1. Load skill inventory:**
 
+**Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins; HALT if neither resolves.
+
 ```bash
-uv run src/shared/scripts/skf-skill-inventory.py {skills_output_folder}
+uv run {skillInventoryHelper} {skills_output_folder}
 ```
 
 Parse the JSON output. If the exit code is non-zero or the `skills` array is empty, skip coexistence detection silently (no existing skills to conflict with) and continue to the next section: §0a for documentation URLs, §1 for all other input types.
@@ -316,10 +330,12 @@ Record `<grammar_matches>` and `<tree_paths>` (each a comma-joined list, possibl
 
 ### 3. Invoke Shape Detection
 
+**Resolve `{shapeDetectHelper}`** from `{shapeDetectProbeOrder}`; first existing path wins; HALT if neither resolves.
+
 Invoke the shape detection script with the discovered manifests and the harvested tree-level signals:
 
 ```
-uv run {shapeDetectScript} --repo-url <project_path_or_url> \
+uv run {shapeDetectHelper} --repo-url <project_path_or_url> \
   --manifests <comma_separated_manifest_paths> \
   --grammar-files <grammar_matches> --tree-paths <tree_paths>
 ```

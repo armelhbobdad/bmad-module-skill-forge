@@ -26,7 +26,7 @@ Present the complete refinement summary to the user. Display counts of gaps fill
 
 Read the `{outputFile}` to have all data available for presentation.
 
-Verify the `## Refinement Summary` section is present. If it is absent, HALT: "⚠️ Refinement Summary not found in `{outputFile}`. Step 05 may not have completed successfully. Re-run [RA] from the beginning."
+Verify the `## Refinement Summary` section is present. If it is absent, HALT (exit code 8, `halt_reason: "recovery-failed"`): "⚠️ Refinement Summary not found in `{outputFile}`. Step 05 may not have completed successfully. Re-run [RA] from the beginning." In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with `refined_path: null`.
 
 **Extract metrics from the Refinement Summary section:** Parse `gap_count`, `issue_count`, `improvement_count`, `critical_count`, `major_count`, `minor_count`, `high_count`, `medium_count`, `low_count`, and `skill_count` from the Changes Made table and Evidence Sources table. Use these extracted values in the summary table and next-steps sections below.
 

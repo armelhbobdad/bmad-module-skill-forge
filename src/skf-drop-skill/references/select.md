@@ -78,7 +78,9 @@ Enter the skill name or its number from the list above, or `cancel` / `exit` / `
 Wait for user input. Accept either the numeric index or the skill name (exact match). **GATE [default: use args]** — If `{headless_mode}` and skill name was provided as argument: select that skill and auto-proceed. If not provided, HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode requires skill name argument." In headless mode, emit the error envelope with `skill: null`, `drop_mode: null`.
 
 - If the user enters `cancel`, `exit`, `[X]`, `q`, or `:q`: Display "Cancelled — no changes were made." and HALT (exit code 6, `halt_reason: "user-cancelled"`).
-- **If the user's input does not match any listed skill:** Re-display the list and ask again.
+- **If the user's input does not match any listed skill:**
+  - **Interactive:** Re-display the list and ask again.
+  - **Headless (`{headless_mode}` is true):** the supplied `skill_name` argument resolves to no skill in the combined list — there is no further input to re-prompt for. HALT (exit code 2, `halt_reason: "input-invalid"`): "headless mode: skill argument `{supplied value}` does not match any listed skill." Emit the error envelope per SKILL.md "Result Contract (Headless)" with `skill: null`, `drop_mode: null`, `versions_affected: []`.
 
 Store the selection as `target_skill`. Also store `target_in_manifest = true` if the selected skill has an entry in the manifest, `false` otherwise — subsequent sections use this flag to restrict the available drop options.
 
@@ -126,7 +128,10 @@ Wait for user selection.
 
 "**Which version?** Enter the version string (e.g. `0.5.0`)."
 
-Wait for user input. Validate that the version exists in the manifest's `versions` map for `target_skill`. If not, repeat the prompt.
+Wait for user input. Validate that the version exists in the manifest's `versions` map for `target_skill`.
+
+- **If it does not match (interactive):** repeat the prompt.
+- **If it does not match (headless — `{headless_mode}` is true):** the supplied `version` argument is unparseable or absent from the `versions` map — there is no further input to re-prompt for. HALT (exit code 2, `halt_reason: "input-invalid"`): "headless mode: version argument `{supplied value}` does not exist in `{target_skill}`'s versions." Emit the error envelope per SKILL.md "Result Contract (Headless)" with `skill: "{target_skill}"`, `drop_mode: null`, `versions_affected: []`.
 
 Set `target_versions = [<selected version>]` and `is_skill_level = false`.
 

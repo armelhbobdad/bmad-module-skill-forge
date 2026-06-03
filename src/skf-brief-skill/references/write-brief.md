@@ -1,5 +1,4 @@
 ---
-briefSchemaFile: 'assets/skill-brief-schema.md'
 versionResolutionFile: 'references/version-resolution.md'
 qmdRegistrationFile: 'references/qmd-collection-registration.md'
 nextStepFile: 'health-check.md'
@@ -163,7 +162,7 @@ The script derives `exit_code` deterministically from `halt_reason` (null→0, i
 
 The script enforces the success/error halt_reason invariant (success requires null halt_reason; error requires non-null). The `user-cancelled` halt_reason is accepted for completeness (interactive `[X]` Cancel sites in step 1/03/04) but never appears on the headless code path.
 
-Invocation sites (each pointed at this block, not duplicated): step 1 §1 (write-failed pre-resolution), step 1 §8 (input-missing/input-invalid GATE), step 5 §2b (overwrite-cancelled), step 5 §3 (input-invalid/write-failed from script). Step-01 §1 forge-tier-missing and step 2 §1 (target-inaccessible/gh-auth-failed) currently HALT without emitting an envelope — pre-existing gaps tracked separately, not addressed by this canonicalization.
+Invocation sites (each pointed at this block, not duplicated): step 1 §1 (write-failed pre-resolution; forge-tier-missing), step 1 §8 (input-missing/input-invalid GATE), step 2 §1 (target-inaccessible/gh-auth-failed), step 5 §2b (overwrite-cancelled), step 5 §3 (input-invalid/write-failed from script). The step 1 §1 forge-tier-missing and step 2 §1 target-inaccessible/gh-auth-failed sites emit through this block too, so every headless HALT class surfaces a `SKF_BRIEF_RESULT_JSON` envelope — there are no envelope-silent failure classes.
 
 When `{headless_mode}` is false, skip this section silently — no envelope is emitted.
 

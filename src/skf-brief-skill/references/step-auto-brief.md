@@ -12,7 +12,9 @@ emitBriefEnvelopeProbeOrder:
 mergeDocUrlsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-merge-doc-urls.py'
   - '{project-root}/src/shared/scripts/skf-merge-doc-urls.py'
-detectDocsScript: 'src/shared/scripts/skf-detect-docs.py'
+detectDocsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-docs.py'
+  - '{project-root}/src/shared/scripts/skf-detect-docs.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -72,10 +74,12 @@ Extract from the parsed brief:
 
 ### 2. Run Doc Detection
 
+**Resolve `{detectDocsHelper}`** from `{detectDocsProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
 Invoke doc detection to discover documentation URLs for the source repo:
 
 ```bash
-uv run {project-root}/{detectDocsScript} --repo-url {source_repo}
+uv run {detectDocsHelper} --repo-url {source_repo}
 ```
 
 `--repo-url` is always required (the script uses it for GitHub API calls). If a local clone is also available at `{local_clone_path}`, add `--local-path {local_clone_path}` to enable docs-folder scanning in addition to API-based detection.

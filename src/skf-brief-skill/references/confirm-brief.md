@@ -1,7 +1,6 @@
 ---
 nextStepFile: 'write-brief.md'
 reviseStepFile: 'scope-definition.md'
-briefSchemaFile: 'assets/skill-brief-schema.md'
 advancedElicitationSkill: '/bmad-advanced-elicitation'
 partyModeSkill: '/bmad-party-mode'
 ---

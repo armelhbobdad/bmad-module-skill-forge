@@ -22,9 +22,9 @@ Loaded by `execute.md` §7 once `manifest_updated == true` (§6 succeeded) and t
 Load the `ides` list from `config.yaml`. The installer writes IDE identifiers — these must be mapped to context files and skill roots using the "IDE → Context File Mapping" table in `{managedSectionLogic}`:
 
 1. For each entry in `config.yaml.ides`, look up its `context_file` and `skill_root` from the mapping table.
-2. For any entry not found in the table, default to AGENTS.md / `.agents/skills/` and emit a warning: `Unknown IDE '{value}' in config.yaml — defaulting to AGENTS.md`.
+2. For any entry not found in the table, default to `{unknownIdeDefaultContextFile}` / `{unknownIdeDefaultSkillRoot}` (resolved by SKILL.md On-Activation §3 from `customize.toml`; bundled defaults `AGENTS.md` / `.agents/skills/`) and emit a warning: `Unknown IDE '{value}' in config.yaml — defaulting to {unknownIdeDefaultContextFile}`.
 3. Deduplicate by `context_file` — when multiple IDEs map to the same context file, use the first configured IDE's `skill_root`.
-4. If `config.yaml.ides` is absent or the mapping yields an empty list, fall back to `[{context_file: "AGENTS.md", skill_root: ".agents/skills/"}]` and emit a note: `No IDEs configured in config.yaml — defaulting to AGENTS.md`.
+4. If `config.yaml.ides` is absent or the mapping yields an empty list, fall back to `[{context_file: "{unknownIdeDefaultContextFile}", skill_root: "{unknownIdeDefaultSkillRoot}"}]` and emit a note: `No IDEs configured in config.yaml — defaulting to {unknownIdeDefaultContextFile}`.
 
 Store the result as `target_context_files`.
 

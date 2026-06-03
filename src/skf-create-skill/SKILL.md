@@ -7,7 +7,7 @@ description: Compile a skill from a brief. Supports --batch for multiple briefs.
 
 ## Overview
 
-Compiles a verified agent skill from a skill-brief.yaml and source code, producing an agentskills.io-compliant SKILL.md with provenance map, evidence report, and progressive disclosure references. The workflow is mostly autonomous with three interaction points — after ecosystem check (if match found), after source extraction (to confirm findings), and after content quality review (when tessl produces suggestions). Steps adapt behavior based on forge tier (Quick/Forge/Forge+/Deep). Zero hallucination tolerance: every instruction in the output must trace to source code with a confidence tier citation.
+Compiles a verified agent skill from a skill-brief.yaml and source code, producing an agentskills.io-compliant SKILL.md with provenance map, evidence report, and progressive disclosure references. The workflow is mostly autonomous with three interaction points — after ecosystem check (if match found), after source extraction (to confirm findings), and after content quality review (when tessl produces suggestions). Steps adapt behavior based on forge tier (Quick/Forge/Forge+/Deep). Zero hallucination tolerance: every instruction in the output must trace to source code with a confidence tier citation. A single run is not resumable — if it is interrupted mid-compile, re-run from the brief (only `--batch` checkpoints progress across briefs).
 
 ## Conventions
 

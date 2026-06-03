@@ -124,15 +124,15 @@ Apply the following validations in order:
 
 1. **Kebab-case format:** Must match `^[a-z][a-z0-9-]*[a-z0-9]$` (or `^[a-z0-9]$` for the single-character case). If it fails:
    "**Invalid name format.** The new name must be lowercase alphanumeric with hyphens, starting with a letter and ending with a letter or digit. Try again."
-   Re-ask.
+   Re-ask. In headless mode, instead of re-asking, release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`) and HALT (exit code 2, `halt_reason: "input-invalid"`) and emit the error envelope.
 
 2. **Length:** Must be 1-64 characters per the agentskills.io spec. If it fails:
    "**Invalid name length.** The new name must be 1-64 characters. Try again."
-   Re-ask.
+   Re-ask. In headless mode, instead of re-asking, release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`) and HALT (exit code 2, `halt_reason: "input-invalid"`) and emit the error envelope.
 
 3. **Same as old name:** If the new name equals `old_name`:
    "**The new name is identical to the current name.** Nothing to rename. Try again or abort the workflow."
-   Re-ask.
+   Re-ask. In headless mode, instead of re-asking, release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`) and HALT (exit code 2, `halt_reason: "input-invalid"`) and emit the error envelope.
 
 4. **Collision check:** The new name MUST NOT collide with any existing skill:
    - It must not appear as a key in `exports` in the manifest
