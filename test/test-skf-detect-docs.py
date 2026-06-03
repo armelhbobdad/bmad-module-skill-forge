@@ -359,6 +359,21 @@ class TestExclusionFilter:
         assert not any("MIGRATION" in u for u in urls)
         assert not any("UPGRADE" in u for u in urls)
 
+    def test_non_corpus_segments_not_excluded_by_detector(self):
+        # The detector is shape-agnostic: /whatsnew/, /contribute, /wiki/ are
+        # NOT in _EXCLUSION_PATTERNS, so they stay detected here. Suppressing
+        # them for whole-language references is the brief-layer merge's job
+        # (skf-merge-doc-urls.py, issue #431) — pushing it down to the detector
+        # would wrongly strip those pages for ordinary skills. This guard pins
+        # that layering decision.
+        for url in (
+            "https://docs.example.com/whatsnew/",
+            "https://docs.example.com/contribute",
+            "https://docs.example.com/wiki/Questions",
+        ):
+            assert not mod._is_excluded(url), url
+        assert mod._is_doc_url("https://docs.example.com/wiki/Questions")
+
 
 # --------------------------------------------------------------------------
 # Tests: empty results → exit 1 (subtask 2.6)
