@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "a44b2d361de1",
+  "strategy": "manual-commit",
+  "branch": "issue-430-433-language-reference-followups",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "package.json",
+    "src/skf-analyze-source/references/step-auto-scope.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a4/4b2d361de1/0/metadata.json",
+      "transcript": "/a4/4b2d361de1/0/full.jsonl",
+      "context": "/a4/4b2d361de1/0/context.md",
+      "content_hash": "/a4/4b2d361de1/0/content_hash.txt",
+      "prompt": "/a4/4b2d361de1/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 20193,
+    "cache_creation_tokens": 479134,
+    "cache_read_tokens": 43003968,
+    "output_tokens": 217533,
+    "api_call_count": 169
+  }
+}
