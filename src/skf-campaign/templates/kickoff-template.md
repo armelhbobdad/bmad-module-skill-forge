@@ -18,6 +18,10 @@
 
 {{brief_summary}}
 
+## Campaign Facts
+
+{{persistent_facts}}
+
 ## Dependency State
 
 {{dependency_status_table}}

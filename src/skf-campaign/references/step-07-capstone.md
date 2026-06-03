@@ -1,8 +1,9 @@
 ---
 nextStepFile: 'step-08-verify.md'
 stateSchemaFile: 'assets/campaign-state-schema.json'
-stateFile: 'forge-data/_campaign/_campaign-state.yaml'
-backupFile: 'forge-data/_campaign/_campaign-state.yaml.bak'
+stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
+backupFile: '{campaignWorkspacePath}/_campaign-state.yaml.bak'
+validateScript: 'scripts/campaign-validate-state.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -16,9 +17,8 @@ Compose a capstone stack skill from all completed individual skills using SS com
 ## RULES
 
 - This step uses the **read-backup-modify-write** pattern.
-- Validate state against `{stateSchemaFile}` on load. HALT on invalid state.
+- Validate state on load via `uv run {validateScript} --state-file {stateFile}`; HALT (exit 3) on non-zero.
 - Update `campaign.last_updated` to current ISO-8601 with timezone on every write.
-- All field names use `snake_case`, dates use ISO-8601 with timezone, enums use lowercase or uppercase as defined by the schema.
 - Update `campaign.current_stage` to `6`.
 - If `{headless_mode}` is true, auto-proceed through confirmation gates. SS compose-mode supports headless.
 
@@ -26,13 +26,13 @@ Compose a capstone stack skill from all completed individual skills using SS com
 
 ### §1 — Read + Validate State
 
-Load `{stateFile}`. Validate the loaded state against `{stateSchemaFile}`. HALT on any schema validation error with the specific violation.
+Load `{stateFile}`. Run `uv run {validateScript} --state-file {stateFile}`; on non-zero, HALT (exit 3) with the script's `errors[]`.
 
 ### §2 — Collect Completed Skills
 
 Gather all skills from `skills[]` with `status == "completed"` — this includes both Tier A skills (processed in step-05) and Tier B skills (processed in step-06). Extract their `skill_path` values.
 
-HALT if no completed skills exist — a capstone cannot be composed without constituent skills.
+If no completed skills exist, do NOT HALT — a campaign where everything failed is exactly when the operator most needs the downstream diagnostic report. Set `campaign.capstone` to `null`, warn ("No completed skills — skipping capstone composition; verification and the campaign report will still run so failures are explained"), log the skip to the decision log, and skip directly to §5 (Stage Completion) so the chain continues to verify → … → the report. step-10 (export) and step-11 (report) already handle the zero-completed case.
 
 ### §3 — Invoke SS Compose-Mode
 

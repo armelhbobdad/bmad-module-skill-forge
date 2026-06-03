@@ -57,7 +57,7 @@
         "capstone": {
           "type": ["object", "null"],
           "additionalProperties": false,
-          "description": "Tier-B capstone (stack) outcome. Campaign-level summary; the composed skill itself lives at skill_path.",
+          "description": "Capstone (stack) outcome composed from all completed campaign skills (Tier A and Tier B). Campaign-level summary; the composed skill itself lives at skill_path.",
           "properties": {
             "skill_path": {
               "type": ["string", "null"]

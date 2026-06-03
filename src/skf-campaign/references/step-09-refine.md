@@ -1,8 +1,9 @@
 ---
 nextStepFile: 'step-10-export.md'
 stateSchemaFile: 'assets/campaign-state-schema.json'
-stateFile: 'forge-data/_campaign/_campaign-state.yaml'
-backupFile: 'forge-data/_campaign/_campaign-state.yaml.bak'
+stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
+backupFile: '{campaignWorkspacePath}/_campaign-state.yaml.bak'
+validateScript: 'scripts/campaign-validate-state.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -16,9 +17,8 @@ Invoke RA (skf-refine-architecture) in headless mode with the project's architec
 ## RULES
 
 - This step uses the **read-backup-modify-write** pattern.
-- Validate state against `{stateSchemaFile}` on load. HALT on invalid state.
+- Validate state on load via `uv run {validateScript} --state-file {stateFile}`; HALT (exit 3) on non-zero.
 - Update `campaign.last_updated` to current ISO-8601 with timezone on every write.
-- All field names use `snake_case`, dates use ISO-8601 with timezone, enums use lowercase or uppercase as defined by the schema.
 - Update `campaign.current_stage` to `8`.
 - If `{headless_mode}` is true, auto-proceed through confirmation gates. RA supports headless via `--headless`.
 
@@ -26,11 +26,11 @@ Invoke RA (skf-refine-architecture) in headless mode with the project's architec
 
 ### §1 — Read + Validate State
 
-Load `{stateFile}`. Validate the loaded state against `{stateSchemaFile}`. HALT on any schema validation error with the specific violation.
+Load `{stateFile}`. Run `uv run {validateScript} --state-file {stateFile}`; on non-zero, HALT (exit 3) with the script's `errors[]`.
 
 ### §2 — Read Directive
 
-If `campaign.directive_path` is set in state, load the file at that path. Apply directive contents as campaign-wide context for this stage's processing. If the file is not found, continue without error (directive is optional).
+If `campaign.directive_path` is set in state, load the file at that path and apply its contents as campaign-wide context for this stage's processing, per the directive contract in `references/campaign-directive-spec.md`. If the file is not found, continue without error (directive is optional).
 
 ### §3 — Locate Inputs
 
@@ -39,11 +39,11 @@ If `campaign.directive_path` is set in state, load the file at that path. Apply 
 1. If `campaign.architecture_doc_path` is set in state and the file exists, use it directly (step-08 normally persists it).
 2. Otherwise check `docs/architecture.md` at `{project-root}`, then `_bmad-output/planning-artifacts/architecture.md`.
 3. If still not found and `{headless_mode}` is false: prompt the operator.
-4. If still not found and `{headless_mode}` is true: skip RA invocation with a warning — do not HALT. Log that refinement was skipped due to missing architecture doc and proceed to §6.
+4. If still not found and `{headless_mode}` is true: skip RA invocation with a warning — do not HALT. Log that refinement was skipped due to missing architecture doc (to the decision log) and proceed to §6.
 
 Once resolved (steps 2–3), persist the path to `campaign.architecture_doc_path` if not already set, then proceed to §4 with the resolved path.
 
-**VS feasibility report:** If chaining from step-08, the report path is available from the VS result envelope (`report_latest_path`). On resume, look for `feasibility-report-*-latest.md` in `{project-root}/forge-data/`. If no report exists (VS may have failed or been skipped in step-08), proceed without it — RA's VS report input is optional.
+**VS feasibility report:** If chaining from step-08, the report path is available from the VS result envelope (`report_latest_path`). On resume, look for `feasibility-report-*-latest.md` in `{forge_data_folder}/`. If no report exists (VS may have failed or been skipped in step-08), proceed without it — RA's VS report input is optional.
 
 ### §4 — Invoke RA
 

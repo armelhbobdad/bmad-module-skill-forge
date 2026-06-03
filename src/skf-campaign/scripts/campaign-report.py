@@ -9,7 +9,8 @@ CLI:
       --state-file <path> --template-file <path> --output-file <path>
 
 Output (JSON on stdout):
-  {"status":"success","report_path":"...","skills_completed":N,"skills_failed":N,"duration":"..."}
+  {"status":"success","report_path":"...","skills_completed":N,"skills_failed":N,
+   "quality_scores":{"skill":score,...},"duration":"..."}
 
 Exit codes:
   0  success
@@ -214,12 +215,18 @@ def run(state_file: str, template_file: str, output_file: str) -> int:
     skills = state.get("skills", [])
     completed_count = sum(1 for s in skills if s.get("status") == "completed")
     failed_count = sum(1 for s in skills if s.get("status") == "failed")
+    quality_scores = {
+        s["name"]: s["quality_score"]
+        for s in skills
+        if s.get("status") == "completed" and s.get("quality_score") is not None
+    }
 
     result = {
         "status": "success",
         "report_path": output_path.as_posix(),
         "skills_completed": completed_count,
         "skills_failed": failed_count,
+        "quality_scores": quality_scores,
         "duration": aggregates["duration"],
     }
     json.dump(result, sys.stdout, separators=(",", ":"))

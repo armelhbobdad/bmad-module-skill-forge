@@ -1,8 +1,9 @@
 ---
 nextStepFile: 'step-09-refine.md'
 stateSchemaFile: 'assets/campaign-state-schema.json'
-stateFile: 'forge-data/_campaign/_campaign-state.yaml'
-backupFile: 'forge-data/_campaign/_campaign-state.yaml.bak'
+stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
+backupFile: '{campaignWorkspacePath}/_campaign-state.yaml.bak'
+validateScript: 'scripts/campaign-validate-state.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -16,9 +17,8 @@ Invoke VS (skf-verify-stack) in headless mode against all completed campaign ski
 ## RULES
 
 - This step uses the **read-backup-modify-write** pattern.
-- Validate state against `{stateSchemaFile}` on load. HALT on invalid state.
+- Validate state on load via `uv run {validateScript} --state-file {stateFile}`; HALT (exit 3) on non-zero.
 - Update `campaign.last_updated` to current ISO-8601 with timezone on every write.
-- All field names use `snake_case`, dates use ISO-8601 with timezone, enums use lowercase or uppercase as defined by the schema.
 - Update `campaign.current_stage` to `7`.
 - If `{headless_mode}` is true, auto-proceed through confirmation gates. VS supports headless via `--headless`.
 
@@ -26,11 +26,11 @@ Invoke VS (skf-verify-stack) in headless mode against all completed campaign ski
 
 ### §1 — Read + Validate State
 
-Load `{stateFile}`. Validate the loaded state against `{stateSchemaFile}`. HALT on any schema validation error with the specific violation.
+Load `{stateFile}`. Run `uv run {validateScript} --state-file {stateFile}`; on non-zero, HALT (exit 3) with the script's `errors[]`.
 
 ### §2 — Read Directive
 
-If `campaign.directive_path` is set in state, load the file at that path. Apply directive contents as campaign-wide context for this stage's processing. If the file is not found, continue without error (directive is optional).
+If `campaign.directive_path` is set in state, load the file at that path and apply its contents as campaign-wide context for this stage's processing, per the directive contract in `references/campaign-directive-spec.md`. If the file is not found, continue without error (directive is optional).
 
 ### §3 — Locate Architecture Doc
 
@@ -39,7 +39,7 @@ Resolve the architecture document path, preferring the value persisted in state:
 1. If `campaign.architecture_doc_path` is set in state and the file exists, use it directly.
 2. Otherwise discover it: check `docs/architecture.md` at `{project-root}` (SKF convention), then `_bmad-output/planning-artifacts/architecture.md` (BMM convention).
 3. If still not found and `{headless_mode}` is false: prompt the operator to provide the architecture doc path.
-4. If still not found and `{headless_mode}` is true: skip VS invocation with a warning — do not HALT. Log that verification was skipped due to missing architecture doc and proceed to §6.
+4. If still not found and `{headless_mode}` is true: skip VS invocation with a warning — do not HALT. Log that verification was skipped due to missing architecture doc (to the decision log) and proceed to §6.
 
 Once resolved (steps 2–3), persist the path to `campaign.architecture_doc_path` so the refine stage and any resume reuse it without re-prompting. Then proceed to §4 with the resolved path.
 

@@ -1,9 +1,14 @@
 ---
-stateFile: 'forge-data/_campaign/_campaign-state.yaml'
+stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 directiveFile: '_campaign-directive.md'
 ---
 
 # Campaign Directive Specification
+
+This is the **canonical contract** for the campaign directive. SKILL.md and the
+step files' "Read Directive" sections defer to it rather than re-specifying the
+format — when a step loads `campaign.directive_path`, it applies the contents
+per the sections below.
 
 ## Purpose
 
@@ -83,7 +88,7 @@ Any section heading not listed above is treated as general guidance. The LLM age
 The directive is read from the path stored in `campaign.directive_path` (in the campaign state file) at stage entry. Every step that loads state and performs actionable processing checks for and applies the directive.
 
 Steps that read the directive:
-- **step-02-strategy** — operator may influence execution order presentation or add notes visible in strategy review
+- **step-02-strategy** — applies directive contents as campaign-wide context for strategy processing (e.g. `## Notes` visible while reviewing the computed order; the order itself is computed deterministically by `campaign-deps.py`)
 - **step-05-skill-loop** — directive populates `{{directive_content}}` in kickoff template and provides campaign-wide context for all skill processing
 - **step-06-batch** — operator may want skip/quality overrides for Tier B batch processing
 - **step-08-verify** — operator may want to influence verification focus areas

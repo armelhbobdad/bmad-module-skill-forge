@@ -1,8 +1,10 @@
 ---
 nextStepFile: 'step-03-pins.md'
 stateSchemaFile: 'assets/campaign-state-schema.json'
-stateFile: 'forge-data/_campaign/_campaign-state.yaml'
-backupFile: 'forge-data/_campaign/_campaign-state.yaml.bak'
+stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
+backupFile: '{campaignWorkspacePath}/_campaign-state.yaml.bak'
+depsScript: 'scripts/campaign-deps.py'
+validateScript: 'scripts/campaign-validate-state.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -16,18 +18,17 @@ Compute the execution order from dependency edges, detect circular dependencies,
 ## RULES
 
 - This step uses the **read-backup-modify-write** pattern (state file exists from step-01).
-- Validate state against `{stateSchemaFile}` on load. HALT on invalid state.
+- Validate state on load via `uv run {validateScript} --state-file {stateFile}`; HALT (exit 3) on non-zero.
 - Write `execution_order` and `circular_deps_detected` to `dependency_graph`.
 - Update `campaign.current_stage` to `1`.
 - Update `campaign.last_updated` to current ISO-8601 with timezone on every write.
-- All field names use `snake_case`, dates use ISO-8601 with timezone, enums use lowercase or uppercase as defined by the schema.
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with the default action and log each auto-decision.
 
 ## TASKS
 
 ### §1 — Read + Validate State
 
-Load `{stateFile}`. Validate the loaded state against `{stateSchemaFile}`. HALT on any schema validation error with the specific violation.
+Load `{stateFile}`. Run `uv run {validateScript} --state-file {stateFile}`; on non-zero, HALT (exit 3) with the script's `errors[]`.
 
 ### §2 — Backup State
 
@@ -35,27 +36,21 @@ Copy `{stateFile}` to `{backupFile}` before any modification.
 
 ### §3 — Read Directive
 
-If `campaign.directive_path` is set in state, load the file at that path. Apply directive contents as campaign-wide context for this stage's processing. If the file is not found, continue without error (directive is optional).
+If `campaign.directive_path` is set in state, load the file at that path and apply its contents as campaign-wide context for this stage's processing, per the directive contract in `references/campaign-directive-spec.md`. If the file is not found, continue without error (directive is optional).
 
 ### §4 — Compute Execution Order
 
-Extract `skills[]` and their `depends_on` edges. Perform a topological sort (Kahn's algorithm):
+Run the deterministic topological sort — do not hand-compute it:
 
-1. Build an adjacency list from `skills[].depends_on` — for each skill, record which other skills depend on it.
-2. Compute in-degrees for each skill (count of `depends_on` entries pointing to it).
-3. Initialize a queue with all skills that have in-degree 0 (no dependencies).
-4. While the queue is not empty:
-   a. Dequeue a skill.
-   b. Add it to the execution order.
-   c. For each skill that depends on it, decrement that skill's in-degree.
-   d. If any skill's in-degree reaches 0, enqueue it.
-5. Within the same dependency level, place Tier A skills before Tier B (Tier A skills go through the full pipeline; Tier B skills are batched later in step-06).
-6. If all skills are placed → valid execution order, set `circular_deps_detected` to `false`.
-7. If any skills remain unplaced → circular dependency detected, set `circular_deps_detected` to `true`.
+```
+uv run {depsScript} --compute --state-file {stateFile}
+```
+
+Parse the JSON output: `execution_order` (the ordered skill names — Kahn's sort with Tier A placed before Tier B within a dependency level), `circular_deps_detected` (bool), and `cycle_participants` (the unplaced skills when a cycle exists, else null). Exit code 1 from the script signals a cycle or a dangling dependency reference; exit code 2 signals a state/parse error — surface either and HALT.
 
 ### §5 — Handle Circular Dependencies
 
-If `circular_deps_detected` is `true`, HALT with a clear error listing the cycle — identify the unplaced skills and their mutual `depends_on` edges. Do NOT proceed — circular dependencies make execution order impossible.
+If `circular_deps_detected` is `true`, HALT (exit code 4, `circular-deps`) with a clear error listing `cycle_participants` and their mutual `depends_on` edges. Do NOT proceed — circular dependencies make execution order impossible.
 
 ### §6 — Write State
 
@@ -88,6 +83,15 @@ TIER DISTRIBUTION:
   Tier B (QS batch): {count}
 ```
 
+### §8 — Plan Confirmation Gate
+
+The strategy view is the last review surface before a potentially long, mostly-unattended run begins. Present a confirmation gate:
+
+- `[P]roceed` — begin execution (chain to `{nextStepFile}`).
+- `[C]ancel` — stop now with exit code 12 (`user-cancelled`); state is intact and resumable. To change targets, edit the campaign brief (`{campaignWorkspacePath}/campaign-brief.yaml`) or re-run `campaign` (overwrite), then start again.
+
+**HALT and wait for operator input.** In headless mode, auto-proceed with `[P]` and log "headless: auto-proceed past plan-confirmation gate" to the decision log.
+
 ## OUTPUT
 
-Confirm strategy computed and display the strategy view to the operator. Chain to `{nextStepFile}`.
+Confirm strategy computed, display the strategy view, and resolve the §8 gate. Chain to `{nextStepFile}`.

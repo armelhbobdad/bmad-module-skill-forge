@@ -1,10 +1,11 @@
 ---
 nextStepFile: 'step-07-capstone.md'
 stateSchemaFile: 'assets/campaign-state-schema.json'
-stateFile: 'forge-data/_campaign/_campaign-state.yaml'
-backupFile: 'forge-data/_campaign/_campaign-state.yaml.bak'
-briefFile: 'forge-data/_campaign/campaign-brief.yaml'
-batchFile: 'forge-data/_campaign/_batch-input.txt'
+stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
+backupFile: '{campaignWorkspacePath}/_campaign-state.yaml.bak'
+briefFile: '{campaignWorkspacePath}/campaign-brief.yaml'
+batchFile: '{campaignWorkspacePath}/_batch-input.txt'
+validateScript: 'scripts/campaign-validate-state.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -18,9 +19,8 @@ Batch all Tier B skills through QS `--batch` mode, recording per-skill results i
 ## RULES
 
 - This step uses the **read-backup-modify-write** pattern.
-- Validate state against `{stateSchemaFile}` on load. HALT on invalid state.
+- Validate state on load via `uv run {validateScript} --state-file {stateFile}`; HALT (exit 3) on non-zero.
 - Update `campaign.last_updated` to current ISO-8601 with timezone on every write.
-- All field names use `snake_case`, dates use ISO-8601 with timezone, enums use lowercase or uppercase as defined by the schema.
 - Update `campaign.current_stage` to `5`.
 - If `{headless_mode}` is true, auto-proceed through confirmation gates. QS `--batch` implies headless.
 
@@ -28,11 +28,11 @@ Batch all Tier B skills through QS `--batch` mode, recording per-skill results i
 
 ### §1 — Read + Validate State
 
-Load `{stateFile}`. Validate the loaded state against `{stateSchemaFile}`. HALT on any schema validation error with the specific violation.
+Load `{stateFile}`. Run `uv run {validateScript} --state-file {stateFile}`; on non-zero, HALT (exit 3) with the script's `errors[]`.
 
 ### §2 — Read Directive
 
-If `campaign.directive_path` is set in state, load the file at that path. Apply directive contents as campaign-wide context for this stage's processing. If the file is not found, continue without error (directive is optional).
+If `campaign.directive_path` is set in state, load the file at that path and apply its contents as campaign-wide context for this stage's processing, per the directive contract in `references/campaign-directive-spec.md`. If the file is not found, continue without error (directive is optional).
 
 ### §3 — Identify Tier B Skills
 
@@ -42,7 +42,7 @@ If no Tier B skills need processing, skip to §7 (Stage Completion) — the batc
 
 ### §4 — Generate Batch File
 
-Load `{briefFile}` to look up `repo_url` for each Tier B skill (repo URLs are in the brief's `targets[]`, not in the state schema).
+Load `{briefFile}` to look up `repo_url` for each Tier B skill (repo URLs are in the brief's `targets[]`, not in the state schema). HALT (exit code 8, `missing-brief`) if the brief is missing or unreadable.
 
 Write a batch input file listing Tier B skills for QS `--batch` consumption. For each pending Tier B skill, include:
 
