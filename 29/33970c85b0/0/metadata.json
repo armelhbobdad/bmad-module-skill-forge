@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "2933970c85b0",
+  "session_id": "35600871-ad6f-4c41-8071-82c59eec462f",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-03T09:08:37.922687968Z",
+  "branch": "issue-427-language-reference-shape",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "test/test-skf-shape-detect.py",
+    "src/shared/scripts/skf-shape-detect.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "73c0fc569300",
+  "token_usage": {
+    "input_tokens": 17788,
+    "cache_creation_tokens": 331024,
+    "cache_read_tokens": 9359149,
+    "output_tokens": 114986,
+    "api_call_count": 63
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-03T09:08:37.251941481Z",
+    "agent_lines": 0,
+    "human_added": 194,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 194,
+    "agent_percentage": 0
+  }
+}
