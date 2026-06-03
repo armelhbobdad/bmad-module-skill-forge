@@ -1,0 +1,73 @@
+# DO NOT EDIT -- overwritten on every update.
+#
+# Workflow customization surface for skf-campaign.
+
+[workflow]
+
+# --- Configurable below. Overrides merge per BMad structural rules: ---
+#   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
+#   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
+
+# Steps to run before the standard activation (config load, customization
+# resolve). Overrides append. Use for org-wide pre-flight checks (auth,
+# network, compliance) that must precede any orchestration work.
+
+activation_steps_prepend = []
+
+# Steps to run after activation but before the first stage executes.
+# Overrides append. Use for context loads or banner customization that
+# should run once activation completes successfully.
+
+activation_steps_append = []
+
+# Persistent facts the workflow keeps in mind for the whole campaign
+# (house style, naming conventions, quality guardrails). These are injected
+# into every per-skill kickoff, so project-scoped house facts propagate to
+# the whole campaign. Overrides append.
+#
+# Each entry is either:
+#   - a literal sentence, e.g. "All skills must cite their upstream source."
+#   - a file reference prefixed with `file:`, e.g.
+#     "file:{project-root}/docs/skill-style.md" (globs supported; file
+#     contents are loaded and treated as facts).
+
+persistent_facts = [
+  "file:{project-root}/**/project-context.md",
+]
+
+# --- Workspace path ---
+#
+# Where the campaign keeps its state, backup, brief, batch input, archive,
+# and decision log. Empty string = use the bundled default
+# `{forge_data_folder}/_campaign`. Override to relocate campaign artifacts
+# (e.g. a shared volume) without editing every step file. Resolved once in
+# On Activation as {campaignWorkspacePath}.
+
+campaign_workspace_path = ""
+
+# --- Quality gate ---
+#
+# Campaign-wide quality bar applied to every skill. Scalars override the
+# bundled defaults; the per-campaign brief and any directive `## Quality
+# Overrides` still take precedence at runtime. Override here to change the
+# org-wide default without forking the skill.
+
+quality_gate_hard = "zero-critical-high"
+quality_gate_soft_target = 90
+quality_gate_soft_fallback = 80
+
+# --- Optional template overrides ---
+#
+# Lift the canonical template paths so orgs can substitute house-style copies
+# without forking the skill. Empty string = use the bundled default under
+# `templates/`.
+
+report_template_path = ""
+kickoff_template_path = ""
+brief_template_path = ""
+
+# Optional post-completion hook. When non-empty, the workflow invokes:
+#   <on_complete> --report-path=<path-to-campaign-report.md>
+# after the campaign report is finalized (step-11). Failures are logged to
+# the decision log but never fail the campaign. Empty = no-op.
+on_complete = ""

@@ -1,8 +1,9 @@
 ---
 nextStepFile: 'step-11-maintenance.md'
 stateSchemaFile: 'assets/campaign-state-schema.json'
-stateFile: 'forge-data/_campaign/_campaign-state.yaml'
-backupFile: 'forge-data/_campaign/_campaign-state.yaml.bak'
+stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
+backupFile: '{campaignWorkspacePath}/_campaign-state.yaml.bak'
+validateScript: 'scripts/campaign-validate-state.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -16,9 +17,8 @@ Present all completed skills for operator review and gate the export behind expl
 ## RULES
 
 - This step uses the **read-backup-modify-write** pattern.
-- Validate state against `{stateSchemaFile}` on load. HALT on invalid state.
+- Validate state on load via `uv run {validateScript} --state-file {stateFile}`; HALT (exit 3) on non-zero.
 - Update `campaign.last_updated` to current ISO-8601 with timezone on every write.
-- All field names use `snake_case`, dates use ISO-8601 with timezone, enums use lowercase or uppercase as defined by the schema.
 - Update `campaign.current_stage` to `9`.
 - If `{headless_mode}` is true, auto-proceed past the write-gate with `[E]` and log: "headless: auto-proceed past export write-gate".
 
@@ -26,11 +26,11 @@ Present all completed skills for operator review and gate the export behind expl
 
 ### §1 — Read + Validate State
 
-Load `{stateFile}`. Validate the loaded state against `{stateSchemaFile}`. HALT on any schema validation error with the specific violation.
+Load `{stateFile}`. Run `uv run {validateScript} --state-file {stateFile}`; on non-zero, HALT (exit 3) with the script's `errors[]`.
 
 ### §2 — Read Directive
 
-If `campaign.directive_path` is set in state, load the file at that path. Apply directive contents as campaign-wide context for this stage's processing. If the file is not found, continue without error (directive is optional).
+If `campaign.directive_path` is set in state, load the file at that path and apply its contents as campaign-wide context for this stage's processing, per the directive contract in `references/campaign-directive-spec.md`. If the file is not found, continue without error (directive is optional).
 
 ### §3 — Collect Export Candidates
 
@@ -70,11 +70,11 @@ Choose [E] or [C]:"
 
 Display: "Export cancelled by operator. Campaign halted gracefully — no files written. Resume later to retry export."
 
-HALT the campaign. Do NOT mark the campaign as failed — the operator may resume later.
+Log the cancellation to the decision log, then HALT with exit code 11 (`export-cancelled`). Do NOT mark the campaign as failed — this is a graceful, resumable halt; the operator may resume later.
 
 #### On `[E]xport`:
 
-Proceed to §5.
+Log the export decision to the decision log, then proceed to §5.
 
 ### §5 — Invoke EX
 
