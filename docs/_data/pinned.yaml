@@ -5,7 +5,7 @@
 # canonical SKF reference output.
 #
 # Every time a skill is recompiled in oh-my-skills, update the matching
-# entry here and then run `npm run validate:docs-drift` from the SKF repo
+# entry here and then run `npm run docs:validate-drift` from the SKF repo
 # root. The script will:
 #
 #   1. Verify every skill below actually exists at the claimed version and

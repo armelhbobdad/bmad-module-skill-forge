@@ -24,7 +24,10 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 **Flags:**
 
 - `--require-tier=<Quick|Forge|Forge+|Deep>` — fail-fast for CI: if the calculated tier does not satisfy the requested tier (tool-prerequisite check, not a name comparison — Deep does NOT subsume Forge+ because Deep does not require ccc), the workflow halts with a "REQUIRED TIER NOT MET" block and exits without chaining to the health check. Pipelines branch on the JSON envelope's `require_tier_satisfied` field.
-- `--headless` / `-H` — see [Headless Mode](#headless-mode) below. For `/skf-setup` specifically, headless mode emits a single-line `SKF_SETUP_RESULT_JSON: {…}` envelope to stdout (schema-locked, includes `tier`, `previous_tier`, `tier_changed`, `tools`, `tools_added`/`removed`, `files_written`, `warnings`, `error`) and SUPPRESSES the human-readable banner — the entire payload pipelines need is on one parseable line.
+- `--orphan-action=<keep|remove>` — resolve the orphan QMD-collection removal gate non-interactively, even outside `--headless`.
+- `--ccc-skip-index` — skip CCC indexing (envelope `ccc_index.status` becomes `"skipped"`) — the fast re-probe lane to refresh the detected tier without paying the full re-index cost.
+- `--quiet` — suppress the human-readable FORGE STATUS banner and emit the envelope only.
+- `--headless` / `-H` — see [Headless Mode](#headless-mode) below. For `/skf-setup` specifically, headless mode emits a single-line `SKF_SETUP_RESULT_JSON: {…}` envelope to stdout (schema-locked, includes `status` — the primary branch field — plus `tier`, `previous_tier`, `tier_changed`, `tools`, `tools_added`/`removed`, `files_written`, `warnings`, `error`) and SUPPRESSES the human-readable banner — the entire payload pipelines need is on one parseable line.
 
 **Agent:** Ferris (Architect mode)
 
@@ -395,10 +398,10 @@ You can also set `headless_mode: true` in your forge preferences (`_bmad/_memory
 **Exception — `/skf-setup` headless emits a single-line JSON envelope.** Unlike other workflows, headless `/skf-setup` SUPPRESSES the human-readable status banner entirely and emits exactly one prefixed line on stdout:
 
 ```
-SKF_SETUP_RESULT_JSON: {"skf_setup":{"tier":"Deep","previous_tier":"Forge","tier_changed":true,"tools":{...},"tools_added":[...],"tools_removed":[],"config_path":"...","ccc_index":{...},"files_written":[...],"tier_override_active":false,"tier_override_invalid":false,"require_tier_satisfied":null,"warnings":[],"error":null}}
+SKF_SETUP_RESULT_JSON: {"skf_setup":{"status":"success","tier":"Deep","previous_tier":"Forge","tier_changed":true,"tools":{...},"tools_added":[...],"tools_removed":[],"config_path":"...","ccc_index":{...},"files_written":[...],"tier_override_active":false,"tier_override_invalid":false,"require_tier_satisfied":null,"warnings":[],"error":null}}
 ```
 
-Parent skills and CI pipelines `grep` one line out of the workflow log to learn the outcome — no ASCII-art parsing, no race against the [`forge-tier.yaml`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-setup/references/write-config.md) writer. The envelope schema is versioned at [`src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/shared/scripts/schemas/skf-setup-result-envelope.v1.json) and asserted against on every emit.
+Parent skills and CI pipelines `grep` one line out of the workflow log to learn the outcome — no ASCII-art parsing, no race against the [`forge-tier.yaml`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-setup/references/write-config.md) writer. Branch on the top-level `status` field (`success`, `tier_failure`, `write_failure`, or `blocked`) rather than composing the outcome from `require_tier_satisfied` + `error`. The envelope schema is versioned at [`src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/shared/scripts/schemas/skf-setup-result-envelope.v1.json) and asserted against on every emit.
 
 **Exception — `/skf-quick-skill` headless emits structured progress + result envelopes.** Headless `/skf-quick-skill` runs are first-class building blocks for batch automators. Three operational contracts beyond per-gate auto-proceed:
 
@@ -420,7 +423,7 @@ Parent skills and CI pipelines `grep` one line out of the workflow log to learn 
    | 3    | resolution-failure  |
    | 4    | write-failure       |
    | 5    | overwrite-cancelled |
-   | 6    | compile-cancelled   |
+   | 6    | user-cancelled      |
    | 7    | finalize-blocked    |
 
 3. **Error-variant result contract on every HARD HALT.** A `SKF_QUICK_SKILL_RESULT_JSON: {…}` envelope is emitted on `stderr` (always) and copied to `{skill_package}/quick-skill-result-latest.json` when the skill package is known (HALTs at step 5 §1 onward). The schema and full population rules live in [`src/skf-quick-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-quick-skill/SKILL.md) § "Result Contract on HARD HALT".
@@ -445,6 +448,12 @@ Parent skills and CI pipelines `grep` one line out of the workflow log to learn 
 3. **Final result envelope on every terminal exit.** Step-05 emits a single-line `SKF_BRIEF_RESULT_JSON: {…}` envelope on **stdout** before chaining to step 6 on success; every HARD HALT emits the same envelope shape on **stderr** with `status: "error"` and a typed `halt_reason` (`input-missing`, `input-invalid`, `forge-tier-missing`, `target-inaccessible`, `gh-auth-failed`, `write-failed`, `overwrite-cancelled`, `user-cancelled`). Full envelope schema and population rules in [`src/skf-brief-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-brief-skill/SKILL.md) § "Result Contract (Headless)".
 
 **Presets (`--preset <name>`).** Loads `{sidecar_path}/brief-presets/{name}.yaml` and merges its keys as defaults at step 1 §8; explicit headless args override preset values. The preset file is YAML containing any subset of the headless args above; unknown fields are ignored with a warning. Useful for repeated patterns — e.g. briefing 5 SaaS SDKs that all share `source_authority=community`, `scope_type=full-library`, `scripts_intent=skip`.
+
+**Exception — the management and verification workflows emit structured result envelopes too.** Beyond per-gate auto-proceed, Drop Skill, Rename Skill, and Refine Architecture each emit a single-line `SKF_*_RESULT_JSON: {…}` envelope on every terminal exit (`status: "success"` on the happy path, `status: "error"` with a typed `halt_reason` on any HARD HALT) and exit with a stable code so automators branch on the failure class without grepping message text. All three honour the universal `cancel`/`exit`/`:q` affordance at any prompt (exit `6`, `halt_reason: "user-cancelled"`).
+
+- **`/skf-drop-skill` (DS)** — exit `2` `input-missing`/`input-invalid`, `4` `write-failure` (covers manifest-write, context-rebuild, and full-purge `delete-failed`), `5` state-conflict (active-version guard). Schema and `halt_reason` list in [`src/skf-drop-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-drop-skill/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
+- **`/skf-rename-skill` (RS)** — exit `2` `input-missing`/`input-invalid`, `4` `write-failure` (`copy-failed`, `write-failed`, `manifest-write-failed`; the §7 context rebuild is best-effort and never halts), `5` state-conflict (name-collision, source-authority, concurrent-run lock). Schema in [`src/skf-rename-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-rename-skill/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
+- **`/skf-refine-architecture` (RA)** — exit `2` `input-missing`/`input-invalid`, `4` `write-failure`, `7` `inventory-unreliable`, `8` `recovery-failed` (durability state insufficient to reconstruct findings, or the compiled doc is missing its `## Refinement Summary`). Schema in [`src/skf-refine-architecture/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-refine-architecture/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
 
 ---
 

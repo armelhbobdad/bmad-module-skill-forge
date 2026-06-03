@@ -61,7 +61,7 @@ Every file in the per-skill output carries a specific job. Here's the lookup tab
 | Which symbols are documented and where did each come from? | `forge-data/{name}/{version}/provenance-map.json` |
 | What AST patterns were used for extraction? | `forge-data/{name}/{version}/extraction-rules.yaml` |
 | What signatures, types, and examples did the extractor actually capture? | `forge-data/{name}/{version}/evidence-report.md` |
-| How was the skill scored? Show me the math. | `forge-data/{name}/{version}/test-report-{name}.md` |
+| How was the skill scored? Show me the math. | `forge-data/{name}/{version}/test-report-{name}-{run_id}.md` (per-run, run-id-suffixed — newest wins) |
 | How was the skill scoped, and what was deliberately left out? | `forge-data/{name}/skill-brief.yaml` |
 
 Everything a reader needs to reconstruct the compilation is in the two sibling directories: `skills/` ships to consumers, `forge-data/` is the audit trail.

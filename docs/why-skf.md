@@ -52,7 +52,7 @@ See the [Verifying a Skill](../verifying-a-skill/) page for the full three-step 
 
 ### The curious developer
 
-Your agent just hallucinated a method that doesn't exist, again. You want this to stop, and you don't want to read a 569-line architecture page before running your first command.
+Your agent just hallucinated a method that doesn't exist, again. You want this to stop, and you don't want to read a long architecture reference before running your first command.
 → Start with [Getting Started](../getting-started/).
 
 ### The BMAD user

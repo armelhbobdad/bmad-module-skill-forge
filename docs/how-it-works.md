@@ -27,7 +27,7 @@ Ferris confirms the repository exists, detects its language, finds its version f
 
 ### 3. He extracts the API
 
-He reads cognee's source code, identifies the public exports, and pulls out function signatures, parameter types, and return types. At the Forge tier (with ast-grep installed), each signature is verified against the real syntax tree of the source. At Quick tier (no extra tools), he reads the file directly. Either way, nothing is invented — if he can't cite it, he doesn't include it.
+He reads cognee's source code, identifies the public exports, and pulls out function signatures, parameter types, and return types. Quick Skill always extracts at community quality — it does the same job whatever tools you have installed, reading the source directly to ground every signature. Nothing is invented — if he can't cite it, he doesn't include it.
 
 ### 4. He writes the skill with receipts
 
@@ -43,13 +43,15 @@ That tag means: *this came from AST extraction of this exact file at this exact 
 
 ### 5. You get a skill package
 
-Ferris writes a `SKILL.md` (the full instruction manual your agent loads on demand) and a `context-snippet.md` (an 80–120 token index). The snippet gets injected into your platform context file (`CLAUDE.md`, `AGENTS.md`, or `.cursorrules`) as an always-on reminder: *"This skill exists; read it before writing cognee code."* Both halves are load-bearing — see the [Dual-Output Strategy](../skill-model/#dual-output-strategy) for why.
+Ferris writes a `SKILL.md` (the full instruction manual your agent loads on demand) and a `context-snippet.md` (an 80–120 token index) alongside it. The snippet is the always-on reminder — *"This skill exists; read it before writing cognee code."* — but it isn't wired in automatically: when you run `export-skill`, the snippet gets injected into your platform context file (`CLAUDE.md`, `AGENTS.md`, or `.cursorrules`). Both halves are load-bearing — see the [Dual-Output Strategy](../skill-model/#dual-output-strategy) for why.
 
 ### 6. The audit trail stays on disk
 
-Alongside the skill, Ferris leaves a `provenance-map.json` (every receipt), an `evidence-report.md` (build audit trail), and the compilation config (`skill-brief.yaml`). Commit these with the skill and any teammate — or any skeptic — can reproduce the same output from the same source.
+Alongside the skill, Ferris leaves a `metadata.json` (the pinned source, commit SHA, and export count) and a timestamped result contract recording exactly what was written. Commit these with the skill and any teammate — or any skeptic — can see what was built from which commit.
 
 That's the whole pipeline. One trigger in, one verifiable skill out, every claim traceable back to a file and a commit.
+
+Quick Skill is the fastest path, not the most thorough one. When you want a full audit trail — a `provenance-map.json` of every receipt and an `evidence-report.md` build log, both produced from a `skill-brief.yaml` — run the brief-driven [`create-skill`](../workflows/#create-skill-cs) path instead.
 
 ---
 

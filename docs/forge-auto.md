@@ -31,7 +31,7 @@ forge-auto expands to `AN[auto] BS[auto] CS TS[min:90] EX`. The two analysis sta
 
 | Stage | Workflow | Mode | What Happens |
 |-------|----------|------|-------------|
-| 1 | **Analyze Source** (AN) | `[auto]` | Scans the target, detects shape (library/framework/tool/app), discovers exports, and generates a scope + brief automatically. |
+| 1 | **Analyze Source** (AN) | `[auto]` | Scans the target, detects shape (`library-API`, `reference-app`, `language-reference`, `stack-compose`, or `unknown`), discovers exports, and generates a scope + brief automatically. |
 | 2 | **Brief Skill** (BS) | `[auto]` | Enriches the auto-generated brief with doc detection results. No interactive scoping — the brief is assembled from AN's output. |
 | 3 | **Create Skill** (CS) | standard | Compiles the skill from the enriched brief. Extracts exports, resolves documentation sources, validates structure. |
 | 4 | **Test Skill** (TS) | `[min:90]` | Verifies completeness with a **90% quality threshold** (stricter than the default 80%). Fail halts the pipeline. |
@@ -45,10 +45,11 @@ Data flows automatically between stages — the brief path from AN feeds BS, the
 
 forge-auto's `[auto]` flags activate several behaviors that normally require manual input:
 
-- **Auto-scope** — shape detection (library, framework, tool, application) drives scope decisions. No interactive scope confirmation.
+- **Auto-scope** — shape detection (`library-API`, `reference-app`, `language-reference`, `stack-compose`) drives scope decisions, mapping onto `scope.type` values like `full-library`, `public-api`, and `reference-app`. No interactive scope confirmation.
 - **Auto-brief** — the brief is generated and enriched with doc-detection results in one pass, without the interactive discovery flow that `BS` uses standalone.
 - **Coexistence detection** — if a skill for the same target already exists, forge-auto detects it and offers three options: create alongside (new version), merge into the existing skill, or skip.
-- **Auto-decomposition** — for massive repos (>500 exports or >3 packages), AN automatically decomposes into multiple analysis units before proceeding.
+- **Auto-decomposition** — multi-package monorepos (>3 packages) flag a *decomposition candidate*; a cohesion check then decides whether to merge into one cohesive skill (the usual outcome — published monorepos are mostly cohesive) or split into N. Exceeding 500 exports also flags a candidate. The default leans toward a single skill, not one-per-package.
+- **Language-reference handling** — for compiler, interpreter, or parser repos, AN classifies the target as a `language-reference`. For a *whole-language* reference (a compiler/interpreter), the skill's value is the language's prose — the guide and standard-library docs — not compiler internals, so AN seeds the canonical corpora. If none are found it records an honest **DEGRADED** caveat: the skill is low-value as code-only until you attach the language's guide and std/library docs (re-run with a doc URL, or enrich via `US`).
 
 ---
 
@@ -68,7 +69,7 @@ The quality threshold is 90% — if the skill scores below that, the pipeline ha
 
 A typical library (50–200 exports) takes **3–5 minutes** end to end. Factors that increase time:
 
-- Massive repos (>500 exports) trigger auto-decomposition, adding 1–3 minutes
+- Multi-package monorepos (>3 packages) flag a decomposition candidate; if the cohesion check splits the repo into N skills, add 1–3 minutes
 - Doc-only targets depend on documentation site size and structure
 - Deep-tier projects (with QMD and CCC) spend more time on enrichment
 
