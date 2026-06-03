@@ -1,5 +1,12 @@
 ---
 nextStepFile: 'step-auto-shard.md'
+# Resolve `{detectDocsHelper}` by probing `{detectDocsProbeOrder}` in order
+# (installed SKF module path first, src/ dev-checkout fallback); first existing
+# path wins. HALT if neither resolves — §2 has no prose fallback for doc-source
+# detection (Pages-API walk, docs/ folder scan, content hashing).
+detectDocsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-docs.py'
+  - '{project-root}/src/shared/scripts/skf-detect-docs.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -37,10 +44,12 @@ Check that `{source_repo}` is available from the skill brief.
 
 **If `{source_repo}` is available:**
 
+**Resolve `{detectDocsHelper}`** from `{detectDocsProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
 Invoke the detect-docs script:
 
 ```bash
-uv run src/shared/scripts/skf-detect-docs.py \
+uv run {detectDocsHelper} \
   --repo-url {source_repo} \
   [--local-path {source_path}] \
   [--skip-pages-api]

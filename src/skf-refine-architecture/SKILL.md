@@ -68,6 +68,7 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 | 5    | state-conflict       | step 1 §3 (no skills found — refinement requires ≥1 skill) |
 | 6    | user-cancelled       | step 1 §1 prompt cancelled; any prompt that accepted `cancel`/`exit`/`:q`; step 5 review gate `[X]` |
 | 7    | inventory-unreliable | step 1 §2 (>20% skill-inventory warnings exceed budget) |
+| 8    | recovery-failed      | step 5 §1 (durability state insufficient to reconstruct Step 02-04 findings); step 6 §1 (`## Refinement Summary` absent from the compiled document) |
 
 ## Result Contract (Headless)
 
@@ -77,7 +78,7 @@ When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **st
 SKF_REFINE_ARCHITECTURE_RESULT_JSON: {"status":"success|error","refined_path":"…|null","gap_count":0,"issue_count":0,"improvement_count":0,"exit_code":0,"halt_reason":null}
 ```
 
-`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"insufficient-skills"`, `"output-folder-unconfigured"`, `"forge-folder-unconfigured"`, `"inventory-unreliable"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above.
+`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"insufficient-skills"`, `"output-folder-unconfigured"`, `"forge-folder-unconfigured"`, `"inventory-unreliable"`, `"write-failed"`, `"recovery-failed"`, `"user-cancelled"`. `exit_code` matches the table above.
 
 ## On Activation
 

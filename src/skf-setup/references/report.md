@@ -91,6 +91,7 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
   CCC Index:
   {if ccc_index_result is "fresh": up to date — semantic discovery ready}
   {if ccc_index_result is "created": indexed this run — semantic discovery ready}
+  {if ccc_index_result is "skipped": skipped (--ccc-skip-index) — run `/skf-setup` without --ccc-skip-index to build the index when you're ready}
   {if ccc_index_result is "failed": indexing failed — semantic discovery unavailable this session}
   {end if}
 
@@ -126,6 +127,7 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 
 {if {tier_changed} is false and {tools_added} is empty and {tools_removed} is empty and {previous_tier} is non-null:}
   {same-tier message from tier-rules.md}
+  {if preferences_yaml_created is false and (ccc_index_result is "fresh" or ccc_index_result is "none" or ccc_index_result is "skipped"): Nothing changed — your preferences were left untouched and the index was already current. You're good.}
 
 {if {tier_changed} is false and ({tools_added} or {tools_removed} is non-empty):}
   Tier unchanged: {calculated_tier}.
@@ -203,6 +205,7 @@ echo '{
   "ccc_exclusion_warnings": {ccc_exclusion_warnings_list},
   "ccc_registry_stale_removed": {ccc_registry_stale_removed_paths_list},
   "ccc_indexing_failed_reason": {ccc_indexing_failed_reason_or_null},
+  "orphan_auto_resolution": {orphan_auto_resolution_or_null},
   "error": {error_object_or_null}
 }' | uv run {emitEnvelopeHelper} emit
 ```

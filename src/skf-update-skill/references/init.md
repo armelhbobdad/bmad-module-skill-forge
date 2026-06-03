@@ -38,6 +38,7 @@ Provide either:
 3. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill-name}/active` — resolve to `{skill_group}/active/{skill-name}/`
 4. If neither: fall back to flat path `{skills_output_folder}/{skill-name}/`. If SKILL.md exists at the flat path, auto-migrate per `knowledge/version-paths.md` migration rules
 5. Store the resolved path as `{resolved_skill_package}` for all subsequent artifact loading
+6. Bind `{baseline_version}` to the pre-update version — for an update this is the version being updated, i.e. the `{active_version}` resolved in step 1 above (the flat-path fallback in step 4 has no version, so use the package version read from metadata.json in §2). Step 2 §1c passes `{baseline_version}` to `skf-provenance-gap-dispatch.py` as a required argument; leaving it unbound makes the helper search a wrong/empty directory and silently return `no-report`, dropping the major-version off-ramp.
 
 Resolve the path to an absolute skill folder location.
 

@@ -10,6 +10,9 @@ detectWorkspacesProbeOrder:
 detectLanguageProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-language.py'
   - '{project-root}/src/shared/scripts/skf-detect-language.py'
+emitBriefEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-brief-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-brief-result-envelope.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -56,10 +59,10 @@ To analyze the target repository by resolving its location, reading its structur
 
 **On API failure (non-200 from `gh api`):**
 
-Distinguish the failure class before reporting:
-- Auto-run `gh auth status` and capture its output. If it reports an unauthenticated state or expired token: HALT (exit code 3, `halt_reason: "gh-auth-failed"`) — "**Error:** GitHub CLI is not authenticated. `gh auth status` says: `{captured output}`. Run `gh auth login` and retry."
-- If `gh auth status` reports authenticated but the call still failed (404/403): HALT (exit code 3, `halt_reason: "target-inaccessible"`) — "**Error:** Cannot access repository at `{url}`. The CLI is authenticated but the API returned `{status}`. Check the URL and that the account has access to private repositories if applicable."
-- If `gh auth status` itself fails to run (binary missing): HALT (exit code 3, `halt_reason: "gh-auth-failed"`) — "**Error:** `gh` CLI not found on PATH. Install it from <https://cli.github.com> and re-run."
+Distinguish the failure class before reporting. In headless mode, every branch below emits the error envelope per **step 5 §4b** with its stated `halt_reason` before the HALT (pass the resolved `{skill_name}`, or the `"unknown"` placeholder documented in §4b if it is not yet set):
+- Auto-run `gh auth status` and capture its output. If it reports an unauthenticated state or expired token: emit the error envelope per **step 5 §4b** with `halt_reason: "gh-auth-failed"`, then HALT (exit code 3, `halt_reason: "gh-auth-failed"`) — "**Error:** GitHub CLI is not authenticated. `gh auth status` says: `{captured output}`. Run `gh auth login` and retry."
+- If `gh auth status` reports authenticated but the call still failed (404/403): emit the error envelope per **step 5 §4b** with `halt_reason: "target-inaccessible"`, then HALT (exit code 3, `halt_reason: "target-inaccessible"`) — "**Error:** Cannot access repository at `{url}`. The CLI is authenticated but the API returned `{status}`. Check the URL and that the account has access to private repositories if applicable."
+- If `gh auth status` itself fails to run (binary missing): emit the error envelope per **step 5 §4b** with `halt_reason: "gh-auth-failed"`, then HALT (exit code 3, `halt_reason: "gh-auth-failed"`) — "**Error:** `gh` CLI not found on PATH. Install it from <https://cli.github.com> and re-run."
 
 **For local paths:**
 - Verify the directory exists

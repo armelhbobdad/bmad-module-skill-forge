@@ -73,6 +73,8 @@ These require manual review — see the error-handling guidance in step 2.
 
 Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/drop-skill-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{skills_output_folder}/drop-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all purged file paths in `outputs`; include `target_skill`, `drop_mode`, and `versions_affected` in `summary`.
 
+Set the record's `status` from step 2's `purge_status`: `"partial"` when some (but not all) purge-mode directories failed to delete — surface the failing paths from `delete_failures` in `summary.delete_failures` — otherwise `"success"`. A *full* purge failure never reaches this step: step 2 §4 HALTs with `halt_reason: "delete-failed"` and the error-envelope path below handles it.
+
 When `{headless_mode}` is true, also emit the single-line envelope on **stdout** before chaining to step 4 (matches the SKILL.md "Result Contract (Headless)" shape):
 
 ```

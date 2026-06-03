@@ -1,14 +1,20 @@
+---
+shapeDetectProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-shape-detect.py'
+  - '{project-root}/src/shared/scripts/skf-shape-detect.py'
+---
+
 # Shape Detection Reference
 
 Reference document for invoking `skf-shape-detect.py` — the shared shape classification module. Loaded by `step-auto-scope.md` for auto-scope analysis.
 
 ## Invocation Contract
 
-**Script:** `src/shared/scripts/skf-shape-detect.py`
+**Resolve `{shapeDetectHelper}`** from `{shapeDetectProbeOrder}`; first existing path wins; HALT if neither resolves.
 
 **Command:**
 ```
-uv run src/shared/scripts/skf-shape-detect.py --repo-url <url> \
+uv run {shapeDetectHelper} --repo-url <url> \
   --manifests <path1,path2,...> \
   --grammar-files <g1,g2,...> --tree-paths <d1/,d2/,file,...>
 ```

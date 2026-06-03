@@ -54,8 +54,16 @@ Context payload shape (consumed by `emit`):
     "ccc_exclusion_warnings":        ["string", ...],
     "ccc_registry_stale_removed":    ["/path", ...],
     "ccc_indexing_failed_reason":    "string|null",
+    "orphan_auto_resolution":        null|{"action": "keep|remove", "count": int, "source": "headless-default|orphan-action-flag"},
     "error":                         null|{"phase","path","reason"}
   }
+
+  When the step-3 orphan-removal gate is resolved non-interactively
+  (headless default Keep, or an explicit --orphan-action), pass
+  `orphan_auto_resolution` so the audit trail lands in `warnings` —
+  most importantly when the destructive `remove` ran headlessly, which a
+  pipeline otherwise could not distinguish from a no-op by reading the
+  envelope alone.
 
 Caller does NOT need to compute warnings, tools_added/removed, or
 tier_changed — the script derives them from the inputs above.
@@ -175,6 +183,15 @@ def _assemble_warnings(payload: dict) -> list[str]:
         missing = payload.get("require_tier_failure_missing", []) or []
         warnings.append(
             f"require_tier_failed: missing {', '.join(missing) if missing else '<none>'}"
+        )
+    orphan = payload.get("orphan_auto_resolution")
+    if isinstance(orphan, dict) and orphan.get("action"):
+        action = str(orphan.get("action"))
+        count = orphan.get("count", 0)
+        source = str(orphan.get("source", "headless-default"))
+        warnings.append(
+            f"orphan_auto_resolution: {action} {count} orphaned collection(s) "
+            f"(non-interactive, {source})"
         )
     return warnings
 

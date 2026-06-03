@@ -62,9 +62,9 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 | Code | Meaning              | Raised by                                                                                    |
 | ---- | -------------------- | -------------------------------------------------------------------------------------------- |
 | 0    | success              | step 4 (terminal)                                                                           |
-| 2    | input-missing / input-invalid | step 1 §4 (headless missing `skill_name` arg) → `input-missing`; non-existent skill / unparseable version → `input-invalid` |
+| 2    | input-missing / input-invalid | step 1 §4 (headless missing `skill_name` arg) → `input-missing`; step 1 §4 (headless skill arg matches no listed skill) / step 1 §6 (headless version arg absent from the `versions` map) → `input-invalid` |
 | 3    | resolution-failure   | step 1 §2 (manifest is malformed JSON); step 1 §3 (no skills found anywhere)               |
-| 4    | write-failure        | On-Activation §3 pre-flight write probe (skills_output_folder unwritable); step 2 §2 (manifest write); step 2 §3 (context-file rewrite); step 2 §4 (directory delete) |
+| 4    | write-failure        | On-Activation §3 pre-flight write probe (skills_output_folder unwritable); step 2 §2 (manifest write → `manifest-write-failed`); step 2 §3 (context-file rewrite → `context-rebuild-failed`); step 2 §4 (full purge failure — every target directory failed to delete → `delete-failed`) |
 | 5    | state-conflict       | step 1 §7 (active-version-guard refuses to drop the active version while non-deprecated peers remain) |
 | 6    | user-cancelled       | step 1 §10 confirmation gate `[N]`; any prompt that accepted `cancel`/`exit`/`:q`; On-Activation §4 (`headless-purge-forbidden`) |
 

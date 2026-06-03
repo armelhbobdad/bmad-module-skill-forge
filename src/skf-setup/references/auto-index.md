@@ -37,6 +37,8 @@ For Quick and Forge tiers, skip silently and proceed (QMD is not available; ccc 
 
 Read `{calculated_tier}` and `{ccc}` from context (set by step 1).
 
+Default `{orphan_auto_resolution}` to null at the top of this step; only the non-interactive branch in section 3 overrides it.
+
 **If `{calculated_tier}` is Quick or Forge AND `{ccc}` is false:** No registry hygiene needed. Set `{hygiene_result: "skipped", hygiene_healthy: 0, hygiene_orphaned_removed: 0, hygiene_orphaned_kept: 0, hygiene_stale_cleaned: 0, ccc_registry_stale_cleaned: 0, ccc_registry_stale_removed_paths: []}`. Proceed directly to section 5 (Auto-Proceed) — no output, no messaging.
 
 **If `{calculated_tier}` is Quick or Forge AND `{ccc}` is true:** No QMD work, but ccc registry needs pruning. Set QMD-related flags to defaults (`hygiene_result: "skipped"`, all hygiene_* counts = 0). Skip directly to section 4 (Stale Registry Cleanup), running it with the ccc-prune flag only.
@@ -72,7 +74,7 @@ Set `{hygiene_result: "completed"}`.
 
 **If `{orphaned_collections}` is empty:** Set `{hygiene_orphaned_removed: 0, hygiene_orphaned_kept: 0}` and skip to section 4.
 
-**Non-interactive resolution.** If `{orphan_action}` is non-null, resolve the gate without prompting using that value: log `"Auto-decision (--orphan-action={value}): kept|removed {len(orphaned_collections)} orphaned forge collection(s)"`. If `{orphan_action}` is `"keep"`, set `{hygiene_orphaned_removed: 0, hygiene_orphaned_kept: len(orphaned_collections)}` and skip to section 4. If `"remove"`, fall through to the removal block below (still no user prompt). Independently, if `{headless_mode}` is true and `{orphan_action}` is null, auto-resolve to the default **Keep** with the equivalent log line and skip to section 4. The two paths compose: `--orphan-action` overrides the headless default; `--headless` without `--orphan-action` keeps backward-compatible behavior.
+**Non-interactive resolution.** If `{orphan_action}` is non-null, resolve the gate without prompting using that value: log `"Auto-decision (--orphan-action={value}): kept|removed {len(orphaned_collections)} orphaned forge collection(s)"` and set `{orphan_auto_resolution: {action: "{orphan_action}", count: len(orphaned_collections), source: "orphan-action-flag"}}` so step 4 can fold it into the envelope warnings (the audit trail matters most when `remove` deletes collections headlessly). If `{orphan_action}` is `"keep"`, set `{hygiene_orphaned_removed: 0, hygiene_orphaned_kept: len(orphaned_collections)}` and skip to section 4. If `"remove"`, fall through to the removal block below (still no user prompt). Independently, if `{headless_mode}` is true and `{orphan_action}` is null, auto-resolve to the default **Keep** with the equivalent log line, set `{orphan_auto_resolution: {action: "keep", count: len(orphaned_collections), source: "headless-default"}}`, and skip to section 4. The two paths compose: `--orphan-action` overrides the headless default; `--headless` without `--orphan-action` keeps backward-compatible behavior. (On an interactive resolution — section 3's prompt below — leave `{orphan_auto_resolution}` null; the human chose, so there is no auto-decision to audit.)
 
 **If `{headless_mode}` is false**, display to the user:
 

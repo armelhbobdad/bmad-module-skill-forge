@@ -48,6 +48,10 @@ Prior state lives in two files; the detector helper (§2) reads forge-tier.yaml 
 
 Press Esc or Ctrl+C now if this isn't the right project — no files have been written yet."
 
+**Re-run notice** — when the prior-state read (§2 below, `prior.previous_tier`) returns a non-null value AND `{headless_mode}` is `false`, display this notice instead of the first-run preamble, before continuing, so a user who re-ran in the wrong/sibling repo can abort before any config rewrite or re-index. (When `{headless_mode}` is true, skip it — pipelines re-run intentionally.)
+
+"**Forge already set up here:** {previous_tier} tier, detected {previous_detection_date}. Re-running re-probes the tools and refreshes config/index in this project. To refresh the tier without paying the ccc re-index cost, re-run with `--ccc-skip-index`. Press Esc or Ctrl+C now if this isn't the project you meant — nothing has been rewritten yet."
+
 ### 2. Run Detection Helper
 
 Build the Bash invocation: `uv run {detectToolsHelper} --prior-state-from "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"`. If `{tier_override}` is non-null, append `--tier-override "{tier_override}"`. If `{require_tier}` is non-null, append `--require-tier "{require_tier}"`. Then execute. (The script's PEP 723 metadata is why `uv run` is required — bare `python3` skips dependency resolution.)

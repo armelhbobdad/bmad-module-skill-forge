@@ -55,7 +55,7 @@ Load `{extractionPatternsData}` completely. Identify the strategy for the curren
 
 From the brief, apply scope and pattern filters:
 
-- `scope.type` — determines what to extract (e.g., `full-library`, `specific-modules`, `public-api`, `component-library`, `reference-app`, `docs-only`). Use `reference-app` when the source is a whole app and the skill's value is wiring patterns rather than public exports (embedded-sidecar reference apps, CLI-demo repos, integration-pattern demonstrators). `reference-app` triggers the compile-assembly overrides in `{compileAssemblyRules}` that replace "Key API Summary" with a "Pattern Surface" section and make `stats.exports_documented` semantics pattern-oriented. Do NOT pick `full-library` for reference apps — downstream assembly will remap wiring onto export slots, producing fuzzy counts and an awkward SKILL.md.
+- `scope.type` — determines what to extract (e.g., `full-library`, `specific-modules`, `public-api`, `component-library`, `reference-app`, `docs-only`). Use `reference-app` when the source is a whole app and the skill's value is wiring patterns rather than public exports (embedded-sidecar reference apps, CLI-demo repos, integration-pattern demonstrators). `reference-app` triggers the compile-assembly overrides in `assets/compile-assembly-rules.md` that replace "Key API Summary" with a "Pattern Surface" section and make `stats.exports_documented` semantics pattern-oriented. Do NOT pick `full-library` for reference apps — downstream assembly will remap wiring onto export slots, producing fuzzy counts and an awkward SKILL.md.
 - `scope.include` — file globs to include
 - `scope.exclude` — file globs to exclude
 
@@ -273,6 +273,14 @@ Compile all extracted data into a structured inventory:
 ### 6. Present Extraction Summary (Gate 2)
 
 **Docs-only note:** If `docs_only_mode` is active (`extraction_mode: "docs-only"`), display a brief note explaining that T3 content will be added by the doc-fetcher step (step 3c), then auto-proceed past this gate. Example: "Docs-only mode: extraction inventory is empty. Documentation content will be fetched from `doc_urls` in step 3c. Auto-proceeding."
+
+**Zero-export sanity check (source mode):** If `extraction_mode != "docs-only"` AND `export_count == 0` AND the brief declares no `doc_urls`, an empty extraction is almost always an error — a wrong branch/tag, an over-narrow `scope.include`, or a failed AST run — not a valid empty surface. Do NOT let this sail through to a green report. Surface a distinct warning at the gate:
+
+"**⚠️ Zero public exports extracted.** A source-type brief produced no documented surface and declares no `doc_urls`. This usually means a scope/branch/tag mismatch (wrong `target_version`, over-narrow `scope.include`) or a failed AST run — the compiled skill would document nothing. Verify the brief's source ref and scope before continuing.
+
+**[C] Continue anyway** — compile an empty surface (default)"
+
+Under `{headless_mode}`, do NOT auto-pass silently: set `status: "partial"` and `summary.warning: "zero-exports"` on the result contract (carried to step 8's record), log `"headless: zero public exports extracted — likely scope/branch/tag mismatch, continuing"`, append a `headless_decisions[]` entry `{step: "extract", gate: "zero-exports", decision: "C", rationale: "headless mode — zero exports, no human to confirm scope/ref", timestamp: {ISO}}`, and proceed. The distinct warning string surfaces the worst kind of failure (looks green, isn't) where a human or automator can act on it.
 
 Display the extraction findings for user confirmation:
 

@@ -29,8 +29,10 @@ Input schema (one object):
   }
 
 Exit codes:
-  0  — score computed (verdict may be PASS/FAIL/INCONCLUSIVE)
-  1  — input error (bad JSON, missing fields, schema violation)
+  0  — input was parsed; either a score was computed (verdict may be
+       PASS/FAIL/INCONCLUSIVE) or a schema/validation error object
+       ({"error": ..., "code": "INVALID_INPUT"}) was emitted as JSON
+  1  — input could not be parsed at all (no input provided, or malformed JSON)
 """
 
 from __future__ import annotations
@@ -381,4 +383,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-    sys.exit(1 if "error" in result else 0)

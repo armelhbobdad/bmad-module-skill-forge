@@ -254,7 +254,21 @@ DO NOT BE LAZY — For EACH remaining file in the change manifest with status MO
    - Record: return type (if function/method)
    - Record: JSDoc/docstring summary (if present)
    - Label: confidence tier (T1/T1-low/T2)
-4. Returns structured extraction findings to parent
+4. **Return contract.** Each extraction worker returns ONLY this per-file block — no prose, no commentary, no markdown fences (the parent strips wrapping fences before parsing). The shape is exactly the per-file record §4 aggregates (the `Per-file extractions` block, lines below), so the parent appends it verbatim rather than re-parsing free text:
+
+   ```json
+   {
+     "file_path": "...",
+     "exports": [
+       {"name": "...", "type": "function|class|type|constant",
+        "signature": "...", "location": "{file}:{start_line}-{end_line}",
+        "confidence": "T1|T1-low|T2",
+        "parameters": [{"name": "...", "type": "..."}],
+        "return_type": "...", "docstring": "...",
+        "qmd_evidence": "<if Deep tier, else omit>"}
+     ]
+   }
+   ```
 
 **For DELETED files:** No extraction needed — deletions handled in merge step.
 

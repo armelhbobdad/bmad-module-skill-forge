@@ -75,11 +75,11 @@ Scope:        {scope_type} ({N} include, {M} exclude patterns)
 Docs:         {doc_urls count} sources detected | "None detected"
 Version:      {version}
 Forge Tier:   {forge_tier}
-Quality:      90% target (forge-auto pipeline)
+Pipeline:     forge-auto ({forge_tier} tier)
 Description:  "{description}"
 ```
 
-Where `{N}` is the count of `scope_include` patterns and `{M}` is the count of `scope_exclude` patterns. If `doc_urls` is null or empty, display "None detected".
+Where `{N}` is the count of `scope_include` patterns and `{M}` is the count of `scope_exclude` patterns. If `doc_urls` is null or empty, display "None detected". The `Pipeline` line names the auto pipeline and the resolved `{forge_tier}` — it carries no numeric quality target, which would be an unverified guarantee an automator might parse as fact.
 
 ### 3. Validation Gate
 

@@ -17,6 +17,13 @@ atomicWriteProbeOrder:
 descriptionGuardProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-description-guard.py'
   - '{project-root}/src/shared/scripts/skf-description-guard.py'
+# Resolve `{frontmatterValidator}` by probing `{frontmatterValidatorProbeOrder}`
+# in order (installed SKF module path first, src/ dev-checkout fallback); first
+# existing path wins. §0's post-restore re-validation hook uses it; an installed
+# module has no src/ tree, so a bare src/ path would silently fail the hook.
+frontmatterValidatorProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py'
+  - '{project-root}/src/shared/scripts/skf-validate-frontmatter.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -43,7 +50,7 @@ To validate the compiled SKILL.md content against the agentskills.io specificati
 
 Load `{descriptionGuardProtocol}` for the full prose explanation of the four-phase guard (why it exists, what counts as divergence, why token-stream comparison is the right shape). The deterministic phases are executed via `{descriptionGuardHelper}` — the calling sections (§2 and §4) invoke the helper at the capture and verify-restore points.
 
-**This skill's post-restore re-validation hook:** after `{descriptionGuardHelper}` reports `restored: true`, run `uv run {project-root}/src/shared/scripts/skf-validate-frontmatter.py <staging-skill-dir>/SKILL.md` and capture `schema_revalidation_result` in context. If the validator exits non-zero OR reports failure for the `description` field, flip the Schema result back to `FAIL` in the evidence report (overriding any prior PASS/WARN from §2), record `description_guard_revalidation: FAIL` with the validator's diagnostic message, and continue — do not halt (step 9 health-check and result contract still need to run so the failure is surfaced through the normal artifact path).
+**This skill's post-restore re-validation hook:** after `{descriptionGuardHelper}` reports `restored: true`, resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}` (first existing path wins), run `uv run {frontmatterValidator} <staging-skill-dir>/SKILL.md` and capture `schema_revalidation_result` in context. If the validator exits non-zero OR reports failure for the `description` field, flip the Schema result back to `FAIL` in the evidence report (overriding any prior PASS/WARN from §2), record `description_guard_revalidation: FAIL` with the validator's diagnostic message, and continue — do not halt (step 9 health-check and result contract still need to run so the failure is surfaced through the normal artifact path).
 
 ### 1. Check Tool Availability
 
@@ -199,7 +206,9 @@ tessl installs automatically via `npx`. A missing tool is not an error — grace
 
 **If §6 produced no novel suggestions (all dismissed via `{tesslDismissalData}`) OR tessl was unavailable:** Skip this gate — auto-proceed.
 
-**If §6 produced novel suggestions** (ones not matched by any dismissal rule), present them to the user:
+**GATE [default: S]** — If `{headless_mode}` is true AND §6 produced novel suggestions: auto-select [S] Skip (a headless run has no human to triage novel suggestions), record `"tessl suggestions: {N} novel suggestion(s) auto-skipped (headless)"` in the evidence report under "Dismissed tessl suggestions", log `"headless: auto-skip {N} novel tessl suggestion(s)"`, and append `{step: "validate", gate: "tessl-suggestions", decision: "S", value: "{N} novel auto-skipped", rationale: "headless mode — no human to triage novel tessl suggestions", timestamp: {ISO}}` to the in-context `headless_decisions[]` list (step 5 §7 reads it into the evidence-report `## Auto-Decisions` table). This is the one consequential auto-decision that drops human-relevant feedback, so it must leave an audit row rather than vanishing. Then auto-proceed to §7 — do NOT present the menu below.
+
+**If §6 produced novel suggestions** (ones not matched by any dismissal rule) AND `{headless_mode}` is false, present them to the user:
 
 "**Content quality review: {score}%**
 

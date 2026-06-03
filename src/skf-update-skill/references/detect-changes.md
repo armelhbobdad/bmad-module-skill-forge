@@ -25,6 +25,17 @@ buildChangeManifestProbeOrder:
 provenanceGapDispatchProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-provenance-gap-dispatch.py'
   - '{project-root}/src/shared/scripts/skf-provenance-gap-dispatch.py'
+# Resolve `{detectScriptsAssetsHelper}` to the first existing path; HALT if
+# neither candidate exists. §Category D uses `detect` to walk the current
+# source tree for scripts/assets (directory conventions, shebang signals,
+# `package.json` `bin` entry-points, asset filename patterns) so NEW_FILE
+# detection mirrors create-skill §4c exactly. Falling back to prose-driven
+# file walking would let the LLM drift on the heuristic list and miss new
+# scripts/assets at deeper directory depths — and on installed modules
+# (no `src/` tree) the LLM would otherwise guess a non-existent path.
+detectScriptsAssetsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-scripts-assets.py'
+  - '{project-root}/src/shared/scripts/skf-detect-scripts-assets.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -305,7 +316,20 @@ Launch subprocesses in parallel that compare source state against provenance map
 
 **Category C — Rename detection:**
 - Cross-reference deleted files/exports with added files/exports
-- If content similarity > 80%: classify as RENAMED instead of deleted+added. **Similarity mechanism by tier:** Quick: compare file size ratio (within 20%) and export name overlap (>70% of exports match by name). Forge and above: use ast-grep to compare export signatures between the deleted and added files. Forge+/Deep: use CCC semantic similarity when available
+- If content similarity > 80% (fixed bundled threshold — not configurable): classify as RENAMED instead of deleted+added. **Similarity mechanism by tier:** Quick: compare file size ratio (within 20%) and export name overlap (>70% of exports match by name). Forge and above: use ast-grep to compare export signatures between the deleted and added files. Forge+/Deep: use CCC semantic similarity when available
+
+**Subprocess return contract.** Hand each Category worker its exact output slice so it returns parse-ready JSON, not prose the parent must re-read. Each worker returns ONLY its own object — no prose, no commentary, no markdown fences (parent strips wrapping fences before parsing). The slice each worker fills is exactly the key §3's `build` helper consumes (the `category_a/b/c` shape below; Category D is helper-driven, not a worker):
+
+```json
+// Category A worker returns ONLY:
+{"category_a": {"modified": [...], "added": [...], "deleted": [...]}}
+// Category B worker returns ONLY:
+{"category_b": {"modified_exports": [...], "new_exports": [...], "deleted_exports": [...], "moved_exports": [...]}}
+// Category C worker returns ONLY:
+{"category_c": {"renamed_files": [...], "renamed_exports": [...]}}
+```
+
+The parent merges the three slices (plus Category D and the `degraded_mode`/`update_mode` flags) into the single category-JSON object §3 pipes to the `build` helper.
 
 **Category D — Script/asset file changes:**
 
@@ -334,7 +358,13 @@ Translate the helper's output into the change manifest:
 - `DELETED_FILE` rows → add to manifest as DELETED_FILE
 - `UNCHANGED` rows → omit from the manifest (no action needed)
 
-The helper does NOT detect NEW_FILE — its job is provenance comparison only. Detect new files via `skf-detect-scripts-assets.py` from create-skill step 3 §4c against the current source tree, then subtract the paths already present in `provenance.file_entries[].source_file`. Remaining files matching detection patterns (`scripts/`, `bin/`, `assets/`, `templates/`) and NOT under `scripts/[MANUAL]/` or `assets/[MANUAL]/` are NEW_FILE.
+The helper does NOT detect NEW_FILE — its job is provenance comparison only. Detect new files by running the same deterministic detector create-skill step 3 §4c uses (resolved via `detectScriptsAssetsProbeOrder`) against the current source tree:
+
+```bash
+uv run {detectScriptsAssetsHelper} detect <source-root>
+```
+
+It emits `scripts_inventory[]` and `assets_inventory[]` (each entry carries `source_file`). Take every `source_file` across both inventories, then subtract the paths already present in `provenance.file_entries[].source_file`. Of the remaining files, those matching detection patterns (`scripts/`, `bin/`, `assets/`, `templates/`) and NOT under `scripts/[MANUAL]/` or `assets/[MANUAL]/` are NEW_FILE.
 
 Files in `scripts/[MANUAL]/` or `assets/[MANUAL]/` → SKIP (user-authored, preserved).
 
@@ -356,7 +386,7 @@ echo "{category JSON}" | uv run {buildChangeManifestHelper} deletion-ratio \
     --provenance-map {forge_version}/provenance-map.json
 ```
 
-The helper handles the three skip conditions internally — when the input has `update_mode: "gap-driven"`, `degraded_mode: true`, or the provenance has zero entries, it returns `skip_reason` set and `should_trigger: false`. The output envelope:
+The helper handles the three skip conditions internally — when the input has `update_mode: "gap-driven"`, `degraded_mode: true`, or the provenance has zero entries, it returns `skip_reason` set and `should_trigger: false`. `should_trigger` fires when the deletion ratio reaches the fixed bundled threshold of 50% (`ratio >= 0.50`, baked into the helper — not configurable). The output envelope:
 
 ```json
 {

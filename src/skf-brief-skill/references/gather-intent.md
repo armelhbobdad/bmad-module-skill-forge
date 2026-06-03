@@ -2,7 +2,6 @@
 nextStepFile: 'analyze-target.md'
 ratifyTargetFile: 'confirm-brief.md'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
-descriptionVoiceExamplesFile: 'assets/description-voice-examples.md'
 headlessArgsFile: 'references/headless-args.md'
 headlessSourceAuthorityDetectionFile: 'references/headless-source-authority-detection.md'
 portfolioSimilarityCheckFile: 'references/portfolio-similarity-check.md'
@@ -61,6 +60,7 @@ Attempt to load `{forgeTierFile}`:
 
 **If not found:**
 - "**Cannot proceed.** forge-tier.yaml not found at `{forgeTierFile}`. Run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
+- In headless mode, emit the error envelope per **step 5 §4b** with `halt_reason: "forge-tier-missing"` (`skill_name` is not yet resolved here — use the `"unknown"` placeholder convention documented in §4b).
 - HALT (exit code 3, `halt_reason: "forge-tier-missing"`) — do not proceed.
 
 ### 1b. Auto Mode Check
@@ -106,7 +106,11 @@ This section has four sub-flows. Execute exactly one branch — 3.1a *or* 3.2 *o
 
 #### 3.1 Collect target
 
+**Open-floor opening.** Lead with an open invitation so an expert can state everything in one breath rather than being walked through seven discrete prompts — costs almost nothing token-wise and sharply improves the conversational feel of this, the most question-heavy mode. A first-timer who pastes only a bare URL still gets the full guided sequence below, unchanged.
+
 "**What repository or documentation do you want to create a skill for?**
+
+Tell me everything you have — the repo or docs, what you want to skill and why, any scope or version thoughts. Or just paste a URL and we'll go from there.
 
 Provide one of:
 - A **GitHub URL** (e.g., `https://github.com/org/repo`)
@@ -118,7 +122,7 @@ Or type `cancel` / `exit` / `[X]` to leave without writing anything.
 
 **Target:**"
 
-Wait for user response. Branch on the response:
+Wait for user response. **Parse the response for any of the fields the later sections collect** — `target_version` (§3b), intent (§4), scope hints (§5), source authority (§3.3), a proposed name (§6) — and pre-fill every field the user covered, holding them in workflow context. Sections §3b/§4/§5/§6/§7b then **acknowledge a pre-filled field instead of re-asking** ("I noted you're targeting v4.0.0"), and prompt only for the gaps. An expert who stated it all collapses to the §3.1 target branch plus the §7b description confirmation; a bare URL falls through to the full sequence. Then branch on the response for the target itself:
 
 - Empty input, `cancel`, `exit`, `[X]`, `q`, or `:q` → Display `"Cancelled — no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). Cancellation here is non-destructive — no files have been written yet by step 1. Headless mode never reaches this branch (the GATE in §8 short-circuits the interactive sub-flows).
 - Path that resolves to an existing `skill-brief.yaml` (file path ending in `skill-brief.yaml` that exists, OR a directory containing a `skill-brief.yaml`) → §3.1a
@@ -266,6 +270,8 @@ Help me understand:
 Take your time — the more context you share, the better the brief."
 
 Wait for user response. Ask follow-up questions if intent is unclear.
+
+**Capture, don't interrupt.** If the user volunteers an out-of-scope aside while answering — "the v3 API is totally different", "we're deprecating the auth module next quarter" — do not redirect the conversation to chase it. Silently note it as a candidate `scope.notes` line (carried forward into the brief's `scope.notes` at step 3) and continue the current prompt. These unprompted asides are often the most useful scoping signal; the cost of losing them when the conversation moves on is higher than the cost of one stored line.
 
 ### 5. Capture Scope Hints
 

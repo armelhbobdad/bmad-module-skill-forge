@@ -152,13 +152,15 @@ Report: "**Rebuilt managed sections in:** {list of updated files}. {if any faile
 
 ### 4. Delete Files (Purge Mode Only)
 
-**If `drop_mode != "purge"`**, skip this section entirely. Set `files_deleted = []` and `disk_freed = "N/A (soft drop)"`, then jump to section 5.
+**If `drop_mode != "purge"`**, skip this section entirely. Set `files_deleted = []`, `disk_freed = "N/A (soft drop)"`, `delete_failures = []`, and `purge_status = "success"`, then jump to section 5.
 
 **If `drop_mode == "purge"`:**
 
 1. Initialize `files_deleted = []` and `bytes_freed = 0`.
 
-2. For each directory path in `affected_directories`:
+2. Also initialize `delete_failures = []` to track paths whose deletion was attempted but did not succeed.
+
+3. For each directory path in `affected_directories`:
    a. Verify the path is inside either `{skills_output_folder}` or `{forge_data_folder}` (defense in depth against accidental deletion of unrelated paths)
    b. If the directory does not exist, record it as "(already absent)" and continue
    c. Compute the directory size in bytes before deletion (recursive sum)
@@ -166,22 +168,28 @@ Report: "**Rebuilt managed sections in:** {list of updated files}. {if any faile
    e. Verify deletion succeeded (the path no longer exists)
    f. Append the path to `files_deleted` and add its byte size to `bytes_freed`
 
-3. **Version-level purge, single version:**
+4. **Version-level purge, single version:**
    - `{skills_output_folder}/{target_skill}/{version}/` is deleted, but `{skills_output_folder}/{target_skill}/` remains (it still contains other versions or the `active` symlink)
    - If the `active` symlink pointed to the just-deleted version, update or remove it:
      - If other versions remain in the manifest for `{target_skill}`, repoint `active` to the manifest's current `active_version` (skipping deprecated)
      - If no non-deprecated versions remain, remove the `active` symlink (reachable only when dropping the sole surviving version, which in step 1 was permitted because no other non-deprecated versions existed)
 
-4. **Skill-level purge:**
+5. **Skill-level purge:**
    - `{skills_output_folder}/{target_skill}/` and `{forge_data_folder}/{target_skill}/` are deleted in full — the `active` symlink disappears with the parent directory
 
-5. Convert `bytes_freed` to a human-readable string for the final report (e.g. `"4.2 MB"`). Store as `disk_freed`.
+6. Convert `bytes_freed` to a human-readable string for the final report (e.g. `"4.2 MB"`). Store as `disk_freed`.
 
-**On deletion error:**
+**On deletion error (per path):**
 
-- Record which path failed and the error message
-- Continue attempting the remaining paths — partial purge is still better than no purge
+- Append the path and its error message to `delete_failures`
+- Continue attempting the remaining paths — a partial purge is still better than no purge
 - Report all failures at the end of this section
+
+**After the loop — classify the deletion outcome.** Let `attempted` be the number of paths in `affected_directories` that existed on disk (i.e. were not recorded as "(already absent)"):
+
+- **Full purge failure** — `attempted > 0` AND every attempted path is in `delete_failures` (nothing was deleted): the purge accomplished none of its destructive intent, so it must NOT report success. HALT (exit code 4, `halt_reason: "delete-failed"`): "**Purge failed** — none of the {attempted} target director(ies) could be deleted: {list each path with its error}. The manifest and context files were already updated in sections 2–3; the on-disk files remain and can be removed manually (`rm -rf {path}`)." In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with the resolved `skill`, `drop_mode`, `versions_affected`, `files_deleted: []`, and `manifest_updated` from section 2. Do not proceed to section 5.
+- **Partial purge failure** — `delete_failures` is non-empty but at least one path was deleted: keep record-and-continue. Set `purge_status = "partial"` so step 3's on-disk result record reflects it (the `output-contract-schema.md` `status` enum supports `"partial"`); proceed to section 5. The headless single-line envelope has no `"partial"` value in its enum, so it stays `"success"` while `context_files_failed`/`verification_errors`/the report surface the unfreed paths.
+- **No failures** — `delete_failures` is empty: set `purge_status = "success"` and proceed to section 5.
 
 ### 5. Verify Final State
 
@@ -203,6 +211,8 @@ Store the following for step 3:
 
 - `files_deleted` — list of directory paths actually deleted (purge mode) or `[]` (soft drop)
 - `disk_freed` — human-readable size (purge mode) or `"N/A (soft drop)"`
+- `delete_failures` — list of `{path, error}` for paths whose deletion was attempted but failed (empty if none; a *full* purge failure already HALTed in section 4 and never reaches this step)
+- `purge_status` — `"success"`, `"partial"` (some paths failed to delete), or `"success"` for soft drops; step 3 maps this to the on-disk result record's `status` field
 - `manifest_updated` — boolean (true if section 2 succeeded)
 - `context_files_updated` — list of successfully rebuilt files
 - `context_files_failed` — list of files that failed to rebuild (empty if none)
@@ -220,7 +230,8 @@ If any stage fails, record which stage failed and provide recovery guidance in t
 |--------------|-------------------|
 | Manifest update | "Manifest is in pre-drop state. Re-run the workflow once the underlying I/O issue is resolved. No files were deleted." |
 | Context file rebuild | "Manifest is already updated. Re-run `[EX] Export Skill` against any still-valid skill to regenerate the affected managed sections, or rerun the drop workflow." |
-| File deletion (purge) | "Manifest and context files are consistent. Remaining directories listed in the report can be deleted manually: `rm -rf {path}`." |
+| File deletion (purge — partial) | "Manifest and context files are consistent. Remaining directories listed in the report can be deleted manually: `rm -rf {path}`." (status `partial`) |
+| File deletion (purge — full) | "No target directory could be deleted. Manifest and context files are already updated; the on-disk files remain. HALT with `delete-failed` (exit 4) — re-run once the I/O issue is resolved, or remove the listed directories manually." |
 | Verification | "Execution completed but post-write checks found drift. See the report for specific paths requiring manual review." |
 
 ## CRITICAL STEP COMPLETION NOTE

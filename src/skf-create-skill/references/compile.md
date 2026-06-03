@@ -117,7 +117,7 @@ Following the structure from the skill-sections data file:
 
     Otherwise omit the field entirely — when absent, `skf-test-skill` falls back to `exports_public_api`. See `skf-test-skill` `references/source-access-protocol.md` §Source API Surface Definition ("Stratified-scope monorepo packages") for the test-side consumption rules.
 
-    **Reference-app carve-out:** never emit `effective_denominator` for `scope.type: "reference-app"`, even when the three conditions above are literally satisfied (a reference-app-in-monorepo matches all of them). A reference app's coverage basis is `pattern_surfaces_documented`, not library exports — see the Reference-App stats semantics in `{compileAssemblyRules}`.
+    **Reference-app carve-out:** never emit `effective_denominator` for `scope.type: "reference-app"`, even when the three conditions above are literally satisfied (a reference-app-in-monorepo matches all of them). A reference app's coverage basis is `pattern_surfaces_documented`, not library exports — see the Reference-App stats semantics in `assets/compile-assembly-rules.md`.
 - Set `description` from the SKILL.md frontmatter `description` field (already assembled in section 2)
 - Set `language` from source analysis (e.g., `"typescript"`, `"python"`) — use the primary language of the entry point file
 - Set `ast_node_count` from extraction stats if ast-grep was used (Forge/Deep tier), otherwise omit
