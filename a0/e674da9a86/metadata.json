@@ -3,7 +3,7 @@
   "checkpoint_id": "a0e674da9a86",
   "strategy": "manual-commit",
   "branch": "issue-427-language-reference-shape",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "src/skf-analyze-source/references/step-auto-scope.md"
   ],
@@ -14,13 +14,20 @@
       "context": "/a0/e674da9a86/0/context.md",
       "content_hash": "/a0/e674da9a86/0/content_hash.txt",
       "prompt": "/a0/e674da9a86/0/prompt.txt"
+    },
+    {
+      "metadata": "/a0/e674da9a86/1/metadata.json",
+      "transcript": "/a0/e674da9a86/1/full.jsonl",
+      "context": "/a0/e674da9a86/1/context.md",
+      "content_hash": "/a0/e674da9a86/1/content_hash.txt",
+      "prompt": "/a0/e674da9a86/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 19343,
-    "cache_creation_tokens": 444810,
-    "cache_read_tokens": 29096601,
-    "output_tokens": 186971,
-    "api_call_count": 131
+    "input_tokens": 80166,
+    "cache_creation_tokens": 4579198,
+    "cache_read_tokens": 230697021,
+    "output_tokens": 737175,
+    "api_call_count": 551
   }
 }
