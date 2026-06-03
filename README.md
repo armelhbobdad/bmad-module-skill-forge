@@ -114,7 +114,7 @@ SKF extracts real function signatures, types, and patterns from code, docs, and 
 2. **Lifecycle tooling** — rename skills and drop deprecated versions without manual file surgery. Destructive operations are transactional.
 3. **Follows an open standard** — skills comply with the [agentskills.io](https://agentskills.io) spec and work across Claude, Cursor, Copilot, and other AI agents
 
-> **Every skill ships two files — `SKILL.md` (the full instruction set, loaded on trigger) and `context-snippet.md` (an 80–120 token always-on index injected into `CLAUDE.md` / `AGENTS.md` / `.cursorrules`). Why both?** Per Vercel's agent evals, passive context achieves a **100% pass rate vs. 79% for active skills loaded alone** (see [Skill Model → Dual-Output Strategy](https://armelhbobdad.github.io/bmad-module-skill-forge/skill-model/#dual-output-strategy)).
+> **Every skill ships two files — `SKILL.md` (the full instruction set, loaded on trigger) and `context-snippet.md` (an 80–120 token always-on index that the export step injects into `CLAUDE.md` / `AGENTS.md` / `.cursorrules`). Why both?** Per Vercel's agent evals, passive context achieves a **100% pass rate vs. 79% for active skills loaded alone** (see [Skill Model → Dual-Output Strategy](https://armelhbobdad.github.io/bmad-module-skill-forge/skill-model/#dual-output-strategy)).
 
 ## Verifying a Skill
 
@@ -132,7 +132,7 @@ If it doesn't, that's a bug — open an issue and SKF will republish the skill w
 
 ## Help SKF Improve
 
-Workflows end with a health check that can file bug or friction reports as GitHub issues (auto-deduped by fingerprint — re-reporting is safe). **Please let workflows run to completion**, or [open an issue](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose) directly. [Full details →](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/#terminal-step-health-check)
+Workflows end with a health check that files bug reports as GitHub issues (auto-deduped by fingerprint — re-reporting is safe); friction notes go to a local queue you can opt in to submit live. **Please let workflows run to completion**, or [open an issue](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose) directly. [Full details →](https://armelhbobdad.github.io/bmad-module-skill-forge/workflows/#terminal-step-health-check)
 
 ## Learn More
 
