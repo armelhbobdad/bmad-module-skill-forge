@@ -68,6 +68,14 @@ def write_cargo_toml(tmp_path: Path, content: str) -> str:
     return str(p)
 
 
+def write_go_mod(tmp_path: Path, content: str, subdir: str = "") -> str:
+    base = tmp_path / subdir if subdir else tmp_path
+    base.mkdir(parents=True, exist_ok=True)
+    p = base / "go.mod"
+    p.write_text(content, encoding="utf-8")
+    return str(p)
+
+
 # --------------------------------------------------------------------------
 # Shape: library-API
 # --------------------------------------------------------------------------
@@ -643,6 +651,72 @@ class TestPhaseBPlumbing:
         assert proc.returncode != 2
         out = json.loads(proc.stdout)
         assert_result_shape(out)
+
+
+# --------------------------------------------------------------------------
+# Ecosystem: Go (go.mod) — issue #427 ecosystem expansion
+#
+# The scanner already recognises go.mod; shape-detect now parses it too, so a
+# Go repo reaches classification instead of hard-halting. Most Go libraries
+# resolve to library-API; the Go toolchain itself is caught by the tree-triad
+# rung (golang/go).
+# --------------------------------------------------------------------------
+
+
+class TestGoMod:
+    def test_go_library_is_library_api(self, tmp_path):
+        path = write_go_mod(tmp_path, """
+module github.com/spf13/cobra
+
+go 1.21
+
+require (
+\tgithub.com/inconshreveable/mousetrap v1.1.0
+\tgithub.com/spf13/pflag v1.0.5
+)
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] == "library-API"
+        assert "has_go_mod" in result["signals"]
+
+    def test_go_mod_does_not_hard_halt(self, tmp_path):
+        """A go.mod handed directly parses cleanly (no UNSUPPORTED_MANIFEST)."""
+        path = write_go_mod(tmp_path, "module example.com/x\n\ngo 1.21\n")
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] in {"library-API", "unknown"}
+
+    def test_go_single_line_require(self, tmp_path):
+        path = write_go_mod(tmp_path, """
+module example.com/tool
+
+go 1.21
+
+require github.com/spf13/pflag v1.0.5
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] == "library-API"
+
+    def test_go_cmd_member_has_bin(self, tmp_path):
+        """A go.mod under cmd/ marks a command (binary) member."""
+        path = write_go_mod(tmp_path, "module acme.dev/app/cmd/tool\n\ngo 1.21\n",
+                            subdir="cmd/tool")
+        result = mod.detect(REPO_URL, [path])
+        assert "has_bin_field" in result["signals"]
+        assert result["shape"] == "reference-app"
+
+    def test_cli_go_mod_exit_0(self, tmp_path):
+        path = write_go_mod(tmp_path, "module example.com/x\n\ngo 1.21\n")
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH),
+             "--repo-url", REPO_URL, "--manifests", path],
+            capture_output=True, text=True, timeout=15,
+        )
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["shape"] == "library-API"
 
 
 # --------------------------------------------------------------------------

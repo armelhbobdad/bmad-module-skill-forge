@@ -263,7 +263,7 @@ Enumerate package manifests **deterministically** via `{scanManifestsHelper}` (t
   ```bash
   tmp="$(mktemp -d)"
   git clone --filter=blob:none --no-checkout --depth 1 {pinned_branch_flag} {path} "$tmp"
-  git -C "$tmp" sparse-checkout set --no-cone '**/package.json' '**/Cargo.toml' '**/pyproject.toml' 'pnpm-workspace.yaml' '**/pnpm-workspace.yaml'
+  git -C "$tmp" sparse-checkout set --no-cone '**/package.json' '**/Cargo.toml' '**/pyproject.toml' '**/go.mod' 'pnpm-workspace.yaml' '**/pnpm-workspace.yaml'
   git -C "$tmp" checkout
   uv run {scanManifestsHelper} scan "$tmp"
   ```
@@ -274,7 +274,7 @@ Parse the JSON envelope: `{manifests: [{path, ecosystem, ...}], total_unique, mo
 
 From the envelope, record:
 
-1. **Supported manifest paths** — filter `manifests[].path` to the types `skf-shape-detect.py` accepts (`package.json`, `pyproject.toml`, `Cargo.toml`). Each `manifests[].path` is **relative to the scan root**, so resolve them against that root (`{path}` for a local scan, `"$tmp"` for a remote fetch) before use. This filtered, comma-joined list of resolved paths is fed to shape detection in §3. For a monorepo, it includes each workspace member's manifest, so the package surface is classified accurately rather than from a bare (and often export-less) repo root. The scanner also discovers ecosystems shape detection does not yet classify (e.g. Go `go.mod`, Maven, Gradle); those are excluded here, so a repo with no supported manifest falls back to interactive at the next check rather than auto-scoping.
+1. **Supported manifest paths** — filter `manifests[].path` to the types `skf-shape-detect.py` accepts (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`). Each `manifests[].path` is **relative to the scan root**, so resolve them against that root (`{path}` for a local scan, `"$tmp"` for a remote fetch) before use. This filtered, comma-joined list of resolved paths is fed to shape detection in §3. For a monorepo, it includes each workspace member's manifest, so the package surface is classified accurately rather than from a bare (and often export-less) repo root. The scanner also discovers ecosystems shape detection does not yet classify (e.g. Maven, Gradle); those are excluded here, so a repo with no supported manifest falls back to interactive at the next check rather than auto-scoping.
 2. **`monorepo` flag** and the count of discovered supported packages — carried forward as a signal for the decomposition decision in §3a.
 
 **IF no supported manifests are found** (the filtered list is empty):
@@ -357,6 +357,7 @@ Generate `scope.include` and `scope.exclude` arrays from the detected language a
 - `package.json` → TypeScript/JavaScript
 - `pyproject.toml` → Python
 - `Cargo.toml` → Rust
+- `go.mod` → Go
 
 **Default patterns (adjust based on actual project structure):**
 
@@ -365,6 +366,7 @@ Generate `scope.include` and `scope.exclude` arrays from the detected language a
 | TypeScript/JavaScript | `['src/**/*.ts', 'src/**/*.tsx']` | `['**/*.test.ts', '**/*.spec.ts', '**/node_modules/**']` |
 | Python | `['src/**/*.py']` or `['{package_name}/**/*.py']` | `['**/*_test.py', '**/test_*.py', '**/tests/**']` |
 | Rust | `['src/**/*.rs']` | `['**/tests/**', '**/benches/**']` |
+| Go | `['**/*.go']` | `['**/*_test.go', '**/vendor/**']` |
 
 **Adjust for actual layout:** If the project uses a non-standard layout (e.g., `lib/` instead of `src/`, or a named package directory for Python), detect and use the actual paths. Check for the existence of common source directories (`src/`, `lib/`, `pkg/`, the package name directory) and prefer the one that exists.
 
@@ -385,6 +387,7 @@ Detect the primary language from the manifest ecosystem:
 - `npm` → `typescript` (or `javascript` if no `.ts` files in includes)
 - `python` → `python`
 - `rust` → `rust`
+- `go` → `go`
 
 ### 4a. Multi-Scope Decomposition
 

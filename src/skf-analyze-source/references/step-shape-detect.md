@@ -18,7 +18,7 @@ uv run src/shared/scripts/skf-shape-detect.py --repo-url <url> --manifests <path
 | `--repo-url` | Yes | Repository URL (context only — no cloning performed) |
 | `--manifests` | Yes | Comma-separated local file paths to manifest files |
 
-**Supported manifests:** `package.json`, `pyproject.toml`, `Cargo.toml`
+**Supported manifests:** `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`
 
 ## Output Schema
 

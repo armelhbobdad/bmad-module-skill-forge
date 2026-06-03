@@ -609,10 +609,59 @@ def _parse_cargo_toml(path: Path) -> dict[str, Any]:
     }
 
 
+def _parse_go_mod(path: Path) -> dict[str, Any]:
+    """Parse a go.mod: the module path (name) and required modules (deps).
+
+    go.mod is line-oriented — `module <path>`, single-line `require <mod> <ver>`,
+    and a `require ( ... )` block. The scanner already recognises go.mod; this
+    mirror lets shape-detect classify Go repos (most resolve to library-API;
+    the Go toolchain itself is caught by the tree-triad rung).
+    """
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        _die(f"Cannot read {path.as_posix()}: {exc}", "MANIFEST_READ_ERROR")
+        return {}  # unreachable
+
+    module = ""
+    deps: set[str] = set()
+    in_require_block = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("//"):
+            continue
+        if in_require_block:
+            if stripped.startswith(")"):
+                in_require_block = False
+                continue
+            deps.add(stripped.split()[0].lower())
+            continue
+        if stripped.startswith("module "):
+            module = stripped[len("module "):].strip()
+        elif stripped.startswith("require ("):
+            in_require_block = True
+        elif stripped.startswith("require "):
+            parts = stripped[len("require "):].split()
+            if parts:
+                deps.add(parts[0].lower())
+
+    return {
+        "ecosystem": "go",
+        "name": module,
+        "deps": deps,
+        "runtime_deps": set(deps),
+        # A go.mod under a cmd/ path marks a command (binary) member.
+        "has_bin": "cmd" in Path(path).parts,
+        "has_library_structure": bool(module),
+        "export_count": 0,
+    }
+
+
 _PARSERS = {
     "package.json": _parse_package_json,
     "pyproject.toml": _parse_pyproject_toml,
     "Cargo.toml": _parse_cargo_toml,
+    "go.mod": _parse_go_mod,
 }
 
 
@@ -872,7 +921,7 @@ def detect(
 
 def path_to_manifest_name(ecosystem: str) -> str:
     return {"npm": "package_json", "python": "pyproject_toml",
-            "rust": "cargo_toml"}.get(ecosystem, ecosystem)
+            "rust": "cargo_toml", "go": "go_mod"}.get(ecosystem, ecosystem)
 
 
 # ---------------------------------------------------------------------------
