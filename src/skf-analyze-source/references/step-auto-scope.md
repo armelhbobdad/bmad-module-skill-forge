@@ -455,7 +455,7 @@ A whole-language skill's value is in the language's **prose** — the guide/Book
    - exit 2 → log a warning and treat as empty (best-effort; never halt).
 3. Record `{N}` = number of seeds and `{corpus_labels}` = comma-joined labels, carried into the brief `doc_urls` (§8) and the honest caveat (§6/§7).
 4. Build `{corpus_caveat}` (appended to `scope.notes` in §6/§8 and surfaced in §7) so the operator knows a code-only whole-language skill is low-value:
-   - `{N}` ≥ 1: `" LANGUAGE-REFERENCE CAVEAT: this skill's value is the {corpus_language} prose (guide/Book + std/library docs), not compiler internals. Seeded {N} corpus URL(s): {corpus_labels}. Assembly ranks code (T1) above docs (T3) — review the forged skill if compiler-internal signatures dominate the prose."`
+   - `{N}` ≥ 1: `" LANGUAGE-REFERENCE CAVEAT: this skill's value is the {corpus_language} prose (guide/Book + std/library docs), not compiler internals. Seeded {N} corpus URL(s): {corpus_labels}. create-skill foregrounds this registry prose as the skill's Language Guide and demotes compiler-internal signatures to a reference-only section — review the forged skill if compiler internals still dominate."`
    - `{N}` == 0: `" LANGUAGE-REFERENCE CAVEAT: no canonical corpora were found for {corpus_language} (README detection and the registry both came up empty). This skill is LOW-VALUE as code-only — attach the {corpus_language} guide + std/library docs manually (re-run with a doc URL, or enrich via US) before forging."`
 
    For a parser-library `language-reference` (skipped above) and every other shape, `{corpus_caveat}` is empty.
