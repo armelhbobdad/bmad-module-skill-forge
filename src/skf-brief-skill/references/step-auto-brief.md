@@ -98,7 +98,7 @@ For each detected doc entry, create a brief `doc_urls` entry:
     - `"pages_api"` → `"GitHub Pages"`
     - `"docs_folder"` → `"Docs Folder"`
 
-If the upstream brief already has `doc_urls`, merge the detected docs with the existing entries (deduplicate by URL — existing entries take precedence).
+If the upstream brief already has `doc_urls`, merge the detected docs with the existing entries. Deduplicate by **normalized** URL — lowercase the host and strip a trailing `/index.html` and any trailing `/` before comparing — so a seeded `…/book/` and a README's `…/book/index.html` collapse to one entry rather than being fetched twice. Existing (upstream / corpora-seeded) entries take precedence.
 
 ### 4. Validate Enriched Brief
 
