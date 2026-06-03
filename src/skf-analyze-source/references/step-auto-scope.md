@@ -5,6 +5,12 @@ shapeDetectScript: 'src/shared/scripts/skf-shape-detect.py'
 scanManifestsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-scan-manifests.py'
   - '{project-root}/src/shared/scripts/skf-scan-manifests.py'
+detectLanguageProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-language.py'
+  - '{project-root}/src/shared/scripts/skf-detect-language.py'
+languageCorporaProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-language-corpora.py'
+  - '{project-root}/src/shared/scripts/skf-language-corpora.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -418,6 +424,28 @@ Detect the primary language from the manifest ecosystem:
 - `rust` → `rust`
 - `go` → `go`
 
+### 6b. Seed Companion Corpora (whole-language references only)
+
+Runs only when §3 classified the repo as `language-reference` **via a whole-language signal** — the `signals` array contains a `grammar_file:` or `tree_triad:` entry (a compiler / interpreter / grammar repo such as rust-lang/rust, TypeScript, CPython). **Skip** when `language-reference` fired only from `parser_producer:` / `parser_dep:` signals (a parser *library* such as pest or lalrpop): there the code **is** the product, so no companion prose is needed and the §6/§7 caveat below does not apply.
+
+A whole-language skill's value is in the language's **prose** — the guide/Book, the standard/library API docs, idioms — not the compiler internals. Seed those canonical corpora so the forged skill teaches the language rather than its implementation.
+
+**Resolve `{detectLanguageHelper}`** from `{detectLanguageProbeOrder}` and **`{languageCorporaHelper}`** from `{languageCorporaProbeOrder}` (first existing path wins).
+
+1. **Derive the corpus language key `{corpus_language}`.** Prefer the §6 manifest language when non-empty. Otherwise — a manifest-less toolchain such as CPython or Ruby — resolve it from the file paths harvested in §2:
+   ```bash
+   echo '{"tree": [<harvested §2 file paths>]}' | uv run {detectLanguageHelper}
+   ```
+   Use its `language` field. (`.c`/`.h`/`.y` are not in the detector's extension map, so a C-hosted language resolves by its real sources — Ruby via `.rb`.)
+2. **Look up canonical corpora:**
+   ```bash
+   uv run {languageCorporaHelper} --language {corpus_language}
+   ```
+   - exit 0 → parse the `[{url, label}]` array → these are `{corpus_seeds}`.
+   - exit 1 → no registry entry (long-tail language) → `{corpus_seeds}` is empty (README detection in brief-skill remains the only source).
+   - exit 2 → log a warning and treat as empty (best-effort; never halt).
+3. Record `{N}` = number of seeds and `{corpus_labels}` = comma-joined labels, carried into the brief `doc_urls` (§8) and the honest caveat (§6/§7).
+
 ### 4a. Multi-Scope Decomposition
 
 This section is reached only from §3b when the cohesion check decided to **split** (members are independently published with distinct surfaces and no umbrella re-exports them). It replaces §4→§5→§6 for repos that will produce N > 1 skills.
@@ -550,6 +578,15 @@ forge_tier: '{forge_tier}'
 created: '{current_date}'
 created_by: '{user_name}'
 ```
+
+**Companion corpora (whole-language references).** When §6b produced `{corpus_seeds}` (`{N}` ≥ 1), add them as the brief's `doc_urls` so the language's prose is fetched and assembled alongside the code:
+
+```yaml
+doc_urls:
+  - { url: '{seed.url}', label: '{seed.label}' }   # one entry per §6b seed
+```
+
+These are the brief's *existing* `doc_urls`; brief-skill's README detection then merges additional discovered docs on top (existing entries win). **When `{N}` is 0, omit the `doc_urls` key entirely** — the schema requires at least one entry when the key is present.
 
 **When decomposition is active (N > 1 units):**
 
