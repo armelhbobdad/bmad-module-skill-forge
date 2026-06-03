@@ -277,19 +277,48 @@ From the envelope, record:
 1. **Supported manifest paths** — filter `manifests[].path` to the types `skf-shape-detect.py` accepts (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`). Each `manifests[].path` is **relative to the scan root**, so resolve them against that root (`{path}` for a local scan, `"$tmp"` for a remote fetch) before use. This filtered, comma-joined list of resolved paths is fed to shape detection in §3. For a monorepo, it includes each workspace member's manifest, so the package surface is classified accurately rather than from a bare (and often export-less) repo root. The scanner also discovers ecosystems shape detection does not yet classify (e.g. Maven, Gradle); those are excluded here, so a repo with no supported manifest falls back to interactive at the next check rather than auto-scoping.
 2. **`monorepo` flag** and the count of discovered supported packages — carried forward as a signal for the decomposition decision in §3a.
 
+**Harvest tree-level language signals.** A whole-language repo may declare no parser-generator dependency (a hand-written compiler such as rustc, TypeScript, or the Go toolchain) or carry no supported manifest at all (CPython, Ruby). From the **same** fetched tree — no second clone and no blobs, since tree objects are already present in the blobless clone — collect two signals for shape detection. These are pure path listings (`git ls-tree` reads tree objects; no checkout, no blob download):
+
+- **Remote fetch** (`"$tmp"`), or a **local path** that is a git repo (`git -C {path}`):
+  ```bash
+  files="$(git -C "$tmp" ls-tree -r    --name-only HEAD)"   # every file path
+  dirs="$( git -C "$tmp" ls-tree -r -d --name-only HEAD)"   # every directory
+  # Grammar files (depth-capped to skip deep vendored fixtures, hard-capped):
+  grammar_matches="$(printf '%s\n' "$files" \
+    | grep -Ei '\.(g4|pest|lalrpop|y|gram|lark|ebnf|peg|ungram)$|/grammar\.(js|json)$' \
+    | awk -F/ 'NF<=4' | head -n 50 | paste -sd, -)"
+  # Directory signals (trailing /) + depth-capped file basenames, narrowed to
+  # compiler-relevant paths so the argument stays bounded on huge repos. The
+  # filter is a loose superset of shape detection's gates — the script does the
+  # precise matching; this only keeps the list small.
+  tree_paths="$({ printf '%s\n' "$dirs" | sed 's#$#/#'; \
+                  printf '%s\n' "$files" | awk -F/ 'NF<=5'; } \
+    | grep -Ei '(^|/)(compiler|compile|syntax|scanner|lexer|tokeniz|parser|parse|ast|binder|checker|codegen|ssagen|interpreter|vm|eval|rustc_[a-z]+)' \
+    | head -n 400 | paste -sd, -)"
+  ```
+- **Local path that is not a git repo** (`{path}`): list the tree with `find` instead, then derive `grammar_matches` / `tree_paths` the same way:
+  ```bash
+  files="$(cd {path} && find . -type f -not -path '*/.git/*' | sed 's#^\./##')"
+  dirs="$( cd {path} && find . -type d -not -path '*/.git/*' | sed 's#^\./##')"
+  ```
+
+Record `<grammar_matches>` and `<tree_paths>` (each a comma-joined list, possibly empty) for §3.
+
 **IF no supported manifests are found** (the filtered list is empty):
-- Emit fallback message: "**Auto-scope could not find any supported package manifests — switching to interactive mode.**"
-- Load, read fully, then execute `references/scan-project.md`. **STOP HERE.**
+- **AND** `<grammar_matches>` is empty **AND** `<tree_paths>` shows no compiler directory (none of `compiler/`, `src/compiler/`, `cmd/compile/`, `internal/syntax/`, or a `Parser/`): the repo carries no language signal — emit fallback message: "**Auto-scope could not find any supported package manifests — switching to interactive mode.**" Load, read fully, then execute `references/scan-project.md`. **STOP HERE.**
+- **Otherwise** (a grammar file or a compiler directory is present) the repo is a manifest-less language toolchain (CPython, Ruby): proceed to §3 with an **empty** `--manifests` and the harvested `--grammar-files` / `--tree-paths`.
 
 ### 3. Invoke Shape Detection
 
-Invoke the shape detection script with discovered manifests:
+Invoke the shape detection script with the discovered manifests and the harvested tree-level signals:
 
 ```
-uv run {shapeDetectScript} --repo-url <project_path_or_url> --manifests <comma_separated_manifest_paths>
+uv run {shapeDetectScript} --repo-url <project_path_or_url> \
+  --manifests <comma_separated_manifest_paths> \
+  --grammar-files <grammar_matches> --tree-paths <tree_paths>
 ```
 
-Parse the JSON output: `{shape, signals, confidence, export_count, package_count}`
+`<comma_separated_manifest_paths>` may be empty for a manifest-less language repo, provided `<grammar_matches>` or `<tree_paths>` carries the signal. Parse the JSON output: `{shape, signals, confidence, export_count, package_count}`
 
 **Handle exit codes:**
 

@@ -8,7 +8,9 @@ Reference document for invoking `skf-shape-detect.py` — the shared shape class
 
 **Command:**
 ```
-uv run src/shared/scripts/skf-shape-detect.py --repo-url <url> --manifests <path1,path2,...>
+uv run src/shared/scripts/skf-shape-detect.py --repo-url <url> \
+  --manifests <path1,path2,...> \
+  --grammar-files <g1,g2,...> --tree-paths <d1/,d2/,file,...>
 ```
 
 **Arguments:**
@@ -16,7 +18,9 @@ uv run src/shared/scripts/skf-shape-detect.py --repo-url <url> --manifests <path
 | Arg | Required | Description |
 |-----|----------|-------------|
 | `--repo-url` | Yes | Repository URL (context only — no cloning performed) |
-| `--manifests` | Yes | Comma-separated local file paths to manifest files |
+| `--manifests` | Yes | Comma-separated local file paths to manifest files (may be empty when a tree-level signal carries the classification) |
+| `--grammar-files` | No | Comma-separated repo-relative grammar files (`*.y`, `*.g4`, `*.pest`, `Grammar/python.gram`, ...) — a whole-language signal |
+| `--tree-paths` | No | Comma-separated repo-relative directory (trailing `/`) and structural file signals harvested from the clone (a `compiler/` dir, a lexer+parser+ast triad) |
 
 **Supported manifests:** `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`
 
@@ -72,7 +76,7 @@ When neither threshold is met, the single-scope flow proceeds unchanged.
 
 The five-shape heuristic ladder applies in order (first match wins):
 
-1. **language-reference** — parser/grammar/language-toolchain project. Signals: parser-related deps (pest, antlr4, tree-sitter, lark, etc.)
+1. **language-reference** — parser/grammar/language-toolchain project. Signals, strongest first: a hand-written-compiler tree structure (a dedicated `compiler/` directory with a lexer+parser+ast triad plus a codegen/VM/type-checker member — catches rustc, TypeScript, Go); a declared grammar file (`Grammar/python.gram`, a root `parse.y`, a `*.g4` — catches CPython, Ruby); the repo's own name being a known parser/grammar tool (pest, lalrpop, lark — the producer); or a parser-generator dependency (a DSL built on antlr4/lalrpop — the consumer). Delegating consumers (formatters, linters, bundlers that depend on a parser) and markup/DSL parsers (CSS, markdown, GraphQL) are excluded.
 2. **stack-compose** — multi-ecosystem composite project. Signals: manifests from 2+ distinct ecosystems
 3. **reference-app** — application, CLI, or demo project. Signals: npm `bin` field, Rust `[[bin]]`, framework deps (next, fastapi, axum, etc.)
 4. **library-API** — library exposing a programmatic API. Signals: `main`/`module`/`exports` fields, `[lib]` target, export count
