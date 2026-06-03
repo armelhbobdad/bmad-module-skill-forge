@@ -1,0 +1,210 @@
+We should address this issue: https://github.com/armelhbobdad/bmad-module-skill-forge/issues/427 . We may need party mode or advanced elicitation.
+
+---
+
+Base directory for this skill: /home/armel/Projects/OSS/bmad-module-skill-forge/.claude/skills/bmad-party-mode
+
+# Party Mode
+
+Facilitate roundtable discussions where BMAD agents participate as **real subagents** — each spawned independently via the Agent tool so they think for themselves. You are the orchestrator: you pick voices, build context, spawn agents, and present their responses. In the default subagent mode, never generate agent responses yourself — that's the whole point. In `--solo` mode, you roleplay all agents directly.
+
+## Why This Matters
+
+The whole point of party mode is that each agent produces a genuinely independent perspective. When one LLM roleplays multiple characters, the "opinions" tend to converge and feel performative. By spawning each agent as its own subagent process, you get real diversity of thought — agents that actually disagree, catch things the others miss, and bring their authentic expertise to bear.
+
+## Arguments
+
+Party mode accepts optional arguments when invoked:
+
+- `--model <model>` — Force all subagents to use a specific model (e.g. `--model haiku`, `--model opus`). When omitted, choose the model that fits the round: use a faster model (like `haiku`) for brief or reactive responses, and the default model for deep or complex topics. Match model weight to the depth of thinking the round requires.
+- `--solo` — Run without subagents. Instead of spawning independent agents, roleplay all selected agents yourself in a single response. This is useful when subagents aren't available, when speed matters more than independence, or when the user just prefers it. Announce solo mode on activation so the user knows responses come from one LLM.
+
+## On Activation
+
+1. **Parse arguments** — check for `--model` and `--solo` flags from the user's invocation.
+
+2. Load config from `{project-root}/_bmad/core/config.yaml` and resolve:
+  - Use `{user_name}` for greeting
+  - Use `{communication_language}` for all communications
+
+3. **Resolve the agent roster** by running:
+
+    ```bash
+    python3 {project-root}/_bmad/scripts/resolve_config.py --project-root {project-root} --key agents
+    ```
+
+    The resolver merges four layers in order: `_bmad/config.toml` (installer base, team-scoped), `_bmad/config.user.toml` (installer base, user-scoped), `_bmad/custom/config.toml` (team overrides), and `_bmad/custom/config.user.toml` (personal overrides). Each entry under `agents` is keyed by the agent's `code` and carries `name`, `title`, `icon`, `description`, `module`, and `team`. Build an internal roster of available agents from those fields.
+
+4. **Load project context** — search for `**/project-context.md`. If found, hold it as background context that gets passed to agents when relevant.
+
+5. **Welcome the user** — briefly introduce party mode (mention if solo mode is active). Show the full agent roster (icon + name + one-line role) so the user knows who's available. Ask what they'd like to discuss.
+
+## The Core Loop
+
+For each user message:
+
+### 1. Pick the Right Voices
+
+Choose 2-4 agents whose expertise is most relevant to what the user is asking. Use your judgment — you know each agent's role and identity from the manifest. Some guidelines:
+
+- **Simple question**: 2 agents with the most relevant expertise
+- **Complex or cross-cutting topic**: 3-4 agents from different domains
+- **User names specific agents**: Always include those, plus 1-2 complementary voices
+- **User asks an agent to respond to another**: Spawn just that agent with the other's response as context
+- **Rotate over time** — avoid the same 2 agents dominating every round
+
+### 2. Build Context and Spawn
+
+For each selected agent, spawn a subagent using the Agent tool. Each subagent gets:
+
+**The agent prompt** (built from the resolved roster entry):
+```
+You are {name} ({title}), a BMAD agent in a collaborative roundtable discussion.
+
+## Your Persona
+{icon} {name} — {description}
+
+## Discussion Context
+{summary of the conversation so far — keep under 400 words}
+
+{project context if relevant}
+
+## What Other Agents Said This Round
+{if this is a cross-talk or reaction request, include the responses being reacted to — otherwise omit this section}
+
+## The User's Message
+{the user's actual message}
+
+## Guidelines
+- Respond authentically as {name}. Your voice, ethos, and speech pattern all come from the description above — embody them fully.
+- Start your response with: {icon} **{name}:**
+- Speak in {communication_language}.
+- Scale your response to the substance — don't pad. If you have a brief point, make it briefly.
+- Disagree with other agents when your perspective tells you to. Don't hedge or be polite about it.
+- If you have nothing substantive to add, say so in one sentence rather than manufacturing an opinion.
+- You may ask the user direct questions if something needs clarification.
+- Do NOT use tools. Just respond with your perspective.
+```
+
+**Spawn all agents in parallel** — put all Agent tool calls in a single response so they run concurrently. If `--model` was specified, use that model for all subagents. Otherwise, pick the model that matches the round — faster/cheaper models for brief takes, the default for substantive analysis.
+
+**Solo mode** — if `--solo` is active, skip spawning. Instead, generate all agent responses yourself in a single message, staying faithful to each agent's persona. Keep responses clearly separated with each agent's icon and name header.
+
+### 3. Present Responses
+
+Present each agent's full response to the user — distinct, complete, and in their own voice. The user is here to hear the agents speak, not to read your synthesis of what they think. Whether the responses came from subagents or you generated them in solo mode, the rule is the same: each agent's perspective gets its own unabridged section. Never blend, paraphrase, or condense agent responses into a summary.
+
+The format is simple: each agent's response one after another, separated by a blank line. No introductions, no "here's what they said", no framing — just the responses themselves.
+
+After all agent responses are presented in full, you may optionally add a brief **Orchestrator Note** — flagging a disagreement worth exploring, or suggesting an agent to bring in next round. Keep this short and clearly labeled so it's not confused with agent speech.
+
+### 4. Handle Follow-ups
+
+The user drives what happens next. Common patterns:
+
+| User says... | You do... |
+|---|---|
+| Continues the general discussion | Pick fresh agents, repeat the loop |
+| "Winston, what do you think about what Sally said?" | Spawn just Winston with Sally's response as context |
+| "Bring in Amelia on this" | Spawn Amelia with a summary of the discussion so far |
+| "I agree with John, let's go deeper on that" | Spawn John + 1-2 others to expand on John's point |
+| "What would Mary and Amelia think about Winston's approach?" | Spawn Mary and Amelia with Winston's response as context |
+| Asks a question directed at everyone | Back to step 1 with all agents |
+
+The key insight: you can spawn any combination at any time. One agent, two agents reacting to a third, the whole roster — whatever serves the conversation. Each spawn is cheap and independent.
+
+## Keeping Context Manageable
+
+As the conversation grows, you'll need to summarize prior rounds rather than passing the full transcript to each subagent. Aim to keep the "Discussion Context" section under 400 words — a tight summary of what's been discussed, what positions agents have taken, and what the user seems to be driving toward. Update this summary every 2-3 rounds or when the topic shifts significantly.
+
+## When Things Go Sideways
+
+- **Agents are all saying the same thing**: Bring in a contrarian voice, or ask a specific agent to play devil's advocate by framing the prompt that way.
+- **Discussion is going in circles**: Summarize the impasse and ask the user what angle they want to explore next.
+- **User seems disengaged**: Ask directly — continue, change topic, or wrap up?
+- **Agent gives a weak response**: Don't retry. Present it and let the user decide if they want more from that agent.
+
+## Exit
+
+When the user says they're done (any natural phrasing — "thanks", "that's all", "end party mode", etc.), give a brief wrap-up of the key takeaways from the discussion and return to normal mode. Don't force exit triggers — just read the room.
+
+
+ARGUMENTS: Design discussion for GitHub issue #427: the `language-reference` shape in skf-shape-detect.py never fires for repos that ARE a language/language-tooling (rust-lang/rust, pest-parser/pest). Root cause: it only fires on parser-generator *dependencies* (pest, lalrpop, antlr4 as deps) — detecting consumers of parser tooling, not producers of a language. Key constraint I discovered: the pipeline only fetches MANIFESTS (git clone --filter=blob:none --sparse-checkout restricted to package.json/Cargo.toml/pyproject.toml), so the script never sees grammar files, repo topics, or directory structure. So this is a 3-layer problem: (1) signal acquisition — what new inputs to fetch and how; (2) classification — how to fire language-reference from producer signals without false-positives; (3) downstream usefulness — language-reference maps to full-library unconditionally and SKF has NO multi-corpus concept (combining code repo + Book + std docs), so even if the shape fires the resulting skill may be low-value. Goal: converge on a SCOPED, pragmatic approach for what to actually build now vs defer. Bring Architect (signal cost vs value, robustness), PM (is the whole-language skill worth the multi-corpus build, MVP slice), and Analyst (which signals are robust vs fragile).
+
+---
+
+let take the best genuine decision. That's is the goal.
+
+---
+
+we will implement everything during this sessions with multiple commits on the same branch created from the main one. We just need to organize our work genuinely
+
+---
+
+[Request interrupted by user for tool use]
+
+---
+
+I switched into ultracode. continue
+
+---
+
+<task-notification>
+<task-id>w7233sazf</task-id>
+<tool-use-id>toolu_012xYz8NQYNea7Ax6BtQMv1L</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/35600871-ad6f-4c41-8071-82c59eec462f/tasks/w7233sazf.output</output-file>
+<status>completed</status>
+<summary>Dynamic workflow "Design &amp; harden Phase B (Tier-2 whole-language detection) + ecosystem expansion for SKF shape-detect" completed</summary>
+<result>{"ranking":[{"design":"Tier-2 tree/grammar language-reference detection via additive grammar-file + go.mod signals (minimal-blast-radius)","total":36},{"design":"Phase B: Tier-2 tree-signal language-reference detection + gated ecosystem expansion (robustness-first, zero-FP)","total":30},{"design":"Phase B: Tree-Aware Tier-2 Language-Reference Detection + go.mod / Grammar-File Ecosystem Expansion (maximum-coverage)","total":26}],"redteam_breaks":1,"redteam_total":6,"validations":[{"repo":"rust-lang/rust","reachable":true,"expected":"language-reference — rustc is the canonical whole-language toolchain (hand-written lexer+parser+AST under compiler/rustc_*), so language-reference -&gt; full-library is the correct shape. CAVEAT: it lands there today only by accident (parser_dep:winnow leaking from the rust-analyzer sub-tool), not via a rustc signal; the own-name producer signal (#427) does NOT fire because crate names like rustc_parse are intentionally excluded from substring matching. So: expected_classification is language-reference, but the SUPPORTING SIGNAL is fragile. Note also package_count&gt;&gt;3 forces the §3b cohesion check first — and a naive per-package split would shatter rustc into dozens of fragments; the cohesion-check should MERGE (rustc is one cohesive toolchain with compiler/rustc as the umbrella), not split.","signal":"Tree-level language-tooling signal: a top-level compiler/ dir whose children form a lexer+parser+ast crate triad (compiler/rustc_lexer + compiler/rustc_parse/src/parser + compiler/rustc_ast). This is the robust, intentional signal for rustc. Today shape-detect is manifest-only and CANNOT see it; the ONLY thing that fires now is the incidental parser_dep:winnow from src/tools/rust-analyzer/crates/parser/Cargo.toml — right classification, wrong/accidental reason. To catch rust-lang/rust deliberately, shape-detect needs a tree-aware probe (compiler/ + lexer/parser/ast triad) rather than relying on a sub-tool's tokenizer dependency."},{"repo":"microsoft/TypeScript","reachable":true,"expected":"language-reference. TypeScript is the canonical whole-language tooling target: a hand-written compiler (scanner/parser/binder/checker) and language service shipped as the `typescript` package with the `tsc`/`tsserver` binaries. A skill built from it is whole-language reference, not an app demo. HOWEVER, SKF today MISCLASSIFIES it as reference-app: language-reference fires only on parser-generator deps or own-name-is-a-parser-tool, and TypeScript has neither (hand-written, named after the language). The bin field then wins the ladder at step 3 -&gt; reference-app (conf ~0.80). This is a true false-negative for language-reference / false-positive for reference-app, and it proves the manifest-only heuristic cannot see hand-written compilers; a TREE signal (compiler dir + lexer/parser/ast triad) is required to catch this whole class.","signal":"TREE signal: presence of a src/compiler/ directory holding the lexer+parser+ast triad (scanner.ts + parser.ts + binder.ts/checker.ts). This is the ONLY robust catch for a hand-written compiler because its package name is the language (\"typescript\", not a parser-gen tool) and it has zero parser-generator dependencies — so both of today's manifest-only language-reference signals (parser_producer own-name, parser_dep) miss it entirely. A compiler-dir / lexer+parser+ast-triad tree probe is needed."},{"repo":"python/cpython","reachable":false,"expected":"language-reference — CPython literally IS the Python language reference implementation. Verified via deepwiki: PEG grammar at Grammar/python.gram drives pegen to generate Parser/parser.c; top-level Parser/, Grammar/, Python/ (compiler/codegen), Lib/, Modules/ form a textbook compiler/interpreter layout. This is the canonical TRUE positive for the language-reference shape — but it is NOT reachable by SKF today (manifest-only gate), so it is a coverage gap, not a misclassification.","signal":"TREE signal — presence of a PEG grammar file at Grammar/python.gram (extension .gram, alongside Grammar/Tokens), combined with the Parser/ + Grammar/ + Python/ (compiler) directory triad. A grammar-file detector (.gram/.g4/.y/.pest/.lark + a sibling Parser/ or compiler/ dir) is the single robust signal that catches CPython, since no manifest signal can ever reach it."},{"repo":"golang/go","reachable":false,"expected":"language-reference — golang/go is the reference implementation of the Go programming language: it ships a full compiler (cmd/compile with lexer/parser/type-checker/codegen) plus the canonical go/scanner, go/parser, go/ast tooling packages. By SKF's mapping, language-reference -&gt; full-library scope. HOWEVER it is unreachable today: the only manifest is go.mod (unsupported), so the manifest scanner's filtered list is empty and auto-scope falls back to interactive BEFORE invoking shape-detect.py. The newly added own-name producer check does NOT help (name 'go' is not a parser tool), and the consumer dep check cannot fire (hand-written parser = no parser-generator dep, and no supported manifest to read deps from anyway). This is a true language-reference target that proves the manifest-only + grammar-file approach has a gap: catching it requires a tree-structure signal (compiler dir + scanner/parser/ast triad) AND extending supported ecosystems beyond npm/Cargo/pyproject.","signal":"TREE signal: a 'compiler/' (cmd/compile) directory co-located with a lexer+parser+ast package triad (go/scanner + go/parser + go/ast). This catches the hand-written-parser case that has no grammar file and no parser-generator dep. Grammar-file globs (.y/.g4/.pest/.gram) alone are INSUFFICIENT here — Go has none. Manifest-based detection is impossible: go.mod is filtered out at step-auto-scope.md:277, so a manifest-only redesign still cannot reach this repo without adding go.mod support."},{"repo":"ruby/ruby","reachable":true,"expected":"language-reference — ruby/ruby is the canonical Ruby language implementation: a yacc parse.y grammar at root, lex.c lexer, and a full Prism parser/AST in prism/. This is unambiguously whole-language tooling. CAVEAT: SKF TODAY misclassifies it as library-API (empirically verified: shape-detect on the real root Cargo.toml returns {shape: library-API, confidence: 0.80}, and root+members still library-API at export_count 3). The own-name producer check sees name=\\\"ruby\\\"/\\\"yjit\\\"/\\\"zjit\\\" (none in _ALL_PARSER_DEPS) and there is no parser-generator dependency, so language-reference never fires; the [lib] staticlib target drops it to rung 4. The fix is the root grammar-file TREE signal — manifest-only logic structurally cannot reach the correct answer for this repo.","signal":"TREE signal: a yacc/bison grammar file (parse.y) at the repository root. Add root-level grammar-file detection (.y/.pest/.gram/.g4) as a language-reference trigger. parse.y sits at depth 0 — exactly where SKF already walks for manifests — so wiring it in is cheap and it is the one signal that correctly identifies ruby/ruby as language tooling. The manifest path is a dead end here: ruby's only supported manifest (Cargo.toml) describes the Rust JIT subsystem, not the Ruby language, so no manifest signal can ever catch the actual language-reference nature."},{"repo":"prettier/prettier","reachable":true,"expected":"NOT language-reference. prettier is a FORMATTER that consumes existing parsers, not a parser/grammar toolchain. Its own name is not a known parser-generator tool, and its dependencies are concrete parsers (@babel/parser, espree, acorn, flow-parser, graphql, remark-parse, yaml, smol-toml) rather than parser GENERATORS (antlr4/pegjs/nearley/lalrpop/lark/...). Because the producer check keys on exact full-name set membership (deliberately never on substrings like \\\"parser\\\"/\\\"compiler\\\"/\\\"lang\\\") and the consumer check requires a parser-generator dependency, neither arm fires. SKF reaches this repo today (root package.json) and classifies it as 
+... (truncated 31394 chars, full result in /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/35600871-ad6f-4c41-8071-82c59eec462f/tasks/w7233sazf.output)</result>
+<usage><agent_count>27</agent_count><subagent_tokens>1429987</subagent_tokens><tool_uses>207</tool_uses><duration_ms>847526</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bdp7bq73n</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/35600871-ad6f-4c41-8071-82c59eec462f/tasks/bdp7bq73n.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full test:python suite in background" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>wf1onj4h2</task-id>
+<tool-use-id>toolu_016tEaPdD8WtB64Bpry2Ns2v</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/35600871-ad6f-4c41-8071-82c59eec462f/tasks/wf1onj4h2.output</output-file>
+<status>completed</status>
+<summary>Dynamic workflow "Design honest-degradation (A3) + multi-corpus corpus-sourcing (C2) for language-reference skills" completed</summary>
+<result>{"ranking":[{"design":"Phase C — HYBRID: README-detection primary, curated language→corpora registry supplements the flagships","total":32},{"design":"Stance A — Trust-and-Strengthen Detection (no registry; honest caveat when corpora absent)","total":29.5},{"design":"Phase C — curated language→corpora registry merged into doc_urls, with honest code-only caveat","total":27}],"redteam_useful":5,"redteam_total":5,"canonical_corpora":[{"repo":"rust-lang/rust","corpora":["The Rust Programming Language (\"The Book\") — https://doc.rust-lang.org/book/ (live 200; README links it as https://doc.rust-lang.org/book/index.html)","The Rust Standard Library API docs — https://doc.rust-lang.org/std/ (live 200; NOT linked from README)","The Rust Reference — https://doc.rust-lang.org/reference/ (live 200; NOT linked from README)","Supplementary, version-bundled via `rustup doc` and listed in src/doc/index.md: Rust by Example (https://doc.rust-lang.org/rust-by-example/), the Cargo Book (https://doc.rust-lang.org/cargo/), the Edition Guide, the Rustonomicon"],"useful":true},{"repo":"microsoft/TypeScript","corpora":["TypeScript Handbook (intro / 'Programming handbook') — https://www.typescriptlang.org/docs/handbook/intro.html — VERIFIED live, real prose; THIS IS LINKED IN THE REPO README","TypeScript in 5 minutes (handbook quick-start) — https://www.typescriptlang.org/docs/handbook/typescript-in-5-minutes.html — VERIFIED live; also linked in README","TypeScript Reference section (depth pages: Utility Types, Decorators, Declaration Merging, Type Compatibility, etc.) — entry effectively via the handbook nav; the reference landing is the 'richer understanding' tier. Utility Types page: https://www.typescriptlang.org/docs/handbook/utility-types.html — VERIFIED live but NARROW single-topic","Documentation hub (homepage) — https://www.typescriptlang.org/docs/ and https://www.typescriptlang.org/ — VERIFIED; homepage is in README but is REJECTED by detect-docs (no /docs/ path segment)"],"useful":true},{"repo":"python/cpython","corpora":["The Python Tutorial — https://docs.python.org/3/tutorial/ (verified live, serves 3.14.5 as of 2026-06-03; /3/ is the maintained latest-stable alias)","The Python Standard Library — https://docs.python.org/3/library/ (verified live, HTTP 200, 'The Python Standard Library — Python 3.14.5 documentation')","The Python Language Reference — https://docs.python.org/3/reference/ (verified canonical section of docs.python.org index)","(secondary, idioms/style) The Python HOWTOs — https://docs.python.org/3/howto/ and PEP 8 — https://peps.python.org/pep-0008/ (not in proposed registry; relevant to 'idioms' value claim)"],"useful":true},{"repo":"golang/go","corpora":["Effective Go — https://go.dev/doc/effective_go (HTTP 200 verified) — the idiom/style guide, the single most important Go prose corpus","The Go Programming Language Specification — https://go.dev/ref/spec (HTTP 200 verified) — the authoritative language reference","Go Standard Library API reference — https://pkg.go.dev/std (HTTP 200 verified) — the package/API reference an app developer actually imports","A Tour of Go — https://go.dev/tour/ (HTTP 200 verified) — interactive intro; NOT in the proposed registry but is canonical onboarding prose","Go documentation hub — https://go.dev/doc/ (HTTP 200 verified) — index of guides; NOT in the registry"],"useful":true},{"repo":"ruby/ruby","corpora":["Ruby in Twenty Minutes (official getting-started tutorial / guide) — https://www.ruby-lang.org/en/documentation/quickstart/ — VERIFIED live 200, title 'Ruby in Twenty Minutes | Ruby'","Ruby Core &amp; Standard Library API reference (docs.ruby-lang.org master) — https://docs.ruby-lang.org/en/master/ — VERIFIED live 200, real Ruby 4.1 core+stdlib API docs generated by RDoc; NOTE this is the trailing-slash form, while ruby/ruby's README links the .../en/master/index.html form (different exact string)","Official documentation hub — https://www.ruby-lang.org/en/documentation/ (parent of quickstart; not in registry but the canonical index)"],"useful":true}],"blueprint":"All claims now grounded against source. The critical findings I've confirmed:\n\n1. **§8 has no `doc_urls` key today** (lines 536-552) — the registry would be a no-op without an explicit edit. Confirmed.\n2. **Writer strips to `{url, label}`** at line 438-439 — registry's `content_type`/`detected_via` never reach the brief. Confirmed.\n3. **Schema `doc_urls.minItems:1`** — empty array is invalid; must OMIT the key when N==0. Confirmed.\n4. **BS §3 line 101** dedupes by exact URL string, existing-wins — `/book/` vs `/book/index.html` would NOT collapse (double-fetch). Confirmed.\n5. **`skf-detect-language.py` returns `ruby`** (rule 9 Gemfile, rule 10 .rb frequency) and takes `{\"tree\": [...]}` on stdin — but is NOT wired into step-auto-scope (only into the interactive brief-skill path). AN's §5/§6 only derive 4 manifest languages — Ruby/CPython get empty `{language}`. Confirmed: this is the key-miss the Ruby red-team flagged.\n6. `_DOC_DOMAIN_RE = docs\\.` misses `doc.rust-lang.org`. Confirmed.\n\nI have everything needed. Writing the final blueprint.\n\n---\n\n# Phase C Blueprint — SKF #427: Honest Degradation (A3) + Multi-Corpus Sourcing (C2)\n\n**Stance:** HYBRID, **corrected for the six verified red-team defects.** README detection stays as the long-tail belt; a tiny curated registry is the flagship guarantee. The resolver lives in **AN (step-auto-scope.md)** — the only step holding *both* `shape==language-reference` *and* the language. Every integration claim below was verified against source (file:line cites inline).\n\nThe synthesis: I keep the winning design's placement (AN, not BS) and its A3 caveat, but I **graft Stance A's regex widening** (so the belt actually catches `doc.rust-lang.org/book` instead of contributing zero), I **fix the six wiring/shape bugs the red-team proved** (§8 doc_urls edit, brief-contract shape not detect-docs shape, minItems omission, URL-normalized dedup, language-key via `skf-detect-language.py`, status-from-final-count), and I **down-rank README noise** for language-reference so changelog/contribute pages don't dilute the prose tier.\n\n---\n\n## Part 0 — Verified ground facts (the corrections are load-bearing)\n\n| Claim | Verified at | Consequence for design |\n|---|---|---|\n| §8 brief-write emits NO `doc_urls` key | `step-auto-scope.md:536-552` | **EDIT 4 is mandatory** — without it the registry never reaches the brief (no-op). The original design omitted this. |\n| Writer keeps only `{url, label}` | `skf-write-skill-brief.py:438-439` (`{\"url\": e[\"url\"], \"label\": e.get(\"label\",\"\")}`) | Registry must emit **brief-contract** shape `{url,label}`, NOT detect-docs shape. `content_type`/`detected_via` are dead weight. |\n| `doc_urls.minItems: 1` | `skill-brief.v1.json:57` | N==0 must **omit** the key entirely; writing `[]` fails validation. |\n| BS dedup = exact-string, existing-wins | `step-auto-brief.md:101` | `/book/` vs `/book/index.html` are distinct → double-fetch. Needs URL-normalized compare (EDIT 6). |\n| detect-docs emits `{url, detected_via, content_type}`, no `label` | `skf-detect-docs.py:235,276-278` | BS §3 (`step-auto-brief.md:88-99`) is the label-deriver; registry sits POST-translation. |\n| `_DOC_DOMAIN_RE = (?:docs\\.|...)` (with `s`) | `skf-detect-docs.py:89-92` | Misses `doc.rust-lang.org`. Belt is empty for Rust unless widened (EDIT 7). |\n| `skf-detect-language.py` returns `ruby`, takes `{\"tree\":[...]}` on stdin/`--json` | `skf-detect-language.py:97,124,288` | AN §5/§6 only derive 4 manifest langs; Ruby/CPython get empty `{language}`. Registry must key off detect-language, not the manifest map (EDIT 3). |\n| No `src/shared/data/` dir; precedent is `src/shared/_known-workarounds.yaml` | `ls` | New `src/shared/data/` dir is the clean home (not `schemas/`). |\n| `test:python` enumerates every path explicitly | `package.json:56` | New test path MUST be appended (per memory). |\
+... (truncated 18352 chars, full result in /tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/35600871-ad6f-4c41-8071-82c59eec462f/tasks/wf1onj4h2.output)</result>
+<usage><agent_count>12</agent_count><subagent_tokens>700528</subagent_tokens><tool_uses>157</tool_uses><duration_ms>671212</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ba1fge8ty</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/tmp/claude-1000/-home-armel-Projects-OSS-bmad-module-skill-forge/35600871-ad6f-4c41-8071-82c59eec462f/tasks/ba1fge8ty.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full test suite (npm test) in background" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Do both
+
+---
+
+PR Merged. give me the next prompt I will use in a fresh `ultracode` session to adress all theses 4 new issues from a same branch.
+
+---
+
+issue 427 is still open after the previous merge. is it normal?
+
+---
+
+checkout into main and update the branch pls
