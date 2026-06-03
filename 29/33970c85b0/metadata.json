@@ -3,7 +3,7 @@
   "checkpoint_id": "2933970c85b0",
   "strategy": "manual-commit",
   "branch": "issue-427-language-reference-shape",
-  "checkpoints_count": 1,
+  "checkpoints_count": 2,
   "files_touched": [
     "src/shared/scripts/skf-shape-detect.py",
     "test/test-skf-shape-detect.py"
@@ -15,13 +15,20 @@
       "context": "/29/33970c85b0/0/context.md",
       "content_hash": "/29/33970c85b0/0/content_hash.txt",
       "prompt": "/29/33970c85b0/0/prompt.txt"
+    },
+    {
+      "metadata": "/29/33970c85b0/1/metadata.json",
+      "transcript": "/29/33970c85b0/1/full.jsonl",
+      "context": "/29/33970c85b0/1/context.md",
+      "content_hash": "/29/33970c85b0/1/content_hash.txt",
+      "prompt": "/29/33970c85b0/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 17788,
-    "cache_creation_tokens": 331024,
-    "cache_read_tokens": 9359149,
-    "output_tokens": 114986,
-    "api_call_count": 63
+    "input_tokens": 78611,
+    "cache_creation_tokens": 4465412,
+    "cache_read_tokens": 210959569,
+    "output_tokens": 665190,
+    "api_call_count": 483
   }
 }
