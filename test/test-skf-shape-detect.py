@@ -68,6 +68,14 @@ def write_cargo_toml(tmp_path: Path, content: str) -> str:
     return str(p)
 
 
+def write_go_mod(tmp_path: Path, content: str, subdir: str = "") -> str:
+    base = tmp_path / subdir if subdir else tmp_path
+    base.mkdir(parents=True, exist_ok=True)
+    p = base / "go.mod"
+    p.write_text(content, encoding="utf-8")
+    return str(p)
+
+
 # --------------------------------------------------------------------------
 # Shape: library-API
 # --------------------------------------------------------------------------
@@ -275,6 +283,440 @@ pest_derive = "2.0"
         })
         result = mod.detect(REPO_URL, [path])
         assert result["shape"] == "language-reference"
+
+
+# --------------------------------------------------------------------------
+# Shape: language-reference — PRODUCERS (issue #427)
+#
+# The pre-#427 heuristic only fired on parser-generator *dependencies*, i.e.
+# *consumers* of parser tooling. A language tool's OWN repo doesn't depend on
+# a parser generator — it IS one (pest's Cargo.toml has no `pest` dep; it
+# declares `[package] name = "pest"`). Tier 1 fix: a repo whose own package
+# name is itself a known parser/grammar tool is a producer and classifies as
+# language-reference. The consumer path is kept (a DSL built on lalrpop is
+# still a language project).
+# --------------------------------------------------------------------------
+
+
+class TestLanguageReferenceProducers:
+    def test_rust_pest_own_repo_is_producer(self, tmp_path):
+        """pest-parser/pest: own name in parser-gen set, no pest dep."""
+        path = write_cargo_toml(tmp_path, """
+[package]
+name = "pest"
+version = "2.7.0"
+
+[lib]
+name = "pest"
+
+[dependencies]
+ucd-trie = "0.1"
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] == "language-reference"
+        assert any("parser_producer" in s for s in result["signals"])
+
+    def test_npm_peggy_own_repo_is_producer(self, tmp_path):
+        """peggy: a parser generator publishing itself, no parser dep."""
+        path = write_package_json(tmp_path, {
+            "name": "peggy",
+            "main": "lib/peg.js",
+        })
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] == "language-reference"
+        assert any("parser_producer" in s for s in result["signals"])
+
+    def test_python_lark_own_repo_is_producer(self, tmp_path):
+        path = write_pyproject_toml(tmp_path, """
+[project]
+name = "lark"
+version = "1.1.0"
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] == "language-reference"
+
+    def test_lalrpop_consumer_still_language_reference(self, tmp_path):
+        """A DSL built ON lalrpop (build-dep) stays language-reference."""
+        path = write_cargo_toml(tmp_path, """
+[package]
+name = "my-query-lang"
+version = "0.1.0"
+
+[lib]
+name = "my_query_lang"
+
+[build-dependencies]
+lalrpop = "0.20"
+
+[dependencies]
+lalrpop-util = "0.20"
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] == "language-reference"
+
+
+# --------------------------------------------------------------------------
+# language-reference NEGATIVE controls (issue #427 ship gate)
+#
+# These must NOT classify as language-reference. They lock in the conservative
+# Tier-1 decision: producer detection keys on own-name ∈ parser-gen-set ONLY,
+# NOT on substring name tokens like "parser"/"lang"/"compiler" — those are
+# false-positive farms (a markdown parser, a CLI arg parser, compiler-builtins
+# are all ordinary libraries, not whole-language references).
+# --------------------------------------------------------------------------
+
+
+class TestLanguageReferenceNegativeControls:
+    def test_clap_arg_parser_is_library(self, tmp_path):
+        path = write_cargo_toml(tmp_path, """
+[package]
+name = "clap"
+version = "4.5.0"
+
+[lib]
+name = "clap"
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] != "language-reference"
+
+    def test_serde_is_library(self, tmp_path):
+        path = write_cargo_toml(tmp_path, """
+[package]
+name = "serde"
+version = "1.0.0"
+
+[lib]
+name = "serde"
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] != "language-reference"
+
+    def test_markdown_lib_is_not_language_reference(self, tmp_path):
+        """comrak: a CommonMark parser library — parses a format, not a lang."""
+        path = write_cargo_toml(tmp_path, """
+[package]
+name = "comrak"
+version = "0.20.0"
+
+[lib]
+name = "comrak"
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] != "language-reference"
+
+    def test_trap_token_parser_in_name_is_not_language_reference(self, tmp_path):
+        """A '*-parser' library parses an existing format; the token is a trap."""
+        path = write_package_json(tmp_path, {
+            "name": "css-parser",
+            "main": "index.js",
+        })
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] != "language-reference"
+
+    def test_trap_token_compiler_substring_is_not_language_reference(self, tmp_path):
+        """compiler-builtins / rustc-demangle: 'compiler'/'rustc' substring,
+        but ordinary libraries. Guards against naive name-token matching."""
+        path = write_cargo_toml(tmp_path, """
+[package]
+name = "compiler-builtins"
+version = "0.1.0"
+
+[lib]
+name = "compiler_builtins"
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] != "language-reference"
+
+
+# --------------------------------------------------------------------------
+# language-reference — GRAMMAR-FILE rung (Rung A, issue #427)
+#
+# A repo that ships a declared grammar authors a language — even when it has no
+# parser-generator dependency and even when it has NO supported manifest at all
+# (CPython, Ruby). Two guard gates suppress delegating consumers and markup/DSL
+# parsers that merely carry a grammar-ish file.
+# --------------------------------------------------------------------------
+
+
+class TestLanguageReferenceGrammarRung:
+    def test_cpython_grammar_file_no_manifest(self):
+        """python/cpython: PEG grammar at Grammar/python.gram, no manifest."""
+        result = mod.detect(REPO_URL, [], ["Grammar/python.gram"], [])
+        assert_result_shape(result)
+        assert result["shape"] == "language-reference"
+        assert "grammar_file:python.gram" in result["signals"]
+        assert result["confidence"] >= 0.85
+
+    def test_ruby_root_grammar_outranks_jit_cargo(self, tmp_path):
+        """ruby/ruby: root parse.y outranks the Rust JIT Cargo.toml library."""
+        jit = write_cargo_toml(tmp_path, """
+[package]
+name = "yjit"
+version = "0.1.0"
+
+[lib]
+name = "yjit"
+crate-type = ["staticlib"]
+""")
+        result = mod.detect(REPO_URL, [jit], ["parse.y"], [])
+        assert_result_shape(result)
+        assert result["shape"] == "language-reference"
+        assert "grammar_file:parse.y" in result["signals"]
+
+    def test_g4_grammar_fires(self):
+        result = mod.detect(REPO_URL, [], ["src/MyLang.g4"], [])
+        assert result["shape"] == "language-reference"
+
+    def test_grammar_substring_does_not_fire(self):
+        """A file merely named like a grammar (no grammar extension) is inert."""
+        result = mod.detect(REPO_URL, [], ["docs/grammar_overview.md"], [])
+        assert result["shape"] == "unknown"
+
+    def test_delegating_consumer_with_grammar_is_suppressed(self, tmp_path):
+        """A formatter that depends on a real parser must not fire even with a
+        stray grammar file in its tree (gate G)."""
+        pkg = write_package_json(tmp_path, {
+            "name": "prettier",
+            "bin": {"prettier": "./bin.js"},
+            "dependencies": {"@babel/parser": "7.0.0"},
+        })
+        result = mod.detect(REPO_URL, [pkg], ["test/fixtures/x.g4"], [])
+        assert result["shape"] != "language-reference"
+        assert "delegating_consumer" in result["signals"]
+
+    def test_markup_identity_with_grammar_is_suppressed(self, tmp_path):
+        """A repo whose identity is a markup/DSL parser is not a whole-language
+        reference even with a grammar file (gate L)."""
+        pkg = write_package_json(tmp_path, {
+            "name": "graphql",
+            "main": "index.js",
+        })
+        result = mod.detect(REPO_URL, [pkg], ["src/schema.g4"], [])
+        assert result["shape"] != "language-reference"
+
+
+# --------------------------------------------------------------------------
+# language-reference — TREE-TRIAD rung (Rung B, issue #427)
+#
+# Hand-written compilers (rustc, TypeScript, Go) declare no parser-generator
+# dependency and ship no grammar file. They are caught by a dedicated compiler/
+# directory holding a lexer+parser+AST triad plus a codegen/VM/type-checker
+# member. The six false-positive controls (webpack, postcss, prettier,
+# graphql-js, dart-sass, marked) each have a near-miss shape and must stay out.
+# --------------------------------------------------------------------------
+
+# Faithful reconstructions of each repo's real compiler tree.
+RUST_TREE = [
+    "compiler/", "compiler/rustc_lexer/", "compiler/rustc_parse/",
+    "compiler/rustc_ast/", "compiler/rustc_codegen_llvm/",
+]
+TS_TREE = [
+    "src/compiler/", "src/compiler/scanner.ts", "src/compiler/parser.ts",
+    "src/compiler/binder.ts", "src/compiler/checker.ts",
+]
+GO_TREE = [
+    "cmd/compile/", "cmd/compile/internal/syntax/",
+    "cmd/compile/internal/syntax/scanner.go",
+    "cmd/compile/internal/syntax/parser.go",
+    "go/ast/", "go/ast/ast.go", "go/types/", "go/types/check.go",
+]
+
+
+class TestLanguageReferenceTreeTriadRung:
+    def test_rust_compiler_triad(self):
+        result = mod.detect(REPO_URL, [], [], RUST_TREE)
+        assert_result_shape(result)
+        assert result["shape"] == "language-reference"
+        assert any(s.startswith("tree_triad:") for s in result["signals"])
+
+    def test_typescript_triad_outranks_bin(self, tmp_path):
+        """TypeScript ships `tsc` (a bin) — the triad must outrank reference-app."""
+        pkg = write_package_json(tmp_path, {
+            "name": "typescript",
+            "bin": {"tsc": "./bin/tsc.js", "tsserver": "./bin/tsserver.js"},
+        })
+        result = mod.detect(REPO_URL, [pkg], [], TS_TREE)
+        assert result["shape"] == "language-reference"
+
+    def test_go_toolchain_triad(self):
+        result = mod.detect(REPO_URL, [], [], GO_TREE)
+        assert result["shape"] == "language-reference"
+
+    # --- negative controls: each near-miss must stay out ---
+
+    def test_webpack_parser_file_not_dir(self, tmp_path):
+        """lib/Parser.js is a FILE, not a Parser/ dir; plus acorn dep (gate G)."""
+        pkg = write_package_json(tmp_path, {
+            "name": "webpack",
+            "bin": {"webpack": "./bin.js"},
+            "dependencies": {"acorn": "8.0.0"},
+        })
+        result = mod.detect(REPO_URL, [pkg], [], ["lib/", "lib/Parser.js"])
+        assert result["shape"] != "language-reference"
+
+    def test_postcss_no_compiler_dir(self, tmp_path):
+        pkg = write_package_json(tmp_path, {"name": "postcss", "main": "lib/postcss.js"})
+        tree = ["lib/", "lib/tokenize.js", "lib/parser.js", "lib/node.js"]
+        result = mod.detect(REPO_URL, [pkg], [], tree)
+        assert result["shape"] != "language-reference"
+
+    def test_graphql_js_src_language_not_compiler(self, tmp_path):
+        pkg = write_package_json(tmp_path, {"name": "graphql", "main": "index.js"})
+        tree = ["src/language/", "src/language/lexer.ts",
+                "src/language/parser.ts", "src/language/ast.ts"]
+        result = mod.detect(REPO_URL, [pkg], [], tree)
+        assert result["shape"] != "language-reference"
+
+    def test_dart_sass_compiler_is_a_file(self, tmp_path):
+        pkg = write_package_json(tmp_path, {"name": "sass", "main": "sass.dart.js"})
+        tree = ["lib/src/", "lib/src/parse/", "lib/src/compiler.dart",
+                "lib/src/syntax.dart"]
+        result = mod.detect(REPO_URL, [pkg], [], tree)
+        assert result["shape"] != "language-reference"
+
+    def test_marked_bare_src_dir(self, tmp_path):
+        pkg = write_package_json(tmp_path, {"name": "marked", "main": "lib/marked.js"})
+        tree = ["src/", "src/Lexer.ts", "src/Parser.ts", "src/Tokenizer.ts"]
+        result = mod.detect(REPO_URL, [pkg], [], tree)
+        assert result["shape"] != "language-reference"
+
+    def test_w_gate_is_load_bearing(self, tmp_path):
+        """A repo with a real compiler/ dir AND a full lexer+parser+AST triad but
+        NO codegen/VM/type-checker (a markdown-shaped lib) must stay out. Proves
+        gate W, not the compiler-dir alone, is the discriminator."""
+        pkg = write_package_json(tmp_path, {"name": "quaxmark", "main": "index.js"})
+        tree = ["src/compiler/", "src/compiler/lexer.ts",
+                "src/compiler/parser.ts", "src/compiler/ast.ts"]
+        result = mod.detect(REPO_URL, [pkg], [], tree)
+        assert result["shape"] != "language-reference"
+
+
+# --------------------------------------------------------------------------
+# Phase B plumbing (issue #427): optional --grammar-files / --tree-paths args
+# and the relaxed MISSING_MANIFESTS guard. These inputs do not yet change
+# classification (the grammar/tree rungs land in later commits) — this commit
+# only proves the interface is wired and behaviour-neutral on the existing
+# manifest path.
+# --------------------------------------------------------------------------
+
+
+class TestPhaseBPlumbing:
+    def test_existing_two_arg_call_unchanged(self, tmp_path):
+        """The 2-arg detect() signature still works (regression)."""
+        path = write_package_json(tmp_path, {"name": "lib", "main": "index.js"})
+        result = mod.detect(REPO_URL, [path])
+        assert result["shape"] == "library-API"
+
+    def test_all_inputs_empty_still_errors(self):
+        """The load-bearing pin: every input empty → exit 2, unchanged."""
+        with pytest.raises(SystemExit) as exc_info:
+            mod.detect(REPO_URL, [], [], [])
+        assert exc_info.value.code == 2
+
+    def test_grammar_only_no_longer_errors(self):
+        """Empty manifests but a grammar file present → no longer exit 2.
+
+        With the grammar rung in place a manifest-less grammar repo classifies
+        as language-reference rather than hard-erroring.
+        """
+        result = mod.detect(REPO_URL, [], ["Grammar/python.gram"], [])
+        assert_result_shape(result)
+        assert result["shape"] == "language-reference"
+
+    def test_tree_only_inert_until_triad_rung(self):
+        """A lone directory signal does not yet classify (the compiler-triad
+        rung lands in a later commit); the point here is it no longer exit-2s."""
+        result = mod.detect(REPO_URL, [], [], ["some/dir/"])
+        assert_result_shape(result)
+        assert result["shape"] == "unknown"
+
+    def test_cli_all_empty_exit_2(self):
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--repo-url", REPO_URL,
+             "--manifests", "", "--grammar-files", "", "--tree-paths", ""],
+            capture_output=True, text=True, timeout=15,
+        )
+        assert proc.returncode == 2
+
+    def test_cli_grammar_only_not_exit_2(self):
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "--repo-url", REPO_URL,
+             "--manifests", "", "--grammar-files", "Grammar/python.gram"],
+            capture_output=True, text=True, timeout=15,
+        )
+        assert proc.returncode != 2
+        out = json.loads(proc.stdout)
+        assert_result_shape(out)
+
+
+# --------------------------------------------------------------------------
+# Ecosystem: Go (go.mod) — issue #427 ecosystem expansion
+#
+# The scanner already recognises go.mod; shape-detect now parses it too, so a
+# Go repo reaches classification instead of hard-halting. Most Go libraries
+# resolve to library-API; the Go toolchain itself is caught by the tree-triad
+# rung (golang/go).
+# --------------------------------------------------------------------------
+
+
+class TestGoMod:
+    def test_go_library_is_library_api(self, tmp_path):
+        path = write_go_mod(tmp_path, """
+module github.com/spf13/cobra
+
+go 1.21
+
+require (
+\tgithub.com/inconshreveable/mousetrap v1.1.0
+\tgithub.com/spf13/pflag v1.0.5
+)
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] == "library-API"
+        assert "has_go_mod" in result["signals"]
+
+    def test_go_mod_does_not_hard_halt(self, tmp_path):
+        """A go.mod handed directly parses cleanly (no UNSUPPORTED_MANIFEST)."""
+        path = write_go_mod(tmp_path, "module example.com/x\n\ngo 1.21\n")
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] in {"library-API", "unknown"}
+
+    def test_go_single_line_require(self, tmp_path):
+        path = write_go_mod(tmp_path, """
+module example.com/tool
+
+go 1.21
+
+require github.com/spf13/pflag v1.0.5
+""")
+        result = mod.detect(REPO_URL, [path])
+        assert_result_shape(result)
+        assert result["shape"] == "library-API"
+
+    def test_go_cmd_member_has_bin(self, tmp_path):
+        """A go.mod under cmd/ marks a command (binary) member."""
+        path = write_go_mod(tmp_path, "module acme.dev/app/cmd/tool\n\ngo 1.21\n",
+                            subdir="cmd/tool")
+        result = mod.detect(REPO_URL, [path])
+        assert "has_bin_field" in result["signals"]
+        assert result["shape"] == "reference-app"
+
+    def test_cli_go_mod_exit_0(self, tmp_path):
+        path = write_go_mod(tmp_path, "module example.com/x\n\ngo 1.21\n")
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH),
+             "--repo-url", REPO_URL, "--manifests", path],
+            capture_output=True, text=True, timeout=15,
+        )
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["shape"] == "library-API"
 
 
 # --------------------------------------------------------------------------

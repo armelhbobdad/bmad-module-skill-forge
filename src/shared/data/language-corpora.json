@@ -1,0 +1,32 @@
+{
+  "_comment": "Canonical companion prose corpora for whole-language skills (issue #427). A language-reference repo (a compiler/interpreter such as rust-lang/rust) carries the language's CODE; its value as a skill comes from the language's PROSE — the guide/Book, the standard/library API docs, and idioms. README detection (skf-detect-docs.py) is the primary source; this registry guarantees the canonical corpora for well-known languages even when the repo's README does not link them. Keyed by lowercase language id (as emitted by skf-detect-language.py / step-auto-scope.md). URLs are version-agnostic, point at maintained latest-stable aliases, and were verified live. Consumed by skf-language-corpora.py, which emits the brief doc_urls contract {url, label}.",
+  "rust": [
+    { "url": "https://doc.rust-lang.org/book/", "label": "The Rust Programming Language (Book)" },
+    { "url": "https://doc.rust-lang.org/std/", "label": "Rust Standard Library" },
+    { "url": "https://doc.rust-lang.org/reference/", "label": "The Rust Reference" }
+  ],
+  "python": [
+    { "url": "https://docs.python.org/3/tutorial/", "label": "The Python Tutorial" },
+    { "url": "https://docs.python.org/3/library/", "label": "Python Standard Library" },
+    { "url": "https://docs.python.org/3/reference/", "label": "Python Language Reference" },
+    { "url": "https://docs.python.org/3/howto/", "label": "Python HOWTOs (idioms)" }
+  ],
+  "go": [
+    { "url": "https://go.dev/tour/", "label": "A Tour of Go" },
+    { "url": "https://go.dev/doc/effective_go", "label": "Effective Go" },
+    { "url": "https://go.dev/ref/spec", "label": "The Go Language Specification" },
+    { "url": "https://pkg.go.dev/std", "label": "Go Standard Library" }
+  ],
+  "typescript": [
+    { "url": "https://www.typescriptlang.org/docs/handbook/intro.html", "label": "TypeScript Handbook" },
+    { "url": "https://www.typescriptlang.org/docs/", "label": "TypeScript Documentation (Reference)" }
+  ],
+  "javascript": [
+    { "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide", "label": "MDN JavaScript Guide" },
+    { "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference", "label": "MDN JavaScript Reference" }
+  ],
+  "ruby": [
+    { "url": "https://www.ruby-lang.org/en/documentation/quickstart/", "label": "Ruby in Twenty Minutes" },
+    { "url": "https://docs.ruby-lang.org/en/master/", "label": "Ruby Core & Standard Library API" }
+  ]
+}

@@ -27,8 +27,13 @@ CLI:
       --repo-url <url> --manifests <path1,path2,...>
 
 Input:
-  --repo-url   repository URL (required; context only, no cloning)
-  --manifests  comma-separated local file paths to manifest files (required)
+  --repo-url      repository URL (required; context only, no cloning)
+  --manifests     comma-separated local file paths to manifest files (may be
+                  empty when a tree-level signal is supplied instead)
+  --grammar-files comma-separated repo-relative grammar files (*.y, *.g4,
+                  *.pest, Grammar/python.gram, ...); a whole-language signal
+  --tree-paths    comma-separated repo-relative directory/structural signals
+                  harvested from the clone (compiler/ dir, lexer/parser/ast)
 
 Output (JSON on stdout):
   shape         library-API | reference-app | language-reference
@@ -77,6 +82,71 @@ _PARSER_DEPS_RUST = frozenset({
 })
 
 _ALL_PARSER_DEPS = _PARSER_DEPS_NPM | _PARSER_DEPS_PYTHON | _PARSER_DEPS_RUST
+
+# ---------------------------------------------------------------------------
+# Tree-level whole-language signals (issue #427)
+#
+# A hand-written compiler (rustc, TypeScript, Go) declares no parser-generator
+# dependency, and a language's own repo may carry no supported manifest at all
+# (CPython, Ruby). These sets drive the grammar-file and compiler-directory
+# rungs that classify such repos from tree evidence rather than manifests.
+# ---------------------------------------------------------------------------
+
+# Declared grammars — the strongest, most intentional whole-language signal.
+# Matched on extension or whole basename, NEVER on substring.
+_GRAMMAR_EXTS = frozenset({
+    ".g4", ".pest", ".lalrpop", ".y", ".gram", ".lark", ".ebnf", ".peg",
+    ".ungram",
+})
+_GRAMMAR_BASENAMES = frozenset({"grammar.js", "grammar.json", "python.gram"})
+
+# Concrete parsers a repo CONSUMES. If a repo's own runtime deps contain one of
+# these it delegates parsing — a formatter/linter/bundler, never a
+# whole-language reference (prettier→@babel/parser, eslint→espree).
+_CONSUMED_PARSERS = frozenset({
+    "espree", "acorn", "@babel/parser", "babel-parser", "flow-parser",
+    "swc_ecma_parser", "deno_ast", "graphql", "remark-parse", "yaml",
+    "esquery", "estree", "@types/estree", "@webassemblyjs/ast", "smol-toml",
+})
+
+# Tools that own a parser-ish module but consume an external parser and are NOT
+# whole-language references — bundlers, formatters, linters, markup/CSS libs.
+_DELEGATING_TOOL_NAMES = frozenset({
+    "prettier", "eslint", "stylelint", "biome", "rome",
+    "webpack", "rollup", "esbuild", "vite", "parcel", "terser",
+    "marked", "remark", "remark-parse", "markdown-it", "micromark", "commonmark",
+    "postcss", "css-tree", "less", "sass", "node-sass",
+})
+
+# Markup / DSL / query languages — a real lexer+parser+AST for a
+# non-general-purpose language (CSS, markdown, GraphQL, JSON). Their identity is
+# a format parser, not a programming-language toolchain.
+_MARKUP_DSL_NAMES = frozenset({
+    "css", "less", "scss", "sass", "html", "markdown", "graphql",
+    "graphql-schema", "json", "yaml", "toml", "xml",
+})
+
+# Dedicated compiler directories — the primary gate for the tree-triad rung
+# (Rung B). Matched on a real DIRECTORY by exact path-tail, never a file and
+# never a bare src/lib/language/parser dir. 'Parser' is case-sensitive
+# (CPython's Parser/) so it does not match a lib/parser/ dir.
+_COMPILER_DIRS = frozenset({
+    "compiler", "src/compiler", "cmd/compile", "internal/syntax",
+})
+_COMPILER_DIRS_CASE = frozenset({"Parser"})
+
+# Triad member name stems. A hand-written compiler spreads a lexer, a parser,
+# and an AST across these conventional file/dir names.
+_LEXER_STEMS = frozenset({"scanner", "lexer", "tokenizer"})
+_PARSER_STEMS = frozenset({"parser", "parse"})
+_AST_STEMS = frozenset({"ast"})
+
+# Corroborating whole-language member (gate W). A markdown/CSS parser ships a
+# lexer+parser+AST but no code generator, VM, or type checker — so requiring one
+# of these excludes a markup library that merely sits under a compiler/ dir.
+_CODEGEN_STEMS = frozenset({"codegen", "compile", "ssagen"})
+_VM_STEMS = frozenset({"interpreter", "vm", "eval", "ceval"})
+_CHECK_STEMS = frozenset({"checker", "check", "binder", "typeck", "typecheck"})
 
 # ---------------------------------------------------------------------------
 # Framework deps that signal reference-app shape
@@ -150,6 +220,82 @@ def _die(message: str, code: str = "INTERNAL_ERROR") -> None:
 
 def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
+
+
+def _is_grammar_file(path: str) -> bool:
+    """Whether a repo-relative path is a declared grammar file.
+
+    Matched on whole basename (tree-sitter `grammar.js`, CPython
+    `python.gram`) or extension (`.y`, `.g4`, `.pest`, ...) — never substring,
+    so a file merely named `grammar_test_data.txt` does not match.
+    """
+    name = Path(path).name.lower()
+    if name in _GRAMMAR_BASENAMES:
+        return True
+    return Path(name).suffix in _GRAMMAR_EXTS
+
+
+def _whole_language_tree(tree_paths: list[str]) -> tuple[str, str] | None:
+    """Detect a hand-written compiler from directory/structural signals.
+
+    Returns ``(compiler_dir, member_summary)`` when ``tree_paths`` satisfies all
+    three structural gates from issue #427, else ``None``:
+
+      (C) a DEDICATED compiler directory — a real directory (trailing ``/``)
+          whose path-tail is in ``_COMPILER_DIRS`` (case-insensitive) or
+          ``_COMPILER_DIRS_CASE`` (case-sensitive ``Parser``). A file named
+          ``Parser.js`` or ``compiler.dart`` never satisfies this; a bare
+          ``src/`` / ``lib/`` / ``src/language/`` directory never does either.
+      (D) a lexer+parser+AST triad, parser MANDATORY, at least 2 of 3 present.
+      (W) a corroborating codegen / VM / type-checker member, so a markdown or
+          CSS library (lexer+parser+AST only) does not qualify.
+
+    Gates G (delegating consumer) and L (markup identity) depend on manifest
+    data and are applied by the caller.
+    """
+    if not tree_paths:
+        return None
+
+    compiler_dirs: list[str] = []
+    stems: set[str] = set()
+    basenames: set[str] = set()
+    for tp in tree_paths:
+        norm = tp.rstrip("/")
+        if not norm:
+            continue
+        base = norm.rsplit("/", 1)[-1]
+        basenames.add(base)
+        stems.add(base.rsplit(".", 1)[0].lower() if "." in base else base.lower())
+        if tp.endswith("/"):
+            low = norm.lower()
+            if any(low == m or low.endswith("/" + m) for m in _COMPILER_DIRS) or \
+               any(norm == m or norm.endswith("/" + m) for m in _COMPILER_DIRS_CASE):
+                compiler_dirs.append(norm)
+
+    # (C)
+    if not compiler_dirs:
+        return None
+
+    # (D) — triad, parser mandatory, >= 2 of 3
+    lexer = bool(stems & _LEXER_STEMS) or "rustc_lexer" in basenames
+    parser = bool(stems & _PARSER_STEMS) or "rustc_parse" in basenames
+    binder, checker = "binder" in stems, "checker" in stems
+    ast = (bool(stems & _AST_STEMS) or "rustc_ast" in basenames
+           or (binder and checker))
+    if not parser or (lexer + parser + ast) < 2:
+        return None
+
+    # (W) — corroborating compiler-grade member
+    w = bool(stems & (_CODEGEN_STEMS | _VM_STEMS | _CHECK_STEMS)) or \
+        any(b.startswith("rustc_codegen") for b in basenames)
+    if not w:
+        return None
+
+    members = ",".join(
+        m for m, present in (("lexer", lexer), ("parser", parser), ("ast", ast))
+        if present
+    )
+    return compiler_dirs[0], members
 
 
 # ---------------------------------------------------------------------------
@@ -463,10 +609,59 @@ def _parse_cargo_toml(path: Path) -> dict[str, Any]:
     }
 
 
+def _parse_go_mod(path: Path) -> dict[str, Any]:
+    """Parse a go.mod: the module path (name) and required modules (deps).
+
+    go.mod is line-oriented — `module <path>`, single-line `require <mod> <ver>`,
+    and a `require ( ... )` block. The scanner already recognises go.mod; this
+    mirror lets shape-detect classify Go repos (most resolve to library-API;
+    the Go toolchain itself is caught by the tree-triad rung).
+    """
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        _die(f"Cannot read {path.as_posix()}: {exc}", "MANIFEST_READ_ERROR")
+        return {}  # unreachable
+
+    module = ""
+    deps: set[str] = set()
+    in_require_block = False
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("//"):
+            continue
+        if in_require_block:
+            if stripped.startswith(")"):
+                in_require_block = False
+                continue
+            deps.add(stripped.split()[0].lower())
+            continue
+        if stripped.startswith("module "):
+            module = stripped[len("module "):].strip()
+        elif stripped.startswith("require ("):
+            in_require_block = True
+        elif stripped.startswith("require "):
+            parts = stripped[len("require "):].split()
+            if parts:
+                deps.add(parts[0].lower())
+
+    return {
+        "ecosystem": "go",
+        "name": module,
+        "deps": deps,
+        "runtime_deps": set(deps),
+        # A go.mod under a cmd/ path marks a command (binary) member.
+        "has_bin": "cmd" in Path(path).parts,
+        "has_library_structure": bool(module),
+        "export_count": 0,
+    }
+
+
 _PARSERS = {
     "package.json": _parse_package_json,
     "pyproject.toml": _parse_pyproject_toml,
     "Cargo.toml": _parse_cargo_toml,
+    "go.mod": _parse_go_mod,
 }
 
 
@@ -481,9 +676,24 @@ def _parse_manifest(path: Path) -> dict[str, Any]:
 # Core classification
 # ---------------------------------------------------------------------------
 
-def detect(repo_url: str, manifest_paths: list[str]) -> dict[str, Any]:
-    """Classify a repo into a skill shape from its manifest files."""
-    if not manifest_paths:
+def detect(
+    repo_url: str,
+    manifest_paths: list[str],
+    grammar_files: list[str] | None = None,
+    tree_paths: list[str] | None = None,
+) -> dict[str, Any]:
+    """Classify a repo into a skill shape from its manifest files.
+
+    `grammar_files` (grammar files like Grammar/python.gram, *.y, *.g4) and
+    `tree_paths` (repo-relative directory/structural signals) are optional
+    tree-level signals harvested from the clone; they let whole-language repos
+    that carry no parser-generator dependency — and even manifest-less ones —
+    be classified. When all three inputs are empty there is nothing to
+    classify and we error, exactly as before.
+    """
+    grammar_files = grammar_files or []
+    tree_paths = tree_paths or []
+    if not manifest_paths and not grammar_files and not tree_paths:
         _die("--manifests requires at least one path", "MISSING_MANIFESTS")
 
     parsed: list[dict[str, Any]] = []
@@ -513,7 +723,7 @@ def detect(repo_url: str, manifest_paths: list[str]) -> dict[str, Any]:
     # exclude it from app-shape signals. A root that is itself the published
     # library (has main/exports) stays in.
     depths = [len(Path(m["_path"]).parts) for m in parsed]
-    min_depth = min(depths)
+    min_depth = min(depths) if depths else -1
     root_coord_idx = -1
     if package_count > 1 and depths.count(min_depth) == 1:
         cand = depths.index(min_depth)
@@ -569,11 +779,60 @@ def detect(repo_url: str, manifest_paths: list[str]) -> dict[str, Any]:
     if has_library_structure:
         signals.append("has_library_structure")
 
-    # Collect dep-category matches
-    parser_deps = sorted(d for d in all_deps if d.lower() in _ALL_PARSER_DEPS)
+    # Collect parser/grammar signals — both directions of the relationship.
+    #
+    # PRODUCER (issue #427): a repo whose own published package name is itself a
+    # known parser/grammar tool IS language tooling — pest, lalrpop, lark, peggy
+    # name *themselves*. A language tool's repo does not depend on a parser
+    # generator; it is one, so the old dependency-only check never fired for it.
+    # This keys on own-name ∈ parser-gen-set ONLY — never on substring tokens
+    # like "parser"/"compiler"/"lang", which are false-positive farms (a CSS
+    # parser, compiler-builtins, an arg parser are ordinary libraries).
+    #
+    # CONSUMER: a project that depends on a parser generator (a DSL built on
+    # lalrpop) is also a language project. Exclude the repo's own producer name
+    # from the consumer list so a self-reference isn't double-counted as "uses".
+    own_names = {
+        (m.get("name") or "").strip().lower() for m in parsed if m.get("name")
+    }
+    parser_producers = sorted(n for n in own_names if n in _ALL_PARSER_DEPS)
+    parser_deps = sorted(
+        d for d in all_deps
+        if d.lower() in _ALL_PARSER_DEPS and d.lower() not in parser_producers
+    )
 
+    for d in parser_producers:
+        signals.append(f"parser_producer:{d}")
     for d in parser_deps:
         signals.append(f"parser_dep:{d}")
+
+    # Tree-level whole-language signals (issue #427). A grammar file is the
+    # strongest, most intentional signal; the compiler-directory triad (a later
+    # rung) catches hand-written compilers. Two guard gates keep formatters,
+    # linters, bundlers, and markup/DSL parsers out.
+    grammar_matches = sorted(
+        {Path(g).name for g in grammar_files if _is_grammar_file(g)}
+    )
+    for g in grammar_matches:
+        signals.append(f"grammar_file:{g}")
+
+    # Gate G — delegating-consumer exclusion. A repo that depends on a concrete
+    # parser (prettier→@babel/parser, eslint→espree) or whose own name is a
+    # known formatter/linter/bundler delegates parsing; never a whole-language
+    # reference, even if it ships a parser-ish module of its own.
+    runtime_deps_lc = {d.lower() for d in all_runtime_deps}
+    delegating_consumer = bool(runtime_deps_lc & _CONSUMED_PARSERS) or bool(
+        own_names & _DELEGATING_TOOL_NAMES
+    )
+    if delegating_consumer:
+        signals.append("delegating_consumer")
+    # Gate L — language identity. A markup/DSL/format parser (postcss, marked,
+    # graphql-js) has a real lexer+parser+AST but is not a general-purpose
+    # programming-language reference.
+    markup_identity = bool(
+        own_names & (_MARKUP_DSL_NAMES | _DELEGATING_TOOL_NAMES)
+    )
+
     for d in framework_deps:
         signals.append(f"framework_dep:{d}")
     for d in noncore_framework:
@@ -592,9 +851,37 @@ def detect(repo_url: str, manifest_paths: list[str]) -> dict[str, Any]:
 
     # --- Heuristic ladder (first match wins) ---
 
-    # 1. language-reference
-    if parser_deps:
-        confidence = _clamp(0.75 + len(parser_deps) * 0.05, 0.75, 0.85)
+    # 1a-pre. language-reference — a hand-written compiler detected from tree
+    # structure (issue #427): a dedicated compiler/ directory holding a
+    # lexer+parser+AST triad plus a codegen/VM/type-checker member. This catches
+    # rustc, TypeScript, and the Go toolchain, which declare no parser-generator
+    # dependency and carry no grammar file. Ranked first so it outranks the
+    # bin→reference-app rung (TypeScript ships `tsc`). Gates G and L still apply.
+    tree_triad = _whole_language_tree(tree_paths)
+    if tree_triad and not delegating_consumer and not markup_identity:
+        compiler_dir, members = tree_triad
+        signals.append(f"tree_triad:{compiler_dir}:{members}")
+        return {"shape": "language-reference", "signals": signals,
+                "confidence": 0.85, **result_base}
+
+    # 1a. language-reference — a declared grammar file (issue #427). A repo that
+    # ships a grammar (Grammar/python.gram, parse.y, a *.g4) authors a language.
+    # This is the strongest signal and ranks above the dependency-based rung so
+    # a real grammar outranks an incidental parser dep from a sub-tool. Gate G
+    # excludes delegating consumers; gate L excludes markup/DSL parsers.
+    if grammar_matches and not delegating_consumer and not markup_identity:
+        confidence = _clamp(0.85 + len(grammar_matches) * 0.02, 0.85, 0.90)
+        return {"shape": "language-reference", "signals": signals,
+                "confidence": round(confidence, 2), **result_base}
+
+    # 1b. language-reference — a parser/grammar producer (own name) or a project
+    # built on a parser generator (consumer dep).
+    if parser_producers or parser_deps:
+        # A producer (named itself a grammar tool) is a stronger signal than a
+        # consumer (merely depends on one).
+        base = 0.80 if parser_producers else 0.75
+        n_sig = len(parser_producers) + len(parser_deps)
+        confidence = _clamp(base + n_sig * 0.05, base, 0.90)
         return {"shape": "language-reference", "signals": signals,
                 "confidence": round(confidence, 2), **result_base}
 
@@ -634,7 +921,7 @@ def detect(repo_url: str, manifest_paths: list[str]) -> dict[str, Any]:
 
 def path_to_manifest_name(ecosystem: str) -> str:
     return {"npm": "package_json", "python": "pyproject_toml",
-            "rust": "cargo_toml"}.get(ecosystem, ecosystem)
+            "rust": "cargo_toml", "go": "go_mod"}.get(ecosystem, ecosystem)
 
 
 # ---------------------------------------------------------------------------
@@ -648,15 +935,28 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--repo-url", required=True, help="Repository URL")
     parser.add_argument(
         "--manifests", required=True,
-        help="Comma-separated local file paths to manifest files",
+        help="Comma-separated local file paths to manifest files (may be empty "
+             "when --grammar-files or --tree-paths carry the signal)",
+    )
+    parser.add_argument(
+        "--grammar-files", default="",
+        help="Comma-separated repo-relative grammar file paths (*.y, *.g4, "
+             "*.pest, Grammar/python.gram, ...)",
+    )
+    parser.add_argument(
+        "--tree-paths", default="",
+        help="Comma-separated repo-relative directory (trailing /) and "
+             "structural file signals harvested from the clone",
     )
     args = parser.parse_args(argv)
 
     manifest_paths = [p.strip() for p in args.manifests.split(",") if p.strip()]
-    if not manifest_paths:
+    grammar_files = [p.strip() for p in args.grammar_files.split(",") if p.strip()]
+    tree_paths = [p.strip() for p in args.tree_paths.split(",") if p.strip()]
+    if not manifest_paths and not grammar_files and not tree_paths:
         _die("--manifests requires at least one path", "MISSING_MANIFESTS")
 
-    result = detect(args.repo_url, manifest_paths)
+    result = detect(args.repo_url, manifest_paths, grammar_files, tree_paths)
     json.dump(result, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
 

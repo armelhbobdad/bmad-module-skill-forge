@@ -5,6 +5,12 @@ shapeDetectScript: 'src/shared/scripts/skf-shape-detect.py'
 scanManifestsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-scan-manifests.py'
   - '{project-root}/src/shared/scripts/skf-scan-manifests.py'
+detectLanguageProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-language.py'
+  - '{project-root}/src/shared/scripts/skf-detect-language.py'
+languageCorporaProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-language-corpora.py'
+  - '{project-root}/src/shared/scripts/skf-language-corpora.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -263,7 +269,7 @@ Enumerate package manifests **deterministically** via `{scanManifestsHelper}` (t
   ```bash
   tmp="$(mktemp -d)"
   git clone --filter=blob:none --no-checkout --depth 1 {pinned_branch_flag} {path} "$tmp"
-  git -C "$tmp" sparse-checkout set --no-cone '**/package.json' '**/Cargo.toml' '**/pyproject.toml' 'pnpm-workspace.yaml' '**/pnpm-workspace.yaml'
+  git -C "$tmp" sparse-checkout set --no-cone '**/package.json' '**/Cargo.toml' '**/pyproject.toml' '**/go.mod' 'pnpm-workspace.yaml' '**/pnpm-workspace.yaml'
   git -C "$tmp" checkout
   uv run {scanManifestsHelper} scan "$tmp"
   ```
@@ -274,22 +280,51 @@ Parse the JSON envelope: `{manifests: [{path, ecosystem, ...}], total_unique, mo
 
 From the envelope, record:
 
-1. **Supported manifest paths** — filter `manifests[].path` to the types `skf-shape-detect.py` accepts (`package.json`, `pyproject.toml`, `Cargo.toml`). Each `manifests[].path` is **relative to the scan root**, so resolve them against that root (`{path}` for a local scan, `"$tmp"` for a remote fetch) before use. This filtered, comma-joined list of resolved paths is fed to shape detection in §3. For a monorepo, it includes each workspace member's manifest, so the package surface is classified accurately rather than from a bare (and often export-less) repo root. The scanner also discovers ecosystems shape detection does not yet classify (e.g. Go `go.mod`, Maven, Gradle); those are excluded here, so a repo with no supported manifest falls back to interactive at the next check rather than auto-scoping.
+1. **Supported manifest paths** — filter `manifests[].path` to the types `skf-shape-detect.py` accepts (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`). Each `manifests[].path` is **relative to the scan root**, so resolve them against that root (`{path}` for a local scan, `"$tmp"` for a remote fetch) before use. This filtered, comma-joined list of resolved paths is fed to shape detection in §3. For a monorepo, it includes each workspace member's manifest, so the package surface is classified accurately rather than from a bare (and often export-less) repo root. The scanner also discovers ecosystems shape detection does not yet classify (e.g. Maven, Gradle); those are excluded here, so a repo with no supported manifest falls back to interactive at the next check rather than auto-scoping.
 2. **`monorepo` flag** and the count of discovered supported packages — carried forward as a signal for the decomposition decision in §3a.
 
+**Harvest tree-level language signals.** A whole-language repo may declare no parser-generator dependency (a hand-written compiler such as rustc, TypeScript, or the Go toolchain) or carry no supported manifest at all (CPython, Ruby). From the **same** fetched tree — no second clone and no blobs, since tree objects are already present in the blobless clone — collect two signals for shape detection. These are pure path listings (`git ls-tree` reads tree objects; no checkout, no blob download):
+
+- **Remote fetch** (`"$tmp"`), or a **local path** that is a git repo (`git -C {path}`):
+  ```bash
+  files="$(git -C "$tmp" ls-tree -r    --name-only HEAD)"   # every file path
+  dirs="$( git -C "$tmp" ls-tree -r -d --name-only HEAD)"   # every directory
+  # Grammar files (depth-capped to skip deep vendored fixtures, hard-capped):
+  grammar_matches="$(printf '%s\n' "$files" \
+    | grep -Ei '\.(g4|pest|lalrpop|y|gram|lark|ebnf|peg|ungram)$|/grammar\.(js|json)$' \
+    | awk -F/ 'NF<=4' | head -n 50 | paste -sd, -)"
+  # Directory signals (trailing /) + depth-capped file basenames, narrowed to
+  # compiler-relevant paths so the argument stays bounded on huge repos. The
+  # filter is a loose superset of shape detection's gates — the script does the
+  # precise matching; this only keeps the list small.
+  tree_paths="$({ printf '%s\n' "$dirs" | sed 's#$#/#'; \
+                  printf '%s\n' "$files" | awk -F/ 'NF<=5'; } \
+    | grep -Ei '(^|/)(compiler|compile|syntax|scanner|lexer|tokeniz|parser|parse|ast|binder|checker|codegen|ssagen|interpreter|vm|eval|rustc_[a-z]+)' \
+    | head -n 400 | paste -sd, -)"
+  ```
+- **Local path that is not a git repo** (`{path}`): list the tree with `find` instead, then derive `grammar_matches` / `tree_paths` the same way:
+  ```bash
+  files="$(cd {path} && find . -type f -not -path '*/.git/*' | sed 's#^\./##')"
+  dirs="$( cd {path} && find . -type d -not -path '*/.git/*' | sed 's#^\./##')"
+  ```
+
+Record `<grammar_matches>` and `<tree_paths>` (each a comma-joined list, possibly empty) for §3.
+
 **IF no supported manifests are found** (the filtered list is empty):
-- Emit fallback message: "**Auto-scope could not find any supported package manifests — switching to interactive mode.**"
-- Load, read fully, then execute `references/scan-project.md`. **STOP HERE.**
+- **AND** `<grammar_matches>` is empty **AND** `<tree_paths>` shows no compiler directory (none of `compiler/`, `src/compiler/`, `cmd/compile/`, `internal/syntax/`, or a `Parser/`): the repo carries no language signal — emit fallback message: "**Auto-scope could not find any supported package manifests — switching to interactive mode.**" Load, read fully, then execute `references/scan-project.md`. **STOP HERE.**
+- **Otherwise** (a grammar file or a compiler directory is present) the repo is a manifest-less language toolchain (CPython, Ruby): proceed to §3 with an **empty** `--manifests` and the harvested `--grammar-files` / `--tree-paths`.
 
 ### 3. Invoke Shape Detection
 
-Invoke the shape detection script with discovered manifests:
+Invoke the shape detection script with the discovered manifests and the harvested tree-level signals:
 
 ```
-uv run {shapeDetectScript} --repo-url <project_path_or_url> --manifests <comma_separated_manifest_paths>
+uv run {shapeDetectScript} --repo-url <project_path_or_url> \
+  --manifests <comma_separated_manifest_paths> \
+  --grammar-files <grammar_matches> --tree-paths <tree_paths>
 ```
 
-Parse the JSON output: `{shape, signals, confidence, export_count, package_count}`
+`<comma_separated_manifest_paths>` may be empty for a manifest-less language repo, provided `<grammar_matches>` or `<tree_paths>` carries the signal. Parse the JSON output: `{shape, signals, confidence, export_count, package_count}`
 
 **Handle exit codes:**
 
@@ -357,6 +392,7 @@ Generate `scope.include` and `scope.exclude` arrays from the detected language a
 - `package.json` → TypeScript/JavaScript
 - `pyproject.toml` → Python
 - `Cargo.toml` → Rust
+- `go.mod` → Go
 
 **Default patterns (adjust based on actual project structure):**
 
@@ -365,6 +401,7 @@ Generate `scope.include` and `scope.exclude` arrays from the detected language a
 | TypeScript/JavaScript | `['src/**/*.ts', 'src/**/*.tsx']` | `['**/*.test.ts', '**/*.spec.ts', '**/node_modules/**']` |
 | Python | `['src/**/*.py']` or `['{package_name}/**/*.py']` | `['**/*_test.py', '**/test_*.py', '**/tests/**']` |
 | Rust | `['src/**/*.rs']` | `['**/tests/**', '**/benches/**']` |
+| Go | `['**/*.go']` | `['**/*_test.go', '**/vendor/**']` |
 
 **Adjust for actual layout:** If the project uses a non-standard layout (e.g., `lib/` instead of `src/`, or a named package directory for Python), detect and use the actual paths. Check for the existence of common source directories (`src/`, `lib/`, `pkg/`, the package name directory) and prefer the one that exists.
 
@@ -376,7 +413,7 @@ scope:
   type: '{mapped_scope_type}'
   include: ['{generated_include_patterns}']
   exclude: ['{generated_exclude_patterns}']
-  notes: 'Auto-scoped from shape detection (shape: {shape}, confidence: {confidence})'
+  notes: 'Auto-scoped from shape detection (shape: {shape}, confidence: {confidence}).{corpus_caveat}'
 ```
 
 Determine the skill name from the project name or package name (kebab-case, lowercase). Use the manifest `name` field if available, otherwise derive from the project directory name. If `{coexistence_suffix}` is non-empty, append it to the skill name.
@@ -385,6 +422,34 @@ Detect the primary language from the manifest ecosystem:
 - `npm` → `typescript` (or `javascript` if no `.ts` files in includes)
 - `python` → `python`
 - `rust` → `rust`
+- `go` → `go`
+
+### 6b. Seed Companion Corpora (whole-language references only)
+
+Runs only when §3 classified the repo as `language-reference` **via a whole-language signal** — the `signals` array contains a `grammar_file:` or `tree_triad:` entry (a compiler / interpreter / grammar repo such as rust-lang/rust, TypeScript, CPython). **Skip** when `language-reference` fired only from `parser_producer:` / `parser_dep:` signals (a parser *library* such as pest or lalrpop): there the code **is** the product, so no companion prose is needed and the §6/§7 caveat below does not apply.
+
+A whole-language skill's value is in the language's **prose** — the guide/Book, the standard/library API docs, idioms — not the compiler internals. Seed those canonical corpora so the forged skill teaches the language rather than its implementation.
+
+**Resolve `{detectLanguageHelper}`** from `{detectLanguageProbeOrder}` and **`{languageCorporaHelper}`** from `{languageCorporaProbeOrder}` (first existing path wins).
+
+1. **Derive the corpus language key `{corpus_language}`.** Prefer the §6 manifest language when non-empty. Otherwise — a manifest-less toolchain such as CPython or Ruby — resolve it from the file paths harvested in §2:
+   ```bash
+   echo '{"tree": [<harvested §2 file paths>]}' | uv run {detectLanguageHelper}
+   ```
+   Use its `language` field. (`.c`/`.h`/`.y` are not in the detector's extension map, so a C-hosted language resolves by its real sources — Ruby via `.rb`.)
+2. **Look up canonical corpora:**
+   ```bash
+   uv run {languageCorporaHelper} --language {corpus_language}
+   ```
+   - exit 0 → parse the `[{url, label}]` array → these are `{corpus_seeds}`.
+   - exit 1 → no registry entry (long-tail language) → `{corpus_seeds}` is empty (README detection in brief-skill remains the only source).
+   - exit 2 → log a warning and treat as empty (best-effort; never halt).
+3. Record `{N}` = number of seeds and `{corpus_labels}` = comma-joined labels, carried into the brief `doc_urls` (§8) and the honest caveat (§6/§7).
+4. Build `{corpus_caveat}` (appended to `scope.notes` in §6/§8 and surfaced in §7) so the operator knows a code-only whole-language skill is low-value:
+   - `{N}` ≥ 1: `" LANGUAGE-REFERENCE CAVEAT: this skill's value is the {corpus_language} prose (guide/Book + std/library docs), not compiler internals. Seeded {N} corpus URL(s): {corpus_labels}. Assembly ranks code (T1) above docs (T3) — review the forged skill if compiler-internal signatures dominate the prose."`
+   - `{N}` == 0: `" LANGUAGE-REFERENCE CAVEAT: no canonical corpora were found for {corpus_language} (README detection and the registry both came up empty). This skill is LOW-VALUE as code-only — attach the {corpus_language} guide + std/library docs manually (re-run with a doc URL, or enrich via US) before forging."`
+
+   For a parser-library `language-reference` (skipped above) and every other shape, `{corpus_caveat}` is empty.
 
 ### 4a. Multi-Scope Decomposition
 
@@ -472,6 +537,17 @@ For single-scope (unchanged):
 **Exclude Patterns:** {exclude patterns}
 ```
 
+**When the shape is a whole-language `language-reference`** (§6b ran — a `grammar_file:`/`tree_triad:` signal), append a Companion Corpora subsection so the operator sees whether the skill has the prose that makes it useful. The status is computed from the **final** brief `doc_urls` (the entries that will actually be fetched), not the seed count alone:
+
+```markdown
+## Companion Corpora (language-reference)
+
+**Why:** A whole-language skill's value is its prose (guide/Book, std/library docs, idioms), not compiler internals.
+**Corpora in brief doc_urls:** {final_doc_urls_count}
+  - {label}: {url}   # one line per doc_urls entry
+**Status:** {ATTACHED — canonical corpora present | DEGRADED — code-only, no canonical corpora; attach the {corpus_language} guide + std/library docs before forging}
+```
+
 For multi-scope (N > 1):
 ```markdown
 ## Auto-Scope Analysis — Decomposition ({N} skills)
@@ -512,12 +588,21 @@ scope:
     - '{include_patterns}'
   exclude:
     - '{exclude_patterns}'
-  notes: 'Auto-scoped from shape detection (shape: {shape}, confidence: {confidence})'
+  notes: 'Auto-scoped from shape detection (shape: {shape}, confidence: {confidence}).{corpus_caveat}'
 description: '{1-3 sentence description based on shape, language, and manifest name}'
 forge_tier: '{forge_tier}'
 created: '{current_date}'
 created_by: '{user_name}'
 ```
+
+**Companion corpora (whole-language references).** When §6b produced `{corpus_seeds}` (`{N}` ≥ 1), add them as the brief's `doc_urls` so the language's prose is fetched and assembled alongside the code:
+
+```yaml
+doc_urls:
+  - { url: '{seed.url}', label: '{seed.label}' }   # one entry per §6b seed
+```
+
+These are the brief's *existing* `doc_urls`; brief-skill's README detection then merges additional discovered docs on top (existing entries win). **When `{N}` is 0, omit the `doc_urls` key entirely** — the schema requires at least one entry when the key is present.
 
 **When decomposition is active (N > 1 units):**
 

@@ -290,6 +290,33 @@ class TestDetectDocsFolder:
 # Tests: changelog/migration exclusion (subtask 2.5)
 # --------------------------------------------------------------------------
 
+class TestLanguageDocRecall:
+    """Widened recall (issue #427): a `doc.` subdomain and language
+    reference/guide path segments are doc URLs, so a language repo's canonical
+    corpora (the Book, std/library docs) are detected from its README."""
+
+    def test_doc_subdomain_accepted(self):
+        # `doc.rust-lang.org` (singular) was missed by the old `docs\.` rule.
+        assert mod._is_doc_url("https://doc.rust-lang.org/book/")
+        assert mod._is_doc_url("https://doc.rust-lang.org/std/")
+        assert mod._is_doc_url("https://doc.rust-lang.org/reference/")
+
+    def test_language_path_segments_accepted(self):
+        assert mod._is_doc_url("https://docs.python.org/3/tutorial/")
+        assert mod._is_doc_url("https://docs.python.org/3/library/")
+        assert mod._is_doc_url("https://example.org/book/")
+
+    def test_near_miss_still_rejected(self):
+        # Widening must not start accepting arbitrary product/marketing URLs.
+        assert not mod._is_doc_url("https://rust-lang.org/")
+        assert not mod._is_doc_url("https://example.com/blog/2026/new-release")
+        assert not mod._is_doc_url("https://github.com/rust-lang/rust")
+
+    def test_widening_does_not_break_rejects(self):
+        # A badge/CI URL that happens to contain a doc-ish word stays rejected.
+        assert not mod._is_doc_url("https://img.shields.io/badge/docs-passing.svg")
+
+
 class TestExclusionFilter:
     def test_changelog_excluded(self):
         readme_md = (
