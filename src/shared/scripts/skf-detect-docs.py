@@ -86,13 +86,18 @@ _MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
 _HTML_LINK_RE = re.compile(r'<a\s[^>]*href=["\']([^"\']+)["\']', re.IGNORECASE)
 _BARE_URL_RE = re.compile(r"^(https?://\S+)$", re.MULTILINE)
 
+# `docs?\.` (not `docs\.`) so a `doc.` subdomain matches too — language doc
+# sites use the singular form (doc.rust-lang.org, doc.qt.io).
 _DOC_DOMAIN_RE = re.compile(
-    r"(?:docs\.|\.readthedocs\.|wiki\.|documentation\.)",
+    r"(?:docs?\.|\.readthedocs\.|wiki\.|documentation\.)",
     re.IGNORECASE,
 )
 
+# Language reference/guide path segments (a Book, a std/library API, a tutorial)
+# are doc URLs even on a bare domain (doc.rust-lang.org/book/, .../std/).
 _DOC_PATH_RE = re.compile(
-    r"(?:/docs/|/documentation/|/api/|/reference/|/guide/|/wiki/)",
+    r"(?:/docs/|/documentation/|/api/|/reference/|/guide/|/wiki/"
+    r"|/book/|/std/|/library/|/tutorial/)",
     re.IGNORECASE,
 )
 
