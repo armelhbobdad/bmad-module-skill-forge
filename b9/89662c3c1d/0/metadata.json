@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "b989662c3c1d",
+  "session_id": "3ca42849-d777-42b0-b534-83867ba7ff74",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-04T16:20:11.647210086Z",
+  "branch": "ci-node24-actions",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/workflows/install-smoke.yaml",
+    ".nvmrc",
+    "CONTRIBUTING.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "3fb3d0a2bd00",
+  "token_usage": {
+    "input_tokens": 41982,
+    "cache_creation_tokens": 116738,
+    "cache_read_tokens": 3820831,
+    "output_tokens": 43933,
+    "api_call_count": 39
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-04T16:20:11.257674089Z",
+    "agent_lines": 9,
+    "human_added": 80,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 89,
+    "agent_percentage": 10.112359550561797
+  }
+}
