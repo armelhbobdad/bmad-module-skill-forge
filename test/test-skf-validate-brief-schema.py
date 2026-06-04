@@ -17,6 +17,7 @@ from __future__ import annotations
 import datetime
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -349,6 +350,41 @@ class TestCli:
         # argparse missing-required exits 2
         result = _run_cli()
         assert result.returncode == 2
+
+
+# --------------------------------------------------------------------------
+# Installed-layout regression — schema resolves as a sibling of the script
+# --------------------------------------------------------------------------
+
+
+class TestInstalledLayout:
+    def test_installed_layout_resolves_sibling_schema(self, tmp_path: Path) -> None:
+        # When the installer copies `src/shared` recursively, the script lands at
+        # `_bmad/skf/shared/scripts/` with `schemas/` as a sibling — there is no
+        # `src/shared/scripts/schemas/` four levels up. The schema must resolve
+        # relative to the script's own directory so the CLI still exits 0.
+        installed_scripts = tmp_path / "_bmad" / "skf" / "shared" / "scripts"
+        installed_scripts.mkdir(parents=True)
+        installed_script = installed_scripts / SCRIPT_PATH.name
+        installed_script.write_text(
+            SCRIPT_PATH.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        shutil.copytree(SCRIPT_PATH.parent / "schemas", installed_scripts / "schemas")
+        assert (installed_scripts / "schemas" / "skill-brief.v1.json").is_file()
+
+        brief_path = tmp_path / "skill-brief.yaml"
+        brief_path.write_text(_valid_yaml_text(), encoding="utf-8")
+
+        result = subprocess.run(
+            [sys.executable, installed_script.as_posix(), brief_path.as_posix()],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["valid"] is True
+        assert payload["halt_reason"] is None
 
 
 # --------------------------------------------------------------------------

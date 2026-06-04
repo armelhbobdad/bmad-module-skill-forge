@@ -260,11 +260,21 @@ as-observed (or `absent` when the candidate was not present for this skill):
 - `stats.effective_denominator`: {N | absent}  {← chosen if priority (1) applied}
 - `scope.tier_a_include` union: {N | absent}    {← chosen if priority (2) applied}
 - `scope.include` union: {N | absent}           {← chosen if priority (3) applied}
+- exports-map subpath union: {N | absent}        {← chosen if the multi-entry clause applied}
+- root barrel: {N}                               {secondary candidate — root-barrel-vs-subpath-union audit}
 ```
 
 Readers can then spot-check whether the chosen denominator is reasonable
 against the other two without re-running the extraction. A future reviewer who
 suspects denominator gaming has the evidence inline.
+
+**Multi-entry (exports-map) denominator (single-package multi-subpath libraries):** Before computing Export Coverage, check whether the Source Access Protocol's multi-entry clause applies to this skill (see `{sourceAccessProtocol}` §Source API Surface Definition — "Multi-entry (exports-map) packages"). It applies when the in-scope `package.json` declares an `exports` map with multiple non-root subpath entries, no monorepo markers — covering `scope.type: "full-library"` AND `scope.type: "public-api"` for such packages. When it applies:
+
+1. **Prefer `metadata.json.stats.effective_denominator`** when present. Use it directly as `total_exports` — subject to the same **denominator deflation guard** the stratified-scope branch applies.
+2. **Otherwise prefer `scope.tier_a_include`** (filtered by `scope.exclude`, excluding umbrella barrel files per the protocol's umbrella-barrel note) when the brief supplies it; **else** re-derive the **union of named exports across the files each NON-WILDCARD `exports` subpath resolves to** per the protocol (resolving committed `.d.ts` / `.d.mts` targets, applying the multi-line brace-accumulation and `export *` star-resolution rules, and excluding `"./*"` wildcard subpaths). Use the resulting count as `total_exports`. When the `exports` map has only a root `"."` entry or only wildcards, fall back to the standard root-barrel rule instead.
+3. **Report the root-barrel named-export count as a secondary candidate** in the Denominator Candidates block so the root-barrel-vs-subpath-union choice is auditable.
+
+Record the denominator source in the Coverage Analysis section as `Denominator: multi-entry ({effective_denominator | tier_a_include union | subpath union}, {N} subpaths resolved; root barrel: {R})`.
 
 **State 2 denominator validation:** When using provenance-map as the baseline (State 2), cross-reference the provenance-map entry count against `metadata.json`'s `exports[]` array before computing Export Coverage. If they diverge, use the union as the denominator per the source-access-protocol rules. Log the gap size if any. The stratified-scope rule above takes precedence when both conditions apply — compute the stratified denominator first, then validate the provenance-map entry count against it.
 

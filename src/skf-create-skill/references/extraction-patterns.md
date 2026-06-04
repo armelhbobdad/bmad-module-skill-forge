@@ -287,7 +287,7 @@ rule:
   pattern: 'export class $NAME { $$$ }'
 ```
 
-> **Important:** The body (`{ $$$ }`) is required on ast-grep 0.42.x. The bare `export class $NAME` pattern returns zero matches — and emits a `Pattern contains an ERROR node` warning — through **both** `find_code()` and the CLI, because an incomplete class declaration does not parse as a complete statement (see Known Limitation #9). With the body present, the simple `find_code()` pattern detects class exports reliably; `find_code_by_rule` would additionally require an explicit AST `kind` rule.
+> **Important:** The body (`{ $$$ }`) is required on ast-grep 0.42.x. The bare `export class $NAME` pattern returns zero matches — and emits a `Pattern contains an ERROR node` warning — through **both** `find_code()` and the CLI, because an incomplete class declaration does not parse as a complete statement (see Known Limitation #9). With the body present, the simple `find_code()` pattern detects class exports reliably — it matches non-generic classes only; generic (`export class $NAME<T>`) and generic-extends (`export class $NAME<T> extends $BASE`) forms are skipped, so source-read them via `^export (abstract )?class` and merge by name+file (see Known Limitation #10). `find_code_by_rule` would additionally require an explicit AST `kind` rule.
 
 **JavaScript/TypeScript — re-export detection (use `find_code`):**
 
@@ -410,6 +410,8 @@ When using ast-grep for extraction, be aware of these documented limitations:
    - **function:** the body form `export function $NAME($$$PARAMS) { $$$ }` matches only functions with no return-type annotation and no `async` modifier, so it is unreliable. Prefer a source-read fallback (or a barrel cross-check) at T1-low for `export function`, mirroring the tsx guidance in #5.
 
    Never silently accept zero results for a declaration form the source language commonly uses.
+
+10. **Generic class declarations do not match non-generic class patterns (ast-grep 0.42.x):** The non-generic patterns `export class $NAME { $$$ }` and `export class $NAME extends $BASE { $$$ }` silently skip every generic form on ast-grep 0.42.2 — verified via both the CLI (`ast-grep run -p ... -l typescript`) and `find_code()`, the first matched only a plain `Plain` and the second only a plain `PlainExtends` on a fixture of `Plain` / `Generic<T>` / `GenericExtends<T> extends Base<T>` / `abstract AbstractGeneric<T>` / `PlainExtends`. The per-shape generic patterns `export class $NAME<$$$P> { $$$ }`, `export class $NAME<$$$P> extends $BASE { $$$ }`, and `export abstract class $NAME<$$$P> { $$$ }` each match exactly **one** shape — no single pattern covers all of them. **Workaround:** Always run a source-read fallback `^export (abstract )?class` over the in-scope `.ts` sources (T1-low) and merge by name+file with the AST results, mirroring the `export function` guidance in #9. The bare `class $NAME` pattern catches every form but over-captures non-exported classes, so it still needs the source-read pass to re-impose the exported-only filter — this is the opposite trade from the Python #7 `^[^_]` re-filter, since TS has no name-prefix convention for exports. Never accept a class inventory that omits generic classes when the source uses them.
 
 ### Component Library Demo/Example Auto-Exclusion
 

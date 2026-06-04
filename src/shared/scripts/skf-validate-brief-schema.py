@@ -5,7 +5,7 @@
 """SKF Validate Brief Schema — schema check for a skill-brief.yaml on disk.
 
 Loads `skill-brief.yaml` from a path (or from stdin/inline-YAML), validates
-it against `src/shared/scripts/schemas/skill-brief.v1.json`, and applies the
+it against `schemas/skill-brief.v1.json` (sibling of this script), and applies the
 two conditional rules from `skf-create-skill/references/load-brief.md §3`
 that the JSON schema doesn't express today:
 
@@ -56,10 +56,7 @@ import yaml
 from jsonschema import Draft202012Validator
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-SCHEMA_PATH = (
-    REPO_ROOT / "src" / "shared" / "scripts" / "schemas" / "skill-brief.v1.json"
-)
+SCHEMA_PATH = Path(__file__).resolve().parent / "schemas" / "skill-brief.v1.json"
 
 
 # --------------------------------------------------------------------------

@@ -19,6 +19,9 @@ detectLanguageProbeOrder:
 languageCorporaProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-language-corpora.py'
   - '{project-root}/src/shared/scripts/skf-language-corpora.py'
+writeSkillBriefProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
+  - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -206,9 +209,11 @@ confirmed_units:
 
 **4. Write skill brief via canonical writer:**
 
+**Resolve `{writeSkillBriefHelper}`** from `{writeSkillBriefProbeOrder}`; first existing path wins; HALT if neither resolves.
+
 Create directory `{forge_data_folder}/{skill_name}/` if it does not exist.
 
-Write `{forge_data_folder}/{skill_name}/skill-brief.yaml` through the canonical writer (`skf-write-skill-brief.py`) with the following context:
+Pipe the flat context JSON below into the resolved writer with the `--from-flat` flag:
 
 ```json
 {
@@ -217,7 +222,7 @@ Write `{forge_data_folder}/{skill_name}/skill-brief.yaml` through the canonical 
   "detected_version": null,
   "source_type":      "docs-only",
   "source_repo":      "{url}",
-  "language":         "",
+  "language":         "documentation",
   "description":      "Skill created from documentation at {url}",
   "forge_tier":       "{forge_tier}",
   "created":          "{current_date}",
@@ -237,6 +242,10 @@ Write `{forge_data_folder}/{skill_name}/skill-brief.yaml` through the canonical 
   "source_ref":       null,
   "version_resolved": "1.0.0"
 }
+```
+
+```bash
+echo '<context-json>' | uv run {writeSkillBriefHelper} write --target {forge_data_folder}/{skill_name}/skill-brief.yaml --from-flat
 ```
 
 **5. Emit success envelope:**
