@@ -1,0 +1,8 @@
+# Session Context
+
+## User Prompts
+
+### Prompt 1
+
+we need to address these issues /home/armel/Projects/lab/lab1/forge-data/improvement-queue . Create a new branch off main. Organize the commits the smartest way (e.g: one commit per issue if applicable). DO NOT HALLUCINATE. Activate party mode and/or advanced elicitation only if it is necessary.
+

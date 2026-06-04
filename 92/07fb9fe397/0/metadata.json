@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "9207fb9fe397",
+  "session_id": "c52549ba-52c8-42cb-ae11-e11323b96162",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-04T15:19:34.75591906Z",
+  "branch": "docs-compile-confidence-distribution",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-create-skill/references/compile.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "91cabb9447f8",
+  "token_usage": {
+    "input_tokens": 20451,
+    "cache_creation_tokens": 105880,
+    "cache_read_tokens": 736905,
+    "output_tokens": 15286,
+    "api_call_count": 16
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-04T15:19:34.457410336Z",
+    "agent_lines": 0,
+    "human_added": 1,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1,
+    "agent_percentage": 0
+  }
+}

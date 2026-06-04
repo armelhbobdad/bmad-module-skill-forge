@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "9207fb9fe397",
+  "strategy": "manual-commit",
+  "branch": "docs-compile-confidence-distribution",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-create-skill/references/compile.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/92/07fb9fe397/0/metadata.json",
+      "transcript": "/92/07fb9fe397/0/full.jsonl",
+      "context": "/92/07fb9fe397/0/context.md",
+      "content_hash": "/92/07fb9fe397/0/content_hash.txt",
+      "prompt": "/92/07fb9fe397/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 20451,
+    "cache_creation_tokens": 105880,
+    "cache_read_tokens": 736905,
+    "output_tokens": 15286,
+    "api_call_count": 16
+  }
+}
