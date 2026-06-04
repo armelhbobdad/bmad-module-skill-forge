@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "5ff05ce026d8",
+  "session_id": "3ca42849-d777-42b0-b534-83867ba7ff74",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-04T17:14:28.618191833Z",
+  "branch": "ci-node24-actions",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".github/scripts/discord-helpers.sh",
+    ".github/workflows/discord.yaml",
+    ".github/workflows/release.yaml"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "36805e7125d0",
+  "checkpoint_transcript_start": 359,
+  "transcript_lines_at_start": 359,
+  "token_usage": {
+    "input_tokens": 282,
+    "cache_creation_tokens": 8832,
+    "cache_read_tokens": 1661427,
+    "output_tokens": 5750,
+    "api_call_count": 12
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-04T17:14:28.181074396Z",
+    "agent_lines": 1,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1,
+    "agent_percentage": 100
+  }
+}
