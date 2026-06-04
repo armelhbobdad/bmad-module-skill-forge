@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "9c80fbc97614",
+  "strategy": "manual-commit",
+  "branch": "skf-workflow-health-fixes",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-analyze-source/references/step-auto-scope.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/9c/80fbc97614/0/metadata.json",
+      "transcript": "/9c/80fbc97614/0/full.jsonl",
+      "context": "/9c/80fbc97614/0/context.md",
+      "content_hash": "/9c/80fbc97614/0/content_hash.txt",
+      "prompt": "/9c/80fbc97614/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 25035,
+    "cache_creation_tokens": 172241,
+    "cache_read_tokens": 4013818,
+    "output_tokens": 40710,
+    "api_call_count": 41
+  }
+}
