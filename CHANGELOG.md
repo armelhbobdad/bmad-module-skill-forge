@@ -4,6 +4,56 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [2.0.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.9.0...v2.0.0) (2026-06-04)
+
+### Features
+
+* **analyze-source:** codify the decomposition merge-vs-split decision ([67f1d71](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/67f1d71046dbce234327575937f20f04d730a075)), closes [#418](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/418)
+* **analyze-source:** harvest grammar and compiler-tree signals for scoping ([96209ca](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/96209ca3aedb0bb2d54473238f283949b223eb88)), closes [#427](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/427)
+* **analyze-source:** record honest caveat for whole-language skills ([c9ed8ea](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/c9ed8eaca6b31e26fab5c06c41673dfeeaa53b08)), closes [#427](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/427)
+* **analyze-source:** seed whole-language skills with companion prose corpora ([5f61fea](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/5f61feaf16d1d41b320bb2adea7520a393e80099)), closes [#427](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/427)
+* **brief:** carry per-corpus provenance through doc_urls ([813826f](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/813826f8873869b5496b4f507949ce986b560f7f)), closes [#432](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/432)
+* **brief:** suppress non-corpus README noise for whole-language references ([5666c67](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/5666c677a8b3b5ac6ba24620aa62fa16f6de2134)), closes [#431](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/431)
+* **campaign:** campaign resume ([a87e948](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/a87e9489b5ee6fdc32eeefefd52cf40412dd3413))
+* **campaign:** campaign setup + campaign-brief.yaml (Stage 0) ([1ba7080](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/1ba70804dd90e016c1ddebf1bd28403ba9e5648a))
+* **campaign:** campaign workflow scaffolding + state schema ([7e01c0a](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/7e01c0ab4b56e6f341b5043c68c47b99ab3cedb0))
+* **campaign:** dependency tracking + enforcement ([a3c7b60](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/a3c7b601b644dad7233aba00162027bb67874172))
+* **campaign:** export + maintenance + campaign report (Stages 9-10) ([08c1bd2](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/08c1bd28967865506b77953c71c50c66469bedff))
+* **campaign:** harden orchestration — scripted state, customization, headless front door, recovery ([8f8927d](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/8f8927d2a81a7f11713c4f9bc279918d685e38d5))
+* **campaign:** onboard removal + v2.0 documentation ([68fda09](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/68fda095e08f7c5d3c9e851f98877ed5472bb5a6))
+* **campaign:** per-skill loop + kickoff emitter (Stage 4) ([3f42d57](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/3f42d57c2ff86c77a3bfce76bfadf07d0df14295))
+* **campaign:** persist capstone, verification and refinement outcomes to state ([ded2e16](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/ded2e166ea4f939944a748af043a636af861b96d))
+* **campaign:** pin validation (Stage 2) ([05d960d](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/05d960d975f1360896f20a46058472bc797ca868))
+* **campaign:** standing directive ([817744d](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/817744d78f9c32c1315d69e27a0ebd5b4eb038ce))
+* **campaign:** strategy generation + provenance (Stages 1 + 3) ([8babe9b](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/8babe9b3fe821a16949e32fc2a900bb2b4188c9d))
+* **campaign:** tier B batch + capstone (Stages 5-6) ([7dab69c](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/7dab69c364025ea26c6fedcfb9b4674c3532016c))
+* **campaign:** verification + refinement (Stages 7-8) ([ce40a0d](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/ce40a0da8196973dc22ed065f2e9800540640e8c))
+* **create-skill:** foreground language prose for whole-language references ([f2512d0](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/f2512d00aa5ff19991341a04665ae9903581dcaf)), closes [#430](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/430)
+* **installer:** point first-run users at deepwiki after install ([83bda51](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/83bda51cc49bada9b4f2db11de54be28b99c2b7a))
+* **module-help:** register skf-campaign in the menu CSV ([9a288ca](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/9a288ca1c78256720be594437cf3fa8696013646))
+* **setup:** recommend deepwiki as the zero-ceremony first step ([9f0c404](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/9f0c404d0eaf6e55aee8920f178d273f642ee6ae))
+* **shape-detect:** accept optional grammar-file and tree-path signals ([4969aba](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/4969abaa310fe5b99e8d4eb070dcfb9c192d9286)), closes [#427](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/427)
+* **shape-detect:** classify Go repositories from go.mod ([3b3404d](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/3b3404df48ea213c8da437e571583090bac26221)), closes [#427](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/427)
+* **shape-detect:** classify Maven, Gradle, and Swift repositories ([f007ea1](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/f007ea12397abab354e0e792c04948f33d06c322)), closes [#433](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/433)
+* **shape-detect:** classify whole-language repos by their grammar file ([1736faf](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/1736fafab431d8dab697500d0ecf4298b99b7140)), closes [#427](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/427)
+* **shape-detect:** detect hand-written compilers from tree structure ([f70d9dd](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/f70d9dd531584375d6eab943e8d95b222c740f2a)), closes [#427](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/427)
+* **shared:** add curated language-to-corpora registry ([6125ba0](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/6125ba0341391264267434622ab54ed137387627)), closes [#427](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/427)
+
+### Bug Fixes
+
+* **analyze-source:** handle remote URLs in auto-scope manifest scan ([0475fe5](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/0475fe5c29b42c4bcfbd6da2671100c4e3299d00))
+* **analyze-source:** use the deterministic manifest scanner in auto-scope ([336dab6](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/336dab6195bdcdb9b1aec132eac6468e17e28b7a))
+* **analyze-source:** wire docs-only brief write through the canonical writer ([63c157e](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/63c157e99406eb35887cca27f9f272cbd2b58b4b))
+* **brief:** normalize URLs when merging detected and seeded doc corpora ([2d27fcf](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/2d27fcfcd9de1414b74ae75e49835ae760217a1d)), closes [#427](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/427)
+* **campaign:** resume to the next incomplete stage after a mid-stage halt ([50d0e3b](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/50d0e3bf519a28648d6c1ec7eabef90678b141e6))
+* **campaign:** use bare _bmad/custom path form so validate:refs resolves ([82f9c31](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/82f9c314068d100669351ec45281a4087d60aa03))
+* **detect-docs:** widen doc-URL recall to doc. subdomains and language paths ([c8ace13](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/c8ace13724bc9d5d6728147ba536a5ab64dceebc)), closes [#427](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/427)
+* **scripts:** invoke PEP-723 helpers via `uv run <script>`, not `uv run python` ([7c3cc2b](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/7c3cc2b5cf249b07d1bf1f90fc9d392afbb95536))
+* **shape-detect:** classify parser/grammar tools by their own name ([9f9db4c](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/9f9db4c5519d6ac08bab807a0a6d6ca59aad317f)), closes [#427](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/427)
+* **shape-detect:** stop monorepo non-product members forcing reference-app ([a9b4682](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/a9b4682bfab84f53eaa7b3bb0ac2d2614660884e)), closes [#421](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/421)
+* **shared:** resolve skill-brief schema beside the validator script ([d2fdeb4](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/d2fdeb49c3439bb224f0e9bde1d09b3088dfcedb))
+* **skf:** close installed-mode wiring, halt-contract, and customization gaps across SKF workflows ([2ebc7a4](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/2ebc7a4579d45eed0ce148436b1cb790036caec2))
+* **test-skill:** add multi-entry exports-map denominator clause ([05e18d8](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/05e18d8bcda40f3765fcedb46ea199be5d4cd549))
 ## [1.9.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.8.0...v1.9.0) (2026-05-26)
 
 ### Features
