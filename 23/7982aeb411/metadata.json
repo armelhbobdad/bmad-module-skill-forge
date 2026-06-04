@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "237982aeb411",
+  "strategy": "manual-commit",
+  "branch": "retire-export-count-threshold",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-analyze-source/SKILL.md",
+    "src/skf-analyze-source/references/step-auto-scope.md",
+    "src/skf-analyze-source/references/step-shape-detect.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/23/7982aeb411/0/metadata.json",
+      "transcript": "/23/7982aeb411/0/full.jsonl",
+      "context": "/23/7982aeb411/0/context.md",
+      "content_hash": "/23/7982aeb411/0/content_hash.txt",
+      "prompt": "/23/7982aeb411/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 76356,
+    "cache_creation_tokens": 7835577,
+    "cache_read_tokens": 236439275,
+    "output_tokens": 607992,
+    "api_call_count": 460
+  }
+}
