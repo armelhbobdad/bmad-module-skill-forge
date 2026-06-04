@@ -65,16 +65,13 @@ On exit code 2, error details are written to stderr as JSON: `{"error": "message
 
 ## Decomposition Thresholds
 
-When auto-scope detects a repo exceeding complexity thresholds, it recommends multi-skill decomposition instead of producing a single unwieldy skill. The thresholds are evaluated in step-auto-scope.md §3a.
+When auto-scope detects a multi-package monorepo, it may recommend multi-skill decomposition instead of producing one unwieldy skill. The threshold is evaluated in step-auto-scope.md §3a.
 
 | Threshold | Value | Signal | Decomposition Path |
 |-----------|-------|--------|-------------------|
-| Large export surface | `export_count > 500` `[PENDING VALIDATION]` | Shape detection `export_count` | Group by top-level source directory modules |
 | Multi-package / monorepo | `package_count > 3` | Shape detection `package_count` | Cohesion check (§3b): merge to one skill or split per package |
 
-A threshold firing makes a repo a decomposition **candidate**; step-auto-scope.md §3b then decides merge-vs-split. `package_count > 3` is empirically validated (fires on real 15-, 38-, and 442-package workspaces). `export_count > 500` stays `[PENDING VALIDATION]` — not yet observed firing on a real run.
-
-When both thresholds are met simultaneously, the monorepo path takes priority (package boundaries are explicit; export-count grouping is heuristic).
+`package_count > 3` makes a **monorepo** a decomposition candidate; step-auto-scope.md §3b then decides merge-vs-split. It is empirically validated (fires on real 15-, 38-, and 442-package workspaces). A *single* package with a large API surface is **not** decomposed — it produces one cohesive skill that `skf-create-skill`'s auto-shard splits into `references/` shards at the 400-line ceiling.
 
 When neither threshold is met, the single-scope flow proceeds unchanged.
 
