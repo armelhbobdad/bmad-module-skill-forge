@@ -41,14 +41,14 @@
 
   Leave `analysis_confidence` unchanged (still `full` or `provenance-map` per the waterfall) — stratified scope does not degrade confidence, only the denominator. Annotate the coverage report with: `Stratified scope — denominator: {effective_denominator | tier_a_include union | scope.include union} ({N} files matched, {M} exports union)`.
 
-  **When this clause does NOT apply:** `scope.type: "full-library"` skills, single-package repositories, or stratified briefs where the full monorepo is intentionally in scope. For those, use the standard barrel-based denominator — **unless** the single-package repo is a pattern-reference app (see next bullet).
+  **When this clause does NOT apply:** `scope.type: "full-library"` skills, single-package repositories, or stratified briefs where the full monorepo is intentionally in scope. For those, use the standard barrel-based denominator — **unless** the single-package repo is a pattern-reference app (see next bullet) or publishes a multi-subpath `exports` map (use the multi-entry clause below).
 
 - **Pattern-reference apps (non-library source):** If the source is a single-package repo whose purpose is demonstrating an integration pattern rather than distributing a library API — typical markers are `scope.type: "full-library"` **without** a barrel file at any recognized entry-point path (`__init__.py`, `index.ts`/`index.js`, `lib.rs`, `mod.rs`) AND without a monorepo layout — the skill's value lives in wiring patterns, not exports. None of the preceding three clauses fits: there is no barrel to count from, no empty-barrel `scope.include` to consult, and no monorepo stratification to re-derive.
 
   **Trigger (either fires):**
 
   1. `scope.notes` in `forge-data/{skill_name}/skill-brief.yaml` flags pattern-reference intent (phrases such as "Reference app, not a library", "pattern-reference", "embedded-pattern skill", or "skill value is the … pattern"). The `scope.notes` field is authoritative when the author wrote it.
-  2. Source tree lacks a barrel file at every recognized entry-point path AND the repo is not a monorepo (no `packages/`, `workspaces`, `lerna.json`, `rush.json`, `nx.json`, or Cargo `[workspace]`). Detected at test time by filesystem inspection of `{source_path}`.
+  2. Source tree lacks a barrel file at every recognized entry-point path AND the repo is not a monorepo (no `packages/`, `workspaces`, `lerna.json`, `rush.json`, `nx.json`, or Cargo `[workspace]`) AND the package does not declare a multi-subpath `exports` map (those route to the multi-entry clause below). Detected at test time by filesystem inspection of `{source_path}`.
 
   **Denominator:** canonicalized provenance-map entry count (same canonicalization as the "Provenance-map canonicalization" section below). `skf-create-skill`'s extraction pass has already curated the provenance-map to the authored pattern surface; treat it as the authoritative enumeration of the skill's documented reach.
 
@@ -56,7 +56,7 @@
 
   **Confidence:** leave `analysis_confidence` unchanged (still `full` or `provenance-map` per the waterfall). Pattern-reference does not degrade confidence — the surface is smaller than a library barrel, not lower quality. Annotate the coverage report with: `Pattern-reference — denominator: {tier_a_include union | canonicalized provenance-map count} ({N} pattern surfaces)`.
 
-  **When this clause does NOT apply:** any repo with a non-empty barrel file, any monorepo (use the stratified-scope clause), or any single-package repo whose `scope.type` is explicitly `public-api` / `specific-modules` / `component-library` / `docs-only` (those scope types have their own denominator semantics). Also does NOT apply when `scope.type: "reference-app"` — that scope type carries its own pattern-surface denominator semantics (the brief speaks for itself), so this clause's filesystem trigger is moot.
+  **When this clause does NOT apply:** any repo with a non-empty barrel file, any monorepo (use the stratified-scope clause), or any single-package repo whose `scope.type` is explicitly `specific-modules` (use the specific-modules clause), `public-api` with a multi-subpath `exports` map (use the multi-entry clause below — a `public-api` package WITHOUT such a map keeps the standard root-barrel rule), `component-library`, or `docs-only`. Also does NOT apply when `scope.type: "reference-app"` — that scope type carries its own pattern-surface denominator semantics (the brief speaks for itself), so this clause's filesystem trigger is moot.
 
 - **Single-crate curated subset (`scope.type: "specific-modules"`):** If the source is a single-package (non-monorepo) repo whose skill brief sets `scope.type: "specific-modules"` and uses `scope.include`/`scope.exclude` to carve a subset of the crate's public surface, the coverage denominator is the **in-scope reachable barrel** — not the full barrel.
 
@@ -71,6 +71,16 @@
   **When `effective_denominator` is present:** prefer `metadata.json.stats.effective_denominator` (same priority-1 rule as the stratified-scope clause), subject to the same deflation guard.
 
   **When this clause does NOT apply:** monorepo packages (use the stratified-scope clause), `scope.type: "full-library"` (use the standard barrel), or empty-barrel packages (use the empty-barrel clause). This clause is specifically for single-crate repos where the brief intentionally documents a curated subset rather than the full public surface.
+
+- **Multi-entry (exports-map) packages (single-package libraries publishing via a `package.json` `exports` map):** If the in-scope `package.json` declares an `exports` map with **multiple non-root subpath entries** (more than just `"."`) and the repo carries **no** monorepo markers (`packages/` layout, `workspaces` field, `lerna.json`, `rush.json`, `nx.json`, Cargo `[workspace]`), the package's public surface spans every published subpath, not just the root barrel. The standard "named exports from `index.ts`" rule undercounts: it measures only the `"."` barrel while installers reach the full subpath set. This clause covers both `scope.type: "full-library"` AND `scope.type: "public-api"` for such packages.
+
+  **Denominator:** the **union of named exports across the files each NON-WILDCARD `exports` subpath resolves to**. Resolve each subpath to its target file (or its committed `.d.ts` / `.d.mts` declaration), then apply the same multi-line brace-accumulation and `export *` star-resolution rules documented for barrel re-derivation earlier in this file ("TypeScript / JavaScript barrel re-derivation"). **Explicitly exclude wildcard subpaths** (`"./*"` forms — they map to an open-ended file set whose surface is unbounded and uncountable). If the `exports` map has only a root `"."` entry, or only wildcard subpaths, fall back to the standard root-barrel rule.
+
+  **Curation/priority (same ladder the specific-modules clause uses):** prefer `metadata.json.stats.effective_denominator` first (subject to the existing deflation guard), then `scope.tier_a_include` globs (filtered by `scope.exclude`, the umbrella-barrel note applies) when the brief supplies it, else the full subpath union.
+
+  **Audit:** the root-barrel named-export count MUST be reported as a **secondary candidate** in the Denominator Candidates audit block (coverage-check.md §4) so the root-barrel-vs-subpath-union choice is auditable. Annotate the coverage report with: `Multi-entry (exports-map) — denominator: {effective_denominator | tier_a_include union | subpath union} ({N} subpaths resolved, {M} exports union; root barrel: {R})`.
+
+  **When this clause does NOT apply:** monorepo packages (use the stratified-scope clause), empty-barrel packages (use the empty-barrel clause), pattern-reference apps (use the pattern-reference clause), `scope.type: "specific-modules"` (use the specific-modules clause), or single-entry / wildcard-only `exports` maps (use the standard root-barrel rule).
 
 Internal module symbols are **excluded** from the coverage denominator unless they are explicitly documented in SKILL.md (in which case they count as documented extras, not missing coverage).
 
