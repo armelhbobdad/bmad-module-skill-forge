@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "7aaae1c74c81",
+  "session_id": "6f290fda-8776-49b3-9c82-013fa78c06dd",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-04T14:52:25.908228114Z",
+  "branch": "fix-confidence-distribution-invariant",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-create-skill/references/validate.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "c4db312da0c2",
+  "token_usage": {
+    "input_tokens": 75792,
+    "cache_creation_tokens": 7804007,
+    "cache_read_tokens": 212964063,
+    "output_tokens": 576268,
+    "api_call_count": 436
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-04T14:52:22.503313376Z",
+    "agent_lines": 0,
+    "human_added": 175,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 175,
+    "agent_percentage": 0
+  }
+}
