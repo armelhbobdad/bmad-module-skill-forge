@@ -22,7 +22,7 @@ If you're not sure where a change belongs, open an issue and ask before writing 
 
 **Prerequisites:**
 
-- [Node.js](https://nodejs.org/) >= 22 (see `.nvmrc`)
+- [Node.js](https://nodejs.org/) >= 22 — the supported floor (`engines.node`); development and CI run Node 24 (see `.nvmrc`)
 - [Python](https://www.python.org/) >= 3.10
 - [uv](https://docs.astral.sh/uv/) — runs the Python test suite
 - `git`, `gh` — used by several workflows and by the health-check loop
@@ -83,7 +83,7 @@ Maintainers only — if you're not cutting a release, skip this section.
 
 - **Canonical path:** `.github/workflows/release.yaml`, triggered via GitHub Actions → Run workflow → choose `version_bump` (`alpha` / `beta` / `rc` / `patch` / `minor` / `major`). That is the only supported route — OIDC-backed publish, required-reviewer gate on the `release` environment, auto-provenance on the npm tarball.
 
-See [docs/_internal/RELEASING.md](docs/_internal/RELEASING.md) for the full procedure — branch-protection rules, the `release` environment with its required-reviewer gate, npm Trusted Publisher registration, and the seven-scenario [rollback playbook](docs/_internal/RELEASING.md#rollback-playbook).
+See [docs/\_internal/RELEASING.md](docs/_internal/RELEASING.md) for the full procedure — branch-protection rules, the `release` environment with its required-reviewer gate, npm Trusted Publisher registration, and the seven-scenario [rollback playbook](docs/_internal/RELEASING.md#rollback-playbook).
 
 ## Adding a New Workflow Skill
 

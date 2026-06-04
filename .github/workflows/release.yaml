@@ -52,13 +52,13 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: ".nvmrc"
           cache: npm
@@ -93,7 +93,7 @@ jobs:
           fi
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v8.2.0
         with:
           python-version: "3.12"
 
@@ -364,7 +364,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         # Story 3.5 AC #5 (5.a): GitHub's fork-PR-approval rule applies even to
         # GITHUB_TOKEN-authored PRs in user-owned repos; the pull_request event
-        # on the bot PR fires quality.yaml + discord-notification.yaml which
+        # on the bot PR fires quality.yaml, whose runs
         # land in `conclusion: action_required` and cannot be approved via
         # POST /actions/runs/:id/approve (returns "This run is not from a fork
         # pull request."). These orphan runs DO appear in PullRequest.status
@@ -722,7 +722,7 @@ jobs:
           fi
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.new_version }}
           name: "Skill Forge (SKF) v${{ steps.version.outputs.new_version }}"

@@ -22,9 +22,11 @@
 # cross-platform regression vectors (tarball corruption, shebang issues,
 # bin-wrapper bugs, filesystem case-sensitivity) without TTY simulation.
 #
-# Node version coupling: `node-version: '22'` is hardcoded to match
-# `.nvmrc`. If `.nvmrc` advances to Node 23+, update this workflow in
-# lockstep.
+# Node version coupling: `node-version: '22'` is hardcoded to match the
+# `engines.node` floor in `package.json` (>=22), NOT `.nvmrc` (the dev/CI
+# version, currently 24). Pinning the floor keeps this smoke test as the
+# only coverage proving the minimum supported Node still loads the CLI.
+# If `engines.node` raises its floor, update this workflow in lockstep.
 
 name: Install Smoke Test
 
@@ -50,7 +52,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
 
