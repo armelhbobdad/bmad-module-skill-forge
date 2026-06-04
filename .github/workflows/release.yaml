@@ -364,7 +364,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         # Story 3.5 AC #5 (5.a): GitHub's fork-PR-approval rule applies even to
         # GITHUB_TOKEN-authored PRs in user-owned repos; the pull_request event
-        # on the bot PR fires quality.yaml + discord-notification.yaml which
+        # on the bot PR fires quality.yaml, whose runs
         # land in `conclusion: action_required` and cannot be approved via
         # POST /actions/runs/:id/approve (returns "This run is not from a fork
         # pull request."). These orphan runs DO appear in PullRequest.status
