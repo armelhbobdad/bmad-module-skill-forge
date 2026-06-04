@@ -105,7 +105,7 @@ These rules apply to every step in this workflow:
 | 9 | Export | references/step-10-export.md | No (write-gate HALT) |
 | 10 | Maintenance | references/step-11-maintenance.md | Yes |
 
-**Stage numbering:** step files are 1-indexed (`step-01` … `step-11`); `campaign.current_stage` in state is 0-indexed, so step-`NN` runs stage `NN − 1` (e.g. step-01 = stage 0, step-11 = stage 10). The Resume Routing table in `references/step-resume.md` maps each `current_stage` back to its step file.
+**Stage numbering:** step files are 1-indexed (`step-01` … `step-11`); `campaign.current_stage` in state is 0-indexed, so step-`NN` runs stage `NN − 1` (e.g. step-01 = stage 0, step-11 = stage 10). The Resume Routing table in `references/step-resume.md` maps a resolved stage number to its step file; because `current_stage` records the highest *completed* stage, resume without an active skill advances to `current_stage + 1` (the stage that still needs to run) before consulting the table.
 
 ## Invocation Contract
 
@@ -161,7 +161,7 @@ When resuming:
 
 1. Read `_campaign-state.yaml`
 2. Validate via `campaign-validate-state.py` (halt on invalid; attempt `.bak` recovery per step-resume)
-3. Find last active or completed stage from `campaign.current_stage`
+3. Find last active or completed stage from `campaign.current_stage` (the highest completed stage); when no skill is active, resume continues from the stage *after* it (`current_stage + 1`, terminal-capped)
 4. Skip completed skills (status = `completed` or `skipped`)
 5. If `--from=<skill>` is provided, find the named skill and resume from its stage
 6. Continue from the next incomplete skill in `dependency_graph.execution_order`

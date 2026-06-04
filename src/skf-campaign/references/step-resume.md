@@ -73,12 +73,12 @@ Two paths based on whether `--from=<skill>` was provided in the invocation:
 1. Scan `skills[]` for any skill with `status == "active"`.
    - If found and `tier == "A"` → resume target is stage 4 (`step-05-skill-loop.md`). The skill loop's §4 will skip completed skills until it reaches the active one.
    - If found and `tier == "B"` → resume target is stage 5 (`step-06-batch.md`). The batch step processes Tier B skills.
-2. If no active skill → use `campaign.current_stage` from state.
-3. Map `current_stage` to the corresponding step file using the stage table in §4.
+2. If no active skill → the next stage to run is `campaign.current_stage + 1`, because `current_stage` records the highest **completed** stage (each stage writes its own number only after its work and gates finish, so a mid-stage halt leaves the previous stage's number on disk). **Terminal cap:** if `campaign.current_stage` is `10`, the resolved stage is `10` itself (`step-11-maintenance.md`) — never `11`; the existing terminal-HALT check in §4 governs whether a stage-10 campaign is already done.
+3. Map the resolved stage number to the corresponding step file using the stage table in §4.
 
 ### §4 — Resume Routing
 
-Map `current_stage` to step file:
+Map the resolved stage number to its step file. Both §3 branches feed this table an **already-resolved** stage number: the active-skill branch supplies stage 4 or 5 directly (and BYPASSES the `+1`), while the no-active-skill branch supplies `current_stage + 1` (terminal-capped at 10). Do not apply the `+1` again here.
 
 | Stage | Step File |
 |-------|-----------|
