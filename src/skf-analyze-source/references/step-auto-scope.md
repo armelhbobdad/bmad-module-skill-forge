@@ -362,19 +362,20 @@ uv run {shapeDetectHelper} --repo-url <project_path_or_url> \
 
 ### 3a. Check Decomposition Thresholds
 
-Evaluate the shape detection output to determine whether this repo should be decomposed into multiple skills.
+Evaluate the shape detection output to determine whether this **monorepo** should be decomposed into multiple skills.
 
-**Threshold conditions:**
+**Threshold condition:**
 
 | Threshold | Condition | Signal |
 |-----------|-----------|--------|
-| Large export surface | `export_count > 500` `[PENDING VALIDATION]` | Single skill covering 500+ exports produces unwieldy output (not yet observed firing on a real run) |
 | Monorepo / multi-package | `package_count > 3` | 4+ packages — a decomposition **candidate** (empirically validated: fires on real 15-, 38-, and 442-package workspaces) |
+
+> A *single* package with a large API surface is **not** a decomposition trigger — it produces one cohesive skill that `skf-create-skill`'s auto-shard step splits into `references/` shards at the 400-line ceiling (a single library is one install / one import namespace; fragmenting it by source directory loses cohesion). Decomposition is for genuinely multi-package monorepos only.
 
 **Decision:**
 
-- **Neither threshold met** → Continue to §4 (single-scope flow, entirely unchanged).
-- **Either or both thresholds met** → this repo is a **decomposition candidate**. A threshold firing means the repo *could* decompose, not that it *should* — continue to §3b to decide merge-vs-split. Log: "Auto-decomposition candidate: {reason} ({value} exceeds threshold {threshold})" where reason is `export_threshold`, `package_threshold`, or `both`.
+- **Threshold not met** (`package_count ≤ 3`) → Continue to §4 (single-scope flow, entirely unchanged).
+- **Threshold met** (`package_count > 3`) → this repo is a **decomposition candidate**. A threshold firing means the repo *could* decompose, not that it *should* — continue to §3b to decide merge-vs-split. Log: "Auto-decomposition candidate: package_threshold ({value} packages exceeds 3)".
 
 ### 3b. Cohesion Check — Merge to One Skill vs Split into N
 
@@ -487,29 +488,17 @@ A whole-language skill's value is in the language's **prose** — the guide/Book
 
 ### 4a. Multi-Scope Decomposition
 
-This section is reached only from §3b when the cohesion check decided to **split** (members are independently published with distinct surfaces and no umbrella re-exports them). It replaces §4→§5→§6 for repos that will produce N > 1 skills.
+This section is reached only from §3b when the cohesion check decided to **split** a monorepo (members are independently published with distinct surfaces and no umbrella re-exports them). It replaces §4→§5→§6 for repos that will produce N > 1 skills.
 
-**Determine decomposition path:**
-
-- **Monorepo path** (`package_count > 3`): Use workspace package discovery from §2 manifest scan results. Each workspace package with its own manifest becomes a separate skill boundary. Name each skill as `{project_name}-{package_name}` (kebab-case); if `{coexistence_suffix}` is non-empty, append it. Trivial workspace members (no source files, no exports) are excluded.
-- **Large-export path** (`export_count > 500`, single package): Group by top-level source directory modules (e.g., `src/auth/`, `src/core/`, `src/api/`). Each directory subtree with a meaningful export surface becomes a separate skill boundary. Candidate boundaries with fewer than ~50 exports `[PENDING VALIDATION]` should be merged into an "other" catch-all skill rather than becoming standalone skills. Name each skill as `{project_name}-{module_name}` (kebab-case); if `{coexistence_suffix}` is non-empty, append it. If no clear module structure exists (flat `src/` with all files at root level), **do not force decomposition** — fall back to single-scope flow at §4.
-- **Combined path** (both thresholds met): Use the monorepo path. Package boundaries are explicit and take priority over export-count grouping (which is heuristic).
+**Decompose by workspace package:** Use workspace package discovery from §2 manifest scan results. Each workspace package with its own manifest becomes a separate skill boundary. Name each skill as `{project_name}-{package_name}` (kebab-case); if `{coexistence_suffix}` is non-empty, append it. Trivial workspace members (no source files, no exports) are excluded.
 
 **Per-boundary shape→scope mapping:**
 
-For each decomposed boundary, apply the shape→scope mapping from §4 independently — the boundary's local characteristics determine its scope.type:
-
-| Decomposition Type | Per-Boundary Shape Mapping |
-|--------------------|---------------------------|
-| Monorepo (`package_count > 3`) | Re-run the shape→scope heuristic ladder from `step-shape-detect.md` per package using each package's own manifest data. Packages may have different shapes (e.g., a `library-API` core + a `reference-app` CLI). |
-| Large-export (`export_count > 500`) | All boundaries inherit the parent shape. scope.type varies by per-boundary export count (e.g., ≤200 → `full-library`, >200 → `public-api`). |
+For each decomposed boundary, apply the shape→scope mapping from §4 independently — re-run the shape→scope heuristic ladder from `step-shape-detect.md` per package using each package's own manifest data. Packages may have different shapes (e.g., a `library-API` core + a `reference-app` CLI).
 
 ### 5a. Generate Multi-Scope Patterns
 
-For each decomposed boundary, generate include/exclude patterns using the same language-aware rules as §5, but scoped to the boundary's source paths.
-
-- Monorepo boundaries: patterns are rooted at the package path (e.g., `packages/auth/src/**/*.ts` instead of `src/**/*.ts`)
-- Large-export boundaries: patterns are rooted at the module directory (e.g., `src/auth/**/*.ts`)
+For each decomposed boundary, generate include/exclude patterns using the same language-aware rules as §5, but scoped to the boundary's source paths. Monorepo boundaries are rooted at the package path (e.g., `packages/auth/src/**/*.ts` instead of `src/**/*.ts`).
 
 ### 6a. Build Multi-Scope
 
@@ -547,11 +536,11 @@ Add `decomposition` to frontmatter:
 ```yaml
 decomposition:
   triggered: true
-  reason: 'export_threshold' | 'package_threshold' | 'both'
+  reason: 'package_threshold'
   boundary_count: N
 ```
 
-Each `confirmed_units` entry includes `boundary_path` — the relative path to the boundary's root (e.g., `packages/core` for monorepo, `src/auth` for large-export). Omit the `decomposition` key entirely when single-scope (N = 1).
+Each `confirmed_units` entry includes `boundary_path` — the relative path to the boundary's root (e.g., `packages/core`). Omit the `decomposition` key entirely when single-scope (N = 1).
 
 **When single-scope (N = 1):** No `decomposition` key. `confirmed_units` contains a single entry (existing behavior).
 
