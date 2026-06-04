@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "92f6a256cb08",
+  "session_id": "c3329f17-3428-41e4-822d-275c8019857b",
+  "strategy": "manual-commit",
+  "created_at": "2026-06-04T12:07:10.184697675Z",
+  "branch": "skf-workflow-health-fixes",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-test-skill/references/source-access-protocol.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "d7d75666c93b",
+  "token_usage": {
+    "input_tokens": 25041,
+    "cache_creation_tokens": 173940,
+    "cache_read_tokens": 4472307,
+    "output_tokens": 42269,
+    "api_call_count": 44
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-06-04T12:07:09.33405223Z",
+    "agent_lines": 13,
+    "human_added": 18,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 31,
+    "agent_percentage": 41.935483870967744
+  }
+}
