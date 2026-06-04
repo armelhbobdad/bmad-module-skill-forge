@@ -237,7 +237,7 @@ tessl suggestions (novel — not matched by `{tesslDismissalData}`):
 Cross-check metadata.json against extraction inventory:
 - `stats.exports_documented` / `stats.exports_public_api` / `stats.exports_internal` / `stats.exports_total` are accurate
 - `stats.public_api_coverage` and `stats.total_coverage` are correctly computed (null when denominator is 0)
-- `confidence_distribution.t1`, `confidence_distribution.t1_low`, `confidence_distribution.t2`, `confidence_distribution.t3` match actual counts
+- `confidence_distribution.{t1, t1_low, t2, t3}` bin **per-export signature tiers** — each documented export lands in exactly one tier, so the four bins must **sum to `stats.exports_documented`**. Do NOT fold T2 annotation counts or T3 doc-item counts into the bins (a common error: binning ~8 annotations + ~80 doc items on top of 59 exports → sum 147 ≠ 59). `skf-test-skill` coverage-check §4b enforces this sum as an internal-consistency defect. Carve-outs mirror that consumer: for a **stack** skill the distribution bins constituents (sums to the constituent count, not `exports_documented`); for a **reference-app** it bins per-citation provenance entries (sums to the citation count, not `pattern_surfaces_documented`)
 - `spec_version` is "1.3"
 - If `scripts[]` or `assets[]` arrays present: verify `stats.scripts_count`/`stats.assets_count` match array lengths; verify `file_entries` count in provenance-map.json matches
 
