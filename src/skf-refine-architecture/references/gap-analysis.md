@@ -155,7 +155,7 @@ If any of these belongs in this architecture, re-run with `--scope-skills` namin
 
 **Proceeding to issue detection (still produces value with 1 skill)...**"
 
-Store all **in-scope** gap findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-GAPS] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted gap findings** (full citation blocks with evidence and suggestions, not just counts) — Step 05 can read this back if context degrades. Record out-of-scope pairs under a separate `<!-- [RA-OUT-OF-SCOPE] ... -->` marker (NOT `[RA-GAPS]`) so Step 05 does not compile them into the refined document — they are informational only. **Do NOT write to `{output_folder}/refined-architecture-{project_name}.md` — that file is created only in step 5.**
+Store all **in-scope** gap findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-GAPS] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted gap findings** (full citation blocks with evidence and suggestions, not just counts) — Step 05 can read this back if context degrades. Record out-of-scope pairs under a separate `<!-- [RA-OUT-OF-SCOPE] ... -->` marker (NOT `[RA-GAPS]`) so Step 05 does not compile them into the refined document — they are informational only. **Do NOT write to `{output_folder}/refined-architecture-{arch_project_name}.md` — that file is created only in step 5.**
 
 ### 7. Auto-Proceed to Next Step
 

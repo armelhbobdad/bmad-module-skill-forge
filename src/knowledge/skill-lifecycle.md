@@ -143,7 +143,7 @@ EX → agentskills.io bundle + context snippets (flat platform paths)
 
 VS → feasibility-report-{project_name}.md (verdict + integration verdicts)
        ↓ (report consumed by RA)
-RA → refined-architecture-{project_name}.md (gaps filled, issues flagged, improvements suggested)
+RA → refined-architecture-{arch_project_name}.md (gaps filled, issues flagged, improvements suggested)
        ↓ (refined doc consumed by SS compose-mode)
 SS (compose) → SKILL.md (stack skill synthesized from individual skills + architecture)
 ```

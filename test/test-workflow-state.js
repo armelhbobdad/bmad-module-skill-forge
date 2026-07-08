@@ -144,6 +144,26 @@ async function runTests() {
     assert(raStep05.includes(block), `RA step 5 parses ${block}`, `compile.md must reference ${block} for context recovery`);
   }
 
+  // RA output is named after the architecture doc's own project (producer/consumer
+  // split): init.md resolves {arch_project_name}, and compile.md (writer) + report.md
+  // (reader) must template the identical output path.
+  const raReport = await readFile(path.join(srcDir, 'skf-refine-architecture/references/report.md'));
+  assert(
+    raStep01.includes('{arch_project_name}'),
+    'RA init resolves {arch_project_name}',
+    'init.md should resolve {arch_project_name} from the architecture doc frontmatter',
+  );
+  assert(
+    raStep05.includes('refined-architecture-{arch_project_name}.md'),
+    'RA compile names output after arch project',
+    'compile.md outputFile should use refined-architecture-{arch_project_name}.md',
+  );
+  assert(
+    raReport.includes('refined-architecture-{arch_project_name}.md'),
+    'RA report names output after arch project',
+    'report.md outputFile should use refined-architecture-{arch_project_name}.md (must match compile.md)',
+  );
+
   // Step-05 recovery should point to beginning, not mid-workflow
   assert(
     !raStep05.includes('Re-run [RA] from **step 02**'),

@@ -1,8 +1,9 @@
 ---
 # {outputFile} resolves from the activation-stored {outputFolderPath}
 # variable (set in SKILL.md On Activation §4 from output_folder config +
-# customize override).
-outputFile: '{outputFolderPath}/refined-architecture-{project_name}.md'
+# customize override) and {arch_project_name} (resolved in init.md from the
+# architecture doc's frontmatter project_name, else config project_name).
+outputFile: '{outputFolderPath}/refined-architecture-{arch_project_name}.md'
 nextStepFile: 'health-check.md'
 ---
 
