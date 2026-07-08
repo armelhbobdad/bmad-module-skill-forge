@@ -10,7 +10,7 @@ skf,skf-create-stack-skill,Stack Skill,SS,"Consolidated project stack skill with
 skf,skf-update-skill,Update Skill,US,"Smart regeneration preserving [MANUAL] sections after source changes",,,anytime,skf-export-skill,,false,skills_output_folder,SKILL.md
 skf,skf-audit-skill,Audit Skill,AS,"Drift detection between skill and current source code",,,anytime,skf-export-skill,,false,,drift report
 skf,skf-verify-stack,Verify Stack,VS,"Pre-code stack feasibility verification against architecture and PRD documents",,,anytime,skf-setup,skf-refine-architecture,false,forge_data_folder,feasibility-report-{project_name}.md
-skf,skf-refine-architecture,Refine Architecture,RA,"Improve architecture doc using verified skill data and VS feasibility findings",,,anytime,skf-verify-stack,,false,output_folder,refined-architecture-{project_name}.md
+skf,skf-refine-architecture,Refine Architecture,RA,"Improve architecture doc using verified skill data and VS feasibility findings",,,anytime,skf-verify-stack,,false,output_folder,refined-architecture-{arch_project_name}.md
 skf,skf-test-skill,Test Skill,TS,"Cognitive completeness verification — quality gate before export",,,anytime,"skf-create-skill,skf-create-stack-skill,skf-quick-skill",skf-export-skill,false,,completeness score
 skf,skf-export-skill,Export Skill,EX,"Package for distribution and inject context into CLAUDE.md/AGENTS.md/.cursorrules",,,anytime,skf-test-skill,"skf-update-skill,skf-audit-skill,skf-rename-skill,skf-drop-skill",false,skills_output_folder,agentskills.io package
 skf,skf-rename-skill,Rename Skill,RS,"Rename a skill across all its versions — transactional copy-verify-delete with platform context rebuild",,,anytime,skf-export-skill,,false,skills_output_folder,renamed skill group

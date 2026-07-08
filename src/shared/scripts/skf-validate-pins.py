@@ -51,7 +51,7 @@ import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 _GITHUB_URL_RE = re.compile(
-    r"https?://(?:www\.)?github\.com/([^/\s]+)/([^/\s.]+?)(?:\.git)?/?$",
+    r"https?://(?:www\.)?github\.com/([^/\s]+)/([^/\s]+?)(?:\.git)?/?$",
     re.IGNORECASE,
 )
 

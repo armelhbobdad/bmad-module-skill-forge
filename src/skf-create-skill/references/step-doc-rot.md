@@ -28,7 +28,7 @@ Identify the feeder artifacts in the **staging directory** for the current skill
 1. **Evidence report:** `_bmad-output/{skill-name}/evidence-report.md`
 2. **Provenance map:** `_bmad-output/{skill-name}/provenance-map.json` — focus on T2/T3 entries with temporal annotations
 3. **Temporal context:** changelogs, migration guides, and issue/PR data fetched by step 3b and enriched by step 4 (available in workflow context)
-4. **Compiled SKILL.md:** the staged `_bmad-output/{skill-name}/SKILL.md` itself — check for `[QMD:...]` or `[DOC:...]` annotations referencing corrections
+4. **Compiled SKILL.md:** the staged `_bmad-output/{skill-name}/SKILL.md` itself — check for `[QMD:...]` or `[DOC:...]` annotations referencing corrections. **Do not treat its own `## Migration & Deprecation Warnings` section (§4b) as a correction source:** compile (step 5 §4b) already authored that section from the same T2-future annotations, so its bullets are already-surfaced corrections — §2 discards matches that land inside it.
 
 For each artifact, attempt to load its content. If an artifact does not exist or is empty, skip it — this is not an error.
 
@@ -62,6 +62,8 @@ For each match, record:
 - `affected`: the function name, API, or section the correction relates to (extract from surrounding context if identifiable; otherwise set to `"unknown"`)
 
 Store all matches as `correction_matches: [{match records}]`
+
+**Exclusion — drop already-surfaced §4b corrections (deterministic, no AI judgment):** After collecting matches, discard any match whose `source` is the compiled SKILL.md (feeder #4) **and** whose `context_line` sits inside that file's own `## Migration & Deprecation Warnings` section — i.e. on a line at or after the `## Migration & Deprecation Warnings` heading and before the next `##` heading. Compile (step 5 §4b) authored that section from the same T2-future annotations, so re-emitting its bullets as `## CORRECTION` blocks in §3 would duplicate already-surfaced content verbatim. This is a positional heading-boundary check on text already loaded, not a semantic assessment. If discarding empties `correction_matches`, handle it as the empty case below.
 
 **IF `correction_matches` is empty:**
 - Log: `"doc-rot: skipped (no correction indicators found in feeder artifacts)"`

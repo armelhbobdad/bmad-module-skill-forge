@@ -46,6 +46,8 @@ Wait for user input. Store the validated architecture document path as `architec
 - If missing or unreadable: "Architecture document not found at `{path}`. Provide a valid path."
 - HALT (exit code 2, `halt_reason: "input-invalid"`) if the user cannot provide a valid path. In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" immediately.
 
+**Resolve `{arch_project_name}` (names the refined output file):** Read the architecture document's YAML frontmatter. If it declares a `project_name`, store that value as `{arch_project_name}`; otherwise fall back to the config `{project_name}` resolved at activation. Stash `{arch_project_name}` as a workflow-context variable — `compile.md` and `report.md` resolve `{outputFile}` from it. This makes a producer-side refine of a consumer's architecture doc (the producer/consumer forge split) name the proposal after the doc's own project rather than the forge workspace config. Producer-side working state (`ra-state-{project_name}.md`) and the VS report auto-probe stay keyed on the config `{project_name}`.
+
 **Validate VS report (if provided via `--vs-report-path` or interactive input):**
 - Confirm the file exists and is readable
 - If missing at user-provided path: attempt auto-probe (below) before giving up

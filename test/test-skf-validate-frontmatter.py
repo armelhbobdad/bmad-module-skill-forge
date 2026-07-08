@@ -372,13 +372,15 @@ class TestBodyMaxTokensGate:
         assert r["status"] == "pass"
         assert not any(i["field"] == "body" for i in r["issues"])
 
-    def test_exceeds_max_emits_high_body_issue(self):
+    def test_exceeds_max_emits_advisory_body_issue(self):
+        # skill-check treats body.max_tokens as a non-blocking warning, so an
+        # over-token body is advisory (low / status warn), not a hard fail.
         content = _skill_md_with_dense_body(20100)  # ceil(20101/4) = 5026 > 5000
         r = validate_frontmatter(content, "my-skill", max_body_tokens=5000)
-        assert r["status"] == "fail"
+        assert r["status"] == "warn"
         body_issues = [i for i in r["issues"] if i["field"] == "body"]
         assert len(body_issues) == 1
-        assert body_issues[0]["severity"] == "high"
+        assert body_issues[0]["severity"] == "low"
         assert "token estimate" in body_issues[0]["message"]
         assert "exceeds max 5000" in body_issues[0]["message"]
 
@@ -410,3 +412,6 @@ class TestBodyMaxTokensGate:
         body_issues = [i for i in r["issues"] if i["field"] == "body"]
         assert len(body_issues) == 1  # only token issue fires, not line
         assert "token estimate" in body_issues[0]["message"]
+        # over-token is advisory (skill-check warns, does not reject)
+        assert body_issues[0]["severity"] == "low"
+        assert r["status"] == "warn"

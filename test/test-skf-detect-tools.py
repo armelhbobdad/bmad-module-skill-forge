@@ -182,6 +182,34 @@ def test_probe_ccc_identity_marker_present():
     assert result["daemon"] == "healthy"
 
 
+def test_probe_ccc_version_is_none_not_misparsed_header():
+    """`ccc doctor` leads with a settings header ("Global Settings"), not a
+    version — it must never be reported as ccc's version string."""
+    help_output = (
+        "Usage: ccc [OPTIONS] COMMAND [ARGS]...\n\n"
+        "CocoIndex Code — index and search codebases.\n"
+    )
+    doctor_output = (
+        "\n  Global Settings\n"
+        "  ----------------\n"
+        "  Settings: /home/user/.cocoindex_code/global_settings.yml\n"
+    )
+
+    def _side_effect(cmd, **kwargs):
+        cmd = _logical(cmd)
+        if cmd == ["ccc", "--help"]:
+            return _fake_run(0, help_output)
+        if cmd == ["ccc", "doctor"]:
+            return _fake_run(0, doctor_output)
+        raise AssertionError(f"unexpected probe call: {cmd}")
+
+    with patch.object(mod.subprocess, "run", side_effect=_side_effect):
+        result = mod.probe_ccc()
+    assert result["available"] is True
+    assert result["daemon"] == "healthy"
+    assert result["version"] is None
+
+
 def test_probe_ccc_identity_marker_absent_rejects_alias():
     """Foreign `ccc` binary (e.g. code2prompt alias) must not pass."""
     # Foreign tool exits 0 on --help but lacks the marker

@@ -15,7 +15,7 @@ The five-rule ladder (apply in order, first match wins):
      entries or `Component[]` annotation when contents available;
      presence-only when contents not available)
   2. reference-app    — intent text mentions wiring / integration / starter
-     / lifecycle / build-config keywords, OR analysis flagged as demo/example
+     / build-config keywords, OR analysis flagged as demo/example
   3. specific-modules — intent names a specific subset ("just the X",
      "only the Y") OR module_count >= 6
   4. public-api       — export_count <= 8 AND intent mentions "the API",
@@ -71,7 +71,6 @@ REFERENCE_APP_KEYWORDS = (
     "integration example",
     "integration sample",
     "starter",
-    "lifecycle",
     "build config",
     "build-config",
     "demo app",

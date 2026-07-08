@@ -1,6 +1,7 @@
 ---
 nextStepFile: 'report.md'
-outputFile: '{outputFolderPath}/refined-architecture-{project_name}.md'
+# {arch_project_name} resolved in init.md (arch-doc frontmatter project_name, else config project_name).
+outputFile: '{outputFolderPath}/refined-architecture-{arch_project_name}.md'
 ---
 
 <!-- Config: communicate in {communication_language}. Compile the refined architecture document in {document_output_language}. -->

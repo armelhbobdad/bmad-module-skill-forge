@@ -332,6 +332,38 @@ class TestErrorHandling:
 
 
 # --------------------------------------------------------------------------
+# GitHub URL parsing — repo names may contain dots (e.g. ggml-org/llama.cpp)
+# --------------------------------------------------------------------------
+
+class TestGithubUrlParsing:
+    def test_repo_name_with_dot(self):
+        """A dot in the repo name must not cause a "Not a GitHub URL" reject."""
+        m = mod._GITHUB_URL_RE.match("https://github.com/ggml-org/llama.cpp")
+        assert m is not None
+        assert m.group(1) == "ggml-org"
+        assert m.group(2) == "llama.cpp"
+
+    def test_repo_name_with_dot_and_git_suffix(self):
+        """A trailing `.git` is still stripped, without eating a dotted name."""
+        m = mod._GITHUB_URL_RE.match("https://github.com/ggml-org/llama.cpp.git")
+        assert m is not None
+        assert m.group(2) == "llama.cpp"
+
+    def test_plain_repo_name_still_parses(self):
+        m = mod._GITHUB_URL_RE.match("https://github.com/example/repo")
+        assert m is not None
+        assert m.group(2) == "repo"
+
+    def test_dotted_repo_validates_via_validate_pin(self):
+        """End-to-end: a dotted repo reaches resolution instead of `invalid`."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = _make_gh_mock(latest_release="b4000")
+            result = mod.validate_pin("https://github.com/ggml-org/llama.cpp", pin=None)
+        assert_result_shape(result)
+        assert result["status"] != "invalid"
+
+
+# --------------------------------------------------------------------------
 # validate_pin tests — format filter
 # --------------------------------------------------------------------------
 

@@ -114,7 +114,9 @@ Instead of globbing `{skills_output_folder}/*/context-snippet.md`, resolve snipp
 1. Resolve `{skill_package}` using the skill's `active_version`: `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/`
 2. Read `{skill_package}/context-snippet.md`
 3. **If snippet exists:** Add to skill index
-4. **If snippet does not exist at the versioned path:** Check for `active` symlink at `{skills_output_folder}/{skill-name}/active/{skill-name}/context-snippet.md`. If still not found, skip with warning: "Snippet missing for {skill-name} v{active_version} — skipping from managed section"
+4. **If snippet does not exist at the versioned path:** Check for `active` symlink at `{skills_output_folder}/{skill-name}/active/{skill-name}/context-snippet.md`.
+5. **If still not found, try the flat layout:** Read `{skills_output_folder}/{skill-name}/context-snippet.md` — a skill still on the pre-versioned flat layout (see `knowledge/version-paths.md` "Migration: Flat to Versioned"). This mirrors the flat-path fallback used when resolving a skill's SKILL.md in `load-skill.md` §1, so a manifest entry (or a first-export `--all` entry) that is still flat on disk is not silently dropped from the managed section.
+6. **If none of the three paths yields a snippet, skip with warning:** "Snippet missing for {skill-name} v{active_version} — skipping from managed section"
 
 **Skills NOT in the exported skill set are never scanned** — they have not been through export-skill and must not appear in the managed section (ADR-K).
 

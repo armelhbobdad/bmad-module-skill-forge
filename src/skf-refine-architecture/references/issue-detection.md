@@ -119,7 +119,7 @@ Suggestion: {specific correction with API evidence}
 
 **Proceeding to improvement detection...**"
 
-Store all **in-scope** issue findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-ISSUES] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted issue findings** (full citation blocks with architecture claims, skill evidence, VS verdicts, severity, and suggestions — not just counts) — Step 05 can read this back if context degrades. Record any out-of-scope VS verdicts under the shared `<!-- [RA-OUT-OF-SCOPE] ... -->` marker (NOT `[RA-ISSUES]`) so Step 05 does not compile them — they are informational only. **Do NOT write to `{output_folder}/refined-architecture-{project_name}.md` — that file is created only in step 5.**
+Store all **in-scope** issue findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-ISSUES] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted issue findings** (full citation blocks with architecture claims, skill evidence, VS verdicts, severity, and suggestions — not just counts) — Step 05 can read this back if context degrades. Record any out-of-scope VS verdicts under the shared `<!-- [RA-OUT-OF-SCOPE] ... -->` marker (NOT `[RA-ISSUES]`) so Step 05 does not compile them — they are informational only. **Do NOT write to `{output_folder}/refined-architecture-{arch_project_name}.md` — that file is created only in step 5.**
 
 ### 7. Auto-Proceed to Next Step
 

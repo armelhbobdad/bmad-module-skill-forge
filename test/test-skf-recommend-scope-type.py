@@ -173,6 +173,27 @@ def test_reference_app_keywords_match(intent):
     assert result["signals"]["keywords"]
 
 
+def test_lifecycle_alone_does_not_trigger_reference_app():
+    """A high-frequency library-API noun like "lifecycle" must not, on its
+    own, outrank the structural specific-modules rule."""
+    result = mod.recommend(
+        {
+            "intent": "skill the app-update lifecycle: Updater, UpdaterBuilder, check, download, install",
+            "tree": [],
+            "module_count": 6,
+            "mode": "interactive",
+        }
+    )
+    assert result["scope_type"] == "specific-modules"
+    assert result["matched_heuristic"] == "specific-modules-count"
+    assert result["signals"]["module_count"] == 6
+
+
+def test_lifecycle_not_in_reference_app_keywords():
+    """Guard against re-introducing "lifecycle" as a standalone keyword."""
+    assert "lifecycle" not in mod.REFERENCE_APP_KEYWORDS
+
+
 # --------------------------------------------------------------------------
 # Rule 3: specific-modules-naming and -count
 # --------------------------------------------------------------------------
