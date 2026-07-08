@@ -204,6 +204,18 @@ class TestFeederArtifactTargets:
             "step-doc-rot.md must reference [QMD:...] or [DOC:...] annotations as correction signals"
         )
 
+    def test_excludes_own_migration_section_from_correction_matches(self, text: str) -> None:
+        """§4b guard: corrections compile already authored into the SKILL.md's
+        own Migration & Deprecation Warnings section must be discarded, not
+        re-emitted as circular ## CORRECTION blocks."""
+        assert re.search(r"Migration\s*&\s*Deprecation Warnings", text), (
+            "step-doc-rot.md must reference the Migration & Deprecation Warnings section "
+            "to exclude compile-authored §4b corrections"
+        )
+        assert re.search(r"discard|exclu", text, re.IGNORECASE), (
+            "step-doc-rot.md must instruct discarding/excluding already-surfaced §4b matches"
+        )
+
 
 # ---------------------------------------------------------------------------
 # step-doc-rot.md — Graceful Skip Logic
