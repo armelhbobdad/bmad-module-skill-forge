@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "b2972cf6f467",
+  "strategy": "manual-commit",
+  "branch": "fix/workflow-health-findings",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/shared/scripts/skf-validate-pins.py",
+    "test/test-skf-validate-pins.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b2/972cf6f467/0/metadata.json",
+      "transcript": "/b2/972cf6f467/0/full.jsonl",
+      "context": "/b2/972cf6f467/0/context.md",
+      "content_hash": "/b2/972cf6f467/0/content_hash.txt",
+      "prompt": "/b2/972cf6f467/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 22087,
+    "cache_creation_tokens": 156418,
+    "cache_read_tokens": 4457998,
+    "output_tokens": 66769,
+    "api_call_count": 40
+  }
+}
