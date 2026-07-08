@@ -32,11 +32,11 @@ Input:
   exceeds N lines. Opt-in — when omitted, body size is never checked and
   the verdict is unchanged. Callers pass the skill-check `body.max_lines`
   default (500) to pre-catch that hard reject before commit.
-  Optional --max-body-tokens N: when set, emit a high-severity `body`
-  issue if the estimated body token count exceeds N. Token count is
-  estimated as ceil(character_count / 4). Callers pass the skill-check
-  `body.max_tokens` default (5000) to pre-catch that soft/hard reject
-  before commit.
+  Optional --max-body-tokens N: when set, emit a low-severity (advisory)
+  `body` issue if the estimated body token count exceeds N. Token count is
+  estimated as ceil(character_count / 4). skill-check treats
+  `body.max_tokens` as a non-blocking warning, so this is advisory — the
+  hard body pre-check is --max-body-lines.
 
 Output:
   JSON object:
@@ -254,8 +254,9 @@ def validate_frontmatter(
 
     When `max_body_lines` is set, additionally emit a high-severity `body`
     issue if the body exceeds that many lines. When `max_body_tokens` is
-    set, emit a high-severity `body` issue if the estimated token count
-    exceeds that limit. Both are opt-in — the verdict is unchanged when
+    set, emit a low-severity (advisory) `body` issue if the estimated token
+    count exceeds that limit — skill-check treats body.max_tokens as a
+    non-blocking warning. Both are opt-in — the verdict is unchanged when
     they are None. Returns a result dict with status, issues, frontmatter,
     body_lines, body_tokens, and summary.
     """
@@ -272,7 +273,11 @@ def validate_frontmatter(
     body_tokens = body_token_estimate(content)
     if max_body_tokens is not None and body_tokens is not None and body_tokens > max_body_tokens:
         issues.append({
-            "severity": "high",
+            # skill-check treats body.max_tokens as a non-blocking warning, so
+            # this is advisory (low), not a hard reject; --max-body-lines is the
+            # hard body pre-check. The char/4 estimate also runs high versus
+            # skill-check's own whitespace-split count, so keep it soft.
+            "severity": "low",
             "field": "body",
             "message": f"body token estimate {body_tokens} exceeds max {max_body_tokens}",
         })
@@ -390,10 +395,10 @@ def main() -> int:
         type=int,
         default=None,
         help=(
-            "when set, emit a high-severity 'body' issue if the estimated body "
-            "token count exceeds N (opt-in; omitted = body tokens not checked). "
-            "Token estimate uses ceil(char_count / 4). Pass the skill-check "
-            "body.max_tokens default (5000) to pre-catch that reject."
+            "when set, emit a low-severity (advisory) 'body' issue if the "
+            "estimated body token count exceeds N (opt-in; omitted = body "
+            "tokens not checked). Token estimate uses ceil(char_count / 4). "
+            "skill-check treats body.max_tokens as a non-blocking warning."
         ),
     )
     parser.add_argument(
