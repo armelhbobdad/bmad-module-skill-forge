@@ -54,7 +54,7 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
   {tier capability description from tier-rules.md}
 
   Tools Detected:
-  {for each tool that is available, show: tool name — version}
+  {for each tool that is available, show: tool name — version. ccc exposes no version string, so for ccc show its daemon health instead: ccc — daemon {ccc_daemon} (e.g. "ccc — daemon healthy")}
   {if no tools are available: (none yet — see "Climb to next tier" below)}
 
   {if calculated_tier is not Deep:}

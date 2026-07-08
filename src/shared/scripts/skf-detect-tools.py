@@ -219,8 +219,13 @@ def probe_ccc() -> dict:
         # `ccc` resolved to a foreign binary (e.g. code2prompt alias). Refuse.
         return {"available": False, "daemon": None, "version": None}
 
-    rc_doctor, doctor_stdout, _ = _run(["ccc", "doctor"])
-    version = _first_line(doctor_stdout) or _first_line(stdout)
+    rc_doctor, _, _ = _run(["ccc", "doctor"])
+    # ccc exposes no version CLI: `ccc --version` prints a usage banner, and
+    # `ccc doctor` / `ccc --help` lead with a settings header ("Global
+    # Settings") or usage line — never a version string. Capturing that first
+    # line mislabels a header as a version, so report daemon health (below)
+    # as ccc's identifier instead of a misparse.
+    version = None
     if rc_doctor == 0:
         return {"available": True, "daemon": "healthy", "version": version}
     # Distinguishing "stopped" from "error" requires parsing doctor output;
