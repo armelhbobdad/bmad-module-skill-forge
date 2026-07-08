@@ -122,7 +122,7 @@ Target file contains `<!-- SKF:BEGIN` but no matching `<!-- SKF:END -->` marker.
 When regenerating (Case 3) or creating/appending (Cases 1-2), rebuild the skill index from the **exported skill set** only:
 
 1. Read `{skills_output_folder}/.export-manifest.json` (v2 schema — see `knowledge/version-paths.md`) to determine which skills have been explicitly exported and their `active_version` (if no manifest exists, only the current export target qualifies)
-2. For each skill in the exported set, resolve the snippet at `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/context-snippet.md` (i.e., `{skill_package}/context-snippet.md`). Do NOT use glob patterns across version directories — always resolve via manifest `active_version` or `active` symlink
+2. For each skill in the exported set, resolve the snippet at `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/context-snippet.md` (i.e., `{skill_package}/context-snippet.md`). Do NOT use glob patterns across version directories — always resolve via manifest `active_version` or `active` symlink, falling back to the flat `{skills_output_folder}/{skill-name}/context-snippet.md` path for a skill not yet migrated to the versioned layout
 3. Count total skills and stack skills (from filtered set only)
 4. Assemble filtered snippets into managed section
 5. Sort alphabetically by skill name

@@ -25,7 +25,7 @@ Determine the skill(s) to export and any flags:
 
 **Skill Path Discovery (version-aware — see `knowledge/version-paths.md`):**
 - If user provided one or more skill names or paths as arguments, use that list directly
-- If `--all` was passed, build the list from every skill in `{skills_output_folder}/.export-manifest.json.exports` whose `active_version` entry is not `status: "deprecated"` (deprecated skills are excluded from all exports — see step 4 §4b)
+- If `--all` was passed, build the list from every skill in `{skills_output_folder}/.export-manifest.json.exports` whose `active_version` entry is not `status: "deprecated"` (deprecated skills are excluded from all exports — see step 4 §4b). **First-export fallback:** if the manifest is absent or its `exports` object is empty (a fresh repo with skills on disk but no prior export), do not resolve to an empty set — enumerate skills on disk instead, using the same discovery ladder as the no-argument branch below (`active` symlinks at `{skills_output_folder}/{skill-name}/active/{skill-name}/SKILL.md`, then flat `{skills_output_folder}/{skill-name}/SKILL.md`). Every disk-discovered skill is non-deprecated by definition — deprecation status lives only in the manifest.
 - If no explicit skill and no `--all`, discover available skills using the export manifest:
   1. Read `{skills_output_folder}/.export-manifest.json` — list skill names from `exports`
   2. For each skill group directory in `{skills_output_folder}/`, check for `{skill_group}/active/{skill-name}/SKILL.md`
@@ -36,7 +36,7 @@ Determine the skill(s) to export and any flags:
 Store the resolved selection as `skill_batch` — a list of one or more skill names. `len(skill_batch) > 1` activates multi-skill mode (see §1c below).
 
 **Flag Parsing:**
-- `--all` flag: Check if provided. When true and no explicit skill list was given, `skill_batch` is the full non-deprecated manifest set (see above).
+- `--all` flag: Check if provided. When true and no explicit skill list was given, `skill_batch` is the full non-deprecated manifest set — or, when no manifest exists yet, the full on-disk discovery set (see the first-export fallback above).
 - `--context-file` flag: Check if explicitly provided (CLAUDE.md, .cursorrules, or AGENTS.md). Replaces the old `--platform` flag.
 - `--dry-run` flag: Check if provided. Default: `false`
 
