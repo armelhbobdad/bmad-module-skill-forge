@@ -1,4 +1,4 @@
-module,skill,display-name,menu-code,description,action,args,phase,after,before,required,output-location,outputs
+module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs
 skf,skf-forger,Ferris — Skill Forge Agent,FF,"Skill compilation specialist — the forge master. Invoke to access all SKF workflows via guided menu.",,,anytime,,,false,,
 skf,skf-setup,Setup Forge,SF,"Initialize forge environment — detect tools and set capability tier (Quick/Forge/Forge+/Deep)",,,anytime,,"skf-analyze-source,skf-brief-skill,skf-quick-skill,skf-verify-stack,skf-campaign",false,,forge-tier.yaml
 skf,skf-campaign,Campaign,CA,"Orchestrate multi-library skill production across sessions — dependency tracking, file-based state, and resume",,resume [--from=<skill>],anytime,skf-setup,,false,forge_data_folder,_campaign-state.yaml

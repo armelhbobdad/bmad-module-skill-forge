@@ -103,7 +103,7 @@ src/skf-<name>/
 - **Manifest.** Agent-facing skills (e.g. `skf-forger`) require a `bmad-skill-manifest.yaml`. Copy the one from `src/skf-forger/` and adapt.
 - **Knowledge JiT.** If your workflow shares a principle with others, factor it into `src/knowledge/` and load it from the step rather than inlining the rule.
 - **Quality review.** Before shipping, run a [tessl](https://tessl.io) skill review pass on the SKILL.md content — SKF uses tessl for actionability scoring and AI-judge evaluation (see the references under `src/skf-create-skill/assets/`).
-- **Register the workflow** in `src/module-help.csv` (ordering / after / before fields) and in the `docs/workflows.md` reference table.
+- **Register the workflow** in `src/module-help.csv` (ordering / preceded-by / followed-by fields) and in the `docs/workflows.md` reference table.
 
 ## Adding Knowledge Fragments
 
