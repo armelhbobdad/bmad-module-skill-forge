@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "2c5053f708b1",
+  "strategy": "manual-commit",
+  "branch": "chore/module-help-column-labels",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "CONTRIBUTING.md",
+    "src/module-help.csv"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2c/5053f708b1/0/metadata.json",
+      "transcript": "/2c/5053f708b1/0/full.jsonl",
+      "context": "/2c/5053f708b1/0/context.md",
+      "content_hash": "/2c/5053f708b1/0/content_hash.txt",
+      "prompt": "/2c/5053f708b1/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 52,
+    "cache_creation_tokens": 112294,
+    "cache_read_tokens": 2333923,
+    "output_tokens": 43213,
+    "api_call_count": 26
+  }
+}
