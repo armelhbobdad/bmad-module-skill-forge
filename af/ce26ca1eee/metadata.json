@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "afce26ca1eee",
+  "strategy": "manual-commit",
+  "branch": "quality/skf-workflows-zero-findings",
+  "checkpoints_count": 10,
+  "files_touched": [
+    "package.json",
+    "src/skf-analyze-source/SKILL.md",
+    "src/skf-analyze-source/references/init.md",
+    "src/skf-campaign/manifest.yaml",
+    "src/skf-campaign/references/campaign-directive-spec.md",
+    "src/skf-create-skill/SKILL.md",
+    "src/skf-create-skill/references/report.md",
+    "src/skf-create-stack-skill/SKILL.md",
+    "src/skf-drop-skill/references/select.md",
+    "src/skf-forger/SKILL.md",
+    "src/skf-rename-skill/references/rebuild-context.md",
+    "src/skf-test-skill/references/score.md",
+    "test/test-skf-validate-inventory.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/af/ce26ca1eee/0/metadata.json",
+      "transcript": "/af/ce26ca1eee/0/full.jsonl",
+      "context": "/af/ce26ca1eee/0/context.md",
+      "content_hash": "/af/ce26ca1eee/0/content_hash.txt",
+      "prompt": "/af/ce26ca1eee/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 358,
+    "cache_creation_tokens": 1556923,
+    "cache_read_tokens": 63030392,
+    "output_tokens": 336778,
+    "api_call_count": 181
+  }
+}
