@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "66b39d36535a",
+  "session_id": "75a7a002-562f-4bab-82b1-d31388fb9841",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-13T20:50:33.381268514Z",
+  "branch": "quality/skf-workflows-zero-findings",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-analyze-source/SKILL.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "ccf8f198e296",
+  "token_usage": {
+    "input_tokens": 506,
+    "cache_creation_tokens": 2390628,
+    "cache_read_tokens": 112415149,
+    "output_tokens": 421372,
+    "api_call_count": 255
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-13T20:50:31.52316805Z",
+    "agent_lines": 0,
+    "human_added": 96,
+    "human_modified": 2,
+    "human_removed": 0,
+    "total_committed": 96,
+    "agent_percentage": 0
+  }
+}
