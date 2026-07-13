@@ -180,33 +180,7 @@ Assemble the integration graph:
 
 ### 5. Display Integration Summary
 
-**If integrations detected:**
-
-"**Integration detection complete.**
-
-**Integration graph:** {lib_count} libraries, {pair_count} integration pairs
-
-**Hub libraries** (connected to 3+ others):
-{For each hub:} - **{library}** — integrates with {partner_list}
-
-**Detected integrations:**
-| Library A | Library B | Type | Co-import Files | Confidence |
-|-----------|-----------|------|-----------------|------------|
-| {name} | {name} | {type} | {count} | {tier} |
-
-{If cross-cutting patterns:}
-**Cross-cutting patterns:**
-- {description spanning 3+ libraries}
-
-**Proceeding to stack compilation...**"
-
-**If no integrations detected:**
-
-"**No co-import integration patterns detected** between confirmed libraries.
-
-The libraries in this project appear to operate independently. The stack skill will contain library summaries without an integration layer.
-
-**Proceeding to stack compilation...**"
+If integrations were detected, report the integration graph (`{lib_count}` libraries, `{pair_count}` pairs): the hub libraries (connected to 3+ others) with their partners, each detected pair (library A, library B, type, co-import file count, confidence tier), and any cross-cutting patterns spanning 3+ libraries. If none were detected, report that no co-import integration patterns were found — the libraries appear to operate independently, so the stack skill will carry library summaries without an integration layer.
 
 ### 6. Auto-Proceed to Next Step
 

@@ -109,22 +109,7 @@ If no optional inputs provided, auto-detection will be used.
 
 ### 4. Display Initialization Summary
 
-"**Stack Skill Forge initialized.**
-
-**Project:** {project_name}
-**Forge Tier:** {forge_tier} — {tier_description}
-
-Where tier_description follows positive capability framing:
-- Quick: "Source reading and import counting"
-- Forge: "AST-backed structural analysis"
-- Forge+: "AST structural + CCC semantic co-import augmentation"
-- Deep: "Full intelligence — structural + contextual + temporal"
-
-**Available Tools:** {tool_list}
-**Input Mode:** {auto-detect | explicit dependency list | compose mode}
-
-**If compose mode:** Proceeding to skill loading...
-**If code mode:** Proceeding to manifest detection..."
+Report that the Stack Skill Forge is initialized, naming: the project (`{project_name}`); the forge tier (`{forge_tier}`) with its positive-capability framing (Quick = source reading and import counting; Forge = AST-backed structural analysis; Forge+ = AST structural + CCC semantic co-import augmentation; Deep = full intelligence — structural + contextual + temporal); the available tools (`{tool_list}`); and the resolved input mode (auto-detect, explicit dependency list, or compose mode).
 
 ### 5. Auto-Proceed to Next Step
 

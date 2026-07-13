@@ -235,24 +235,7 @@ If `flip-link` fails, emit a warning (the committed package is still valid), not
 
 ### 11. Display Write Summary
 
-"**Output files written.**
-
-**Deliverables** ({skill_package}):
-- SKILL.md ({line_count} lines)
-- context-snippet.md ({token_estimate} tokens)
-- metadata.json
-- references/ -- {lib_count} library files
-- references/integrations/ -- {pair_count} integration files
-
-**Workspace** ({forge_version}):
-- provenance-map.json
-- evidence-report.md
-
-**Symlink:** {skill_group}/active -> {version}
-
-**Total files written:** {total_count}
-
-**Proceeding to validation...**"
+Report the files written: the `{skill_package}` deliverables (SKILL.md with `{line_count}` lines, context-snippet.md with `{token_estimate}` tokens, metadata.json, `references/` `{lib_count}` library files, `references/integrations/` `{pair_count}` integration files), the `{forge_version}` workspace (provenance-map.json, evidence-report.md), the `{skill_group}/active -> {version}` symlink, and the `{total_count}` total.
 
 ### 12. Auto-Proceed to Next Step
 

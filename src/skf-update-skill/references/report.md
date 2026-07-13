@@ -201,7 +201,7 @@ Write the result contract per `shared/references/output-contract-schema.md`: the
 SKF_UPDATE_RESULT_JSON: {"skf_update":{"status":"success|no-changes|detect-only|dry-run|halted-for-*|blocked","skill_name":"<name>","version":"<v>","previous_version":"<v>","update_mode":"normal|gap-driven|degraded","files_written":[...],"headless_decisions":[...],"warnings":[...],"error":null|{...}}}
 ```
 
-- `headless_decisions[]` — verbatim from the in-context array populated by gates (init.md §confirmation, detect-changes.md §1b/§1c/§2.2, merge.md §gate). Each entry `{gate, default_action, taken_action, reason, evidence?}`. Empty when no gates auto-resolved (e.g. no-changes path skipped detect-changes' gates).
+- `headless_decisions[]` — verbatim from the in-context array populated by gates (init.md §confirmation and §4 degraded-rebuild, detect-changes.md §1b/§1c/§2.2, merge.md §gate). Each entry `{gate, default_action, taken_action, reason, evidence?}`. Empty when no gates auto-resolved (e.g. no-changes path skipped detect-changes' gates).
 - `status` — single-field outcome for pipeline branching. `"success"` when the run wrote artifacts and produced no halts; `"no-changes"` when §1 short-circuited; `"detect-only"` / `"dry-run"` for the §1a/§1b read-only exits; one of the documented `halted-for-*` codes when a halt fired; `"blocked"` as the catch-all. The full enum lives in the schema (this step emits the value already resolved in context).
 - `error` — null on success or no-changes. Object `{phase, path?, reason}` describing the failure when a halt or write error fired. Pipelines branch on `error !== null` for non-zero exit semantics.
 

@@ -127,7 +127,11 @@ Parse the JSON output. Treat each `status` value explicitly:
 
 - `status: "pass"` — continue silently.
 - `status: "warn"` — display the warning below, log each issue as a pre-check finding, and continue with testing. Frontmatter issues surface in the gap report alongside coverage/coherence findings.
-- `status: "fail"` — **HALT with auto-FAIL.** Frontmatter failure means the skill will be rejected by `npx skills add` and `npx skill-check check`; shipping it would produce a false PASS downstream. Write the halt note into evidence-report and exit non-zero. This abort happens before the output document exists (created in §6), so it emits no result-contract envelope — SKILL.md's Result Contract marks the frontmatter abort as outside the branchable set.
+- `status: "fail"` — **HALT with auto-FAIL.** Frontmatter failure means the skill will be rejected by `npx skills add` and `npx skill-check check`; shipping it would produce a false PASS downstream. Write the halt note into evidence-report and exit non-zero. **Headless envelope (if `{headless_mode}`):** emit to **stderr** before halting. The output document does not exist yet (created in §6), so `report_path` is `null` — matching the other pre-report init HALTs (target-inaccessible, forge-tier-missing, workspace-drift, another-run-active). A frontmatter-invalid target is the most common failure this gate exists to catch, so a headless orchestrator must be able to branch on it (route to update-skill) rather than see an unlabelled non-zero exit:
+
+```
+SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":null,"next_workflow":null,"exit_code":1,"halt_reason":"frontmatter-invalid"}
+```
 
 ```
 **Warning/Error: SKILL.md frontmatter is non-compliant with agentskills.io specification.**

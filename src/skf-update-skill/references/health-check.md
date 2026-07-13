@@ -11,13 +11,7 @@ nextStepFile: 'shared/health-check.md'
 
 ## STEP GOAL:
 
-Chain to the shared workflow self-improvement health check at `{nextStepFile}`. This is the terminal step of update-skill — after the shared health check completes, the workflow is fully done.
-
-## Rules
-
-- No user-facing reports, file writes, or result contracts in this step — those belong in step 7
-- Delegate directly to `{nextStepFile}` with no additional commentary
-- Do not attempt any other action between loading this step and executing `{nextStepFile}` (other than the lock release below)
+Chain to the shared workflow self-improvement health check at `{nextStepFile}`. This is the terminal step of update-skill — after the shared health check completes, the workflow is fully done. This step only releases the concurrency lock and delegates: no user-facing reports, file writes, or result contracts here (those belong in step 7).
 
 ## Steps
 

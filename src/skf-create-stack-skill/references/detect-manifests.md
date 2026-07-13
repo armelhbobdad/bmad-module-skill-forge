@@ -83,16 +83,9 @@ For each skill found:
 5. **Record the constituent metadata_hash (S13):** take this skill's `metadata_hash` from the enumerate-script inventory above (matched on `skill_dir`) and store it in workflow state alongside `skill_package_path`. The script is the single source of this hash — never hand-compute — so the step-4 drift check compares script-hash to script-hash and never false-positives on a model recomputation. Step-07 uses this stored hash (not a re-read) for `constituents[].metadata_hash` in `provenance-map.json`, so drift between step 2 read and step 7 write is captured.
 6. Store as `raw_dependencies` with source: "existing_skill"
 
-Display:
-"**Loaded {N} existing skills as dependencies.**
+Report the `{N}` loaded skills — for each: name, language, confidence tier, export count, and source.
 
-| Skill | Language | Tier | Exports | Source |
-|-------|----------|------|---------|--------|
-| {name} | {lang} | {tier} | {count} | {repo} |
-
-**Proceeding to scope confirmation...**"
-
-Skip to [Auto-Proceed to Next Step](#4-auto-proceed-to-next-step) — the skills table above serves as the detection summary.
+Skip to [Auto-Proceed to Next Step](#4-auto-proceed-to-next-step) — this loaded-skills summary serves as the detection summary.
 
 **If not compose_mode:** Continue with section 1 (existing flow).
 
@@ -161,17 +154,7 @@ Otherwise, store the parsed `manifests[]` and `total_unique` as `raw_dependencie
 
 ### 3. Display Detection Summary
 
-"**Manifest detection complete.**
-
-**Manifests found:** {count}
-{For each manifest:}
-- `{file_path}` ({ecosystem}) — {dep_count} dependencies
-
-**Total unique dependencies:** {total_count}
-- Runtime: {runtime_count}
-- Dev-only: {dev_count}
-
-**Proceeding to dependency ranking...**"
+Report the detected manifests (for each: path, ecosystem, dependency count) and the total unique dependency count split into runtime vs dev-only.
 
 ### 4. Auto-Proceed to Next Step
 

@@ -123,26 +123,11 @@ Use these values for Section 4 (pass/fail/inconclusive) and Section 6 (output fo
 
 #### 3c. Fallback (if script execution fails)
 
-If the script is unavailable or returns an error, fall back to manual calculation:
-
-1. Select the weight table from `{scoringRulesFile}` for the detected mode (naive or contextual)
-2. Determine skip conditions: Quick tier/docsOnly/state2/stackSkill/referenceApp skip Signature Accuracy + Type Coverage; naive mode coherence is already 0; null external validation means skip it
-3. For each skipped category, set its weight to 0
-4. Compute sum of active category weights
-5. For each active category: `new_weight = old_weight / sum_active * 100`
-6. `weighted_score = new_weight / 100 * category_score`
-7. `total = sum of all weighted_scores`
-
-Report: "**Note:** Scoring script unavailable — calculated manually per scoring-rules.md."
+If the script is unavailable or errors, redistribute each skipped category's weight (the `null`-scored categories in the §3a JSON — naive mode already zeroes coherence, and Quick-tier/docsOnly/state2/stackSkill/referenceApp already null out Signature Accuracy + Type Coverage) proportionally across the active categories, then report `total = Σ(weight/100 × category_score)` using the detected mode's weight table in `{scoringRulesFile}`. Report: "**Note:** Scoring script unavailable — calculated manually per scoring-rules.md."
 
 ### 3d. Read Post-Score Caps (applied by the script)
 
-The scoring script applies the two post-score caps deterministically and returns the outcome as `capReason` + `effectiveResult` (§3b). The caps are documented here for interpretation only:
-
-- **Cap 1 — Tooling degraded:** fires when `analysisConfidence == "degraded"` or `toolingStatus` contains a missing-helper marker (`python3-missing`, `frontmatter-validator-missing`). Pass both fields in §3a so the script can evaluate this.
-- **Cap 2 — Docs-only without external validators:** fires when `docsOnly == true` AND `externalValidation` was null (neither skill-check nor tessl ran).
-
-A cap that fires forces the script's `PASS` into `FAIL` on the effective score, and never touches an INCONCLUSIVE verdict. If `capReason` is non-null, record `scoring_notes: {capReason}` in the report. A fired cap may still be re-flipped to PASS by the threshold fallback (§4b); `effectiveResult` reflects that settled outcome.
+The script applies two post-score caps — **Cap 1** (tooling degraded) and **Cap 2** (docs-only with no external validators) — and returns the settled outcome as `capReason` + `effectiveResult` (§3b). Read those fields; never recompute a cap. If `capReason` is non-null, record `scoring_notes: {capReason}` in the report. A fired cap forces the script's `PASS` into `FAIL`, never touches an INCONCLUSIVE verdict, and may still be re-flipped to PASS by the threshold fallback (§4b) — `effectiveResult` reflects that settled outcome. (Both caps exist because a degraded-tooling or docs-only-without-validators run has too thin an evidence base to trust a PASS; §3a passes the fields Cap 1 reads.)
 
 ### 4. Determine Result (PASS / FAIL / INCONCLUSIVE)
 

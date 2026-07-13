@@ -147,13 +147,7 @@ Record security findings as advisory **WARNING** findings — they do not block 
 
 ### 10. Display Validation Results
 
-**If all checks pass:**
-
-"**Validation complete — all checks passed.** Files: {count}/{count} present. SKILL.md structure valid. metadata.json fields verified. {lib_count} library + {pair_count} integration files verified. Confidence tiers: complete coverage. **Proceeding to summary report...**"
-
-**If warnings found:**
-
-"**Validation complete with {warning_count} finding(s).** Findings: {list each: severity, description, file_path}. Files: {present}/{expected} present. Warnings: {count}. Errors: {count}. {If errors: Note missing files may indicate a write failure in step 07.} **Proceeding to summary report...**"
+Report the validation outcome. If all checks passed, state so and name what was verified: file presence (`{count}/{count}`), SKILL.md structure, metadata.json fields, the `{lib_count}` library + `{pair_count}` integration reference files, and complete confidence-tier coverage. If there were findings, report the `{warning_count}` finding(s) — each with severity, description, and file path — plus files present/expected and warning/error counts; when errors include missing files, note this may indicate a write failure in step 07.
 
 ### 11. Auto-Proceed to Next Step
 

@@ -25,68 +25,17 @@ Display the final summary of the forged stack skill with confidence distribution
 
 ## MANDATORY SEQUENCE
 
-### 1. Display Stack Forged Banner
+### 1. Report the Forge Result
 
-"**Stack forged: {project_name}-stack — {lib_count} libraries, {integration_count} integration patterns**
+Surface the forge result to the console, leading with the win:
 
-Forge tier: **{tier}**"
+- **Headline:** stack `{project_name}-stack` — `{lib_count}` libraries, `{integration_count}` integration patterns, forge tier `{tier}`.
+- **Confidence distribution:** the T1 / T1-low / T2 counts (T1 = AST-verified structural extraction, T1-low = source-reading inference, T2 = QMD-enriched temporal context). **In compose-mode**, note the tiers are inherited from the source skills — they reflect the extraction method used when those skills were originally generated, not the current compose run.
+- **Output files:** the `{skill_package}` deliverables (SKILL.md, context-snippet.md with `{token_estimate}` tokens, metadata.json, `references/` per-library files, and `references/integrations/` pair files when integrations exist), the `{forge_version}` workspace (provenance-map.json, evidence-report.md), and the `{skill_group}/active -> {version}` symlink.
+- **Validation:** all checks passed, or `{warning_count}` finding(s) each with its description.
+- **Warnings — only if `workflow_warnings[]` is non-empty:** the accumulated entries rendered as `[{step}/{severity}] {code}: {message}`. `workflow_warnings[]` (defined in SKILL.md's *Workflow state contract*) is the single sink surfacing every warning pushed during the run; if it is empty, omit this section.
 
-### 2. Display Confidence Distribution
-
-"**Confidence distribution:**
-
-| Tier | Count | Description |
-|------|-------|-------------|
-| T1 | {count} | AST-verified structural extraction |
-| T1-low | {count} | Source reading inference |
-| T2 | {count} | QMD-enriched temporal context |
-
-{IF compose_mode:}
-*Note: Confidence tiers above are inherited from source skills — they reflect the extraction method used when those skills were originally generated, not the current compose run.*
-{END IF}"
-
-### 3. Display Output File Summary
-
-"**Output files:**
-
-**Deliverables** (`{skill_package}`):
-- SKILL.md — Integration patterns, library summaries, conventions
-- context-snippet.md — Compressed stack index ({token_estimate} tokens)
-- metadata.json — Skill metadata and library registry
-- references/ — {lib_count} per-library reference files
-{If integrations:} - references/integrations/ — {pair_count} integration pair files
-
-**Workspace** (`{forge_version}`):
-- provenance-map.json — Extraction source tracking
-- evidence-report.md — Evidence and confidence breakdown
-
-**Symlink:** `{skill_group}/active` -> `{version}`"
-
-### 4. Display Validation Summary
-
-**If validation passed with no findings:**
-
-"**Validation:** All checks passed"
-
-**If validation had findings:**
-
-"**Validation:** {warning_count} warning(s) found
-{For each finding:}
-- ⚠ {description}"
-
-### 5. Display Warnings (Conditional)
-
-Read from the `workflow_warnings[]` accumulator defined in the Workflow Rules of `SKILL.md` (M4). Every step that emitted a warning during this run pushed a structured entry there — this section is the single sink that surfaces them.
-
-**Only display if `workflow_warnings[]` is non-empty:**
-
-"**Warnings:**
-{For each entry in workflow_warnings[]:}
-- [{step}/{severity}] {code}: {message}"
-
-**If `workflow_warnings[]` is empty:** Skip this section entirely.
-
-### 6. Recommend Next Workflows
+### 2. Recommend Next Workflows
 
 "**Next steps:**
 - **[TS] test-skill** — Validate the stack skill against its own assertions
@@ -94,7 +43,7 @@ Read from the `workflow_warnings[]` accumulator defined in the Workflow Rules of
 
 - **[VS] verify-stack** — Validate the stack's integration feasibility against your architecture document{IF compose_mode:} (re-run to confirm feasibility after any architecture changes from **[RA] refine-architecture**){END IF}"
 
-### 6b. Result Contract
+### 2b. Result Contract
 
 Write the result contract per `shared/references/output-contract-schema.md` using the shared atomic writer. Two artifacts — both written via `skf-atomic-write.py write`:
 
@@ -128,9 +77,9 @@ If either atomic write fails, log the error, leave any prior `-latest.json` unto
 SKF_STACK_RESULT_JSON: {"status":"success","skill_package":"{skill_package}","skill_name":"{project_name}-stack","stack_libraries":["<lib>", "..."],"mode":"{code|compose}","exit_code":0,"halt_reason":null}
 ```
 
-### 6c. Post-Completion Hook (optional)
+### 2c. Post-Completion Hook (optional)
 
-If `{onCompleteCommand}` (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) is non-empty, invoke it now — after the result contract (§6b) is written, before chaining to health-check:
+If `{onCompleteCommand}` (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) is non-empty, invoke it now — after the result contract (§2b) is written, before chaining to health-check:
 
 ```bash
 {onCompleteCommand}
@@ -138,7 +87,7 @@ If `{onCompleteCommand}` (resolved at SKILL.md On Activation §3 from `workflow.
 
 Run it with a bounded timeout (default 60s). On success, continue. On non-zero exit, timeout, or any failure, append the reason to `workflow_warnings[]` (e.g. `on_complete — failed (exit {N}): {stderr_first_line}`) and continue. **The hook must never fail the workflow** — it is integration glue (catalog registration, downstream pipeline notify) orthogonal to the forged stack. When `{onCompleteCommand}` is empty (bundled default), skip this section entirely.
 
-### 7. Chain to Health Check
+### 3. Chain to Health Check
 
 After the report sections above are handled, load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the report reads as final.
 

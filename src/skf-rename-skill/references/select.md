@@ -141,8 +141,9 @@ printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK"
 
 **Release contract:**
 
-- The terminal health-check step (step 4) deletes the lock as its final action.
-- **Every halted-for-\* path in this workflow must delete the lock before exiting** — otherwise the next attempt would see a stale lock from this run. The lock-release is a single `rm -f "$LOCK"` per halt site.
+- This run owns the lock only after the `printf … > "$LOCK"` line above runs — i.e. once §4b has cleared the live-PID check and written this run's PID. The live-PID collision halt directly above is the **sole exception**: it exits *before* that line, so the lock belongs to the other live run and this run must **never** delete it (clearing a live lock it just honored would let a third invocation run concurrently).
+- The terminal health-check step (step 4) deletes the lock as its final action on the success path.
+- **Every halt from §5 onward — after this run has acquired the lock — must delete it before exiting** (`rm -f "$LOCK"` per halt site): the §5 input/format/collision halts, the §6 source-authority and cancel halts, the §8 cancel and dry-run exits, and execute.md's copy/verify/manifest/write rollbacks. Otherwise the next attempt would see a stale lock from this run.
 
 ### 5. Ask for New Name
 

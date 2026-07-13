@@ -74,15 +74,7 @@ Build a `per_library_extractions[]` entry for each skill by reading from the cac
 - `metadata_hash`: `inventory.skills[i].metadata_hash` — record for step 7 provenance (null when exports came from references/ or SKILL.md prose).
 - `usage_patterns`: populated by the §1+ per-skill subagent fan-out, NOT by this script. The script provides the inventory + exports; the subagent does the per-skill usage analysis. They're complementary.
 
-Display an extraction summary:
-
-"**Loaded {N} skill extractions from existing skills.**
-
-| Skill | Exports | Confidence | Status |
-|-------|---------|------------|--------|
-| {name} | {count} | {tier} | Loaded |"
-
-Auto-proceed to next step.
+Report the loaded extractions — for each skill: export count, confidence tier, and load status. Then auto-proceed to the next step.
 
 **If not compose_mode:** Continue with section 1 (existing flow).
 
@@ -189,21 +181,7 @@ For each library extraction:
 
 ### 4. Display Extraction Summary
 
-"**Library extraction complete.**
-
-| Library | Exports | Patterns | Confidence | Status |
-|---------|---------|----------|------------|--------|
-| {name} | {count} | {count} | {tier} | ✓ |
-| {name} | {count} | {count} | {tier} | ✓ |
-| {name} | — | — | — | ⚠ partial |
-
-**Results:** {success_count}/{total_count} libraries extracted
-**Confidence distribution:** T1: {count}, T1-low: {count}, T2: {count}
-{If Deep tier:} **T2 enrichment:** {enriched_count}/{total_count} libraries had temporal collections available
-{If libraries without temporal > 0:} **Tip:** Run [CS] Create Skill at Deep tier for individual libraries to generate temporal collections, then re-run [SS] for full T2 enrichment.
-{If warnings:} **Warnings:** {warning_count} issues noted
-
-**Proceeding to integration detection...**"
+Report the extraction results: per library the export count, pattern count, confidence tier, and success/partial status; the overall `{success_count}/{total_count}` extracted; and the T1 / T1-low / T2 confidence distribution. At Deep tier, add the T2-enrichment count (`{enriched_count}/{total_count}` libraries with temporal collections available); and if any library lacked a temporal collection, add the tip: run **[CS] Create Skill** at Deep tier for those libraries to generate temporal collections, then re-run **[SS]** for full T2 enrichment. Note any warning count.
 
 ### 5. Auto-Proceed to Next Step
 

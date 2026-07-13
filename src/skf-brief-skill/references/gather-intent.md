@@ -212,6 +212,20 @@ Default to `"community"` if user does not specify or skips.
 
 Confirm the target.
 
+**Draft-resume check (interactive only).** Now that the target is confirmed — and *before* the version prompt (§3b), intent (§4), or scope (§5) spend the user's time — offer to resume an in-progress draft that already covers this exact target, so a returning user re-types nothing. Keying on the target (not the not-yet-derived skill name) is what lets the offer fire this early. When the flow is interactive:
+
+1. **Cheap pre-filter** — list any draft file that mentions the confirmed target at all:
+
+   ```bash
+   grep -lF "{target}" "{forge_data_folder}"/*/.brief-draft.json 2>/dev/null
+   ```
+
+   `{target}` is the repo URL, local path, or primary doc URL just entered. No output → no draft; skip straight to §3b.
+
+2. **Confirm each candidate on the target *field*, not free text.** Read the candidate draft's JSON and keep it only if its `target_repo` equals the confirmed target (source targets) or the target appears in its `doc_urls` (docs-only) — this rejects a draft that merely mentions the URL in its `intent` or `description`. Drop any candidate that has a finished `skill-brief.yaml` in the same directory (that brief is done; step 5's overwrite gate owns it).
+
+3. If one or more live drafts survive, load `{draftCheckpointFile}` and follow Half 1 (Resume Check) against the most-recently-modified survivor; its directory basename is the candidate skill name. On `[Y]` resume, Half 1 restores every gathered answer and jumps straight to §8 — **§3b, §4, §5, §6, §7, and §7b are all skipped**. Otherwise (headless, no surviving draft, or every match already has a finished brief beside it) skip the load and continue to §3b.
+
 ### 3b. Gather Target Version
 
 This step only collects `target_version` and validates its shape with the regex below — auto-detection runs in step 2 and precedence/invariant resolution lands in step 5's writer script. The canonical precedence rules live in `references/version-resolution.md`; load it from step 2 / step 5 only when the relevant section needs it.
@@ -310,7 +324,7 @@ Wait for confirmation or alternative.
 
 **Portfolio-similarity check.** When the flow is interactive AND forge tier is `Deep` AND `tools.qmd` is true in `forge-tier.yaml`, load `{portfolioSimilarityCheckFile}` and follow the procedure there to catch semantic near-duplicates that exact-name collision misses. Otherwise (headless, or tier below Deep, or qmd unavailable) skip the load — the check does not run.
 
-**Draft-resume check.** When the flow is interactive AND `{forge_data_folder}/{name}/.brief-draft.json` exists AND no `skill-brief.yaml` sits beside it, load `{draftCheckpointFile}` and follow Half 1 (Resume Check). On `[Y]` resume, the procedure jumps directly to §8 with prior answers restored — **the rest of §6, all of §7, and all of §7b are skipped**. Otherwise (headless, or no draft file, or a finished brief sits beside the draft) skip the load and continue with §6 normally.
+(The resume-a-draft offer for a returning user fires earlier, right after the target is confirmed in §3 — see the §3 "Draft-resume check" — so the intent, scope, and description a draft holds are spared *before* they get re-gathered here.)
 
 ### 7. Summarize Gathered Intent
 
@@ -330,7 +344,7 @@ Wait for confirmation or alternative.
 
 Ready to analyze the target repository?"
 
-**Draft checkpoint.** When the flow is interactive, load `{draftCheckpointFile}` (or reuse it if already loaded for the §6 resume check) and follow Half 2 (Checkpoint Write) to persist the captured state atomically. Headless mode skips this — the run completes in a single invocation, no resume is meaningful.
+**Draft checkpoint.** When the flow is interactive, load `{draftCheckpointFile}` (or reuse it if already loaded for the §3 resume check) and follow Half 2 (Checkpoint Write) to persist the captured state atomically. Headless mode skips this — the run completes in a single invocation, no resume is meaningful.
 
 ### 7b. Synthesize Skill Description
 

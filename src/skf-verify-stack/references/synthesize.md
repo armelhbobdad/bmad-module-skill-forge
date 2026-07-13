@@ -1,5 +1,6 @@
 ---
 nextStepFile: 'report.md'
+verdictRollupScript: 'scripts/skf-verdict-rollup.py'
 reportDeltaScript: 'scripts/skf-report-delta.py'
 feasibilitySchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md'
@@ -28,33 +29,29 @@ Calculate the overall feasibility verdict based on all three analysis passes, ge
 
 ### 1. Calculate Overall Verdict
 
-**Zero-coverage short-circuit (evaluate before anything else):** Read `coveragePercentage` from `{outputFile}` frontmatter. If `coveragePercentage == 0`, force `overallVerdict: NOT_FEASIBLE` with rationale "no coverage — analysis vacuous: zero generated skills match the architecture's referenced technologies, so integration and requirements verdicts cannot produce meaningful evidence." Skip the remainder of the verdict ladder; proceed directly to section 2 to generate recommendations for the Missing and/or Replaced technologies surfaced by Step 02.
+**The verdict token is deterministic — do not walk the ladder in prose.** All three passes have already persisted their counts (`coveragePercentage`, `pairsBlocked`/`pairsRisky`/`pairsPlausible`/`pairsVerified`, `requirementsPass` + `requirementsNotAddressed`/`requirementsPartial` in `{outputFile}` frontmatter; the Missing technology count in the Coverage Analysis table). Rolling those already-decided counts up into one token has a single correct answer per input, so delegate it. Count Missing rows directly from the Coverage table — half-up rounding can leave `coveragePercentage == 100` with one technology still Missing — assemble the counts, and run:
 
-Apply the following decision logic using findings from all completed passes:
+```bash
+echo '<counts JSON>' | uv run {verdictRollupScript} --stdin
+```
 
-**Evaluate in order — the first matching condition wins. Do not continue once a verdict is determined.**
+Input keys: `coveragePercentage`, `missingCount`, `pairsBlocked`, `pairsRisky`, `pairsPlausible`, `pairsVerified`; plus, only when the requirements pass ran (`requirementsPass == "completed"`), `requirementsEvaluated: true` with `requirementsNotAddressed`/`requirementsPartial`; plus `continuedPastZeroState: true` if the user pressed `[C] Continue anyway` past a step-2 zero-state gate (all-Replaced or 0%-coverage). The script (run `uv run {verdictRollupScript} --help` for the contract) returns `overallVerdict` (one of `FEASIBLE`/`CONDITIONALLY_FEASIBLE`/`NOT_FEASIBLE`), `matchedConditions` (the condition codes that fired), and `zeroPairsGuardFired`. If `uv` is unavailable (e.g. claude.ai web), apply the ladder below inline.
 
-**NOT_FEASIBLE (evaluate first):**
-- Any integration is **Blocked** → overall verdict is `NOT_FEASIBLE`
-- Rationale: a blocked integration represents a fundamental architectural incompatibility. Also note in the rationale any co-occurring Missing skills or Risky integrations so the user understands the full set of problems
+**The ladder it applies (documented so the rationale can cite it — the script is the executor; evaluate top-to-bottom, first match wins):**
+- `coveragePercentage == 0` → `NOT_FEASIBLE` (short-circuit: no live coverage, analysis vacuous).
+- Any Blocked integration → `NOT_FEASIBLE` (fundamental architectural incompatibility).
+- Any Missing technology, any Risky integration, or — when requirements ran — any Not Addressed / Partially Fulfilled requirement → `CONDITIONALLY_FEASIBLE`.
+- Otherwise → `FEASIBLE`, but any pair capped at `Plausible` (including Check-4-missing caps) downgrades to `CONDITIONALLY_FEASIBLE`.
+- Post-verdict guard: when all four integration counts are 0 and the user continued past a step-2 zero-state gate, `zeroPairsGuardFired` is true — a `FEASIBLE` verdict is overridden to `CONDITIONALLY_FEASIBLE`.
 
-**CONDITIONALLY_FEASIBLE (evaluate second):**
-If ANY of the following apply, the verdict is `CONDITIONALLY_FEASIBLE`. Include ALL matching conditions in the rationale:
-- Any technology is **Missing** from coverage (no skill exists). Technologies marked **Replaced** in Step 02 are intentionally being removed and do not count as Missing — they never trigger CONDITIONALLY_FEASIBLE or a [CS]/[QS] recommendation.
-- Any integration is **Risky** (but none Blocked)
-- Requirements have any **Not Addressed** items
-- Requirements have any **Partially Fulfilled** items
-- Rationale: the stack can work but has gaps, risks, or unverified assumptions that must be addressed
+Technologies marked **Replaced** in Step 02 are intentionally being removed and are already excluded from `missingCount` and the coverage denominator — they never trigger `CONDITIONALLY_FEASIBLE` or a [CS]/[QS] recommendation.
 
-**FEASIBLE (evaluate last):**
-- Coverage is 100% (no Missing skills) AND all integrations are `Verified` AND requirements are all Fulfilled (or requirements pass was skipped) AND no Blocked or Risky integrations AND zero pairs were capped at `Plausible` due to missing Check 4 evidence → overall verdict is `FEASIBLE`
-- If any pair sits at `Plausible` (including Check-4-missing caps), downgrade to `CONDITIONALLY_FEASIBLE`
-- Rationale: {IF requirements pass completed:} the stack can support the architecture as described — all requirements fully fulfilled, every integration pair has a literal cross-reference. {IF requirements pass was skipped:} the stack can support the architecture as described — requirements were not evaluated (no PRD provided)
-
-**Post-verdict: Zero integration pairs guard (apply after ANY verdict):**
-If zero integration pairs were extracted (all four integration counts are 0), fire the guard whenever the user continued past the step 2 `[C] Continue anyway` prompt (i.e., any `[C]` continuation from 0% coverage or any other zero-state) — regardless of how many technologies the architecture document references:
-- If the verdict was `FEASIBLE`, override to `CONDITIONALLY_FEASIBLE`
-- Regardless of verdict, append this note to the rationale: "No integration claims were found in the architecture document prose. Manual review recommended to confirm that technology relationships are not documented exclusively in diagrams or implied without explicit co-mention."
+**Write the rationale** from `matchedConditions`, naming the specific findings behind each code:
+- `zero-coverage` → "no coverage — analysis vacuous: zero generated skills match the architecture's referenced technologies, so integration and requirements verdicts cannot produce meaningful evidence." Then proceed directly to section 2 to generate recommendations for the Missing and/or Replaced technologies surfaced by Step 02.
+- `blocked-integration` → a blocked integration is a fundamental architectural incompatibility; name each Blocked pair and note any co-occurring `missing-coverage`/`risky-integration` codes so the user sees the full set of problems.
+- `missing-coverage` / `risky-integration` / `requirements-not-addressed` / `requirements-partial` / `plausible-cap` → the stack can work but has gaps, risks, or unverified assumptions that must be addressed; name the specific items behind each code.
+- No codes (`FEASIBLE`) → {IF requirements pass completed:} the stack can support the architecture as described — all requirements fully fulfilled, every integration pair has a literal cross-reference. {IF requirements pass was skipped:} the stack can support the architecture as described — requirements were not evaluated (no PRD provided).
+- `zero-integration-pairs` (present whenever the guard fired, regardless of verdict) → append: "No integration claims were found in the architecture document prose. Manual review recommended to confirm that technology relationships are not documented exclusively in diagrams or implied without explicit co-mention."
 
 Store the verdict for use in the report.
 
@@ -148,7 +145,7 @@ Write the **Recommendations** and **Evidence Sources** sections to `{outputFile}
   - Set `recommendationCount` to the total number of recommendations
   - If delta was computed (section 3), set `deltaImproved`, `deltaRegressed`, `deltaNew`, `deltaUnchanged` from the delta helper's `improvedCount` / `regressedCount` / `newCount` / `unchangedCount`
   - Verify that `pairsVerified`, `pairsPlausible`, `pairsRisky`, `pairsBlocked` match the counts from Step 03 (these were set in Step 03). If a discrepancy is found, overwrite the frontmatter counts with the values from Step 03 — the report file is the system of record
-- **Overall verdict enforcement (schema producer obligation):** write the `overallVerdict` computed and stored in §1 verbatim — do not re-derive the ladder here. §1 is its single source of truth (the 100%-coverage + zero-Blocked + zero-Check-4-missing bar for `FEASIBLE`, and the `coveragePercentage == 0` → `NOT_FEASIBLE` short-circuit included).
+- **Overall verdict enforcement (schema producer obligation):** write the `overallVerdict` the §1 rollup script returned verbatim — do not re-derive the ladder here. §1 (via `{verdictRollupScript}`) is its single source of truth (the 100%-coverage + zero-Blocked + zero-Check-4-missing bar for `FEASIBLE`, and the `coveragePercentage == 0` → `NOT_FEASIBLE` short-circuit included).
 - Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`
 
 ### 6. Auto-Proceed to Next Step
