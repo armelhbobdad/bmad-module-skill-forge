@@ -3,6 +3,7 @@ nextStepFile: 'external-validators.md'
 outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
 outputFormatsFile: '{outputFormatsPath}'
 scoringRulesFile: '{scoringRulesPath}'
+coherenceAggregationScript: 'scripts/aggregate-coherence.py'
 migrationSectionRules: 'references/migration-section-rules.md'
 scanSkillMdStructureProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-scan-skill-md-structure.py'
@@ -160,17 +161,20 @@ results.
 
 ### 5c. Calculate Coherence Scores
 
-**Contextual mode only.** Calculate coherence percentages using the formulas defined in `{scoringRulesFile}` — Coherence Score Aggregation section:
+**Contextual mode only.** The reference-validity ratio, the integration-completeness ratio, and their fixed 0.6 / 0.4 weighted mean are pure arithmetic — the judgment (which references are valid in §4, which patterns are complete in §5) has already happened. Do NOT compute these percentages by hand; the tally + weighted mean feeds the 18%-weight `coherence` scoring input, so it is aggregated deterministically by `{coherenceAggregationScript}` (the formulas it encodes are documented in `{scoringRulesFile}` — Coherence Score Aggregation).
 
+Tally the counts from the §4 per-reference JSON (`valid_references` = references with `target_exists && type_match && signature_match && no issues`; `total_references` = references extracted in §3) and the §5 integration JSON (`patterns_documented`, `patterns_complete`), then invoke:
+
+```bash
+echo '{"valid_references": <V>, "total_references": <T>, "patterns_documented": <PD>, "patterns_complete": <PC>}' | uv run {coherenceAggregationScript} --stdin
 ```
-reference_validity = (valid_references / total_references) * 100
-integration_completeness = (complete_patterns / total_patterns) * 100
-combined_coherence = (reference_validity * 0.6) + (integration_completeness * 0.4)
-```
 
-**Edge case:** If no integration patterns are documented (patterns_documented = 0), combined coherence equals reference validity alone. Do not divide by zero.
+The script also accepts the JSON as a positional argument or via `--json-input`. Parse its output and read:
+- `referenceValidity` — reference-validity percentage
+- `integrationCompleteness` — integration-completeness percentage (`null` when no patterns are documented)
+- `combinedCoherence` — the combined coherence percentage passed to score.md §3a as the `coherence` input
 
-These values fill the `{percentage}%` placeholders in the output template loaded in Section 6.
+The script handles both edge cases the formula requires: `patterns_documented == 0` → `combinedCoherence` equals `referenceValidity` (no divide-by-zero); `total_references == 0` → `referenceValidity` is 100.0 (no references means no broken references). These values fill the `{percentage}%` placeholders in the output template loaded in Section 6.
 
 ### 6. Append Coherence Analysis to Output
 

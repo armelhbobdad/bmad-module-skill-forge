@@ -127,6 +127,8 @@ combined_coherence = (reference_validity * 0.6) + (integration_completeness * 0.
 
 If no integration patterns exist, combined coherence equals reference validity.
 
+This is the documented contract. The tally + weighted mean is computed deterministically by `scripts/aggregate-coherence.py` (invoked from coherence-check.md §5c), not by hand — the per-reference validity judgment (§4) and pattern-completeness judgment (§5) stay in the prompt; only the arithmetic is scripted, so the 18%-weight `coherence` input is reproducible run-to-run.
+
 ## Result Determination
 
 Three-state gate — **PASS / FAIL / INCONCLUSIVE**. `INCONCLUSIVE` is not PASS and not FAIL; it signals insufficient evidence to grade the skill. Downstream workflows MUST treat `INCONCLUSIVE` as a hard gate — do not export, do not auto-retry, surface to the human.

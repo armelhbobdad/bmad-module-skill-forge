@@ -45,7 +45,7 @@ uv run {checkWorkspaceDriftHelper} <source-root> \
     [--allow-drift]
 ```
 
-Pass `--allow-drift` only when the user provided `--allow-workspace-drift` to update-skill. The helper accepts `""` and `"local"` as the "no pinned commit" sentinels; it also auto-skips when `source_root` is not a git working tree (bare checkout, tarball extract, etc.). **For per-repo pinned-commit maps (stack skills with no single commit):** the caller must skip the helper entirely — pass nothing and log `workspace_drift_check: skipped (no pinned commit)` directly.
+Pass `--allow-drift` only when the user provided `--allow-workspace-drift` to update-skill. The helper accepts `""` and `"local"` as the "no pinned commit" sentinels; it also auto-skips when `source_root` is not a git working tree (bare checkout, tarball extract, etc.).
 
 The helper emits a result envelope:
 

@@ -12,9 +12,9 @@ outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.m
 # `{enumerateStackSkillsProbeOrder}` in order (installed SKF module path
 # first, src/ dev-checkout fallback); first existing path wins. §2 calls
 # it for the deterministic skills inventory (cascade-resolved exports,
-# metadata-hash for change-detection, confidence-tier mapping). HALT if
-# neither candidate exists — falls through to LLM-driven subagent fan-out
-# only as graceful degradation, see §2.
+# metadata-hash for change-detection, confidence-tier mapping). If neither
+# candidate exists, §2 does NOT halt — it falls through to the LLM-driven
+# subagent fan-out as graceful degradation (see §2).
 enumerateStackSkillsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
   - '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
@@ -96,7 +96,7 @@ Each helper-emitted entry includes: `skill_name`, `version`, `language`, `confid
 
 **Capture mtime:** For each accepted skill in `skill_inventory`, also record `metadata.json`'s mtime via `stat` into the entry as `metadata_mtime`. Step-03 will re-verify this to detect mid-run modifications.
 
-**Fallback path — graceful degradation when the helper is unavailable:** If `{enumerateStackSkillsHelper}` has no existing candidate (e.g. partial installation), fall through to the LLM-driven subagent fan-out: launch up to **8 subagents concurrently**, each reading one resolved skill package's `metadata.json` and returning the same JSON shape the helper would emit. In this branch `inventory_reliable` is unavailable, so compute the failure-budget guard inline: HALT with the same message when `warning_count / (skill_count + warning_count) > 0.20`.
+**Fallback path — graceful degradation when the helper is unavailable:** If `{enumerateStackSkillsHelper}` has no existing candidate (e.g. partial installation), fall through to the LLM-driven subagent fan-out: launch up to **8 subagents concurrently**, each reading one resolved skill package's `metadata.json` and returning the same JSON shape the helper would emit. In this branch `inventory_reliable` is unavailable, so compute the failure-budget guard inline: when `warning_count / (skill_count + warning_count) > 0.20`, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) with the same message as the primary path. In headless, emit the error envelope.
 
 ### 3. Validate Minimum Requirements
 
@@ -112,9 +112,9 @@ Each helper-emitted entry includes: `skill_name`, `version`, `language`, `confid
 
 ### 4. Create Feasibility Report
 
-**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. HALT if no candidate exists.
+**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`); in headless, emit the error envelope.
 
-**Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback). HALT if no candidate exists.
+**Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback). If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`); in headless, emit the error envelope.
 
 This skill is the PRODUCER of the feasibility report schema defined in `{feasibilitySchemaRef}`. All outputs MUST conform to that schema — in particular: `schemaVersion: "1.0"`, the defined verdict token set (`Verified|Plausible|Risky|Blocked`; overall `FEASIBLE|CONDITIONALLY_FEASIBLE|NOT_FEASIBLE`), the filename pattern, and the section-heading order.
 

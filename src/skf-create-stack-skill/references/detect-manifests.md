@@ -3,6 +3,9 @@ nextStepFile: 'rank-and-confirm.md'
 scanManifestsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-scan-manifests.py'
   - '{project-root}/src/shared/scripts/skf-scan-manifests.py'
+enumerateStackSkillsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
+  - '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -62,12 +65,22 @@ Maintain a **visited set keyed by `skill_dir`** (the top-level dir under `{skill
 SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"compose","exit_code":3,"halt_reason":"resolution-failure"}
 ```
 
+**Deterministic metadata hashing (S13) — script-driven:** Do NOT compute `sha256` in-prompt (a model cannot reproduce a digest, so a hand-computed hash would false-diverge against step 4's script-computed hash). Invoke the same enumeration helper step 4 §0 uses to obtain every constituent's `metadata_hash` in one deterministic call:
+
+**Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins. HALT if no candidate exists.
+
+```bash
+uv run {enumerateStackSkillsHelper} enumerate {skills_output_folder}
+```
+
+Key the emitted `skills[].metadata_hash` (a `sha256:`-prefixed digest of the raw `metadata.json`, or `null` when no metadata.json is present) by `skills[].name` for use in rule 5 below. The script's `name` is the top-level subdirectory under `{skills_output_folder}` — i.e. the `skill_dir` captured in rule 3, not the metadata `name` — so join on `skill_dir`.
+
 For each skill found:
 1. Read `metadata.json` from the resolved version-aware path (`{skill_package}` or `{active_skill}`). **Skill-type gate (S1):** the sibling `metadata.json` MUST be present AND parseable AND contain a `skill_type` field whose value is one of the known set (`skill`, `stack`, or any future values explicitly recognised by this workflow). Directories lacking a qualifying `metadata.json`/`skill_type` are NOT treated as skills — log `"{dir_name}: not a skill (no valid metadata.json/skill_type) — excluding"` and skip.
 2. Extract: name, language, confidence_tier, source_repo, exports count, version
 3. Store the skill group directory name as `skill_dir` (the top-level name under `{skills_output_folder}`, distinct from `name` — the directory may differ from the metadata name)
 4. Store the resolved package path as `skill_package_path` for use in later steps
-5. **Hash the constituent metadata at read-time (S13):** compute `sha256` of the raw `metadata.json` bytes just read, and store it in workflow state as `metadata_hash` alongside `skill_package_path`. Step-07 uses this stored hash (not a re-read) for `constituents[].metadata_hash` in `provenance-map.json`, so drift between step 2 read and step 7 write is captured.
+5. **Record the constituent metadata_hash (S13):** take this skill's `metadata_hash` from the enumerate-script inventory above (matched on `skill_dir`) and store it in workflow state alongside `skill_package_path`. The script is the single source of this hash — never hand-compute — so the step-4 drift check compares script-hash to script-hash and never false-positives on a model recomputation. Step-07 uses this stored hash (not a re-read) for `constituents[].metadata_hash` in `provenance-map.json`, so drift between step 2 read and step 7 write is captured.
 6. Store as `raw_dependencies` with source: "existing_skill"
 
 Display:

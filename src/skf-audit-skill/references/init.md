@@ -254,7 +254,10 @@ When skipping, log the reason, then set the audit-ref context variables to basel
      - **[F]:** Run `git -C {source_root} checkout --force {chosen_ref}` instead of the plain checkout. Record `pre_checkout_force_discard: true` in workflow context for step 6 to surface as a loud warning. Skip the stash path.
      - **Other input:** help user, redisplay the sub-gate.
 
-     **Headless default** (when `{headless_mode}`): auto-select **[A] Abort** rather than silently mutating the working tree. Emit a loud log line: `"headless: dirty worktree detected at {source_root}; refusing to checkout {chosen_ref} or stash. Re-run interactively to choose [T]/[A]/[F]."` Stashing under automation could lose work if the operator never returns to pop; force-checkout under automation could destroy uncommitted work outright. Abort is the only safe non-interactive default.
+     **Headless default** (when `{headless_mode}`): consume the pre-supplied `dirty_worktree_choice` from the Invocation Contract — the operator's explicit answer is the consent that a silent working-tree mutation would otherwise lack.
+     - **`dirty_worktree_choice=T`**: run the `[T]` transient-stash path. Log: `"headless: dirty worktree at {source_root}; stashing before checkout per pre-supplied dirty_worktree_choice=T."`
+     - **`dirty_worktree_choice=F` with `force=true`**: run the `[F]` force-checkout path — `force=true` is the required consent to discard uncommitted changes irrecoverably. Log: `"headless: dirty worktree at {source_root}; force-discarding uncommitted changes per pre-supplied dirty_worktree_choice=F force=true."`
+     - **`dirty_worktree_choice=A`, unset, or `=F` without `force=true`**: auto-select **[A] Abort** (exit 6, `halt_reason: "user-cancelled"`). Abort is the safe default, and a force-discard without `force=true` consent is refused rather than executed. Log: `"headless: dirty worktree detected at {source_root}; refusing to checkout {chosen_ref} (dirty_worktree_choice={value or 'unset'}). Pass dirty_worktree_choice=T, or =F with force=true, to proceed non-interactively."` Stashing that is never popped could lose work; force-checkout without consent could destroy uncommitted work outright — so both require an explicit pre-supplied choice.
 
      If `git status --porcelain` is empty, skip the sub-gate and proceed directly to the checkout.
 
@@ -263,7 +266,10 @@ When skipping, log the reason, then set the audit-ref context variables to basel
    - **[X]:** HALT workflow — do not create drift report.
    - **Other input:** help user, redisplay gate.
 
-   **Headless default** (when `{headless_mode}`): auto-select **[S]** and emit a loud log line: `"headless: upstream drift detected ({baseline_ref} → {latest_tag or remote_head}); staying on baseline. Re-run interactively to audit against latest."` Do not check out in headless mode — silent ref changes under automation would mutate the user's working tree without consent.
+   **Headless default** (when `{headless_mode}`): consume the pre-supplied `upstream_drift_choice` from the Invocation Contract.
+   - **`upstream_drift_choice=S`, or unset**: auto-select **[S] Stay-on-baseline** (default). Set `audit_ref = baseline_ref`, `audit_ref_source = "baseline"`, `audit_commit = baseline_commit`. Log: `"headless: upstream drift detected ({baseline_ref} → {latest_tag or remote_head}); staying on baseline per upstream_drift_choice={value or 'default S'}. Pass upstream_drift_choice=C to audit against latest."` Defaulting to a checkout would mutate the working tree without consent, so `[S]` remains the default when no choice is supplied.
+   - **`upstream_drift_choice=C`**: run the `[C] Checkout-and-audit-against-latest` path above — the operator's pre-supplied choice is the explicit consent that a silent ref change would otherwise lack. The dirty-worktree sub-gate still applies and consults its own pre-supplied `dirty_worktree_choice`. Log: `"headless: upstream drift detected; checking out {latest_tag or remote_head} per pre-supplied upstream_drift_choice=C."`
+   - **`upstream_drift_choice=X`**: HALT the workflow (exit 6, `halt_reason: "user-cancelled"`) — do not create a drift report. Log: `"headless: upstream drift detected; aborting per pre-supplied upstream_drift_choice=X."`
 
 5. **Record for report:** store `audit_ref`, `audit_ref_source`, `audit_commit`, `latest_tag`, `remote_head`, and `baseline_commit` in context. Step-06 surfaces them in the Provenance section so readers can tell which comparison actually ran.
 
@@ -301,7 +307,7 @@ Create `{outputFile}` from `{templateFile}`:
 - Set `stepsCompleted: ['init']`
 - Fill Audit Summary skeleton with loaded baseline data
 
-### 7. Present Baseline Summary (User Gate)
+### 7. Present Baseline Summary and Confirm (User Gate)
 
 "**Audit Baseline Loaded**
 
@@ -323,17 +329,7 @@ Create `{outputFile}` from `{templateFile}`:
 
 **Ready to begin drift analysis?**"
 
-### 8. Present MENU OPTIONS
+Halt and wait for the user's go-ahead. Only proceed once the drift report has been created with baseline data populated. On confirmation, save the baseline to `{outputFile}`, append `'init'` to the frontmatter `stepsCompleted`, then load, read the entire file, and execute `{nextStepFile}`. On any other input, help the user, then re-ask.
 
-Display: "**Select:** [C] Continue to Analysis"
-
-#### Menu Handling Logic:
-
-- IF C: Save baseline to {outputFile}, update frontmatter stepsCompleted, then load, read entire file, then execute {nextStepFile}
-- IF Any other: help user, then [Redisplay Menu Options](#8-present-menu-options)
-
-#### EXECUTION RULES:
-
-- Halt and wait for user input after presenting the menu; only proceed once the user selects [C] and the drift report has been created with baseline data populated.
-- **GATE [default: C]** — if `{headless_mode}`, auto-proceed with [C] Continue and log: "headless: auto-continue past baseline confirmation".
+**GATE [default: proceed]** — if `{headless_mode}`, auto-proceed and log: "headless: auto-continue past baseline confirmation".
 

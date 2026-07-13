@@ -1,5 +1,6 @@
 ---
 nextStepFile: 'validate.md'
+scanDocRotHelper: 'scripts/scan-doc-rot.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -8,7 +9,7 @@ nextStepFile: 'validate.md'
 
 ## STEP GOAL:
 
-Scan feeder artifacts for doc-rot correction indicators and annotate the compiled SKILL.md with `## CORRECTION` blocks. Matching is grep-based and deterministic — no AI judgment is used for detection.
+Scan feeder artifacts for doc-rot correction indicators and annotate the compiled SKILL.md with `## CORRECTION` blocks. Matching is a deterministic substring grep performed by `{scanDocRotHelper}` (`scripts/scan-doc-rot.py`) — no AI judgment is used for detection. The prompt keeps only the genuine judgment the script cannot make: enriching each match's `affected` symbol (§2) and choosing where each `## CORRECTION` block goes (§3).
 
 ## Rules
 
@@ -36,7 +37,31 @@ Store: `feeder_artifacts_scanned: [{list of artifacts that were loaded}]`
 
 ### §2. Grep for Correction Indicators
 
-Scan each loaded feeder artifact for the following correction patterns. All matches are **case-insensitive substring matches** — no regex interpretation, no semantic analysis.
+The scan is deterministic plumbing — a fixed-table substring grep with one correct answer per input — so it runs in `{scanDocRotHelper}`, **not** in-prompt. Do not hand-grep the feeder artifacts: identical feeders must yield identical `correction_matches`, and only the script guarantees that across multi-KB inputs. Pass the `## Migration & Deprecation Warnings`-bearing compiled SKILL.md (feeder #4) as `--skill-md` and every other loaded feeder as a positional argument:
+
+```bash
+uv run {scanDocRotHelper} \
+  --skill-md _bmad-output/{skill-name}/SKILL.md \
+  _bmad-output/{skill-name}/evidence-report.md \
+  _bmad-output/{skill-name}/provenance-map.json \
+  _bmad-output/{skill-name}-temporal/*.md
+```
+
+(Pass whichever of the §1 feeder paths actually exist — the script skips any that are missing or empty, and reports the loaded set in `scanned`.)
+
+The script emits `{scanned: [...], matches: [...], match_count, excluded_count}` on stdout. Each entry in `matches` is a match record with the deterministic fields the script owns:
+
+- `source`: the feeder artifact path where the match was found
+- `pattern`: the specific pattern string that matched
+- `category`: the category label
+- `context_line`: the line containing the match
+- `line_number`: the 1-indexed line the match sits on
+
+Read `matches` into `correction_matches: [{match records}]`. Then add the one judgment field the script cannot infer:
+
+- `affected`: the function name, API, or section the correction relates to — enrich each record from surrounding context (use the `[QMD:...]`/`[DOC:...]` annotations and nearby symbols); if not identifiable, set to `"unknown"`.
+
+**What the script does (the contract it implements — keep this table and the script's `PATTERN_TABLE` in lockstep):** it matches every feeder line against the following correction patterns. All matches are **case-insensitive substring matches** — no regex interpretation, no semantic analysis.
 
 | Pattern | Category |
 |---------|----------|
@@ -54,18 +79,9 @@ Scan each loaded feeder artifact for the following correction patterns. All matc
 | `migration required` | Migration |
 | `signature changed` | Signature change |
 
-For each match, record:
-- `source`: the feeder artifact path or citation where the match was found
-- `pattern`: the specific pattern string that matched
-- `category`: the category from the table above
-- `context_line`: the line or excerpt containing the match
-- `affected`: the function name, API, or section the correction relates to (extract from surrounding context if identifiable; otherwise set to `"unknown"`)
+**Exclusion — drop already-surfaced §4b corrections (deterministic, no AI judgment, applied inside the script before it emits):** the script discards any match whose `source` is the compiled SKILL.md (feeder #4) **and** whose `context_line` sits inside that file's own `## Migration & Deprecation Warnings` section — i.e. on a line at or after the `## Migration & Deprecation Warnings` heading and before the next `##` heading (`excluded_count` reports how many it dropped). Compile (step 5 §4b) authored that section from the same T2-future annotations, so re-emitting its bullets as `## CORRECTION` blocks in §3 would duplicate already-surfaced content verbatim. This is a positional heading-boundary check on text already loaded, not a semantic assessment. Set `feeder_artifacts_scanned` from the script's `scanned` list.
 
-Store all matches as `correction_matches: [{match records}]`
-
-**Exclusion — drop already-surfaced §4b corrections (deterministic, no AI judgment):** After collecting matches, discard any match whose `source` is the compiled SKILL.md (feeder #4) **and** whose `context_line` sits inside that file's own `## Migration & Deprecation Warnings` section — i.e. on a line at or after the `## Migration & Deprecation Warnings` heading and before the next `##` heading. Compile (step 5 §4b) authored that section from the same T2-future annotations, so re-emitting its bullets as `## CORRECTION` blocks in §3 would duplicate already-surfaced content verbatim. This is a positional heading-boundary check on text already loaded, not a semantic assessment. If discarding empties `correction_matches`, handle it as the empty case below.
-
-**IF `correction_matches` is empty:**
+**IF `correction_matches` is empty** (the script returned `match_count: 0`, or the run had no feeder files to pass)**:**
 - Log: `"doc-rot: skipped (no correction indicators found in feeder artifacts)"`
 - Set context: `doc_rot_triggered: false`, `corrections_added: 0`
 - Skip to §5 (Auto-Proceed)

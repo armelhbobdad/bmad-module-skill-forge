@@ -209,6 +209,20 @@ To refine any brief, run the recommended next workflow. To re-analyze with diffe
 
 Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{forge_data_folder}/analyze-source-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_data_folder}/analyze-source-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all generated `skill-brief.yaml` paths in `outputs` and brief counts in `summary`.
 
+### 9a. Emit Result Envelope
+
+When `{headless_mode}` is true, emit the `SKF_ANALYZE_RESULT_JSON` envelope on **stdout** — the machine-readable success signal the SKILL.md Result Contract promises for the interactive success path (the stdout counterpart to §9's on-disk record; both are produced):
+
+```
+SKF_ANALYZE_RESULT_JSON: {"status":"success","report_path":"{outputFile_abs_path}","brief_paths":["{brief_path_1}",…,"{brief_path_N}"],"unit_counts":{"confirmed":N,"skipped":N,"maybe":N},"exit_code":0,"halt_reason":null,"mode":"interactive"}
+```
+
+- `report_path` — absolute path to {outputFile}.
+- `brief_paths` — every `skill-brief.yaml` written in §5 (empty array when the user skipped writing with [N]).
+- `unit_counts` — the confirmed/skipped/maybe counts from step 5.
+
+When `{headless_mode}` is false (interactive human run), skip this section — there is no pipeline consumer to signal.
+
 ### 9b. On-Complete Hook (pipeline integration)
 
 If `{onCompleteCommand}` is non-empty, invoke it now — after the timestamped result JSON and the `analyze-source-result-latest.json` copy have both been written:

@@ -1,5 +1,14 @@
 ---
 nextStepFile: 'health-check.md'
+# §1 resolves `{manifestOpsHelper}` from this order (installed SKF module path
+# first, src/ dev-checkout fallback) to read the target skill's remaining
+# versions — `get` for the versions+status map and `affected-versions` for the
+# numeric semver-descending order — instead of re-parsing the manifest by hand.
+# A read, not an atomicity-critical write: if neither path resolves, §1 reads
+# the manifest in-prompt.
+manifestOpsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
+  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Render the report block in {document_output_language}. -->
@@ -26,13 +35,22 @@ Set `remaining_versions_display = "(skill fully removed)"`.
 
 **If `is_skill_level == false`:**
 
-Read `{skills_output_folder}/.export-manifest.json` and look up `exports.{target_skill}.versions`. Build a human-readable list of every remaining version with its status, with the active one marked:
+**Resolve `{manifestOpsHelper}`** ← first existing path in `{manifestOpsProbeOrder}`, then read the target skill's remaining versions through it rather than re-parsing the manifest by hand:
+
+```bash
+python3 {manifestOpsHelper} {skills_output_folder} get {target_skill}
+python3 {manifestOpsHelper} {skills_output_folder} affected-versions {target_skill}
+```
+
+`get` returns `result.entry` (its `active_version` and its `versions` map with each version's `status`); `affected-versions` returns `result.affected_versions` sorted numerically-descending (so `0.10.0` precedes `0.9.0`). Build the display in that order, annotating each version with its `status` and marking `active_version` with a trailing `*`:
 
 ```
-  - 0.1.0 (deprecated)
-  - 0.5.0 (archived)
   - 0.6.0 (active) *
+  - 0.5.0 (archived)
+  - 0.1.0 (deprecated)
 ```
+
+**If neither `{manifestOpsProbeOrder}` candidate resolves:** read `exports.{target_skill}.versions` from `{skills_output_folder}/.export-manifest.json` in-prompt, list each remaining version with its `status` (active marked `*`), ordering newest-first by comparing version components numerically.
 
 ### 2. Render the Report
 

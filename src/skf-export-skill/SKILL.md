@@ -59,14 +59,14 @@ These rules apply to every step in this workflow:
 
 Every HARD HALT in this workflow exits with a stable code so headless automators can branch on the failure class without grepping message text:
 
-| Code | Meaning              | Raised by                                                                                    |
+| Code | Meaning              | Raised by (halt site → `halt_reason`)                                                         |
 | ---- | -------------------- | -------------------------------------------------------------------------------------------- |
 | 0    | success              | step 7 (terminal); also `status="dry-run"` when `--dry-run` is set                          |
-| 2    | input-missing / input-invalid | step 1 (no `skill_name` and no `--all` in headless) → `input-missing`; non-existent or malformed skill → `input-invalid` |
-| 3    | resolution-failure   | step 1 §2 (no skills found / required artifacts missing); step 1 §1c (multi-skill batch contains a stack-skill that requires re-composition) |
-| 4    | write-failure        | On-Activation §3 pre-flight write probe; step 4 §6 (managed-section rewrite); step 4 §9 (manifest write); step 6 §4 (result-contract write) |
-| 5    | state-conflict       | step 4 §3b/§4c.1 (orphan context-files or manifest-orphan rows when user selects [c] Cancel); step 4 (malformed `<!-- SKF:BEGIN/END -->` markers in target context file) |
-| 6    | user-cancelled       | step 1 §6 confirmation gate `[X]`/cancel; step 4 §8 confirmation gate `[X]`/cancel; any prompt that accepted `cancel`/`exit`/`:q` |
+| 2    | input-missing        | step 1 §1 — headless run with no `skill_name` and no `--all` (a non-interactive run cannot answer the skill-selection menu) → `input-missing` |
+| 3    | resolution-failure   | step 1 §1 (discovery finds no skills on disk / in the manifest); step 1 §2 (a named skill's required artifacts are missing or its metadata is invalid — export-gate FAIL); multi-skill batch (any skill failing §2 validation halts the whole batch) → `resolution-failure` |
+| 4    | write-failure        | On-Activation §5 pre-flight write probe → `write-failed`; step 4 §9 / §4c.1 (managed-section create/append/rewrite verify fails, or a required helper is unresolvable) → `context-rebuild-failed`; step 4 §9b manifest write → `manifest-write-failed` |
+| 5    | state-conflict       | step 4 §6 — malformed `<!-- SKF:BEGIN/END -->` markers in the target context file (`<!-- SKF:BEGIN` present, `<!-- SKF:END -->` missing) → `malformed-markers` |
+| 6    | user-cancelled       | step 1 §6 gate `[X]`/cancel; step 1 §1b snippet-root probe (a)/(c); step 4 §8 gate `[X]`/cancel; step 4 §4c.1 orphan-row (c) Cancel; any prompt accepting `cancel`/`exit`/`:q` → `user-cancelled` |
 
 ## Result Contract (Headless)
 

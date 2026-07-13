@@ -106,7 +106,7 @@ printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK"
 **Release contract:**
 
 - The terminal health-check step (step 8) deletes the lock file as its final action.
-- **Every halted-for-\* path in this workflow must delete the lock before exiting** — otherwise the next attempt would see a stale lock from this run. The lock-release is a single `rm -f "$LOCK"` per halt site; do not skip it.
+- **Every halt path in this workflow — any `halted-for-*` status, or a `blocked` halt like §4/§6's headless exits — must delete the lock before exiting** — otherwise the next attempt would see a stale lock from this run. The lock-release is a single `rm -f "$LOCK"` per halt site; do not skip it.
 - The lock is best-effort: a crash mid-workflow (process kill, host reboot) leaves a stale lock that the next run will clear via the live-PID check above. No manual cleanup needed in the common case.
 
 ### 2. Validate Required Artifacts
@@ -122,7 +122,7 @@ printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK"
 
 **Detect skill type from metadata:**
 - If `skill_type == "single"` or absent: flag as single skill
-- If `skill_type == "stack"`: flag as stack skill (multi-file update mode)
+- If `skill_type == "stack"`: flag as stack skill — the guard below redirects it
 
 ### Stack Skill Guard
 
@@ -135,7 +135,7 @@ After loading metadata.json, check `skill_type`:
   If you came here from an audit report, the drift report identifies which constituent libraries changed — use that to decide whether re-composition is needed."
 - Exit the workflow (do not proceed to step 2)
 
-**This guard is the single gate for stack skills** — every stack is redirected to `skf-create-stack-skill` here, before step 2, and no flag (`--detect-only`, `--dry-run`, `--from-test-report`, `--allow-workspace-drift`) bypasses it. The `skill_type == "stack"` branches in later stages (§5 below, `merge.md` §5, `validate.md` §4, `write.md` §5, and `merge-conflict-rules.md`'s "Stack Skill Merge Rules") are therefore **inert under the current guard**: they are retained as latent multi-file-merge scaffolding that executes only if this guard is deliberately relaxed. Treat them as unreachable today, not as a live path.
+**This guard is the single gate for stack skills** — every stack is redirected to `skf-create-stack-skill` here, before step 2, and no flag (`--detect-only`, `--dry-run`, `--from-test-report`, `--allow-workspace-drift`) bypasses it. Every later stage therefore runs against a single skill only and carries no stack-merge branch.
 
 ### 3. Load Forge Tier Configuration
 
@@ -171,6 +171,8 @@ Select: [D] Degraded / [X] Abort"
 - If D: set `degraded_mode = true`, proceed with full extraction scope
 - If X: **ABORT**
 
+**In `{headless_mode}`:** do not auto-select [D]. Degraded mode is a full, lossy T1-low re-extraction — choosing it unattended would silently swap surgical update for a create-skill-equivalent rebuild, a policy call that belongs to an operator. Halt instead: release the lock (`rm -f "$LOCK"`), emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `error: {phase: "init:load-provenance-map", path: "{forge_version}/provenance-map.json", reason: "no provenance map at versioned or flat path; degraded full re-extraction needs a human decision"}`, and exit. No `headless_decisions[]` entry — this is a hard halt, not an auto-resolved gate.
+
 ### 5. Load [MANUAL] Section Inventory
 
 Load {manualSectionRulesFile} to understand [MANUAL] detection patterns (the human-readable rules for markers, parent-section mapping, and orphan/nesting handling).
@@ -183,8 +185,6 @@ uv run {hashContentHelper} manual-inventory {resolved_skill_package}/SKILL.md \
 ```
 
 The emitted JSON is `{"blocks":[{name, content_hash, byte_offset, parent_heading}...], "count":N}` — each `content_hash` covers the block's byte-exact interior, so a later interior truncation that leaves the marker count unchanged is still caught. Bind the persisted path as `{manual_inventory}` in context; write.md §1 and validate.md Check B pass it to `manual-verify`. Surface the block `count` in the baseline summary (§7 `{manual_count}`).
-
-**For stack skills** (only reachable if the Stack Skill Guard above is relaxed — stacks are otherwise redirected to create-stack-skill before this step): run `manual-inventory` once per `references/*.md` and `references/integrations/*.md` file, persisting each under `{forge_version}/.manual-inventory-refs/` keyed by the reference path. write.md §5 and validate.md §4 verify each file against its captured per-file inventory.
 
 ### 6. Resolve Source Code Path
 
@@ -199,6 +199,8 @@ The emitted JSON is `{"blocks":[{name, content_hash, byte_offset, parent_heading
 Provide the current source code path:
 **Path:** {user provides path}"
 
+**In `{headless_mode}`:** there is no operator to supply a path. Halt: release the lock (`rm -f "$LOCK"`), emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `error: {phase: "init:resolve-source-path", path: "{source_root}", reason: "source_root from provenance map is invalid or inaccessible and no interactive path can be supplied"}`, and exit. No `headless_decisions[]` entry — this is a hard halt, not an auto-resolved gate.
+
 ### 7. Present Baseline Summary
 
 "**Update Skill Baseline:**
@@ -206,7 +208,7 @@ Provide the current source code path:
 | Property | Value |
 |----------|-------|
 | **Skill** | {skill_name} |
-| **Type** | {single/stack} |
+| **Type** | single |
 | **Version** | {version} |
 | **Created** | {created date} |
 | **Source** | {source_root} |

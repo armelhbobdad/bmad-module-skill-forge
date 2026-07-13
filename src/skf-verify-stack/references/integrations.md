@@ -87,7 +87,7 @@ For each library in an integration pair, delegate SKILL.md reading to a parallel
 
 **These fields are inferred, not declared.** `protocols` and `data_formats` do not exist in any skill's `metadata.json` — treat them as weak evidence from prose scanning only. When either list is used to justify compatibility in Check 2, the per-pair verdict MUST be capped at `Plausible` (see the schema's producer obligations — `{feasibilitySchemaRef}`).
 
-**Schema validation (parent):** Each subagent response must contain the required keys (`skill_name`, `language`, `exports`). Reject responses missing required keys and exclude that skill from pair evaluation; HALT if more than **20%** (same failure-budget threshold as step 1 §2; see the justification there) of subagent calls return malformed JSON.
+**Schema validation (parent):** Each subagent response must contain the required keys (`skill_name`, `language`, `exports`). Reject responses missing required keys and exclude that skill from pair evaluation; if more than **20%** (same failure-budget threshold as step 1 §2; see the justification there) of subagent calls return malformed JSON, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) with "API-surface extraction unreliable — more than 20% of subagent reads returned malformed JSON. Re-run [VS] after skills stabilize." In headless, emit the error envelope.
 
 **Parent collects all subagent JSON summaries.** Do not load full SKILL.md content into parent context.
 
@@ -156,7 +156,7 @@ For each integration pair `{library_a, library_b}`, run the four-check protocol 
 
 ### 6. Append to Report
 
-**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. HALT if no candidate exists.
+**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`); in headless, emit the error envelope.
 
 Write the **Integration Verdicts** section to `{outputFile}` (heading is fixed — consumers grep for `## Integration Verdicts`; the table header MUST be the canonical `| lib_a | lib_b | verdict | rationale |` per `{feasibilitySchemaRef}`; the skill-local display table with the extra Context/Source/Evidence columns can be rendered beneath it for human readers):
 - Emit the canonical `| lib_a | lib_b | verdict | rationale |` table first (verdict tokens MUST be one of `Verified`, `Plausible`, `Risky`, `Blocked` — case-sensitive)

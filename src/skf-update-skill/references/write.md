@@ -28,7 +28,7 @@ verifyProvenanceCompletenessProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py'
   - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
 # Resolve `{hashContentHelper}` to the first existing path; HALT if neither
-# candidate exists. §1 (and §5 for stack reference files) uses its
+# candidate exists. §1 uses its
 # `manual-verify` subcommand to verify the post-merge file against the
 # byte-exact [MANUAL] inventory captured in step 1 §5 — the deterministic
 # replacement for the old LLM marker-count comparison, which could pass a
@@ -53,7 +53,7 @@ renderMetadataStatsProbeOrder:
 
 ## STEP GOAL:
 
-Verify the merged SKILL.md and stack reference files that step 4 section 6b wrote to disk, then write the derived artifacts (metadata.json, provenance-map.json, evidence-report.md, context-snippet.md, and the active symlink).
+Verify the merged SKILL.md that step 4 section 6b wrote to disk, then write the derived artifacts (metadata.json, provenance-map.json, evidence-report.md, context-snippet.md, and the active symlink).
 
 ## Rules
 
@@ -113,7 +113,6 @@ Update `{skill_package}/metadata.json`:
   ```
 
   Write the returned `stats` and `confidence_distribution` objects into `metadata.json` **verbatim**. If the helper reports `coherence.ok: false`, some provenance entries carry a missing/unrecognized `signature_source` (§3 must write it on every entry) — fix the provenance map, do not hand-edit the stats.
-- For stack skills (inert under the current guard — see §5): pass `--shape stack` to the helper and update `library_count` / `integration_count` if changed.
 
 ### 3. Write Updated provenance-map.json
 
@@ -211,11 +210,9 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 
 **Context Snippet population** (used by §5 after the staleness check runs): §4 writes the sub-block with placeholders; §5 updates the on-disk evidence report in place after deciding whether to regenerate. Set `Regenerated: true` and populate `Triggers fired` with any combination of `headline-exports`, `version`, `gotchas` when at least one trigger fired. Set `Regenerated: false` and `Triggers fired: —` when none fired (the gap-driven / internals-only outcome). Always fill `Notes` with a one-sentence reason (e.g., `"Gap-driven repair — no snippet surface changed"`, `"Version bumped 0.1.0 → 0.2.0; headline exports re-ranked"`).
 
-### 5. Verify Stack Skill Reference File Writes (Conditional) and Regenerate context-snippet.md
+### 5. Regenerate context-snippet.md
 
-> **Stack reference-file verification is inert** — init.md §2's Stack Skill Guard redirects every stack to `skf-create-stack-skill` before step 2, so `skill_type` is never `"stack"` here. The per-reference-file `manual-verify` + HALT scaffolding is recoverable from git history if that guard is relaxed. The **For all skills** context-snippet regeneration below is reachable and always applies.
-
-**For all skills (both single and stack) — regenerate `context-snippet.md` if stale:**
+**Regenerate `context-snippet.md` if stale:**
 
 `context-snippet.md` is a `{skill_package}` deliverable that goes stale whenever **headline exports**, **version**, or **gotchas** change in this run. Regenerate it only when at least one of these triggers fired; otherwise skip — a skip is the correct outcome for gap-driven repairs and other runs that touch internals below the snippet's surface, where regenerating would produce byte-identical content.
 
@@ -229,10 +226,7 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 
 **If no trigger fired:** skip regeneration — do not touch `context-snippet.md` on disk. The snippet remains valid against the prior run's surface. Continue to §5b.
 
-**If at least one trigger fired:** regenerate the snippet using the format from the matching template file:
-
-- For single skills: `skf-create-skill/assets/skill-sections.md` (pipe-delimited indexed format)
-- For stack skills: `skf-create-stack-skill/assets/stack-skill-template.md`
+**If at least one trigger fired:** regenerate the snippet using the format from `skf-create-skill/assets/skill-sections.md` (pipe-delimited indexed format).
 
 Use the **flat draft form** for the `root:` path in the draft snippet: `root: skills/{skill-name}/`. The per-IDE skill root (e.g., `.claude/skills/`, `.windsurf/skills/`, `.github/skills/` — see `skf-export-skill/assets/managed-section-format.md`) is applied later by `export-skill` step 3 when the skill is exported. Do not choose an IDE-specific prefix in update-skill — that is an export-time decision that depends on config.yaml.
 
@@ -261,7 +255,7 @@ The helper emits a result envelope with `status` ∈ `{ok, flipped, mismatch, mi
 
 ### 6. Verify Derived Artifact Writes
 
-SKILL.md was verified in section 1 and stack reference files in section 5 (both written by step 4 section 6b). This section verifies the artifacts this step wrote: `metadata.json`, `provenance-map.json`, `evidence-report.md`, `context-snippet.md`, and the `active` symlink from §5b.
+SKILL.md was verified in section 1 (written by step 4 section 6b). This section verifies the artifacts this step wrote: `metadata.json`, `provenance-map.json`, `evidence-report.md`, `context-snippet.md`, and the `active` symlink from §5b.
 
 For each derived artifact:
 - Read back the file
@@ -280,7 +274,6 @@ For each derived artifact:
 | evidence-report.md | {VERIFIED/FAILED} |
 | context-snippet.md | {VERIFIED/FAILED} |
 | {skill_group}/active symlink | {VERIFIED/FAILED} (readlink → {resolved_version}, expected {version}) |
-| {stack reference files...} | {VERIFIED in section 5} |
 
 **On symlink `mismatch` (helper exit 2):** HALT. Do not proceed to §7 post-write validation or §8 menu. Display the helper's `halt_message` verbatim — it already includes the diverged target, the expected version, and the recovery command. This matches the severity of the other four artifact checks — silent divergence here mis-routes any downstream consumer that uses the symlink fallback.
 

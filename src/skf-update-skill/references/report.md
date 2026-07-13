@@ -89,7 +89,7 @@ The headless envelope carries `status: "dry-run"`, `files_written: []`, the `hea
 
 | Metric | Value |
 |--------|-------|
-| **Skill** | {skill_name} ({single/stack}) |
+| **Skill** | {skill_name} |
 | **Forge Tier** | {tier} |
 | **Mode** | {update_mode}{mode_fallback_note} |
 | **Duration** | {step count} steps |
@@ -169,7 +169,6 @@ These signals also appear in `warnings[]` on the headless envelope; the Mode row
 | `{resolved_skill_package}/metadata.json` | Updated |
 | `{forge_version}/provenance-map.json` | Updated |
 | `{forge_version}/evidence-report.md` | Appended |
-| {stack reference files if applicable} | Updated |
 
 Where `{resolved_skill_package}` = `{skills_output_folder}/{skill_name}/{version}/{skill_name}/` and `{forge_version}` = `{forge_data_folder}/{skill_name}/{version}/` — see `knowledge/version-paths.md`."
 

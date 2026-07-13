@@ -35,7 +35,7 @@ Run: `npx skill-check -h`
 
 **Important:** Do not assume availability — empirical check required.
 
-**Validation timing note:** Step-04 section 6b has already written SKILL.md (and stack reference files) to disk. External-tool checks against written files (skill-check Checks A, E, F) still run in **step 6 section 7** to co-locate external-tool validation with post-write verification. Check D (Provenance Completeness) is deterministic but needs both `metadata.json` and `provenance-map.json` on disk — neither exists yet at this step — so it is deferred to **step 6 section 6a**, which runs it via the completeness helper against the freshly-written artifacts. Structural checks (B, C) run here against the merged content — content on disk is byte-identical to the in-context copy.
+**Validation timing note:** Step-04 section 6b has already written SKILL.md to disk. External-tool checks against written files (skill-check Checks A, E, F) still run in **step 6 section 7** to co-locate external-tool validation with post-write verification. Check D (Provenance Completeness) is deterministic but needs both `metadata.json` and `provenance-map.json` on disk — neither exists yet at this step — so it is deferred to **step 6 section 6a**, which runs it via the completeness helper against the freshly-written artifacts. Structural checks (B, C) run here against the merged content — content on disk is byte-identical to the in-context copy.
 
 ### 2. Run Validation Checks
 
@@ -100,10 +100,6 @@ Validation Results:
   security_scan: {status: PASS|WARN|SKIP, findings}
   quality_score: [0-100]  # from skill-check, if available
 ```
-
-### 4. For Stack Skills — Validate Reference Files — inert
-
-init.md §2's Stack Skill Guard redirects every stack to `skf-create-stack-skill` before step 2, so `skill_type` is never `"stack"` here. The per-reference-file validation scaffolding (repeat Checks A–C plus a `manual-verify` Check B per `references/*.md` against its captured per-file inventory) is recoverable from git history if that guard is ever relaxed. For a single skill this step is a no-op — continue to §5.
 
 ### 5. Display Validation Summary
 

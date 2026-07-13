@@ -10,13 +10,13 @@ mergeConflictRulesFile: 'references/merge-conflict-rules.md'
 
 ## STEP GOAL:
 
-Merge freshly extracted export data into the existing SKILL.md content while preserving all [MANUAL] sections. Detect and resolve conflicts where regenerated content overlaps developer-authored content. For stack skills, merge across all output files.
+Merge freshly extracted export data into the existing SKILL.md content while preserving all [MANUAL] sections. Detect and resolve conflicts where regenerated content overlaps developer-authored content.
 
 ## Rules
 
 - Focus only on merging extractions into existing skill content
 - Never delete or modify [MANUAL] section content
-- Write merged SKILL.md (and stack reference files) directly to disk at section 6b — Claude Code's Edit/Write tools commit on call, so there is no held-in-memory "edit plan" primitive; subsequent steps validate and verify against the on-disk files
+- Write merged SKILL.md directly to disk at section 6b — Claude Code's Edit/Write tools commit on call, so there is no held-in-memory "edit plan" primitive; subsequent steps validate and verify against the on-disk files
 - If [MANUAL] conflicts detected: halt and present to user. If clean merge: auto-proceed
 
 ## Steps
@@ -24,7 +24,7 @@ Merge freshly extracted export data into the existing SKILL.md content while pre
 ### 1. Load Merge Rules
 
 Load {manualSectionRulesFile} for [MANUAL] detection and preservation patterns.
-Load {mergeConflictRulesFile} for the conflict-resolution strategy table and inert stack-skill merge rules (the change-category actions and priority order live in §3 below).
+Load {mergeConflictRulesFile} for the conflict-resolution strategy table (the change-category actions and priority order live in §3 below).
 
 ### 2. Extract [MANUAL] Blocks
 
@@ -146,10 +146,6 @@ Select: [K] Keep / [R] Remove / [E] Edit"
 
 Process each conflict with user's decision.
 
-### 5. Stack Skill Merge (Conditional) — inert
-
-init.md §2's Stack Skill Guard redirects every stack to `skf-create-stack-skill` before step 2, so `skill_type` is never `"stack"` here. The per-file stack merge scaffolding (per-`references/{library}.md` and per-integration merges, full `metadata.json`/`context-snippet.md` regeneration, written by §6b) is recoverable from git history if that guard is ever relaxed. For a single skill this step is a no-op — continue to §6.
-
 ### 6. Compile Merge Results
 
 Build merge result summary:
@@ -166,24 +162,16 @@ Merge Results:
   manual_conflicts_resolved: [count]
   manual_orphans_kept: [count]
   manual_orphans_removed: [count]
-
-  stack_files_merged: [count] (if stack skill)
 ```
 
 ### 6b. Write Merged Files to Disk
 
-Write the merged content produced by sections 3–5 directly to disk now. Later steps read from these files for validation and verification. The write must happen exactly once, here.
+Write the merged content produced by sections 3–4 directly to disk now. Later steps read from these files for validation and verification. The write must happen exactly once, here.
 
 **Write SKILL.md:**
 - Use the `Edit` or `Write` tool to write merged SKILL.md content to `{skill_package}/SKILL.md`
 - Preserve UTF-8 encoding
 - If the source version detected during step 3 differs from the previous metadata version, create the new `{skill_package}` directory (`{skill_group}/{new_version}/`) first and write there — the previous version's directory is preserved on disk. Update `{skill_package}` in context to point at the new path.
-
-**Write stack reference files (if `skill_type == "stack"`):**
-- For each affected file from section 5, use `Edit` or `Write` to write:
-  - `references/{library}.md` with merged per-library content
-  - `references/integrations/{pair}.md` with merged per-integration content
-- Preserve [MANUAL] blocks exactly as captured in section 2.
 
 **Do NOT write here:**
 - `metadata.json`, `provenance-map.json`, `evidence-report.md` — derived from merge + validation output, written by step 6 sections 2–4

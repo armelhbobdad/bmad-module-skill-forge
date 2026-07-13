@@ -1,6 +1,19 @@
 ---
 nextStepFile: 'execute.md'
 versionPathsKnowledge: 'knowledge/version-paths.md'
+# Read-side inventory helpers (reads, not atomicity-critical). §2 uses
+# `{manifestOpsHelper} read` (manifest parse + v1→v2 migration + corrupt-JSON
+# detection); §3 uses `{skillInventoryHelper}` (on-disk scan + exports∪on-disk
+# diff for orphan detection) and `{manifestOpsHelper} affected-versions <skill>`
+# (numeric semver-descending order, so 0.10.0 precedes 0.9.0 — LLM-unreliable).
+# Probe each in order (installed SKF path first, src/ fallback); first hit wins.
+# If neither candidate resolves, the section computes the result in-prompt.
+manifestOpsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
+  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 # Standalone single-line result-envelope contract emitted at every headless
 # HALT in this step. Loaded in §1 so no error path depends on SKILL.md
 # remaining in context under compaction.
@@ -39,43 +52,59 @@ If `{headless_mode}` is true, also read `{headlessContract}` now — it defines 
 
 ### 2. Read Export Manifest
 
-Load `{skills_output_folder}/.export-manifest.json` if it exists.
+**Resolve `{manifestOpsHelper}`** ← first existing path in `{manifestOpsProbeOrder}`. Parse the manifest through it rather than hand-rolling JSON — the helper migrates v1→v2, normalizes `platforms`→`ides`, and reports a parse error deterministically:
 
-**If the file is missing, empty, or contains no `exports` entries:** Treat as an empty manifest — proceed to section 3 and rely on the on-disk directory scan. Draft skills (created by `[CS]`/`[QS]`/`[SS]` but never exported) can still be hard-dropped in purge mode. Store `manifest_exists = false` so section 8 (Ask Mode) can restrict the options to purge only. Soft-deprecate is meaningless without a manifest to record the deprecation against.
+```bash
+python3 {manifestOpsHelper} {skills_output_folder} read
+```
 
-**If the file exists with entries:** Parse JSON and verify `schema_version` is `"2"`. If the manifest is v1 (no `schema_version` field), note this but continue — treat every entry as having a single active version derived from its current state. Store `manifest_exists = true`.
+Read the JSON result:
 
-**Hard halt condition:** If the file exists but is malformed (not valid JSON), halt with: "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json` — fix or remove the file before dropping." HALT (exit code 3, `halt_reason: "manifest-corrupt"`). In headless mode, emit the error envelope per `{headlessContract}` with `skill: null`, `drop_mode: null`, `versions_affected: []`.
+- **`status == "error"`** — the manifest file exists but is malformed (the helper returns `{"status":"error","error":"Manifest JSON parse error: ..."}`): halt with "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json` — fix or remove the file before dropping." HALT (exit code 3, `halt_reason: "manifest-corrupt"`). In headless mode, emit the error envelope per `{headlessContract}` with `skill: null`, `drop_mode: null`, `versions_affected: []`.
+- **`status == "ok"`** — use `result.manifest` (already migrated to v2) as `manifest` for the rest of this step. Set `manifest_exists = true` when `manifest.exports` has at least one entry, else `false` (a missing manifest reads back as an empty `exports` object, so it correctly yields `false`).
+
+When `manifest_exists = false`, section 3's on-disk scan is authoritative: draft skills (created by `[CS]`/`[QS]`/`[SS]` but never exported) can still be hard-dropped in purge mode, and section 8 restricts the options to purge only — soft-deprecate is meaningless without a manifest entry to record it against.
+
+**If neither `{manifestOpsProbeOrder}` candidate resolves:** read the manifest file in-prompt — a missing/empty file is `manifest_exists = false`; a file with `exports` entries is `true` (no `schema_version` field means v1 — treat each entry as a single active version); invalid JSON takes the corrupt-manifest HALT above.
 
 ### 3. List Available Skills
 
-Build and display a summary of every skill available to drop. Start with the manifest (if any), then augment with an on-disk scan.
+Build and display a summary of every skill available to drop: every manifest-tracked skill, plus every on-disk skill not in the manifest (draft/orphaned, eligible for purge only).
 
-For each skill in the manifest's `exports` (only if `manifest_exists = true` and entries exist):
+**Manifest-tracked skills** come from the `manifest` resolved in section 2 — for each key in `manifest.exports`, its `active_version` and its `versions` map (with each version's `status`) are already parsed. Order each skill's versions newest-first through the helper rather than by eye:
 
-1. Read `active_version` from the manifest entry
-2. List every entry in the skill's `versions` map with its `status` field
-3. Mark the active version with a trailing `*`
-4. Sort versions in descending order (newest first) where possible
+```bash
+python3 {manifestOpsHelper} {skills_output_folder} affected-versions {skill-name}
+```
 
-Also scan `{skills_output_folder}/` for any top-level directories that are NOT present in the manifest's `exports` object. Record these as "(not in manifest)" — they represent draft or orphaned skills eligible for purge mode only. When the manifest is missing or empty, every on-disk skill appears in this category.
+`result.affected_versions` is that skill's versions deduped and sorted numerically-descending (so `0.10.0` precedes `0.9.0` — the sort the LLM is unreliable at). Annotate each with its `status` from `manifest.exports.{skill-name}.versions.{version}.status` and mark `active_version` with a trailing `*`.
 
-**If the combined list is empty** (no manifest entries AND no on-disk skill directories): halt with "**Drop Skill — nothing to drop.** No skills found in `{skills_output_folder}/` and no entries in `.export-manifest.json`. Run `[CS] Create Skill` first." HALT (exit code 3, `halt_reason: "nothing-to-drop"`). In headless mode, emit the error envelope per `{headlessContract}` with `skill: null`, `drop_mode: null`, `versions_affected: []`.
+**On-disk (not-in-manifest) skills** come from the inventory helper. **Resolve `{skillInventoryHelper}`** ← first existing path in `{skillInventoryProbeOrder}`; it scans `{skills_output_folder}/` and computes the exports∪on-disk merge for you — do not re-scan the directory in the prompt:
 
-Display the combined list:
+```bash
+python3 {skillInventoryHelper} {skills_output_folder}
+```
+
+Any `result.skills[].name` that is **not** a key in `manifest.exports` is a draft or orphaned skill — record it as "(not in manifest — purge only)". When the manifest is empty, every on-disk skill lands here. The inventory lists only skills with an on-disk directory, so a manifest entry whose files were already removed still appears above via `manifest.exports`.
+
+**If the combined roster is empty** (no `manifest.exports` entries AND `result.skills[]` is empty): halt with "**Drop Skill — nothing to drop.** No skills found in `{skills_output_folder}/` and no entries in `.export-manifest.json`. Run `[CS] Create Skill` first." HALT (exit code 3, `halt_reason: "nothing-to-drop"`). In headless mode, emit the error envelope per `{headlessContract}` with `skill: null`, `drop_mode: null`, `versions_affected: []`.
+
+Display the combined list (versions newest-first):
 
 ```
 **Drop Skill — select target**
 
 Available skills:
 1. cognee
-   - 0.1.0 (deprecated)
-   - 0.5.0 (archived)
    - 0.6.0 (active) *
+   - 0.5.0 (archived)
+   - 0.1.0 (deprecated)
 2. express
    - 4.18.0 (active) *
 3. legacy-helper (not in manifest — purge only)
 ```
+
+**If neither helper resolves** (Python/helper unavailable): fall back to the in-prompt computation — list each `manifest.exports` skill (versions with `status`, active marked `*`, ordered newest-first by comparing version components numerically), then scan `{skills_output_folder}/` for top-level directories absent from `manifest.exports` and record them as "(not in manifest — purge only)". If the combined list is empty, take the "nothing to drop" HALT above.
 
 ### 4. Ask Which Skill
 

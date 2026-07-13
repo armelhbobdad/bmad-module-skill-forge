@@ -22,7 +22,7 @@ SKF_EXPORT_RESULT_JSON: {"status":"success|error|dry-run","skills":[],"context_f
 - `context_files_updated` — context files successfully written this run (JSON array; `[]` when a HALT preceded any write).
 - `manifest_path` — the written manifest path, or `null` when no manifest write completed.
 - `headless_decisions` — the `{gate, default_action, taken_action, reason}` entries logged as each gate auto-resolved (JSON array).
-- `exit_code` — 0 success/dry-run · 2 input-missing/invalid · 3 resolution-failure · 4 write-failure · 5 state-conflict · 6 user-cancelled.
-- `halt_reason` — `null` on success/dry-run, else one of: `"input-missing"`, `"input-invalid"`, `"resolution-failure"`, `"stack-redirect"`, `"orphan-cancelled"`, `"malformed-markers"`, `"manifest-write-failed"`, `"context-rebuild-failed"`, `"write-failed"`, `"user-cancelled"`.
+- `exit_code` — 0 success/dry-run · 2 input-missing · 3 resolution-failure · 4 write-failure · 5 state-conflict · 6 user-cancelled.
+- `halt_reason` — `null` on success/dry-run, else one of: `"input-missing"`, `"resolution-failure"`, `"malformed-markers"`, `"manifest-write-failed"`, `"context-rebuild-failed"`, `"write-failed"`, `"user-cancelled"`. Each value is emitted by a real HALT site (see the SKILL.md Exit Codes table for the code↔reason map); the enum lists no value that no stage emits.
 
 A halting stage sets the branch-specific fields inline (e.g. `manifest_path: null`, `context_files_updated: []`) and fills the rest from the shape above.
