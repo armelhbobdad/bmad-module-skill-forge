@@ -52,14 +52,12 @@ These rules apply to every step in this workflow:
 | **Flags** | `--headless` / `-H` (auto-resolve all gates); `--dry-run` (run selection + display the §10 confirmation block, then exit with `status="dry-run"` — no manifest mutation, no file deletion). Useful for "show me what this would touch before I commit." |
 | **Gates** | step 1: Input Gate [use args], Confirm Gate [Y] |
 | **Outputs** | Updated manifest, rebuilt context files, (purge: deleted directories), `drop-skill-result-{timestamp}.json` and `drop-skill-result-latest.json` |
-| **Headless** | Gates auto-resolve with their default action (see Workflow Rules). When `forbid_purge_in_headless` is `"true"` in `customize.toml` AND `drop_mode = "purge"`, On-Activation §4 HALTs with exit code 6 (`halt_reason: "headless-purge-forbidden"`) before any work begins. |
+| **Headless** | Gates auto-resolve with their default action (see Workflow Rules). When `forbid_purge_in_headless` is `"true"` in `customize.toml` AND the effective drop mode is `"purge"` (defined in On-Activation §4 — explicit `mode=purge` or `default_mode` purge), §4 HALTs with exit code 6 (`halt_reason: "headless-purge-forbidden"`) before any work begins. |
 | **Exit codes** | See "Exit Codes" below |
 
 ## Exit Codes
 
-Every HARD HALT in this workflow exits with a stable code so headless automators can branch on the failure class without grepping message text:
-
-The `Raised by` column names the HALT *class* per code; the authoritative per-site HALT declarations (with their exact `halt_reason`) live in the step files.
+Every hard HALT exits with a stable code so headless automators branch on the failure class without grepping message text. The `Raised by` column names the HALT class per code; the authoritative per-site declarations (with exact `halt_reason`) live in the step files.
 
 | Code | Meaning              | Raised by (class) |
 | ---- | -------------------- | ----------------- |

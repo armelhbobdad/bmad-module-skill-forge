@@ -31,16 +31,16 @@ Load {heuristicsFile} for stack skill candidate detection rules.
 
 ### 2. Map Export Surfaces Per Unit (Subagent Fan-Out)
 
-For EACH qualifying unit, delegate deep analysis to a subagent so per-unit work runs in parallel and the parent's context stays clean.
+For each qualifying unit, delegate deep analysis to a subagent so per-unit work runs in parallel and the parent's context stays clean.
 
 **Subagent fan-out protocol:**
 
-1. **Build the qualifying-unit list.** Read the unit list produced upstream (Step §3 / §4 outputs already in workflow context — names, paths, scope types, languages, file counts). Do NOT re-scan the project here.
+1. **Build the qualifying-unit list.** Read the unit list produced upstream (Step §3 / §4 outputs already in workflow context — names, paths, scope types, languages, file counts). Do not re-scan the project here.
 
 2. **Delegate per-unit deep analysis to a subagent.** For each qualifying unit, launch a subagent task with these explicit constraints:
-   - The subagent reads ONLY that unit's directory tree
+   - The subagent reads only that unit's directory tree
    - The subagent analyzes exports / usage / CCC signals / scripts+assets for that one unit
-   - **The parent does NOT read the unit's source files before delegating** (avoid the implicit-read trap — the whole point of fan-out is to keep large source bodies out of the parent's context)
+   - **The parent does not read the unit's source files before delegating** (avoid the implicit-read trap — the whole point of fan-out is to keep large source bodies out of the parent's context)
 
 3. **Per-unit analysis the subagent performs (scaled by size-aware strategy):**
 
@@ -66,7 +66,7 @@ For EACH qualifying unit, delegate deep analysis to a subagent so per-unit work 
    - Script/asset presence: check for `scripts/`, `bin/`, `assets/`, `templates/` directories and files matching detection signals in `{heuristicsFile}`
    - Analysis strategy used and coverage confidence
 
-4. **Subagent return contract.** Each subagent returns ONLY this JSON object — no prose, no commentary, no markdown fences:
+4. **Subagent return contract.** Each subagent returns only this JSON object — no prose, no commentary, no markdown fences:
 
    ```json
    {
@@ -197,9 +197,5 @@ Display: "**Select:** [C] Continue to Recommendations | [D] Discover Additional 
 - IF D: Accept a new repo path/URL from the user. Run a lightweight scan (directory structure + manifest detection from step 02) and classify (unit identification from step 03) for the new source only. Merge results into the existing report — append new units to the unit list, update `project_paths[]` in frontmatter. Then redisplay this step's export mapping for the new units before returning to the menu.
 - IF Any other: help user, then [Redisplay Menu Options](#8-present-menu-options)
 
-#### EXECUTION RULES:
-
-- ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue past export/integration findings, log: "headless: auto-continue past integration analysis"
-- ONLY proceed to next step when user selects 'C'
+**GATE [default: C]** — present the menu and wait for the user's choice. If `{headless_mode}`: auto-proceed with [C] Continue past export/integration findings, log: "headless: auto-continue past integration analysis".
 

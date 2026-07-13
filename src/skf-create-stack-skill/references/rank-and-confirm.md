@@ -112,13 +112,13 @@ Apply additions/exclusions, display updated list, and ask for final confirmation
 **If custom list provided:**
 Use the custom list as `confirmed_dependencies`.
 
-Display final confirmation:
+Display the resolved scope:
 
 "**Scope confirmed:** {count} libraries selected for stack skill extraction.
 
-{List confirmed libraries}
+{List confirmed libraries}"
 
-**Proceeding to parallel extraction...**"
+The extraction itself begins only once the user clears the gate below.
 
 ### 5. Present MENU OPTIONS
 

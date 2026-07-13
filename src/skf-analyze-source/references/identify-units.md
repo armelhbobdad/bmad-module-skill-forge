@@ -39,7 +39,7 @@ Load {heuristicsFile} for classification rules.
 
 **Resolve `{disqualifyCandidatesHelper}`** from `{disqualifyCandidatesProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
-For EACH detected boundary from the scan:
+For each detected boundary from the scan:
 
 **Step A — Count detection signals:**
 - Check strong signals (independent manifest, separate entry point, Docker config, distinct export surface, workspace member)
@@ -90,9 +90,9 @@ Run the shared disqualification helper to apply the deterministic subset of the 
 - **Test-only** — test utilities with no production code
 - **Already skilled** — exists in `existing_skills` list (recommend `update-skill` instead)
 
-Remove any boundary that fails one of these LLM-judged rules from the working `kept` set and append it to `dropped[]` with the appropriate reason. Reasons recorded by the script (`too-few-files`, `too-low-loc`, `generated-code`, `auto-generated-tag`) are authoritative; do NOT re-evaluate those rules manually.
+Remove any boundary that fails one of these LLM-judged rules from the working `kept` set and append it to `dropped[]` with the appropriate reason. Reasons recorded by the script (`too-few-files`, `too-low-loc`, `generated-code`, `auto-generated-tag`) are authoritative — do not re-evaluate those rules manually.
 
-**Qualification CONFIRMATION:** Visually skim the script's `kept`/`dropped` decisions for sanity (e.g., a boundary you expected to qualify that landed in `dropped` — surface the script's `reason` and `context.first_match` to the user in §5 so they can override if the heuristic was wrong for this project).
+**Qualification check:** Visually skim the script's `kept`/`dropped` decisions for sanity (e.g., a boundary you expected to qualify that landed in `dropped` — surface the script's `reason` and `context.first_match` to the user in §5 so they can override if the heuristic was wrong for this project).
 
 ### 3. Build Unit Classification Table
 
@@ -113,7 +113,7 @@ For disqualified candidates, note reason:
 
 After building the classification table, apply the Composite Boundary detection heuristic from {heuristicsFile} against the qualifying units:
 
-1. **Scan for merge candidates:** Among the qualifying units (from `kept[]`), find groups of ≥2 Package or Module boundaries that meet EITHER trigger:
+1. **Scan for merge candidates:** Among the qualifying units (from `kept[]`), find groups of ≥2 Package or Module boundaries that meet either trigger:
    - **Mutual hard dependency:** Every constituent imports from at least one other constituent in the group, AND no constituent's public API is self-contained
    - **Shared integration surface:** Constituents share types/traits defined in one constituent but consumed by all others, AND the consuming constituents have no independent barrel
 
@@ -124,7 +124,7 @@ After building the classification table, apply the Composite Boundary detection 
 
 3. **If no candidate groups are found**, skip to §4.
 
-**Merge does NOT fire for:** Units already flagged as Stack Skill Candidates in step 4 (map-and-detect §5) — those are multi-unit groupings that deliver value *separately* but are *also* useful together. Composite merges are for units that are *only* useful together (the key distinction). If a group of units is independently useful but commonly combined, it remains as separate units and is flagged as a stack skill candidate later.
+**Merge does not fire for:** Units already flagged as Stack Skill Candidates in step 4 (map-and-detect §5) — those are multi-unit groupings that deliver value *separately* but are *also* useful together. Composite merges are for units that are *only* useful together (the key distinction). If a group of units is independently useful but commonly combined, it remains as separate units and is flagged as a stack skill candidate later.
 
 **This step is a recommendation — not automatic.** Merges are presented to the user in §5 for confirmation (see "Composite Merge Proposals" below). If the user rejects a merge, the constituents remain as separate units in the classification table.
 
@@ -205,12 +205,8 @@ Display: "**Select:** [C] Continue to Export Mapping and Integration Detection |
 #### Menu Handling Logic:
 
 - IF C: Save classifications to {outputFile}, update frontmatter, then load, read entire file, then execute {nextStepFile}
-- IF X: HARD HALT with exit code 6 (`user-cancelled`). Emit the `SKF_ANALYZE_RESULT_JSON` envelope on stderr with `status: "error"`, `halt_reason: "user-cancelled"`, and counts/paths reflecting state at cancellation
+- IF X: HARD HALT with exit code 6 (`user-cancelled`). Emit the error envelope on stderr with `halt_reason: "user-cancelled"` and counts/paths reflecting state at cancellation (shape in `references/headless-contract.md`)
 - IF Any other: help user, then [Redisplay Menu Options](#7-present-menu-options)
 
-#### EXECUTION RULES:
-
-- ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: C]** — If `{headless_mode}`: accept all classifications and auto-proceed, log: "headless: auto-accept unit classifications"
-- ONLY proceed to next step when user selects 'C'
+**GATE [default: C]** — present the menu and wait for the user's choice. If `{headless_mode}`: accept all classifications and auto-proceed, log: "headless: auto-accept unit classifications".
 

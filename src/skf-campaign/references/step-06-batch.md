@@ -51,7 +51,7 @@ uv run {batchScript} --state-file {stateFile} --brief-file {briefFile} -o {batch
 
 The script filters `skills[]` for `tier == "B" && status == "pending"`, looks up each skill's `repo_url` from the brief's `targets[]` (repo URLs live in the brief, not the state schema), and writes one line per skill at `{batchFile}` in the exact single-target shape QS parses (see `src/skf-quick-skill/references/batch-mode.md`) — the line format is owned once by the script, not re-derived here. It emits a JSON summary (`written`, `count`, `skipped_non_tierB`, `skipped_non_pending`) on stderr.
 
-HALT on non-zero exit: exit 8 (`missing-brief`) when the brief is missing/unreadable **or** a pending Tier B skill has no matching brief target; exit 2 on a state file/parse error.
+HALT on non-zero exit: exit code 8 (`missing-brief`) when the brief is missing/unreadable **or** a pending Tier B skill has no matching brief target; exit code 2 (`invalid-input`) on a state file/parse error.
 
 ### §5 — Execute QS Batch
 

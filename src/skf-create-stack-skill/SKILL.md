@@ -72,7 +72,7 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 | ---- | -------------------- | ------------------------------------------------------------------------------------------ |
 | 0    | success              | step 10 (terminal handoff to shared health-check)                                          |
 | 2    | input / precondition invalid | step 1 §0 `config.yaml` missing/malformed (`config-missing`); step 2 §2 headless with no manifests (`no-manifests`, S2); step 4 §3 all extractions failed (`all-extractions-failed`, B7); step 5 §2 feasibility-report `schemaVersion` mismatch (`schema-version-mismatch`) |
-| 3    | resolution-failure   | step 1 §1 `forge-tier.yaml` missing (`forge-tier-missing`); step 2 §0 compose-mode skill-resolution corruption (manifest + symlink both fail); step 2 §0 compose-mode zero qualifying skills (S1/S3); step 4 §0 compose-cycle — all `resolution-failure` |
+| 3    | resolution-failure   | step 1 §1 `forge-tier.yaml` missing (`forge-tier-missing`); step 2 §0 compose-mode skill-resolution corruption (manifest + symlink both fail); step 2 §0 compose-mode zero qualifying skills (S1/B4); step 4 §0 compose-cycle — all `resolution-failure` |
 | 4    | write-failure        | step 7 §1 stage-dir / commit-dir failure; step 7 §1 group-dir collision when an existing non-stack skill occupies the target path — both `write-failure` |
 | 6    | user-cancelled       | any interactive menu in step 3 / step 6 when the user selects `[X]` Cancel and exit (`user-cancelled`) |
 

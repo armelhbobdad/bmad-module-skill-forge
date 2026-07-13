@@ -1,9 +1,8 @@
 ---
 nextStepFile: 'ccc-index.md'
-# Resolve `{detectToolsHelper}` by probing `{detectToolsProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. HALT if neither resolves — the script is the source of truth for
-# tool detection and tier calculation; no fallback to prose-driven probes.
+# `{detectToolsHelper}` = first existing path in `{detectToolsProbeOrder}`;
+# halt if neither exists. This script is the source of truth for tool
+# detection and tier calculation — no prose-driven probes.
 detectToolsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-tools.py'
   - '{project-root}/src/shared/scripts/skf-detect-tools.py'
@@ -56,7 +55,7 @@ Press Esc or Ctrl+C now if this isn't the right project — no files have been w
 
 Build the Bash invocation: `uv run {detectToolsHelper} --project-root "{project-root}" --prior-state-from "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"`. If `{tier_override}` is non-null, append `--tier-override "{tier_override}"`. If `{require_tier}` is non-null, append `--require-tier "{require_tier}"`. Then execute. (`--project-root` lets the script compute the CCC-index freshness verdict — `prior.ccc_index_fresh` — so step 1b branches on a boolean instead of doing timestamp math.)
 
-The script (see `src/shared/scripts/skf-detect-tools.py` docstring for the full `DETECT_OUTPUT_SCHEMA`) probes ast-grep / gh / qmd / ccc concurrently with two-step verification for qmd and ccc (binary-identity check + daemon-health check, including the `CocoIndex Code` identity-marker substring check that rejects PATH-shadowing aliases). It applies the 4-rule tier table, performs the tier-override sanity check (override is honored but flagged unsafe when underlying tools are missing), and evaluates `--require-tier` using a tool-prerequisite check (Deep does NOT subsume Forge+ — Deep does not require ccc). Output is one JSON document on stdout.
+The script (see `src/shared/scripts/skf-detect-tools.py` docstring for the full `DETECT_OUTPUT_SCHEMA`) probes ast-grep / gh / qmd / ccc concurrently with two-step verification for qmd and ccc (binary-identity check + daemon-health check, including the `CocoIndex Code` identity-marker substring check that rejects PATH-shadowing aliases). It applies the 4-rule tier table, performs the tier-override sanity check (override is honored but flagged unsafe when underlying tools are missing), and evaluates `--require-tier` using a tool-prerequisite check (Deep does not subsume Forge+ — Deep does not require ccc). Output is one JSON document on stdout.
 
 ### 3. Parse Output and Set Context Flags
 

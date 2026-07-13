@@ -56,7 +56,7 @@ When `docs_only_mode: true` is set by step 3 (indicating a skill where all SKILL
 
 This is functionally identical to Quick tier weight redistribution but with a different coverage denominator (self-consistency instead of source comparison).
 
-**External-validator requirement for docs-only:** docs-only mode removes two categories (Signature Accuracy, Type Coverage) from scoring. If External Validation is ALSO unavailable, the evidence base collapses to Coverage alone (naive) or Coverage + Coherence (contextual) — which in the naive/Quick case trips the minimum-evidence floor (INCONCLUSIVE). To keep docs-only skills gradable when external validators are present but still deterministic when they are missing: **when `docsOnly: true` AND `externalValidation is null`, step 5 MUST cap `totalScore` at `threshold - 1` (forcing FAIL) before the INCONCLUSIVE floor is evaluated.** This prevents a docs-only skill from PASSing with only one or two redistributed categories carrying all the weight. Implement in step 5 §4 as a pre-compare cap, recorded in the report as `scoring_notes: docs-only without external validators — capped below threshold`.
+**External-validator requirement for docs-only:** docs-only mode removes two categories (Signature Accuracy, Type Coverage) from scoring. If External Validation is also unavailable, the evidence base collapses to Coverage alone (naive) or Coverage + Coherence (contextual) — which in the naive/Quick case trips the minimum-evidence floor (INCONCLUSIVE). To keep docs-only skills gradable when external validators are present but still deterministic when they are missing: **when `docsOnly: true` AND `externalValidation is null`, step 5 must cap `totalScore` at `threshold - 1` (forcing FAIL) before the INCONCLUSIVE floor is evaluated.** This prevents a docs-only skill from PASSing with only one or two redistributed categories carrying all the weight. Implement in step 5 §4 as a pre-compare cap, recorded in the report as `scoring_notes: docs-only without external validators — capped below threshold`.
 
 ### Stack Skills (Any Tier)
 
@@ -90,7 +90,7 @@ When source is not locally available and analysis resolves to State 2 (provenanc
 
 Note: When provenance-map entries are predominantly T1 (AST-verified at compilation time), the coverage and name-matching data is already at highest confidence. The N/A categories reflect the inability to re-verify at test time, not low-quality extraction data.
 
-**State 2 undercount risk acknowledgement:** provenance-map is a cached extraction snapshot — if the source has evolved since extraction, public API adds/removes will NOT surface in Export Coverage (denominator is frozen to the provenance-map union). When `state2: true` AND step 3 records any provenance vs metadata divergence (e.g. union > either source by >5%), apply a flat **10% deduction** to `exportCoverage` before calling the scoring script, AND set `analysis_confidence: provenance-map` (already set) with a report note: `scoring_notes: State 2 undercount risk acknowledged — 10% deduction applied to Export Coverage`. Rationale: the skill cannot be reliably scored on a frozen denominator when the cache is known to disagree with its own metadata; prefer understating over overstating.
+**State 2 undercount risk acknowledgement:** provenance-map is a cached extraction snapshot — if the source has evolved since extraction, public API adds/removes will not surface in Export Coverage (denominator is frozen to the provenance-map union). When `state2: true` AND step 3 records any provenance vs metadata divergence (e.g. union > either source by >5%), apply a flat **10% deduction** to `exportCoverage` before calling the scoring script, AND set `analysis_confidence: provenance-map` (already set) with a report note: `scoring_notes: State 2 undercount risk acknowledged — 10% deduction applied to Export Coverage`. Rationale: the skill cannot be reliably scored on a frozen denominator when the cache is known to disagree with its own metadata; prefer understating over overstating.
 
 ### Forge Tier (ast-grep)
 - Export Coverage: AST-backed export comparison
@@ -131,7 +131,7 @@ This is the documented contract. The tally + weighted mean is computed determini
 
 ## Result Determination
 
-Three-state gate — **PASS / FAIL / INCONCLUSIVE**. `INCONCLUSIVE` is not PASS and not FAIL; it signals insufficient evidence to grade the skill. Downstream workflows MUST treat `INCONCLUSIVE` as a hard gate — do not export, do not auto-retry, surface to the human.
+Three-state gate — **PASS / FAIL / INCONCLUSIVE**. `INCONCLUSIVE` is not PASS and not FAIL; it signals insufficient evidence to grade the skill. Downstream workflows must treat `INCONCLUSIVE` as a hard gate — do not export, do not auto-retry, surface to the human.
 
 - **Minimum-Evidence Floor (applies before PASS/FAIL comparison):**
   - `active_categories` = count of categories with a non-zero final weight *after* all redistribution (Quick tier, docs-only, State 2, external-validator-unavailable). Categories with a redistributed weight of 0 do not count as active, even if they received a score.

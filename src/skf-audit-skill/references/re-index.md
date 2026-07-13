@@ -73,7 +73,7 @@ Audit-skill detects drift on files that were in scope during create-skill. The a
 
 ### 3. Extract Current Exports
 
-**For EACH file in the bounded scan list from §2, launch a subprocess that:**
+**For each file in the bounded scan list from §2, launch a subprocess that:**
 1. Loads the source file
 2. Extracts all public exports using tier-appropriate method
 3. Records: export name, type, signature, file path, line number, confidence tier
@@ -109,13 +109,13 @@ Record the written path as `{extractionSnapshot}` in workflow context — step 3
 
 ### 4. Deep Tier Enhancement (Deep Only)
 
-**IF forge tier is Deep:**
+**If forge tier is Deep:**
 
 Read the `qmd_collections` registry from `{sidecar_path}/forge-tier.yaml`.
 
 Find the collection entry matching the current skill: look for an entry where `skill_name` matches the current skill being audited AND `type` is `"extraction"`.
 
-Three collection states must be handled distinctly (same branching as step 4 §2 — keep them in sync):
+Three collection states must be handled distinctly — semantic-diff.md §2 branches the same way:
 
 **If a matching extraction collection is found and populated** (pre-query probe via `qmd ls {collection_name}` or equivalent returns one or more files):
 Query qmd_bridge against the `{skill_name}-extraction` collection for temporal context on each extracted export:
@@ -134,12 +134,12 @@ Continue without T2 enrichment — the unpopulated collection is a setup gap, no
 Log: "No QMD extraction collection found for {skill_name}. Temporal enrichment skipped. Re-run [CS] Create Skill to generate the collection."
 Continue without T2 enrichment — this is not an error.
 
-**IF forge tier is Quick, Forge, or Forge+:**
+**If forge tier is Quick, Forge, or Forge+:**
 Skip this section. Temporal context requires Deep tier.
 
 ### 4b. CCC Rename Detection (Forge+ and Deep with ccc)
 
-**IF `tools.ccc` is true in forge-tier.yaml:**
+**If `tools.ccc` is true in forge-tier.yaml:**
 
 For each export in the skill baseline that was NOT found at its recorded file path during re-extraction (potential "deleted" export):
 
@@ -152,7 +152,7 @@ For each export in the skill baseline that was NOT found at its recorded file pa
 
 CCC failures: skip rename detection silently, proceed with standard structural diff.
 
-**IF `tools.ccc` is false:** Skip this section silently.
+**If `tools.ccc` is false:** Skip this section silently.
 
 ### 5. Validate Extraction Completeness
 
@@ -173,5 +173,5 @@ CCC failures: skip rename detection silently, proceed with standard structural d
 
 ### 6. Update Report and Auto-Proceed
 
-Update {outputFile} frontmatter — append `'re-index'` to `stepsCompleted`. This is an auto-proceed step with no user choice: once the extraction snapshot is complete with all source files processed, load, read fully, and execute `{nextStepFile}` (structural diff).
+Update {outputFile} frontmatter — append `'re-index'` to `stepsCompleted`. Once the extraction snapshot is complete with all source files processed, load, read fully, and execute `{nextStepFile}` (structural diff).
 

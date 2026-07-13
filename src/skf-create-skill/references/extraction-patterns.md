@@ -76,7 +76,7 @@ The discovery step stores `{ccc_discovery: [{file, score, snippet}]}` in context
 When `{ccc_discovery}` is present and non-empty:
 
 1. Files appearing in `{ccc_discovery}` results move to the front of the extraction queue, sorted by relevance score descending
-2. Files NOT in CCC results remain in the queue — they are not excluded, only deprioritized
+2. Files not in CCC results remain in the queue — they are not excluded, only deprioritized
 3. If the CCC intersection with scoped files produces <10 files: include all scoped files (CCC results too narrow)
 4. Proceed with the AST Extraction Protocol on the pre-ranked list
 
@@ -113,7 +113,7 @@ Same extraction as Forge tier. Deep tier adds enrichment in step 4, not extracti
 
 When AST tools are available (Forge/Deep tier), follow this deterministic protocol to prevent output overflow on large codebases.
 
-**"Files in scope"** = files remaining after applying `include_patterns` and `exclude_patterns` from the brief, filtered by the target language extension. This is NOT the total repository file count from step 1's tree listing. Use the filtered count from step 3 section 2 as the decision tree input.
+**"Files in scope"** = files remaining after applying `include_patterns` and `exclude_patterns` from the brief, filtered by the target language extension. This is not the total repository file count from step 1's tree listing. Use the filtered count from step 3 section 2 as the decision tree input.
 
 ### Decision Tree
 
@@ -166,7 +166,7 @@ find_code_by_rule(
 
 ### CLI Streaming Fallback
 
-When MCP tools are unavailable or the repo exceeds 500 files in scope, use `--json=stream` (NEVER `--json` or `--json=pretty`) with line-by-line Python processing:
+When MCP tools are unavailable or the repo exceeds 500 files in scope, use `--json=stream` (not `--json` or `--json=pretty`, which load the whole result set into memory) with line-by-line Python processing:
 
 **Head cap selection:** The `| head -N` cap at the end of the pipeline controls how many exports are captured. Select `N` based on scope and tier:
 - **Default (Quick/Forge, any scope):** `N = 200`
@@ -205,11 +205,11 @@ for line in sys.stdin:
 " | head -{HEAD_CAP}
 ```
 
-**Critical constraints:**
+**Streaming constraints (these prevent OOM on large result sets):**
 
-- ALWAYS use `--json=stream` — never `--json` (loads entire array into memory)
-- ALWAYS process line-by-line (`for line in sys.stdin`) — never `json.load(sys.stdin)`
-- ALWAYS cap output with `| head -N` as a safety valve
+- Use `--json=stream`, not `--json` — the latter loads the entire array into memory
+- Process line-by-line (`for line in sys.stdin`), not `json.load(sys.stdin)`
+- Cap output with `| head -N` as a safety valve
 - For repos > 500 files, process in directory batches of 20-50 files each: split by top-level source directory, run the CLI streaming template per batch with the same head cap, then merge results and deduplicate by export name (keep the first occurrence if duplicates exist across batches)
 
 ### YAML Rule Recipes by Language

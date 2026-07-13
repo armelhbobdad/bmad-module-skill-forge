@@ -20,7 +20,7 @@ To assemble the best-effort SKILL.md document, context-snippet.md in Vercel-alig
 - Follow template structure exactly from {skillTemplateData}
 - Mark any sections with insufficient data as best-effort
 
-## MANDATORY SEQUENCE
+## Steps
 
 ### 1. Load Skill Template
 
@@ -35,7 +35,7 @@ Populate the SKILL.md section structure from `{skillTemplateData}` § "SKILL.md 
 
 **Frontmatter rules (agentskills.io compliance):**
 - `name`: lowercase alphanumeric + hyphens only, must match the skill output directory name. Prefer gerund form (`processing-pdfs`) for clarity.
-- `description`: non-empty, max 1024 chars, optimized for agent discovery. MUST use third-person voice ("Processes..." not "I can..." or "You can...").
+- `description`: non-empty, max 1024 chars, optimized for agent discovery. Use third-person voice ("Processes..." not "I can..." / "You can...") so it reads correctly in the agent's skill index.
 - No other frontmatter fields — only `name` and `description` for community skills
 
 **Per-section override wiring:**

@@ -61,7 +61,7 @@ Distinguish the failure class before reporting. In headless mode, every branch b
 **For local paths:**
 - Verify the directory exists
 - List the directory tree
-- If path doesn't exist: **HALT** — "**Error:** Directory not found at {path}. Verify the path is correct."
+- If the path does not exist: HALT (exit code 3, `halt_reason: "target-inaccessible"`) — "**Error:** Directory not found at {path}. Verify the path is correct." In headless mode, emit the error envelope per **step 5 §4b** with `halt_reason: "target-inaccessible"` before the HALT (pass the resolved `{skill_name}`, or the `"unknown"` placeholder documented in §4b if it is not yet set), matching the GitHub-target failure branches above so a missing local path surfaces the same `SKF_BRIEF_RESULT_JSON` failure class.
 
 Display: "**Resolving target...**"
 
@@ -135,7 +135,9 @@ The script returns `{language, confidence, detection_source, fallback_to_extensi
 **Confidence:** {confidence}
 **Detection source:** {detection_source}"
 
-If `confidence` is `low` (or `unknown` is returned for `language`): flag for user override in step 03 §4.
+**Headless language override.** If `language_hint` was supplied as a headless argument, use it as the confirmed `{language}` (overriding the detected value) and carry it forward to §4 and step 03. The detector still runs so the "Detected language" line reflects what the source signals, but the explicit hint wins and the step 03 §4 low-confidence override does not fire. When `language_hint` is absent, carry the detected `{language}` forward.
+
+If `confidence` is `low` (or `unknown` is returned for `language`) and no `language_hint` was supplied: flag for user override in step 03 §4.
 
 ### 4. List Top-Level Modules and Exports
 

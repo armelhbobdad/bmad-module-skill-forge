@@ -50,7 +50,7 @@ These rules apply to every step in this workflow:
 |--------|--------|
 | **Inputs** | architecture_doc_path [required], vs_report_path [optional] |
 | **Flags** | `--headless` / `-H` (auto-resolve all gates); `--architecture-doc <path>` (skip step 1 prompt for the required input); `--vs-report-path <path>` (skip step 1 prompt for the optional VS report); `--scope-skills <names>` (comma-separated in-scope skill names; overrides scope derivation in gap analysis) |
-| **Gates** | step 1: Input Gate [use args] | step 5: Review Gate [C] continue / [X] cancel |
+| **Gates** | step 1: Input Gate [use args] | step 5: Review Gate [C] continue / [X] cancel | step 6: Exit menu [R] review / [X] exit |
 | **Outputs** | `refined-architecture-{arch_project_name}.md` at `{outputFolderPath}` (`{arch_project_name}` = the architecture doc's frontmatter `project_name`, else config `project_name` — resolved in init.md), plus `refine-architecture-result-{timestamp}.json` and `refine-architecture-result-latest.json` |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. Per-flag args (`--architecture-doc`, `--vs-report-path`) consumed at the gates that would otherwise prompt. |
 | **Exit codes** | See "Exit Codes" below |
@@ -116,7 +116,7 @@ SKF_REFINE_ARCHITECTURE_RESULT_JSON: {"status":"success|error","refined_path":"�
 
    Also apply the array surfaces (not silent no-ops): run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts), then run `workflow.activation_steps_append` after activation.
 
-5. **Pre-flight config + write probe.** Assert both output paths are configured, THEN probe writability — order matters: an empty path makes `mkdir -p ""` fail, which would misreport a *missing config* (exit 3) as a *write failure* (exit 4) and collapse the distinction the Result Contract draws.
+5. **Pre-flight config + write probe.** Assert both output paths are configured, then probe writability — order matters: an empty path makes `mkdir -p ""` fail, which would misreport a *missing config* (exit 3) as a *write failure* (exit 4) and collapse the distinction the Result Contract draws.
 
    **Config-completeness (exit 3).** If `{outputFolderPath}` is empty: HALT (exit code 3, `halt_reason: "output-folder-unconfigured"`) — "`output_folder` is not configured in config.yaml. Add an `output_folder` path and re-run [RA]." If `{forge_data_folder}` is empty: HALT (exit code 3, `halt_reason: "forge-folder-unconfigured"`) — "`forge_data_folder` is not configured in config.yaml. Add a `forge_data_folder` path and re-run [RA]."
 

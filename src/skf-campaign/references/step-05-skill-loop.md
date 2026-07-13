@@ -25,7 +25,7 @@ Iterate skills in `dependency_graph.execution_order`, processing each Tier A ski
 - Update `campaign.current_stage` to `4`.
 - Update `campaign.last_updated` to current ISO-8601 with timezone on every write.
 - Write state after EACH skill completes (not just at end) — context death between skills must be survivable.
-- The per-skill pipeline body (§5.2) runs inline, not in a delegated subagent: AN→BS→CS→TS are nested skill activations, and a subagent cannot spawn further subagents. This is a deliberate constraint, not an oversight — inline keeps the full pipeline reachable and preserves NFR-2 (every skill's state is written before the next begins).
+- The per-skill pipeline body (§5.2) runs inline, not in a delegated subagent: AN→BS→CS→TS are nested skill activations, and a subagent cannot spawn further subagents — running inline keeps the full pipeline reachable and writes each skill's state before the next begins.
 - If `{headless_mode}` is true, auto-proceed through confirmation gates. Dependency gate blocks default to HALT (safest — never silently skip dependencies).
 
 ## TASKS

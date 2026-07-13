@@ -51,7 +51,7 @@ Parse the architecture document for statements describing two or more technologi
 - Look for data flow descriptions: "{A} sends data to {B}", "{A} results are consumed by {B}"
 - Look for layer boundary descriptions: "{A} at the API layer connects to {B} at the data layer"
 
-**Mermaid Diagram Handling:** See `{coveragePatternsData}` → "Mermaid Diagram Handling" for the canonical rule (single source of truth). Summary: do NOT parse Mermaid diagram syntax for co-mention detection; use only prose text.
+**Mermaid Diagram Handling:** See `{coveragePatternsData}` → "Mermaid Diagram Handling" for the canonical rule (single source of truth). Summary: do not parse Mermaid diagram syntax for co-mention detection; use only prose text.
 
 **Build integration pairs list:**
 - Each pair: `{library_a, library_b, architectural_context}`
@@ -63,10 +63,10 @@ Parse the architecture document for statements describing two or more technologi
 
 <!-- Subagent delegation: read SKILL.md files in parallel, return compact JSON -->
 
-For each library in an integration pair, delegate SKILL.md reading to a parallel subagent. Launch up to **8 subagents concurrently** (batch if needed — same 8-way cap as step 1 §2; keeps aggregate token window manageable while still parallelizing typical stack sizes). Each subagent receives one skill's SKILL.md path and MUST:
-1. Read the SKILL.md file
-2. Extract the API surface
-3. ONLY return this compact JSON — no prose, no extra commentary:
+For each library in an integration pair, delegate SKILL.md reading to a parallel subagent. Launch up to **8 subagents concurrently** (batch if needed — same 8-way cap as step 1 §2; keeps aggregate token window manageable while still parallelizing typical stack sizes). Each subagent receives one skill's SKILL.md path and:
+1. Reads the SKILL.md file
+2. Extracts the API surface
+3. Returns only this compact JSON — no prose, no extra commentary:
 
 ```json
 {
@@ -81,11 +81,11 @@ For each library in an integration pair, delegate SKILL.md reading to a parallel
 **Extraction rules for subagents:**
 - `skill_name`, `language`: mirror the skill's metadata fields
 - `exports`: exported functions with signatures, exported types/interfaces/classes (extracted from SKILL.md prose)
-- `protocols_inferred`: best-effort prose scan — protocol tokens mentioned in SKILL.md descriptions/examples. NOT a declared field in `metadata.json`
-- `data_formats_inferred`: best-effort prose scan — format tokens mentioned in SKILL.md descriptions/examples. NOT a declared field in `metadata.json`
+- `protocols_inferred`: best-effort prose scan — protocol tokens mentioned in SKILL.md descriptions/examples; not a declared field in `metadata.json`
+- `data_formats_inferred`: best-effort prose scan — format tokens mentioned in SKILL.md descriptions/examples; not a declared field in `metadata.json`
 - If a field has no matches, return an empty array `[]`
 
-**These fields are inferred, not declared.** `protocols` and `data_formats` do not exist in any skill's `metadata.json` — treat them as weak evidence from prose scanning only. When either list is used to justify compatibility in Check 2, the per-pair verdict MUST be capped at `Plausible` (see the schema's producer obligations — `{feasibilitySchemaRef}`).
+**These fields are inferred, not declared.** `protocols` and `data_formats` do not exist in any skill's `metadata.json` — treat them as weak evidence from prose scanning only. When either list is used to justify compatibility in Check 2, cap the per-pair verdict at `Plausible` (see the schema's producer obligations — `{feasibilitySchemaRef}`).
 
 **Schema validation (parent):** Each subagent response must contain the required keys (`skill_name`, `language`, `exports`). Reject responses missing required keys and exclude that skill from pair evaluation; if more than **20%** (same failure-budget threshold as step 1 §2; see the justification there) of subagent calls return malformed JSON, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) with "API-surface extraction unreliable — more than 20% of subagent reads returned malformed JSON. Re-run [VS] after skills stabilize." In headless, emit the error envelope.
 
@@ -107,7 +107,7 @@ For each integration pair `{library_a, library_b}`, run the four-check protocol 
 
 **Step-specific input for Check 2:** Check 2 draws only on the `protocols_inferred` / `data_formats_inferred` lists surfaced by the §3 subagent prose scan. A shared or complementary token (e.g., "HTTP client" ↔ "HTTP server") reads as inferred compatibility; no token on either side, or conflicting tokens with no adapter, flags a risk. Any pair whose compatibility rests on this inferred evidence caps at `Plausible` per §3.
 
-**Each verdict MUST include:**
+**Each verdict includes:**
 - Which checks passed and which flagged
 - Evidence citations: specific exports, types, or literal substrings from the skills
 - `source: stack manifest` or `source: prose co-mention` tag (per section 2)
@@ -158,10 +158,10 @@ For each integration pair `{library_a, library_b}`, run the four-check protocol 
 
 **Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`); in headless, emit the error envelope.
 
-Write the **Integration Verdicts** section to `{outputFile}` (heading is fixed — consumers grep for `## Integration Verdicts`; the table header MUST be the canonical `| lib_a | lib_b | verdict | rationale |` per `{feasibilitySchemaRef}`; the skill-local display table with the extra Context/Source/Evidence columns can be rendered beneath it for human readers):
-- Emit the canonical `| lib_a | lib_b | verdict | rationale |` table first (verdict tokens MUST be one of `Verified`, `Plausible`, `Risky`, `Blocked` — case-sensitive)
+Write the **Integration Verdicts** section to `{outputFile}` (heading is fixed — consumers grep for `## Integration Verdicts`; the table header is the canonical `| lib_a | lib_b | verdict | rationale |` per `{feasibilitySchemaRef}`, and consumers parse that exact header, so a different one breaks them; the skill-local display table with the extra Context/Source/Evidence columns can be rendered beneath it for human readers):
+- Emit the canonical `| lib_a | lib_b | verdict | rationale |` table first (verdict tokens are exactly one of `Verified`, `Plausible`, `Risky`, `Blocked`, case-sensitive — any other token is a schema violation consumers reject)
 - Include the extended table with Context, Source, and Evidence columns below it
-- Include recommendations for Risky and Blocked pairs (Blocked recommendations MUST cite a named candidate per step 5 H6, or the explicit no-candidate notice)
+- Include recommendations for Risky and Blocked pairs (each Blocked recommendation cites a named candidate per step 5 H6, or the explicit no-candidate notice)
 - Update frontmatter: append `'integrations'` to `stepsCompleted`; set `pairsVerified`, `pairsPlausible`, `pairsRisky`, `pairsBlocked` counts
 - Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`
 

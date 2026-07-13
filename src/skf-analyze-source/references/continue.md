@@ -55,7 +55,7 @@ Load {outputFile} and read frontmatter:
 
 ### 4. Determine Next Step
 
-**IF the report's `mode` is `'auto'`** (produced by the auto-scope path; reached here because the resume invocation did not carry `[auto]`): an auto analysis is a single idempotent pass, not a resumable interactive chain. Do NOT use the interactive table below.
+**IF the report's `mode` is `'auto'`** (produced by the auto-scope path; reached here because the resume invocation did not carry `[auto]`): an auto analysis is a single idempotent pass, not a resumable interactive chain. Do not use the interactive table below.
 - If `auto-scope` is in `stepsCompleted`, the auto analysis already completed — announce "**This auto analysis is already complete.** Would you like to start a new analysis?" and stop.
 - Otherwise (an auto run interrupted before auto-scope finished), re-enter the auto path: load, read fully, then execute `step-auto-scope.md` (it reads the existing report frontmatter and re-runs cleanly). **STOP HERE.**
 
@@ -82,12 +82,5 @@ lastContinued: '{current_date}'
 
 "**Resuming from {next_step_name}...**"
 
-#### Menu Handling Logic:
-
-- After progress is confirmed, immediately load, read entire file, then execute the appropriate step from {nextStepOptions}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed continuation step
-- Route directly to the next incomplete step
+Auto-proceed: immediately load, read the entire file, then execute the next incomplete step from {nextStepOptions}.
 

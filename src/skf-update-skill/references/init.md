@@ -5,8 +5,8 @@ manualSectionRulesFile: 'references/manual-section-rules.md'
 # candidate exists. §5 uses its `manual-inventory` subcommand to capture the
 # exact pre-write [MANUAL] inventory (per-block byte-exact interior hashes),
 # which write.md §1 (HALT gate) and validate.md Check B later verify against.
-# Falling back to an LLM marker-count would re-introduce the blind spot where
-# an interior truncation with an unchanged marker count passes silently.
+# An LLM marker-count would miss an interior truncation that leaves the marker
+# count unchanged.
 hashContentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'

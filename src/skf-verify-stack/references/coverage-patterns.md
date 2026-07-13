@@ -22,4 +22,4 @@ Parse document section headers for technology groupings:
 - `## Backend Core` → technologies in backend layer
 - `## AI Layer` → AI-related technologies
 
-**Mermaid Diagram Handling:** Do NOT parse Mermaid diagram syntax (`graph`, `flowchart`, `sequenceDiagram`, etc.) for technology detection. Only use prose text (headings, paragraphs, lists, tables) for detection. If the architecture document appears to list technologies exclusively inside Mermaid diagrams, note this in the coverage results as a detection limitation and recommend the user add prose-based technology listings.
+**Mermaid Diagram Handling:** Do not parse Mermaid diagram syntax (`graph`, `flowchart`, `sequenceDiagram`, etc.) for technology detection — use only prose text (headings, paragraphs, lists, tables). If the architecture document appears to list technologies exclusively inside Mermaid diagrams, note this in the coverage results as a detection limitation and recommend the user add prose-based technology listings.

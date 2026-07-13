@@ -20,7 +20,7 @@ To display the final compilation summary — skill name, version, source, export
 
 - Focus only on reporting compilation results — do not modify any files
 - Deliver structured report with confidence breakdown
-- Chains to the local health-check step via `{nextStepFile}` after completion (non-batch mode, or after the final batch brief) — the user-facing report is NOT the terminal step
+- Chains to the local health-check step via `{nextStepFile}` after completion (non-batch mode, or after the final batch brief) — the user-facing report is not the terminal step
 
 ## MANDATORY SEQUENCE
 
@@ -136,7 +136,7 @@ Log success or failure to `workflow_warnings[]` but never fail the workflow on a
 
 The success-variant contract above is only reached at step 8. The ~10 HARD HALT conditions in steps 1–7 (forge-config missing, no brief, brief invalid, source not found, prerequisite failure in load-brief; atomic/detect/auth helper unresolved and the Tier-1 split-count drop in extract/validate; the non-symlink active-link refusal in generate-artifacts) otherwise print a human string and exit with **no machine-readable outcome** — a pipeline polling `create-skill-result-latest.json` cannot distinguish "halted at brief-invalid" from "still running" from "crashed". Mirror skf-quick-skill: **whenever `{headless_mode}` is true, every HARD HALT must surface an error-variant result before exiting.**
 
-**Always (every HARD HALT under `{headless_mode}`, regardless of phase)** — emit a single line on **stderr** (one line, no pretty-print; matches the prefix-and-envelope convention used by `skf-emit-result-envelope.py`):
+**For every HARD HALT under `{headless_mode}` (regardless of phase)** — emit a single line on **stderr** (one line, no pretty-print; matches the prefix-and-envelope convention used by `skf-emit-result-envelope.py`):
 
 ```
 SKF_CREATE_SKILL_RESULT_JSON: {"status":"failed","phase":"<step-slug>","outputs":{},"summary":{"halt_reason":"<short class>","evidence_report":"<path-or-null>"},"skill_package":"<path-or-null>"}
@@ -152,7 +152,7 @@ When `{headless_mode}` is false, HARD HALTs display their human message only —
 
 **If not batch mode (or all batch briefs complete):**
 
-ONLY WHEN the compilation report, warnings (if any), recommended next steps, and result contract have been handled will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the report reads as final.
+Only after the compilation report, warnings (if any), recommended next steps, and result contract have been handled do you load `{nextStepFile}`, read it fully, and execute it. The health-check step is the true terminal step — do not stop here even though the report reads as final.
 
 **If batch mode with remaining briefs:** Skip the health-check chain — load and execute `references/load-brief.md` for the next brief instead. The health check runs only after the final brief in the batch.
 

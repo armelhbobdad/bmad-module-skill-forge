@@ -123,7 +123,7 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
 
    If fetch or checkout fails, proceed to the **ephemeral fallback** (step 5).
 
-   **If `{workspace_repo_path}/.git/` does NOT exist (workspace miss):**
+   **If `{workspace_repo_path}/.git/` does not exist (workspace miss):**
 
    Clone the repository into the workspace for persistent reuse. Create the parent directory first (`{workspace_root}/repos/{host}/{owner}/`):
 
@@ -131,7 +131,7 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
    mkdir -p "{workspace_root}/repos/{host}/{owner}/"
    ```
 
-   Clone with the appropriate branch flag — `--branch` is only valid for real branch/tag names, not for `HEAD`. **Do NOT pass `--single-branch`** here: workspace clones are persistent and re-used for future forges with different `source_ref` values (a later run may target a different tag or branch). A single-branch workspace clone would force every re-forge with a new ref to fall through to ephemeral cloning, defeating the workspace cache:
+   Clone with the appropriate branch flag — `--branch` is only valid for real branch/tag names, not for `HEAD`. **Do not pass `--single-branch`** here: workspace clones are persistent and re-used for future forges with different `source_ref` values (a later run may target a different tag or branch). A single-branch workspace clone would force every re-forge with a new ref to fall through to ephemeral cloning, defeating the workspace cache:
 
    ```
    # If source_ref is a real branch or tag (not HEAD/null):
@@ -216,7 +216,7 @@ Also store `source_ref` in context (from tag resolution above, or `HEAD` if no t
 
 ## Version Reconciliation (all tiers, source mode only)
 
-**Target version override:** If `brief.target_version` is present, use it as the authoritative version for the skill. Do NOT warn about a brief-vs-source version mismatch — the user intentionally specified this version. Set the working version to `brief.target_version` and skip the rest of this reconciliation section. The `target_version` field indicates deliberate user intent (e.g., targeting an older version, or providing the version for a docs-only skill).
+**Target version override:** If `brief.target_version` is present, use it as the authoritative version for the skill. Do not warn about a brief-vs-source version mismatch — the user intentionally specified this version. Set the working version to `brief.target_version` and skip the rest of this reconciliation section. The `target_version` field indicates deliberate user intent (e.g., targeting an older version, or providing the version for a docs-only skill).
 
 **If `source_type: "docs-only"`:** skip this section — no source files exist to reconcile.
 

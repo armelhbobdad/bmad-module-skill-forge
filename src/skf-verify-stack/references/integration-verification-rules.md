@@ -12,9 +12,9 @@ Token set is defined canonically in the SKF shared feasibility report schema (`_
 
 | Verdict       | Meaning                                                                                        | Required Evidence                                                                                                                                                                                                                                                   |
 |---------------|------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Verified**  | APIs demonstrably connect AND docs cross-reference each other                                  | Check 1 (language) passes with declared evidence; Check 3 (types) passes from cited `exports` signatures; **Check 4 (docs cross-reference) MUST pass with a literal substring/name citation** — without Check 4 evidence, cap at `Plausible`. Check 2 is best-effort only and cannot by itself promote to `Verified`. |
+| **Verified**  | APIs demonstrably connect and docs cross-reference each other                                  | Check 1 (language) passes with declared evidence; Check 3 (types) passes from cited `exports` signatures; **Check 4 (docs cross-reference) passes with a literal substring/name citation** — without Check 4 evidence, cap at `Plausible`. Check 2 is best-effort only and cannot by itself promote to `Verified`. |
 | **Plausible** | Checks pass but rely on inferred or indirect evidence                                          | Language + type checks pass; Check 2 uses inferred `protocols_inferred`/`data_formats_inferred` (prose scan); Check 4 is weak or missing (no literal cross-reference). This is the mandatory cap whenever Check 4 does not surface a literal citation.             |
-| **Risky**     | Type mismatch, protocol gap, or language boundary requiring a bridge                           | A clear gap exists (e.g., TypeScript↔Rust FFI needed) but a workaround is architecturally feasible — a named workaround MUST be cited in the recommendation                                                                                                        |
+| **Risky**     | Type mismatch, protocol gap, or language boundary requiring a bridge                           | A clear gap exists (e.g., TypeScript↔Rust FFI needed) but a workaround is architecturally feasible — cite a named workaround in the recommendation                                                                                                                 |
 | **Blocked**   | Fundamental incompatibility — no feasible integration path even with a bridge or adapter layer | The two libraries cannot exchange data in any documented way; requires replacing one of the libraries                                                                                                                                                              |
 
 **Promotion rule:** `Verified` requires Check 4 evidence. If Checks 1 and 3 pass but Check 4 fails (no literal substring/name citation from either skill's SKILL.md), the verdict is capped at `Plausible`. This rule is enforced by step 3 §4 and is the producer obligation declared in the shared schema.
@@ -54,15 +54,15 @@ For each integration pair (Library A ↔ Library B):
 
 - Search Skill A's SKILL.md for a literal substring/name citation of Library B
 - Search Skill B's SKILL.md for the reciprocal citation
-- Accept literal names or aliases declared in that skill's metadata; do NOT accept paraphrase or fuzzy matches
-- A pass requires at least one literal citation in at least one direction; the exact substring and location MUST be recorded in the evidence block
-- If neither skill literally cites the other, Check 4 FAILS and the per-pair verdict MUST cap at `Plausible` (not `Verified`)
+- Accept literal names or aliases declared in that skill's metadata; a paraphrase or fuzzy match does not satisfy Check 4
+- A pass requires at least one literal citation in at least one direction; record the exact substring and location in the evidence block
+- If neither skill literally cites the other, Check 4 fails and the per-pair verdict caps at `Plausible` (not `Verified`)
 
 ---
 
 ## Verdict Evidence Format
 
-Each verdict MUST include:
+Each verdict includes:
 
 ```
 **{Library A} ↔ {Library B}: {VERDICT}**

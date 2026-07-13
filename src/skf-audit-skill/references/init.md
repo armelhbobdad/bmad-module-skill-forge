@@ -55,9 +55,9 @@ Which skill would you like to audit? Please provide the skill name or path."
 
      - **[N] Audit symlink target ({symlink_target})** — recommended. The drift report describes the version the skill currently resolves to.
      - **[M] Audit manifest version ({active_version})** — only useful when investigating the older version specifically.
-     - **[X] Abort** — halt without producing a report. Run `[EX] Export Skill` to reconcile the manifest before re-running audit-skill."
+     - **[X] Abort** — halt without producing a report (exit 6, `halt_reason: "user-cancelled"`). Run `[EX] Export Skill` to reconcile the manifest before re-running audit-skill."
 
-     Default is **[N]**. Headless mode auto-selects **[N]** with a loud log line: `"headless: manifest active_version ({active_version}) is older than symlink target ({symlink_target}); auditing symlink target. Run export-skill to reconcile."` This mirrors §5b's upstream-drift handling — when the manifest and the working tree disagree, the working tree is the more honest signal under automation.
+     Default is **[N]**. Headless mode auto-selects **[N]** with a loud log line: `"headless: manifest active_version ({active_version}) is older than symlink target ({symlink_target}); auditing symlink target. Run export-skill to reconcile."` When the manifest and on-disk state disagree, the working tree is the more honest signal under automation.
 
    - When the symlink target's provenance is **older** than (or equal to) the manifest's `last_exported`, the symlink predates the export — this is the normal post-export shape, no gate needed. Resolve to the manifest's `active_version`.
    - When only one of the two versions has a provenance map, resolve to the version that has one (the other is inert — auditing it would degrade to text-diff). Log the choice.
@@ -83,7 +83,7 @@ Load `{sidecar_path}/forge-tier.yaml` to detect available tools.
 
 **If file missing:**
 - "Setup-forge has not been run. Cannot determine tool availability. Run `[SF] Setup Forge` first."
-- HALT workflow
+- HALT with **exit 3**, `halt_reason: "forge-tier-missing"`. When `{headless_mode}`, emit the error envelope on **stderr** (shape per SKILL.md → Result Contract) and log: `"headless: forge-tier.yaml missing at {sidecar_path}; run setup-forge. Aborting."`
 
 **If found:**
 - Extract tier level: Quick / Forge / Forge+ / Deep
@@ -125,7 +125,7 @@ Search for provenance map at `{forge_data_folder}/{skill_name}/{active_version}/
   - `{source_root}`, `{baseline_commit}`, `{baseline_ref}` — used by §5 Resolve Source Path and §5b Detect Upstream Drift.
   - `{reexport_map}` — `{<internal>: <public>}` mapping consumed by `structural-diff.md` §1 to collapse public-API renames before diffing.
 
-  If the script exits non-zero, surface the stderr as a HARD HALT — the map is structurally invalid and downstream steps cannot proceed.
+  If the script exits non-zero, surface the stderr as a hard halt — the map is structurally invalid and downstream steps cannot proceed.
 
 **If missing at both paths:**
 - "No provenance map found for `{skill_name}`. This skill may not have been created by create-skill."
@@ -183,7 +183,7 @@ If `{legacy_stack_provenance}` is true: log a note that this stack uses v1 prove
 - Ask user: "Please provide the path to the current source code."
 - `baseline_commit` and `baseline_ref` are unavailable — §5b will short-circuit
 
-**Validate:** Confirm source directory exists and contains expected files.
+**Validate:** Confirm the source directory exists and is accessible. If it is missing or unreadable → HALT with **exit 3**, `halt_reason: "source-dir-missing"`. When `{headless_mode}`, emit the error envelope on **stderr** (shape per SKILL.md → Result Contract) and log: `"headless: source directory {source_root} from the provenance map no longer exists; aborting."`
 
 ### 5b. Detect Upstream Drift
 
@@ -306,6 +306,8 @@ Create `{outputFile}` from `{templateFile}`:
 - Populate frontmatter: skill_name, skill_path, source_path, forge_tier, date, user_name
 - Set `stepsCompleted: ['init']`
 - Fill Audit Summary skeleton with loaded baseline data
+
+If the write fails (read-only mount, disk full, permissions denied) → HALT with **exit 4**, `halt_reason: "write-failed"`. When `{headless_mode}`, emit the error envelope on **stderr** (shape per SKILL.md → Result Contract).
 
 ### 7. Present Baseline Summary and Confirm (User Gate)
 

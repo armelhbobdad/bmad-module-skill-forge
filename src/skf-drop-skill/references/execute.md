@@ -31,6 +31,10 @@ updateActiveSymlinkProbeOrder:
 # HALT in this step. Loaded in §1 so no error path depends on SKILL.md
 # remaining in context under compaction.
 headlessContract: 'headless-contract.md'
+# Deterministic recursive byte sizing + human formatting for `disk_freed`
+# (§4). Bundled with this skill; the same helper backs select.md §9b's
+# blast-radius preview, so gate and report agree on the method.
+dirSizesHelper: 'scripts/dir-sizes.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -171,17 +175,22 @@ Report: "**Rebuilt managed sections in:** {list of updated files}. {if any faile
 
 **If `drop_mode == "purge"`:**
 
-1. Initialize `files_deleted = []` and `bytes_freed = 0`.
+1. Initialize `files_deleted = []` and `delete_failures = []` (paths whose deletion was attempted but did not succeed).
 
-2. Also initialize `delete_failures = []` to track paths whose deletion was attempted but did not succeed.
+2. **Measure sizes before deleting anything.** Run the sizing helper once over `affected_directories` so each path's byte size is captured while it still exists:
+
+   ```bash
+   uv run {dirSizesHelper} sizes {each path in affected_directories, space-separated}
+   ```
+
+   Keep each `result.paths[].bytes` as `path_bytes[{path}]`; a path reported `exists: false` is already gone. If the helper is unavailable, fall back to `du -sb` per existing path.
 
 3. For each directory path in `affected_directories`:
    a. Verify the path is inside either `{skills_output_folder}` or `{forge_data_folder}` (defense in depth against accidental deletion of unrelated paths)
    b. If the directory does not exist, record it as "(already absent)" and continue
-   c. Compute the directory size in bytes before deletion (recursive sum)
-   d. Delete the directory recursively
-   e. Verify deletion succeeded (the path no longer exists)
-   f. Append the path to `files_deleted` and add its byte size to `bytes_freed`
+   c. Delete the directory recursively
+   d. Verify deletion succeeded (the path no longer exists)
+   e. Append the path to `files_deleted`
 
 4. **Version-level purge, single version:**
    - `{skills_output_folder}/{target_skill}/{version}/` is deleted, but `{skills_output_folder}/{target_skill}/` remains (it still contains other versions or the `active` symlink)
@@ -198,7 +207,13 @@ Report: "**Rebuilt managed sections in:** {list of updated files}. {if any faile
 5. **Skill-level purge:**
    - `{skills_output_folder}/{target_skill}/` and `{forge_data_folder}/{target_skill}/` are deleted in full — the `active` symlink disappears with the parent directory
 
-6. Convert `bytes_freed` to a human-readable string for the final report (e.g. `"4.2 MB"`). Store as `disk_freed`.
+6. Sum the sizes of the paths in `files_deleted` and format one human-readable label through the helper — do not add or round in-prompt:
+
+   ```bash
+   uv run {dirSizesHelper} humanize {path_bytes[p] for each p in files_deleted, space-separated}
+   ```
+
+   Store `result.total_human` as `disk_freed` (e.g. `"4.2 MB"`; `"0 B"` when nothing was deleted).
 
 **On deletion error (per path):**
 

@@ -1,6 +1,7 @@
 ---
 nextStepFile: 'step-hard-gate.md'
 outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
+externalScoreScript: 'scripts/combine-external-scores.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -25,7 +26,7 @@ Before running external validators, check if `{forge_data_folder}/{skill_name}/e
 - If the command fails (exit code non-zero) or git is not available, the file is either **untracked** (new, never committed) or we're in a **non-git environment**:
   - Check if `{skillDir}/metadata.json` exists and has a `generation_date` field
   - Compare `metadata.json` `generation_date` against the evidence report's generation date (from its frontmatter `generated` field or the `## Validation Results` timestamp)
-  - **Precision guard (mirror of the git-path Primary-cross check):** date-granularity equality is NOT proof of same-session generation. A same-day `update-skill` that regenerates SKILL.md *after* the cached evidence report was produced yields the same calendar date (e.g. `metadata.generation_date: 2026-05-23T00:00:00Z` vs evidence `generated: 2026-05-23`), so reusing on date-equality alone would publish pre-update scores for post-update content. Auto-reuse is safe **only** when BOTH timestamps carry a real time-of-day component — neither a date-only string (`2026-05-23`) nor a midnight-coerced `…T00:00:00Z` — AND they match to the minute. In that case auto-reuse: the evidence report was generated from the same SKILL.md content.
+  - **Precision guard (mirror of the git-path Primary-cross check):** date-granularity equality is not proof of same-session generation. A same-day `update-skill` that regenerates SKILL.md *after* the cached evidence report was produced yields the same calendar date (e.g. `metadata.generation_date: 2026-05-23T00:00:00Z` vs evidence `generated: 2026-05-23`), so reusing on date-equality alone would publish pre-update scores for post-update content. Auto-reuse is safe **only** when both timestamps carry a real time-of-day component — neither a date-only string (`2026-05-23`) nor a midnight-coerced `…T00:00:00Z` — AND they match to the minute. In that case auto-reuse: the evidence report was generated from the same SKILL.md content.
   - Otherwise — if either timestamp is date-only or midnight-coerced, if they differ, or if `metadata.json` is missing or has no `generation_date` — treat as stale and proceed to section 2 for a fresh run. Forcing a fresh run on ambiguous precision matches the git path's bias toward freshness over reusing possibly-stale scores.
   - Note: "Staleness check: SKILL.md is untracked/non-git — using metadata.json timestamp comparison (date-only/midnight timestamps force a fresh run)."
 - If the command succeeds (file is tracked by git), continue to Primary check below.
@@ -102,7 +103,7 @@ timeout 120s npx --no-install -y tessl skill review {skillDir}
 
 Timeout handling mirrors skill-check: exit `124` → `tessl_score: N/A` with reason `timeout-120s`. If the percentage regex (`/(Description|Content|Review Score):\s*(\d+)%/`) returns fewer than three matches, record `tessl_score: N/A` with reason `parse-failure` and include the first 200 chars of output in evidence-report for debugging.
 
-**Registry-404 branch:** if the invocation emits `npm error 404 Not Found` or the npx wrapper exits with a not-found condition, record `tessl_score: N/A` with reason `pin-not-on-registry` and continue. This branch exists because tessl has historically shipped under shifting scope/tag combinations; do not HALT the workflow on a missing registry entry.
+**Registry-404 branch:** if the invocation emits `npm error 404 Not Found` or the npx wrapper exits with a not-found condition, record `tessl_score: N/A` with reason `pin-not-on-registry` and continue. tessl has historically shipped under shifting scope/tag combinations, so a missing registry entry does not HALT the workflow.
 
 **Parse the output** to extract:
 - `description_score` — percentage (e.g., 100%)
@@ -123,17 +124,18 @@ Store in context: `tessl_description_score`, `tessl_content_score`, `tessl_revie
 
 ### 4. Calculate Combined External Score
 
-**If both tools ran:**
+The combined external score feeds `externalValidation` into the scoring script (step 5), so its mean is computed by a script, not in-prompt — an odd-sum average like `(80 + 73) / 2 = 76.5` is exactly where a hand round swings the verdict. Both scores are on the same 0-100 scale (skill-check quality score; tessl review percentage). Pass each score, or `null` when its tool did not run or returned N/A (`{externalScoreScript}` resolves relative to the skill root):
 
+```bash
+echo '{"skillCheckScore": <score or null>, "tesslReviewScore": <score or null>}' | uv run {externalScoreScript} --stdin
 ```
-external_score = (skill_check_score + tessl_review_score) / 2
-```
 
-Note: `skill_check_score` is 0-100, `tessl_review_score` is 0-100%. Both are on the same scale.
+Read the result — do not re-average by hand:
 
-**If only one tool ran:** Use that tool's score as the external score.
+- `externalScore` — the combined score: the mean when both tools ran, the single score when one ran, or `null` when neither ran (the scoring step redistributes the external-validation weight on `null`).
+- `toolsUsed[]` — the tools that contributed.
 
-**If neither tool ran:** Record `external_score: N/A`. The scoring step will redistribute the external validation weight.
+Record `external_score: N/A` when `externalScore` is `null`.
 
 ### 5. Append External Validation to Output
 

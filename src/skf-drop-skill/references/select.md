@@ -18,6 +18,10 @@ skillInventoryProbeOrder:
 # HALT in this step. Loaded in §1 so no error path depends on SKILL.md
 # remaining in context under compaction.
 headlessContract: 'headless-contract.md'
+# Deterministic recursive byte sizing + human formatting for the §9b
+# blast-radius line. Bundled with this skill (no probe order needed);
+# execute.md §4 reuses the same helper for the canonical `disk_freed`.
+dirSizesHelper: 'scripts/dir-sizes.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -77,7 +81,7 @@ Build and display a summary of every skill available to drop: every manifest-tra
 python3 {manifestOpsHelper} {skills_output_folder} affected-versions {skill-name}
 ```
 
-`result.affected_versions` is that skill's versions deduped and sorted numerically-descending (so `0.10.0` precedes `0.9.0` — the sort the LLM is unreliable at). Annotate each with its `status` from `manifest.exports.{skill-name}.versions.{version}.status` and mark `active_version` with a trailing `*`.
+`result.affected_versions` is that skill's versions deduped and sorted in the helper's numeric-descending order (see the frontmatter note). Annotate each with its `status` from `manifest.exports.{skill-name}.versions.{version}.status` and mark `active_version` with a trailing `*`.
 
 **On-disk (not-in-manifest) skills** come from the inventory helper. **Resolve `{skillInventoryHelper}`** ← first existing path in `{skillInventoryProbeOrder}`; it scans `{skills_output_folder}/` and computes the exports∪on-disk merge for you — do not re-scan the directory in the prompt:
 
@@ -238,13 +242,19 @@ If `drop_mode == "deprecate"`, record the list but present it as "retained" in t
 
 #### 9b. Compute Blast-Radius Metrics (for §10 summary)
 
-Compute three scalars to put in front of the path list at §10. The user's "I didn't know it would touch THAT" footgun is real — 12 paths can hide 50MB of on-disk content and a sweep across every IDE's managed section. A one-line summary makes the scale legible before the gate.
+Compute three scalars to put in front of the path list at §10, so the user sees the scale of an irreversible drop before scanning individual paths:
 
 1. **`versions_count`** — the number of skill versions in scope:
    - Version-level drop: `len(target_versions)` (typically `1`)
    - Skill-level drop: count of non-deprecated versions in `exports.{target_skill}.versions` (the deprecated ones are already absent from the active managed sections)
 
-2. **`bytes_total`** — recursive sum of byte sizes for every path in `affected_directories` that exists on disk. For each path, walk it and sum file sizes (`du -sb {path}` or equivalent). Skip non-existent paths silently — the §10 display is best-effort. Convert to a human-readable string for display (e.g. `"4.2 MB"`, `"812 KB"`); store the raw integer alongside as `bytes_total_raw` if a downstream step wants exact arithmetic. Defense in depth with execute.md §4 — that section will recompute per-path sizes for the canonical `disk_freed` reporting; this pre-compute is purely for the gate display and may slightly disagree if files change between gate and execute (acceptable for an "approximate" label).
+2. **`bytes_total`** — the on-disk size of `affected_directories`. Delegate the recursive sum and the human label to the sizing helper rather than adding file sizes in-prompt:
+
+   ```bash
+   uv run {dirSizesHelper} sizes {each path in affected_directories, space-separated}
+   ```
+
+   Read `total_human` (e.g. `"4.2 MB"`) as `bytes_total` and `total_bytes` as `bytes_total_raw`; non-existent paths report `exists: false` and drop out of the total. If the helper is unavailable, fall back to `du -sb` per path — the display is best-effort. execute.md §4 re-runs the same helper on the paths it actually deletes for the canonical `disk_freed`, so the two share one method and differ only if files change between this gate and execution.
 
 3. **`context_files_count`** — the number of distinct context files the §3 rebuild loop will rewrite:
    - Read `config.yaml.ides`
@@ -281,18 +291,15 @@ The `Scope:` line is the §9b-computed `blast_radius` rendered as one line. In `
 
 **Resolve `--dry-run` first — it takes precedence over the headless auto-confirm.** `--dry-run` and `--headless` can be combined (dry-run is the automated-preview path), so a dry-run run must always short-circuit to the preview below and never mutate, even when `{headless_mode}` is true.
 
-**If `--dry-run` was passed**: skip the Y/N prompt entirely — do not evaluate the headless auto-confirm gate. Display the `[DRY RUN]` line followed by a copy-pasteable selection memo so the user can capture this preview in their shell history and re-run it (interactively, picking the same values) when they're ready to commit:
+**If `--dry-run` was passed**: skip the Y/N prompt entirely — do not evaluate the headless auto-confirm gate. Display the `[DRY RUN]` line with the resolved selection, so the user can re-run interactively with the same values when ready to commit:
 
 ```
 **[DRY RUN] No changes were made — preview above shows what would be dropped.**
 
-To repeat this selection later:
+Resolved selection:
   Skill:   {target_skill}
   Version: {target_versions[0] if is_skill_level == false else "all"}
   Mode:    {Deprecate (soft) | Purge (hard)}
-
-Re-invoke `/skf-drop-skill {target_skill}` and re-select these values, or
-re-run with `--dry-run` to preview again.
 ```
 
 Then emit the success envelope per `{headlessContract}` with `status: "dry-run"`, the resolved `skill`, `drop_mode`, and `versions_affected`, then HALT (exit code 0). The manifest, filesystem, and context files are untouched.

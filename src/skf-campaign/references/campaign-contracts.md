@@ -10,13 +10,14 @@ Every HARD HALT exits with a stable, documented code so headless automators can 
 
 | Code | Meaning              | Raised by                                                   |
 | ---- | -------------------- | ----------------------------------------------------------- |
-| 0    | success              | step-11 (terminal)                                          |
+| 0    | success              | step-11 (terminal); step-resume §3–§4 (campaign already complete — nothing to resume) |
+| 2    | invalid-input        | step-01 §1 (no targets, or a malformed `--manifest` line); steps 02/03/04/06 §4 (a helper reports unreadable input or a required tool such as `gh` unavailable); step-resume §1/§3 (resume targets a missing campaign or unknown skill) |
 | 3    | invalid-state        | any step §1 (`campaign-validate-state.py` non-zero on load) |
-| 4    | circular-deps        | step-02 §5                                                  |
+| 4    | circular-deps        | step-02 §5 (a dependency cycle, or a dangling `depends_on` reference — either way the graph cannot be ordered) |
 | 5    | invalid-pin          | step-03 §5                                                  |
 | 6    | inaccessible-repo    | step-04 §5                                                  |
 | 7    | dependency-deadlock  | step-05 §4 (no skill ready and no recovery chosen)          |
-| 8    | missing-brief        | step-03/04/05 §2 (brief missing or unreadable)              |
+| 8    | missing-brief        | step-03/04/05 §2 and step-06 §4 (brief missing/unreadable, or a Tier B target has no matching brief entry) |
 | 9    | corrupt-state        | step-resume §1 (primary unrecoverable, `.bak` also invalid) |
 | 10   | report-failure       | step-11 §2 — **degraded only**: the report could not be generated; the campaign still completes and state stays intact (never a hard halt that discards a finished campaign) |
 | 11   | export-cancelled     | step-10 §4 (operator chose `[C]ancel` — graceful, resumable) |

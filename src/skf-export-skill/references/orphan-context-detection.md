@@ -46,7 +46,7 @@ Wait for user choice.
 For each file in `orphaned_context_files`:
 
 1. Replace everything between `<!-- SKF:BEGIN` and `<!-- SKF:END -->` (inclusive) with an empty string, preserving surrounding content byte-exactly.
-2. Append the file path to `orphans_cleared` (workflow-context list, surfaced in the §6 result contract).
+2. Append the file path to `orphans_cleared`. On a non-empty list, record it in the §6 result contract as a `deviations[]` entry (`kind: "clear_orphan_context"`, `files: [...]`) — the extensible deviations mechanism summary.md §6 documents for choices that diverge from the canonical export path.
 
 ### (b) keep
 
@@ -58,7 +58,7 @@ Add each entry in `orphaned_context_files` to a separate `rewrite_context_files`
 
 Use `.agents/skills/` as the default skill root for rewritten orphans (the IDE-neutral path used when the original IDE mapping is no longer available).
 
-Record each rewritten file in `orphans_rewritten` (workflow-context list, surfaced in the §6 result contract).
+Record each rewritten file in `orphans_rewritten`. On a non-empty list, record it in the §6 result contract as a `deviations[]` entry (`kind: "rewrite_orphan_context"`, `files: [...]`) — the same extensible deviations mechanism summary.md §6 documents.
 
 ## Downstream contract
 

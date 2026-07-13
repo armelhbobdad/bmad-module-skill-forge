@@ -36,6 +36,10 @@ provenanceGapDispatchProbeOrder:
 detectScriptsAssetsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-scripts-assets.py'
   - '{project-root}/src/shared/scripts/skf-detect-scripts-assets.py'
+# `{newFileDiffHelper}` derives NEW_FILE (inventory source_files not in the
+# provenance map, minus [MANUAL] paths) — the set-difference §Category D would
+# otherwise ask the model to compute by hand. Per-skill helper, always bundled.
+newFileDiffHelper: 'scripts/skf-new-file-diff.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -177,7 +181,7 @@ Read the source directory at `{source_root}` and build a current file inventory:
 
 **Record for evidence report:** the update-skill evidence report appends `authoritative_files_mirror: {candidates: N, promoted: P, skipped: S, pre_decided: A, already_tracked: T, decisions: [{path, action, heuristic, reason}]}`.
 
-**Interaction with §2 change detection:** promoted docs live in `promoted_docs_new[]`, NOT in the change manifest. But §2 Category A ("files in source but not in provenance map → ADDED") would still find the promoted doc files on disk and classify them as ADDED if nothing prevents it. The coordination mechanism is an explicit pre-filter exclusion set built in §2.0 (below) that every Category A subprocess worker receives as an input before it starts scanning. See §2.0 for the exact contract. The exclusion set is the only mechanism guaranteeing that parallel subprocesses cannot double-count `promoted_docs_new[]` paths — prose-level "skip any path" instructions cannot cross subprocess boundaries.
+**Interaction with §2 change detection:** promoted docs live in `promoted_docs_new[]`, not in the change manifest. §2.0's `change_detection_excludes` set (built below) is what stops §2 Category A from re-classifying them as ADDED — it is the only coordination that survives across the parallel Category A subprocesses.
 
 ### 1c. Major-Version Scope Reconciliation (Pre-Detection)
 
@@ -233,7 +237,7 @@ Read the source directory at `{source_root}` and build a current file inventory:
      - `status: "pre-decided-demoted"` → record as `pre_decided`; do not re-prompt (`prior_action` ∈ `demoted-include`, `demoted-exclude`).
      - `status: "unresolved"` → continue to step 4 (user prompt).
 
-   **Note:** the Out-of-Scope section is an optional audit-skill output. `skf-audit-skill` does not currently discover new files (per `src/skf-audit-skill/references/re-index.md` — new-file detection is the responsibility of update-skill). The section is a forward-looking integration point: manual additions or a future audit-skill enhancement populate it.
+   **Note:** the Out-of-Scope section is an optional audit-skill output and is often absent or empty — new-file detection is update-skill's job (§1b/§2.2), not audit-skill's — so the `no-report` / `no-candidates` paths above are the common case.
 
 3. **Prompt for each unresolved candidate.** Present the same menu shape as §1b:
 
@@ -358,15 +362,14 @@ Translate the helper's output into the change manifest:
 - `DELETED_FILE` rows → add to manifest as DELETED_FILE
 - `UNCHANGED` rows → omit from the manifest (no action needed)
 
-The helper does NOT detect NEW_FILE — its job is provenance comparison only. Detect new files by running the same deterministic detector create-skill step 3 §4c uses (resolved via `detectScriptsAssetsProbeOrder`) against the current source tree:
+The compare helper reports only tracked files; NEW_FILE detection (a file present in source but absent from the provenance map) is a set-difference, so it runs through a script rather than the prompt. Pipe the same deterministic detector create-skill step 3 §4c uses (resolved via `detectScriptsAssetsProbeOrder`) into `{newFileDiffHelper}`, which subtracts the provenance map's `file_entries[].source_file` and sets aside user-authored `[MANUAL]` paths:
 
 ```bash
-uv run {detectScriptsAssetsHelper} detect <source-root>
+uv run {detectScriptsAssetsHelper} detect <source-root> \
+    | uv run {newFileDiffHelper} {forge_version}/provenance-map.json
 ```
 
-It emits `scripts_inventory[]` and `assets_inventory[]` (each entry carries `source_file`). Take every `source_file` across both inventories, then subtract the paths already present in `provenance.file_entries[].source_file`. Of the remaining files, those matching detection patterns (`scripts/`, `bin/`, `assets/`, `templates/`) and NOT under `scripts/[MANUAL]/` or `assets/[MANUAL]/` are NEW_FILE.
-
-Files in `scripts/[MANUAL]/` or `assets/[MANUAL]/` → SKIP (user-authored, preserved).
+It emits `{"new_files":[{source_file, kind}], "skipped_manual":[...], "already_tracked":[...], "stats":{...}}`. Add each `new_files[]` entry to the manifest as NEW_FILE — `kind` (`script`/`asset`) selects the target array. `skipped_manual[]` are user-authored files under `scripts/[MANUAL]/` or `assets/[MANUAL]/`, preserved and not touched; `already_tracked[]` were handled by the compare above.
 
 Aggregate all subprocess results into a unified change manifest.
 

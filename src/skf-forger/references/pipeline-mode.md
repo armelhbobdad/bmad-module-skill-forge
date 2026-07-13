@@ -6,9 +6,9 @@ Load `shared/references/pipeline-contracts.md` for the alias-expansion table, th
 
 ## Activation
 
-1. **Parse the sequence** — split the codes, expand known aliases per the pipeline-contracts.md alias table (loaded above), and extract bracket arguments (`CS[cocoindex]`, `TS[min:80]`). The deprecated alias `deepwiki` (→ `forge-auto`, with a deprecation notice) and the removed alias `onboard` (→ HALT) are caught at recognition time before this procedure runs, so the sequence reaching this step is already normalized.
+1. **Parse the sequence** — run `uv run scripts/parse-pipeline.py '<sequence>'` (from the skf-forger skill root). It tokenizes (space or arrow separated), expands aliases, classifies each bracket argument (`CS[cocoindex]` → target, `TS[min:80]` → circuit-breaker override, `AN[auto]` → mode flag), and returns the normalized `plan`/`codes` plus any `anti_patterns` as JSON. Consume that output rather than re-deriving the expansion or checks by hand. `deepwiki`/`onboard` are already resolved at recognition before this procedure runs, so the sequence reaching this step is normalized. If the script cannot run, fall back to expanding aliases against the pipeline-contracts.md alias table and applying its anti-pattern table by hand.
 
-2. **Validate the sequence** — check for anti-patterns (EX before TS, CS without BS, duplicates) per the pipeline-contracts.md anti-pattern table. If found, warn the user and ask to confirm or adjust. In `{headless_mode}`, warn but proceed.
+2. **Validate the sequence** — the parse output's `anti_patterns` array already lists any matches (EX before TS, CS without a brief, duplicate codes, US without AS), each with a message and suggestion. If it is non-empty, warn the user and ask to confirm or adjust. In `{headless_mode}`, warn but proceed.
 
 3. **Force `{headless_mode}` = true** — pipelines auto-activate headless mode for every workflow in the chain; the user committed to the sequence by providing it.
 
@@ -21,7 +21,7 @@ Load `shared/references/pipeline-contracts.md` for the alias-expansion table, th
 
 5. **Pipeline summary** — after all workflows complete (or on halt), present: completed workflows with key outputs; the failed/halted workflow (if any) with its halt reason; remaining unexecuted workflows; and a next-steps recommendation.
 
-6. **Result contract** — write the pipeline result contract per `shared/references/output-contract-schema.md`: the per-run record at `{sidecar_path}/pipeline-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{sidecar_path}/pipeline-result-latest.json` (stable path for consumers — copy, not symlink). Include one entry per completed workflow in `outputs` (each referencing that workflow's own `-latest.json` record); record per-step status and the overall pipeline status (`summary.status` — one of `success`, `failed`, or `partial`) in `summary`. A `failed`/`partial` status plus the per-step record is what the forger's On Activation resume check reads to offer continuation of the remaining workflows.
+6. **Result contract** — write the pipeline result contract per `shared/references/output-contract-schema.md`: the per-run record at `{sidecar_path}/pipeline-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{sidecar_path}/pipeline-result-latest.json` (stable path for consumers — copy, not symlink). Include one entry per completed workflow in `outputs` (each referencing that workflow's own `-latest.json` record); record per-step status for every workflow in the sequence — completed, halted, and not-yet-run — plus the overall pipeline status (`summary.status` — one of `success`, `failed`, or `partial`) in `summary`. On a `failed`/`partial` status, the forger's On Activation resume check reads that per-step record to offer continuation of the not-yet-run workflows.
 
 ## forge-auto argument passing
 

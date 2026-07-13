@@ -95,9 +95,9 @@ HALT — do not proceed.
 1. `{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py` (installed module layout)
 2. `{project-root}/src/shared/scripts/skf-validate-frontmatter.py` (development-tree layout)
 
-Use the FIRST path that exists as `{frontmatterScript}`. There is no manual fallback.
+Use the first path that exists as `{frontmatterScript}`. There is no manual fallback.
 
-**If neither path exists, HALT** with the diagnostic below. test-skill is a quality gate; without the deterministic validator it cannot produce a trustworthy frontmatter verdict, and silent manual checks have been known to miss subtle spec drift. The missing helper must be restored before testing continues:
+**If neither path exists, HALT** with the diagnostic below. test-skill is a quality gate; without the deterministic validator it cannot produce a trustworthy frontmatter verdict, and a silent manual check can miss subtle spec drift. The missing helper must be restored before testing continues:
 
 ```
 Error: cannot locate skf-validate-frontmatter.py at either of:
@@ -110,7 +110,9 @@ SKF module (`skf init`) or run from a development checkout with src/ present.
 
 Do not proceed. No partial test report is written.
 
-**3b. Run the validator (30s timeout — deterministic validator should finish in <1s; the cap only guards against runaway python).** Invoke via `uv run` so the script's PEP 723 PyYAML dependency resolves automatically; bare `python3` would fail with `ModuleNotFoundError: No module named 'yaml'` on a fresh interpreter (`docs/getting-started.md` documents uv as the runtime prereq for exactly this).
+**3b. Python runtime probe (before invoking the validator).** Confirm both `python3` and `uv` are on `$PATH` (`command -v python3` and `command -v uv`). Both are required: `uv run` shells through to `python3` and honors the script's PEP 723 PyYAML dependency declaration that bare `python3` ignores (bare `python3` fails with `ModuleNotFoundError: No module named 'yaml'` on a fresh interpreter — `docs/getting-started.md` documents uv as the runtime prereq for exactly this). If either is missing, set `analysis_confidence: degraded` in workflow context and carry a **score cap** into step 5: `capped_score = threshold - 1` → forces auto-FAIL until the runtime is restored. Record the reason in evidence-report and the test report frontmatter (`analysisConfidence: degraded`, `toolingStatus: python3-missing` or `uv-missing` as appropriate). `uv` is a documented runtime prerequisite — see `docs/getting-started.md` for install instructions.
+
+**3c. Run the validator (30s timeout — the deterministic validator should finish in <1s; the cap only guards against runaway python).**
 
 ```bash
 timeout 30s uv run {frontmatterScript} {resolved_skill_package}/SKILL.md --skill-dir-name {skill_name}
@@ -125,7 +127,7 @@ Parse the JSON output. Treat each `status` value explicitly:
 
 - `status: "pass"` — continue silently.
 - `status: "warn"` — display the warning below, log each issue as a pre-check finding, and continue with testing. Frontmatter issues surface in the gap report alongside coverage/coherence findings.
-- `status: "fail"` — **HALT with auto-FAIL.** Frontmatter failure indicates the skill will be rejected by `npx skills add` and `npx skill-check check`; shipping it would produce a false PASS downstream. Write the halt note into the evidence-report and exit the workflow. If `{headless_mode}`, set `testResult: fail` in the output frontmatter before exiting so the result contract records the terminal state.
+- `status: "fail"` — **HALT with auto-FAIL.** Frontmatter failure means the skill will be rejected by `npx skills add` and `npx skill-check check`; shipping it would produce a false PASS downstream. Write the halt note into evidence-report and exit non-zero. This abort happens before the output document exists (created in §6), so it emits no result-contract envelope — SKILL.md's Result Contract marks the frontmatter abort as outside the branchable set.
 
 ```
 **Warning/Error: SKILL.md frontmatter is non-compliant with agentskills.io specification.**
@@ -134,8 +136,6 @@ Parse the JSON output. Treat each `status` value explicitly:
 
 This skill will fail `npx skills add` and `npx skill-check check`. {If warn:} Consider fixing frontmatter before proceeding (run `npx skill-check check <skill-dir> --fix` to auto-fix deterministic issues). {If fail:} test-skill cannot proceed — halt and repair frontmatter, then re-run.
 ```
-
-**3c. Python runtime probe.** Before the first invocation, confirm both `python3` AND `uv` are on `$PATH` (`command -v python3` and `command -v uv`). Both are required: `uv run` shells through to `python3` under the hood AND honors the script's PEP 723 PyYAML dependency declaration that bare `python3` ignores. If either is missing, set `analysis_confidence: degraded` in workflow context and carry a **score cap** into step 5: `capped_score = threshold - 1` → forces auto-FAIL until the runtime is restored. Record the reason in evidence-report and the test report frontmatter (`analysisConfidence: degraded`, `toolingStatus: python3-missing` or `uv-missing` as appropriate). `uv` is a documented runtime prerequisite — see `docs/getting-started.md` for install instructions.
 
 ### 4. Load Forge Tier State
 
@@ -181,7 +181,7 @@ Test-skill reads `source_path` during coverage and coherence analysis. If the lo
 
 - Resolve `pinned_commit` from `metadata.source_commit`.
 - **If `pinned_commit` is null, empty, or `"local"`:** skip the guard; log `workspace_drift_check: skipped (no pinned commit)` and continue to section 6.
-- **If `pinned_commit` is a per-repo map (stack skills):** iterate each `{repo_path: commit}` entry — for each repo run `git -C "{repo_path}" rev-parse HEAD` and compare to its pinned commit (accept full-SHA or short-SHA-prefix match). If ANY repo diverges and the user did not pass `--allow-workspace-drift`, HALT with exit status `workspace-drift` listing every mismatched repo (in `{headless_mode}`, emit the same `workspace-drift` stderr envelope shown in the single-tree branch below before halting). On all-match: log `workspace_drift_check: ok (stack, {N} repos verified)` and continue to section 6. This guard MUST iterate every repo — do not skip stack skills.
+- **If `pinned_commit` is a per-repo map (stack skills):** iterate each `{repo_path: commit}` entry — for each repo run `git -C "{repo_path}" rev-parse HEAD` and compare to its pinned commit (accept full-SHA or short-SHA-prefix match). If ANY repo diverges and the user did not pass `--allow-workspace-drift`, HALT with exit status `workspace-drift` listing every mismatched repo (in `{headless_mode}`, emit the same `workspace-drift` stderr envelope shown in the single-tree branch below before halting). On all-match: log `workspace_drift_check: ok (stack, {N} repos verified)` and continue to section 6. This guard must iterate every repo — do not skip stack skills.
 - **If `source_path` is not a git working tree** (bare checkout, tarball extract, docs-only source) — detect by `git -C "{source_path}" rev-parse --is-inside-work-tree`, non-zero exit means skip: log `workspace_drift_check: skipped (not a git working tree)` and continue to section 6.
 - **Otherwise** run `git -C "{source_path}" rev-parse HEAD` and compare to `pinned_commit`. Accept full-SHA or short-SHA-prefix match (stored pins are often 8-char short hashes — see `src/knowledge/provenance-tracking.md`).
   - **On match:** log `workspace_drift_check: ok ({short_sha})` and continue.
@@ -214,7 +214,7 @@ Test-skill reads `source_path` during coverage and coherence analysis. If the lo
 
 ### 6. Create Output Document
 
-**6a. Generate `{run_id}`**: a per-run identifier of the form `{YYYYMMDDTHHmmssZ}-{pid}-{rand4}` (UTC timestamp + process PID + 4-char random hex). Store in workflow context. All per-run artifacts in this and subsequent steps MUST carry this suffix; step 6 verifies `testDate` in the resulting report matches the run's stamp and fail-fast otherwise.
+**6a. Generate `{run_id}`**: a per-run identifier of the form `{YYYYMMDDTHHmmssZ}-{pid}-{rand4}` (UTC timestamp + process PID + 4-char random hex). Store in workflow context. All per-run artifacts in this and subsequent steps must carry this suffix; step 6 verifies `testDate` in the resulting report matches the run's stamp and fail-fast otherwise.
 
 **6b. Acquire the per-skill test lock**: `flock {forge_version}/.test-skill.lock` for the duration of this run to serialize concurrent `skf-test-skill` invocations against the same skill. If the lock is already held by another run, HALT with "another test-skill run is active for {skill_name}". **Headless envelope (if `{headless_mode}`):** emit to **stderr** before halting:
 
@@ -246,15 +246,7 @@ nextWorkflow: ''
 
 ### 7. Report Initialization Status
 
-"**Test initialization complete.**
-
-**Skill:** {skill_name}
-**Path:** {skill_path}
-**Type:** {skill_type}
-**Forge Tier:** {detected_tier}
-**Source:** {source_path}
-
-**Proceeding to mode detection...**"
+Report initialization to the user: the resolved skill name, path, type, forge tier, and source path. Then proceed to mode detection.
 
 Update stepsCompleted, then load and execute {nextStepFile}.
 

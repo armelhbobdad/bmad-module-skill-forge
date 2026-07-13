@@ -27,6 +27,6 @@ Chain to the shared workflow self-improvement health check at `{nextStepFile}`. 
    rm -f "{forge_data_folder}/{skill_name}/.skf-update.lock"
    ```
 
-   The lock release MUST run before delegating to the shared health-check, since the health-check is the terminal step — once it returns, the workflow is done and any held lock becomes orphaned for the next run to clean up. Releasing here keeps the lock lifecycle tight against the workflow's actual span.
+   Release the lock before delegating to the shared health-check: the health-check is the terminal step, so once it returns the workflow is done and any still-held lock is orphaned until the next run clears it. Releasing here keeps the lock lifecycle tight against the workflow's actual span.
 
 2. Load `{nextStepFile}`, read it fully, then execute it.

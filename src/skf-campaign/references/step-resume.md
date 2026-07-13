@@ -25,7 +25,7 @@ Validate campaign state integrity, determine the resume point, and chain to the 
 
 ### §1 — Read + Validate State (with `.bak` recovery)
 
-Load `{stateFile}`. If the file does not exist, HALT: "No campaign state found. Run `campaign` to start a new campaign."
+Load `{stateFile}`. If the file does not exist, HALT (exit code 2, `invalid-input`): "No campaign state found. Run `campaign` to start a new campaign."
 
 Run `uv run {validateScript} --state-file {stateFile}`. If it succeeds (exit 0), proceed to §2.
 
@@ -57,10 +57,10 @@ Two paths based on whether `--from=<skill>` was provided in the invocation:
 **With `--from=<skill>`:**
 
 1. Find the named skill in `skills[]` by `name`.
-2. If not found → HALT: "Unknown skill '{name}'. Known skills: {comma-separated list of all skill names from state}."
+2. If not found → HALT (exit code 2, `invalid-input`): "Unknown skill '{name}'. Known skills: {comma-separated list of all skill names from state}."
 3. If the skill's `status` is `"completed"`, `"failed"`, or `"skipped"`, the operator may have meant to re-run it (e.g. it passed with a low score) rather than skip past it. Present a choice:
    - `[R]e-run` — reset the named skill to `"pending"` and resume from its stage. (Read-only step caveat: this single status reset follows read-backup-modify-write — back up first.)
-   - `[N]ext` — find the next skill in `dependency_graph.execution_order` after the named one whose `status` is `"pending"` or `"active"` and resume there. If none found → HALT: "All remaining skills are complete. Run `campaign` to start a new campaign."
+   - `[N]ext` — find the next skill in `dependency_graph.execution_order` after the named one whose `status` is `"pending"` or `"active"` and resume there. If none found → HALT (exit code 0, campaign already complete): "All remaining skills are complete. Run `campaign` to start a new campaign."
    - `[H]alt` — stop without resuming.
 
    In headless mode, default to `[N]ext` and log the auto-decision. Log the chosen action to the decision log.
@@ -108,7 +108,7 @@ CAMPAIGN RESUME: {campaign.name}
 ```
 
 If `campaign.current_stage` is `10` and all skills have status `"completed"`, `"failed"`, or `"skipped"`:
-HALT: "Campaign has reached its final stage. All skills have been processed."
+HALT (exit code 0, campaign already complete): "Campaign has reached its final stage. All skills have been processed."
 
 ## OUTPUT
 

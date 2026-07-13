@@ -1,8 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-audit-skill.
-# Team overrides:     {project-root}/_bmad/custom/skf-audit-skill.toml
-# Personal overrides: {project-root}/_bmad/custom/skf-audit-skill.user.toml
+# Team overrides:     _bmad/custom/skf-audit-skill.toml (under {project-root})
+# Personal overrides: _bmad/custom/skf-audit-skill.user.toml (under {project-root})
 
 [workflow]
 

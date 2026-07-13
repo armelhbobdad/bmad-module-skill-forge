@@ -63,7 +63,7 @@ The helper emits a result envelope:
 
 - **`ok` or `skipped`** (helper exit 0): log `log_message` and continue to bullet 1.
 - **`overridden`** (helper exit 0): log `log_message`, surface a visible warning in the final report ("**Workspace drift accepted via --allow-workspace-drift** — spot-checks read HEAD {head_short_sha}, not pinned {pinned_commit}"), and continue to bullet 1. The override does not automatically re-pin `metadata.source_commit`; re-pinning is explicit user work (run the normal-mode update-skill flow against the same HEAD, or re-create the skill).
-- **`mismatch`** (helper exit 2): HALT immediately with exit status `halted-for-workspace-drift`. Display the helper's `halt_message` verbatim — it already substitutes `{pinned_commit}`, `{source_ref or "unset"}`, `{source_root}`, `{head_sha}`, and the suggested `git checkout` command. Do not proceed to bullet 1. Step-04 merge has not run; no partial writes.
+- **`mismatch`** (helper exit 2): HALT immediately with status `halted-for-workspace-drift`. Display the helper's `halt_message` verbatim — it already substitutes `{pinned_commit}`, `{source_ref or "unset"}`, `{source_root}`, `{head_sha}`, and the suggested `git checkout` command. Do not proceed to bullet 1. Step-04 merge has not run; no partial writes. In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "re-extract:workspace-drift", path: "{source_root}", reason: "..."}`).
 
 1. Use the provenance map already loaded in step 1 (at `{forge_version}/provenance-map.json`) — do not re-read
 2. **Partition by change category, then iterate the export-bearing entries.** Entries that do not name an export skip the per-export verification below — they have no symbol to resolve against source:
@@ -173,7 +173,7 @@ The helper emits a result envelope:
      c) Downgrade the gap(s) to Medium/Low/Info (accepts the degraded documentation outcome).
    ```
 
-   Exit with status `halted-for-remediation-path`. Step-04 merge has not run; no partial writes.
+   Exit with status `halted-for-remediation-path`. Step-04 merge has not run; no partial writes. In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "re-extract:targeted-reextraction", reason: "..."}`).
 
 6. **Success summary** — record `targeted_reextraction: {resolved_count, files_scanned, exports_matched, tier}` in workflow context. The evidence report (step 6 §4) surfaces this alongside the verified / moved / missing tally.
 
@@ -285,7 +285,7 @@ This helps the merge step (section 4) prioritize which changes are most likely t
 
 CCC failures: skip ranking silently, all changes treated equally.
 
-**Note on remote sources:** If `source_root` is a workspace clone, the CCC index may already exist from a prior forge and can be reused via `ccc search --refresh`. If the source is an ephemeral fallback clone, the clone path is not indexed by CCC — the search will return empty results and semantic ranking will be skipped. Deferred CCC indexing is implemented in create-skill step 3 but not in update-skill. All changes are treated equally for ephemeral remote sources.
+**Note on remote sources:** If `source_root` is a workspace clone, the CCC index may already exist from a prior forge and can be reused via `ccc search --refresh`. If the source is an ephemeral fallback clone, the clone path is not indexed by CCC — the search returns empty results, so semantic ranking is skipped and all changes are treated equally.
 
 **IF `tools.ccc` is false:** Skip this section silently.
 

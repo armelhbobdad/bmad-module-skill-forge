@@ -22,7 +22,7 @@ To accept a GitHub URL or package name from the user, resolve it to a GitHub rep
 - Focus only on resolving the target to a GitHub repository — do not begin extraction or compilation
 - If resolution fails, hard halt with actionable guidance
 
-## MANDATORY SEQUENCE
+## Steps
 
 ### 1. Accept User Input
 

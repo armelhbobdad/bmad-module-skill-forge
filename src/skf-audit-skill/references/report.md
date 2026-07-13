@@ -108,8 +108,10 @@ Append to {outputFile}:
 
 Update {outputFile} frontmatter:
 - Append `'report'` to `stepsCompleted`
-- Set `drift_score` to final calculated score
+- Set `drift_score` to the score from step 5's classification helper
 - Set `nextWorkflow` to `'update-skill'` if CRITICAL or HIGH findings, otherwise leave empty
+
+If finalizing the report or writing the result JSON below fails (read-only mount, disk full, permissions denied) → HALT with **exit 4**, `halt_reason: "write-failed"`. When `{headless_mode}`, emit the error envelope on **stderr** (shape per SKILL.md → Result Contract) with `report_path: null`.
 
 ### 5. Present Final Report Summary
 
@@ -165,7 +167,7 @@ SKF_AUDIT_RESULT_JSON: {"status":"success","skill_name":"{skill_name}","drift_sc
 
 Field rules: `next_workflow` is `"update-skill"` when CRITICAL or HIGH findings exist (matches the frontmatter `nextWorkflow` set in §4), otherwise `null`. `audit_ref` carries the resolved value from step 1 §5b (`baseline_ref` when no upstream drift was detected, `latest_tag` or `remote_head` when the operator chose `[C] Checkout-and-audit-against-latest`).
 
-**HALT envelope mirror (headless only).** For every HARD HALT raised in this workflow (skill-not-found at init.md §1, forge-tier missing at §2, source-dir missing at §5, write-failed at §6, user-cancelled at any `[X]` selection), emit the same envelope shape on **stderr** with `status: "error"`, `drift_score: null` (or last known value if classification ran), `report_path: null` if the report write failed, `exit_code` matching the Exit Codes table, and `halt_reason` set to the failure class from the table (`"skill-not-found"`, `"forge-tier-missing"`, `"source-dir-missing"`, `"write-failed"`, `"user-cancelled"`). This is the only signal a wrapping pipeline receives on failure — log it before exiting.
+**Hard-halt envelope (headless only).** Every hard halt emits this same envelope shape on **stderr** with `status: "error"` and the `exit_code` / `halt_reason` for its failure class (per SKILL.md → Exit Codes and Result Contract), produced at the halting site before exit — it is the only failure signal a wrapping pipeline receives, so log it before exiting. `drift_score` carries its last known value (`null` if classification never ran); `report_path` is `null` when the report write failed.
 
 **Post-audit hook (optional).** If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it as:
 
@@ -177,5 +179,5 @@ where `{result_json_path}` is the per-run record path written above (`{forge_ver
 
 ### 6. Chain to Health Check
 
-ONLY WHEN the report has been written, presented, and the result contract saved will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the user-facing summary reads as final.
+Only when the report has been written, presented, and the result contract saved do you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the user-facing summary reads as final.
 

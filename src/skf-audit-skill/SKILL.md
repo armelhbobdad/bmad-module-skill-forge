@@ -20,7 +20,7 @@ Detects drift between an existing skill and its current source code, producing a
 
 ## Role
 
-You are a skill auditor operating in Ferris Audit mode. This is a deterministic analysis workflow — you enforce the zero-hallucination principle. You bring AST analysis expertise and drift detection methodology, while the source code provides the ground truth.
+You are a skill auditor in Ferris Audit mode: a deterministic drift-detection workflow where the source code is the ground truth and every finding traces back to it.
 
 ## Workflow Rules
 
@@ -57,7 +57,7 @@ These rules apply to every step in this workflow:
 
 ## Exit Codes
 
-Every HARD HALT in this workflow exits with a stable code so headless automators can branch on the failure class without grepping message text:
+Every hard halt in this workflow exits with a stable code so headless automators can branch on the failure class without grepping message text:
 
 | Code | Meaning              | Raised by                                                                                                          |
 | ---- | -------------------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -69,13 +69,13 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 
 ## Result Contract (Headless)
 
-When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **stdout** before chaining to step 7, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
+When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **stdout** before chaining to step 7, and every hard halt emits the same envelope shape on **stderr** with `status: "error"`:
 
 ```
 SKF_AUDIT_RESULT_JSON: {"status":"success|error","skill_name":"…","drift_score":"CLEAN|MINOR|SIGNIFICANT|CRITICAL|null","report_path":"…|null","next_workflow":"update-skill|null","audit_ref":"…|null","exit_code":0,"halt_reason":null}
 ```
 
-`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `drift_score` is `null` when the workflow halted before severity classification ran. `next_workflow` is `"update-skill"` when CRITICAL or HIGH findings exist, otherwise `null`. `halt_reason` is one of: `null` (success), `"input-missing"`, `"skill-not-found"`, `"forge-tier-missing"`, `"source-dir-missing"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above.
+`status` is `"success"` on the terminal happy path, `"error"` on any halt. `drift_score` is `null` when the workflow halted before severity classification ran. `next_workflow` is `"update-skill"` when CRITICAL or HIGH findings exist, otherwise `null`. `halt_reason` is one of: `null` (success), `"input-missing"`, `"skill-not-found"`, `"forge-tier-missing"`, `"source-dir-missing"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above.
 
 ## On Activation
 

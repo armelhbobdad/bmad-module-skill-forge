@@ -41,7 +41,7 @@ Copy `{stateFile}` to `{backupFile}` before any modification.
 
 ### §4 — Validate Pins
 
-Run `uv run {pinScript} --state-file {stateFile} --brief-file {briefFile}`. Parse the JSON output. For each result: if `status` is `"valid"` or `"resolved"`, the pin is good; if `"invalid"`, collect the failure with suggestions.
+Run `uv run {pinScript} --state-file {stateFile} --brief-file {briefFile}`. If the script exits 2 (a required tool such as `gh` is unavailable, or a file is unreadable), HALT (exit code 2, `invalid-input`) surfacing its error — pins cannot be validated without `gh`. Otherwise parse the JSON output. For each result: if `status` is `"valid"` or `"resolved"`, the pin is good; if `"invalid"`, collect the failure with suggestions.
 
 ### §5 — Handle Invalid Pins
 

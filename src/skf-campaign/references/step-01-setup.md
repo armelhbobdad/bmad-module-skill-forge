@@ -40,9 +40,9 @@ Accept from the operator (or, in headless mode, from the `--brief`/`--manifest` 
 - `directive_path` (optional) — path to a `_campaign-directive.md` file with operator directives (contract: `references/campaign-directive-spec.md`)
 - `architecture_doc_path` (optional) — path to the architecture document the verify (Stage 7) and refine (Stage 8) stages consume. If omitted here, those stages discover it at runtime (`docs/architecture.md`, then `_bmad-output/planning-artifacts/architecture.md`). Capturing it now persists the choice across resume and avoids re-prompting.
 
-When seeding from `--manifest`, parse it deterministically: `uv run {manifestScript} <manifest-file>`. If the result's `errors[]` is non-empty (exit 1), HALT listing the offending line numbers — never run a partial target set. When seeding from `--brief`, read the existing `campaign-brief.yaml` directly.
+When seeding from `--manifest`, parse it deterministically: `uv run {manifestScript} <manifest-file>`. If the result's `errors[]` is non-empty (script exit 1), HALT (exit code 2, `invalid-input`) listing the offending line numbers — never run a partial target set. When seeding from `--brief`, read the existing `campaign-brief.yaml` directly.
 
-If no targets can be collected (empty interactive input or empty `--brief`/`--manifest`), HALT with guidance — a campaign needs at least one target.
+If no targets can be collected (empty interactive input or empty `--brief`/`--manifest`), HALT (exit code 2, `invalid-input`) with guidance — a campaign needs at least one target.
 
 ### §2 — Health Queue Preference
 
@@ -108,7 +108,7 @@ Populate `{templateFile}` with collected inputs and write to `{briefFile}`. Fill
 - `architecture_doc_path` — from collected input, or empty string if not provided
 - `notes` — operator-provided context, or empty string
 
-The brief is a machine-readable snapshot enabling fresh-context resume (FR-35).
+The brief is a machine-readable snapshot enabling fresh-context resume.
 
 ## OUTPUT
 
@@ -116,7 +116,6 @@ Confirm state file creation and brief generation. Display summary:
 
 - Campaign name
 - Number of targets
-- Tier distribution (count of A vs B)
 - Health queue setting
 
 Chain to `{nextStepFile}`.

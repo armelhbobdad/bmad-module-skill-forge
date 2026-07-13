@@ -21,7 +21,7 @@ To initialize the analyze-source workflow by loading configuration, detecting co
 
 ## MANDATORY SEQUENCE
 
-When `{headless_mode}` is true, every HARD HALT in this step emits the single-line error envelope on **stderr** before exiting — `SKF_ANALYZE_RESULT_JSON: {"status":"error","report_path":null,"brief_paths":[],"unit_counts":{"confirmed":0,"skipped":0,"maybe":0},"exit_code":<code>,"halt_reason":"<reason>","mode":"interactive|auto"}` — using the exit code and `halt_reason` named at that HALT, so a headless automator can branch on the failure class without grepping the human message. This satisfies SKILL.md's Result Contract promise that every HARD HALT surfaces the envelope.
+When `{headless_mode}` is true, every HARD HALT in this step emits the error envelope on **stderr** before exiting — shape and enum in `references/headless-contract.md` — using the exit code and `halt_reason` named at that HALT.
 
 ### 1. Check for Existing Report (Continuation Detection)
 
@@ -29,10 +29,10 @@ Look for {outputFile}.
 
 **IF the file exists AND has `stepsCompleted` with entries:**
 - The report filename is keyed to `{project_name}` (the forge workspace), not the analyzed target — so a report from a *different* target can collide here. Before resuming, establish the requested target and compare it to the existing report:
-  - Determine the requested target now: if `--project-path <path>` was passed at invocation, set `project_paths[]` from it (comma-split if multiple); otherwise collect the path(s) using the section-3 "Collect Project Path" prompt and store as `project_paths[]`. (Section 3 must NOT re-prompt when `project_paths[]` is already populated here.)
+  - Determine the requested target now: if `--project-path <path>` was passed at invocation, set `project_paths[]` from it (comma-split if multiple); otherwise collect the path(s) using the section-3 "Collect Project Path" prompt and store as `project_paths[]`. (Section 3 does not re-prompt when `project_paths[]` is already populated here.)
   - Read the existing report's frontmatter `project_paths`.
   - **IF the existing report's `project_paths` matches the requested target:**
-    - **IF this invocation carries the `[auto]` flag (e.g. `AN[auto]`):** do NOT route to {continueFile} — auto mode is a single idempotent pass, not a resumable interactive session. Skip continuation and proceed to section 2; the `[auto]` check in §2b re-enters step-auto-scope.md, which re-runs cleanly and overwrites the prior auto report. (This keeps a re-invoked or interrupted auto run on the auto path instead of dropping it into the interactive chain.)
+    - **IF this invocation carries the `[auto]` flag (e.g. `AN[auto]`):** do not route to {continueFile} — auto mode is a single idempotent pass, not a resumable interactive session. Skip continuation and proceed to section 2; the `[auto]` check in §2b re-enters step-auto-scope.md, which re-runs cleanly and overwrites the prior auto report. (This keeps a re-invoked or interrupted auto run on the auto path instead of dropping it into the interactive chain.)
     - **ELSE:** "**Found an existing analysis report. Resuming previous session...**" — Load, read entirely, then execute {continueFile}. **STOP HERE** — do not continue this sequence. ({continueFile} is mode-aware: a report written by a prior auto run resumes through the auto path, not the interactive chain.)
   - **ELSE (different target — stale collision):** the existing report belongs to another analysis. Archive it by renaming to `{forge_data_folder}/analyze-source-report-{project_name}-<UTC-timestamp>.md`, announce "**Existing report belongs to a different target — archived as <name>; starting a fresh analysis.**", then continue to section 2 (skip re-collecting the path in section 3 — it is already set).
 
@@ -77,20 +77,16 @@ Look for {outputFile}.
 4. "**Auto mode activated — bypassing interactive analysis.**"
 5. **Route to auto-scope:** Load, read fully, then execute `references/step-auto-scope.md`. **STOP HERE** — do not continue to §3 or any subsequent section.
 
-**IF `{auto_mode}` is NOT true:**
+**IF `{auto_mode}` is not true:**
 Continue to §3 as normal — the entire interactive flow below is unchanged.
 
 ### 3. Collect Project Path
 
-**Headless flag consumption:** If `project_paths[]` is already populated (e.g. collected by the section-1 stale-collision guard) OR `--project-path <path>` was passed at invocation, set/keep `project_paths[]` (comma-split the flag value if multiple paths were supplied), skip the prompt below, and proceed to validation. Otherwise prompt as today.
+**Headless flag consumption:** If `project_paths[]` is already populated (e.g. collected by the section-1 stale-collision guard) OR `--project-path <path>` was passed at invocation, set/keep `project_paths[]` (comma-split the flag value if multiple paths were supplied), skip the prompt below, and proceed to validation. If `{headless_mode}` is true and no path is available from either source, HARD HALT with exit code 2 (`input-missing`): "**No project path — headless mode requires `--project-path`.**" (interactive prompting is unavailable headless). Otherwise prompt as today.
 
 **Per-path ref overrides (`--target-refs`):** If `--target-refs <mapping>` was passed at invocation, parse it as a comma-separated list of `path:ref` pairs (e.g., `owner/repo:v1.0.0,owner/repo2:main`). Build a `constituent_refs` map from the pairs. Each key must match an entry in `project_paths[]` (validated after path collection). When `--target-refs` is absent but multiple `project_paths` exist, set `constituent_refs` to `{}` (empty — all paths use default ref resolution). When only a single path exists, omit `constituent_refs` entirely (use `target_ref` if set on the brief). `constituent_refs` and `target_ref` are mutually exclusive — if both are supplied, HALT with: "`--target-refs` and `--target-ref` are mutually exclusive. Use `--target-refs` for multi-path analysis, or `--target-ref` for single-path."
 
-"**Welcome to Analyze Source — the SKF decomposition engine.**
-
-I'll analyze your project to identify discrete skillable units and produce skill-brief.yaml files for each recommended unit.
-
-**Please provide the project root path(s) to analyze:**
+"**Please provide the project root path(s) to analyze** — I'll identify discrete skillable units and produce a skill-brief.yaml for each.
 
 This can be:
 - A single root directory of a repo or multi-service project
@@ -153,7 +149,7 @@ These units will be flagged as 'already skilled' during analysis. If source chan
 
 ### 6. Create Analysis Report
 
-Create {outputFile} from {templateFile}.
+Create {outputFile} from {templateFile}. If the write fails, HARD HALT with exit code 4 (`write-failed`) per `references/headless-contract.md`.
 
 **Populate frontmatter:**
 ```yaml
@@ -187,14 +183,5 @@ nextWorkflow: ''
 
 ### 7. Proceed to Next Step
 
-Display: "**Proceeding to project scan...**"
-
-#### Menu Handling Logic:
-
-- After initialization is complete and report is created, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed initialization step with no user choices at this point
-- Proceed directly to next step after setup
+Initialization is complete and the report is created — immediately load, read the entire file, then execute {nextStepFile}. This step has no user choices.
 

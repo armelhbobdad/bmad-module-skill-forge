@@ -45,7 +45,7 @@ For each skill in the inventory:
 
 **Compare against the architecture usage map:**
 - Which exports does the architecture reference or imply usage of?
-- Which exports are NOT referenced in the architecture at all?
+- Which exports are not referenced in the architecture at all?
 
 **For each unreferenced capability:**
 - Evaluate relevance: would this capability strengthen the architecture?
@@ -86,7 +86,7 @@ Suggestion: {how to incorporate this capability into the architecture}
 
 Report the improvement count with its high/medium/low value breakdown, then list each improvement as a row of **# / Library / Improvement Type / Value / Summary** followed by its full §5 citation.
 
-Store all improvement findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-IMPROVEMENTS] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted improvement findings** (full citation blocks with evidence, value ratings, and suggestions — not just counts) — Step 05 can read this back if context degrades. **Do NOT write to `{output_folder}/refined-architecture-{arch_project_name}.md` — that file is created only in step 5.**
+Store the improvement findings per the Finding Storage rule (refinement rules), under a `<!-- [RA-IMPROVEMENTS] ... -->` block (its citations carry the evidence, value rating, and suggestion).
 
 ### 7. Auto-Proceed to Next Step
 

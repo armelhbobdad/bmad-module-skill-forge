@@ -13,7 +13,7 @@ After initial AST extraction, some top-level exports may resolve to **module imp
 **Tracing protocol:**
 
 1. Read the entry point file (e.g., `{package}/__init__.py`) and extract all `from .X import Y` statements
-2. For each import where Y was NOT found by the initial AST scan:
+2. For each import where Y was not found by the initial AST scan:
    - Check if the import path resolves to a directory (e.g., `{package}/api/v1/delete/` exists with `__init__.py`)
    - If directory: read its `__init__.py` to find the actual re-exported symbol
    - **Handle aliases:** Check for `from .module import A as B` patterns in the intermediate `__init__.py`. If the parent imports `B`, trace through to `A` in `.module`. If the parent imports `A` but the `__init__.py` only exports it as `B` (via `from .module import A as B`), match by original name `A` and note the alias

@@ -77,9 +77,15 @@ Improvements are capability expansions — library features documented in skills
 
 ---
 
+## Finding Storage (Steps 02-04)
+
+Each analysis step stores its findings two ways: as workflow state for Step 05, and appended to `{forge_data_folder}/ra-state-{project_name}.md` as a labeled `<!-- [RA-...] ... -->` block holding the **complete formatted findings** — full citation blocks with evidence and suggestions, not just counts — so Step 05 can recover them if context degrades on a long run. The refined document itself is written once, in Step 05; Steps 02-04 never write to it.
+
+---
+
 ## Preservation Rules
 
-1. **NEVER delete original content** — only add annotations and subsections
+1. **Never delete original content** — only add annotations and subsections
 2. **Follow original section layout** — add refinement subsections within existing sections
 3. **Use callout blocks** for issues: `> [!WARNING]` or `> [!NOTE]` format
 4. **Mark additions clearly** — prefix added subsections with "RA:" or use a refinement marker

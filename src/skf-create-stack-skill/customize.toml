@@ -1,8 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-create-stack-skill.
-# Team overrides:     {project-root}/_bmad/custom/skf-create-stack-skill.toml
-# Personal overrides: {project-root}/_bmad/custom/skf-create-stack-skill.user.toml
+# Team overrides:     _bmad/custom/skf-create-stack-skill.toml (under {project-root})
+# Personal overrides: _bmad/custom/skf-create-stack-skill.user.toml (under {project-root})
 
 [workflow]
 

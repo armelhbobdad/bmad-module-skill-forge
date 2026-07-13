@@ -5,10 +5,8 @@ directiveFile: '_campaign-directive.md'
 
 # Campaign Directive Specification
 
-This is the **canonical contract** for the campaign directive. SKILL.md and the
-step files' "Read Directive" sections defer to it rather than re-specifying the
-format — when a step loads `campaign.directive_path`, it applies the contents
-per the sections below.
+This is the **canonical contract** for the campaign directive: when a step loads
+`campaign.directive_path`, it applies the contents per the sections below.
 
 ## Purpose
 
@@ -16,7 +14,7 @@ The campaign directive (`_campaign-directive.md`) is a file-based standing direc
 
 - **Human-readable** — plain markdown, editable with any text editor
 - **Auditable** — version-controllable alongside campaign artifacts
-- **Context-boundary safe** — re-read from disk at each stage transition, with no dependency on LLM memory (NFR-2)
+- **Context-boundary safe** — re-read from disk at each stage transition, with no dependency on LLM memory
 
 The directive allows the operator to adjust campaign-wide policy without editing the state file or relying on LLM memory.
 

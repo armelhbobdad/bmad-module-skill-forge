@@ -38,7 +38,7 @@ Parse the architecture document for statements describing two or more technologi
 
 ### 2b. Establish Document Scope
 
-The skill inventory (Step 01 §2) can span a wider product surface than the architecture document under refinement. Pairs drawn from a different surface are NOT actionable gaps for THIS document — surfacing them injects irrelevant integration recommendations (e.g. wiring real-time A/V libraries into an admin-dashboard architecture).
+The skill inventory (Step 01 §2) can span a wider product surface than the architecture document under refinement. Pairs drawn from a different surface are not actionable gaps for this document — surfacing them injects irrelevant integration recommendations (e.g. wiring real-time A/V libraries into an admin-dashboard architecture).
 
 Resolve the in-scope skill set:
 
@@ -47,13 +47,13 @@ Resolve the in-scope skill set:
 
 `{out_of_scope_skills}` = inventory skills not in `{in_scope_skills}`. A library pair is **out-of-scope** when either of its libraries is in `{out_of_scope_skills}`.
 
-**Safe default:** If scope cannot be derived (e.g. the architecture references no inventory skill by name) and no `{scope_skills}` was provided, treat ALL skills as in-scope and note: "Could not derive document scope — analyzing all skill pairs." This preserves prior behavior rather than hiding gaps.
+**Safe default:** If scope cannot be derived (e.g. the architecture references no inventory skill by name) and no `{scope_skills}` was provided, treat all skills as in-scope and note: "Could not derive document scope — analyzing all skill pairs." This keeps borderline gaps visible rather than hiding them.
 
 Store `{in_scope_skills}` and `{out_of_scope_skills}` as workflow state — Step 03 (issue detection) reuses them.
 
 ### 3. Read the Pre-Computed Library Pairs
 
-Read the pre-computed unique library pairs from `skill_inventory.pairs` (emitted by the enumerate helper's `--pairs` flag in Step 01 §2). This is the complete, deterministic pair set — every `{library_a, library_b}` combination over the inventory, `pair_count == N*(N-1)/2`. **Do NOT re-derive it in-context** — re-deriving risks silently dropping or duplicating a pair at larger N, and a dropped pair is a missed integration gap (this workflow's headline output).
+Read the pre-computed unique library pairs from `skill_inventory.pairs` (the enumerate helper's `--pairs` output cached in Step 01 §2 — the complete, deterministic pair set). Do not re-derive it in-context: a silently dropped or duplicated pair is a missed integration gap, this workflow's headline output.
 
 If `skill_inventory.pairs` is absent (the helper was unavailable and the Step 01 §2 fallback path ran), derive the pairs from the inventory as a graceful-degradation fallback only.
 
@@ -63,10 +63,10 @@ If `skill_inventory.pairs` is absent (the helper was unavailable and the Step 01
 
 For each library in the skill inventory, delegate reading to a parallel subagent. Launch up to **8 subagents concurrently** (batch larger inventories in rounds of 8).
 
-**Each subagent receives one skill's SKILL.md path and MUST:**
-1. Read the SKILL.md file
-2. Extract the API surface
-3. ONLY return this compact JSON — no prose, no extra commentary:
+**Each subagent receives one skill's SKILL.md path and:**
+1. Reads the SKILL.md file
+2. Extracts the API surface
+3. Returns only this compact JSON — no prose or extra commentary:
 
 ```json
 {
@@ -91,14 +91,14 @@ For each library in the skill inventory, delegate reading to a parallel subagent
 
 ### 5. Cross-Reference: Identify Gaps
 
-For each library pair in `skill_inventory.pairs` (from §3) NOT already documented in the architecture:
+For each library pair in `skill_inventory.pairs` (from §3) not already documented in the architecture:
 
 **Check API compatibility:**
 - Does Library A export types or data that Library B can consume?
 - Do both libraries share a compatible protocol or data format?
 - Are they in the same language or is there a bridge mechanism available?
 
-**Scope routing (from §2b):** Before classifying, check the pair's scope. If the pair is **out-of-scope** (either library is in `{out_of_scope_skills}`), do NOT add it to the gap list even when its APIs are compatible — record it in the informational **Out-of-Scope** bucket instead (a compatible pair that belongs to a different product surface than this architecture). Only **in-scope** pairs proceed to gap classification below.
+**Scope routing (from §2b):** Before classifying, check the pair's scope. If the pair is **out-of-scope** (either library is in `{out_of_scope_skills}`), do not add it to the gap list even when its APIs are compatible — record it in the informational **Out-of-Scope** bucket instead (a compatible pair that belongs to a different product surface than this architecture). Only **in-scope** pairs proceed to gap classification below.
 
 **If compatible APIs exist (in-scope pair) but NO architecture mention:**
 - Classify the gap type (Missing Integration Path, Undocumented Data Flow, or Absent Bridge Layer)
@@ -124,9 +124,9 @@ Suggestion: {proposed architecture section content}
 Report the in-scope gap count, then list each gap as a row of **# / Library A / Library B / Gap Type / Connecting APIs** followed by its full §5 citation. Two signals are not inferable from the counts and must survive regardless of format:
 
 - **N == 1 (only one skill loaded):** gap analysis is skipped — pairwise integration analysis needs ≥2 skills, and libraries without a matching skill are invisible to it. Recommend generating skills for all architecture libraries with [CS] or [QS] before re-running [RA], and note issue detection still runs.
-- **Out-of-scope compatible pairs exist (from §2b/§5):** list them separately for awareness only — they were NOT counted as gaps — and note that re-running with `--scope-skills` (naming the skills to include) pulls any that belong into scope.
+- **Out-of-scope compatible pairs exist (from §2b/§5):** list them separately for awareness only — they were not counted as gaps — and note that re-running with `--scope-skills` (naming the skills to include) pulls any that belong into scope.
 
-Store all **in-scope** gap findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-GAPS] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted gap findings** (full citation blocks with evidence and suggestions, not just counts) — Step 05 can read this back if context degrades. Record out-of-scope pairs under a separate `<!-- [RA-OUT-OF-SCOPE] ... -->` marker (NOT `[RA-GAPS]`) so Step 05 does not compile them into the refined document — they are informational only. **Do NOT write to `{output_folder}/refined-architecture-{arch_project_name}.md` — that file is created only in step 5.**
+Store the **in-scope** gap findings per the Finding Storage rule (refinement rules), under a `<!-- [RA-GAPS] ... -->` block. Record out-of-scope pairs under a separate `<!-- [RA-OUT-OF-SCOPE] ... -->` marker so Step 05 leaves them out of the refined document — they are informational only.
 
 ### 7. Auto-Proceed to Next Step
 

@@ -1,12 +1,11 @@
 ---
 nextStepFile: 'auto-index.md'
-# Resolve `{forgeTierRwHelper}` by probing `{forgeTierRwProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. HALT if neither resolves — the script owns the canonical
-# forge-tier.yaml format AND the array-preservation contract that protects
-# qmd_collections / ccc_index_registry / staleness_threshold_hours from being
-# lost on rewrite. NEVER fall back to inline YAML emission — drift between the
-# script and a prose-rendered template will silently corrupt downstream skills.
+# `{forgeTierRwHelper}` = first existing path in `{forgeTierRwProbeOrder}`;
+# halt if neither exists. The script owns the canonical forge-tier.yaml format
+# and the array-preservation contract that protects qmd_collections /
+# ccc_index_registry / staleness_threshold_hours from being lost on rewrite.
+# Do not fall back to inline YAML emission — a prose-rendered template drifts
+# from the script and silently corrupts downstream skills.
 forgeTierRwProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
   - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
@@ -63,7 +62,7 @@ echo '{
        --target "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"
 ```
 
-The script atomically writes the file via temp + fsync + rename (mirrors `skf-atomic-write.py`'s crash-safety contract) and returns a JSON response with `wrote`, `preserved_arrays.qmd_collections` count, `preserved_arrays.ccc_index_registry` count, and the resolved `tier`.
+The script atomically writes the file via temp + fsync + rename (crash-safe) and returns a JSON response with `wrote`, `preserved_arrays.qmd_collections` count, `preserved_arrays.ccc_index_registry` count, and the resolved `tier`.
 
 **Parse the response and set context flags for step 4:**
 
@@ -80,7 +79,7 @@ uv run {forgeTierRwHelper} init-prefs \
     --target "{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml"
 ```
 
-The script creates the file with first-run defaults (matching the prior inline template — `tier_override: ~`, `passive_context: true`, `headless_mode: false`, `compact_greeting: false`, plus reserved-for-future-use commented fields) IF the file does not exist. When the file already exists, the script refuses to overwrite (preserves user customization) and reports `wrote: false`.
+The script creates the file with first-run defaults (`tier_override: ~`, `passive_context: true`, `headless_mode: false`, `compact_greeting: false`) if the file does not exist. When the file already exists, the script refuses to overwrite (preserves user customization) and reports `wrote: false`.
 
 **Parse the response and set context flags for step 4:**
 

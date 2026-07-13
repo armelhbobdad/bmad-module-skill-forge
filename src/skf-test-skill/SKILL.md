@@ -65,7 +65,7 @@ Every terminal state in this workflow exits with a stable code so headless autom
 | 1    | error (HARD HALT)    | infrastructure / precondition HALT in step 1 or step 6 before a verdict exists — see the "Result Contract" `halt_reason` set (the hard gate uses code 2) |
 | 2    | fail / FAIL          | step 4c §3 — hard gate blocked (`halt_reason: "hard-gate-blocked"`); step 6 §6b — `testResult: 'fail'` (after the result contract is written in §4c) |
 | 3    | inconclusive         | step 6 §6b — `testResult: 'inconclusive'` (distinct from fail so orchestrators can route to manual-review queues) |
-| 4    | pass-with-drift      | step 6 §6b — `testResult: 'pass-with-drift'` (distinct from clean pass — `--allow-workspace-drift` was in effect; orchestrators MUST route to re-test-against-pinned-commit queues and refuse export; never exit 0 under drift override) |
+| 4    | pass-with-drift      | step 6 §6b — `testResult: 'pass-with-drift'` (distinct from clean pass — `--allow-workspace-drift` was in effect; re-test against the pinned commit and refuse export — exit 0 would wrongly signal a clean pass) |
 
 ## Result Contract (Headless)
 

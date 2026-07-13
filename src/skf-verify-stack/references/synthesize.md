@@ -1,5 +1,6 @@
 ---
 nextStepFile: 'report.md'
+reportDeltaScript: 'scripts/skf-report-delta.py'
 feasibilitySchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md'
   - '{project-root}/src/shared/references/feasibility-report-schema.md'
@@ -39,7 +40,7 @@ Apply the following decision logic using findings from all completed passes:
 
 **CONDITIONALLY_FEASIBLE (evaluate second):**
 If ANY of the following apply, the verdict is `CONDITIONALLY_FEASIBLE`. Include ALL matching conditions in the rationale:
-- Any technology is **Missing** from coverage (no skill exists). Technologies marked **Replaced** in Step 02 are intentionally being removed and do NOT count as Missing — they never trigger CONDITIONALLY_FEASIBLE or a [CS]/[QS] recommendation.
+- Any technology is **Missing** from coverage (no skill exists). Technologies marked **Replaced** in Step 02 are intentionally being removed and do not count as Missing — they never trigger CONDITIONALLY_FEASIBLE or a [CS]/[QS] recommendation.
 - Any integration is **Risky** (but none Blocked)
 - Requirements have any **Not Addressed** items
 - Requirements have any **Partially Fulfilled** items
@@ -66,7 +67,7 @@ For each non-verified finding across all passes, generate an actionable next ste
 
 **Replaced / being-removed technology (from Step 02):**
 - "`{library_name}` is marked for removal/replacement in the architecture document — no skill is needed. Remove it from the architecture document (or, if it is in fact staying, correct the document to drop the removal marker), then re-run **[VS]**."
-- Do NOT emit a [CS]/[QS] recommendation for a Replaced technology — forging a skill for a technology that is being deleted is exactly the misfire this category prevents.
+- Do not emit a [CS]/[QS] recommendation for a Replaced technology — forging a skill for a technology that is being deleted is exactly the misfire this category prevents.
 
 **Risky integration (from Step 03):**
 - If protocol mismatch → "Consider adding a bridge layer between `{lib_a}` and `{lib_b}` (e.g., HTTP adapter, message queue). Document the bridge in the architecture."
@@ -94,13 +95,15 @@ Read `previousReport` from `{outputFile}` frontmatter (set in Step 01). Each run
 **Note:** A manual backup is only needed to compare against a *specific older* snapshot rather than the most recent prior run; provide that backup path when prompted in Step 01.
 
 **If a previous report is found:**
-- Load its verdict, coverage percentage, integration verdicts, and per-skill `confidence_tier` values (if captured in the previous report's inventory block)
-- Generate a delta comparison:
-  - **Improved items:** findings that were Risky/Blocked/Missing and are now Verified/Covered
-  - **Regressed items:** findings that were Verified/Covered and are now Risky/Blocked/Missing
-  - **Tier downgrades (regression):** for each skill present in both runs, compare current `confidence_tier` against previous. A downgrade (e.g., Tier 1 → Tier 2, or T1 → T1-low) is a regression — flag explicitly in the delta section with rationale "skill `{skill_name}` regressed from `{prev_tier}` to `{curr_tier}` — re-extract with [CS] at the prior tier level".
-  - **New items:** findings not present in the previous report
-  - **Unchanged items:** count of findings with the same verdict
+- Extract from both reports (current run + the previous report's tables/inventory block): the coverage findings (`{technology, verdict}`), the integration findings (`{libA, libB, verdict}`), and each skill's `confidence_tier`. Reading the tables is judgment; classifying the difference is not — so hand the two extracted finding sets to the delta helper rather than diffing in prose (matching pair keys and applying the verdict ranking by hand drifts between runs).
+- Serialize as `{"previous": {"coverage": […], "integration": […]}, "current": {…}, "previousTiers": {skill: tier}, "currentTiers": {…}}` and run:
+
+  ```bash
+  echo '<delta JSON>' | uv run {reportDeltaScript} --stdin
+  ```
+
+  The script (run `uv run {reportDeltaScript} --help` for the contract and rankings) returns `improved`/`regressed`/`unchanged`/`new`/`dropped`/`replaced` label lists with counts, plus `tierDowngrades` (each `{skill, from, to}`) — a tier drop (Tier 1 → Tier 2, or T1 → T1-low) counts as a regression. If `uv` is unavailable, apply the ranking from `--help` inline (coverage Missing<Covered; integration Blocked<Risky<Plausible<Verified; tier T2<T1-low<T1; Replaced findings bucketed, not scored).
+- Render the delta section from those results. For each tier downgrade, flag: "skill `{skill}` regressed from `{from}` to `{to}` — re-extract with [CS] at the prior tier level".
 
 **If no previous report found:**
 - Note: "First verification run — no delta available."
@@ -141,12 +144,12 @@ Write the **Recommendations** and **Evidence Sources** sections to `{outputFile}
 - Populate `## Evidence Sources` with per-skill citations (SKILL.md path, `metadata_schema_version`, `confidence_tier`, stack manifest if any) and architecture/PRD doc paths
 - Update frontmatter (shared-schema keys):
   - Append `'synthesize'` to `stepsCompleted`
-  - Set `overallVerdict` to one of `FEASIBLE`, `CONDITIONALLY_FEASIBLE`, `NOT_FEASIBLE` (case-sensitive, underscores — NOT spaces)
+  - Set `overallVerdict` to one of `FEASIBLE`, `CONDITIONALLY_FEASIBLE`, `NOT_FEASIBLE` (case-sensitive, underscores not spaces)
   - Set `recommendationCount` to the total number of recommendations
-  - If delta was computed (section 3), set `deltaImproved`, `deltaRegressed`, `deltaNew`, `deltaUnchanged`
+  - If delta was computed (section 3), set `deltaImproved`, `deltaRegressed`, `deltaNew`, `deltaUnchanged` from the delta helper's `improvedCount` / `regressedCount` / `newCount` / `unchangedCount`
   - Verify that `pairsVerified`, `pairsPlausible`, `pairsRisky`, `pairsBlocked` match the counts from Step 03 (these were set in Step 03). If a discrepancy is found, overwrite the frontmatter counts with the values from Step 03 — the report file is the system of record
 - **Overall verdict enforcement (schema producer obligation):**
-  - If any pair has Check 4 missing/weak AND was capped at `Plausible`, that alone does NOT force `NOT_FEASIBLE`, but `FEASIBLE` requires zero such pairs
+  - If any pair has Check 4 missing/weak and was capped at `Plausible`, that alone does not force `NOT_FEASIBLE`, but `FEASIBLE` requires zero such pairs
   - `FEASIBLE` requires 100% coverage AND zero Blocked pairs AND zero Check-4-missing pairs — otherwise downgrade to `CONDITIONALLY_FEASIBLE`
   - `coveragePercentage == 0` forces `NOT_FEASIBLE` (per section 1 short-circuit)
 - Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`

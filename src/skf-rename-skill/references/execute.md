@@ -74,7 +74,7 @@ Set `exit_code` and `halt_reason` to the values named at that HALT site (see `re
 
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** This is transactional. After section 1 (copy), the old skill is untouched. If any section between 2 and 7 fails, delete `{new_skill_group}` and `{new_forge_group}`, report the failure, and halt — the old skill remains intact. Only section 8 (delete old) makes the operation irreversible. Do not skip, reorder, or improvise.
+**Transactional boundary.** After section 1 (copy), the old skill is untouched; a failure in any of sections 2-7 deletes the two new directories (`{new_skill_group}`, `{new_forge_group}`), reports, and halts with the old skill intact. Section 8 (delete old) is the only irreversible point.
 
 ### 0. Re-read Version-Paths Knowledge + Resolve Helpers
 

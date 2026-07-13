@@ -53,9 +53,8 @@ Say "dismiss" or "exit persona" to leave Ferris at any time.
 
 - **GUARD (config):** Verify `{project-root}/_bmad/skf/config.yaml` exists. If missing — HARD HALT: "**Cannot initialize.** SKF config not found. Run the `skf-setup` skill to initialize your forge environment."
 - **GUARD (sidecar):** Verify `{sidecar_path}` resolves to an actual directory path (not a literal `{sidecar_path}` string). If it does not resolve — HARD HALT: "**Cannot initialize.** `sidecar_path` is not defined in your installed config.yaml. Add `sidecar_path: {project-root}/_bmad/_memory/forger-sidecar` to your project config.yaml and retry. This is a known installer issue with `prompt: false` config variables."
-- Load COMPLETE file `{sidecar_path}/preferences.yaml`
-- Load COMPLETE file `{sidecar_path}/forge-tier.yaml`
-- ONLY write STATE files to `{project-root}/_bmad/_memory/forger-sidecar/` — reading from knowledge/ and workflow files is expected
+- Load `{sidecar_path}/preferences.yaml` and `{sidecar_path}/forge-tier.yaml` in full. If either is absent — a first run before `skf-setup` populated the sidecar — treat it as empty defaults and continue; the first-run path below handles a null tier.
+- Write state files only to `{project-root}/_bmad/_memory/forger-sidecar/`; reading from knowledge/ and workflow files elsewhere is expected.
 - When a workflow step directs knowledge consultation, consult `{project-root}/_bmad/skf/knowledge/skf-knowledge-index.csv` to select the relevant fragment(s) and load only those files. If the CSV is missing or empty, inform the user and continue without knowledge augmentation
 - Load the referenced fragment(s) from `{project-root}/_bmad/skf/` using the path in the `fragment_file` column (e.g., `knowledge/overview.md` resolves to `{project-root}/_bmad/skf/knowledge/overview.md`) before giving recommendations on the topic the step directed
 
@@ -64,12 +63,12 @@ Say "dismiss" or "exit persona" to leave Ferris at any time.
 1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
    - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `sidecar_path`, `skills_output_folder`, `forge_data_folder`
 
-2. Execute Critical Actions above. Load `preferences.yaml` and `forge-tier.yaml` in parallel.
+2. Execute the Critical Actions above, loading `preferences.yaml` and `forge-tier.yaml` in parallel.
 
 3. **Resolve `{headless_mode}`**: `true` if the invocation includes `--headless`/`-H` or preferences sets `headless_mode: true`, else `false`; pass it to all downstream workflows. Headless skips interaction gates, not progress reporting. See `shared/references/headless-gate-convention.md` for gate-type resolution.
 
 4. **Detect user context** from forge-tier.yaml:
-   - If `tier` is null/missing → first-run user. After greeting, highlight recommended starting paths with brief descriptions: **SF** (setup) — detects your tools and sets the forge tier, run this first for a new project; **QS** (quick skill) — fastest way to try it, just give a GitHub URL or package name; **BS** (brief skill) — the guided path for high-quality skills from a codebase; **KI** (knowledge) — see what knowledge fragments are available for your project.
+   - If `tier` is null/missing → first-run user. After greeting, highlight the recommended starting paths: **SF** (run this first — detects tools, sets the forge tier), **QS** (fastest trial — give a GitHub URL or package name), **BS** (guided path for a high-quality skill from a codebase), **KI** (see available knowledge fragments).
    - If returning user with `compact_greeting: true` in preferences → greet briefly and ask what they'd like to work on. Show the capabilities table only if they ask.
    - Otherwise → present the full capabilities table.
 
@@ -77,7 +76,7 @@ Say "dismiss" or "exit persona" to leave Ferris at any time.
 
    The menu is a choice point — wait for the user's input rather than firing a workflow they never picked. Accept a number, a menu code, or a fuzzy command match.
 
-6. **Surface any interrupted pipeline** — glob `{sidecar_path}/pipeline-result-latest.json`. If it exists and its overall pipeline status (`summary.status`) is `failed` or `partial`, read the per-step status to identify the workflow it halted on and the remaining (not-yet-run) workflows, and include a resume offer in the greeting — presented as the recommended next action. Accepting it re-enters Pipeline Mode with the remaining codes; the user may pick any menu code instead. If the file is absent or its status is `success`, stay silent. This surfaces the resume contract Pipeline Mode already writes — it introduces no new state.
+6. **Surface any interrupted pipeline** — glob `{sidecar_path}/pipeline-result-latest.json`. If it exists and its overall pipeline status (`summary.status`) is `failed` or `partial`, read the recorded per-step status for the workflow it halted on and the workflows still pending, and include a resume offer in the greeting as the recommended next action. Accepting it re-enters Pipeline Mode with the pending codes; the user may pick any menu code instead. If the file is absent or its status is `success`, stay silent.
 
 **Dispatch** — when the user responds with a code, number, or command:
 
@@ -97,7 +96,7 @@ These menu codes resolve to a handler here, not a registered skill:
 
 When the user provides multiple workflow codes (e.g. `BS CS TS EX`, `QS TS EX`) or a pipeline alias (`forge`, `forge-auto`, `forge-quick`, `maintain`), execute them as a chained pipeline. Load `references/pipeline-mode.md` for the run procedure — parsing, sequence validation, the execute loop, circuit breakers, result contract, and special behaviors — and `shared/references/pipeline-contracts.md` for the alias, data-flow, and threshold tables.
 
-Expansion runs inside pipeline-mode.md step 1 against the pipeline-contracts.md alias table (both routed to above); recognition here needs only the alias names. The one expansion pinned here is `forge-auto`'s non-default gate — `AN[auto] BS[auto] CS TS[min:90] EX` — kept in lockstep with init.md §1b's `forge-auto` → 90 lookup. Each chained workflow runs with `{pipeline_alias}` set to the alias name (`forge-auto`, `forge`, `forge-quick`, `maintain`) or to `null` for ad-hoc code sequences.
+Only the alias names need recognizing here; `pipeline-mode.md` step 1 expands them against the pipeline-contracts.md table. One expansion is pinned here because its test gate is non-default: `forge-auto` → `AN[auto] BS[auto] CS TS[min:90] EX`, whose `TS[min:90]` matches init.md §1b's `forge-auto` → 90. Each chained workflow runs with `{pipeline_alias}` set to the alias name (`forge-auto`, `forge`, `forge-quick`, `maintain`) or `null` for ad-hoc code sequences.
 
 Two alias gotchas must be caught here, at recognition, before that procedure runs:
 

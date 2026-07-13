@@ -6,7 +6,7 @@ nextStepFile: 'resolve-target.md'
 
 # Batch Mode
 
-When `--batch <file>` is supplied, quick-skill processes a list of targets from a text file in sequence rather than a single target from arguments. Designed for unattended bulk runs (CI pipelines, mass-rebuilds, the skf-batch-skills meta-workflow when it lands).
+When `--batch <file>` is supplied, quick-skill processes a list of targets from a text file in sequence rather than a single target from arguments. Designed for unattended bulk runs — CI pipelines, mass-rebuilds, and batch meta-workflows.
 
 ## Input format
 

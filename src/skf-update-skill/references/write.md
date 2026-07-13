@@ -18,30 +18,27 @@ updateActiveSymlinkProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-update-active-symlink.py'
   - '{project-root}/src/shared/scripts/skf-update-active-symlink.py'
 # Resolve `{verifyProvenanceCompletenessHelper}` to the first existing path.
-# §6a runs Check D (Provenance Completeness), deferred from step 5, against the
-# freshly-written metadata.json + provenance-map.json: the export/provenance
-# set-diff (missing + orphaned entries) and file:line citation resolution that
-# validate.md Check D formerly asked the model to compute by eye. This is an
-# advisory check — do NOT HALT if neither path resolves; fall back to the
-# in-prose set comparison §6a documents (graceful degradation).
+# §6a runs Check D (Provenance Completeness), deferred from step 5 because it
+# needs both metadata.json + provenance-map.json on disk: the export/provenance
+# set-diff (missing + orphaned entries) and file:line citation resolution.
+# Advisory — do not HALT if neither path resolves; fall back to the in-prose
+# set comparison §6a documents (graceful degradation).
 verifyProvenanceCompletenessProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py'
   - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
 # Resolve `{hashContentHelper}` to the first existing path; HALT if neither
-# candidate exists. §1 uses its
-# `manual-verify` subcommand to verify the post-merge file against the
-# byte-exact [MANUAL] inventory captured in step 1 §5 — the deterministic
-# replacement for the old LLM marker-count comparison, which could pass a
-# block whose interior was truncated without changing the marker count.
+# candidate exists. §1 uses its `manual-verify` subcommand to verify the
+# post-merge file against the byte-exact [MANUAL] inventory captured in step 1
+# §5; a marker-count comparison would pass a block whose interior was truncated
+# without changing the marker count.
 hashContentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
 # Resolve `{renderMetadataStatsHelper}` by probing `{renderMetadataStatsProbeOrder}`
 # in order (installed SKF module path first, src/ dev-checkout fallback); first
 # existing path wins. HALT if neither resolves — §2's `stats` block and
-# `confidence_distribution` are computed values that must not be hand-binned
-# (the historical 147 ≠ 59 miscount lived exactly here), and this is the same
-# helper sibling create-skill compiles them with.
+# `confidence_distribution` are computed values that must not be hand-binned,
+# and this is the same helper sibling create-skill compiles them with.
 renderMetadataStatsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
   - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
@@ -77,16 +74,16 @@ Update-skill does not run the optional post-restore frontmatter re-validation to
 SKILL.md was written in step 4 section 6b. Verify the write landed intact before proceeding to any derived-artifact writes.
 
 - Verify the resolved `{skill_package}` path matches the version directory step 4 wrote to (if the version changed, step 4 updated `{skill_package}` in context to point at the new path)
-- Run the deterministic [MANUAL]-integrity verifier against the byte-exact inventory captured in step 1 §5 — this replaces the old marker-count comparison, which could not detect an interior truncation that leaves the marker count unchanged:
+- Run the deterministic [MANUAL]-integrity verifier against the byte-exact inventory captured in step 1 §5:
 
   ```bash
   uv run {hashContentHelper} manual-verify {skill_package}/SKILL.md \
       --inventory {manual_inventory}
   ```
 
-  The verdict JSON is `{"preserved":[...], "modified":[...], "missing":[...], "moved":[...], "ok":bool}`. A `modified` block is one whose byte-exact interior changed (the truncation the old count check silently passed); a `missing` block lost its markers entirely; a `moved` block is byte-identical but relocated with its logical parent section (clean — does **not** fail the gate). `ok == (modified empty AND missing empty)`.
+  The verdict JSON is `{"preserved":[...], "modified":[...], "missing":[...], "moved":[...], "ok":bool}`. A `modified` block is one whose byte-exact interior changed (an interior truncation); a `missing` block lost its markers entirely; a `moved` block is byte-identical but relocated with its logical parent section (clean — does not fail the gate). `ok == (modified empty AND missing empty)`.
 - If `ok == true` and the path resolves: proceed to section 2
-- **If `ok == false`: HALT immediately.** Do not write `metadata.json`, `provenance-map.json`, or any other artifact — further writes would compound the inconsistency. Alert the user:
+- **If `ok == false`: HALT immediately** with status `halted-for-manual-mismatch`. Do not write `metadata.json`, `provenance-map.json`, or any other artifact — further writes would compound the inconsistency. In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "write:verify-manual-integrity", path: "{skill_package}/SKILL.md", reason: "..."}`). Alert the user:
 
   "**[MANUAL] section integrity failure after write.** Blocks modified (interior changed): {modified}. Blocks missing (markers lost): {missing}. Relocated-but-intact (advisory only): {moved}. Verified against the step-1 inventory `{manual_inventory}`, on disk at `{skill_package}/SKILL.md`. The skill package is in an inconsistent state. Manual recovery required — restore the previous version from `{skill_group}/{previous_version}/` or fix the file in place, then re-run update-skill."
 
@@ -98,7 +95,7 @@ Update `{skill_package}/metadata.json`:
 - Update `version`: **if `update_mode == "gap-driven"`, do not bump — the skill is being repaired against the same source commit, so leave `version` unchanged and update only `generation_date` / `last_update` below.** This keeps metadata `version` consistent with the on-disk `{skill_package}` path, which step 4 §6b also leaves unchanged in gap-driven mode (see step 4 §6b's "If the source version detected during step 3 differs..." carve-out — in gap-driven mode no source version is detected, so step 4 writes into the existing version directory). Otherwise, if a source version was detected during re-extraction and differs from the current metadata version, use the source version; otherwise increment patch version
 - Update `generation_date` timestamp to current ISO-8601 date
 - Update `exports` array to reflect current export list
-- **Compute the `stats` block and `confidence_distribution` deterministically** with `{renderMetadataStatsHelper}` (resolve from `{renderMetadataStatsProbeOrder}`; first existing path wins) — the same helper sibling create-skill compiles them with, so create and update emit byte-identical stats for identical inputs. The helper owns all the arithmetic: it bins each provenance `entries[]` row once by its `signature_source` tier into `confidence_distribution.{t1,t1_low,t2,t3}`, sets `exports_documented` = the entry count, and derives `exports_total` = `exports_public_api` + `exports_internal`, `public_api_coverage` = documented / public_api (`null` if public_api is 0), `total_coverage` = documented / total (`null` if total is 0), plus `scripts_count` / `assets_count` from the inventory arrays. Run `uv run {renderMetadataStatsHelper} --help` for the full contract. Do **not** hand-bin the distribution — binning T2 annotations + T3 doc items on top of the per-export tiers is the historical 147 ≠ 59 miscount, which per-entry binning makes structurally impossible. You supply only the judgment payload:
+- **Compute the `stats` block and `confidence_distribution` deterministically** with `{renderMetadataStatsHelper}` (resolve from `{renderMetadataStatsProbeOrder}`; first existing path wins) — the same helper sibling create-skill compiles them with, so create and update emit byte-identical stats for identical inputs. The helper owns all the arithmetic: it bins each provenance `entries[]` row once by its `signature_source` tier into `confidence_distribution.{t1,t1_low,t2,t3}`, sets `exports_documented` = the entry count, and derives `exports_total` = `exports_public_api` + `exports_internal`, `public_api_coverage` = documented / public_api (`null` if public_api is 0), `total_coverage` = documented / total (`null` if total is 0), plus `scripts_count` / `assets_count` from the inventory arrays. Run `uv run {renderMetadataStatsHelper} --help` for the full contract. Do not hand-bin the distribution — binning T2 annotations + T3 doc items on top of the per-export tiers double-counts, which per-entry binning by `signature_source` makes structurally impossible. You supply only the judgment payload:
 
   **Judgment payload (what you decide — passed as JSON on stdin):**
   - `exports_public_api`: count of exports from public entry points (`__init__.py`, `index.ts`, `lib.rs`, or equivalent)
@@ -118,7 +115,7 @@ Update `{skill_package}/metadata.json`:
 
 Write to `{forge_version}/provenance-map.json`:
 
-**Every entry this step writes or rewrites MUST carry a `signature_source` (`T1` / `T1-low` / `T2` / `T3`)** — the tier that contributed the structural signature, matching create-skill's entry contract. §2's stats helper bins each entry on this field; a missing value trips its `coherence.ok: false` check. Preserve it byte-identical on untouched entries; set it from the contributing extraction tier on every re-extracted or new entry.
+**Every entry this step writes or rewrites carries a `signature_source` (`T1` / `T1-low` / `T2` / `T3`)** — the tier that contributed the structural signature, matching create-skill's entry contract. §2's stats helper bins each entry on this field, so a missing value trips its `coherence.ok: false` check. Preserve it byte-identical on untouched entries; set it from the contributing extraction tier on every re-extracted or new entry.
 
 **If `no_reextraction == true` (gap-driven mode from step 3 section 0):**
 Dispatch per-entry on the verification outcome recorded by step 3 — gap-driven runs produce a mix of `verified`, `moved`, `re-extracted`, and `unknown` outcomes, and each requires a different provenance-map write strategy:
@@ -253,6 +250,8 @@ The helper emits a result envelope with `status` ∈ `{ok, flipped, mismatch, mi
 - **`missing-target`** (exit 2): `{skill_group}/{version}/` directory does not exist on disk. HALT — display `halt_message` verbatim. This indicates §4 §6b did not write the version directory before §5b ran (a workflow bug, not a user error).
 - **`mismatch`** (exit 2): re-read after flip showed the symlink still points elsewhere. HALT — display `halt_message`. Should be impossible because the helper uses `os.replace` (atomic rename); a mismatch here indicates filesystem-level interference (concurrent writer, broken FUSE mount).
 
+Both exit-2 halts carry status `halted-for-write-failure`; in `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "write:active-symlink", reason: "..."}`).
+
 ### 6. Verify Derived Artifact Writes
 
 SKILL.md was verified in section 1 (written by step 4 section 6b). This section verifies the artifacts this step wrote: `metadata.json`, `provenance-map.json`, `evidence-report.md`, `context-snippet.md`, and the `active` symlink from §5b.
@@ -275,7 +274,7 @@ For each derived artifact:
 | context-snippet.md | {VERIFIED/FAILED} |
 | {skill_group}/active symlink | {VERIFIED/FAILED} (readlink → {resolved_version}, expected {version}) |
 
-**On symlink `mismatch` (helper exit 2):** HALT. Do not proceed to §7 post-write validation or §8 menu. Display the helper's `halt_message` verbatim — it already includes the diverged target, the expected version, and the recovery command. This matches the severity of the other four artifact checks — silent divergence here mis-routes any downstream consumer that uses the symlink fallback.
+**On symlink `mismatch` (helper exit 2):** HALT with status `halted-for-write-failure`. Do not proceed to §7 post-write validation or §8 menu. Display the helper's `halt_message` verbatim — it already includes the diverged target, the expected version, and the recovery command; in `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "write:verify-active-symlink", reason: "..."}`). This matches the severity of the other four artifact checks — silent divergence here mis-routes any downstream consumer that uses the symlink fallback.
 
 **All files written and verified.**"
 

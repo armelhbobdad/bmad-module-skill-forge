@@ -22,7 +22,7 @@ Proactively reduce oversized SKILL.md bodies to under 400 lines by extracting Ti
 - Auto-proceed step — no user interaction required
 - Graceful skip — if body is under threshold, proceed without modification
 - Only extract Tier 2 sections (identified by `## Full` heading prefix)
-- Tier 1 sections must NEVER be moved to references/
+- Tier 1 sections stay inline — moving one to references/ would break the standalone SKILL.md the two-tier design guarantees
 - Do not modify frontmatter — only body content and references/ directory
 - Do not invoke `npx skill-check split-body` — this step uses direct extraction
 - Do not invoke the Description Guard Protocol — frontmatter is untouched
@@ -31,7 +31,7 @@ Proactively reduce oversized SKILL.md bodies to under 400 lines by extracting Ti
 
 ### §0. Run the Shard Script (primary path)
 
-The counting, boundary detection, size-sort, file writes, and blockquote replacement described in §1–§5 are fully deterministic and run every invocation — so a script owns them, not the model. Do NOT count body lines or extract sections by hand when the script ran.
+The counting, boundary detection, size-sort, file writes, and blockquote replacement described in §1–§5 are fully deterministic and run every invocation — so a script owns them, not the model. Do not count body lines or extract sections by hand when the script ran.
 
 **Resolve `{shardBodyHelper}`** from `{shardBodyProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
@@ -117,7 +117,7 @@ The report's `body_lines_after` is the recount after all extraction. `under_budg
 
 **IF `under_budget` is false** (body still > 400 after all Tier 2 sections extracted — this is the one genuine editing-judgment step):
 - Trim oversized Tier 1 sections: reduce `## Key API Summary` and `## Architecture at a Glance` content to fit within the 400-line budget
-- Do NOT move any Tier 1 section to references/
+- Do not move any Tier 1 section to references/
 - Re-run `{shardBodyHelper}` (or re-count) and update `body_lines_after`
 
 ### §5. Cross-Reference Integrity

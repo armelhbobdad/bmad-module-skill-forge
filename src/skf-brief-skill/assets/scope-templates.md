@@ -121,7 +121,7 @@ Auto-detect demo directories and file patterns:
 - Directories: `demo/`, `demos/`, `stories/`, `examples/`, `__stories__/`, `storybook/`
 - Files: `*.stories.*`, `*.story.*`, `*.example.*`, `*.demo.*`
 
-Present detected patterns to user before applying (do NOT exclude silently).
+Show detected patterns to the user for confirmation before applying them, rather than excluding files silently.
 Prompt: "**Auto-detected {N} demo/example files** in {M} directories. Confirm exclusion? [Y/n] Or adjust patterns:"
 
 **Phase 3 — Variant Selection (if applicable):**

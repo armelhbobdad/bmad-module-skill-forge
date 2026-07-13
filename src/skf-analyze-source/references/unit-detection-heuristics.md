@@ -77,7 +77,7 @@ Rules for identifying discrete skillable units within a project. A "skillable un
 - Scope type: inherits from the dominant constituent (typically `full-library` or `specific-modules`)
 
 **Detection heuristic (apply after initial classification, before user confirmation):**
-1. Among the qualifying units, find groups of ≥2 boundaries where EITHER:
+1. Among the qualifying units, find groups of ≥2 boundaries where either:
    - **Mutual hard dependency:** Every constituent imports from at least one other constituent in the group, AND no constituent's public API is self-contained (removing any one breaks the others)
    - **Shared integration surface:** Constituents share types/traits defined in one constituent but consumed by all others, AND the consuming constituents have no independent barrel (their value depends on the shared definitions)
 2. For each detected group, propose merging into a single composite unit:
@@ -88,7 +88,7 @@ Rules for identifying discrete skillable units within a project. A "skillable un
 
 ## Disqualification Rules
 
-Do NOT recommend as a skillable unit if:
+Do not recommend a boundary as a skillable unit when:
 
 1. **Too small**: Fewer than 3 source files or 100 lines of code
 2. **Generated code**: Auto-generated files (protobuf, GraphQL codegen, etc.)

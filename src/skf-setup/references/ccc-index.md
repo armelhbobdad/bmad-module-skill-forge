@@ -1,10 +1,9 @@
 ---
 nextStepFile: 'write-config.md'
-# Resolve `{mergeCccExclusionsHelper}` by probing `{mergeCccExclusionsProbeOrder}`
-# in order (installed SKF module path first, src/ dev-checkout fallback); first
-# existing path wins. HALT if neither resolves — the script owns config-value
-# validation and the set-union merge into .cocoindex_code/settings.yml; no
-# fallback to prose-driven validation.
+# `{mergeCccExclusionsHelper}` = first existing path in
+# `{mergeCccExclusionsProbeOrder}`; halt if neither exists. The script owns
+# config-value validation and the set-union merge into
+# .cocoindex_code/settings.yml — no prose fallback.
 mergeCccExclusionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-merge-ccc-exclusions.py'
   - '{project-root}/src/shared/scripts/skf-merge-ccc-exclusions.py'
@@ -25,7 +24,7 @@ For Quick and Forge tiers, or when ccc is unavailable, skip silently and proceed
 - Focus only on ccc index verification, exclusion-pattern merge, and (re-)indexing
 - Do not display skip messages for Quick/Forge tiers
 - Do not fail the workflow if ccc indexing fails
-- Never reimplement the exclusion-pattern validation in prose — the script owns the PR #248 rules
+- The script owns exclusion-pattern validation — do not reimplement it in prose
 
 ## MANDATORY SEQUENCE
 
@@ -35,7 +34,7 @@ Read `{ccc}` and `{ccc_skip_index}` from context.
 
 **If `{ccc}` is false:** Set `{ccc_index_result: "none", ccc_indexed_path: null, ccc_last_indexed: null, ccc_exclude_patterns: [], ccc_exclusion_warnings: [], settings_yml_written: false, settings_yml_patterns_added: 0}`. Proceed directly to section 4 (Auto-Proceed) — no output, no messaging.
 
-**If `{ccc}` is true AND `{ccc_skip_index}` is true:** Run the exclusion-merge (section 3) so settings.yml stays current, then set `{ccc_index_result: "skipped", ccc_indexed_path: null, ccc_last_indexed: null}` and proceed to section 4 — do NOT run `ccc init` or `ccc index`. The envelope's `ccc_index.status` will be `"skipped"` so pipelines that plan an out-of-band re-index can distinguish "the operator opted out" from "indexing failed".
+**If `{ccc}` is true AND `{ccc_skip_index}` is true:** Run the exclusion-merge (section 3) so settings.yml stays current, then set `{ccc_index_result: "skipped", ccc_indexed_path: null, ccc_last_indexed: null}` and proceed to section 4 — do not run `ccc init` or `ccc index`. The envelope's `ccc_index.status` will be `"skipped"` so pipelines that plan an out-of-band re-index can distinguish "the operator opted out" from "indexing failed".
 
 **If `{ccc}` is true AND `{ccc_skip_index}` is false:** Continue to section 2.
 
@@ -61,14 +60,14 @@ uv run {mergeCccExclusionsHelper} \
     --forge-data-folder "{forge_data_folder}"
 ```
 
-The script (see `src/shared/scripts/skf-merge-ccc-exclusions.py` docstring for the full schema) builds the SKF exclusion list (4 always-include hardcoded patterns + 2 conditional from validated config), applies the PR #248 validation rules to reject empty / absolute / glob-meta config values with actionable warnings, and performs an idempotent set-union merge into `{project-root}/.cocoindex_code/settings.yml`. User customizations are preserved. When the file does not exist yet (first-time setup before `ccc init`) the script creates it; when nothing new needs adding the script skips the write entirely (mtime preserved).
+The script (see `src/shared/scripts/skf-merge-ccc-exclusions.py` docstring for the full schema) builds the SKF exclusion list (4 always-include hardcoded patterns + 2 conditional from validated config), applies the validation rules to reject empty / absolute / glob-meta config values with actionable warnings, and performs an idempotent set-union merge into `{project-root}/.cocoindex_code/settings.yml`. User customizations are preserved. When the file does not exist yet (first-time setup before `ccc init`) the script creates it; when nothing new needs adding the script skips the write entirely (mtime preserved).
 
 **Parse the JSON output and set context flags:**
 
 - `{settings_yml_existed}` ← `settings_yml_existed`
 - `{settings_yml_written}` ← `written`
 - `{settings_yml_patterns_added}` ← `patterns_added`
-- `{ccc_exclude_patterns}` ← `effective_patterns` (the script returns the final, sorted, deduplicated SKF pattern set after validation — consume verbatim; do NOT re-derive in prose).
+- `{ccc_exclude_patterns}` ← `effective_patterns` (the script returns the final, sorted, deduplicated SKF pattern set after validation — consume verbatim; do not re-derive in prose).
 - `{ccc_exclusion_warnings}` ← `warnings` (a list — step 4 folds them into the envelope's warnings array)
 
 **If `{settings_yml_written}` is true** (new patterns merged into settings.yml): set `{needs_reindex: true}` — new exclusions require re-indexing for the index to reflect them. Display: "**CCC exclusions configured:** {patterns_added} SKF patterns applied to .cocoindex_code/settings.yml"
@@ -114,7 +113,7 @@ ccc index
 
 - Store `{ccc_index_result: "failed", ccc_indexed_path: null, ccc_last_indexed: null, ccc_indexing_failed_reason: {error}}` (the failed-reason flag flows into step 4's envelope warnings)
 - Display: "CCC indexing failed: {error}. Extraction will use direct AST scanning — semantic pre-ranking unavailable this session."
-- Continue — this is NOT a workflow error
+- Continue — this is not a workflow error
 
 ### 5. Auto-Proceed
 

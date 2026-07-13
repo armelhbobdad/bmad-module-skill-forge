@@ -48,7 +48,7 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | `skill_name` [one or more, required unless `--all`] |
-| **Flags** | `--headless` / `-H` (auto-resolve all gates); `--all` (export every non-deprecated skill in `.export-manifest.json`); `--dry-run` (resolve and stage everything but exit before §4 writes to context files; envelope `status="dry-run"`) |
+| **Flags** | `--headless` / `-H` (auto-resolve all gates); `--all` (export every non-deprecated skill in `.export-manifest.json`); `--dry-run` (stage everything but write nothing — context files, manifest, and snippet are previewed only; the run completes read-only through the terminal step; `status="dry-run"`) |
 | **Gates** | step 1: single Confirm Gate [C] for the whole batch | step 4: single Confirm Gate [C] for the whole batch |
 | **Outputs** | Updated `.export-manifest.json` (every skill in the batch), updated context files (CLAUDE.md/AGENTS.md/.cursorrules), per-skill `context-snippet.md`, per-run result contract `export-skill-result-{timestamp}.json` and `export-skill-result-latest.json` |
 | **Multi-skill mode** | Activated when more than one skill is selected (via `--all`, multi-selection, or multi-argument invocation). See `references/load-skill.md` §1c for the per-step iteration map. |

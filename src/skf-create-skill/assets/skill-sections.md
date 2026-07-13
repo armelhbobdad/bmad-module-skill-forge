@@ -90,7 +90,7 @@ Indexed pipe-delimited format for CLAUDE.md managed section (~80-120 tokens per 
 - **Token budget:** ~80-120 tokens per skill (justified by Vercel's finding that indexed format maintains performance at 80% compression)
 - **T1-now content only** — no T2 annotations in the snippet
 - **Section anchors** (`#quick-start`, `#key-types`) must match actual SKILL.md heading slugs
-- **Version** comes from source detection (per issue #32), not brief default
+- **Version** comes from source detection, not brief default
 
 ---
 
@@ -230,7 +230,7 @@ Each reference file includes:
 
 - `provenance_version`: Schema version. `"2.0"` enables unified single/stack support. Audit reads both v1 (no version field) and v2.
 - `source_library`: Identifies which library an export belongs to. For single skills, defaults to the skill/package name. For stack skills, identifies the constituent library.
-- `integrations`: Stack-only. Describes cross-library integration patterns with their own schema — NOT shoehorned into entries.
+- `integrations`: Stack-only. Describes cross-library integration patterns with their own schema — not shoehorned into entries.
 - `constituents`: Stack-only (compose-mode). Tracks the compose-time snapshot of each source skill for staleness detection. `metadata_hash` enables audit to detect constituent drift without re-reading all constituent files.
 - `file_entries` remains optional — omit when no scripts, assets, or promoted docs exist.
 - Single skills omit `integrations` and `constituents` arrays entirely (not empty arrays).
@@ -302,6 +302,6 @@ t2_future_count: {N}
 - {any warnings from extraction or validation}
 ```
 
-**Frontmatter — pinned detection contract:** the `t2_future_count` field is the authoritative forward-looking-annotation count for downstream gate checks (e.g. skf-test-skill §2b migration-section rule). Emit **always**, even when 0 — omission is indistinguishable from "no T2-future data" and silently flips the gate into Case 2/3 for a Case-1 skill. `generated` and `forge_tier` mirror the narrative header for consumers that read only the frontmatter. Downstream gate rules MUST parse `t2_future_count` from frontmatter, not grep prose — prose drift (heading renames, alternate phrasings like "forward-looking annotations") silently breaks the detection.
+**Frontmatter — pinned detection contract:** the `t2_future_count` field is the authoritative forward-looking-annotation count for downstream gate checks (e.g. skf-test-skill §2b migration-section rule). Emit **always**, even when 0 — omission is indistinguishable from "no T2-future data" and silently flips the gate into Case 2/3 for a Case-1 skill. `generated` and `forge_tier` mirror the narrative header for consumers that read only the frontmatter. Downstream gate rules parse `t2_future_count` from frontmatter, not prose — prose drift (heading renames, alternate phrasings like "forward-looking annotations") silently breaks grep-based detection.
 
 **Description Guard slot:** populated by step 6 §0 (create-skill) and §0 (update-skill) when the guard protocol fires. `Restored: true` indicates that an external tool (typically `skill-check --fix` or `split-body`) rewrote the frontmatter `description` and the guard restored the pre-tool value. When `Restored: false`, leave `Triggering tool`, `Original description preserved`, and `Notes` as `—`. When `Restored: true`, fill all four fields: tool name, whether the original was successfully written back, and a one-sentence note describing what the tool had changed (e.g., "replaced with generic summary", "truncated at 80 chars", "angle-bracket tokens re-introduced"). Downstream test-skill assertions can grep for `Restored: true` to detect unintended tool rewrites without parsing free-form warning prose.

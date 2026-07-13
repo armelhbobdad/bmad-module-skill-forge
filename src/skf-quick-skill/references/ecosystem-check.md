@@ -12,11 +12,10 @@ To query the agentskills.io ecosystem for an existing official skill matching th
 
 ## Rules
 
-- This check is advisory — never block the workflow on failure
 - 5-second timeout on ecosystem queries; tool unavailability is a silent skip, not an error
 - Do not begin extraction or compilation
 
-## MANDATORY SEQUENCE
+## Steps
 
 ### 1. Query Ecosystem
 
@@ -54,7 +53,7 @@ An official skill already exists. You can:
 **[I] Install** — Install the existing official skill instead (exits this workflow)
 **[A] Abort** — Cancel compilation"
 
-### 3. Handle Match Menu (ONLY if match found)
+### 3. Handle Match Menu (only when a match was found)
 
 #### Menu Handling Logic:
 

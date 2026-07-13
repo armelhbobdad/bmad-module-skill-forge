@@ -94,10 +94,10 @@ Map each detection result to the `doc_sources` schema:
 Field mapping from `skf-detect-docs.py` output:
 - `url` ← `url` (direct copy)
 - `detected_via` ← `detected_via` (direct copy; or `"readme_always"` for the mandatory README entry)
-- `content_hash` ← `content_hash` (direct copy, already in `sha256:{hexdigest}` format from story 1.2)
+- `content_hash` ← `content_hash` (direct copy, already in `sha256:{hexdigest}` format)
 - `recorded_at` ← generated at step execution time (ISO-8601 with timezone)
 
-Note: `content_type` from detect-docs output is NOT carried into `doc_sources`.
+Note: `content_type` from detect-docs output is not carried into `doc_sources`.
 
 ### 5. Update metadata.json
 

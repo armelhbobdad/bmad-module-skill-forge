@@ -19,7 +19,7 @@ Present the complete refinement summary to the user. Display counts of gaps fill
 
 - Focus only on presenting the completed refinement — no new analysis
 - Do not discover new gaps, issues, or improvements, and do not modify the refined document
-- Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing summary is NOT the terminal step
+- Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing summary is not the terminal step
 
 ## MANDATORY SEQUENCE
 

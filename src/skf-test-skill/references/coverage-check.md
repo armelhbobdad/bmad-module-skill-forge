@@ -5,6 +5,7 @@ scoringRulesFile: '{scoringRulesPath}'
 sourceAccessProtocol: 'references/source-access-protocol.md'
 reconcileScript: 'scripts/reconcile-coverage.py'
 coherenceScript: 'scripts/check-metadata-coherence.py'
+numeratorVerifyScript: 'scripts/verify-declared-numerator.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -37,10 +38,10 @@ Load `{sourceAccessProtocol}` and follow both sections:
 
 <!-- Subagent delegation: read SKILL.md + references/*.md, return compact JSON inventory -->
 
-Delegate reading of the skill under test to a subagent. The subagent receives the path to SKILL.md (and the `references/` directory path if it exists) and MUST:
+Delegate reading of the skill under test to a subagent. The subagent receives the path to SKILL.md (and the `references/` directory path if it exists) and must:
 1. Read SKILL.md
 2. If a `references/` directory exists alongside SKILL.md and SKILL.md's `## Full` headings are absent or stubs, also read all `references/*.md` files
-3. ONLY return this compact JSON inventory — no prose, no extra commentary:
+3. only return this compact JSON inventory — no prose, no extra commentary:
 
 ```json
 {
@@ -71,7 +72,7 @@ Delegate reading of the skill under test to a subagent. The subagent receives th
 
 #### 1a. Parent-Side Schema Validation + Spot-Check
 
-test-skill is a quality gate — it MUST NOT trust subagent output blindly. Before any downstream step consumes the inventory, the parent runs a schema validator and a grep spot-check, and HALTs on any failure.
+test-skill is a quality gate — it must not trust subagent output blindly. Before any downstream step consumes the inventory, the parent runs a schema validator and a grep spot-check, and HALTs on any failure.
 
 **Schema validation (required keys + types) — delegated to `scripts/validate-inventory.py`.** Stripping the wrapping code fence, parsing the JSON, and asserting the required-keys / per-entry-type / `kind`-enum / mismatch-field contract is pure structural validation with one correct verdict per input — deterministic plumbing, not judgment — so it runs in the script, not in-prompt. Pipe the subagent's **raw** response (fence and all) to it exactly as §2c pipes the reconcile input:
 
@@ -92,7 +93,7 @@ The script returns `{"valid": bool, "violations": [...], "rejectedCount": N, "ex
 
 1. If `inventory.exports` is empty (`exportsCount == 0`): skip the spot-check (no names to verify). Zero-exports policy is handled in the §2b zero-exports guard.
 2. Otherwise, sample `min(3, exportsCount)` exports deterministically — by default take indices `[0, len//2, len-1]` (first, middle, last) from `inventory.exports` after a stable sort by `name`.
-3. For each sampled export, grep for the name across SKILL.md **and every reference file the subagent listed in `inventory.references`** (the documented surface of a split-body skill spans both): `grep -n "{export.name}" {resolved_skill_package}/SKILL.md {resolved_skill_package}/{each references[] path}` in the parent context. The name MUST appear at least once somewhere in that file set. Greping SKILL.md alone would false-HALT a split-body skill whose sampled export is documented only in a `references/*.md` file (a legitimate placement per §1 step 2 and the split-body note below).
+3. For each sampled export, grep for the name across SKILL.md **and every reference file the subagent listed in `inventory.references`** (the documented surface of a split-body skill spans both): `grep -n "{export.name}" {resolved_skill_package}/SKILL.md {resolved_skill_package}/{each references[] path}` in the parent context. The name must appear at least once somewhere in that file set. Greping SKILL.md alone would false-HALT a split-body skill whose sampled export is documented only in a `references/*.md` file (a legitimate placement per §1 step 2 and the split-body note below).
 4. If a sampled name returns zero matches across SKILL.md **and** all listed reference files, HALT "coverage-check: subagent inventory failed ground-truth spot-check — `{name}` claimed as export but absent from SKILL.md and the listed reference files".
 
 These checks catch two hallucination classes: schema-shape drift (subagent paraphrased or dropped the contract) and fabricated exports (subagent invented names not in the document). Both are disqualifying for a grader skill — do not downgrade to a warning.
@@ -103,7 +104,7 @@ These checks catch two hallucination classes: schema-shape drift (subagent parap
 
 **Only execute if the subagent's `references` array is non-empty** (detected during split-body traversal in Section 1). Skip silently otherwise.
 
-The subagent has already read both SKILL.md body and `references/*.md` files. For each function, class, type, or interface that appears in BOTH the SKILL.md body AND any `references/*.md` file, instruct the subagent (or perform in the same subagent call from Section 1) to compare the documented signatures and include mismatches in its JSON output as a `cross_check_mismatches` array:
+The subagent has already read both SKILL.md body and `references/*.md` files. For each function, class, type, or interface that appears in both the SKILL.md body AND any `references/*.md` file, instruct the subagent (or perform in the same subagent call from Section 1) to compare the documented signatures and include mismatches in its JSON output as a `cross_check_mismatches` array:
 
 - **Parameters:** name, type, order, optionality
 - **Return types:** exact type match
@@ -148,7 +149,7 @@ Start from the package entry point (see 0b) and identify the public API surface.
 For EACH source file that defines public API exports, delegate to a subagent that:
 1. Uses ast-grep to extract all exported symbols with their full signatures (the `source_sig`)
 2. Matches each export against the `documented_signatures` map supplied by the parent, comparing params (name, type, order, optionality) and return type
-3. Returns ONLY the JSON object below — no prose, no commentary, no markdown fences:
+3. Returns only the JSON object below — no prose, no commentary, no markdown fences:
 
 ```json
 {
@@ -179,7 +180,7 @@ Parent strips wrapping markdown fences (if present) before parsing, same as §1a
 
 After the source-code analysis (§2) completes, compute `total_exports` — the count of exports discovered in the source / provenance-map / metadata.json, per the stratified-scope and State 2 rules resolved in §4.
 
-**Stack-skill branch (`metadata.json.skill_type == "stack"`):** A stack skill's own barrel is empty by design — it composes constituent skills rather than exporting a proprietary surface — so `total_exports` derived from its own barrel is `0` for a *correctly* built stack, and its `[from skill: …]` citations never trip §0's `[EXT:…]`-only docs-only trigger. The zero-exports HALT below targets individual source-based skills and must NOT fire for stacks. Derive the stack's coverage denominator (`stack_denominator`) from its composition surface, in priority order, and use it as `total_exports` for the rest of coverage scoring:
+**Stack-skill branch (`metadata.json.skill_type == "stack"`):** A stack skill's own barrel is empty by design — it composes constituent skills rather than exporting a proprietary surface — so `total_exports` derived from its own barrel is `0` for a *correctly* built stack, and its `[from skill: …]` citations never trip §0's `[EXT:…]`-only docs-only trigger. The zero-exports HALT below targets individual source-based skills and must not fire for stacks. Derive the stack's coverage denominator (`stack_denominator`) from its composition surface, in priority order, and use it as `total_exports` for the rest of coverage scoring:
 
 1. Provenance-map cited-contract count — when `{forge_data_folder}/{skill_name}/provenance-map.json` exists **and its `entries[]` is non-empty**: count the named cited contracts, **excluding entries whose `export_name` contains `::`** (impl-block methods roll up under an already-counted type). Use the same exclusion as §4b's named-export rule so the §2b and §4b stack denominators agree.
 2. Otherwise the composition surface from `metadata.json`: `len(libraries) + len(integration_pairs)`.
@@ -348,12 +349,18 @@ The script returns `{"skipped": bool, "clusterACounts": {...}, "clusterBCounts":
 
 (The stack and reference-app branches above already skip this delegation; the script also returns `skipped: true` when passed their `skillType` / `scopeType`, so an unconditional call stays safe.)
 
-**Numerator ground-truth — force a full grep on the inflation signature:** The intra/cross-cluster checks above only compare *counts*; they cannot tell whether the declared documented exports actually appear in the skill. When `metadata.json.stats.exports_documented == effective_denominator` exactly (the numerator equals the denominator — the signature of a numerator inflated to match the full surface), do **not** trust the documented count. Grep every declared export name (the full `metadata.exports[]` / provenance-map declared set — not the §1a 3-sample) against `SKILL.md ∪ references/*.md`. The count of declared names that actually appear is the **verified numerator**:
+**Numerator ground-truth — force a full grep on the inflation signature.** The intra/cross-cluster checks above only compare *counts*; they cannot tell whether the declared exports actually appear in the skill. When `metadata.json.stats.exports_documented == effective_denominator` exactly (numerator equals denominator — the signature of a numerator padded to match the full surface), do not trust the documented count: grep the full declared set (the `metadata.exports[]` / provenance-map names, not the §1a 3-sample) against `SKILL.md ∪ references/*.md`. That grep + present/absent set-diff + count has one correct answer per input, so it runs in `uv run {numeratorVerifyScript}`, not in-prompt (`{numeratorVerifyScript}` resolves relative to the skill root):
 
-- If verified == declared, the skill is genuinely fully documented — no finding; coverage stands.
-- If verified < declared, emit a **High**-severity gap `numerator inflation — {declared − verified} of {declared} declared exports absent from SKILL.md/references` listing the absent names, and use the verified count as the Export Coverage numerator (overriding `exports_documented`). A numerator padded to equal the denominator otherwise produces a tautological 100% that passes the gate.
+```bash
+echo '{"declaredNames": [ /* full declared set */ ], "skillPackagePath": "{resolved_skill_package}"}' | uv run {numeratorVerifyScript} --stdin
+```
 
-The full grep runs only on the exact equality signature, so it adds no cost to the common case where the numerator is already below the denominator. Unlike the count-coherence findings above, this arm is authoritative — it changes the numerator used for scoring.
+Read the script's output — do not re-derive it by hand:
+
+- `inflated: false` (`verified == declared`) → the skill is genuinely fully documented; no finding, coverage stands.
+- `inflated: true` (`verified < declared`) → emit a **High**-severity gap `numerator inflation — {declared − verified} of {declared} declared exports absent from SKILL.md/references` listing the script's `absent[]` names, and use `verified` as the Export Coverage numerator (overriding `exports_documented`). A numerator padded to equal the denominator otherwise produces a tautological 100% that passes the gate.
+
+The grep runs only on the exact-equality signature, so it adds no cost to the common case where the numerator is already below the denominator. Unlike the count-coherence findings above, this arm is authoritative — it changes the numerator used for scoring.
 
 Append any findings (Medium gaps, the Info note, and/or the High numerator-inflation gap) to the Coverage Analysis section's gap list (built in section 5) so they surface in the final test report alongside coverage and signature findings. The count-coherence findings are informational about data quality and do not change the denominator chosen above; the numerator ground-truth arm is the one exception that overrides the numerator.
 

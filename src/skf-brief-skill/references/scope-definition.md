@@ -149,6 +149,8 @@ The analysis detected **{language}** with low confidence. Is this correct, or sh
 
 Wait for confirmation or override.
 
+**Headless:** `language_hint`, when supplied, already set the language at step 02 §3; otherwise accept the detected language and continue. This confirmation prompt is interactive-only, so a headless run never stalls here.
+
 ### 5. Summarize Scope Decisions
 
 "**Scope Summary:**

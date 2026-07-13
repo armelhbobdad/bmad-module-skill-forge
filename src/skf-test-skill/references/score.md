@@ -112,7 +112,7 @@ Parse the JSON output. The script returns:
 - `skipReasons` — why each category was skipped
 - `weightSum` — sum of final weights (should be ~100)
 - `inconclusiveReasons` — only present when `result == "INCONCLUSIVE"`; explains which floor clause tripped
-- **Verdict-override group** — present as an atomic set of four keys ONLY when a post-score cap or the threshold fallback engaged (§3d/§4b are now applied by the script, not re-derived here):
+- **Verdict-override group** — present as an atomic set of four keys only when a post-score cap or the threshold fallback engaged (§3d/§4b are applied by the script, not re-derived here):
   - `effectiveResult` — the **final verdict** after caps + fallback (`"PASS"` / `"FAIL"`); read this as the outcome for §4–§8
   - `capReason` — string describing the cap(s) that fired, or `null`
   - `thresholdFallback` — `true` when the FAIL→PASS-at-80-floor fallback fired
@@ -297,7 +297,7 @@ If `analysis_confidence` is not `full`, append a degradation notice. **The notic
 
 **Resolved via:** {analysis_confidence} {confidence breakdown if provenance-map, e.g., "(T1 AST-verified at compilation time)" or "(12 T1, 3 T1-low)"}
 **Impact:** {describe limitation — e.g., "Signature checks limited to name-matching. Source file:line citations from provenance-map, not live AST." — or "Provenance data is at highest confidence; no limitation." for all-T1 provenance-map}
-**Recommendation:** {confidence-dependent — see {sourceAccessProtocol} degradation notice rules. Do NOT recommend local clone when provenance-map entries are already T1.}
+**Recommendation:** {confidence-dependent — see {sourceAccessProtocol} degradation notice rules. Do not recommend local clone when provenance-map entries are already T1.}
 ```
 
 ### 7. Update Output Frontmatter

@@ -19,7 +19,7 @@ To finalize the skill by creating the active-version pointer, displaying the com
 - Create the active pointer via the shared helper — never `rm` + `ln -s` manually
 - Result contract writing is mandatory (pipeline consumers depend on it)
 
-## MANDATORY SEQUENCE
+## Steps
 
 ### 1. Create Active Pointer (atomic flip, Windows-safe)
 
@@ -29,7 +29,7 @@ To finalize the skill by creating the active-version pointer, displaying the com
 
 Create or update the `active` pointer at `{skill_group}/active` pointing to `{version}` using the shared atomic-flip helper. The helper acquires an `flock` on `{skill_group}/active.skf-lock`, refuses to replace a non-link at `{skill_group}/active` (protecting against accidental `rm -rf` of a real directory), and uses a rename-over-symlink pattern so the update is atomic from a concurrent reader's perspective. On Windows the helper automatically falls back to a directory junction (`mklink /J`) when `os.symlink` fails with `PRIVILEGE_NOT_HELD` / `ACCESS_DENIED` — junctions require no admin elevation and resolve identically for `skf-skill-inventory`'s consumers:
 
-**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. HALT if no candidate exists — the active-pointer flip MUST go through the atomic helper.
+**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists, skip the flip the same way `--no-active-pointer` does: log "Active pointer: skipped — atomic-write helper unavailable", omit the active-pointer line from the completion summary and outputs, and record `active_pointer: "skipped-helper-missing"` in the result-contract summary (§3) so consumers see why the pointer is absent. The deliverables are already on disk, so a missing helper degrades to "no pointer" rather than a failed run. There is no manual fallback: a hand-rolled `rm` + `ln -s` loses the helper's atomicity and non-link guard, risking a half-flipped pointer or an `rm -rf` into a real directory.
 
 ```bash
 python3 {atomicWriteHelper} flip-link \
@@ -38,8 +38,6 @@ python3 {atomicWriteHelper} flip-link \
 ```
 
 The helper returns non-zero (helper exit 2) if `{skill_group}/active` already exists as a real directory or file rather than a link — in that case, HARD HALT the workflow with **exit code 7 (finalize-blocked)** per the exit-code map in `references/halt-contract.md`: "Refusing to flip `{skill_group}/active` — existing path is not a symlink or junction. Investigate manually; expected a link pointing at a version directory." Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "finalize"`, `error.code: "finalize-blocked"`, `skill_package` set, `outputs` listing the deliverables already on disk from step 5). A common cause on Windows is a prior run that executed `ln -s` under git-bash without Developer Mode enabled, which silently wrote a full directory copy; remove that copy and retry.
-
-**Never `rm` + `ln -s` the active pointer manually.** The bare-rm pattern has two failure modes: (1) a concurrent reader sees a missing `active` mid-flip, and (2) a bug or typo that replaces `{skill_group}/active` with a plain directory turns the next manual `rm -rf {skill_group}/active` into data loss. The helper encapsulates both guards and the Windows junction fallback.
 
 Confirm: "Active pointer: {skill_group}/active -> {version} ({kind})" where `{kind}` is `symlink` or `junction` as returned by the helper.
 

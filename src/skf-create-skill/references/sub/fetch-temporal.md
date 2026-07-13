@@ -123,7 +123,7 @@ Per-call rationale:
    rm -f "$ERR_FILE"
    ```
 
-   Failed individual fetches get a one-line placeholder; the loop continues with remaining tags. If a rate limit (HTTP 429) is hit, stop the release loop, keep the partial `releases.md` file in place (do NOT delete it), and log: "Release fetch stopped at tag {N}/{total} due to rate limiting — partial releases.md retained."
+   Failed individual fetches get a one-line placeholder; the loop continues with remaining tags. If a rate limit (HTTP 429) is hit, stop the release loop, keep the partial `releases.md` file in place (do not delete it), and log: "Release fetch stopped at tag {N}/{total} due to rate limiting — partial releases.md retained."
 
    **Why sequential here when the rest is parallel:** the append-per-release pattern guarantees that a mid-loop abort (rate limit, network drop, user interrupt) leaves a partial but well-formed `releases.md` with every release fetched so far. Parallel writers appending to the same file would need file locking and per-writer ordering — the simpler sequential loop is robust for free, and 10 release fetches contribute only ~5-10s of the total wall-clock.
 
@@ -197,7 +197,7 @@ else
 fi
 ```
 
-**Rollback rule:** if the `qmd collection add` step fails (non-zero exit, network error, parse error) AND the prior `remove` succeeded, the canonical registry entry in `forge-tier.yaml` MUST be removed to match QMD's actual state. A dangling registry entry that points at a non-existent QMD collection poisons subsequent cache-hit checks in §2. Emit a warning in evidence-report and skip the embed — enrichment degrades to no-QMD for this run.
+**Rollback rule:** if the `qmd collection add` step fails (non-zero exit, network error, parse error) after the prior `remove` succeeded, remove the canonical registry entry in `forge-tier.yaml` to match QMD's actual state. A dangling registry entry that points at a non-existent QMD collection poisons subsequent cache-hit checks in §2. Emit a warning in evidence-report and skip the embed — enrichment degrades to no-QMD for this run.
 
 **Scope the embed:** Always pass `--collection {skill-name}-temporal` to `qmd embed`. An unscoped `qmd embed` re-embeds every collection in the QMD store, which can take minutes per run in batch mode and generates wasteful GPU/API cost. If the installed `qmd` CLI does not accept `--collection` (older upstream versions), gate the embed behind a per-skill check: if a previous `{skill-name}-temporal` entry already exists in `qmd_collections` and its `created_at` is within 24 hours, skip the embed entirely and warn "qmd embed skipped — upstream qmd lacks --collection scope; re-embedding all collections would be wasteful in batch mode". Log the skip in the evidence report.
 
@@ -231,7 +231,7 @@ rm -rf {project-root}/_bmad-output/{skill-name}-temporal/
 
 **Error handling:**
 
-- If QMD indexing fails: log the error, note that temporal enrichment will be unavailable. Do NOT fail the workflow.
+- If QMD indexing fails: log the error, note that temporal enrichment will be unavailable. Do not fail the workflow.
 - If registry update fails: log the error, continue. The collection may exist in QMD even if the registry entry failed.
 - If cleanup fails: log a warning and continue.
 
@@ -239,18 +239,7 @@ Display brief confirmation:
 
 "**Temporal context indexed.** Collection `{skill-name}-temporal` created ({file_count} files: {list files}). Proceeding to enrichment..."
 
-### 5. Menu Handling Logic
+### 5. Auto-Proceed
 
-**Auto-proceed step — no user interaction.**
-
-After temporal context is fetched and indexed (or skipped for any reason), immediately load, read entire file, then execute `{nextStepFile}`.
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed step with no user choices
-- Quick/Forge/Forge+ tiers skip directly to next step with no output
-- Non-GitHub sources skip directly to next step with no output
-- Cached collections (< 7 days old) skip with brief cache-hit message
-- Deep tier with fresh fetch displays brief confirmation then auto-proceeds
-- All failures degrade gracefully — skip and auto-proceed
+No user interaction. After temporal context is fetched and indexed (or skipped for any reason — non-Deep tier, non-GitHub source, cache hit, or any failure), load `{nextStepFile}`, read it fully, then execute it.
 

@@ -20,7 +20,7 @@ To generate a valid skill-brief.yaml file for each confirmed unit using the sche
 - Generate only for units in confirmed_units — no extras, no omissions
 - Do not modify recommendations or re-ask for confirmations
 - Every generated field must trace back to data collected in steps 02-05
-- Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing summary is NOT the terminal step
+- Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing summary is not the terminal step
 
 ## MANDATORY SEQUENCE
 
@@ -40,7 +40,7 @@ Mark workflow complete and halt.
 
 ### 2. Generate Skill-Brief YAML Per Unit
 
-For EACH unit in `confirmed_units`, construct a skill-brief.yaml using:
+For each unit in `confirmed_units`, construct a skill-brief.yaml using:
 
 **Field mapping:**
 
@@ -74,7 +74,7 @@ YAML
 
 The script returns JSON `{valid, errors[], warnings[], halt_reason, brief}` — the same validator and contract `skf-brief-skill` runs at consumption time, so a brief that passes here will not be rejected there for structural reasons. Apply the result:
 
-- **`valid: false`** — the `errors[]` name the offending field (e.g. a `description` mis-indented under `scope:`, which leaves the required top-level `description` absent). Repair the assembled YAML and re-run the helper until `valid: true`. **Never write a brief that has not passed this gate.**
+- **`valid: false`** — the `errors[]` name the offending field (e.g. a `description` mis-indented under `scope:`, which leaves the required top-level `description` absent). Repair the assembled YAML and re-run the helper until `valid: true`. A brief is written only after it passes this gate.
 - **`valid: true`** — carry any non-empty `warnings[]` into the §4 preview, then proceed.
 
 This catches structural YAML errors where they are created, rather than letting them surface downstream as a HALT in `skf-brief-skill`'s ratify path.
@@ -90,8 +90,7 @@ This catches structural YAML errors where they are created, rather than letting 
 
 **If any check fails:**
 - Document the failure with specific field and reason
-- Repair (3a structural errors) or present to user for correction (3b semantic issues) before writing
-- Do NOT write invalid briefs
+- Repair (3a structural errors) or present to user for correction (3b semantic issues) before writing — an invalid brief is not written
 
 ### 4. Present Generation Preview
 
@@ -123,7 +122,7 @@ Wait for explicit user confirmation before writing files.
 For each confirmed brief:
 1. Create directory `{forge_data_folder}/{unit-name}/` if it does not exist
 2. Write `skill-brief.yaml` to `{forge_data_folder}/{unit-name}/skill-brief.yaml` — write the exact YAML that passed the §3a schema gate verbatim; do not re-serialize, so the bytes on disk are the bytes that validated
-3. Verify file was written successfully
+3. Verify the file was written; if the write fails, HARD HALT with exit code 4 (`write-failed`) per `references/headless-contract.md`
 
 **IF user modifies (M):**
 - Ask which brief and what to change
@@ -135,7 +134,7 @@ For each confirmed brief:
 - Skip file writing, proceed to report update
 
 **IF user cancels (X):**
-- HARD HALT with exit code 6 (`user-cancelled`). Emit the `SKF_ANALYZE_RESULT_JSON` envelope on stderr with `status: "error"`, `halt_reason: "user-cancelled"`, `brief_paths: []`, and `unit_counts` reflecting the confirmed/skipped/maybe state from step 5
+- HARD HALT with exit code 6 (`user-cancelled`). Emit the error envelope on stderr with `halt_reason: "user-cancelled"`, `brief_paths: []`, and `unit_counts` reflecting the confirmed/skipped/maybe state from step 5 (shape in `references/headless-contract.md`)
 
 ### 6. Determine Next Workflow Per Unit
 
@@ -207,11 +206,11 @@ To refine any brief, run the recommended next workflow. To re-analyze with diffe
 
 ### 9. Result Contract
 
-Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{forge_data_folder}/analyze-source-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_data_folder}/analyze-source-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all generated `skill-brief.yaml` paths in `outputs` and brief counts in `summary`.
+Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{forge_data_folder}/analyze-source-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_data_folder}/analyze-source-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all generated `skill-brief.yaml` paths in `outputs` and brief counts in `summary`. If the per-run record cannot be written, HARD HALT with exit code 4 (`write-failed`) per `references/headless-contract.md`.
 
 ### 9a. Emit Result Envelope
 
-When `{headless_mode}` is true, emit the `SKF_ANALYZE_RESULT_JSON` envelope on **stdout** — the machine-readable success signal the SKILL.md Result Contract promises for the interactive success path (the stdout counterpart to §9's on-disk record; both are produced):
+When `{headless_mode}` is true, emit the `SKF_ANALYZE_RESULT_JSON` envelope on **stdout** — the success signal for the interactive path, alongside §9's on-disk record (both are produced):
 
 ```
 SKF_ANALYZE_RESULT_JSON: {"status":"success","report_path":"{outputFile_abs_path}","brief_paths":["{brief_path_1}",…,"{brief_path_N}"],"unit_counts":{"confirmed":N,"skipped":N,"maybe":N},"exit_code":0,"halt_reason":null,"mode":"interactive"}
@@ -219,7 +218,7 @@ SKF_ANALYZE_RESULT_JSON: {"status":"success","report_path":"{outputFile_abs_path
 
 - `report_path` — absolute path to {outputFile}.
 - `brief_paths` — every `skill-brief.yaml` written in §5 (empty array when the user skipped writing with [N]).
-- `unit_counts` — the confirmed/skipped/maybe counts from step 5.
+- `unit_counts` — confirmed/skipped counts from step 5 (`maybe` reserved; see `references/headless-contract.md`).
 
 When `{headless_mode}` is false (interactive human run), skip this section — there is no pipeline consumer to signal.
 
@@ -241,5 +240,5 @@ If `{onCompleteCommand}` is empty, skip this section entirely (default behavior 
 
 ### 10. Chain to Health Check
 
-ONLY WHEN the briefs have been written (or skipped per user abort), the report updated, the summary presented, the result contract saved, and the on-complete hook invoked (or skipped per empty `{onCompleteCommand}`) will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.
+After the briefs are written (or skipped per user abort), the report updated, the summary presented, the result contract saved, and the on-complete hook invoked (or skipped per empty `{onCompleteCommand}`), load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — continue past the summary even though it reads as final.
 

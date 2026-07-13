@@ -57,16 +57,9 @@ Store the resolved selection as `skill_batch` — a list of one or more skill na
 
 If `--context-file` is explicitly provided, use that single context file as the sole target. Determine the skill root from the first configured IDE that maps to that context file (or `.agents/skills/` for AGENTS.md if no matching IDE is configured). If other IDEs are configured in config.yaml, emit a note: "**Note:** Exporting to {context-file} only. config.yaml also lists: {other-ides}. Run without `--context-file` to export to all configured IDEs."
 
-If `--context-file` is NOT provided, read the `ides` list from config.yaml and map each IDE to its context file and skill root using the "IDE → Context File Mapping" table in `{managedSectionData}`. Every IDE the installer offers has an explicit mapping — no silent skips.
+If `--context-file` is NOT provided, read the `ides` list from config.yaml and map each entry to its `context_file` and `skill_root` using the "IDE → Context File Mapping" table plus the "Resolution rules" in `{managedSectionData}` — that canonical file carries the deduplication (group by context file; first configured IDE's skill root wins), the unknown-IDE default-and-warn, and the missing-`ides`-key (treat as empty list) behavior, each with its exact warning/report string. Every IDE the installer offers has an explicit mapping — no silent skips.
 
-For each IDE in `config.yaml.ides`:
-
-1. Look up its `context_file` and `skill_root` from the canonical mapping table
-2. If the IDE is not in the table, default to AGENTS.md / `.agents/skills/` and warn: "Unknown IDE '{value}' in config.yaml — defaulting to AGENTS.md with `.agents/skills/`"
-
-**Deduplication:** Group by `context_file`. When multiple IDE entries map to the same context file (e.g. both `codex` and `cline` map to AGENTS.md), deduplicate so each context file appears in `target_context_files` only once. Use the **first configured IDE's** `skill_root` for that context file. Report the deduplication: "Multiple IDEs target AGENTS.md — using {first-ide}'s skill root (`{skill_root}`). Each IDE's skills are installed to its own directory."
-
-**Missing-key handling:** If the `ides` key is absent from config.yaml (older installation or manually edited file), treat it as an empty list.
+Apply those rules to `config.yaml.ides`, then:
 
 - If mapping produces one or more context files (after dedup), store as `target_context_files` list — each entry has `{context_file, skill_root}`
 - If mapping produces zero entries (empty ides list and no recognized entries), fall back to `[{context_file: "AGENTS.md", skill_root: ".agents/skills/"}]` with note: "No IDEs configured in config.yaml — defaulting to AGENTS.md with `.agents/skills/`."
@@ -83,7 +76,7 @@ For each IDE in `config.yaml.ides`:
 
 ### 1c. Multi-skill Mode (when `len(skill_batch) > 1`)
 
-**If `len(skill_batch) == 1`:** single-skill mode (legacy behavior) — every section below operates on the one skill without iteration. Skip this subsection.
+**If `len(skill_batch) == 1`:** single-skill mode — every section below operates on the one skill without iteration. Skip this subsection.
 
 **If `len(skill_batch) > 1`:** load `references/multi-skill-mode.md` and apply its per-step behavior matrix. The reference partitions work so that step 1 §2–5 iterates per skill, step 1 §6 presents a single consolidated [C] gate, step 4 batches once across the whole run, and step 7 health check runs once. It also defines the all-or-nothing halt semantics if any single skill fails §2 validation.
 
@@ -123,7 +116,7 @@ The script emits one JSON verdict covering every check this step used to derive 
 **If `result` is `FAIL` / `export_status` is `NOT_READY`** (any high-severity issue in `validation.*`):
 "**Export cannot proceed.** Missing or invalid: {list the high-severity issue messages from the script's `validation.metadata.{issues,enum_issues}` and `validation.crossref_7b.missing`}
 Run create-skill to generate a complete skill first."
-Then HALT (exit code 3, `halt_reason: "resolution-failure"`).
+Then HALT (exit code 3, `halt_reason: "resolution-failure"`). In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, `manifest_path: null`.
 
 ### 3. Read Skill Metadata
 

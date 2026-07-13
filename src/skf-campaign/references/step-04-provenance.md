@@ -48,7 +48,7 @@ Run the deterministic provenance check — do not parse repo URLs or shell out t
 uv run {provenanceScript} --state-file {stateFile} --brief-file {briefFile}
 ```
 
-The script resolves `{owner}/{repo}` from each `repo_url` (tolerating `.git`/trailing slashes/SSH form), picks the ref (the skill's `pin`, else the repo default branch), runs `gh repo view` + `gh api commits`, and emits `results[]` with `commit_sha` and `status` per skill, plus `all_accessible`, `inaccessible_count`, and `systemic_hint`. Exit 0 = all accessible, 1 = one or more inaccessible, 2 = error (missing files, bad YAML, `gh` not installed).
+The script resolves `{owner}/{repo}` from each `repo_url` (tolerating `.git`/trailing slashes/SSH form), picks the ref (the skill's `pin`, else the repo default branch), runs `gh repo view` + `gh api commits`, and emits `results[]` with `commit_sha` and `status` per skill, plus `all_accessible`, `inaccessible_count`, and `systemic_hint`. Exit 0 = all accessible, 1 = one or more inaccessible, 2 = error (missing files, bad YAML, `gh` not installed). On script exit 2, HALT (exit code 2, `invalid-input`) surfacing the error — repo access cannot be verified without `gh`.
 
 ### §5 — Handle Inaccessible Repos
 

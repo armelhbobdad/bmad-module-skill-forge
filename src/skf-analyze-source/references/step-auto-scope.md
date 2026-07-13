@@ -74,13 +74,10 @@ uv run {validatePinsHelper} --repo-url {project_path} --pin {pin_value}
 Handle exit codes:
 
 - **Exit 0** (`status: "valid"`): Store `{pinned_ref}` = `resolved_ref`, `{pinned_ref_type}` = `ref_type`, `{pinned_version}` = `version`. Continue to §0c.
-- **Exit 1** (`status: "invalid"`): HARD HALT with exit code 3 (`resolution-failure`). Emit error: `"Version pin '{pin_value}' not found in {project_path}. Available matches: {suggestions}. Use a valid tag, branch, or omit --pin for latest."` Emit error envelope:
-  ```
-  SKF_ANALYZE_RESULT_JSON: {"status":"error","report_path":null,"brief_paths":[],"unit_counts":{"confirmed":0,"skipped":0,"maybe":0},"exit_code":3,"halt_reason":"pin-invalid","mode":"auto"}
-  ```
-- **Exit 2** (error): HARD HALT with exit code 3 (`resolution-failure`). Emit error envelope with `halt_reason: "resolution-failure"`.
+- **Exit 1** (`status: "invalid"`): HARD HALT with exit code 3 (`resolution-failure`). Emit error: `"Version pin '{pin_value}' not found in {project_path}. Available matches: {suggestions}. Use a valid tag, branch, or omit --pin for latest."` Emit the error envelope (shape in `references/headless-contract.md`) with `exit_code: 3`, `halt_reason: "pin-invalid"`, `mode: "auto"`.
+- **Exit 2** (error): HARD HALT with exit code 3 (`resolution-failure`). Emit the error envelope with `halt_reason: "resolution-failure"`.
 
-**For repo URLs when `--pin` is NOT provided (default):**
+**For repo URLs when `--pin` is not provided (default):**
 
 Using the same `{validatePinsHelper}` resolved above:
 
@@ -249,10 +246,7 @@ uv run {shapeDetectHelper} --repo-url <project_path_or_url> \
 
 - **Exit 0 (shape classified):** Continue to §3a.
 - **Exit 1 (unknown shape):** Emit fallback message: "**Auto-scope could not classify this repo — switching to interactive mode.**" Load, read fully, then execute `references/scan-project.md`. **STOP HERE.**
-- **Exit 2 (error):** HARD HALT with exit code 3 (`resolution-failure`). Emit the error envelope:
-  ```
-  SKF_ANALYZE_RESULT_JSON: {"status":"error","report_path":null,"brief_paths":[],"unit_counts":{"confirmed":0,"skipped":0,"maybe":0},"exit_code":3,"halt_reason":"resolution-failure","mode":"auto"}
-  ```
+- **Exit 2 (error):** HARD HALT with exit code 3 (`resolution-failure`). Emit the error envelope (shape in `references/headless-contract.md`) with `exit_code: 3`, `halt_reason: "resolution-failure"`, `mode: "auto"`.
 
 ### 3a. Check Decomposition Thresholds
 
@@ -386,7 +380,7 @@ After building all N scopes, continue to §7 with the full set of boundaries.
 
 ### 7. Write Analysis Report
 
-Update {outputFile} with auto-scope results.
+Update {outputFile} with auto-scope results. If the write fails, HARD HALT with exit code 4 (`write-failed`) per `references/headless-contract.md`.
 
 **Update frontmatter:**
 ```yaml
@@ -468,7 +462,7 @@ For multi-scope (N > 1):
 
 **For each confirmed unit** (1 for single-scope, N for decomposition):
 
-Create directory `{forge_data_folder}/{skill_name}/` if it does not exist.
+Create directory `{forge_data_folder}/{skill_name}/` if it does not exist. If a brief write fails, HARD HALT with exit code 4 (`write-failed`) per `references/headless-contract.md`.
 
 Write `{forge_data_folder}/{skill_name}/skill-brief.yaml` conforming to the skill-brief schema (`{briefSchemaPath}`):
 
@@ -536,7 +530,7 @@ When `{pinned_ref}` is non-null, include `"pinned_ref":"{pinned_ref}"` and `"pin
 
 ### 10. Write Result Contract
 
-Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{forge_data_folder}/analyze-source-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_data_folder}/analyze-source-result-latest.json`. `outputs` lists all N brief paths and `summary` includes the brief count N.
+Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{forge_data_folder}/analyze-source-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_data_folder}/analyze-source-result-latest.json`. `outputs` lists all N brief paths and `summary` includes the brief count N. If the per-run record cannot be written, HARD HALT with exit code 4 (`write-failed`) per `references/headless-contract.md`.
 
 If `{onCompleteCommand}` is non-empty, invoke it now with `--result-path={result_json_path}`.
 

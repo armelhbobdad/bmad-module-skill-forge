@@ -68,7 +68,7 @@ Attempt to load `{forgeTierFile}`:
 1. **Load upstream brief path:** Read `brief_path` from the pipeline data context (passed by the forger from AN's `SKF_ANALYZE_RESULT_JSON` `brief_paths[]`). If `brief_path` is not available, HARD HALT with exit code 2 (`input-missing`): "**Auto mode requires `brief_path` in pipeline context — AN must run before BS[auto].**"
 2. **Load source repo:** Read `source_repo` from the pipeline data context (the target repo URL or path, forwarded by the forger). If not available, attempt to extract it from the upstream brief at `brief_path`.
 3. "**Auto mode activated — bypassing interactive brief workflow.**"
-4. **Route to auto-brief:** Load, read fully, then execute `references/step-auto-brief.md`. **STOP HERE** — do not continue to §2 or any subsequent section.
+4. **Route to auto-brief:** Load, read fully, then execute `references/step-auto-brief.md`, and hand off there — do not fall through to §2 or any subsequent section of this file.
 
 **IF `{auto_mode}` is NOT true:**
 Continue to §2 as normal — the entire interactive flow below is unchanged.
@@ -80,12 +80,6 @@ Continue to §2 as normal — the entire interactive flow below is unchanged.
 **Wanted something different?** This workflow *creates* a new brief — a YAML scoping document for a skill that doesn't yet exist. If you meant to compile an existing brief into a skill (`/skf-create-skill`), package one for distribution (`/skf-export-skill`), or just ask SKF a question, type `cancel` at any prompt and run that workflow instead.
 
 I'll help you define exactly what to skill and produce a `skill-brief.yaml` that drives the create-skill compilation workflow.
-
-We'll work through this together:
-1. **Now:** Understand what you want to skill and why
-2. **Next:** Analyze the target repo structure
-3. **Then:** Define scope boundaries
-4. **Finally:** Confirm and write the brief
 
 {If tier override was applied:}
 **Your forge tier:** {override tier} (overridden from {original tier}) — {tier_gloss}

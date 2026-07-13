@@ -1,6 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-setup.
+# Team overrides:     _bmad/custom/skf-setup.toml (under {project-root})
+# Personal overrides: _bmad/custom/skf-setup.user.toml (under {project-root})
 
 [workflow]
 

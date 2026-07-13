@@ -8,7 +8,7 @@ When `source_repo` is a remote URL (GitHub URL or owner/repo format) and the tie
 
 **Workspace-first clone strategy (preferred):**
 
-1. Check `git` availability (`git --version`). `git` is effectively guaranteed at Deep tier (via `gh` dependency) but NOT guaranteed at Forge tier.
+1. Check `git` availability (`git --version`). `git` is effectively guaranteed at Deep tier (via `gh` dependency) but not guaranteed at Forge tier.
 2. If `git` is available: check for an existing workspace checkout at `{workspace_root}/repos/{host}/{owner}/{repo}/`. If found, `git fetch` to update. If not found, clone into the workspace path with `--depth 1 --single-branch`. See `source-resolution-protocols.md` for the full workspace resolution algorithm.
 3. The workspace uses a full checkout (no sparse-checkout). Brief `include_patterns` and `exclude_patterns` are applied as file-level filters at extraction time, not at the git level. This allows a single workspace checkout to serve multiple briefs with different scope filters.
 4. For update-skill: `changed_files_from_manifest` scoping is applied as file-level filters at extraction time on the full workspace checkout.
@@ -18,21 +18,19 @@ When `source_repo` is a remote URL (GitHub URL or owner/repo format) and the tie
 
 **Fallback (clone fails or `git` unavailable):**
 
-- The extraction step MUST warn the user explicitly before degrading
-- **create-skill:** Warning must include actionable guidance — clone locally and update `source_repo` in the brief to the local path
-- **update-skill:** Warning must include actionable guidance — clone locally, re-run [CS] Create Skill with the local path to regenerate provenance data, then re-run the update
+- The extraction step warns the user explicitly before degrading — a silent drop from AST (T1) to source reading (T1-low) would leave them trusting a lower-confidence result without knowing it changed
+- **create-skill:** the warning includes actionable guidance — clone locally and update `source_repo` in the brief to the local path
+- **update-skill:** the warning includes actionable guidance — clone locally, re-run [CS] Create Skill with the local path to regenerate provenance data, then re-run the update
 - Extraction proceeds using Quick tier strategy (source reading via gh_bridge — resolved as `gh api` commands or direct file I/O; see `knowledge/tool-resolution.md`)
 - All results labeled T1-low with `[SRC:...]` citations
 - The degradation reason is recorded in the evidence report
-
-Silent degradation is **forbidden**. The user must always know when AST extraction was skipped and why.
 
 ## AST Tool Unavailable at Forge/Deep Tier
 
 When the tier is Forge or Deep but ast-grep is not functional:
 
-- The extraction step MUST warn the user explicitly before degrading
-- Warning must include actionable guidance: run [SF] Setup Forge to detect tools
+- The extraction step warns the user explicitly before degrading
+- The warning includes actionable guidance: run [SF] Setup Forge to detect tools
 - Extraction proceeds using Quick tier strategy
 - All results labeled T1-low
 - The degradation reason is recorded in the evidence report

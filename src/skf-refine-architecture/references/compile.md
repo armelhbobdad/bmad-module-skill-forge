@@ -24,7 +24,7 @@ Produce the refined architecture document by starting with the original as a bas
 
 Load the complete original architecture document.
 
-This is the base. Every line of the original MUST appear in the refined document, unmodified.
+This is the base. Every line of the original appears in the refined document unmodified — the workflow only adds annotations and subsections; dropping or rewording original content silently discards the user's architecture.
 
 **Context recovery check:** If gap, issue, or improvement findings from Steps 02-04 are not available in context (e.g., due to context degradation in long runs), attempt to read the durability state from `{forge_data_folder}/ra-state-{project_name}.md`. Parse the `<!-- [RA-GAPS] -->`, `<!-- [RA-ISSUES] -->`, and `<!-- [RA-IMPROVEMENTS] -->` comment blocks to recover the complete formatted findings (each block contains full citation text with evidence, not just counts). If a section is still missing or contains only summary counts after recovery, HALT (exit code 8, `halt_reason: "recovery-failed"`): "⚠️ Context for the [Gaps|Issues|Improvements] analysis was lost and the durability state is insufficient to reconstruct findings. Re-run [RA] from the beginning — step 01 will reset the state file, then steps 02-04 will rebuild all findings." In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with `refined_path: null`.
 

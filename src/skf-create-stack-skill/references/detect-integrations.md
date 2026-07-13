@@ -6,6 +6,9 @@ pairIntersectProbeOrder:
 comentionProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-comention-pairs.py'
   - '{project-root}/src/shared/scripts/skf-comention-pairs.py'
+validateFeasibilityReportProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-feasibility-report.py'
+  - '{project-root}/src/shared/scripts/skf-validate-feasibility-report.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -98,7 +101,13 @@ All integration evidence inherits confidence tiers from the source skills. Load 
 **VS verdict parsing (if feasibility report exists):** The feasibility report format is defined by the shared schema at `src/shared/references/feasibility-report-schema.md` (single source of truth; skf-verify-stack is the producer, this skill is the consumer). Follow the schema strictly:
 
 - Locate the report via the filename pattern in the schema: `{forge_data_folder}/feasibility-report-{project_slug}-{YYYYMMDD-HHmmss}.md` (or the stable `feasibility-report-{project_slug}-latest.md` copy next to it).
-- **Schema version guard:** Parse the report's YAML frontmatter and verify `schemaVersion == "1.0"`. If the field is missing or mismatched, HALT with an explicit error: `"feasibility-report schemaVersion mismatch: expected '1.0', got '{value}' — refusing to proceed"`, then emit the result envelope on stderr per the Result Contract in SKILL.md and exit `2`. Do NOT attempt to interpret unknown versions.
+- **Schema version guard (deterministic gate):** Resolve `{validateFeasibilityReportHelper}` from `{validateFeasibilityReportProbeOrder}` (first existing path wins) and run it against the located report:
+
+  ```bash
+  python3 {validateFeasibilityReportHelper} <located-report-path>
+  ```
+
+  Consume `schemaVersionOk` / `schemaVersionFound` from its JSON. If `schemaVersionOk` is false, HALT with `"feasibility-report schemaVersion mismatch: expected '1.0', got '{schemaVersionFound}' — refusing to proceed"`, then emit the result envelope on stderr per the Result Contract in SKILL.md and exit `2`. The script's structural findings (`headingsOk` / `orderViolations`) are advisory for this consumer — it gates only on schemaVersion. **If the helper does not resolve or cannot run,** parse the report's YAML frontmatter directly and compare `schemaVersion` to the literal `1.0`, applying the same HALT (a missing or mismatched version halts identically). Unknown versions are never interpreted.
 
   ```
   SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"compose","exit_code":2,"halt_reason":"schema-version-mismatch"}

@@ -55,7 +55,7 @@ Load `{extractionPatternsData}` completely. Identify the strategy for the curren
 
 From the brief, apply scope and pattern filters:
 
-- `scope.type` — determines what to extract (e.g., `full-library`, `specific-modules`, `public-api`, `component-library`, `reference-app`, `docs-only`). Use `reference-app` when the source is a whole app and the skill's value is wiring patterns rather than public exports (embedded-sidecar reference apps, CLI-demo repos, integration-pattern demonstrators). `reference-app` triggers the compile-assembly overrides in `assets/compile-assembly-rules.md` that replace "Key API Summary" with a "Pattern Surface" section and make `stats.exports_documented` semantics pattern-oriented. Do NOT pick `full-library` for reference apps — downstream assembly will remap wiring onto export slots, producing fuzzy counts and an awkward SKILL.md.
+- `scope.type` — determines what to extract (e.g., `full-library`, `specific-modules`, `public-api`, `component-library`, `reference-app`, `docs-only`). Use `reference-app` when the source is a whole app and the skill's value is wiring patterns rather than public exports (embedded-sidecar reference apps, CLI-demo repos, integration-pattern demonstrators). `reference-app` triggers the compile-assembly overrides in `assets/compile-assembly-rules.md` that replace "Key API Summary" with a "Pattern Surface" section and make `stats.exports_documented` semantics pattern-oriented. Do not pick `full-library` for reference apps — downstream assembly will remap wiring onto export slots, producing fuzzy counts and an awkward SKILL.md.
 - `scope.include` — file globs to include
 - `scope.exclude` — file globs to exclude
 
@@ -65,7 +65,7 @@ Build the filtered file list from the source tree resolved in step 1. Record the
 
 **Skip this section entirely if `source_type: "docs-only"`** — there is no source tree to scan.
 
-Load `{authoritativeFilesProtocol}` and execute it. The full protocol (heuristic scan list, helper invocation, classification dispatch, prompt flow, P/S/U decision-apply, summary, provenance-map handoff, downstream consumption) lives there. This stub exists so the inline `### 2a` heading stays present in `extract.md`'s table of contents while keeping the body lean.
+Load `{authoritativeFilesProtocol}` and execute it. The full protocol (heuristic scan list, helper invocation, classification dispatch, prompt flow, P/S/U decision-apply, summary, provenance-map handoff, downstream consumption) lives there.
 
 Briefly: scan the source tree for authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.) that the brief's scope filters may have excluded. The `{resolveAuthoritativeFilesHelper}` helper does the deterministic work (walk, scope diff, amendment reconcile, preview load, hashing); the LLM applies the resulting `unresolved[]` prompt loop. Promoted decisions are persisted to the brief immediately so re-runs replay deterministically.
 
@@ -95,7 +95,7 @@ Then run CCC indexing and discovery on the resolved clone (workspace or ephemera
 
 2. **Initialize index (first time only):** Run `cd {remote_clone_path} && ccc init`. If init exits non-zero with `A parent directory has a project marker` — the common case when the clone is nested under a ccc-indexed project (e.g. a `.forge-sources/` checkout inside this repo) — re-run as `cd {remote_clone_path} && ccc init -f` to initialize at the subtree anyway (same handling as step 7 §6b). If init fails for any other reason, or the `-f` retry also fails, set `{ccc_discovery: []}` and continue — this is not an error.
 
-   **Apply standard exclusions:** After `ccc init`, apply generic build/dependency exclusions to `{remote_clone_path}/.cocoindex_code/settings.yml`. These are standard artifact patterns, NOT SKF-specific paths (the workspace checkout is a source repo, not an SKF project):
+   **Apply standard exclusions:** After `ccc init`, apply generic build/dependency exclusions to `{remote_clone_path}/.cocoindex_code/settings.yml`. These are standard artifact patterns, not SKF-specific paths (the workspace checkout is a source repo, not an SKF project):
 
    ```
    node_modules/, dist/, build/, .git/, vendor/, __pycache__/, .cache/, .next/, .nuxt/, target/, out/, .venv/, .tox/
@@ -103,7 +103,7 @@ Then run CCC indexing and discovery on the resolved clone (workspace or ephemera
 
    Read `settings.yml`, append any patterns not already present to the `exclude_patterns` array, write back. **Reuse check:** if an existing `.cocoindex_code/settings.yml` was already present (workspace hit), read its `exclude_patterns` first and diff against the standard-exclusion list above. If ANY standard entry is missing from the existing list, append only the missing entries (preserving any user-added patterns) AND force a re-index by running `ccc index --force` (or the equivalent rebuild flag). If every standard entry is already present, skip the write and skip the forced re-index — the existing index is valid. Record `ccc_exclusions_augmented: {count}` in context for the evidence report.
 
-   **Note:** Brief-specific `include_patterns` and `exclude_patterns` are NOT written to `settings.yml`. The CCC index is general-purpose — it indexes everything (minus standard artifacts). Brief-specific filtering happens at search result time, not index time. This allows a single workspace CCC index to serve multiple briefs with different scope filters.
+   **Note:** Brief-specific `include_patterns` and `exclude_patterns` are not written to `settings.yml`. The CCC index is general-purpose — it indexes everything (minus standard artifacts). Brief-specific filtering happens at search result time, not index time. This allows a single workspace CCC index to serve multiple briefs with different scope filters.
 
 3. **Index the clone:** Run `cd {remote_clone_path} && ccc index` with an extended timeout or in background mode. Indexing can take several minutes on large codebases (1000+ files). Verify completion with `ccc status`, then **verify integrity**: a non-zero `Chunks`/`Files` total is not sufficient — read the `Languages:` breakdown and confirm the source's primary language (`{brief.language}`) reports a non-trivial chunk count. An index dominated by `markdown`/config chunks with the source language absent or near-zero means `ccc index` ran against degraded settings (a stale `.cocoindex_code/` inherited from a parent, or a no-op init over a prior partial index) and the source code was never indexed — searches over it return nothing useful. When the source language is absent, rebuild from a clean init: `cd {remote_clone_path} && ccc init -f` then `ccc index`, and re-check the `Languages:` breakdown. If indexing fails, or the source language is still missing after a forced re-init, set `{ccc_discovery: []}` and continue — this is not an error.
 
@@ -118,13 +118,13 @@ Then run CCC indexing and discovery on the resolved clone (workspace or ephemera
 
    If `remote_clone_type == "workspace"` and an existing index was reused, append: "(reused workspace index)"
 
-7. **On failure:** Set `{ccc_discovery: []}`. Display: "CCC discovery unavailable — proceeding with standard extraction." Do NOT halt.
+7. **On failure:** Set `{ccc_discovery: []}`. Display: "CCC discovery unavailable — proceeding with standard extraction." Do not halt.
 
 **CCC Discovery Integration (Forge+ and Deep with ccc only):**
 
 If `{ccc_discovery}` is in context and non-empty (populated by step 2b or deferred discovery above):
 - Sort the filtered file list by CCC relevance score: files appearing in `{ccc_discovery}` results move to the front of the extraction queue, sorted by their relevance score descending
-- Files NOT in CCC results remain in the queue after ranked files — they are not excluded, only deprioritized
+- Files not in CCC results remain in the queue after ranked files — they are not excluded, only deprioritized
 - Display: "**CCC discovery: {N} files pre-ranked by semantic relevance** — extraction will prioritize these first."
 
 If `{ccc_discovery}` is empty or not in context: proceed with existing file ordering (no change to current behavior).
@@ -168,13 +168,13 @@ Source resolution, version reconciliation, and CCC discovery were completed in s
 
 **Forge/Forge+/Deep Tier (AST available):**
 
-⚠️ **CRITICAL:** Before executing AST extraction, load the **AST Extraction Protocol** section from `{extractionPatternsData}`. Follow the decision tree based on the file count from step 1's file tree. This determines whether to use the MCP tool, scoped YAML rules, or CLI streaming. Never use `ast-grep --json` (without `=stream`) — it loads the entire result set into memory and will fail on large codebases. Always use the explicit `run` subcommand with streaming: `ast-grep run -p '{pattern}' --json=stream`.
+Before executing AST extraction, load the **AST Extraction Protocol** section from `{extractionPatternsData}`. Follow the decision tree based on the file count from step 1's file tree — it determines whether to use the MCP tool, scoped YAML rules, or CLI streaming. Do not use `ast-grep --json` (without `=stream`) — it loads the entire result set into memory and fails on large codebases; use the explicit `run` subcommand with streaming: `ast-grep run -p '{pattern}' --json=stream`.
 
 1. Detect language from brief or file extensions
 2. Follow the AST Extraction Protocol decision tree from `{extractionPatternsData}`:
    - ≤100 files: use `find_code()` MCP tool with `max_results` and `output_format="text"`
    - ≤500 files: use `find_code_by_rule()` MCP tool with scoped YAML rules
-   - >500 files: use CLI `--json=stream` with line-by-line streaming Python — **CRITICAL:** inject the brief's `scope.exclude` patterns into the Python filter's `EXCLUDES` list (use `[]` if absent) so excluded files are discarded before consuming `head -N` slots (see template in extraction patterns data)
+   - >500 files: use CLI `--json=stream` with line-by-line streaming Python — inject the brief's `scope.exclude` patterns into the Python filter's `EXCLUDES` list (use `[]` if absent) so excluded files are discarded before consuming `head -N` slots (see template in extraction patterns data)
 3. For each export: extract function name, full signature, parameter types, return type, line number
 4. Use `ast_bridge.detect_co_imports(path, libraries[])` to find integration points
 5. Build extraction rules YAML data for reproducibility
@@ -274,13 +274,13 @@ Compile all extracted data into a structured inventory:
 
 **Docs-only note:** If `docs_only_mode` is active (`extraction_mode: "docs-only"`), display a brief note explaining that T3 content will be added by the doc-fetcher step (step 3c), then auto-proceed past this gate. Example: "Docs-only mode: extraction inventory is empty. Documentation content will be fetched from `doc_urls` in step 3c. Auto-proceeding."
 
-**Zero-export sanity check (source mode):** If `extraction_mode != "docs-only"` AND `export_count == 0` AND the brief declares no `doc_urls`, an empty extraction is almost always an error — a wrong branch/tag, an over-narrow `scope.include`, or a failed AST run — not a valid empty surface. Do NOT let this sail through to a green report. Surface a distinct warning at the gate:
+**Zero-export sanity check (source mode):** If `extraction_mode != "docs-only"` AND `export_count == 0` AND the brief declares no `doc_urls`, an empty extraction is almost always an error — a wrong branch/tag, an over-narrow `scope.include`, or a failed AST run — not a valid empty surface. Do not let this sail through to a green report. Surface a distinct warning at the gate:
 
 "**⚠️ Zero public exports extracted.** A source-type brief produced no documented surface and declares no `doc_urls`. This usually means a scope/branch/tag mismatch (wrong `target_version`, over-narrow `scope.include`) or a failed AST run — the compiled skill would document nothing. Verify the brief's source ref and scope before continuing.
 
 **[C] Continue anyway** — compile an empty surface (default)"
 
-Under `{headless_mode}`, do NOT auto-pass silently: set `status: "partial"` and `summary.warning: "zero-exports"` on the result contract (carried to step 8's record), log `"headless: zero public exports extracted — likely scope/branch/tag mismatch, continuing"`, append a `headless_decisions[]` entry `{step: "extract", gate: "zero-exports", decision: "C", rationale: "headless mode — zero exports, no human to confirm scope/ref", timestamp: {ISO}}`, and proceed. The distinct warning string surfaces the worst kind of failure (looks green, isn't) where a human or automator can act on it.
+Under `{headless_mode}`, do not auto-pass silently: set `status: "partial"` and `summary.warning: "zero-exports"` on the result contract (carried to step 8's record), log `"headless: zero public exports extracted — likely scope/branch/tag mismatch, continuing"`, append a `headless_decisions[]` entry `{step: "extract", gate: "zero-exports", decision: "C", rationale: "headless mode — zero exports, no human to confirm scope/ref", timestamp: {ISO}}`, and proceed. The distinct warning string surfaces the worst kind of failure (looks green, isn't) where a human or automator can act on it.
 
 Display the extraction findings for user confirmation:
 
@@ -299,22 +299,11 @@ Display the extraction findings for user confirmation:
 
 {warnings if any files skipped or degraded}
 
-Review the extraction summary above. Select an option to continue."
+Review the extraction summary above, then confirm to continue."
 
-### 7. Present MENU OPTIONS
+### 7. Gate 2 — Confirm Extraction
 
-Display: "**Extraction Summary — Select an Option:** [C] Continue to compilation"
+Docs-only mode (`extraction_mode: "docs-only"`) needs no confirmation — auto-proceed to `{nextStepFile}`.
 
-#### EXECUTION RULES:
-
-- IF docs-only mode (`extraction_mode: "docs-only"`): Auto-proceed immediately to `{nextStepFile}` — no user interaction required
-- OTHERWISE: ALWAYS halt and wait for user input after presenting the extraction summary
-- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-approve extraction summary"
-- This is Gate 2 — user must confirm before compilation proceeds (except docs-only mode)
-- User may ask questions about the extraction results before continuing
-
-#### Menu Handling Logic:
-
-- IF C: Confirm extraction inventory is complete. Immediately load, read entire file, then execute `{nextStepFile}`
-- IF Any other comments or queries: answer questions about the extraction results, then redisplay the menu
+Otherwise this is a confirmation gate: halt after the §6 summary and wait for the user to continue (they may ask about the results first). **GATE [default: continue]** — under `{headless_mode}`, auto-proceed and log "headless: auto-approve extraction summary". On continue, load `{nextStepFile}`, read it fully, then execute it.
 

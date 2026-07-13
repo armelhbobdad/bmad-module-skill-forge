@@ -11,7 +11,7 @@ Every HARD HALT in this workflow exits with a stable, documented code so headles
 | Code | Meaning                | Raised by                                                   |
 | ---- | ---------------------- | ----------------------------------------------------------- |
 | 0    | success                | step 7 (terminal)                                          |
-| 3    | resolution-failure     | step 1 (prose input §2c, registry chain §3, version-tag miss §3a, language abort §4); step 3 (non-library shape §1.5, zero-exports §4.5) |
+| 3    | resolution-failure     | step 1 (prose input §2, registry chain §3, version-tag miss §3a, language abort §4); step 3 (non-library shape §1.5, zero-exports §4.5) |
 | 4    | write-failure          | step 5 §2 (deliverable write failed)                       |
 | 5    | overwrite-cancelled    | step 5 §1 (user selected [N])                              |
 | 6    | user-cancelled         | step 1 §1 ([X] Cancel and exit, or cancel-line affordance); step 2 §3 ([A] Abort at ecosystem-match gate); step 4 §6 (user selected [Q]) |

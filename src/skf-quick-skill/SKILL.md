@@ -7,7 +7,7 @@ description: Fast skill from a package name or GitHub URL — no brief needed. U
 
 ## Overview
 
-The fastest path to a skill — accept a GitHub URL or package name, resolve to source, extract the public API surface, and produce a best-effort SKILL.md with context snippet and metadata. No brief needed. Quick Skill is tier-unaware by design — all output is produced at community-tier quality regardless of available tools.
+The fastest path to a skill — accept a GitHub URL or package name, resolve to source, extract the public API surface, and produce a best-effort SKILL.md with context snippet and metadata. No brief needed. Output is always community-tier quality, regardless of which tools are available.
 
 ## Conventions
 
@@ -55,7 +55,7 @@ These rules apply to every step in this workflow:
 |--------|--------|
 | **Inputs** | target (GitHub URL or package name) [required for single-target mode], language_hint [optional], scope_hint [optional] |
 | **Overrides** | `--description`, `--exports`, `--skip-snippet`, `--no-active-pointer`, `--batch <file>`, `--fail-fast` — see On Activation step 4 |
-| **Gates** | step 1: Input Gate [use args]; step 2: Choice Gate [P] (if match); step 4: Review Gate [C/E/S/Q] |
+| **Gates** | step 1: target input, multi-language disambiguation [C/A]; step 2: ecosystem match [P/I/A] (if match); step 3: repo-shape [C/A] + zero-exports rescue [R/P/A]; step 4: review [C/E/S/Q]; step 5: overwrite [Y/N] |
 | **Outputs** | SKILL.md, context-snippet.md, metadata.json, active pointer, result contract (timestamped + `-latest` copy). Snippet and active pointer can be skipped per overrides. |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 | **Exit codes** | See `references/halt-contract.md` |
@@ -112,9 +112,3 @@ See `references/halt-contract.md` for the exit-code map and the error-result env
 5. **If `--batch` is set**, force `{headless_mode} = true` (log "headless: coerced by --batch" if it was false), then load and read `references/batch-mode.md` in full before proceeding. Follow its protocol to read the batch file, parse the target list, and drive the batch loop that wraps the step 1 → step 7 pipeline that follows.
 
 6. Load, read the full file, and then execute `references/resolve-target.md` to begin the workflow. (In batch mode, control returns here for each subsequent target after step 7 completes; see `references/batch-mode.md`.)
-
-## Batch Mode
-
-When `--batch <file>` is supplied, quick-skill processes a list of targets from a text file in sequence rather than a single argument.
-
-See `references/batch-mode.md` for the full protocol (input format, execution loop, summary contract, headless events, exit code).

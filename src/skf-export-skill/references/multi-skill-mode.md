@@ -35,4 +35,4 @@ If any single skill fails validation in step 1 §2 (required-file or metadata-fi
 
 ## Single-skill mode (reference)
 
-`len(skill_batch) == 1` preserves the legacy behavior: every section operates on the one skill without iteration, no gate consolidation, no per-step table consultation. This file does not need to be loaded.
+`len(skill_batch) == 1` runs the single-skill path: every section operates on the one skill without iteration, no gate consolidation, no per-step table consultation. This file does not need to be loaded.

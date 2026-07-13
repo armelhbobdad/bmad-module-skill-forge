@@ -40,7 +40,7 @@ Extract and report:
 - `tools`: which tools are available (gh, ast-grep, ccc, qmd)
 - `ccc_index`: ccc index state (status, indexed_path, last_indexed) — needed by step 2b
 
-**Apply tier override:** Read `{preferencesFile}`. If `tier_override` is set and is one of the exact valid tier values (`Quick`, `Forge`, `Forge+`, `Deep`), use it instead of the detected tier. **If `tier_override` is set but is NOT one of those four values:** log a warning — "Unknown tier_override `{value}` in preferences.yaml; falling back to detected tier `{detected_tier}`. Valid values: Quick, Forge, Forge+, Deep." — and use the detected tier. Never silently apply an unknown override value, and never map it heuristically to a tier.
+**Apply tier override:** Read `{preferencesFile}`. If `tier_override` is set and is one of the exact valid tier values (`Quick`, `Forge`, `Forge+`, `Deep`), use it instead of the detected tier. **If `tier_override` is set but is not one of those four values:** log a warning — "Unknown tier_override `{value}` in preferences.yaml; falling back to detected tier `{detected_tier}`. Valid values: Quick, Forge, Forge+, Deep." — and use the detected tier. Never silently apply an unknown override value, and never map it heuristically to a tier.
 
 **Record the decision:** append an entry to the in-context `headless_decisions[]` buffer (initialize to `[]` at the start of this step if absent) whenever a non-interactive choice is made automatically — both the valid-override path AND the rejected-override path:
 
@@ -58,7 +58,7 @@ These entries are persisted to the evidence-report `## Auto-Decisions` table at 
 
 **If user invoked with --batch flag:**
 - Check `{sidecar_path}/batch-state.yaml` for an active batch checkpoint:
-  - If `batch_active: true`: validate the checkpoint before trusting it. Both conditions below MUST hold:
+  - If `batch_active: true`: validate the checkpoint before trusting it — both conditions below must hold:
     1. `0 <= current_index < len(brief_list)` — the index points inside the recorded list.
     2. `os.path.exists(brief_list[current_index])` — the brief file is still on disk.
     If both hold, load the brief at `brief_list[current_index]` (resuming a batch loop from step 8). If **either** check fails, the checkpoint is stale (briefs renamed, moved, or deleted between runs; index off the end after a partial failure). Log a warning — "Stale batch checkpoint — current_index={i}, brief_list length={n}, brief_exists={bool}. Resetting and re-discovering." — then set `batch_active: false` in `batch-state.yaml` and fall through to the no-checkpoint branch below.
@@ -97,7 +97,7 @@ The helper emits:
 
 **Field reference (for human readers):**
 
-The complete contract — required fields, optional fields, types, and rules — lives in `src/shared/scripts/schemas/skill-brief.v1.json` and the prose mirror at `src/skf-brief-skill/assets/skill-brief-schema.md`. Read those if you need to explain a specific field; do NOT restate the rules here.
+The complete contract — required fields, optional fields, types, and rules — lives in `src/shared/scripts/schemas/skill-brief.v1.json` and the prose mirror at `src/skf-brief-skill/assets/skill-brief-schema.md`. Read those if you need to explain a specific field; do not restate the rules here.
 
 ### 4. Resolve Source Code Location
 
@@ -137,15 +137,7 @@ Where tier_description follows positive capability framing:
 - Forge+: "Semantic-guided precision — ccc pre-ranks files before AST extraction"
 - Deep: "Full intelligence — structural + contextual + QMD knowledge synthesis"
 
-### 6. Menu Handling Logic
+### 6. Auto-Proceed
 
-**Auto-proceed step — no user interaction.**
-
-After initialization is complete and all data is loaded (including `target_version` if present in the brief), immediately load, read entire file, then execute `{nextStepFile}`.
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed initialization step with no user choices
-- Proceed directly to next step after successful initialization
-- If any prerequisite check fails, HALT with actionable error — do NOT proceed
+No user interaction. After initialization completes and all data is loaded (including `target_version` if present), load `{nextStepFile}`, read it fully, then execute it. A failed prerequisite check above has already halted with an actionable error rather than reaching here.
 

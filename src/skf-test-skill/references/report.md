@@ -23,7 +23,7 @@ atomicWriteProbeOrder:
 
 ## STEP GOAL:
 
-Generate a detailed gap report listing every issue found during coverage and coherence analysis, assign severity to each gap, provide specific actionable remediation suggestions, and finalize the test report document. Do not recalculate scores — that ran in step 5. This step chains to the local health-check step via `{nextStepFile}` after completion; the user-facing report is NOT the terminal step.
+Generate a detailed gap report listing every issue found during coverage and coherence analysis, assign severity to each gap, provide specific actionable remediation suggestions, and finalize the test report document. Do not recalculate scores — that ran in step 5. This step chains to the local health-check step via `{nextStepFile}` after completion; the user-facing report is not the terminal step.
 
 ### 1. Collect All Issues
 
@@ -52,7 +52,7 @@ Load the **Gap Severity** table from `{scoringRulesFile}` — it is the single s
 
 Load `{outputFormatsFile}` for gap entry format and remediation quality rules.
 
-For each issue, assign severity from `{scoringRulesFile}` and generate a specific remediation following the quality rules in `{outputFormatsFile}`. Remediation suggestions MUST reference specific files, exports, and line numbers. Order gaps by severity: Critical → High → Medium → Low → Info.
+For each issue, assign severity from `{scoringRulesFile}` and generate a specific remediation following the quality rules in `{outputFormatsFile}`. Remediation suggestions must reference specific files, exports, and line numbers. Order gaps by severity: Critical → High → Medium → Low → Info.
 
 ### 4. Generate Remediation Summary and Append Gap Report
 
@@ -64,7 +64,7 @@ If no gaps found, append a clean pass message recommending **export-skill** work
 
 **`--no-discovery` flag bypass (precedes the precondition check).** If `no_discovery: true` is set in workflow context (from §1 of `init.md` — `--no-discovery` flag on invocation), record an Info-severity note in the Discovery Quality subsection: `discovery — skipped: --no-discovery flag set`, log the bypass, and SKIP §4b.1–§4b.3. Proceed to §4b.4 (description optimization) only if tessl/skill-check flagged description issues; otherwise skip directly to §4c.
 
-After gap enumeration, perform minimum-viable discovery testing. This is a **Medium-weight** check contributing to the Discovery Quality subsection — no longer advisory boilerplate.
+After gap enumeration, perform minimum-viable discovery testing. This is a **Medium-weight** check contributing to the Discovery Quality subsection.
 
 **4b.0 Precondition — catalog size check:**
 
@@ -86,7 +86,7 @@ If SKILL.md does not contain enough organic examples, synthesize 3 from the skil
 
 **4b.2 Spawn a discovery subagent:**
 
-**Subagents-unavailable guard (precedes the spawn).** If subagents cannot be spawned in this environment (e.g. a headless/CI pipeline with no subagent capability), do NOT fall back to answering the routing in the main thread — the main thread knows which skill is under test, so it would self-route to `3/3 PASS` and inflate the Discovery score, the exact false confidence §4b.0 warns against. Instead record an Info-severity note in the Discovery Quality subsection: `discovery — skipped: subagents unavailable, routing test requires isolated context`, exclude the discovery check from Discovery Quality scoring (do not count it PASS or FAIL), and skip to §4c.
+**Subagents-unavailable guard (precedes the spawn).** If subagents cannot be spawned in this environment (e.g. a headless/CI pipeline with no subagent capability), do not fall back to answering the routing in the main thread — the main thread knows which skill is under test, so it would self-route to `3/3 PASS` and inflate the Discovery score, the exact false confidence §4b.0 warns against. Instead record an Info-severity note in the Discovery Quality subsection: `discovery — skipped: subagents unavailable, routing test requires isolated context`, exclude the discovery check from Discovery Quality scoring (do not count it PASS or FAIL), and skip to §4c.
 
 For each of the 3 prompts, spawn an isolated subagent with NO prior context about which skill is under test. Provide only:
 1. A compact list of ALL skills available in `{skillsOutputFolder}` (name + description line from each skill's SKILL.md frontmatter)
@@ -94,7 +94,7 @@ For each of the 3 prompts, spawn an isolated subagent with NO prior context abou
 
 Instruction to the subagent:
 
-> "You are an agent selecting the best skill to handle a user request. Here is the catalog: {catalog}. The user says: '{prompt}'. Return JSON: `{\"selected_skill\": \"<name>\", \"confidence\": \"<high|medium|low>\", \"reasoning\": \"<one sentence>\"}`. If no skill fits, return `{\"selected_skill\": null, ...}`. Return ONLY JSON."
+> "You are an agent selecting the best skill to handle a user request. Here is the catalog: {catalog}. The user says: '{prompt}'. Return JSON: `{\"selected_skill\": \"<name>\", \"confidence\": \"<high|medium|low>\", \"reasoning\": \"<one sentence>\"}`. If no skill fits, return `{\"selected_skill\": null, ...}`. Return only JSON."
 
 **4b.3 Evaluate discovery results:**
 
@@ -131,7 +131,7 @@ Write the result contract per `{outputContractSchema}`:
 - Per-run record: `{forge_version}/skf-test-skill-result-{run_id}.json` (the `{run_id}` set in step 1 §6a — already carries UTC timestamp + PID + random suffix, so no same-second collision).
 - Latest copy: `{forge_version}/skf-test-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink).
 
-Both writes MUST go through the atomic writer so partial writes are never observable:
+Both writes must go through the atomic writer so partial writes are never observable:
 
 ```bash
 # Build the JSON payload in memory, then:
@@ -141,7 +141,7 @@ cat payload.json | python3 {atomicWriteHelper} write --target {forge_version}/sk
 
 Payload contents:
 - `outputs[]` — include the test report path at `{outputFile}` with its `{run_id}` suffix
-- `summary` — `score`, `threshold`, `result` (`"PASS"`, `"PASS_WITH_DRIFT"`, `"FAIL"`, or **`"INCONCLUSIVE"`**), `testMode` (naive/contextual), `activeCategories[]`, `inconclusiveReasons[]` (when present). `PASS_WITH_DRIFT` is set when the workflow observed workspace drift and the user passed `--allow-workspace-drift` — see step 5 §5 drift override. Downstream consumers MUST treat `PASS_WITH_DRIFT` as a non-exportable result: re-run against the pinned commit before export. When threshold fallback occurred, add `threshold_fallback: true`, `original_threshold: {N}`, and `evidence_report_path: '{path}'` to the summary — these fields are absent (not `false`/`null`) when no fallback occurred.
+- `summary` — `score`, `threshold`, `result` (`"PASS"`, `"PASS_WITH_DRIFT"`, `"FAIL"`, or **`"INCONCLUSIVE"`**), `testMode` (naive/contextual), `activeCategories[]`, `inconclusiveReasons[]` (when present). `PASS_WITH_DRIFT` is set when the workflow observed workspace drift and the user passed `--allow-workspace-drift` — see step 5 §5 drift override. Downstream consumers must treat `PASS_WITH_DRIFT` as a non-exportable result: re-run against the pinned commit before export. When threshold fallback occurred, add `threshold_fallback: true`, `original_threshold: {N}`, and `evidence_report_path: '{path}'` to the summary — these fields are absent (not `false`/`null`) when no fallback occurred.
 - `runId` — the workflow's `{run_id}` for downstream correlation
 - `healthCheckDispatched` — boolean, set by §7 after the dispatch decision
 
@@ -182,7 +182,7 @@ Only append `'report'` and write back after the check passes.
 report template ships six canonical H2 anchors — one per populating step. An
 off-sequence run (e.g. a step wrote its section into the wrong anchor, or a
 subagent truncated the file) can leave `stepsCompleted` intact while a section
-is missing. `grep -n` each anchor below against `{outputFile}`; each MUST
+is missing. `grep -n` each anchor below against `{outputFile}`; each must
 return ≥1 match:
 
 ```
@@ -201,12 +201,12 @@ appended by its owning step". **Headless envelope (if `{headless_mode}`):** emit
 SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":"{outputFile}","next_workflow":null,"exit_code":1,"halt_reason":"report-anchor-missing"}
 ```
 
-Do NOT append `'report'` and do NOT
+Do not append `'report'` and do not
 write the result contract. The template at `{testReportTemplatePath}`
 declares these anchors as TBD placeholders; a miss means a step silently
 skipped its append.
 
-**INCONCLUSIVE as gate:** if `testResult == 'inconclusive'` (from step 5), the report final presentation (§6) and result contract (§4c) have already been written with that verdict. Do NOT auto-map INCONCLUSIVE to PASS or FAIL. Recommend `manual-review`. The step must still complete (health-check runs unconditionally) — INCONCLUSIVE is a report-time signal, not a workflow abort.
+**INCONCLUSIVE as gate:** if `testResult == 'inconclusive'` (from step 5), the report final presentation (§6) and result contract (§4c) have already been written with that verdict. Do not auto-map INCONCLUSIVE to PASS or FAIL. Recommend `manual-review`. The step must still complete (health-check runs unconditionally) — INCONCLUSIVE is a report-time signal, not a workflow abort.
 
 ### 6. Present Final Report
 
@@ -242,7 +242,7 @@ skipped its append.
 **update-skill** — This skill needs remediation. Review the gap report above and run the update-skill workflow to address the {N} blocking issues (Critical + High).
 
 {IF INCONCLUSIVE:}
-**manual-review** — The evidence base was too thin to grade automatically. See `inconclusiveReasons` in the Completeness Score section. Typical fixes: upgrade forge tier, enable external validators, or re-extract with a wider scope. Do NOT export.
+**manual-review** — The evidence base was too thin to grade automatically. See `inconclusiveReasons` in the Completeness Score section. Typical fixes: upgrade forge tier, enable external validators, or re-extract with a wider scope. Do not export.
 
 ---
 
@@ -252,17 +252,27 @@ skipped its append.
 
 ### 6b. Determine Headless Exit Code
 
-This step only DETERMINES the terminal exit code — it does NOT exit. Both modes then reach §7 (headless auto-proceeds past the menu; non-headless goes through the [C] menu), and the terminal process-exit with this code happens in §7 after the health-check dispatch.
+This step only determines the terminal exit code — it does not exit. Both modes then reach §7 (headless auto-proceeds past the menu; non-headless goes through the [C] menu), and the terminal process-exit with this code happens in §7 after the health-check dispatch.
 
 If `{headless_mode}`, map `testResult` to the code the workflow will exit with in §7 and store it as `{headless_exit_code}` in workflow context:
 - `testResult: 'pass'` → exit code 0
-- `testResult: 'pass-with-drift'` → exit code 4 (distinct from clean pass — orchestrators MUST route to re-test-against-pinned-commit queues and refuse export; never exit 0 under drift override)
+- `testResult: 'pass-with-drift'` → exit code 4 (distinct from clean pass — see the pass-with-drift row in SKILL.md Exit Codes; exiting 0 under a drift override would wrongly signal a clean pass)
 - `testResult: 'fail'` → exit code 2 (the result contract was written in §4c — never exit before it)
 - `testResult: 'inconclusive'` → exit code 3 (distinct from fail so orchestrators can route to manual-review queues)
 
+### 6c. Emit Headless Result Envelope (stdout)
+
+If `{headless_mode}`, emit the terminal result envelope to **stdout** as a single line before chaining to §7 — this is the branchable record a headless orchestrator reads for the happy path (PASS / FAIL / INCONCLUSIVE / pass-with-drift). The SKILL.md Result Contract owns the shape and the field rules; the on-disk copy written in §4c is the richer form. Build it from the settled verdict and the values already in the output frontmatter:
+
+```
+SKF_TEST_RESULT_JSON: {"status":"success","skill_name":"{skill_name}","verdict":"{PASS|FAIL|INCONCLUSIVE|pass-with-drift}","score":{score},"threshold":{threshold},"report_path":"{outputFile}","next_workflow":{export-skill when PASS | update-skill when FAIL or pass-with-drift | null when INCONCLUSIVE},"exit_code":{headless_exit_code},"halt_reason":null}
+```
+
+`verdict` is uppercase for `pass`/`fail`/`inconclusive` (→ `PASS`/`FAIL`/`INCONCLUSIVE`) and the literal `pass-with-drift`. When threshold fallback occurred (frontmatter `thresholdFallback: true`), add `"threshold_fallback":true` and `"original_threshold":{originalThreshold}`; omit both otherwise. Non-headless runs skip this emission — the §6 presentation is their terminal output.
+
 ### 7. Health-Check Dispatch + MENU OPTIONS
 
-**`--no-health-check` flag bypass (precedes the health-check resolution).** If `no_health_check: true` is set in workflow context (from §1 of `init.md` — `--no-health-check` flag on invocation), set `health_check_dispatched: false` in the output report frontmatter and mirror `healthCheckDispatched: false` into the result contract written in §4c (re-write atomically via `{atomicWriteHelper}`). Log Info note "health-check — skipped: --no-health-check flag set" and EXIT THE WORKFLOW: in `{headless_mode}`, exit with `{headless_exit_code}` (determined in §6b); non-headless, simply terminate after the §6 presentation. Do NOT resolve `{healthCheckFile}`, do NOT display the menu, do NOT chain to `{nextStepFile}`. This flag is the one path where §7 does not dispatch the health-check.
+**`--no-health-check` flag bypass (precedes the health-check resolution).** If `no_health_check: true` is set in workflow context (from §1 of `init.md` — `--no-health-check` flag on invocation), set `health_check_dispatched: false` in the output report frontmatter and mirror `healthCheckDispatched: false` into the result contract written in §4c (re-write atomically via `{atomicWriteHelper}`). Log Info note "health-check — skipped: --no-health-check flag set" and exit the workflow: in `{headless_mode}`, exit with `{headless_exit_code}` (determined in §6b); non-headless, simply terminate after the §6 presentation. Do not resolve `{healthCheckFile}`, do not display the menu, do not chain to `{nextStepFile}`. This flag is the one path where §7 does not dispatch the health-check.
 
 Resolve `{healthCheckFile}`: probe `{healthCheckProbeOrder}` in order. **HALT** if neither candidate exists — the health-check is the true terminal step; without it the workflow cannot complete honestly:
 

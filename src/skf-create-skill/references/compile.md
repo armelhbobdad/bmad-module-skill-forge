@@ -52,11 +52,11 @@ This is the `<staging-skill-dir>` referenced by step 6 (`npx skill-check check`,
 **When assembling function signatures, parameter lists, and return types in any SKILL.md section or reference file:**
 
 - **T1 provenance-map entries (AST-extracted) are authoritative** for: function name, parameter names, parameter types, parameter order, return type, and optionality markers (e.g., `?`, `Optional`, `= default`).
-- **T2 (QMD-enriched) and T3 (doc-derived) sources may ADD** contextual descriptions, usage notes, behavioral documentation, and examples to function entries, but **MUST NOT REPLACE** structural signature data from T1 entries.
+- **T2 (QMD-enriched) and T3 (doc-derived) sources may add** contextual descriptions, usage notes, behavioral documentation, and examples to function entries, but must not replace structural signature data from T1 entries.
 - **On conflict:** If a T2/T3 source provides a different signature than the T1 extraction for the same export (e.g., different parameter count, different types, missing `Partial<>` wrapper), keep the T1 signature and log a warning in the evidence report: "Signature conflict for `{export_name}`: T1 shows `{t1_signature}`, T2/T3 shows `{other_signature}`. T1 used as authoritative."
 - **`signature_source` field:** Record `signature_source: "T1" | "T1-low" | "T2" | "T3"` in each provenance-map entry to indicate the highest-confidence tier that contributed the structural signature data (params, return_type). This enables test-skill to verify signature provenance.
 
-This rule applies to ALL sections including Tier 1 Key API Summary, Tier 2 Full API Reference, and Section 4b Migration & Deprecation Warnings.
+This rule applies to every section including Tier 1 Key API Summary, Tier 2 Full API Reference, and Section 4b Migration & Deprecation Warnings.
 
 ### 2. Build SKILL.md Content
 
@@ -104,11 +104,11 @@ Following the structure from the skill-sections data file:
 - Set `generation_date` to current ISO-8601 timestamp
 - Set `source_commit` from resolved source (if available)
 - Set `source_ref` from resolved source ref (tag name, branch, or `HEAD`; null if unavailable)
-- Set `scope_type` from the brief's `scope.type` value verbatim (`full-library`, `specific-modules`, `public-api`, `component-library`, `reference-app`, or `docs-only`). **Always emit this field.** `skf-test-skill` keys reference-app handling on `metadata.json.scope_type == "reference-app"` — both the scoring redistribution (Signature Accuracy / Type Coverage marked N/A) and the coverage-check §4b count-coherence skip. Omitting it silently mis-scores a reference-app skill as a library (zero-export barrel HALT or false metadata-drift findings), which is why it previously had to be hand-added during test-skill. The value is informational for the other scope types (consumers only branch on `reference-app`), but emit it for all so the producer/consumer contract holds.
+- Set `scope_type` from the brief's `scope.type` value verbatim (`full-library`, `specific-modules`, `public-api`, `component-library`, `reference-app`, or `docs-only`). **Always emit this field.** `skf-test-skill` keys reference-app handling on `metadata.json.scope_type == "reference-app"` — both the scoring redistribution (Signature Accuracy / Type Coverage marked N/A) and the coverage-check §4b count-coherence skip. Omitting it silently mis-scores a reference-app skill as a library (zero-export barrel HALT or false metadata-drift findings). The value is informational for the other scope types (consumers only branch on `reference-app`), but emit it for all so the producer/consumer contract holds.
 - **Compute the `stats` block and `confidence_distribution` deterministically** with `{renderMetadataStatsHelper}` (resolve from `{renderMetadataStatsProbeOrder}`; first existing path wins). The helper owns all the arithmetic — binning each provenance entry once by its `signature_source` tier, summing the bins, and computing every coverage ratio — and returns the finished `stats` + `confidence_distribution` objects to write into `metadata.json` verbatim. Run `uv run {renderMetadataStatsHelper} --help` for the full contract. You supply only the judgment payload below.
 
   **Judgment payload (what you decide — passed as JSON on stdin):**
-  - `exports_public_api`: count of exports from public entry points (`__init__.py`, `index.ts`, `lib.rs`, or equivalent) — derive this from step 3's entry-point validation (section 4b), NOT from the provenance-map entry count (which may be incomplete if extraction patterns missed some export types)
+  - `exports_public_api`: count of exports from public entry points (`__init__.py`, `index.ts`, `lib.rs`, or equivalent) — derive this from step 3's entry-point validation (section 4b), not from the provenance-map entry count (which may be incomplete if extraction patterns missed some export types)
   - `exports_internal`: count of all other non-underscore-prefixed exports (internal modules, helpers, adapters)
   - `scripts` / `assets`: the `scripts_inventory` / `assets_inventory` arrays (or `[]` when empty) — the helper sets `stats.scripts_count` / `stats.assets_count` from their lengths
   - `effective_denominator` (**optional** — include in the helper's judgment payload only for stratified-scope monorepo packages): the count of public exports from files matched by the brief's authoring-surface globs, filtered by `scope.exclude`, resolved against `source_path`. **Prefer `scope.tier_a_include` when the brief supplies it** — that narrow list represents the authoring surface the brief intends to document; resolve its globs across `source_path` and count the union of **named exports** — items reachable from the language's public entry-point barrel (`lib.rs` `pub use`, `index.ts` / `index.js` re-exports, `__init__.py` exports), where a type counts **once** with its methods and impl-block members rolling up under it (count a `pub fn` only when it is a free function reachable from the barrel, never a method on an already-counted type). **Otherwise use `scope.include`** — the coarse list. This counting unit matches what `skf-test-skill` re-derives on the consumer side (`coverage-check.md` §2c excludes `kind: "method"` from `documented_set`), so the producer- and test-side denominators stay aligned; without it, a type-heavy API (a few handle types carrying hundreds of methods) inflates the denominator by an order of magnitude and auto-fails the coverage gate. This is the coverage denominator `skf-test-skill` uses when the package is a curated subset of a multi-package repository, so it must match the brief's authoring intent. Compute when ALL of the following hold:
@@ -167,7 +167,7 @@ One entry per extracted export: export_name, export_type, params[] (typed string
 
 - `scripts_inventory` → `file_type: "script"`, `extraction_method: "file-copy"`, stored in `{skill_package}/scripts/` by step 7
 - `assets_inventory` → `file_type: "asset"`, `extraction_method: "file-copy"`, stored in `{skill_package}/assets/` by step 7
-- `promoted_docs` (from step 3 §2a) → `file_type: "doc"`, `extraction_method: "promoted-authoritative"`, **NOT** copied into the skill package by step 7. The source file stays at its original path; only the provenance tracking entry is written. `content_hash` was pre-computed by §2a.
+- `promoted_docs` (from step 3 §2a) → `file_type: "doc"`, `extraction_method: "promoted-authoritative"`, **not** copied into the skill package by step 7. The source file stays at its original path; only the provenance tracking entry is written. `content_hash` was pre-computed by §2a.
 
 Each `file_entries[]` row has the same shape regardless of `file_type`: `{file_name, file_type, source_file, content_hash, confidence, extraction_method}`. See `{skillSectionsData}` for full schema and the canonical list of `file_type` values.
 
@@ -175,20 +175,11 @@ Each `file_entries[]` row has the same shape regardless of `file_type`: `{file_n
 
 Compilation audit trail: generation date, forge tier, source info, tool versions, extraction summary (files/exports/confidence), warnings. For validation-specific fields (Schema, Body, Security, Content Quality, tessl, Metadata), insert the placeholder text `[PENDING — populated by step 6]`. Step-06 will replace these placeholders with actual results. See `{skillSectionsData}` for full template. Use the same `{skf_version}` value resolved in section 4 when populating the Tool Versions block.
 
-**Frontmatter — pinned fields (MANDATORY):** emit YAML frontmatter at the top of `evidence-report.md` with at minimum `skill_name`, `generated`, `forge_tier`, and `t2_future_count`. Compute `t2_future_count` as the count of forward-looking (T2-future) temporal annotations in the enrichment data produced by step 4 (`qmd query` + temporal classification). **Emit `t2_future_count: 0` when no T2-future annotations exist** — omission is indistinguishable from "no data" for downstream consumers and would silently flip the skf-test-skill §2b/§5b migration-section gate into Case 2/3 for a Case-1 skill. This frontmatter is the authoritative detection contract — `migration-section-rules.md` Case Rules parse it deterministically rather than grepping prose.
+**Frontmatter — pinned fields:** emit YAML frontmatter at the top of `evidence-report.md` with at minimum `skill_name`, `generated`, `forge_tier`, and `t2_future_count`. Compute `t2_future_count` as the count of forward-looking (T2-future) temporal annotations in the enrichment data produced by step 4 (`qmd query` + temporal classification). **Emit `t2_future_count: 0` when no T2-future annotations exist** — omission is indistinguishable from "no data" for downstream consumers and would silently flip the skf-test-skill §2b/§5b migration-section gate into Case 2/3 for a Case-1 skill. This frontmatter is the authoritative detection contract — `migration-section-rules.md` Case Rules parse it deterministically rather than grepping prose.
 
 **Auto-Decisions section (persist decisions-so-far to disk now):** render the `## Auto-Decisions` section from the `headless_decisions[]` entries accumulated through this step — step 1 tier-override, step 2 ecosystem gate, step 3 zero-exports, step 3d component-extraction gates — one row per entry, in the table format documented in step 6 §8. This step is the first point `evidence-report.md` is written to disk (staging dir, §8 below), so materializing the rows here — rather than holding them only in the in-context buffer until step 6 — gives the audit trail a durable on-disk copy that the step 6 §8 reconcile reads back, so the table survives compaction of the in-context buffer during the token-heavy validation stage (skill-check, split-body, tessl). Exactly one gate can still fire after this step — step 6 §6b (the tessl-suggestions gate) — and step 6 §8 unions the on-disk rows with the buffer (adding that last row) and re-renders idempotently. If no decision has fired yet, emit the section with the single line `No auto-decisions — workflow ran interactively (or all gates had no match to auto-resolve).` — step 6 §8 replaces that line if a later decision lands.
 
-### 8. Menu Handling Logic
+### 8. Auto-Proceed
 
-**Auto-proceed step — no user interaction.**
-
-After all content is assembled in context and written to the staging directory, immediately load, read entire file, then execute `{nextStepFile}`.
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed assembly step with no user choices
-- All content must be both in context and in `_bmad-output/{skill-name}/` — no final files in `skills/` or `forge-data/` yet
-- `extraction-rules.yaml` is generated by step 7 from extraction data, not assembled here — do not create it in this step
-- Proceed directly to validation after assembly is complete
+No user interaction. Once all content is assembled in context and written to the staging directory `_bmad-output/{skill-name}/` (no final files in `skills/` or `forge-data/` yet), load `{nextStepFile}`, read it fully, then execute it. `extraction-rules.yaml` is generated by step 7 from extraction data — do not create it here.
 

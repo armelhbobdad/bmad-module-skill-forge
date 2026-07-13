@@ -74,7 +74,7 @@ These rules apply to every step in this workflow:
 - State-first — write state to disk before chaining to the next step or workflow
 - Read-backup-modify-write for all state mutations (State Contract in `references/campaign-contracts.md`)
 - Validate `_campaign-state.yaml` on every load by running `uv run scripts/campaign-validate-state.py --state-file {stateFile}` and HALT (exit code 3, `invalid-state`) on non-zero — never hand-validate the schema
-- Zero memory dependency (NFR-2) — campaign state is 100% recoverable from disk; never rely on conversation context for progress tracking
+- Zero memory dependency — campaign state is 100% recoverable from disk; never rely on conversation context for progress tracking
 - Treat a missing or unparseable `SKF_*_RESULT_JSON` envelope from any sub-skill as a sub-skill failure; never write partial state from an unparsed envelope
 - Append a one-line entry to the campaign decision log (`{campaignWorkspacePath}/_campaign-decision-log.md`, append-only) at every operator or auto-decision (skip/force, overwrite, export cancel/proceed, `.bak` recovery, user-cancel) so rationale survives compaction and resume
 - **Universal cancel affordance** — at any interactive gate between Setup and the Export gate, `cancel`/`exit`/`:q` triggers a HARD HALT with **exit code 12 (`user-cancelled`)**: log it and leave state intact and resumable. Exception: the Export gate's own `[C]ancel` stays exit code 11 (`export-cancelled`) — never also emit 12 there, so an automator's exit-code branch stays deterministic. These keywords count only as a response *to a prompt*; a skill or campaign named `cancel`/`exit` supplied as data is never treated as a cancel.

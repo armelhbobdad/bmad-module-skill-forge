@@ -174,4 +174,4 @@ Load, read the full file, then execute {nextStepFile}.
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY WHEN the ## Documentation Drift section has been appended to {outputFile} and workflow context updated will you then load and read fully `{nextStepFile}` to begin final report generation.
+Only when the ## Documentation Drift section has been appended to {outputFile} and workflow context updated do you then load and read fully `{nextStepFile}` to begin final report generation.

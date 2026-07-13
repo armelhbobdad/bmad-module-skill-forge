@@ -15,7 +15,8 @@ CLI:
 
 Output (JSON on stdout):
   --compute:
-    {"execution_order": [...], "circular_deps_detected": bool, "cycle_participants": [...] | null}
+    {"execution_order": [...], "circular_deps_detected": bool,
+     "cycle_participants": [...] | null, "tier_counts": {"A": int, "B": int}}
 
   --check:
     {"skill": "name", "ready": bool, "unmet_deps": [...], "forced": bool}
@@ -82,6 +83,12 @@ def compute(state_file: str) -> int:
 
     skill_map = _build_skill_map(skills)
 
+    tier_counts = {"A": 0, "B": 0}
+    for skill in skill_map.values():
+        tier = skill.get("tier")
+        if tier in tier_counts:
+            tier_counts[tier] += 1
+
     dangling = _validate_deps(skill_map)
     if dangling:
         _emit_error(
@@ -125,6 +132,7 @@ def compute(state_file: str) -> int:
             "execution_order": execution_order,
             "circular_deps_detected": True,
             "cycle_participants": cycle_participants,
+            "tier_counts": tier_counts,
         }
         json.dump(output, sys.stdout, separators=(",", ":"))
         sys.stdout.write("\n")
@@ -134,6 +142,7 @@ def compute(state_file: str) -> int:
         "execution_order": execution_order,
         "circular_deps_detected": False,
         "cycle_participants": None,
+        "tier_counts": tier_counts,
     }
     json.dump(output, sys.stdout, separators=(",", ":"))
     sys.stdout.write("\n")

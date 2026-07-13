@@ -177,7 +177,7 @@ Write the merged content produced by sections 3–4 directly to disk now. Later 
 - `metadata.json`, `provenance-map.json`, `evidence-report.md` — derived from merge + validation output, written by step 6 sections 2–4
 - `context-snippet.md` — regenerated from the on-disk SKILL.md + metadata.json by step 6 section 5
 
-**Halt-on-tool-failure:** If any `Edit`/`Write` call errors (permission denied, disk full, path invalid, etc.), halt and report the failure — do not proceed to step 5 validation. The skill package may be in a partial state and will need manual recovery before re-running update-skill.
+**Halt-on-tool-failure:** If any `Edit`/`Write` call errors (permission denied, disk full, path invalid, etc.), halt with status `halted-for-write-failure` and report the failure — do not proceed to step 5 validation. The skill package may be in a partial state and will need manual recovery before re-running update-skill. In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "merge:write-skill-md", path: "{skill_package}/SKILL.md", reason: "..."}`).
 
 ### 7. Display Merge Summary
 
@@ -205,7 +205,7 @@ Display: "**Merge complete with conflict resolution. Select:** [C] Continue to V
 #### Gate rules:
 
 - Halt and wait for user input after conflict resolution
-- **GATE [default: C if clean merge]** — If `{headless_mode}` and merge is clean (no [MANUAL] conflicts): auto-proceed with [C] Continue, log: "headless: clean merge, auto-continue". **Also append to in-context `headless_decisions[]`** (surfaced via `SKF_UPDATE_RESULT_JSON` by step 7): `{gate: "merge.clean-merge-gate", default_action: "C", taken_action: "C", reason: "headless: clean merge, no conflicts to resolve"}`. If conflicts exist, HALT even in headless mode — conflicts require human judgment, and the headless_decisions[] array does NOT get a continue-on-conflict entry (the workflow status becomes `halted-for-manual-mismatch` instead).
+- **GATE [default: C if clean merge]** — If `{headless_mode}` and merge is clean (no [MANUAL] conflicts): auto-proceed with [C] Continue, log: "headless: clean merge, auto-continue". **Also append to in-context `headless_decisions[]`** (surfaced via `SKF_UPDATE_RESULT_JSON` by step 7): `{gate: "merge.clean-merge-gate", default_action: "C", taken_action: "C", reason: "headless: clean merge, no conflicts to resolve"}`. If conflicts exist, the run halts even in headless mode — conflicts require human judgment. It halts with status `halted-for-manual-mismatch`, emitting the halt envelope per SKILL.md §Headless (`error: {phase: "merge:conflict-resolution", reason: "..."}`); no continue-on-conflict entry is added to `headless_decisions[]`.
 - ONLY proceed when user selects 'C'
 
 **If clean merge (no conflicts):**

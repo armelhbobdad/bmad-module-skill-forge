@@ -19,7 +19,7 @@ When `scope.type: "component-library"`, perform specialized extraction that trea
 
 ## MANDATORY SEQUENCE
 
-**Prerequisite — §2a already ran.** Step-03 executes `§2a Discovered Authoritative Files Protocol` before delegating to this file. Any promoted authoritative files (`llms.txt`, `AGENTS.md`, etc.) are tracked in the `promoted_docs[]` context list and will be written to `file_entries[]` with `file_type: "doc"` by step 5 §6 — they do NOT appear in the filtered file list that was passed into this step, so Phase 1 demo exclusion below only operates on code files. No special handling is required in this file for promoted docs. See step 3 §2a for the full flow.
+**Prerequisite — §2a already ran.** Step-03 executes `§2a Discovered Authoritative Files Protocol` before delegating to this file. Any promoted authoritative files (`llms.txt`, `AGENTS.md`, etc.) are tracked in the `promoted_docs[]` context list and will be written to `file_entries[]` with `file_type: "doc"` by step 5 §6 — they do not appear in the filtered file list that was passed into this step, so Phase 1 demo exclusion below only operates on code files. No special handling is required in this file for promoted docs. See step 3 §2a for the full flow.
 
 ### Phase 1: Demo/Example Exclusion
 
@@ -160,7 +160,7 @@ constraints:
 
 Also run `export const $NAME` patterns for arrow function components.
 
-For each component export: record name, source file, line number. Do NOT document the function signature in detail (it's always `(props: XProps) => JSX.Element`).
+For each component export: record name, source file, line number. Do not document the function signature in detail (it's always `(props: XProps) => JSX.Element`).
 
 **Step 3 — Link Props to Components:**
 
@@ -185,7 +185,7 @@ Extract non-Props type exports using standard AST patterns (same as Forge tier):
 
 When multiple design system variants exist:
 
-1. **Group components by registry `id`** (NOT by filename — registry is source of truth):
+1. **Group components by registry `id`** (not by filename — registry is source of truth):
    - For each `id` in `component_catalog[]`, collect all variant paths from `available_in[]` and `code_paths[]`
 
 2. **Select canonical props definition:**
@@ -243,33 +243,6 @@ Display: "**Component extraction complete.** Returning to main extraction flow."
 
 ## RETURN PROTOCOL
 
-After Phase 6 completes, return control to step 3 section 5 (Build Extraction Inventory). The extraction results from this step are merged into the standard extraction inventory format. Step-03 continues with its normal Gate 2 summary and menu.
+After Phase 6 completes, return control to step 3 section 5 (Build Extraction Inventory). The extraction results from this step are merged into the standard extraction inventory format. Step-03 continues with its normal Gate 2 summary and confirmation.
 
-Do NOT load `{returnToStep}` — the calling step (step 3) will continue from where it delegated.
-
----
-
-## SYSTEM SUCCESS/FAILURE METRICS
-
-### SUCCESS:
-
-- Demo/example files detected and excluded with user confirmation
-- Registry detected (or user provided path) and parsed into component_catalog
-- Props interfaces extracted as primary API contracts
-- Components linked to Props via 3-level fallback chain
-- Variant consolidation produced deduplicated counts (if applicable)
-- All extracted items have provenance citations
-- Results compatible with step 3 section 5 inventory format
-- component_catalog stored in context for step 5
-
-### FAILURE:
-
-- Excluding demo files without user confirmation
-- Accepting a registry candidate without user confirmation
-- Not extracting Props interfaces as primary API surface
-- Documenting component function signatures instead of Props
-- Including hallucinated component data not in source
-- Variant deduplication based on filenames instead of registry IDs
-- Not returning control to step 3 after completion
-
-**Master Rule:** Zero hallucination — every extraction must trace to source code. The component registry is the source of truth for the API surface.
+Do not load `{returnToStep}` — the calling step (step 3) continues from where it delegated.

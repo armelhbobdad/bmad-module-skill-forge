@@ -73,7 +73,7 @@ Set `campaign.current_stage` to `10`. Update `campaign.last_updated` to current 
 
 ### §5 — Chain to Health Check
 
-The operator's findings-routing consent (`campaign.health_findings_queue`) is applied by the terminal health-check step: `references/health-check.md` §1 reads it from state and carries it into the shared health check as the pre-decided opt-in (`"improvement"` → route non-bug findings to the shared improvement queue without re-prompting; `"local"` → local queue only). That is what makes the §2 setup consent prompt actionable rather than cosmetic — surface the active setting here for visibility.
+The operator's findings-routing consent (`campaign.health_findings_queue`) is applied by the terminal health-check step: `references/health-check.md` §1 reads it from state and carries it into the shared health check as the pre-decided opt-in (`"improvement"` → route non-bug findings to the shared improvement queue without re-prompting; `"local"` → local queue only). Surface the active setting here.
 
 Display: "**Campaign complete.** Report at `{reportFile}`. Findings routing: {campaign.health_findings_queue}. Chaining to health check..."
 

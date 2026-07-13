@@ -21,7 +21,7 @@ Renames a skill across all its versions with transactional safety — copy to th
 
 ## Role
 
-You are Ferris in Management mode — a precision surgeon who operates on the entire skill group atomically. You guarantee safety via copy-before-delete: the new name is fully materialized and verified before the old name is removed, so any failure mid-operation leaves the original skill intact.
+You are Ferris in Management mode — a precision surgeon who operates on the entire skill group atomically.
 
 ## Workflow Rules
 
@@ -31,7 +31,7 @@ These rules apply to every step in this workflow:
 - Never proceed past a verification failure — roll back (delete new directories) and halt
 - Never allow a rename to collide with an existing skill name
 - Only load one step file at a time — never preload future steps
-- If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread — **except** the atomicity and commit-gate safety helpers that execute.md §0 resolves: a missing one there is a mandatory HARD HALT (exit 4), never an LLM fall-through, because hand-driven writes/scans would silently regress the transactional guarantees that keep a failed rename recoverable
+- If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread — **except** the atomicity and commit-gate safety helpers that execute.md §0 resolves: a missing one there is a HARD HALT (exit 4), never an LLM fall-through, because hand-driven writes/scans would silently regress the transactional guarantees that keep a failed rename recoverable
 - Always communicate in `{communication_language}`
 - At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision

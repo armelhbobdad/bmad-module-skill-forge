@@ -21,10 +21,7 @@ curl -sI --max-time 5 {url}
 ```
 
 - On **2xx/3xx** response: URL is reachable. Continue.
-- On **4xx/5xx**, DNS failure, or timeout: HARD HALT with exit code 3 (`resolution-failure`). Emit error message: `"Documentation URL unreachable: {url} — {status or error}"`. Emit error envelope:
-  ```
-  SKF_ANALYZE_RESULT_JSON: {"status":"error","report_path":null,"brief_paths":[],"unit_counts":{"confirmed":0,"skipped":0,"maybe":0},"exit_code":3,"halt_reason":"resolution-failure","mode":"auto","source_type":"docs-only"}
-  ```
+- On **4xx/5xx**, DNS failure, or timeout: HARD HALT with exit code 3 (`resolution-failure`). Emit error message: `"Documentation URL unreachable: {url} — {status or error}"`, then the error envelope (shape in `references/headless-contract.md`) with `exit_code: 3`, `halt_reason: "resolution-failure"`, `mode: "auto"`, `source_type: "docs-only"`.
 
 ### 2. Derive skill name from URL domain
 
@@ -32,7 +29,7 @@ Extract the hostname from the URL (e.g., `docs.example.com` from `https://docs.e
 
 ### 3. Write analysis report
 
-Update {outputFile} with docs-only results.
+Update {outputFile} with docs-only results. If the write fails, HARD HALT with exit code 4 (`write-failed`) per `references/headless-contract.md` (applies equally to the brief write in §4 and the result contract in §6).
 
 **Update frontmatter:**
 ```yaml

@@ -215,4 +215,4 @@ When `{onCompleteCommand}` is empty (bundled default), skip this section entirel
 
 ### 7. Chain to Health Check
 
-ONLY WHEN the brief file has been written and the success summary displayed will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.
+Once the brief file has been written and the success summary displayed, load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.

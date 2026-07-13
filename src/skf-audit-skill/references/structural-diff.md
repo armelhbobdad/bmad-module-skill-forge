@@ -105,7 +105,9 @@ Parse the emitted JSON:
 
 Hash-prefix normalization (writer-vs-reader compatibility — `skf-create-skill` writes `content_hash` with a `"sha256:"` prefix, a bare-hex hash from `hashlib` would otherwise never match) is handled inside the script. Downstream consumers read `added`/`removed`/`changed` directly with no further normalization.
 
-Append the three lists into the Structural Drift section as "### Script/Asset Drift ({stats.added + stats.removed + stats.changed})".
+Append the three lists into the Structural Drift section under a `### Script/Asset Drift (added {stats.added}, removed {stats.removed}, changed {stats.changed})` heading — take each count straight from `stats`, no recount.
+
+**If `uv`/the helper cannot execute** (e.g. claude.ai web): skip the script/asset drift check with a `### Script/Asset Drift — skipped (hashing helper unavailable)` note rather than blocking the audit. This check is supplementary to the export diff, which has its own by-hand fallback in §1.
 
 ### Stack-Specific Structural Diff
 
@@ -126,7 +128,7 @@ If `{is_stack_skill}` is true:
 
 ### 5. Compile Structural Drift Section
 
-**Rollup for high-volume uniform findings.** When ≥ 10 findings in the same table share one root cause (deleted source file, renamed module, entire package tree removed), you MAY collapse them into one row per root cause. Rollup rows replace the per-symbol `Export`/`Signature` columns with `Count` and `Representative symbols` (up to 3 names, `…` if more). Rollup applies to **Added Exports**, **Removed Exports**, and **Script/Asset Drift** tables — **not** to Changed Exports, which are heterogeneous by construction (signature changes and cross-file changes are inspected per-finding). Record which groupings were collapsed in workflow context for reviewer traceability.
+**Rollup for high-volume uniform findings.** When ≥ 10 findings in the same table share one root cause (deleted source file, renamed module, entire package tree removed), you may collapse them into one row per root cause. Rollup rows replace the per-symbol `Export`/`Signature` columns with `Count` and `Representative symbols` (up to 3 names, `…` if more). Rollup applies to **Added Exports**, **Removed Exports**, and **Script/Asset Drift** tables — **not** to Changed Exports, which are heterogeneous by construction (signature changes and cross-file changes are inspected per-finding). Record which groupings were collapsed in workflow context for reviewer traceability.
 
 **Rollup row form (Added / Removed Exports):**
 
@@ -172,5 +174,5 @@ Append to {outputFile}:
 
 ### 6. Update Report and Auto-Proceed
 
-Update {outputFile} frontmatter — append `'structural-diff'` to `stepsCompleted`. This is an auto-proceed step with no user choice: once the ## Structural Drift section has been appended, load, read fully, and execute `{nextStepFile}` (semantic diff).
+Update {outputFile} frontmatter — append `'structural-diff'` to `stepsCompleted`. Once the ## Structural Drift section has been appended, load, read fully, and execute `{nextStepFile}` (semantic diff).
 

@@ -19,7 +19,7 @@ To read the resolved GitHub repository source and extract the public API surface
 - Do not begin compilation or write output files
 - If no exports found, use README content as fallback
 
-## MANDATORY SEQUENCE
+## Steps
 
 **Ref-aware source reading:** When `source_ref` is set from tag resolution (see step 1), append `?ref={source_ref}` to all GitHub API content and tree requests (e.g., `gh api repos/{owner}/{repo}/contents/{path}?ref={source_ref}`) to read from the tagged version. When using web browsing, use the tagged URL format (e.g., `github.com/{owner}/{repo}/blob/{source_ref}/{path}`). This ensures extraction reads from the same source version resolved during tag resolution.
 
@@ -76,13 +76,13 @@ Fetch the manifest file and the top-level entry-point file(s) for the detected l
 
 **If `scope_hint` provided:** focus the entry-point fetch on the specified directories instead of repo root.
 
-For multi-module Maven (`<modules>`) and multi-project Gradle (`include(...)`) builds, fetch the parent manifest first, then loop §2+§3 per module. Sub-module fetches are safe to issue as one batched tool-call message — N module fetches collapse to O(1) wall-clock time.
+For multi-module Maven (`<modules>`) and multi-project Gradle (`include(...)`) builds, fetch the parent manifest first, then loop §2+§3 per module. Batch the sub-module fetches per the parallel-fetch directive at the top of this step.
 
 ### 3. Parse Manifest and Scan Exports
 
 Run the shared extractor against the contents fetched in §2. The helper does manifest parse + export scan in one invocation and emits a structured envelope ready to feed §4's inventory.
 
-**Resolve `{publicApiExtractor}`** from `{publicApiExtractorProbeOrder}`; first existing path wins. If no candidate exists, fall back to in-prompt parsing (the legacy per-language regex tables that this section replaces).
+**Resolve `{publicApiExtractor}`** from `{publicApiExtractorProbeOrder}`; first existing path wins. If no candidate exists, fall back to in-prompt per-language regex parsing of the manifest and entry-point files.
 
 Build the input payload from §2's fetched files and pipe it to the helper:
 
@@ -129,7 +129,7 @@ extraction_inventory:
 
 ### 4.5. Zero-Exports Soft Gate (rescue mode)
 
-Run this gate **only when** `extraction_inventory.exports.length == 0` AND `extraction_inventory.description` is empty (no usable README content either). When either is non-empty, the README-fallback in §4 produces a usable skill and this section is skipped.
+Run this gate **only when** `extraction_inventory.exports.length == 0` and `extraction_inventory.description` is empty (no usable README content either). When either is non-empty, the README-fallback in §4 produces a usable skill and this section is skipped.
 
 When both are empty, the compiled SKILL.md would be effectively empty — no API surface to document and no description to fall back on. Offer the user a chance to retry with hints before producing a degenerate output:
 

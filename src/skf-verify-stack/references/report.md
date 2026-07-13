@@ -28,7 +28,7 @@ Present the complete feasibility report to the user. Display the overall verdict
 ## Rules
 
 - Focus only on presenting the completed report — no new analysis or changes to verdicts
-- Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing report is NOT the terminal step
+- Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing report is not the terminal step
 
 ## MANDATORY SEQUENCE
 
@@ -46,7 +46,9 @@ python3 {validateFeasibilityReportHelper} {outputFile}
 
 The script (see `--help`) deterministically confirms the five required body sections — `## Executive Summary`, `## Coverage Analysis`, `## Integration Verdicts`, `## Recommendations`, `## Evidence Sources` — are all present and in canonical order per `{feasibilitySchemaRef}`, **and** that frontmatter `schemaVersion == "1.0"`. It emits a JSON verdict on stdout (`headingsOk`, `missingHeadings`, `orderViolations`, `schemaVersionOk`, `schemaVersionFound`, `violation`) and exits `0` when valid, `1` on a schema violation, `2` on an IO/parse error.
 
-On any non-zero exit, HALT (exit code 5, `halt_reason: "schema-violation"`) — do not display partial results. Report the specific violation from the JSON:
+**Graceful degradation:** if no `{validateFeasibilityReportProbeOrder}` candidate exists (e.g. partial installation, or `python3` unavailable), perform the equivalent structural check inline — confirm the five headings above are all present and in that exact order, and that frontmatter `schemaVersion` is `"1.0"` — and apply the same halt semantics below. The report is already on disk from steps 1-5, so a missing validator degrades to the inline check rather than blocking presentation.
+
+On any non-zero exit (or an inline check that fails), HALT (exit code 5, `halt_reason: "schema-violation"`) — do not display partial results. Report the specific violation from the JSON:
 
 - a missing or out-of-order section (`missingHeadings` / `orderViolations`); or
 - a schemaVersion mismatch — "Report frontmatter schemaVersion `{schemaVersionFound}` does not match producer schema `1.0` — report was corrupted between steps. Re-run [VS]." (Producer never proceeds past a schema mismatch.)
@@ -100,7 +102,7 @@ Step 05 already wrote a **Suggested next workflow** block (keyed on the case-sen
 
 **Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`); in headless, emit the error envelope.
 
-Write the result contract per `shared/references/output-contract-schema.md` (this path resolves relative to the SKF module root — `{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during development — NOT relative to this step file): the per-run record at `{forge_data_folder}/verify-stack-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_data_folder}/verify-stack-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include the feasibility report path (both `{outputFile}` and `{outputFileLatest}`) in `outputs`; include `overallVerdict` (`FEASIBLE` / `CONDITIONALLY_FEASIBLE` / `NOT_FEASIBLE`), `coveragePercentage`, and `recommendationCount` in `summary` — use the case-sensitive schema tokens.
+Write the result contract per `shared/references/output-contract-schema.md` (this path resolves relative to the SKF module root — `{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during development — not relative to this step file): the per-run record at `{forge_data_folder}/verify-stack-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_data_folder}/verify-stack-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include the feasibility report path (both `{outputFile}` and `{outputFileLatest}`) in `outputs`; include `overallVerdict` (`FEASIBLE` / `CONDITIONALLY_FEASIBLE` / `NOT_FEASIBLE`), `coveragePercentage`, and `recommendationCount` in `summary` — use the case-sensitive schema tokens.
 
 Write both JSON files through `python3 {atomicWriteHelper} write --target ...` to avoid partial-write corruption. On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) and emit the error envelope.
 
@@ -112,7 +114,7 @@ SKF_VERIFY_STACK_RESULT_JSON: {"status":"success","report_path":"{outputFile}","
 
 `{overallVerdict}` uses the schema tokens (`FEASIBLE` / `CONDITIONALLY_FEASIBLE` / `NOT_FEASIBLE`).
 
-**Result-contract ordering:** The result contract is written exactly once on the first entry to step 6 (the `[X] Exit verification` path). Re-walks of the report via the `[R] Review full report` menu option do NOT regenerate it — the contract captures the run, not the presentation loop. If the user selects `[R]` repeatedly before exiting, the single on-disk contract written on first entry remains authoritative.
+**Result-contract ordering:** The result contract is written exactly once on the first entry to step 6 (the `[X] Exit verification` path). Re-walks of the report via the `[R] Review full report` menu option do not regenerate it — the contract captures the run, not the presentation loop. If the user selects `[R]` repeatedly before exiting, the single on-disk contract written on first entry remains authoritative.
 
 ### 5. Present Menu
 

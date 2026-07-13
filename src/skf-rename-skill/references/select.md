@@ -11,6 +11,21 @@ versionPathsKnowledge: 'knowledge/version-paths.md'
 manifestOpsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
   - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
+# Resolve `{skillInventoryHelper}` by probing `{skillInventoryProbeOrder}`
+# (installed SKF module path first, src/ dev-checkout fallback). §3 uses it to
+# enumerate the rename candidates: the union of manifest `exports` and on-disk
+# skill directories, each with its version list and active version — computing
+# that union/count in the prompt has one correct answer per input. §3 falls
+# back to an in-prompt scan if neither path resolves.
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
+# `{renameNameValidator}` is this skill's own deterministic new-name gate. §5
+# uses it for the format / length / identity / collision checks (one correct
+# answer per (name, filesystem, manifest) state) and the interrupted-rename
+# recovery fingerprint; §5 falls back to the same checks in-prompt if Python is
+# unavailable.
+renameNameValidator: 'scripts/skf-validate-rename-name.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -62,19 +77,19 @@ Load `{skills_output_folder}/.export-manifest.json` if it exists.
 
 ### 3. List Available Skills
 
-Build and display a summary of every skill available for rename. Start with the manifest (if any), then augment with on-disk scan.
+Enumerate every skill available for rename deterministically. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run:
 
-For each skill in the manifest's `exports` (if `manifest_exists` and entries exist):
+```bash
+python3 {skillInventoryHelper} {skills_output_folder}
+```
 
-1. Read `active_version` from the manifest entry
-2. Count the number of versions in the skill's `versions` map
-3. Display `{skill-name} ({n} versions, active: {active_version})`
+Read the JSON. Each entry in `skills[]` carries `name`, its `versions` array, and `active_version` (the helper unions the manifest `exports` with the on-disk directories and dedupes, so manifest-tracked and orphaned skills both appear). A skill whose `name` is absent from `manifest.exports` is a draft/orphan the rename workflow can still handle — annotate it "(not in manifest)".
 
-Also scan `{skills_output_folder}/` for any top-level directories that are NOT present in the manifest's `exports` object. Record these as "(not in manifest)" — they represent draft or orphaned skills that the rename workflow can also handle. When the manifest is missing or empty, every on-disk skill appears in this category.
+**If `{skillInventoryHelper}` has no existing candidate** (neither probe path resolves — e.g. Python/`uv` unavailable): build the list in the prompt instead — read `exports` from the manifest (if `manifest_exists`), scan `{skills_output_folder}/` for top-level directories, union the two, and read each one's `active_version` and version count. Directories absent from `exports` are the "(not in manifest)" entries.
 
-**If the combined list is empty** (no manifest entries AND no on-disk skill directories): halt with "**Rename Skill — nothing to rename.** No skills found in `{skills_output_folder}/`. Run `[CS] Create Skill` first." HALT (exit code 3, `halt_reason: "nothing-to-rename"`). In headless mode, emit the error envelope with `old_name: null`, `new_name: null`.
+**If the list is empty** (no manifest entries AND no on-disk skill directories): halt with "**Rename Skill — nothing to rename.** No skills found in `{skills_output_folder}/`. Run `[CS] Create Skill` first." HALT (exit code 3, `halt_reason: "nothing-to-rename"`). In headless mode, emit the error envelope with `old_name: null`, `new_name: null`.
 
-Display the combined list:
+Display the list, one line per skill as `{name} ({n} versions, active: {active_version})` (append "(not in manifest)" for orphans):
 
 ```
 **Rename Skill — select target**
@@ -138,32 +153,25 @@ Wait for user input. Trim whitespace. **GATE [default: use args]** — If `{head
 
 - If the user enters `cancel`, `exit`, `[X]`, `q`, or `:q`: release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`), display "Cancelled — no changes were made.", and HALT (exit code 6, `halt_reason: "user-cancelled"`).
 
-Apply the following validations in order:
+**Validate the candidate deterministically.** Run `{renameNameValidator}` (a per-skill helper, always shipped with the skill) — it applies format, length, identity, and collision in that order and returns the verdict as JSON:
 
-1. **Kebab-case format:** Must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` — the module's canonical skill-name rule (same regex as `skf-validate-output.py` / `skf-validate-brief-inputs.py`), so a digit-leading name like `3d-tools` that the create path accepts also renames cleanly. If it fails:
-   "**Invalid name format.** The new name must be lowercase alphanumeric with hyphens, starting and ending with a lowercase letter or digit. Try again."
-   Re-ask. In headless mode, instead of re-asking, release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`) and HALT (exit code 2, `halt_reason: "input-invalid"`) and emit the error envelope.
+```bash
+python3 {renameNameValidator} \
+  --old-name {old_name} --new-name {candidate} \
+  --skills-output-folder {skills_output_folder} \
+  --forge-data-folder {forge_data_folder}
+```
 
-2. **Length:** Must be 1-64 characters per the agentskills.io spec. If it fails:
-   "**Invalid name length.** The new name must be 1-64 characters. Try again."
-   Re-ask. In headless mode, instead of re-asking, release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`) and HALT (exit code 2, `halt_reason: "input-invalid"`) and emit the error envelope.
+The checks: **format** = the kebab regex `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` (the module's canonical rule, same as `skf-validate-output.py` / `skf-validate-brief-inputs.py`, so a digit-leading name like `3d-tools` renames cleanly); **length** = 1-64 characters (agentskills.io spec); **identity** = differs from `{old_name}`; **collision** = the name is not a manifest `exports` key, a `{skills_output_folder}` directory, or a `{forge_data_folder}` directory.
 
-3. **Same as old name:** If the new name equals `old_name`:
-   "**The new name is identical to the current name.** Nothing to rename. Try again or abort the workflow."
-   Re-ask. In headless mode, instead of re-asking, release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`) and HALT (exit code 2, `halt_reason: "input-invalid"`) and emit the error envelope.
+Read `valid`, `first_failure`, `checks`, and `interrupted_rename`. If `valid` is true, store the input as `new_name` and proceed to §6. Otherwise branch on `first_failure` — interactive: display the message and re-ask; headless: release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`), HALT with the mapped code, and emit the error envelope:
 
-4. **Collision check:** The new name MUST NOT collide with any existing skill:
-   - It must not appear as a key in `exports` in the manifest
-   - It must not exist as a top-level directory in `{skills_output_folder}/`
-   - It must not exist as a top-level directory in `{forge_data_folder}/`
+- **`format`** → "**Invalid name format.** The new name must be lowercase alphanumeric with hyphens, starting and ending with a lowercase letter or digit. Try again." (headless HALT: exit code 2, `halt_reason: "input-invalid"`)
+- **`length`** → "**Invalid name length.** The new name must be 1-64 characters. Try again." (headless HALT: exit code 2, `halt_reason: "input-invalid"`)
+- **`identity`** → "**The new name is identical to the current name.** Nothing to rename. Try again or abort the workflow." (headless HALT: exit code 2, `halt_reason: "input-invalid"`)
+- **`collision`** → "**Name collision.** `{new-name}` already exists at: {the `path` of each entry in `checks.collision.locations`}. Pick a different name." When `interrupted_rename` is true, append: "This may be a stranded partial rename from an earlier interrupted run — `{new_name}` was staged but `{old_name}` was never removed. Confirm the `{new_name}` directories are not a skill you want to keep, then clean them up (`rm -rf {skills_output_folder}/{new_name} {forge_data_folder}/{new_name}`) and re-run this rename." — this gives headless pipelines a named recovery path instead of a dead-end collision halt. (headless HALT: exit code 5, `halt_reason: "name-collision"`)
 
-   If any collision is detected:
-   "**Name collision.** `{new-name}` already exists at: {list the colliding locations}. Pick a different name."
-   Re-ask. In headless mode, instead of re-asking, release the lock and HALT (exit code 5, `halt_reason: "name-collision"`) and emit the error envelope.
-
-   **Interrupted prior rename (recovery, not a true collision):** if `{new_name}` collides only in `{skills_output_folder}` / `{forge_data_folder}` (not the manifest `exports`) **and** the `{old_name}` directories are still present in both, this is the fingerprint of a rename that was interrupted between step 2 §1 (copy) and §8 (delete old) — an external kill/compaction, not a genuine collision. Add to the message: "This may be a stranded partial rename from an earlier interrupted run — `{new_name}` was staged but `{old_name}` was never removed. Confirm the `{new_name}` directories are not a skill you want to keep, then clean them up (`rm -rf {skills_output_folder}/{new_name} {forge_data_folder}/{new_name}`) and re-run this rename." This gives headless pipelines a named recovery path instead of a dead-end collision halt.
-
-Only after all four validations pass, store the input as `new_name`.
+**If `{renameNameValidator}` cannot run** (Python/`uv` unavailable): apply the same four checks in the same order in the prompt — the kebab regex, the 1-64 length bound, inequality with `{old_name}`, and the three-source collision lookup (plus the interrupted-rename fingerprint above) — using the identical messages and halt mapping.
 
 ### 6. Source Authority Check
 

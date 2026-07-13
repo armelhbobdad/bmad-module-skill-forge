@@ -1,12 +1,11 @@
 ---
 tierRulesData: 'references/tier-rules.md'
 nextStepFile: 'health-check.md'
-# Resolve `{emitEnvelopeHelper}` by probing `{emitEnvelopeProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. HALT if neither resolves when the headless envelope must be emitted
-# — the script is the source of truth for the SKF_SETUP_RESULT_JSON contract;
-# never inline-render the envelope from prose (LLM schema drift is the bug
-# this script exists to prevent).
+# `{emitEnvelopeHelper}` = first existing path in `{emitEnvelopeProbeOrder}`;
+# halt if neither exists when the headless envelope must be emitted. The script
+# is the source of truth for the SKF_SETUP_RESULT_JSON contract — do not
+# inline-render the envelope from prose (LLM schema drift is the bug this
+# script exists to prevent).
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
@@ -27,7 +26,7 @@ Display the forge status report with positive capability framing, surface tier c
 - Do not list tools that are not available
 - Use tier capability descriptions from tier-rules.md
 - Never inline-render the envelope JSON — the script owns the schema; drift breaks pipelines
-- Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing status report is NOT the terminal step
+- Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing status report is not the terminal step
 
 ## Headless Mode Display Rule
 
@@ -62,7 +61,7 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
   {if tools.ast_grep and not tools.gh_cli: - Install GitHub CLI (https://cli.github.com) — required for Deep tier (cross-repository synthesis)}
   {if tools.ast_grep and not tools.qmd and qmd_status is "absent": - Install qmd (https://github.com/tobi/qmd) — required for Deep tier (knowledge search)}
   {if tools.ast_grep and not tools.qmd and qmd_status is "daemon_stopped": - Start the qmd daemon (already installed) — run `qmd start` (or your distribution's qmd service command) to unlock Deep tier (knowledge search)}
-  {if tools.ccc and ccc_daemon is "error": - The ccc daemon is reporting errors — run `ccc doctor` to diagnose. CCC index will fail until resolved (mirrors the qmd daemon-stopped pattern above for parity)}
+  {if tools.ccc and ccc_daemon is "error": - The ccc daemon is reporting errors — run `ccc doctor` to diagnose. CCC index will fail until resolved}
   {end if}
 
   {if hygiene_result is "completed":}

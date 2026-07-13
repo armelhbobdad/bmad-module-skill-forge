@@ -28,7 +28,7 @@ Scan the project root for dependency manifest files, parse each to extract depen
 
 **If `compose_mode` is true AND `explicit_deps` was provided in step 01:**
 
-Use the explicit dependency list directly. Store the explicit list as `raw_dependencies` with `source: "explicit"` and skip to [Auto-Proceed to Next Step](#5-auto-proceed-to-next-step).
+Use the explicit dependency list directly. Store the explicit list as `raw_dependencies` with `source: "explicit"` and skip to [Auto-Proceed to Next Step](#4-auto-proceed-to-next-step).
 
 **If `compose_mode` is true AND `explicit_deps` was NOT provided:**
 
@@ -92,7 +92,7 @@ Display:
 
 **Proceeding to scope confirmation...**"
 
-Skip to [Auto-Proceed to Next Step](#5-auto-proceed-to-next-step) — the skills table above serves as the detection summary.
+Skip to [Auto-Proceed to Next Step](#4-auto-proceed-to-next-step) — the skills table above serves as the detection summary.
 
 **If not compose_mode:** Continue with section 1 (existing flow).
 
@@ -104,7 +104,7 @@ Skip to [Auto-Proceed to Next Step](#5-auto-proceed-to-next-step) — the skills
 
 **Dependencies:** {explicit_deps_count} libraries provided"
 
-Store the explicit list as `raw_dependencies` and skip to [Display Detection Summary](#4-display-detection-summary).
+Store the explicit list as `raw_dependencies` and skip to [Display Detection Summary](#3-display-detection-summary).
 
 **If no explicit list:** Continue to section 2.
 
@@ -159,7 +159,7 @@ STOP — wait for user response.
 
 Otherwise, store the parsed `manifests[]` and `total_unique` as `raw_dependencies` (dedup is already applied by the scanner), surface any `warnings[]` to the user as parse-quality notes, and inspect the `monorepo` flag: if `true`, mention the monorepo layout in the detection summary so the user can decide whether to scope the ranking to a specific package or proceed across all manifests.
 
-### 4. Display Detection Summary
+### 3. Display Detection Summary
 
 "**Manifest detection complete.**
 
@@ -173,7 +173,7 @@ Otherwise, store the parsed `manifests[]` and `total_unique` as `raw_dependencie
 
 **Proceeding to dependency ranking...**"
 
-### 5. Auto-Proceed to Next Step
+### 4. Auto-Proceed to Next Step
 
 Load, read the full file and then execute `{nextStepFile}`.
 

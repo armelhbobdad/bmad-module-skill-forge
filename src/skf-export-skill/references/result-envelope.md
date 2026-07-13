@@ -17,7 +17,7 @@ SKF_EXPORT_RESULT_JSON: {"status":"success|error|dry-run","skills":[],"context_f
 
 ## Fields
 
-- `status` — `"success"` on the terminal happy path, `"dry-run"` when `--dry-run` exited before the §4 context writes, `"error"` on any HALT.
+- `status` — `"success"` on the terminal happy path, `"dry-run"` when `--dry-run` skipped the §4 context and manifest writes (the run still reaches the terminal step), `"error"` on any HALT.
 - `skills` — resolved skill names in the batch (JSON array).
 - `context_files_updated` — context files successfully written this run (JSON array; `[]` when a HALT preceded any write).
 - `manifest_path` — the written manifest path, or `null` when no manifest write completed.

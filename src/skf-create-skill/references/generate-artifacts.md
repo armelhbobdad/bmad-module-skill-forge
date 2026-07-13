@@ -4,7 +4,7 @@ forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
 # Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
 # path wins. HALT if neither resolves — the active-symlink flip and registry
-# writes below MUST go through the atomic helper for concurrency safety.
+# writes below go through the atomic helper for concurrency safety.
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
@@ -80,7 +80,7 @@ Write these 4 files from the compiled content:
 
 **Note on `file_type: "doc"` entries** (promoted authoritative docs from step 3 §2a):
 
-Promoted docs are tracked in `file_entries[]` with `file_type: "doc"` for drift detection but are **NOT** copied into the skill package. The source file remains at its original location outside `{skill_package}`. Step-07 must skip any `file_entries[]` row where `file_type == "doc"` when iterating for file copy — these entries exist only for provenance tracking, not bundling. Step-07 verification (§5) also does not check for doc files in the skill package.
+Promoted docs are tracked in `file_entries[]` with `file_type: "doc"` for drift detection but are **not** copied into the skill package. The source file remains at its original location outside `{skill_package}`. Step-07 must skip any `file_entries[]` row where `file_type == "doc"` when iterating for file copy — these entries exist only for provenance tracking, not bundling. Step-07 verification (§5) also does not check for doc files in the skill package.
 
 ### 3. Write Workspace Artifacts to {forge_version}
 
@@ -108,7 +108,7 @@ python3 {atomicWriteHelper} flip-link \
 
 The helper returns non-zero (exit 2) if `{skill_group}/active` already exists as a real directory or file rather than a symlink — in that case, halt with: "Refusing to flip `{skill_group}/active` — existing path is not a symlink. Investigate manually; expected a symlink pointing at a version directory."
 
-**Never `rm` + `ln -s` the active link manually.** The bare-rm pattern has two failure modes: (1) a concurrent reader sees a missing `active` mid-flip, and (2) a bug or typo that replaces `{skill_group}/active` with a plain directory turns the next manual `rm -rf {skill_group}/active` into data loss. The helper encapsulates both guards.
+Do not `rm` + `ln -s` the active link by hand. The bare-rm pattern has two failure modes: (1) a concurrent reader sees a missing `active` mid-flip, and (2) a bug or typo that replaces `{skill_group}/active` with a plain directory turns the next manual `rm -rf {skill_group}/active` into data loss. The helper encapsulates both guards.
 
 ### 5. Verify Write Completion
 
@@ -181,10 +181,10 @@ If an entry with `name: "{name}-extraction"` already exists, replace it. Otherwi
 Write the updated forge-tier.yaml.
 
 **Error handling:**
-- If QMD collection creation fails: log the error, note that indexing can be retried via [SF] setup. Do NOT fail the workflow.
+- If QMD collection creation fails: log the error, note that indexing can be retried via [SF] setup. Do not fail the workflow.
 - If forge-tier.yaml update fails: log the error, continue. The collection exists in QMD even if the registry entry failed.
 
-**IF forge tier is NOT Deep:** Skip this section silently. No messaging.
+**IF forge tier is not Deep:** Skip this section silently. No messaging.
 
 ### 6b. CCC Index Registry Registration (Forge+ and Deep with ccc)
 
@@ -211,23 +211,13 @@ echo '{"source_repo":"{brief.source_repo}","path":"{source_root}","skill_name":"
   | uv run {forgeTierRwHelper} register-ccc-index --target {forgeTierConfig}
 ```
 
-Deduplicates by `source_repo` + `skill_name` (NOT local `path`, which may be ephemeral). Release the lock after the command completes. If `flock` is unavailable, fall back to read-CAS-by-mtime.
+Deduplicates by `source_repo` + `skill_name` (not local `path`, which may be ephemeral). Release the lock after the command completes. If `flock` is unavailable, fall back to read-CAS-by-mtime.
 
-**Error handling:** If ccc indexing or registry update fails, log and continue — do NOT fail the workflow.
+**Error handling:** If ccc indexing or registry update fails, log and continue — do not fail the workflow.
 
 **IF `tools.ccc` is false:** Skip this section silently.
 
-### 7. Menu Handling Logic
+### 7. Auto-Proceed
 
-**Auto-proceed step — no user interaction.**
-
-After all artifacts are written, verified, and optionally indexed into QMD, immediately load, read entire file, then execute `{nextStepFile}`.
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed file writing step with no user choices
-- All 7 files must be written before proceeding
-- QMD indexing failure does NOT block proceeding
-- File write failures are real errors — halt, do not proceed with partial output
-- Proceed directly to next step after successful generation
+No user interaction. Once all 7 files are written and verified (and optionally indexed into QMD), load `{nextStepFile}`, read it fully, then execute it. A QMD-indexing failure does not block; a file-write failure halts (§5) rather than proceeding with partial output.
 

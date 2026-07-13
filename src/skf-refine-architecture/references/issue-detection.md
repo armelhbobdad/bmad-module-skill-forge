@@ -66,7 +66,7 @@ For each extracted claim, verify against the compact API surfaces already collec
 
 If `vs_report_available` is true:
 
-**Scope filter (reuse `{out_of_scope_skills}` from Step 02 §2b):** The VS report carries verdicts across the entire skill set, which may exceed this architecture's surface. Before promoting any verdict, check the pair's scope — if a verdict is for an **out-of-scope** pair (either library in `{out_of_scope_skills}`), do NOT promote it to an issue for THIS architecture; record it under the informational Out-of-Scope bucket instead. Only **in-scope** pairs' verdicts are promoted by the rules below.
+**Scope filter (reuse `{out_of_scope_skills}` from Step 02 §2b):** The VS report carries verdicts across the entire skill set, which may exceed this architecture's surface. Before promoting any verdict, check the pair's scope — if a verdict is for an **out-of-scope** pair (either library in `{out_of_scope_skills}`), do not promote it to an issue for this architecture; record it under the informational Out-of-Scope bucket instead. Only **in-scope** pairs' verdicts are promoted by the rules below.
 
 **Load the VS feasibility report and extract verdicts:**
 - **Risky verdicts** (match case-insensitively): Promote to confirmed issues with the VS evidence as additional citation
@@ -102,9 +102,9 @@ Suggestion: {specific correction with API evidence}
 
 Report the in-scope issue count with its critical/major/minor breakdown, then list each issue as a row of **# / Libraries / Issue Type / Severity / Summary** followed by its full §5 citation. One signal is not inferable from the counts and must survive regardless of format:
 
-- **Out-of-scope VS verdicts were set aside (from §4):** list them separately for awareness only — they were NOT counted as issues — and note that re-running with `--scope-skills` pulls any that belong into scope.
+- **Out-of-scope VS verdicts were set aside (from §4):** list them separately for awareness only — they were not counted as issues — and note that re-running with `--scope-skills` pulls any that belong into scope.
 
-Store all **in-scope** issue findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-ISSUES] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted issue findings** (full citation blocks with architecture claims, skill evidence, VS verdicts, severity, and suggestions — not just counts) — Step 05 can read this back if context degrades. Record any out-of-scope VS verdicts under the shared `<!-- [RA-OUT-OF-SCOPE] ... -->` marker (NOT `[RA-ISSUES]`) so Step 05 does not compile them — they are informational only. **Do NOT write to `{output_folder}/refined-architecture-{arch_project_name}.md` — that file is created only in step 5.**
+Store the **in-scope** issue findings per the Finding Storage rule (refinement rules), under a `<!-- [RA-ISSUES] ... -->` block (its citations carry the architecture claim, skill evidence, VS verdict, severity, and suggestion). Record any out-of-scope VS verdicts under the shared `<!-- [RA-OUT-OF-SCOPE] ... -->` marker so Step 05 leaves them out — informational only.
 
 ### 7. Auto-Proceed to Next Step
 
