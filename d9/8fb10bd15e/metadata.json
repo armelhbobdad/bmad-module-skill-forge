@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d98fb10bd15e",
+  "strategy": "manual-commit",
+  "branch": "quality/skf-workflows-zero-findings",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-analyze-source/SKILL.md",
+    "src/skf-drop-skill/references/select.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d9/8fb10bd15e/0/metadata.json",
+      "transcript": "/d9/8fb10bd15e/0/full.jsonl",
+      "context": "/d9/8fb10bd15e/0/context.md",
+      "content_hash": "/d9/8fb10bd15e/0/content_hash.txt",
+      "prompt": "/d9/8fb10bd15e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 428,
+    "cache_creation_tokens": 1632316,
+    "cache_read_tokens": 85046285,
+    "output_tokens": 380997,
+    "api_call_count": 216
+  }
+}
