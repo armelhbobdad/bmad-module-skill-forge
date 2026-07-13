@@ -214,7 +214,3 @@ Display: "**Select:** [C] Continue to Export Mapping and Integration Detection |
 - **GATE [default: C]** — If `{headless_mode}`: accept all classifications and auto-proceed, log: "headless: auto-accept unit classifications"
 - ONLY proceed to next step when user selects 'C'
 
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the Identified Units section has been appended to {outputFile} with complete classification tables, disqualification records, and language detection results, and frontmatter stepsCompleted has been updated, will you load and read fully {nextStepFile} to begin export mapping and integration detection.
-

@@ -200,10 +200,6 @@ echo '{"status":"error","skill_name":"{skill_name or unknown}","halt_reason":"{r
 
 ### 8. Chain
 
-Load, read fully, then execute the appropriate next step file based on the user's choice:
+Load, read fully, then execute the appropriate next step file — only after the user has made their choice and the corresponding action has been taken (envelope emitted or context hydrated):
 - [A]pprove or [E]dit (after final approve): {nextStepFile} (health-check.md)
 - [R]eject: {rejectTargetFile} (confirm-brief.md)
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the user has made their choice (approve, edit-then-approve, or reject) and the appropriate action has been taken (envelope emitted or context hydrated) will you load and read fully the next step file.

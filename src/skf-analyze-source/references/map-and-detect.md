@@ -203,7 +203,3 @@ Display: "**Select:** [C] Continue to Recommendations | [D] Discover Additional 
 - **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue past export/integration findings, log: "headless: auto-continue past integration analysis"
 - ONLY proceed to next step when user selects 'C'
 
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN both the Export Map and Integration Points sections have been appended to {outputFile} with complete findings, and frontmatter stepsCompleted and stack_skill_candidates have been updated, will you load and read fully {nextStepFile} to begin recommendations.
-

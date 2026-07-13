@@ -62,7 +62,7 @@ The snippet anchors point to the QS template's actual headings — `#usage-patte
 
 Run the shared renderer against the assembled state. The helper applies the constants, echoes input-derived fields, computes export counts and the ISO 8601 UTC timestamp, and emits the canonical envelope per `{skillTemplateData}` § "metadata.json Format".
 
-**Resolve `{quickMetadataRenderer}`** from `{quickMetadataRendererProbeOrder}`; first existing path wins. If no candidate exists, fall back to in-prompt rendering using the constants + input-derived rules previously documented in this section (the helper replaces but does not eliminate those rules — they live in the helper now).
+**Resolve `{quickMetadataRenderer}`** from `{quickMetadataRendererProbeOrder}`; first existing path wins. If no candidate exists, fall back to in-prompt rendering of the canonical envelope per `{skillTemplateData}` § "metadata.json Format".
 
 **Probe `tool_versions.skf` first** (the helper expects it as input — the filesystem walk stays here because the helper does no I/O):
 
@@ -78,8 +78,6 @@ echo '{"name":"<name>","version":"<v>","description":"<desc>","language":"<lang>
 ```
 
 The renderer emits the rendered metadata.json on stdout. Capture the output as `metadata` for the §5 preview and step 5 §2's deliverable write.
-
-**Schema is canonical in the renderer.** When `{skillTemplateData}` adds a field, the renderer is updated to populate it (constants gain a row; input-derived fields gain a payload key). Do not hand-edit the rendered envelope here — the helper is the single source of truth for the population logic.
 
 ### 5. Present Compiled Output for Review
 

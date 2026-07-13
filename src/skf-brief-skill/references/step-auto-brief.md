@@ -181,8 +181,4 @@ echo '{"status":"error","skill_name":"{skill_name or unknown}","halt_reason":"{r
 
 ### 7. Chain to Auto-Validate
 
-Load, read fully, then execute {nextStepFile} to present the auto-brief validation gate, where the user can approve, edit, or reject the brief before the pipeline continues.
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the enriched brief has been written and validated will you load and read fully {nextStepFile} to begin the auto-brief validation gate.
+Load, read fully, then execute {nextStepFile} to present the auto-brief validation gate, where the user can approve, edit, or reject the brief before the pipeline continues. Do this only after the enriched brief has been written and validated.

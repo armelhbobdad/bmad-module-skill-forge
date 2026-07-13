@@ -73,6 +73,10 @@ Which skill would you like to audit? Please provide the skill name or path."
 - If missing → "Skill not found at `{resolved_skill_package}`. Check the path and try again."
 - If found → Continue
 
+**Headless default** (when `{headless_mode}`): the interactive prompt and its "check the path and try again" re-prompt cannot be answered under automation, so §1 halts deterministically instead of looping. This is the origin site for the exit-2 / exit-3 rows the Exit Codes table attributes to step 1 §1 — emit the `SKF_AUDIT_RESULT_JSON` error envelope on **stderr** (shape per SKILL.md → Result Contract; `status: "error"`, `drift_score: null`, `report_path: null`, `next_workflow: null`, `audit_ref: null`) at each halt:
+- **No `skill_name` supplied** (neither name nor path given): HALT with **exit 2**, `halt_reason: "input-missing"`, `skill_name: null`. Log: `"headless: no skill_name supplied; cannot resolve interactively. Re-run with skill_name set."`
+- **`SKILL.md` missing at `{resolved_skill_package}`**: HALT with **exit 3**, `halt_reason: "skill-not-found"`, `skill_name: {skill_name}`. Log: `"headless: skill not found at {resolved_skill_package}; no interactive retry. Check the exported skill name/path."`
+
 ### 2. Load Forge Tier
 
 Load `{sidecar_path}/forge-tier.yaml` to detect available tools.

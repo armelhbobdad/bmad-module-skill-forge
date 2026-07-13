@@ -543,7 +543,3 @@ If `{onCompleteCommand}` is non-empty, invoke it now with `--result-path={result
 ### 11. Chain to Health Check
 
 Load, read fully, then execute {nextStepFile} to run the shared workflow health check.
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the analysis report has been updated, the skill-brief.yaml written and validated, the result envelope emitted, and the result contract saved will you load and read fully {nextStepFile} to begin the health check.

@@ -178,7 +178,3 @@ Display: "**Select an Option:** [A] Advanced Elicitation [P] Party Mode [D] Disc
 - After other menu items execution, return to this menu
 - User can chat or ask questions — always respond and then redisplay menu
 
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN all units have explicit user decisions (Y/N/M), the confirmed_units list is finalized in frontmatter, and the user has given final confirmation, will you load and read fully {nextStepFile} to begin brief generation.
-

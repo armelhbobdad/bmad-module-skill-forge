@@ -1,36 +1,6 @@
-# Tier Calculation Rules
+# Tier Report Copy
 
-## Tool Detection Commands
-
-| Tool | Verification Command | What Confirms Availability |
-|------|---------------------|---------------------------|
-| ast-grep | `ast-grep --version` | Returns version string without error |
-| gh | `gh --version` | Returns version string without error |
-| qmd | `qmd status` | Returns status indicating initialized and operational |
-| ccc | Step A: `ccc --help` Step B: `ccc doctor` | Step A: exits 0 AND help output identifies the binary as cocoindex-code. Step B: daemon healthy. The detection script (`skf-detect-tools.py`) performs the full identity-marker check (the `CocoIndex Code` substring that rejects PATH-shadowing aliases); see `references/detect-and-tier.md` §2. |
-
-**Important:** Use verification commands, not existence checks (`which`, `command -v`). A tool must be functional, not just present on PATH. For daemon-based tools (ccc), verify both binary identity and daemon health — a binary with the right name but the wrong implementation is a false positive, not a tool.
-
-## Tier Calculation
-
-| Priority | Tier | Required Tools | Rule |
-|----------|------|---------------|------|
-| 1 (highest) | Deep | ast-grep + gh + qmd | All three core tools available and functional |
-| 2 | Forge+ | ast-grep + ccc | ast-grep AND ccc available, regardless of gh/qmd |
-| 3 | Forge | ast-grep | ast-grep available, without ccc/gh/qmd |
-| 4 (default) | Quick | None | Default when no tools are available |
-
-**Evaluation order:** Check Deep first, then Forge+, then Forge. The first match wins. This ensures Deep always takes priority when all tools are present.
-
-**Override:** If `tier_override` is set in preferences.yaml, use that value instead of calculated tier.
-
-**Edge cases:**
-- gh available but no ast-grep → Quick (gh alone doesn't unlock Forge)
-- ast-grep + gh but no qmd → Forge (qmd required for Deep)
-- ast-grep + qmd but no gh → Forge (gh required for Deep)
-- ccc available but no ast-grep → Quick (ccc alone doesn't unlock Forge+)
-- ast-grep + ccc + gh but no qmd → Forge+ (qmd required for Deep)
-- ast-grep + gh + qmd + ccc → Deep (Deep subsumes Forge+; ccc enhances transparently)
+The user-facing report strings the Step 4 report (`report.md`) consumes. Tool-detection probes and tier-calculation rules are owned by `skf-detect-tools.py` (see `references/detect-and-tier.md` §2) — this file holds only display copy, never detection or tier logic.
 
 ## Tier Capability Descriptions
 

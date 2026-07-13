@@ -91,7 +91,3 @@ lastContinued: '{current_date}'
 - This is an auto-proceed continuation step
 - Route directly to the next incomplete step
 
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the progress state has been read, summarized to the user, and lastContinued updated will you load the appropriate next step file to resume the workflow.
-

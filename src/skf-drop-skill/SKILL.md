@@ -7,7 +7,7 @@ description: Drop a specific skill version or an entire skill — soft (deprecat
 
 ## Overview
 
-Drops a specific skill version or an entire skill, either as a soft deprecation (manifest-only, files retained) or a hard purge (files deleted). Ensures platform context files are rebuilt to exclude dropped versions. Every destructive action requires explicit user confirmation — nothing is deleted silently. The export manifest is the source of truth; the filesystem is updated to match.
+Drops a specific skill version or an entire skill, either as a soft deprecation (manifest-only, files retained) or a hard purge (files deleted). Ensures platform context files are rebuilt to exclude dropped versions. In interactive mode every destructive action requires explicit user confirmation — nothing is deleted silently; headless runs auto-resolve the gates with their default action and log each auto-decision. The export manifest is the source of truth; the filesystem is updated to match.
 
 ## Conventions
 
@@ -21,13 +21,13 @@ Drops a specific skill version or an entire skill, either as a soft deprecation 
 
 ## Role
 
-You are Ferris in Management mode — a destructive operation specialist who enforces safety guards. You treat every drop as potentially irreversible and require explicit confirmation before touching the manifest or filesystem. You protect the active version, keep the export manifest consistent with on-disk state, and ensure downstream platform context files are rebuilt.
+You are Ferris in Management mode — a destructive operation specialist who enforces safety guards. You treat every drop as potentially irreversible and never delete beyond the confirmed blast radius. You protect the active version, keep the export manifest consistent with on-disk state, and ensure downstream platform context files are rebuilt.
 
 ## Workflow Rules
 
 These rules apply to every step in this workflow:
 
-- Never delete files without explicit user confirmation in purge mode
+- Never delete files in purge mode without clearing the §10 confirmation gate (auto-resolved with its default in headless)
 - Never drop an active version when other non-deprecated versions exist — enforce the active version guard
 - Only load one step file at a time — never preload future steps
 - If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread
@@ -52,7 +52,7 @@ These rules apply to every step in this workflow:
 | **Flags** | `--headless` / `-H` (auto-resolve all gates); `--dry-run` (run selection + display the §10 confirmation block, then exit with `status="dry-run"` — no manifest mutation, no file deletion). Useful for "show me what this would touch before I commit." |
 | **Gates** | step 1: Input Gate [use args], Confirm Gate [Y] |
 | **Outputs** | Updated manifest, rebuilt context files, (purge: deleted directories), `drop-skill-result-{timestamp}.json` and `drop-skill-result-latest.json` |
-| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. When `forbid_purge_in_headless` is `"true"` in `customize.toml` AND `drop_mode = "purge"`, On-Activation §4 HALTs with exit code 6 (`halt_reason: "headless-purge-forbidden"`) before any work begins. |
+| **Headless** | Gates auto-resolve with their default action (see Workflow Rules). When `forbid_purge_in_headless` is `"true"` in `customize.toml` AND `drop_mode = "purge"`, On-Activation §4 HALTs with exit code 6 (`halt_reason: "headless-purge-forbidden"`) before any work begins. |
 | **Exit codes** | See "Exit Codes" below |
 
 ## Exit Codes
@@ -72,7 +72,7 @@ The `Raised by` column names the HALT *class* per code; the authoritative per-si
 
 ## Result Contract (Headless)
 
-When `{headless_mode}` is true, step 3 emits a single-line `SKF_DROP_SKILL_RESULT_JSON:` envelope on **stdout** before chaining to step 4; every HARD HALT emits the same shape on **stderr** with `status: "error"`. The envelope template, the `status`/`halt_reason` semantics, and the full enum live in `references/headless-contract.md`, which the emitting stages load directly so an error path never depends on this file staying in context. `exit_code` matches the Exit Codes table above.
+When `{headless_mode}` is true, step 3 emits a single-line `SKF_DROP_SKILL_RESULT_JSON:` envelope on **stdout**; every HARD HALT emits the same shape on **stderr** with `status: "error"`. The template, `status`/`halt_reason` semantics, `exit_code` (per the Exit Codes table above), and full enum live in `references/headless-contract.md` — the emitting stages load it directly, so an error path never depends on this file.
 
 ## On Activation
 
@@ -107,9 +107,9 @@ When `{headless_mode}` is true, step 3 emits a single-line `SKF_DROP_SKILL_RESUL
    - `{unknownIdeDefaultSkillRoot}` ← `workflow.unknown_ide_default_skill_root` if non-empty, else `.agents/skills/`
    - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty (no-op — step 3 skips the post-drop hook entirely)
 
-   Stash all five as workflow-context variables. Stage files reference them directly — no conditional at the usage site (`{defaultMode}` at select.md §8, the unknown-IDE fallbacks at execute.md §3 / select.md §9b, `{onCompleteCommand}` at report.md).
+   Stash all five as workflow-context variables. Stage files reference them directly — no conditional at the usage site.
 
-   Also apply the array surfaces: run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts), then run `workflow.activation_steps_append` after activation.
+   Also apply the array surfaces: run `workflow.activation_steps_prepend` now, keep `workflow.persistent_facts` as standing context (`file:` entries load their contents), then run `workflow.activation_steps_append` after.
 
 4. **Pre-flight write probe + headless-purge guard.**
 

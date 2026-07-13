@@ -168,13 +168,13 @@ Set `target_versions = "all"` and `is_skill_level = true`.
 
 ### 8. Ask Mode
 
-**If `target_in_manifest = false`:** Skip this prompt — soft-deprecate is meaningless without a manifest entry to mark. Force `drop_mode = "purge"` and inform the user: "**Mode forced to purge** — `{target_skill}` has no manifest entry, so there is nothing to deprecate. The skill's on-disk directories will be deleted."
+**If `target_in_manifest = false`:** Skip this prompt — soft-deprecate is meaningless without a manifest entry to mark. Force `drop_mode = "purge"` (record `mode_source = "draft-skill-forced-purge"`) and inform the user: "**Mode forced to purge** — `{target_skill}` has no manifest entry, so there is nothing to deprecate. The skill's on-disk directories will be deleted."
 
 **If `target_in_manifest = true`:**
 
-**If a `mode` argument was supplied at invocation:** an explicit `mode` arg is the per-run override and takes precedence over `{defaultMode}`. If it is `"deprecate"` or `"purge"`, set `drop_mode` from it and log the override source (`"--mode argument"`). If a `mode` arg was supplied but is not one of `deprecate` / `purge`, HALT (exit code 2, `halt_reason: "input-invalid"`): "invalid `--mode` value `{supplied}` — expected `deprecate` or `purge`." In headless mode, emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: null`.
+**If a `mode` argument was supplied at invocation:** an explicit `mode` arg is the per-run override and takes precedence over `{defaultMode}`. If it is `"deprecate"` or `"purge"`, set `drop_mode` from it and record the decision source `mode_source = "--mode argument"`. If a `mode` arg was supplied but is not one of `deprecate` / `purge`, HALT (exit code 2, `halt_reason: "input-invalid"`): "invalid `--mode` value `{supplied}` — expected `deprecate` or `purge`." In headless mode, emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: null`.
 
-**Else if `{defaultMode}` is non-empty (`"deprecate"` or `"purge"`)**: skip the prompt, set `drop_mode = "{defaultMode}"`, and log the override source for the headless decision trail (`"customize.toml.workflow.default_mode"`).
+**Else if `{defaultMode}` is non-empty (`"deprecate"` or `"purge"`)**: skip the prompt, set `drop_mode = "{defaultMode}"`, and record the decision source `mode_source = "customize.toml.workflow.default_mode"` for the headless decision trail.
 
 **Otherwise (interactive):** If `{headless_mode}` is true at this point (no `mode` arg and no `{defaultMode}`), there is no input to prompt for — HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode requires `--mode deprecate|purge` or `default_mode` in customize.toml to set the drop mode." Emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: null`. Otherwise, prompt the user:
 
@@ -186,7 +186,7 @@ Set `target_versions = "all"` and `is_skill_level = true`.
 
 Wait for user selection.
 
-Set `drop_mode` to `"deprecate"` (on D) or `"purge"` (on P).
+Set `drop_mode` to `"deprecate"` (on D) or `"purge"` (on P), and record `mode_source = "interactive-prompt"`.
 
 ### 9. Compute Affected Directories
 
@@ -268,11 +268,11 @@ re-run with `--dry-run` to preview again.
 
 Then emit the success envelope per `{headlessContract}` with `status: "dry-run"`, the resolved `skill`, `drop_mode`, and `versions_affected`, then HALT (exit code 0). The manifest, filesystem, and context files are untouched.
 
-**Otherwise (not a dry-run) — GATE [default: Y]:** If `{headless_mode}`: auto-proceed with [Y], log: "headless: auto-confirmed drop of {target_skill}"
+**Otherwise (not a dry-run) — GATE [default: Y]:** If `{headless_mode}`: auto-proceed with [Y], record `confirm_source = "headless-auto"`, log: "headless: auto-confirmed drop of {target_skill}"
 
 Wait for explicit user response.
 
-- **If `Y`** → proceed to section 11
+- **If `Y`** → record `confirm_source = "user-explicit"` and proceed to section 11
 - **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → "**Cancelled.** No changes were made. (Tip: invoke with `--dry-run` next time to preview the operation without reaching the commit prompt.)" HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless mode, emit the error envelope per `{headlessContract}` with the resolved `skill`, `drop_mode`, and `versions_affected`.
 - **Any other input** → re-display the confirmation and ask again
 
@@ -286,12 +286,10 @@ Store the following decisions in workflow context for step 2:
 - `drop_mode` — `"deprecate"` or `"purge"` (always `"purge"` when `target_in_manifest = false`)
 - `is_skill_level` — boolean (true if all versions; always true when `target_in_manifest = false`)
 - `affected_directories` — list of absolute directory paths that step 2 will delete in purge mode (or retain in deprecate mode)
+- `mode_source` — where `drop_mode` was decided, set inline at §8 (one of the four sources named there)
+- `confirm_source` — how the §10 gate was cleared, set inline at §10 (`"headless-auto"` or `"user-explicit"`)
 
 ### 12. Load Next Step
 
-Load, read the full file, and then execute `{nextStepFile}`.
-
-## CRITICAL STEP COMPLETION NOTE
-
-`{nextStepFile}` performs the destructive mutation. Do not load it until the confirmation gate returned `Y` (§10) and the decisions are stored (§11) — chaining any earlier would drop without the user's explicit consent.
+`{nextStepFile}` performs the destructive mutation, so reach it only after the §10 gate returned `Y` and §11 stored the decisions — chaining any earlier would drop without the user's explicit consent (the sequence above enforces this ordering). Load, read the full file, and then execute it.
 

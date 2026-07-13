@@ -158,7 +158,3 @@ Display: "**Select:** [C] Continue to Unit Identification | [X] Cancel and exit"
 - **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past scan results"
 - ONLY proceed to next step when user selects 'C'
 
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the Project Scan section has been appended to {outputFile} with complete boundary, manifest, and entry point catalogs, and frontmatter stepsCompleted has been updated, will you load and read fully {nextStepFile} to begin unit identification.
-

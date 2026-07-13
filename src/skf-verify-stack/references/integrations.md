@@ -101,18 +101,16 @@ For each library in an integration pair, delegate SKILL.md reading to a parallel
 
 Store collected API surface summaries for cross-referencing.
 
-**Integration-evidence source preference:** If the stack was assembled by `skf-create-stack-skill` and a stack manifest (e.g., `integration_patterns` block in the stack skill's `bmad-skill-manifest.yaml` or `metadata.json`) is present in the inventory, use that as the authoritative integration source and cite `source: stack manifest` in each verdict. Fall back to prose co-mention only when no manifest is available, and cite `source: prose co-mention`.
-
 ### 4. Cross-Reference Each Integration Pair
 
 For each integration pair `{library_a, library_b}`, run the four-check protocol and assign the per-pair verdict per `{integrationRulesData}` (loaded in §1): the Cross-Reference Protocol defines Check 1 (language boundary), Check 2 (protocol compatibility), Check 3 (type compatibility), and Check 4 (documentation cross-reference, required for `Verified`); the Verdict Definitions table and promotion rule define the `Verified` / `Plausible` / `Risky` / `Blocked` thresholds and the cap-at-`Plausible` rule that applies whenever Check 4 surfaces no literal citation. Do not restate those mechanics here.
 
-**Step-specific input for Check 2:** Check 2 draws only on the `protocols_inferred` / `data_formats_inferred` lists surfaced by the §3 subagent prose scan — these are NOT declared metadata fields. A shared or complementary token (e.g., "HTTP client" ↔ "HTTP server") reads as inferred compatibility; no token on either side, or conflicting tokens with no adapter, flags a risk. Because this evidence is prose-inferred, any pair whose compatibility rests on it MUST cap at `Plausible`.
+**Step-specific input for Check 2:** Check 2 draws only on the `protocols_inferred` / `data_formats_inferred` lists surfaced by the §3 subagent prose scan. A shared or complementary token (e.g., "HTTP client" ↔ "HTTP server") reads as inferred compatibility; no token on either side, or conflicting tokens with no adapter, flags a risk. Any pair whose compatibility rests on this inferred evidence caps at `Plausible` per §3.
 
 **Each verdict MUST include:**
 - Which checks passed and which flagged
 - Evidence citations: specific exports, types, or literal substrings from the skills
-- `source: stack manifest` or `source: prose co-mention` tag (per section 3)
+- `source: stack manifest` or `source: prose co-mention` tag (per section 2)
 - For `Verified`: the exact Check 4 literal citation (e.g., `"see also: {lib_b}"` quoted from Skill A's SKILL.md, line N)
 - **Tier annotation:** For each contributing skill, append `(evidence from Tier {n} skill)` citing that skill's `confidence_tier` (e.g., `(evidence from Tier 1 skill)`). This lets reviewers weigh evidence strength by extraction confidence.
 

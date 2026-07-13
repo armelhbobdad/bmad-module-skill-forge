@@ -53,13 +53,10 @@ Audit-skill detects drift on files that were in scope during create-skill. The a
 
 **If a provenance map was loaded in step 1** (normal mode):
 
-1. Extract the unique set of file paths from the provenance map:
-   - `entries[].source_file` (one path per extracted export)
-   - `file_entries[].source_file` (one path per tracked script/asset, when present)
-2. Deduplicate the combined list. This is the **bounded scan list**.
-3. Verify each path under `{source_root}`. Files that existed at creation time but are now missing are **not** errors at this stage — keep them in the list so step 3 can classify them as DELETED. Handling missing files is step 3's job, not step 2's.
-4. Record `bounded_scan: true` and `bounded_scan_source: "provenance-map"` in context for the evidence report.
-5. Report:
+1. The **bounded scan list** is `{bounded_scan_files}` — the union of `entries[].source_file` and `file_entries[].source_file`, deduplicated, sorted, and forward-slash normalized by init.md §4's `skf-load-provenance.py normalize` call. Consume it directly; do **not** re-walk the provenance map to rebuild it. The union/dedup/sort has one correct answer per map and is already scripted — re-deriving it in-prompt risks diverging from step 3, which diffs against the same normalized projection.
+2. Verify each path under `{source_root}`. Files that existed at creation time but are now missing are **not** errors at this stage — keep them in the list so step 3 can classify them as DELETED. Handling missing files is step 3's job, not step 2's.
+3. Record `bounded_scan: true` and `bounded_scan_source: "provenance-map"` in context for the evidence report.
+4. Report:
 
    "**Bounded scan:** {count} files from provenance map ({provenance_date})."
 

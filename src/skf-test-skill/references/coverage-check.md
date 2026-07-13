@@ -4,6 +4,7 @@ outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
 scoringRulesFile: '{scoringRulesPath}'
 sourceAccessProtocol: 'references/source-access-protocol.md'
 reconcileScript: 'scripts/reconcile-coverage.py'
+coherenceScript: 'scripts/check-metadata-coherence.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -65,6 +66,8 @@ Delegate reading of the skill under test to a subagent. The subagent receives th
 ```
 
 **Parent uses this JSON summary as the documented inventory.** Do not load SKILL.md or references file contents into parent context.
+
+**If subagent delegation is unavailable:** the parent performs the read itself in the main thread — read SKILL.md (and, per step 2 above, all `references/*.md` when a `references/` directory exists and SKILL.md's `## Full` headings are absent or stubs) and assemble the same compact JSON inventory. The §1a schema validation and ground-truth spot-check still run on the parent-built inventory — a quality gate does not skip its own hallucination guards just because the extraction ran in-thread. This mirrors the §2 fallback ("perform ast-grep analysis in main thread") so §1 degrades gracefully instead of stalling.
 
 #### 1a. Parent-Side Schema Validation + Spot-Check
 
@@ -271,14 +274,7 @@ Load `{scoringRulesFile}` to determine category scores:
 - **Signature Accuracy:** (matching_signatures / total_documented) * 100 (Forge/Deep only, "N/A" for Quick)
 - **Type Coverage:** (documented_types / total_types) * 100 (Forge/Deep only, "N/A" for Quick)
 
-**Stratified-scope denominator (monorepo curated subsets):** Before computing Export Coverage, check whether the Source Access Protocol's stratified-scope clause applies to this skill (see `{sourceAccessProtocol}` §Source API Surface Definition — "Stratified-scope monorepo packages"). When it applies:
-
-1. **Prefer `metadata.json.stats.effective_denominator`** when present. Use it directly as `total_exports` — but apply the **denominator deflation guard** from `{sourceAccessProtocol}` stratified-scope resolution step 1: when source is readable, re-derive the source barrel and, if it exceeds `effective_denominator` by >25% with no `scope.tier_a_include`, treat the stored value as deflated, use the re-derived count, and emit the `denominator deflation` gap.
-2. **Otherwise re-derive at test time** from the brief's scope globs per the protocol. When the brief supplies `scope.tier_a_include`, re-derive from that narrower list (excluding umbrella barrel files per the protocol's umbrella-barrel note); otherwise re-derive from `scope.include`. Use the resulting union count as `total_exports`.
-3. **Run the denominator inflation check** defined in `{sourceAccessProtocol}` stratified-scope resolution step 3 whenever re-derivation fell back to `scope.include`. If the `scope.include` union exceeds the provenance-map entry count by more than 25%, emit the Medium-severity `denominator inflation — coarse scope.include union exceeds authored surface` gap and append it to the Coverage Analysis gap list.
-4. **Apply provenance-map canonicalization** before intersecting documented exports against the raw provenance-map entry list — see `{sourceAccessProtocol}` §Source API Surface Definition → "Provenance-map canonicalization" for the folding rules (`_def`/`_exact` suffix, `a11y_` prefix, renderer-prefix disambiguation). Skip folding when `metadata.json.stats.effective_denominator` is present and already equals the raw provenance-map entry count. Record the fold summary in the Coverage Analysis section so it's auditable.
-
-Record the denominator source in the Coverage Analysis section as `Denominator: stratified ({effective_denominator | tier_a_include union | scope.include union}, {N} files matched)`. When stratified scope does not apply, use the standard barrel-based denominator and omit the stratified annotation.
+**Resolve the coverage denominator per `{sourceAccessProtocol}` (already loaded in §0b) — do not re-derive its ladders here.** Determine which §Source API Surface Definition clause matches this skill and apply that clause exactly as written: **stratified-scope** (monorepo curated subset), **multi-entry (exports-map)**, **specific-modules**, **pattern-reference**, or the **State 2** provenance-vs-metadata cross-reference (union on divergence). Each clause fixes its own resolution priority (prefer `metadata.json.stats.effective_denominator` → `scope.tier_a_include` → `scope.include` / subpath union), its deflation and inflation guards, the umbrella-barrel exclusion, and provenance-map canonicalization (including the fold summary the canonicalization records). Use the clause's resolved value as `total_exports`; when no clause matches, use the standard barrel-based denominator. Record the denominator source in the Coverage Analysis section using the exact `Denominator: {barrel | stratified (…) | multi-entry (…) | specific-modules (…) | pattern-reference (…)}` annotation string the matching clause specifies.
 
 **Record the two non-chosen candidate values alongside the chosen one.**
 Stratified-scope resolution picks ONE of three denominator candidates
@@ -299,17 +295,9 @@ as-observed (or `absent` when the candidate was not present for this skill):
 
 Readers can then spot-check whether the chosen denominator is reasonable
 against the other two without re-running the extraction. A future reviewer who
-suspects denominator gaming has the evidence inline.
-
-**Multi-entry (exports-map) denominator (single-package multi-subpath libraries):** Before computing Export Coverage, check whether the Source Access Protocol's multi-entry clause applies to this skill (see `{sourceAccessProtocol}` §Source API Surface Definition — "Multi-entry (exports-map) packages"). It applies when the in-scope `package.json` declares an `exports` map with multiple non-root subpath entries, no monorepo markers — covering `scope.type: "full-library"` AND `scope.type: "public-api"` for such packages. When it applies:
-
-1. **Prefer `metadata.json.stats.effective_denominator`** when present. Use it directly as `total_exports` — subject to the same **denominator deflation guard** the stratified-scope branch applies.
-2. **Otherwise prefer `scope.tier_a_include`** (filtered by `scope.exclude`, excluding umbrella barrel files per the protocol's umbrella-barrel note) when the brief supplies it; **else** re-derive the **union of named exports across the files each NON-WILDCARD `exports` subpath resolves to** per the protocol (resolving committed `.d.ts` / `.d.mts` targets, applying the multi-line brace-accumulation and `export *` star-resolution rules, and excluding `"./*"` wildcard subpaths). Use the resulting count as `total_exports`. When the `exports` map has only a root `"."` entry or only wildcards, fall back to the standard root-barrel rule instead.
-3. **Report the root-barrel named-export count as a secondary candidate** in the Denominator Candidates block so the root-barrel-vs-subpath-union choice is auditable.
-
-Record the denominator source in the Coverage Analysis section as `Denominator: multi-entry ({effective_denominator | tier_a_include union | subpath union}, {N} subpaths resolved; root barrel: {R})`.
-
-**State 2 denominator validation:** When using provenance-map as the baseline (State 2), cross-reference the provenance-map entry count against `metadata.json`'s `exports[]` array before computing Export Coverage. If they diverge, use the union as the denominator per the source-access-protocol rules. Log the gap size if any. The stratified-scope rule above takes precedence when both conditions apply — compute the stratified denominator first, then validate the provenance-map entry count against it.
+suspects denominator gaming has the evidence inline. The `multi-entry` clause
+requires the root-barrel named-export count in the `root barrel` row so the
+root-barrel-vs-subpath-union choice is auditable.
 
 ### 4b. Metadata Export-Count Coherence Cross-Check
 
@@ -329,20 +317,36 @@ After the denominator has been resolved (standard, stratified, or State 2), cros
 **Cluster B — documented surface** (what was extracted and documented, including methods and submodule members):
 
 3. `metadata.json.stats.exports_documented` — the declared documented count
-4. Provenance-map **named-export count** (if `{forge_data_folder}/{skill_name}/provenance-map.json` exists) — count only top-level named exports: **exclude entries whose `export_name` contains `::`** (impl-block methods like `Type::method`, which roll up under an already-counted type and are not separate barrel exports). Comparing the raw entry count instead false-positives on any method-enumerating provenance map (common for Rust/TS type-heavy skills): e.g. a map with 88 named exports + 48 `Type::method` entries reports 136 against `exports_documented` ≈ 92 → a spurious ~32% Cluster-B drift, while the comparable named-export count (88) agrees within ~4%.
-5. `confidence_distribution` sum (`t1 + t1_low + t2 + t3`, when present in `metadata.json.stats`) — every extracted/documented export is binned into exactly one confidence tier, so the distribution must sum to the documented-surface total; a divergence (e.g., distribution sums to 91 while `exports_documented` is 85) is an internal-consistency defect even when the two clusters look fine
+4. Provenance-map **named-export count** (if `{forge_data_folder}/{skill_name}/provenance-map.json` exists) — pass the raw `export_name` values as `provenanceExportNames`; the script counts top-level named exports, **excluding entries whose `export_name` contains `::`** (impl-block methods like `Type::method`, which roll up under an already-counted type and are not separate barrel exports). Comparing the raw entry count instead false-positives on any method-enumerating provenance map (common for Rust/TS type-heavy skills): e.g. a map with 88 named exports + 48 `Type::method` entries reports 136 against `exports_documented` ≈ 92 → a spurious ~32% Cluster-B drift, while the comparable named-export count (88) agrees within ~4%.
+5. `confidence_distribution` (`t1`, `t1_low`, `t2`, `t3`, when present in `metadata.json.stats`) — pass the tiers as `confidenceDistribution`; the script sums them. Every extracted/documented export is binned into exactly one confidence tier, so the distribution must sum to the documented-surface total; a divergence (e.g., distribution sums to 91 while `exports_documented` is 85) is an internal-consistency defect even when the two clusters look fine
 
 Cluster assignment is canonical: `skf-create-skill` step 5 derives `exports_public_api` from entry-point validation and writes the `exports[]` array from the same barrel surface (see `skf-create-skill/references/compile.md:105`), while `exports_documented` tracks the broader documented surface that the provenance-map also enumerates.
 
-**Intra-cluster divergence (Medium):** For each cluster, if two or more counts are present and the largest and smallest disagree by more than 10% of the larger, emit a **Medium**-severity gap titled `metadata drift — {cluster} export counts diverge` (substitute `barrel` for Cluster A, `documented-surface` for Cluster B). Enumerate the offending counts in the gap body (e.g., `stats.exports_public_api=55, exports[].length=48` → 13% drift). This is the real drift signal — the two sources should mirror the same surface and they don't, so upstream extraction or compilation produced inconsistent output that a re-compile should reconcile. Classify under structural/metadata coherence regardless of naive/contextual mode.
+**Delegate the drift arithmetic to `uv run {coherenceScript}`.** The intra-cluster / cross-cluster `>10%` comparisons are deterministic count arithmetic — one correct answer per input — and eyeballing "13% drift → emit, 4% → skip" in-prompt is exactly what swings the finding set between runs; the script owns the binning, the divergence percentages, and every skip condition (a cluster with fewer than two present counts, and clusters that agree within the threshold, are skipped inside the script). Build the input from the counts collected above and run it (`{coherenceScript}` resolves relative to the skill root):
 
-**Cross-cluster divergence (Info):** After intra-cluster checks, if both clusters resolved to a representative count (pick the higher of each cluster's available counts) and the two cluster values differ by more than 10%, append a single **Info**-severity note titled `multi-denominator reporting — barrel vs documented surface` with both values (e.g., `barrel=55, documented=114`). This is expected for skills whose documented surface intentionally exceeds the barrel (methods, submodule members, re-exported classes) — it is not drift. The note exists so the test report makes the dual-denominator design visible and auditable without demanding action.
+```bash
+echo '<JSON>' | uv run {coherenceScript} --stdin
+```
 
-**When a cluster has only one count available:** Skip that cluster's intra-cluster check silently — there is nothing to cross-check within it.
+Input JSON (omit any count that is absent; `driftThresholdPct` defaults to `10`):
 
-**When both clusters agree within 10% of each other:** Skip the cross-cluster note silently — no multi-denominator reporting is in play.
+```json
+{
+  "skillType": "{metadata.json.skill_type or null}",
+  "scopeType": "{metadata.json.scope_type or null}",
+  "clusterA": {"exports_public_api": 0, "exports_length": 0},
+  "clusterB": {"exports_documented": 0},
+  "provenanceExportNames": [ /* raw provenance-map export_name values — the script excludes `::` impl-block methods and counts the rest */ ],
+  "confidenceDistribution": {"t1": 0, "t1_low": 0, "t2": 0, "t3": 0}
+}
+```
 
-**When only one count is available across both clusters:** Skip silently — there is nothing to cross-check.
+The script returns `{"skipped": bool, "clusterACounts": {...}, "clusterBCounts": {...}, "findings": [...]}`. Read `findings[]` and append each entry directly — **do not re-derive the percentages by hand.** Each entry carries `severity`, `title`, `detail` (the enumerated counts + drift %), and `category: structural/metadata coherence`:
+
+- A **Medium** `metadata drift — {barrel|documented-surface} export counts diverge` is the real drift signal — the two sources should mirror the same surface and they don't, so upstream extraction or compilation produced inconsistent output that a re-compile should reconcile. It is classified under structural/metadata coherence regardless of naive/contextual mode.
+- An **Info** `multi-denominator reporting — barrel vs documented surface` is expected for skills whose documented surface intentionally exceeds the barrel (methods, submodule members, re-exported classes) — it is not drift. The note exists so the test report makes the dual-denominator design visible and auditable without demanding action.
+
+(The stack and reference-app branches above already skip this delegation; the script also returns `skipped: true` when passed their `skillType` / `scopeType`, so an unconditional call stays safe.)
 
 **Numerator ground-truth — force a full grep on the inflation signature:** The intra/cross-cluster checks above only compare *counts*; they cannot tell whether the declared documented exports actually appear in the skill. When `metadata.json.stats.exports_documented == effective_denominator` exactly (the numerator equals the denominator — the signature of a numerator inflated to match the full surface), do **not** trust the documented count. Grep every declared export name (the full `metadata.exports[]` / provenance-map declared set — not the §1a 3-sample) against `SKILL.md ∪ references/*.md`. The count of declared names that actually appear is the **verified numerator**:
 

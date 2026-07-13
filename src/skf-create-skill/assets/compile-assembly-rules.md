@@ -330,32 +330,11 @@ When the gate fires, the assembler has a `language_guide[]` artifact from step 3
 
 ### Content Quality Rules
 
-These rules apply to all content assembled in SKILL.md and reference files.
+These SKF-specific rules apply to all content assembled in SKILL.md and reference files. Generic authoring craft — matching instruction freedom to task fragility, consistent terminology, avoiding time-sensitive instructions, progress checklists for multi-step workflows, and the plan-validate-execute pattern for batch/destructive operations — is assumed and not re-taught here. Only the two rules below encode a non-obvious SKF constraint or downstream-validator quirk that an author would not otherwise infer.
 
-**Degrees of freedom:** Match instruction specificity to the task's fragility and variability:
-- **High freedom** (text guidance): When multiple approaches are valid and context determines the best one. Example: code review patterns, architecture suggestions.
-- **Medium freedom** (pseudocode/parameterized scripts): When a preferred pattern exists but variation is acceptable. Example: configuration templates, report generation.
-- **Low freedom** (exact scripts, no parameters): When operations are fragile and consistency is critical. Example: database migrations, deployment sequences. Use "Run exactly this" language.
-
-**Consistent terminology:** Choose one term per concept and use it throughout the skill. Do not mix synonyms (e.g., "API endpoint" vs "URL" vs "route", or "field" vs "box" vs "element"). Consistency helps agents understand and follow instructions deterministically.
-
-**Avoid time-sensitive information:** Do not include date-conditional instructions ("If before August 2025, use the old API"). Instead, document the current method and place deprecated patterns in a collapsible "Old patterns" section with the deprecation date.
-
-**Template and examples patterns:**
-- **For strict requirements** (API responses, data formats): Provide an exact template with "ALWAYS use this exact structure" language.
-- **For flexible guidance** (reports, analysis): Provide a sensible default template with "Adjust sections as needed" language.
-- **Input/output examples:** When output quality depends on seeing examples and concrete pairs exist in source tests or official docs, include 2-3 input/output pairs sourced from those tests or docs. Examples help agents understand desired style and detail more clearly than descriptions alone. If no examples exist in source, note the gap rather than fabricating pairs — zero hallucination applies.
+**Zero-hallucination examples:** Include input/output or usage examples ONLY when concrete pairs exist in source tests or official docs — 2-3 such pairs convey the desired style and detail more clearly than a description alone. If no examples exist in source, note the gap rather than fabricating pairs — zero hallucination applies.
 
 **Generic-plus-signature code spans:** When documenting a generic class constructor or factory signature, do NOT place the generic brackets and the parameter list inside a single inline code span. `skill-check`'s `links.local_markdown_resolves` validator parses `` `ClassName[T](key: str)` `` as a broken markdown link (`[T]` becomes the link text, `(key: str)` becomes the URL) and emits a `broken local link` warning on the Links axis, regardless of the surrounding backticks. This applies to Tier 1 Key Types, Tier 2 Full API Reference, and reference files. Safe alternatives:
 - Split into two code spans: `` `ClassName[T]` — dataclass with fields `(key: str, value: int)` ``
 - Drop the explicit constructor and describe fields in prose: `` `ClassName[T]` — generic container parameterized by `T`, with field `key: str` ``
 - Use the curly-brace substitution used for frontmatter: `` `ClassName{T}(key: str)` `` (readable, avoids both markdown-link and angle-bracket parsing)
-
-**Workflow checklist pattern:** When a skill includes multi-step workflows, provide a copy-paste checklist that agents can track progress against:
-```markdown
-Copy this checklist and track your progress:
-- [ ] Step 1: {action}
-- [ ] Step 2: {action}
-```
-
-**Verifiable intermediate outputs:** For skills involving batch operations, destructive changes, or complex validation, recommend the plan-validate-execute pattern: create a structured plan file (e.g., `changes.json`), validate it with a script, then execute. This catches errors before changes are applied.

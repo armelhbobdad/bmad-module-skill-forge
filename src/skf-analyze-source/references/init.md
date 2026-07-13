@@ -198,7 +198,3 @@ Display: "**Proceeding to project scan...**"
 - This is an auto-proceed initialization step with no user choices at this point
 - Proceed directly to next step after setup
 
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the output report has been created with populated frontmatter (project_paths, forge_tier, existing_skills) will you load and read fully {nextStepFile} to execute and begin the project scan.
-

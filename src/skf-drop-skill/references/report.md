@@ -71,7 +71,15 @@ These require manual review — see the error-handling guidance in step 2.
 
 ### Result Contract
 
-Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/drop-skill-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{skills_output_folder}/drop-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all purged file paths in `outputs`; include `target_skill`, `drop_mode`, and `versions_affected` in `summary`.
+Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/drop-skill-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{skills_output_folder}/drop-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all purged file paths in `outputs`; include `target_skill`, `drop_mode`, `versions_affected`, and a `headless_provenance` object in `summary`.
+
+`headless_provenance` persists the §8/§10 decision trail from step 1 so an unattended run's auto-decisions survive in the durable record, not only in the transient log — a consumer can tell an operator-confirmed drop from a headless auto-confirmed one without re-deriving it:
+
+```json
+"headless_provenance": {"headless": {headless_mode}, "mode_source": "{mode_source}", "confirm": "{confirm_source}"}
+```
+
+where `{headless_mode}` is the resolved boolean, `{mode_source}` is the step-1 §8 value (`"--mode argument"` / `"customize.toml.workflow.default_mode"` / `"interactive-prompt"` / `"draft-skill-forced-purge"`), and `{confirm_source}` is the step-1 §10 value (`"headless-auto"` / `"user-explicit"`).
 
 Set the record's `status` from step 2's `purge_status`: `"partial"` when some (but not all) purge-mode directories failed to delete — surface the failing paths from `delete_failures` in `summary.delete_failures` — otherwise `"success"`. A *full* purge failure never reaches this step: step 2 §4 HALTs with `halt_reason: "delete-failed"` and the error-envelope path below handles it.
 
@@ -95,9 +103,5 @@ where `{result_json_path}` is the per-run record written above (`{skills_output_
 
 ### 3. Chain to Health Check
 
-ONLY WHEN the report has been rendered and the result contract saved will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the report reads as final.
-
-## CRITICAL STEP COMPLETION NOTE
-
-After the health-check step (`{nextStepFile}`) completes, do not automatically re-run any earlier step — a fresh drop means the user re-invokes the workflow from the top.
+ONLY WHEN the report has been rendered and the result contract saved will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the report reads as final, and do not re-run any earlier step after it completes (a fresh drop means re-invoking the workflow from the top).
 

@@ -113,6 +113,8 @@ Append a `## Refinement Summary` section containing:
 
 Write the complete refined architecture to `{outputFile}`.
 
+On any write failure (read-only mount, disk full, permissions denied): HALT (exit code 4, `halt_reason: "write-failed"`) with the captured error. In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with `refined_path: null`. The On-Activation §5 write probe should have caught an unwritable output folder earlier — if it surfaces here, the filesystem state changed mid-workflow.
+
 ### 7. Present Compiled Document for Review
 
 "**Refined architecture compiled. Please review:**

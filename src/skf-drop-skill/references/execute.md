@@ -241,9 +241,5 @@ Store the following for step 3:
 
 ### 7. Load Next Step
 
-Load, read the full file, and then execute `{nextStepFile}`.
-
-## CRITICAL STEP COMPLETION NOTE
-
-The report in `{nextStepFile}` renders from the results stored in §6. Chain to it only after every execution stage has been attempted (manifest update, context rebuild, file deletion in purge mode, verification) and its outcome stored — chaining early renders a partial or stale report.
+The report in `{nextStepFile}` renders from the results stored in §6, so chain to it only after every execution stage above has been attempted and its outcome stored. Load, read the full file, and then execute it.
 
