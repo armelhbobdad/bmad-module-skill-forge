@@ -1,7 +1,7 @@
 ---
 nextStepFile: 'step-doc-drift.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
-severityRulesFile: 'references/severity-rules.md'
+severityRulesFile: '{severityRulesPath}'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -29,12 +29,6 @@ Launch a subprocess (Pattern 3 — data operations) that:
 
 **If subprocess unavailable:** Load {severityRulesFile} directly in main thread.
 
-**Rules summary:**
-- **CRITICAL:** Removed/renamed exports, changed signatures (breaking changes)
-- **HIGH:** New public API not in skill (>3), removed helpers used in patterns, deprecated APIs
-- **MEDIUM:** Implementation changes behind stable API, 1-3 new exports, moved functions
-- **LOW:** Style/convention changes, comments, whitespace, internal functions
-
 ### 2. Collect All Findings
 
 Gather all drift items from the report:
@@ -54,34 +48,11 @@ Count total findings to classify.
 
 ### 3. Apply Severity Classification
 
-For EACH finding, apply the severity rules:
-
-**Structural findings classification:**
-- Removed export → CRITICAL (breaking: skill references something that no longer exists)
-- Changed signature → CRITICAL (breaking: skill documents wrong parameters/return type)
-- Renamed export → CRITICAL (breaking: skill references old name)
-- Moved export (same signature) → MEDIUM (non-breaking but location in skill is wrong)
-- Added export (>3 total) → HIGH (significant API surface not documented)
-- Added export (1-3 total) → MEDIUM (minor gap in coverage)
-
-**Semantic findings classification:**
-- Deprecated pattern still in skill → HIGH (skill teaches outdated approach)
-- Changed convention → MEDIUM (skill may use old style)
-- New pattern detected → MEDIUM (skill doesn't cover new approach)
-- Dependency shift → MEDIUM (skill may reference wrong dependencies)
-
-Record for each finding: original finding + assigned severity level.
+For EACH finding collected in §2 (structural, and — in Deep tier — semantic), assign a severity level (CRITICAL/HIGH/MEDIUM/LOW) by matching it against the criteria in the loaded {severityRulesFile}. Record for each finding: the original finding plus its assigned severity level.
 
 ### 4. Calculate Overall Drift Score
 
-Apply scoring rules from {severityRulesFile}:
-
-| Score | Criteria |
-|-------|----------|
-| **CLEAN** | 0 findings at any level |
-| **MINOR** | LOW findings only, no MEDIUM+ |
-| **SIGNIFICANT** | Any MEDIUM or HIGH findings, no CRITICAL |
-| **CRITICAL** | Any CRITICAL findings present |
+Apply the Overall Drift Score criteria from {severityRulesFile} to the classified findings to derive the single overall score (CLEAN / MINOR / SIGNIFICANT / CRITICAL).
 
 ### 5. Compile Severity Classification Section
 
@@ -141,20 +112,5 @@ Update {outputFile} frontmatter:
 - Append `'severity-classify'` to `stepsCompleted`
 - Set `drift_score` to calculated overall score
 
-### 7. Present MENU OPTIONS
-
-Display: "**Severity classification complete. Overall drift score: {score}. Proceeding to report generation...**"
-
-#### Menu Handling Logic:
-
-- After severity classification section is appended and frontmatter updated, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed analysis step with no user choices
-- Proceed directly to next step after completion
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the ## Severity Classification section has been appended to {outputFile} with all findings classified will you then load and read fully `{nextStepFile}` to execute and begin final report generation.
+This is an auto-proceed step with no user choice: once the ## Severity Classification section has been appended with all findings classified, load, read fully, and execute `{nextStepFile}` (report generation).
 

@@ -19,12 +19,12 @@ Merge freshly extracted export data into the existing SKILL.md content while pre
 - Write merged SKILL.md (and stack reference files) directly to disk at section 6b — Claude Code's Edit/Write tools commit on call, so there is no held-in-memory "edit plan" primitive; subsequent steps validate and verify against the on-disk files
 - If [MANUAL] conflicts detected: halt and present to user. If clean merge: auto-proceed
 
-## MANDATORY SEQUENCE
+## Steps
 
 ### 1. Load Merge Rules
 
 Load {manualSectionRulesFile} for [MANUAL] detection and preservation patterns.
-Load {mergeConflictRulesFile} for change category merge strategies and priority order.
+Load {mergeConflictRulesFile} for the conflict-resolution strategy table and inert stack-skill merge rules (the change-category actions and priority order live in §3 below).
 
 ### 2. Extract [MANUAL] Blocks
 
@@ -35,7 +35,7 @@ From the [MANUAL] inventory captured in step 01:
 
 ### 3. Apply Merge by Priority Order
 
-Follow the merge priority order from {mergeConflictRulesFile}:
+Apply merge in the following priority order:
 
 **Priority 1 — Process DELETED exports:**
 - Remove generated content for deleted exports
@@ -146,19 +146,9 @@ Select: [K] Keep / [R] Remove / [E] Edit"
 
 Process each conflict with user's decision.
 
-### 5. Stack Skill Merge (Conditional)
+### 5. Stack Skill Merge (Conditional) — inert
 
-**ONLY if skill_type == "stack":**
-
-Apply the same merge process to each stack output file:
-- `references/{library}.md` — merge per-library changes, preserve [MANUAL] blocks
-- `references/integrations/{pair}.md` — merge per-integration-pair
-- `metadata.json` — regenerate completely (no [MANUAL] support)
-- `context-snippet.md` — regenerate completely (no [MANUAL] support)
-
-Report stack file merge status for each file.
-
-**If skill_type != "stack":** Skip with notice: "Individual skill — single file merge."
+init.md §2's Stack Skill Guard redirects every stack to `skf-create-stack-skill` before step 2, so `skill_type` is never `"stack"` here. The per-file stack merge scaffolding (per-`references/{library}.md` and per-integration merges, full `metadata.json`/`context-snippet.md` regeneration, written by §6b) is recoverable from git history if that guard is ever relaxed. For a single skill this step is a no-op — continue to §6.
 
 ### 6. Compile Merge Results
 
@@ -224,9 +214,9 @@ Display: "**Merge complete with conflict resolution. Select:** [C] Continue to V
 - IF C: Load, read entire file, then execute {nextStepFile}
 - IF Any other: help user respond, then [Redisplay Menu Options](#8-present-menu-options)
 
-#### EXECUTION RULES:
+#### Gate rules:
 
-- ALWAYS halt and wait for user input after conflict resolution
+- Halt and wait for user input after conflict resolution
 - **GATE [default: C if clean merge]** — If `{headless_mode}` and merge is clean (no [MANUAL] conflicts): auto-proceed with [C] Continue, log: "headless: clean merge, auto-continue". **Also append to in-context `headless_decisions[]`** (surfaced via `SKF_UPDATE_RESULT_JSON` by step 7): `{gate: "merge.clean-merge-gate", default_action: "C", taken_action: "C", reason: "headless: clean merge, no conflicts to resolve"}`. If conflicts exist, HALT even in headless mode — conflicts require human judgment, and the headless_decisions[] array does NOT get a continue-on-conflict entry (the workflow status becomes `halted-for-manual-mismatch` instead).
 - ONLY proceed when user selects 'C'
 
@@ -238,11 +228,7 @@ Display: "**Clean merge — proceeding to validation...**"
 
 - Immediately load, read entire file, then execute {nextStepFile}
 
-#### Clean Merge EXECUTION RULES:
+#### Clean Merge routing:
 
 - This is an auto-proceed path when no conflicts exist
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN all merge operations are complete and any [MANUAL] conflicts have been resolved by the user will you load {nextStepFile} to begin validation.
 

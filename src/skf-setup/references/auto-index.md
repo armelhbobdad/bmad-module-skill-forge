@@ -45,7 +45,7 @@ Default `{orphan_auto_resolution}` to null at the top of this step; only the non
 
 **If `{calculated_tier}` is Forge+:** Same as Quick/Forge with ccc — no QMD work (qmd unavailable at Forge+), but ccc registry hygiene runs.
 
-**If `{calculated_tier}` IS Deep:** Continue to section 2.
+**If `{calculated_tier}` is Deep:** Continue to section 2.
 
 ### 2. Classify Live QMD Collections vs Registry
 
@@ -99,7 +99,7 @@ Track the count of successful removals as `{hygiene_orphaned_removed}`. Set `{hy
 
 ### 4. Stale Registry Cleanup
 
-This section ALWAYS runs when reachable — it handles both `qmd_collections` stale entries (Deep tier) and `ccc_index_registry` stale entries (whenever ccc is true). The script's flags are mutually independent.
+This section runs whenever reachable — it handles both `qmd_collections` stale entries (Deep tier) and `ccc_index_registry` stale entries (whenever ccc is true). The script's flags are mutually independent.
 
 Build the invocation. Always include `--target` for the forge-tier.yaml path. Include `--qmd-live-names "{live_collections}"` ONLY when section 2 ran successfully (i.e. `{hygiene_result}` is `"completed"`); omit the flag entirely otherwise so the script skips QMD cleanup. Include `--prune-missing-ccc-paths` ONLY when `{ccc}` is true; omit it otherwise.
 

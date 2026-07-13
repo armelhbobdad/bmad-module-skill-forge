@@ -1,6 +1,15 @@
 ---
 nextStepFile: 'detect-changes.md'
 manualSectionRulesFile: 'references/manual-section-rules.md'
+# Resolve `{hashContentHelper}` to the first existing path; HALT if neither
+# candidate exists. §5 uses its `manual-inventory` subcommand to capture the
+# exact pre-write [MANUAL] inventory (per-block byte-exact interior hashes),
+# which write.md §1 (HALT gate) and validate.md Check B later verify against.
+# Falling back to an LLM marker-count would re-introduce the blind spot where
+# an interior truncation with an unchanged marker count passes silently.
+hashContentProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
+  - '{project-root}/src/shared/scripts/skf-hash-content.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -16,7 +25,7 @@ Load the existing skill and all its provenance data, detect whether this is an i
 - Focus only on loading existing artifacts and establishing the baseline — read-only operations
 - Do not begin change detection (Step 02)
 
-## MANDATORY SEQUENCE
+## Steps
 
 ### 1. Request Skill Path
 
@@ -126,6 +135,8 @@ After loading metadata.json, check `skill_type`:
   If you came here from an audit report, the drift report identifies which constituent libraries changed — use that to decide whether re-composition is needed."
 - Exit the workflow (do not proceed to step 2)
 
+**This guard is the single gate for stack skills** — every stack is redirected to `skf-create-stack-skill` here, before step 2, and no flag (`--detect-only`, `--dry-run`, `--from-test-report`, `--allow-workspace-drift`) bypasses it. The `skill_type == "stack"` branches in later stages (§5 below, `merge.md` §5, `validate.md` §4, `write.md` §5, and `merge-conflict-rules.md`'s "Stack Skill Merge Rules") are therefore **inert under the current guard**: they are retained as latent multi-file-merge scaffolding that executes only if this guard is deliberately relaxed. Treat them as unreachable today, not as a live path.
+
 ### 3. Load Forge Tier Configuration
 
 **Load `{sidecar_path}/forge-tier.yaml`:**
@@ -162,16 +173,18 @@ Select: [D] Degraded / [X] Abort"
 
 ### 5. Load [MANUAL] Section Inventory
 
-Load {manualSectionRulesFile} to understand [MANUAL] detection patterns.
+Load {manualSectionRulesFile} to understand [MANUAL] detection patterns (the human-readable rules for markers, parent-section mapping, and orphan/nesting handling).
 
-**Scan SKILL.md for [MANUAL] sections:**
-- Count all `<!-- [MANUAL:*] -->` markers
-- Map each [MANUAL] block to its parent section (by heading hierarchy)
-- Record section names and approximate line positions
+**Capture the [MANUAL] inventory deterministically.** The workflow's headline rule is "[MANUAL] sections survive regeneration with zero content loss" — the pre-write inventory captured here is the exact baseline that write.md §1 and validate.md Check B verify against, so it must be a per-block byte-exact hash, not an eyeballed marker count. Run the `manual-inventory` subcommand of `{hashContentHelper}` and persist its JSON:
 
-**For stack skills, also scan:**
-- All `references/*.md` files for [MANUAL] markers
-- All `references/integrations/*.md` files for [MANUAL] markers
+```bash
+uv run {hashContentHelper} manual-inventory {resolved_skill_package}/SKILL.md \
+    > {forge_version}/.manual-inventory.json
+```
+
+The emitted JSON is `{"blocks":[{name, content_hash, byte_offset, parent_heading}...], "count":N}` — each `content_hash` covers the block's byte-exact interior, so a later interior truncation that leaves the marker count unchanged is still caught. Bind the persisted path as `{manual_inventory}` in context; write.md §1 and validate.md Check B pass it to `manual-verify`. Surface the block `count` in the baseline summary (§7 `{manual_count}`).
+
+**For stack skills** (only reachable if the Stack Skill Guard above is relaxed — stacks are otherwise redirected to create-stack-skill before this step): run `manual-inventory` once per `references/*.md` and `references/integrations/*.md` file, persisting each under `{forge_version}/.manual-inventory-refs/` keyed by the reference path. write.md §5 and validate.md §4 verify each file against its captured per-file inventory.
 
 ### 6. Resolve Source Code Path
 
@@ -219,13 +232,9 @@ Display: "**Select:** [C] Continue to Change Detection"
 - IF C: Load, read entire file, then execute {nextStepFile}
 - IF Any other: help user respond, then [Redisplay Menu Options](#8-present-menu-options)
 
-#### EXECUTION RULES:
+#### Gate rules:
 
-- ALWAYS halt and wait for user input after presenting menu
+- Halt and wait for user input after presenting the menu — this is a confirmation gate, not an auto-proceed step
 - **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past update confirmation". **Also append to in-context `headless_decisions[]`** (step 7 surfaces this list in `SKF_UPDATE_RESULT_JSON`): `{gate: "init.update-confirmation", default_action: "C", taken_action: "C", reason: "headless: no user to prompt"}`. The headless_decisions[] array is the structured audit trail for non-interactive runs — see `src/shared/scripts/schemas/skf-update-result-envelope.v1.json` for the entry shape.
 - ONLY proceed to next step when user selects 'C'
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN [C] is selected and baseline has been established with all required artifacts loaded, will you then load and read fully `{nextStepFile}` to execute change detection.
 

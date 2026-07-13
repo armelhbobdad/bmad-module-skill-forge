@@ -39,7 +39,7 @@ Write the detected tool availability and calculated tier to `forge-tier.yaml` (p
 
 Build the JSON payload from context flags set by step 1 and step 1b. The payload must include `tools`, `tier`, and `ccc_index`; the script handles `tier_detected_at` defaulting to "now" if absent and preserves `qmd_collections`, `ccc_index_registry`, and a user-customized `ccc_index.staleness_threshold_hours` from any existing file.
 
-Invoke via `uv run` so the script's PEP 723 PyYAML dependency resolves automatically (this is what `docs/getting-started.md`'s uv prereq exists for). Bare `python3` would fail on a fresh interpreter with `ModuleNotFoundError`.
+Invoke via `uv run`.
 
 ```bash
 echo '{

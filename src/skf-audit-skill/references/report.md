@@ -34,24 +34,7 @@ Update the ## Audit Summary section at the top of {outputFile} with final calcul
 
 ### 2. Generate Remediation Suggestions
 
-For EACH classified drift finding, generate a specific remediation suggestion:
-
-**CRITICAL findings remediation:**
-- Removed export → "Remove reference to `{export_name}` from SKILL.md section {section}. Export no longer exists at `{file}:{line}`."
-- Changed signature → "Update `{export_name}` signature in SKILL.md from `{old_signature}` to `{new_signature}`. See `{file}:{line}`."
-- Renamed export → "Replace `{old_name}` with `{new_name}` throughout SKILL.md. Renamed at `{file}:{line}`."
-
-**HIGH findings remediation:**
-- New public API (>3) → "Add documentation for {count} new exports to SKILL.md: {export_list}. Consider running update-skill workflow."
-- Deprecated API → "Mark `{export_name}` as deprecated in SKILL.md. Current replacement: `{replacement}` at `{file}:{line}`."
-
-**MEDIUM findings remediation:**
-- Moved function → "Update file reference for `{export_name}` from `{old_file}` to `{new_file}:{line}`."
-- New exports (1-3) → "Consider adding `{export_names}` to SKILL.md for completeness."
-- Changed convention → "Review convention documentation in SKILL.md for currency."
-
-**LOW findings remediation:**
-- Style changes → "Optional: Update style references in SKILL.md to reflect current conventions."
+For each classified drift finding, write one concrete remediation derived from the finding itself: **what** to change in the audited **SKILL.md** (or its `references/`) — not the source code — **where** (the section plus the source `{file}:{line}` the finding cites), and **why**. Set effort (`low`/`medium`/`high`) by how much of the skill doc the change touches. A reviewer should be able to act on each row without re-deriving the finding.
 
 Append to {outputFile}:
 

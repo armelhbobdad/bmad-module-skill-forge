@@ -422,3 +422,73 @@ class TestManifestOps:
         for skill_name, entry in result["manifest"]["exports"].items():
             active = [v for v, e in entry["versions"].items() if e["status"] == "active"]
             assert len(active) == 1, f"{skill_name} has {len(active)} active versions: {active}"
+
+
+class TestVersionSortKey:
+    """Semver-descending ordering used by affected-versions."""
+
+    def test_numeric_not_lexical(self):
+        vs = ["0.9.0", "0.10.0", "0.1.0"]
+        ordered = sorted(vs, key=mod._version_sort_key, reverse=True)
+        assert ordered == ["0.10.0", "0.9.0", "0.1.0"]
+
+    def test_release_outranks_prerelease(self):
+        vs = ["1.0.0-rc1", "1.0.0"]
+        ordered = sorted(vs, key=mod._version_sort_key, reverse=True)
+        assert ordered == ["1.0.0", "1.0.0-rc1"]
+
+
+class TestAffectedVersions:
+    """Union of manifest version keys + on-disk version dirs, deduped + sorted."""
+
+    def test_union_manifest_and_on_disk(self, tmp_path):
+        manifest_path = tmp_path / ".export-manifest.json"
+        # Manifest knows 2.0.0 and 2.1.0 for cocoindex.
+        mod.cmd_set(manifest_path, "cocoindex", "2.0.0")
+        mod.cmd_set(manifest_path, "cocoindex", "2.1.0")
+        # On disk there is an extra orphaned version dir + the active symlink.
+        skill_dir = tmp_path / "cocoindex"
+        (skill_dir / "2.1.0").mkdir(parents=True)
+        (skill_dir / "0.10.0").mkdir(parents=True)  # orphan, not in manifest
+        (skill_dir / "0.9.0").mkdir(parents=True)
+        try:
+            (skill_dir / "active").symlink_to("2.1.0")
+        except OSError:
+            pass  # symlink unsupported; test still valid without it
+
+        r = mod.cmd_affected_versions(manifest_path, tmp_path, "cocoindex")
+        assert r["status"] == "ok"
+        # Deduped union, semver-descending, `active` excluded.
+        assert r["affected_versions"] == ["2.1.0", "2.0.0", "0.10.0", "0.9.0"]
+        assert r["count"] == 4
+        assert "active" not in r["affected_versions"]
+        assert set(r["sources"]["manifest"]) == {"2.0.0", "2.1.0"}
+        assert set(r["sources"]["on_disk"]) == {"2.1.0", "0.10.0", "0.9.0"}
+
+    def test_on_disk_only_no_manifest_entry(self, tmp_path):
+        manifest_path = tmp_path / ".export-manifest.json"
+        skill_dir = tmp_path / "legacy-helper"
+        (skill_dir / "1.0.0").mkdir(parents=True)
+        r = mod.cmd_affected_versions(manifest_path, tmp_path, "legacy-helper")
+        assert r["status"] == "ok"
+        assert r["affected_versions"] == ["1.0.0"]
+
+    def test_empty_when_nothing_found(self, tmp_path):
+        manifest_path = tmp_path / ".export-manifest.json"
+        r = mod.cmd_affected_versions(manifest_path, tmp_path, "ghost")
+        assert r["status"] == "ok"
+        assert r["affected_versions"] == []
+        assert r["count"] == 0
+
+    def test_cli_affected_versions(self, tmp_path):
+        skill_dir = tmp_path / "cocoindex"
+        (skill_dir / "2.0.0").mkdir(parents=True)
+        (skill_dir / "2.1.0").mkdir(parents=True)
+        script = Path(__file__).parent.parent / "src" / "shared" / "scripts" / "skf-manifest-ops.py"
+        proc = subprocess.run(
+            [sys.executable, str(script), str(tmp_path), "affected-versions", "cocoindex"],
+            capture_output=True, text=True,
+        )
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["affected_versions"] == ["2.1.0", "2.0.0"]

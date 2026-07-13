@@ -16,7 +16,7 @@ manifestScript: 'scripts/campaign-parse-manifest.py'
 
 Collect campaign inputs from the operator, create the initial `_campaign-state.yaml`, and generate `campaign-brief.yaml` so the campaign has a persistent starting point that survives context death.
 
-This is the only step that creates the state file (it does not yet exist). All subsequent steps use **read-backup-modify-write** per the State Contract in SKILL.md.
+This is the only step that creates the state file (it does not yet exist). All subsequent steps use **read-backup-modify-write** per the State Contract in `references/campaign-contracts.md`.
 
 ## RULES
 

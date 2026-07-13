@@ -1,9 +1,12 @@
 ---
 nextStepFile: 'ecosystem-check.md'
-registryResolutionData: 'references/registry-resolution.md'
+registryResolutionData: '{registryResolutionPath}'
 packageResolverProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-package.py'
   - '{project-root}/src/shared/scripts/skf-resolve-package.py'
+detectLanguageProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-language.py'
+  - '{project-root}/src/shared/scripts/skf-detect-language.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -41,7 +44,7 @@ Examples: `cocoindex`, `@tanstack/query`, `https://github.com/tursodatabase/limb
 
 Or type `cancel` / `exit` / `:q` / `[X]` to leave without writing anything."
 
-Wait for user input. **Cancel branch** — if the user types `cancel`, `exit`, `:q`, `[X]`, or selects `[X] Cancel and exit`, display `"Cancelled — no files were written."` and HARD HALT with **exit code 6 (user-cancelled)** per the SKILL.md exit-code map. Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "resolve-target"`, `error.code: "user-cancelled"`, `skill_package: null`). Cancellation here is non-destructive — no files have been written yet.
+Wait for user input. **Cancel branch** — if the user types `cancel`, `exit`, `:q`, `[X]`, or selects `[X] Cancel and exit`, display `"Cancelled — no files were written."` and HARD HALT with **exit code 6 (user-cancelled)** per the exit-code map in `references/halt-contract.md`. Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "resolve-target"`, `error.code: "user-cancelled"`, `skill_package: null`). Cancellation here is non-destructive — no files have been written yet.
 
 **GATE [default: use args]** — If `{headless_mode}` and a target (URL or package name) was provided as argument: use it as the target input and auto-proceed, log: "headless: using provided target". If no target provided in headless mode, HALT with: "headless mode requires a target argument."
 
@@ -79,7 +82,7 @@ If you are describing a skill you want to **create from scratch** rather than co
 
 Otherwise, paste the package name or GitHub URL of the library you want to wrap, and quick-skill will resolve it."
 
-**GATE [default: HALT]** — In headless mode, emit the same redirect message and HALT with **exit code 3 (resolution-failure)** per the SKILL.md exit-code map. Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "resolve-target"`, `error.code: "resolution-failure"`, `skill_package: null`). Do not attempt registry lookups against prose input; that wastes ~3-4 round trips and produces a less actionable error message than the redirect above.
+**GATE [default: HALT]** — In headless mode, emit the same redirect message and HALT with **exit code 3 (resolution-failure)** per the exit-code map in `references/halt-contract.md`. Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "resolve-target"`, `error.code: "resolution-failure"`, `skill_package: null`). Do not attempt registry lookups against prose input; that wastes ~3-4 round trips and produces a less actionable error message than the redirect above.
 
 ### 3. Registry Resolution
 
@@ -107,7 +110,7 @@ Check:
 
 **Provide the GitHub URL directly to continue.**"
 
-In interactive mode, wait for corrected input and loop back to step 2. In headless mode, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "resolve-target"`, `error.code: "resolution-failure"`, `skill_package: null`) and exit 3.
+In interactive mode, wait for corrected input and loop back to step 2. In headless mode, emit the error result contract per `references/halt-contract.md` (`phase: "resolve-target"`, `error.code: "resolution-failure"`, `skill_package: null`) and exit 3.
 
 ### 3a. Verify Target Version Tag (when applicable)
 
@@ -135,35 +138,36 @@ Recent tags in this repo:
 
 Re-run with one of these tags, or omit the `@version` suffix to auto-detect from the default branch."
 
-Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "resolve-target"`, `error.code: "resolution-failure"`, `error.details: {requested_version: "{target_version}", available_tags: [...top 5]}`, `skill_package: null`). In headless mode, exit immediately; do not loop.
+Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "resolve-target"`, `error.code: "resolution-failure"`, `error.details: {requested_version: "{target_version}", available_tags: [...top 5]}`, `skill_package: null`). In headless mode, exit immediately; do not loop.
 
 ### 4. Detect Language
 
-Determine primary language from:
+**Resolve `{detectLanguageHelper}`** from `{detectLanguageProbeOrder}`; first existing path wins. If no candidate exists (e.g. Python/`uv` unavailable), fall back to the manifest-priority walk documented in the helper's `--help` — `package.json` → JavaScript/TypeScript (TypeScript when a `tsconfig.json` is also present), `Cargo.toml` → Rust, `pyproject.toml`/`setup.py`/`setup.cfg` → Python, `go.mod` → Go, `pom.xml` → Java, `build.gradle.kts` → Kotlin, `build.gradle` → Kotlin when `src/main/kotlin/` exists else Java, `*.csproj`/`*.sln` → C#, `Gemfile` → Ruby, then extension frequency — applied by hand.
 
-1. **User-provided language hint** (overrides detection — skip the ambiguity gate below).
-2. **Manifest-presence scan** — check the repo root for ALL of these (priority order = first hit wins on auto-pick):
-   - `package.json` → JavaScript/TypeScript
-   - `pyproject.toml` or `setup.py` → Python
-   - `Cargo.toml` → Rust
-   - `go.mod` → Go
-   - `pom.xml` → Java (or Kotlin if `src/main/kotlin/` is present)
-   - `build.gradle.kts` or `build.gradle` → Kotlin (or Java if only `src/main/java/` is present)
+Determine primary language:
 
-   Collect every match into `detected_languages`.
+1. **User-provided language hint** (overrides detection) — set `language` to the hint and skip straight to §5. The disambiguation gate below does not run.
 
-3. **Single-language case** (`len(detected_languages) <= 1`) — set `language` to the detected value (or HALT in step 1 §3 if zero matches).
+2. **Delegate the rule walk to `{detectLanguageHelper}`** — it is the single source of truth for the manifest → language rule table (including the `package.json` JS-vs-TS disambiguation); do not restate or re-derive it here. Fetch the repo file listing once (`gh api repos/{owner}/{repo}/git/trees/{source_ref or default branch}?recursive=1`, reading the `path` values), then hand the flat list to the script:
 
-4. **Multi-language case** (`len(detected_languages) > 1`) — surface the choice rather than silently picking the first match. Multi-language repos (Python + JS bindings, or monorepos with mixed manifests) otherwise produce a skill for whichever manifest probe hits first, with no signal that the user might have wanted the other one.
+   ```bash
+   echo '{"tree": [<flat list of repo-relative file paths>]}' | uv run {detectLanguageHelper}
+   ```
+
+   The script returns `{language, confidence, detection_source, detected_languages}` after walking the deterministic rule table (manifest presence first, then extension-frequency fallback). `detected_languages` is the ordered, deduplicated set of every manifest-level match in priority order, with `detected_languages[0]` equal to the winning `language`.
+
+3. **Auto-pick** — set `language` to the returned `language`. If `detected_languages` is empty (the script recognized no manifest and no source extensions — `language` is `"unknown"`), treat it as a zero-match resolution and HALT with the step 1 §3 resolution-failure guidance so the user can supply a language hint or a different target.
+
+4. **Multi-language gate** (`len(detected_languages) > 1`) — the script found manifests for more than one language. Surface the choice rather than silently keeping the first match. Multi-language repos (Python + JS bindings, or monorepos with mixed manifests) otherwise produce a skill for whichever manifest sorts first in priority order, with no signal that the user might have wanted the other one.
 
    "**`{repo_name}` has manifests for multiple languages:** {detected_languages}.
 
-   Primary guess: **{first_match}** (manifest-priority order). If you wanted a different language, abort and re-run with `--language-hint <lang>` or with the optional language hint at step 1 §1.
+   Primary guess: **{language}** (`detected_languages[0]`, manifest-priority order). If you wanted a different language, abort and re-run with `--language-hint <lang>` or with the optional language hint at step 1 §1.
 
-   Select: [C] Continue with `{first_match}` · [A] Abort"
+   Select: [C] Continue with `{language}` · [A] Abort"
 
-   - **IF C** — log "user accepted multi-manifest pick: `{first_match}`" and set `language` to the first match.
-   - **IF A** — HARD HALT with **exit code 3 (resolution-failure)**: "Aborted to disambiguate language. Re-run with a `language_hint`." Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "resolve-target"`, `error.code: "resolution-failure"`, `error.details: {detected_languages: [...], auto_pick: "{first_match}"}`, `skill_package: null`).
+   - **IF C** — log "user accepted multi-manifest pick: `{language}`" and keep `language`.
+   - **IF A** — HARD HALT with **exit code 3 (resolution-failure)**: "Aborted to disambiguate language. Re-run with a `language_hint`." Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "resolve-target"`, `error.code: "resolution-failure"`, `error.details: {detected_languages: [...], auto_pick: "{language}"}`, `skill_package: null`).
    - **GATE [default: C]** — Headless mode auto-proceeds with the manifest-priority pick; record `detected_languages` and `language_resolution: "auto-picked-first"` in the extraction context so the result contract surfaces the ambiguity downstream.
 
 ### 5. Confirm Resolution
@@ -179,16 +183,5 @@ Determine primary language from:
 
 ### 6. Proceed to Next Step
 
-#### Menu Handling Logic:
-
-- After successful resolution confirmation, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an init step with auto-proceed after successful resolution
-- Proceed directly to next step after confirmation
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the target has been successfully resolved to a GitHub repository with confirmed URL, name, and detected language will you load and read fully `{nextStepFile}` to execute the ecosystem check.
+Once the target is resolved to a GitHub repository with confirmed URL, name, and detected language, load and execute {nextStepFile} for the ecosystem check.
 

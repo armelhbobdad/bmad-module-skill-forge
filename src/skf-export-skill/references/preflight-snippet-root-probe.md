@@ -5,6 +5,15 @@
 # truth by contract — no probe needed and the entire authoring-repo
 # escape hatch is already configured. Loaded once per export run, not
 # per skill.
+# Resolve `{rebuildManagedSectionsHelper}` by probing
+# `{rebuildManagedSectionsProbeOrder}` in order (installed SKF module
+# path first, src/ dev-checkout fallback); first existing path wins.
+# The `root-probe` action reads each candidate snippet's first line,
+# parses/strips the `root:` prefix, and returns `observed_prefixes` +
+# `mismatch` — deterministic prefix comparison the LLM must not re-derive.
+rebuildManagedSectionsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
+  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Render the warning and gate prompt in {document_output_language}. -->
@@ -26,16 +35,26 @@ Loaded by `load-skill.md` §1b after `target_context_files` is resolved and `sni
 
 ## Probe Algorithm
 
-1. Collect candidate snippet paths:
+1. Collect candidate snippet paths (manifest-driven orchestration — stays in-prompt):
    - Read `{skills_output_folder}/.export-manifest.json` if it exists. For each skill in `exports` with a resolvable `active_version`, add `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/context-snippet.md`.
    - Also include the current skill's snippet if present.
-2. For each snippet that exists on disk, read the first line and parse the `root:` value. Strip the trailing `{skill-name}/` to extract the prefix (e.g. `skills/`, `.claude/skills/`).
-3. Collect unique prefixes into `observed_prefixes`.
-4. Compare against `target_context_files[0].skill_root` (the reference).
+2. **Read the prefixes and compare via the helper** — reading each snippet's first line, parsing/stripping the `root:` prefix, collecting the unique set, and comparing against the reference is deterministic prefix arithmetic with one correct answer per input. Resolve `{rebuildManagedSectionsHelper}` from `{rebuildManagedSectionsProbeOrder}` (frontmatter — first existing path wins; if no candidate exists, skip the probe and continue to §2 without a warning rather than blocking export on a missing dev-only helper), then run:
+
+   ```bash
+   python3 {rebuildManagedSectionsHelper} root-probe {candidate-snippet-1} {candidate-snippet-2} … --reference-root {target_context_files[0].skill_root}
+   ```
+
+   Pass every candidate snippet path from step 1 as a positional argument and the reference `skill_root` as `--reference-root`. The helper reads each snippet that exists, parses its first-line `root:` value, strips the trailing `{skill-name}/` (recovered from the row's own `[skill-name v...]` header) to extract the prefix, and returns:
+
+   ```json
+   {"status": "ok", "reference_root": "…", "observed_prefixes": ["…"], "mismatch": true}
+   ```
+
+   Set `observed_prefixes = result["observed_prefixes"]` (already unique and sorted; missing or root-less snippets contribute nothing). `result["mismatch"]` is `true` when any observed prefix differs from the reference `skill_root` — the trigger for the Mismatch Gate below.
 
 ## Mismatch Gate
 
-**If `observed_prefixes` contains any value that does not match the reference `skill_root`:**
+**If `result["mismatch"]` is `true`** (some value in `observed_prefixes` does not match the reference `skill_root`):
 
 Emit a single warning (once, not per snippet) and present resolution options before continuing to §2:
 

@@ -127,23 +127,5 @@ Append to {outputFile}:
 
 ### 5. Update Report and Auto-Proceed
 
-Update {outputFile} frontmatter:
-- Append `'semantic-diff'` to `stepsCompleted`
-
-### 6. Present MENU OPTIONS
-
-Display: "**Semantic diff complete. {total} semantic drift items found. Proceeding to severity classification...**"
-
-#### Menu Handling Logic:
-
-- After semantic diff section is appended and frontmatter updated, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed analysis step with no user choices
-- Proceed directly to next step after completion
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the ## Semantic Drift section (or skip notice) has been appended to {outputFile} will you then load and read fully `{nextStepFile}` to execute and begin severity classification.
+Update {outputFile} frontmatter — append `'semantic-diff'` to `stepsCompleted`. This is an auto-proceed step with no user choice: once the ## Semantic Drift section (or skip notice) has been appended, load, read fully, and execute `{nextStepFile}` (severity classification).
 

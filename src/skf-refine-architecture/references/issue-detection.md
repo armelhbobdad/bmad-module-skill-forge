@@ -23,7 +23,7 @@ Find contradictions between what the architecture document claims and what the g
 
 Use the refinement rules loaded in Step 01 from `{refinementRulesData}`. If not available in context, reload from `{refinementRulesData}`.
 
-Extract: issue classification (API Mismatch, Protocol Contradiction, Language Boundary Ignored, Type Incompatibility), VS report integration rules, and citation format.
+Extract: issue classification (API Mismatch, Protocol Contradiction, Language Boundary Ignored, Type Incompatibility) and VS report integration rules.
 
 ### 2. Extract Integration Claims from Architecture
 
@@ -43,7 +43,7 @@ For each claim, record:
 
 ### 3. Verify Claims Against Skill API Surfaces
 
-For each extracted claim, load the relevant skill(s) and check:
+For each extracted claim, verify against the compact API surfaces already collected in Step 02 §4 — the per-skill `{skill_api_surfaces}` summaries (`{exports, protocols, data_formats}`), carried forward as workflow state exactly like `{in_scope_skills}`. Reload a skill's SKILL.md directly only if its summary is unavailable or context has compacted (see Step 02 §4 for the canonical delegate-the-read pattern). Then check:
 
 **API Mismatch check:**
 - Does the claimed API actually exist in the skill's export list?
@@ -69,8 +69,8 @@ If `vs_report_available` is true:
 **Scope filter (reuse `{out_of_scope_skills}` from Step 02 §2b):** The VS report carries verdicts across the entire skill set, which may exceed this architecture's surface. Before promoting any verdict, check the pair's scope — if a verdict is for an **out-of-scope** pair (either library in `{out_of_scope_skills}`), do NOT promote it to an issue for THIS architecture; record it under the informational Out-of-Scope bucket instead. Only **in-scope** pairs' verdicts are promoted by the rules below.
 
 **Load the VS feasibility report and extract verdicts:**
-- **Risky verdicts** (match case-insensitively: "Risky", "RISKY", "risky"): Promote to confirmed issues with the VS evidence as additional citation
-- **Blocked verdicts** (match case-insensitively: "Blocked", "BLOCKED", "blocked"): Promote to critical issues requiring architecture redesign
+- **Risky verdicts** (match case-insensitively): Promote to confirmed issues with the VS evidence as additional citation
+- **Blocked verdicts** (match case-insensitively): Promote to critical issues requiring architecture redesign
 - **Plausible verdicts:** Note informatively — Plausible is not an issue by itself. Only flag as a potential issue if the VS rationale text explicitly states "no direct API evidence" or "weak evidence"
 
 **For each VS-sourced issue, include dual citations:**
@@ -81,7 +81,7 @@ If `vs_report_available` is false: Skip this section. Issue detection proceeds w
 
 ### 5. Document Each Issue
 
-For each detected issue, apply the citation format from {refinementRulesData}:
+For each detected issue, cite it in this format:
 
 ```
 **[ISSUE]**: {description}
@@ -98,26 +98,11 @@ Suggestion: {specific correction with API evidence}
 - **Major:** Risky VS verdicts, protocol mismatches, missing bridge layers
 - **Minor:** Plausible VS verdicts where the VS rationale explicitly states "no direct API evidence" or "weak evidence", minor type differences with easy conversion
 
-### 6. Display Issue Detection Results
+### 6. Report Issues & Store Findings
 
-"**Pass 2: Issue Detection — Architecture vs. API Reality**
+Report the in-scope issue count with its critical/major/minor breakdown, then list each issue as a row of **# / Libraries / Issue Type / Severity / Summary** followed by its full §5 citation. One signal is not inferable from the counts and must survive regardless of format:
 
-**Issues Found (in-scope):** {count} ({critical_count} critical, {major_count} major, {minor_count} minor)
-
-{IF issues found:}
-| # | Libraries | Issue Type | Severity | Summary |
-|---|-----------|-----------|----------|---------|
-| {n} | {libs} | {issue_type} | {severity} | {brief description} |
-
-{For each issue, display the full citation with evidence and suggestion}
-
-{IF out-of-scope VS verdicts were set aside (from §4):}
-**Out of scope for this document:** {oos_issue_count} VS verdict(s) involve skills outside this architecture's surface (`{out_of_scope_skills}`) and were NOT counted as issues. Listed for awareness only — re-run with `--scope-skills` if any belongs in scope.
-
-{IF no issues found:}
-**No contradictions detected.** Architecture claims align with verified in-scope skill API surfaces.
-
-**Proceeding to improvement detection...**"
+- **Out-of-scope VS verdicts were set aside (from §4):** list them separately for awareness only — they were NOT counted as issues — and note that re-running with `--scope-skills` pulls any that belong into scope.
 
 Store all **in-scope** issue findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-ISSUES] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted issue findings** (full citation blocks with architecture claims, skill evidence, VS verdicts, severity, and suggestions — not just counts) — Step 05 can read this back if context degrades. Record any out-of-scope VS verdicts under the shared `<!-- [RA-OUT-OF-SCOPE] ... -->` marker (NOT `[RA-ISSUES]`) so Step 05 does not compile them — they are informational only. **Do NOT write to `{output_folder}/refined-architecture-{arch_project_name}.md` — that file is created only in step 5.**
 

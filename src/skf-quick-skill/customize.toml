@@ -1,6 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-quick-skill.
+# Team overrides:     {project-root}/_bmad/custom/skf-quick-skill.toml
+# Personal overrides: {project-root}/_bmad/custom/skf-quick-skill.user.toml
 
 [workflow]
 
@@ -42,3 +44,10 @@ persistent_facts = [
 skill_template_path = ""
 registry_resolution_path = ""
 batch_output_path = ""
+
+# Optional post-completion hook. When non-empty, invoked with
+# `--skill-package=<path>` after the result contract is finalized in step 6.
+# Failures are logged but never fail the workflow. Use for git-add,
+# skill-registry registration, or a notifier on the freshly compiled skill.
+
+on_complete = ""

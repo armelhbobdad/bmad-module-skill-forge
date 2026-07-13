@@ -101,7 +101,3 @@ Immediately load, read entire file, then execute `{nextStepFile}`.
 - Forge+/Deep with ccc displays brief discovery summary then auto-proceeds
 - CCC failures do not halt — degrade and proceed
 
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN discovery is complete (Forge+/Deep with ccc) or the step is skipped (Quick/Forge or ccc unavailable) will you proceed to load `{nextStepFile}` for AST extraction.
-

@@ -31,15 +31,13 @@ Display the forge status report with positive capability framing, surface tier c
 
 ## Headless Mode Display Rule
 
-When `{headless_mode}` is `true` OR `{quiet_mode}` is `true`, sections 2 (the human-readable banner) and 3 (the REQUIRED TIER NOT MET human prose block) are **skipped entirely**. The single line of stdout in those modes is the `SKF_SETUP_RESULT_JSON: {…}` envelope from section 4 — every signal the human banner would have surfaced is already in the envelope (`tier`, `previous_tier`, `tier_changed`, `tools`, `tools_added`, `tools_removed`, `files_written`, `tier_override_*`, `require_tier_satisfied`, `warnings`, `error`). Parent skills, CI pipelines, and expert re-runners consume the envelope alone; they should not be forced to scroll past 30 lines of ASCII-art they cannot use.
-
-When both `{headless_mode}` and `{quiet_mode}` are `false`, sections 2 and 3 display normally and section 4 is skipped (interactive runs read the human banner; envelope emission would just be log noise).
+In `{headless_mode}` or `{quiet_mode}` the human sections (2 and 3) skip per their heading gates and the only stdout line is the `SKF_SETUP_RESULT_JSON: {…}` envelope from section 4 — and nothing is lost, because every signal the banner would surface is already in the envelope (`tier`, `previous_tier`, `tier_changed`, `tools`, `tools_added`, `tools_removed`, `files_written`, `tier_override_*`, `require_tier_satisfied`, `warnings`, `error`).
 
 ## MANDATORY SEQUENCE
 
 ### 1. Load Capability Descriptions
 
-Load and read {tierRulesData} for the tier capability descriptions and re-run messages. Needed by section 2; safe to load unconditionally — the data load itself is silent.
+Load and read {tierRulesData} for the tier capability descriptions and re-run messages. Needed by section 2.
 
 ### 2. Display Forge Status Report (skip when `{headless_mode}` or `{quiet_mode}` is true)
 
@@ -147,15 +145,9 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 
 All re-run-delta context flags (`{tools_added}`, `{tools_removed}`, `{tier_changed}`) come from the detector's `deltas` block bound in stage 1 — no LLM-side recomputation, no set arithmetic in prose.
 
-**Tool display rules:**
-
-- Only show tools that ARE available with their version strings
-- Do NOT list unavailable tools
-- Do NOT show a "missing" column or section
-
 ### 3. Display Required-Tier Failure Block (when applicable; skip when `{headless_mode}` or `{quiet_mode}` is true)
 
-If `{require_tier_satisfied}` is `false` AND both `{headless_mode}` and `{quiet_mode}` are `false`, display this block immediately after the status report. In headless or quiet modes the failure surfaces via the envelope's `require_tier_satisfied: false` and the synthesized `warnings` entry — the human prose block would be log noise.
+If `{require_tier_satisfied}` is `false`, display this block immediately after the status report (the heading gate already handles the headless/quiet skip).
 
 When the block does fire (interactive run with require-tier failure):
 
@@ -173,11 +165,9 @@ When the block does fire (interactive run with require-tier failure):
 ═══════════════════════════════════════
 ```
 
-This block exists to make pipeline failures visible without the operator parsing the JSON envelope.
-
 ### 4. Emit Headless JSON Envelope
 
-When `{headless_mode}` is `true` OR `{quiet_mode}` is `true`, build the context payload from this step's accumulated flags and forward it to `{emitEnvelopeHelper}` on stdin. Invoke via `uv run` so the script's PEP 723 dependency declarations are honored (the canonical runtime invocation per `docs/getting-started.md`'s uv prereq — bare `python3` skips the metadata block and breaks on a fresh interpreter). The script computes derived fields (`tools_added`, `tools_removed`, `tier_changed`, `warnings`), validates the assembled envelope against the JSON Schema at `src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`, and emits the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` on stdout.
+When `{headless_mode}` is `true` OR `{quiet_mode}` is `true`, build the context payload from this step's accumulated flags and forward it to `{emitEnvelopeHelper}` on stdin. Invoke via `uv run`. The script computes derived fields (`tools_added`, `tools_removed`, `tier_changed`, `warnings`), validates the assembled envelope against the JSON Schema at `src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`, and emits the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` on stdout.
 
 ```bash
 echo '{
@@ -215,10 +205,13 @@ echo '{
 
 The script's documented context-payload shape (see `src/shared/scripts/skf-emit-result-envelope.py` docstring) tolerates two `tools` shapes — bare booleans OR `skf-detect-tools.py`'s `{key: {available: bool, ...}}` output — so either step 1's normalized booleans OR the raw detect-tools output forwarded as-is will produce the correct envelope.
 
-**If the script exits non-zero:** the assembled envelope failed schema validation, which means a context flag from an earlier step is malformed. Surface the error to stderr and continue (the human-readable banner is already displayed; missing JSON envelope on a headless run is a degraded but non-fatal state — the pipeline observer will see no envelope and treat that as "agent did not complete cleanly").
-
-**When both `{headless_mode}` and `{quiet_mode}` are `false`, do NOT invoke the script** — interactive runs read the human-readable banner.
+**If the script exits non-zero:** the assembled envelope failed schema validation, which means a context flag from an earlier step is malformed. Surface the error to stderr and continue (missing JSON envelope on a headless run is a degraded but non-fatal state — the pipeline observer will see no envelope and treat that as "agent did not complete cleanly").
 
 ### 5. Chain to Health Check
 
-After the forge status report (and any failure block + JSON envelope) has been displayed, load `{nextStepFile}`, read it fully, and execute it — UNLESS `{require_tier_satisfied}` is `false`, in which case halt the workflow here without chaining to step 5. The health-check step is the true terminal step on success — do not stop after the report on a passing run even though it reads as final. step 5 in turn delegates to `shared/health-check.md`; after that returns, the setup workflow is fully done.
+After the forge status report (and any failure block + JSON envelope) has been displayed:
+
+- If `{require_tier_satisfied}` is `false`, halt the workflow here without chaining to step 5. The tier miss is terminal; `{onCompleteCommand}` does not fire on a failed run.
+- Otherwise the forge is fully configured. If `{onCompleteCommand}` (resolved from `workflow.on_complete` at activation) is non-empty, execute it now — this is the workflow's terminal skill-specific action (e.g. trigger the first index build or notify an onboarding channel); in headless, log the action. Then load `{nextStepFile}`, read it fully, and execute it.
+
+The health-check step is the true terminal step on success — do not stop after the report on a passing run even though it reads as final. Step 5 in turn delegates to `shared/health-check.md`; after that returns, the setup workflow is fully done.

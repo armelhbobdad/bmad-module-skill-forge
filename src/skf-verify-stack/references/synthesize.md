@@ -89,9 +89,9 @@ For each non-verified finding across all passes, generate an actionable next ste
 
 ### 3. Check for Previous Report
 
-Read `previousReport` from `{outputFile}` frontmatter (set in Step 01). Since the current workflow run overwrites the report starting in Step 01, the delta feature requires the user to have saved a copy before re-running [VS].
+Read `previousReport` from `{outputFile}` frontmatter (set in Step 01). Each run writes a new timestamped `feasibility-report-{projectSlug}-{timestamp}.md`, so prior reports persist on disk automatically — Step 01 auto-discovers the most recent one for delta comparison when no path is supplied. `previousReport` holds the resolved path, or is empty when no prior report exists or the user skipped the comparison.
 
-**Note:** The delta feature is only available when the user has manually backed up a prior report and provided the path. To enable delta comparisons, instruct the user to copy their feasibility report (e.g., `feasibility-report-{projectSlug}-v1.md`) before re-running [VS], then provide the backup path when prompted in Step 01.
+**Note:** A manual backup is only needed to compare against a *specific older* snapshot rather than the most recent prior run; provide that backup path when prompted in Step 01.
 
 **If a previous report is found:**
 - Load its verdict, coverage percentage, integration verdicts, and per-skill `confidence_tier` values (if captured in the previous report's inventory block)

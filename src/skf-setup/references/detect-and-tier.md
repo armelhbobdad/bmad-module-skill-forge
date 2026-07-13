@@ -54,7 +54,7 @@ Press Esc or Ctrl+C now if this isn't the right project — no files have been w
 
 ### 2. Run Detection Helper
 
-Build the Bash invocation: `uv run {detectToolsHelper} --prior-state-from "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"`. If `{tier_override}` is non-null, append `--tier-override "{tier_override}"`. If `{require_tier}` is non-null, append `--require-tier "{require_tier}"`. Then execute. (The script's PEP 723 metadata is why `uv run` is required — bare `python3` skips dependency resolution.)
+Build the Bash invocation: `uv run {detectToolsHelper} --project-root "{project-root}" --prior-state-from "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"`. If `{tier_override}` is non-null, append `--tier-override "{tier_override}"`. If `{require_tier}` is non-null, append `--require-tier "{require_tier}"`. Then execute. (`--project-root` lets the script compute the CCC-index freshness verdict — `prior.ccc_index_fresh` — so step 1b branches on a boolean instead of doing timestamp math.)
 
 The script (see `src/shared/scripts/skf-detect-tools.py` docstring for the full `DETECT_OUTPUT_SCHEMA`) probes ast-grep / gh / qmd / ccc concurrently with two-step verification for qmd and ccc (binary-identity check + daemon-health check, including the `CocoIndex Code` identity-marker substring check that rejects PATH-shadowing aliases). It applies the 4-rule tier table, performs the tier-override sanity check (override is honored but flagged unsafe when underlying tools are missing), and evaluates `--require-tier` using a tool-prerequisite check (Deep does NOT subsume Forge+ — Deep does not require ccc). Output is one JSON document on stdout.
 
@@ -101,14 +101,13 @@ From `prior` (populated by `--prior-state-from`; all fields null/empty on first 
 - `{previous_ccc_indexed_path}` ← `prior.previous_ccc_indexed_path`
 - `{previous_ccc_last_indexed}` ← `prior.previous_ccc_last_indexed`
 - `{previous_ccc_staleness_threshold_hours}` ← `prior.previous_ccc_staleness_threshold_hours`
+- `{ccc_index_fresh}` ← `prior.ccc_index_fresh` (boolean; the script's deterministic freshness verdict — prior index covers this project AND status was fresh/created AND `last_indexed` is within the staleness threshold of now. Step 1b branches on this directly instead of doing timestamp math.)
 
 From `deltas` (computed by the script from current tools + prior; eliminates LLM-side set arithmetic in the report banner):
 
 - `{tools_added}` ← `deltas.tools_added` (the list)
 - `{tools_removed}` ← `deltas.tools_removed` (the list)
 - `{tier_changed}` ← `deltas.tier_changed` (boolean)
-
-**The script is the source of truth.** Every tier-rules edge case (override-honored-but-unsafe, Deep-doesn't-subsume-Forge+, qmd-binary-vs-daemon distinction, ccc-identity-marker rejection of foreign binaries) is locked into the test suite at `test/test-skf-detect-tools.py`. Substituting prose-driven logic for the script's output here will cause subtle re-run regressions that the prompt's prose is no longer detailed enough to catch.
 
 ### 4. Auto-Proceed
 

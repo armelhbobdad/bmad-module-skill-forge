@@ -318,7 +318,3 @@ Display: "**Extraction Summary — Select an Option:** [C] Continue to compilati
 - IF C: Confirm extraction inventory is complete. Immediately load, read entire file, then execute `{nextStepFile}`
 - IF Any other comments or queries: answer questions about the extraction results, then redisplay the menu
 
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the extraction inventory is built with provenance citations and the user has confirmed the extraction summary will you proceed to load `{nextStepFile}` for temporal context fetching.
-

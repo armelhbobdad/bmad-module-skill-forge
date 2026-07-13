@@ -1,6 +1,5 @@
 ---
 nextStepFile: 'generate-output.md'
-stackSkillTemplate: 'assets/stack-skill-template.md'
 ---
 
 <!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
@@ -13,7 +12,7 @@ Assemble the main SKILL.md by combining per-library extractions with the integra
 
 ## Rules
 
-- Compile SKILL.md following the stack-skill-template structure — integration patterns go first (primary value)
+- Compile SKILL.md following the stack-skill-template structure — integration patterns go first
 - Do not write output files (Step 07)
 - Present compiled content for user review
 
@@ -21,7 +20,7 @@ Assemble the main SKILL.md by combining per-library extractions with the integra
 
 ### 1. Load Template Structure
 
-Load `{stackSkillTemplate}` and prepare SKILL.md section structure.
+Load `{stackSkillTemplatePath}` and prepare SKILL.md section structure.
 
 ### 2. Generate Frontmatter
 
@@ -41,12 +40,12 @@ description: >
 **Frontmatter rules:**
 
 - `name`: lowercase alphanumeric + hyphens only, must match skill output directory name. **Stack skills MUST end in `-stack`** (e.g., `{project_name}-stack`) — this is how consumers (skf-verify-stack, skf-test-skill) detect stack vs individual skills.
-- `description`: non-empty, max 1024 chars, trigger-optimized for agent discovery. MUST use third-person voice ("Processes..." not "I can..." or "You can..."). **Do NOT enumerate every library by name** — a 12+ library stack overruns 1024 chars. Keep the generic "{lib_count} libraries with {integration_count} integration patterns" form; if a per-library parenthetical is used, cap it to the top libraries by import/export count with a `+{N} more` suffix (full list lives in `metadata.json` `libraries[]`). See "Sizing Guidance for Large Stacks" in `{stackSkillTemplate}`.
+- `description`: non-empty, max 1024 chars, trigger-optimized for agent discovery. MUST use third-person voice ("Processes..." not "I can..." or "You can..."). **Do NOT enumerate every library by name** — a 12+ library stack overruns 1024 chars. Keep the generic "{lib_count} libraries with {integration_count} integration patterns" form; if a per-library parenthetical is used, cap it to the top libraries by import/export count with a `+{N} more` suffix (full list lives in `metadata.json` `libraries[]`). See "Sizing Guidance for Large Stacks" in `{stackSkillTemplatePath}`.
 - No other frontmatter fields — only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted by spec
 
 ### 3. Compile Integration Layer
 
-**This is the core value of the stack skill.** Compile in order:
+Compile in order:
 
 **Zero-integration guard:** If the integration graph from step 05 has zero edges (no detected integration pairs), skip the integration layer compilation and note: "No integration patterns detected — stack skill will contain library summaries without an integration layer." Proceed directly to section 4 (Per-Library Sections).
 
@@ -72,7 +71,7 @@ description: >
 `Per-Library Summaries` and `Library Reference Index` are the largest sections
 and grow with the stack. For a **large stack** (heuristic: **> 6 libraries OR
 > 6 integration patterns**), author both into `references/stack-catalog.md`
-(structure in `{stackSkillTemplate}`) and place only the inline pointer from the
+(structure in `{stackSkillTemplatePath}`) and place only the inline pointer from the
 template's "Sizing Guidance" in SKILL.md — this keeps the body under the 500-line
 `body.max_lines` budget that step 08 enforces. For a **small stack**, keep both
 inline (inline passive context yields higher task accuracy). Either way, step 08's
@@ -132,9 +131,9 @@ Display: **Select:** [C] Continue to Output Generation | [X] Cancel and exit
 
 #### EXECUTION RULES:
 
-- ALWAYS halt and wait for user input after presenting compilation
+- This is a review gate — advancing without the user's `C` would write output files from a compilation they never reviewed. Halt and wait for input after presenting the compiled SKILL.md.
 - **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-approve stack compilation"
-- ONLY proceed to next step when user approves and selects 'C'
+- Proceed to the next step only once the user approves by selecting `C`.
 
 #### Menu Handling Logic:
 

@@ -8,6 +8,9 @@ feasibilitySchemaProbeOrder:
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+cycleFinderProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-find-cycles.py'
+  - '{project-root}/src/shared/scripts/skf-find-cycles.py'
 outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
 outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.md'
 ---
@@ -48,7 +51,7 @@ Parse the architecture document for statements describing two or more technologi
 - Look for data flow descriptions: "{A} sends data to {B}", "{A} results are consumed by {B}"
 - Look for layer boundary descriptions: "{A} at the API layer connects to {B} at the data layer"
 
-**CRITICAL — Mermaid Diagram Handling:** See `{coveragePatternsData}` → "Mermaid Diagram Handling" for the canonical rule (single source of truth). Summary: do NOT parse Mermaid diagram syntax for co-mention detection; use only prose text.
+**Mermaid Diagram Handling:** See `{coveragePatternsData}` → "Mermaid Diagram Handling" for the canonical rule (single source of truth). Summary: do NOT parse Mermaid diagram syntax for co-mention detection; use only prose text.
 
 **Build integration pairs list:**
 - Each pair: `{library_a, library_b, architectural_context}`
@@ -82,7 +85,7 @@ For each library in an integration pair, delegate SKILL.md reading to a parallel
 - `data_formats_inferred`: best-effort prose scan — format tokens mentioned in SKILL.md descriptions/examples. NOT a declared field in `metadata.json`
 - If a field has no matches, return an empty array `[]`
 
-**CRITICAL — these fields are inferred, not declared.** `protocols` and `data_formats` do not exist in any skill's `metadata.json`. Treat them as weak evidence from prose scanning only. When either list is used to justify compatibility in Check 2, the per-pair verdict MUST be capped at `Plausible` (see the schema's producer obligations — `{feasibilitySchemaRef}`).
+**These fields are inferred, not declared.** `protocols` and `data_formats` do not exist in any skill's `metadata.json` — treat them as weak evidence from prose scanning only. When either list is used to justify compatibility in Check 2, the per-pair verdict MUST be capped at `Plausible` (see the schema's producer obligations — `{feasibilitySchemaRef}`).
 
 **Schema validation (parent):** Each subagent response must contain the required keys (`skill_name`, `language`, `exports`). Reject responses missing required keys and exclude that skill from pair evaluation; HALT if more than **20%** (same failure-budget threshold as step 1 §2; see the justification there) of subagent calls return malformed JSON.
 
@@ -102,35 +105,9 @@ Store collected API surface summaries for cross-referencing.
 
 ### 4. Cross-Reference Each Integration Pair
 
-For each integration pair `{library_a, library_b}`, apply the verification protocol from `{integrationRulesData}`:
+For each integration pair `{library_a, library_b}`, run the four-check protocol and assign the per-pair verdict per `{integrationRulesData}` (loaded in §1): the Cross-Reference Protocol defines Check 1 (language boundary), Check 2 (protocol compatibility), Check 3 (type compatibility), and Check 4 (documentation cross-reference, required for `Verified`); the Verdict Definitions table and promotion rule define the `Verified` / `Plausible` / `Risky` / `Blocked` thresholds and the cap-at-`Plausible` rule that applies whenever Check 4 surfaces no literal citation. Do not restate those mechanics here.
 
-**Check 1 — Language Boundary:**
-- Same language → compatible
-- Different languages → check for FFI, IPC, or network protocol bridge
-- If no bridge mechanism documented → flag as risk
-
-**Check 2 — Protocol Compatibility (best-effort prose scan):**
-- Uses only the `protocols_inferred` / `data_formats_inferred` lists surfaced by the subagent prose scan — these are NOT declared metadata fields
-- Both prose-scanned lists share a protocol token → treat as inferred compatibility (cap verdict at `Plausible`)
-- Complementary tokens (e.g., "HTTP client" in one, "HTTP server" in the other) → inferred compatibility (cap at `Plausible`)
-- Neither skill surfaces any protocol token, or tokens appear to conflict with no adapter mentioned → flag as risk
-- Do NOT assert that protocols come from a declared schema field; when prose evidence is all that's available, the per-pair verdict MUST cap at `Plausible`
-
-**Check 3 — Type Compatibility:**
-- Shared types or compatible serialization formats (cited from `exports` signatures) → compatible
-- Incompatible type systems with no conversion layer → flag as risk
-
-**Check 4 — Documentation Cross-Reference (REQUIRED for `Verified`):**
-- Search Skill A's SKILL.md for a literal substring/name citation of Skill B's library name (or an explicit alias declared in that skill's metadata)
-- Search Skill B's SKILL.md for the reciprocal citation
-- If a literal citation is found in at least one direction → Check 4 PASSES; record the exact cited substring and its location as evidence
-- If neither skill literally cites the other → Check 4 FAILS (weak/missing evidence); per-pair verdict MUST be capped at `Plausible` regardless of Checks 1–3 outcomes
-
-**Assign verdict per pair (per `{feasibilitySchemaRef}`):**
-- **Verified** — Checks 1, 3 pass with declared evidence AND Check 4 passes with a literal substring/name citation recorded in the evidence block. Check 2 is best-effort only; it cannot by itself promote a pair to `Verified`.
-- **Plausible** — Checks pass, but at least one relies on inferred evidence (e.g., Check 2 prose scan) OR Check 4 is weak/missing. This is the cap whenever Check 4 fails.
-- **Risky** — At least one check flags an incompatibility that a workaround may resolve (bridge layer, adapter, serialization shim).
-- **Blocked** — Fundamental incompatibility: language barrier with no bridge documented anywhere in the inventory, or type/protocol mismatch with no adapter mentioned.
+**Step-specific input for Check 2:** Check 2 draws only on the `protocols_inferred` / `data_formats_inferred` lists surfaced by the §3 subagent prose scan — these are NOT declared metadata fields. A shared or complementary token (e.g., "HTTP client" ↔ "HTTP server") reads as inferred compatibility; no token on either side, or conflicting tokens with no adapter, flags a risk. Because this evidence is prose-inferred, any pair whose compatibility rests on it MUST cap at `Plausible`.
 
 **Each verdict MUST include:**
 - Which checks passed and which flagged
@@ -139,7 +116,22 @@ For each integration pair `{library_a, library_b}`, apply the verification proto
 - For `Verified`: the exact Check 4 literal citation (e.g., `"see also: {lib_b}"` quoted from Skill A's SKILL.md, line N)
 - **Tier annotation:** For each contributing skill, append `(evidence from Tier {n} skill)` citing that skill's `confidence_tier` (e.g., `(evidence from Tier 1 skill)`). This lets reviewers weigh evidence strength by extraction confidence.
 
-**Cycle detection (after all pairs evaluated):** Build a directed pair graph where an edge `A → B` exists when A cites B via Check 4. Run cycle detection (DFS with visited + recursion stack). For each cycle found, append a synthetic row to the verdict table with verdict `Risky` and rationale "circular integration dependency detected: `{A → B → C → A}`". Do not otherwise modify the individual pair verdicts.
+**Cycle detection (after all pairs evaluated):** Deciding the edge set is a Check-4 judgment and stays here; the traversal is deterministic and is delegated to the shared helper (the in-prose DFS misses real multi-hop cycles or invents spurious ones as the pair count grows). 
+
+1. **Build the directed pair graph in the prompt:** an edge `A → B` exists when skill A literally cites skill B via Check 4. Serialize the edges as JSON: `{"edges": [["A", "B"], ["B", "C"], ...]}` (each `[from, to]` pair is one Check-4 citation direction).
+2. **Resolve `{cycleFinderHelper}`** from `{cycleFinderProbeOrder}`; first existing path wins. Enumerate cycles deterministically (run `uv run {cycleFinderHelper} find --help` for the contract):
+
+   ```bash
+   uv run {cycleFinderHelper} find --edges -
+   ```
+   piping the edges JSON on stdin (use a temp file under `{forge_data_folder}/` if stdin piping is unavailable). The script emits:
+   ```json
+   {"cycles": [["A", "B", "C", "A"], ...], "cycle_count": N}
+   ```
+   Each `cycles[]` entry is a closed node path (first node repeated at the end); every simple directed cycle appears exactly once, de-duplicated across rotations.
+
+   **Graceful degradation:** if no `{cycleFinderProbeOrder}` candidate exists (e.g. `uv` unavailable on claude.ai web), run the equivalent DFS (visited set + recursion stack) directly per the `--help` contract and proceed with the same cycle set.
+3. **For each cycle** in `cycles[]`, append a synthetic row to the verdict table with verdict `Risky` and rationale "circular integration dependency detected: `{A → B → C → A}`" (render the arrow chain from the cycle's node path). Do not otherwise modify the individual pair verdicts.
 
 ### 5. Display Integration Results
 
@@ -177,7 +169,12 @@ Write the **Integration Verdicts** section to `{outputFile}` (heading is fixed �
 
 ### 7. Auto-Proceed to Next Step
 
-**Early halt guard:** If ALL integration pairs are Blocked, present: "**All integrations are Blocked** — fundamental incompatibilities detected across all library pairs. Remaining analysis will produce limited value. **[X] Halt workflow (recommended)** | **[C] Continue anyway**" — wait for user input. If X: halt with: "**Workflow halted — all integrations blocked.** Integration Verdicts saved to `{outputFile}`. Run **[VS]** after applying architectural changes. **Blocked integrations:** {list each blocked pair with reason}." If C: continue.
+**Early halt guard:** If ALL integration pairs are Blocked, present: "**All integrations are Blocked** — fundamental incompatibilities detected across all library pairs. Remaining analysis will produce limited value. **[X] Halt workflow (recommended)** | **[C] Continue anyway**" — wait for user input.
+
+**GATE [default: C]** — Interactive-only guard. If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: continuing past all-Blocked integration gate". Headless never takes [X], so step 6 still emits the result contract — any Blocked pair resolves the run to `NOT_FEASIBLE` in synthesize.
+
+- If X: halt with: "**Workflow halted — all integrations blocked.** Integration Verdicts saved to `{outputFile}`. Run **[VS]** after applying architectural changes. **Blocked integrations:** {list each blocked pair with reason}." HALT (exit code 8, `halt_reason: "analysis-halted"`).
+- If C: continue.
 
 {IF NOT halted (user selected C, or early halt guard did not trigger):}
 

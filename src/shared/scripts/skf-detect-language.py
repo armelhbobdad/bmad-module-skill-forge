@@ -58,6 +58,16 @@ Output (JSON on stdout):
   detection_source  — human-readable string naming what fired (manifest
                        basename, extension share, etc.)
   fallback_to_extension_frequency — bool (true when rule 10 fired)
+  detected_languages — ordered, deduplicated list of EVERY manifest-level
+                       match in the same priority order the winner walk uses.
+                       language == detected_languages[0] whenever the manifest
+                       table fired, so a caller can auto-pick detected_languages[0]
+                       and gate multi-language disambiguation on
+                       len(detected_languages) > 1. Special cases: a
+                       workspace_signal override (rule 0) is decisive and returns
+                       a single-element [language]; the extension-frequency
+                       fallback (rule 10) contributes [language] for a best guess
+                       or [] when language is "unknown".
 
 Exit codes:
   0 — recommendation produced (even when language is "unknown")
@@ -201,7 +211,74 @@ def _frequency_fallback(tree: list[str]) -> dict[str, Any]:
     }
 
 
+def _detected_languages(payload: dict[str, Any], winner: dict[str, Any]) -> list[str]:
+    """Accumulate every manifest-level match into an ordered, deduplicated list.
+
+    The walk mirrors the winner-selection priority order exactly, so
+    winner["language"] == detected_languages[0] whenever the manifest table
+    fired. Two decisive short-circuits diverge from a full walk on purpose:
+
+      * A workspace_signal override (rule 0) is authoritative — the workspace
+        root language wins over any nested package.json, so this returns a
+        single-element [winner_language] and never surfaces a spurious
+        multi-language gate for what workspace detection already resolved.
+      * When no manifest matched (rule 10 fired), the list carries the
+        extension-frequency best guess as a single element, or [] when the
+        guess was "unknown".
+    """
+    tree: list[str] = payload["tree"]  # validated non-empty by _winner()
+
+    workspace_signal = payload.get("workspace_signal")
+    if isinstance(workspace_signal, str) and workspace_signal in _WORKSPACE_SIGNAL_LANGUAGE:
+        return [winner["language"]]
+
+    langs: list[str] = []
+
+    def add(lang: str) -> None:
+        if lang not in langs:
+            langs.append(lang)
+
+    # Rule 1 — package.json (tsconfig.json disambiguation)
+    if _has_basename(tree, "package.json"):
+        add("typescript" if _has_basename(tree, "tsconfig.json") else "javascript")
+
+    # Rules 2-6 / 8 / 10 — single-basename manifests (same order as _MANIFEST_RULES)
+    for basename, language, _source in _MANIFEST_RULES:
+        if _has_basename(tree, basename):
+            add(language)
+
+    # Rule 7b — build.gradle (Groovy) Java/Kotlin disambiguation
+    if _has_basename(tree, "build.gradle"):
+        add("kotlin" if _has_path_segment(tree, "src/main/kotlin/") else "java")
+
+    # Rules 8-9 — suffix-based (csproj, sln)
+    for suffix, language, _source in _SUFFIX_RULES:
+        if _has_suffix(tree, suffix):
+            add(language)
+
+    if langs:
+        return langs
+
+    # No manifest matched — the winner came from the extension-frequency
+    # fallback (rule 10). Carry its best guess, or [] when it was "unknown".
+    fallback_language = winner["language"]
+    return [] if fallback_language == "unknown" else [fallback_language]
+
+
 def detect(payload: dict[str, Any]) -> dict[str, Any]:
+    """Apply the documented rule walk and annotate the full manifest match set.
+
+    Returns the single-winner envelope (language/confidence/detection_source/
+    fallback_to_extension_frequency) unchanged, plus detected_languages[] — the
+    ordered, deduplicated set of every manifest-level match — so a caller can
+    both auto-pick and gate multi-language disambiguation off one JSON shape.
+    """
+    winner = _winner(payload)
+    winner["detected_languages"] = _detected_languages(payload, winner)
+    return winner
+
+
+def _winner(payload: dict[str, Any]) -> dict[str, Any]:
     """Apply the documented rule walk. Always returns a recommendation."""
     tree = payload.get("tree")
     if not isinstance(tree, list):

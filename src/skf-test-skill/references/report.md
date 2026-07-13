@@ -2,8 +2,8 @@
 nextStepFile: 'health-check.md'
 
 outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
-scoringRulesFile: 'references/scoring-rules.md'
-outputFormatsFile: 'assets/output-section-formats.md'
+scoringRulesFile: '{scoringRulesPath}'
+outputFormatsFile: '{outputFormatsPath}'
 # outputContractSchema and healthCheck resolve relative to the SKF module root
 # (`{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during
 # development), NOT relative to this step file. Both paths are probed in
@@ -46,21 +46,7 @@ Read `{outputFile}` and extract every issue found across all analysis sections:
 
 ### 2. Load Severity Rules
 
-Load `{scoringRulesFile}` for gap severity classification:
-
-| Severity | Criteria |
-|----------|----------|
-| **Critical** | Missing exported function/class documentation |
-| **High** | Signature mismatch between source and SKILL.md |
-| **Medium** | Missing type or interface documentation |
-| **Medium** | Migration section present/absent mismatch with T2-future annotation data (Deep tier) |
-| **Medium** | Script/asset directory exists but no Scripts & Assets section in SKILL.md |
-| **Medium** | Scripts & Assets section references file not found in scripts/ or assets/ directory |
-| **Low** | Script/asset file present without provenance entry in provenance-map.json file_entries |
-| **Low** | Missing optional metadata or examples |
-| **Low** | Description trigger optimization recommended (third-person voice, negative triggers, or keyword coverage gaps) |
-| **Info** | Style suggestions, non-blocking observations |
-| **Info** | Discovery testing not performed — realistic prompt testing recommended before export |
+Load the **Gap Severity** table from `{scoringRulesFile}` — it is the single source of truth for classifying every gap (Critical / High / Medium / Low / Info). Classify each issue directly against that table in §3; do not restate its rows here, so the table cannot drift between this step and the scoring step that already consumes it.
 
 ### 3. Classify and Order Gaps
 
@@ -74,7 +60,7 @@ Load the Gap Report section format from `{outputFormatsFile}`. Count gaps by sev
 
 If no gaps found, append a clean pass message recommending **export-skill** workflow.
 
-### 4b. Discovery Testing (MANDATORY)
+### 4b. Discovery Testing
 
 **`--no-discovery` flag bypass (precedes the precondition check).** If `no_discovery: true` is set in workflow context (from §1 of `init.md` — `--no-discovery` flag on invocation), record an Info-severity note in the Discovery Quality subsection: `discovery — skipped: --no-discovery flag set`, log the bypass, and SKIP §4b.1–§4b.3. Proceed to §4b.4 (description optimization) only if tessl/skill-check flagged description issues; otherwise skip directly to §4c.
 
@@ -99,6 +85,8 @@ Parse SKILL.md for the three most "organic" prompts found in its `description`, 
 If SKILL.md does not contain enough organic examples, synthesize 3 from the skill's exports/capability summary using the patterns from §4b.4 below.
 
 **4b.2 Spawn a discovery subagent:**
+
+**Subagents-unavailable guard (precedes the spawn).** If subagents cannot be spawned in this environment (e.g. a headless/CI pipeline with no subagent capability), do NOT fall back to answering the routing in the main thread — the main thread knows which skill is under test, so it would self-route to `3/3 PASS` and inflate the Discovery score, the exact false confidence §4b.0 warns against. Instead record an Info-severity note in the Discovery Quality subsection: `discovery — skipped: subagents unavailable, routing test requires isolated context`, exclude the discovery check from Discovery Quality scoring (do not count it PASS or FAIL), and skip to §4c.
 
 For each of the 3 prompts, spawn an isolated subagent with NO prior context about which skill is under test. Provide only:
 1. A compact list of ALL skills available in `{skillsOutputFolder}` (name + description line from each skill's SKILL.md frontmatter)
@@ -133,7 +121,11 @@ Realistic prompt patterns for synthesis (§4b.1 fallback):
 
 ### 4c. Result Contract (atomic write)
 
-**Resolve `{atomicWriteHelper}`:** probe `{atomicWriteProbeOrder}`. HALT if neither candidate exists — the contract is a downstream-consumer protocol and must never be written non-atomically.
+**Resolve `{atomicWriteHelper}`:** probe `{atomicWriteProbeOrder}`. HALT if neither candidate exists — the contract is a downstream-consumer protocol and must never be written non-atomically. **Headless envelope (if `{headless_mode}`):** emit to **stderr** before halting:
+
+```
+SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":"{outputFile}","next_workflow":null,"exit_code":1,"halt_reason":"atomic-writer-missing"}
+```
 
 Write the result contract per `{outputContractSchema}`:
 - Per-run record: `{forge_version}/skf-test-skill-result-{run_id}.json` (the `{run_id}` set in step 1 §6a — already carries UTC timestamp + PID + random suffix, so no same-second collision).
@@ -178,7 +170,13 @@ Run it with a bounded timeout (default 60s). On success: log Info note "on_compl
  'report']
 ```
 
-If any expected entry is missing, HALT with "step completeness violation — missing {list}; workflow state is inconsistent, do not finalize the report". Only append `'report'` and write back after the check passes.
+If any expected entry is missing, HALT with "step completeness violation — missing {list}; workflow state is inconsistent, do not finalize the report". **Headless envelope (if `{headless_mode}`):** emit to **stderr** before halting:
+
+```
+SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":"{outputFile}","next_workflow":null,"exit_code":1,"halt_reason":"step-completeness-violation"}
+```
+
+Only append `'report'` and write back after the check passes.
 
 **Section anchor presence check (companion to stepsCompleted).** The
 report template ships six canonical H2 anchors — one per populating step. An
@@ -197,8 +195,14 @@ return ≥1 match:
 ```
 
 On any miss, HALT with "report anchor missing: {anchor} — section was not
-appended by its owning step". Do NOT append `'report'` and do NOT
-write the result contract. The template in `templates/test-report-template.md`
+appended by its owning step". **Headless envelope (if `{headless_mode}`):** emit to **stderr** before halting:
+
+```
+SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":"{outputFile}","next_workflow":null,"exit_code":1,"halt_reason":"report-anchor-missing"}
+```
+
+Do NOT append `'report'` and do NOT
+write the result contract. The template at `{testReportTemplatePath}`
 declares these anchors as TBD placeholders; a miss means a step silently
 skipped its append.
 
@@ -246,19 +250,19 @@ skipped its append.
 
 **Test report finalized.**"
 
-### 6b. Headless Exit Status
+### 6b. Determine Headless Exit Code
 
-If `{headless_mode}`:
-- `testResult: 'pass'` → `exit 0`
-- `testResult: 'pass-with-drift'` → `exit 4` (distinct from clean pass — orchestrators MUST route to re-test-against-pinned-commit queues and refuse export; never exit 0 under drift override)
-- `testResult: 'fail'` → `exit 2` (after the result contract has been written in §4c — never before)
-- `testResult: 'inconclusive'` → `exit 3` (distinct from fail so orchestrators can route to manual-review queues)
+This step only DETERMINES the terminal exit code — it does NOT exit. Both modes then reach §7 (headless auto-proceeds past the menu; non-headless goes through the [C] menu), and the terminal process-exit with this code happens in §7 after the health-check dispatch.
 
-Non-headless mode always drops to the menu in §7.
+If `{headless_mode}`, map `testResult` to the code the workflow will exit with in §7 and store it as `{headless_exit_code}` in workflow context:
+- `testResult: 'pass'` → exit code 0
+- `testResult: 'pass-with-drift'` → exit code 4 (distinct from clean pass — orchestrators MUST route to re-test-against-pinned-commit queues and refuse export; never exit 0 under drift override)
+- `testResult: 'fail'` → exit code 2 (the result contract was written in §4c — never exit before it)
+- `testResult: 'inconclusive'` → exit code 3 (distinct from fail so orchestrators can route to manual-review queues)
 
 ### 7. Health-Check Dispatch + MENU OPTIONS
 
-**`--no-health-check` flag bypass (precedes the health-check resolution).** If `no_health_check: true` is set in workflow context (from §1 of `init.md` — `--no-health-check` flag on invocation), set `health_check_dispatched: false` in the output report frontmatter and mirror `healthCheckDispatched: false` into the result contract written in §4c (re-write atomically via `{atomicWriteHelper}`). Log Info note "health-check — skipped: --no-health-check flag set" and EXIT THE WORKFLOW: in `{headless_mode}`, exit with the code already determined in §6b; non-headless, simply terminate after the §6 presentation. Do NOT resolve `{healthCheckFile}`, do NOT display the menu, do NOT chain to `{nextStepFile}`. The §6b exit branch is the terminal state under this flag.
+**`--no-health-check` flag bypass (precedes the health-check resolution).** If `no_health_check: true` is set in workflow context (from §1 of `init.md` — `--no-health-check` flag on invocation), set `health_check_dispatched: false` in the output report frontmatter and mirror `healthCheckDispatched: false` into the result contract written in §4c (re-write atomically via `{atomicWriteHelper}`). Log Info note "health-check — skipped: --no-health-check flag set" and EXIT THE WORKFLOW: in `{headless_mode}`, exit with `{headless_exit_code}` (determined in §6b); non-headless, simply terminate after the §6 presentation. Do NOT resolve `{healthCheckFile}`, do NOT display the menu, do NOT chain to `{nextStepFile}`. This flag is the one path where §7 does not dispatch the health-check.
 
 Resolve `{healthCheckFile}`: probe `{healthCheckProbeOrder}` in order. **HALT** if neither candidate exists — the health-check is the true terminal step; without it the workflow cannot complete honestly:
 
@@ -271,6 +275,12 @@ test-skill delegates its terminal step to the shared health-check. Install
 the SKF module or run from a development checkout with src/ present.
 ```
 
+**Headless envelope (if `{headless_mode}`):** emit to **stderr** before halting:
+
+```
+SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":"{outputFile}","next_workflow":null,"exit_code":1,"halt_reason":"health-check-missing"}
+```
+
 Before displaying the menu, write the dispatch decision into the output report frontmatter (so the artifact records whether the health-check ran):
 
 - `health_check_dispatched: true` — when the C menu choice will be taken (headless, or user will select C)
@@ -280,5 +290,5 @@ Also mirror the boolean into the `healthCheckDispatched` field of the result con
 
 Display: "**Test complete.** [C] Finish"
 
-On [C] (or auto-proceed in `{headless_mode}` — log: "headless: auto-continue past report menu"): set `health_check_dispatched: true` in frontmatter, then load and execute `{nextStepFile}` (the local health-check dispatcher). The test report document at `{outputFile}` contains the full analysis: Test Summary, Coverage Analysis, Coherence Analysis, Completeness Score, and Gap Report.
+On [C] (or auto-proceed in `{headless_mode}` — log: "headless: auto-continue past report menu"): set `health_check_dispatched: true` in frontmatter, then load and execute `{nextStepFile}` (the local health-check dispatcher). The test report document at `{outputFile}` contains the full analysis: Test Summary, Coverage Analysis, Coherence Analysis, Completeness Score, and Gap Report. In `{headless_mode}`, once the dispatched health-check completes, the workflow makes its terminal process-exit with `{headless_exit_code}` (determined in §6b) — this is the single terminal exit for the headless happy path.
 

@@ -217,10 +217,6 @@ After documentation fetch is complete (or skipped for any reason), immediately l
 - Successful fetch: display report then auto-proceed
 - All failures degrade gracefully — skip and auto-proceed
 
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN documentation is fetched and T3 items are merged into the extraction inventory (or the step is skipped due to no `doc_urls`, no web tools, or fetch failures) will you proceed to load `{nextStepFile}` for enrichment.
-
 ---
 
 ## SYSTEM SUCCESS/FAILURE METRICS

@@ -3,6 +3,7 @@ stateSchemaFile: 'assets/campaign-state-schema.json'
 stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 backupFile: '{campaignWorkspacePath}/_campaign-state.yaml.bak'
 validateScript: 'scripts/campaign-validate-state.py'
+statusScript: 'scripts/campaign-status.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -43,7 +44,7 @@ Check if `{backupFile}` exists.
 **If `.bak` exists** (and §1 did not already recover from it):
 
 1. Run `uv run {validateScript} --state-file {backupFile}`. If invalid, warn: "Backup file fails validation — cannot use for recovery." Continue with the primary.
-2. Compare primary vs backup. If `primary.campaign.last_updated < backup.campaign.last_updated` OR `primary.campaign.current_stage < backup.campaign.current_stage`, the primary looks behind the backup (possible crash during last write). Present a recovery choice:
+2. Compare primary vs backup deterministically: run `uv run {statusScript} --state-file {stateFile} --backup-file {backupFile}` and read `backup_comparison.primary_behind` (the script does the ISO-8601 timestamp and `current_stage` compares — do not order the timestamps by hand). If it is `true`, the primary looks behind the backup (possible crash during last write). Present a recovery choice:
    - `[R]ecover` — copy `{backupFile}` over `{stateFile}` and resume from the backup's state.
    - `[K]eep` — keep the primary as authoritative (the default).
 
@@ -94,15 +95,15 @@ Map the resolved stage number to its step file. Both §3 branches feed this tabl
 | 9 | step-10-export.md |
 | 10 | step-11-maintenance.md |
 
-Display a resume summary before chaining:
+Derive the skill counts deterministically — `uv run {statusScript} --state-file {stateFile}` returns `completed`, `total`, and the per-status counts (`pending` / `active` / `failed` / `skipped`); do not hand-count `skills[]`. Display a resume summary before chaining:
 
 ```
 CAMPAIGN RESUME: {campaign.name}
 
   Resuming from: Stage {stage_number} — {stage_name}
   Target skill:  {skill_name} (if --from was used, otherwise "auto-detected" or "N/A")
-  Skills completed: {completed_count} / {total_count}
-  Skills remaining: {pending_count} pending, {active_count} active, {failed_count} failed, {skipped_count} skipped
+  Skills completed: {completed} / {total}
+  Skills remaining: {pending} pending, {active} active, {failed} failed, {skipped} skipped
   Last updated:  {campaign.last_updated}
 ```
 

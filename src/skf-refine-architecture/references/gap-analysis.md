@@ -22,21 +22,15 @@ Find undocumented integration paths — library pairs that have compatible APIs 
 
 Use the refinement rules loaded in Step 01 from `{refinementRulesData}`. If not available in context, reload from `{refinementRulesData}`.
 
-Extract: gap classification (Missing Integration Path, Undocumented Data Flow, Absent Bridge Layer), detection method, and citation format.
+Extract: gap classification (Missing Integration Path, Undocumented Data Flow, Absent Bridge Layer) and detection method.
 
 ### 2. Extract Integration Claims from Architecture
 
 Parse the architecture document for statements describing two or more technologies working together.
 
-**Detection method — prose-based co-mention analysis:**
-- Identify sentences or paragraphs where two or more technology names appear together
-- Look for integration verbs: "connects to", "communicates with", "wraps", "extends", "consumes", "produces", "bridges", "integrates with", "sits between", "feeds into", "receives from"
-- Look for data flow descriptions: "{A} sends data to {B}", "{A} results are consumed by {B}"
-- Look for layer boundary descriptions: "{A} at the API layer connects to {B} at the data layer"
+**Detection method — prose-based co-mention analysis:** From prose text, find sentences or paragraphs where two or more technology names appear in an *integration relationship* — data flowing between them, one wrapping/bridging/extending/consuming another, or a layer boundary connecting them — not mere co-mention in the same document.
 
-**CRITICAL:** Do NOT parse Mermaid diagram syntax. Use only prose text for co-mention detection.
-
-**Mermaid Limitation Warning:** If `` ```mermaid `` blocks are present in the architecture document, inform the user: "Integration paths documented exclusively in Mermaid diagrams are excluded from co-mention analysis and may appear as false-positive gaps. Consider adding prose descriptions for diagram-only integration paths." Display this warning informatively and immediately continue — this does not halt or modify the analysis sequence.
+**Mermaid limitation:** Detect co-mentions from prose text only, not from Mermaid diagram syntax — an integration drawn only in a diagram would otherwise surface as a false-positive gap. If `` ```mermaid `` blocks are present in the architecture document, inform the user: "Integration paths documented exclusively in Mermaid diagrams are excluded from co-mention analysis and may appear as false-positive gaps. Consider adding prose descriptions for diagram-only integration paths." Display this warning informatively and immediately continue — this does not halt or modify the analysis sequence.
 
 **Build documented pairs list:**
 - Each pair: `{library_a, library_b, architectural_context}`
@@ -57,11 +51,11 @@ Resolve the in-scope skill set:
 
 Store `{in_scope_skills}` and `{out_of_scope_skills}` as workflow state — Step 03 (issue detection) reuses them.
 
-### 3. Generate All Possible Library Pairs
+### 3. Read the Pre-Computed Library Pairs
 
-From the skill inventory, generate all unique combinations of library pairs.
+Read the pre-computed unique library pairs from `skill_inventory.pairs` (emitted by the enumerate helper's `--pairs` flag in Step 01 §2). This is the complete, deterministic pair set — every `{library_a, library_b}` combination over the inventory, `pair_count == N*(N-1)/2`. **Do NOT re-derive it in-context** — re-deriving risks silently dropping or duplicating a pair at larger N, and a dropped pair is a missed integration gap (this workflow's headline output).
 
-For N skills, this produces N*(N-1)/2 unique pairs.
+If `skill_inventory.pairs` is absent (the helper was unavailable and the Step 01 §2 fallback path ran), derive the pairs from the inventory as a graceful-degradation fallback only.
 
 ### 4. Load Skill API Surfaces for Cross-Reference
 
@@ -89,7 +83,7 @@ For each library in the skill inventory, delegate reading to a parallel subagent
 - `data_formats`: any data format indicators found in the SKILL.md
 - If a field has no matches, return an empty array `[]`
 
-**Parent collects all subagent JSON summaries.** Do not load full SKILL.md content into parent context.
+**Parent collects all subagent JSON summaries.** Do not load full SKILL.md content into parent context. Store the collected summaries as `{skill_api_surfaces}` workflow state — Step 03 (issue detection) and Step 04 (improvements) reuse them exactly like `{in_scope_skills}`, rather than re-reading each SKILL.md into the parent. This §4 delegate-the-read (compact-JSON return, no full-file load in parent) is the canonical API-surface read pattern for the workflow.
 
 **From metadata.json (read in parent — lightweight), also extract:**
 - `language` — primary programming language
@@ -97,7 +91,7 @@ For each library in the skill inventory, delegate reading to a parallel subagent
 
 ### 5. Cross-Reference: Identify Gaps
 
-For each possible library pair NOT already documented in the architecture:
+For each library pair in `skill_inventory.pairs` (from §3) NOT already documented in the architecture:
 
 **Check API compatibility:**
 - Does Library A export types or data that Library B can consume?
@@ -111,7 +105,7 @@ For each possible library pair NOT already documented in the architecture:
 - Document the connecting APIs from both skills
 - Propose a brief architecture section describing the integration
 
-**Apply the citation format from {refinementRulesData}:**
+**Cite each gap in this format:**
 ```
 **[GAP]**: {description}
 
@@ -125,35 +119,12 @@ Suggestion: {proposed architecture section content}
 
 **If no compatible APIs:** Skip this pair — not all pairs need to integrate.
 
-### 6. Display Gap Analysis Results
+### 6. Report Gaps & Store Findings
 
-"**Pass 1: Gap Analysis — Undocumented Integration Paths**
+Report the in-scope gap count, then list each gap as a row of **# / Library A / Library B / Gap Type / Connecting APIs** followed by its full §5 citation. Two signals are not inferable from the counts and must survive regardless of format:
 
-**Gaps Found (in-scope):** {count}
-
-{IF gaps found:}
-| # | Library A | Library B | Gap Type | Connecting APIs |
-|---|-----------|-----------|----------|-----------------|
-| {n} | {lib_a} | {lib_b} | {gap_type} | {brief API description} |
-
-{For each gap, display the full citation with evidence and suggestion}
-
-{IF out-of-scope compatible pairs exist (from §2b/§5):}
-**Out of scope for this document:** {oos_count} compatible pair(s) involve skills outside this architecture's surface — `{out_of_scope_skills}` — and were NOT counted as gaps. Listed for awareness only:
-
-| Library A | Library B | Reason |
-|-----------|-----------|--------|
-| {lib_a} | {lib_b} | out-of-scope — not referenced in this architecture |
-
-If any of these belongs in this architecture, re-run with `--scope-skills` naming the skills to include.
-
-{IF no gaps found AND N > 1:}
-**No undocumented integration paths detected.** The architecture document covers all compatible in-scope library pairs.
-
-{IF no gaps found AND N == 1:}
-**⚠️ Gap analysis skipped — only 1 skill loaded.** Pairwise integration analysis requires at least 2 skills. If the architecture references multiple libraries, those without a matching skill are invisible to gap analysis. **Recommendation:** Generate skills for all architecture libraries with [CS] or [QS] before running [RA] for comprehensive gap detection.
-
-**Proceeding to issue detection (still produces value with 1 skill)...**"
+- **N == 1 (only one skill loaded):** gap analysis is skipped — pairwise integration analysis needs ≥2 skills, and libraries without a matching skill are invisible to it. Recommend generating skills for all architecture libraries with [CS] or [QS] before re-running [RA], and note issue detection still runs.
+- **Out-of-scope compatible pairs exist (from §2b/§5):** list them separately for awareness only — they were NOT counted as gaps — and note that re-running with `--scope-skills` (naming the skills to include) pulls any that belong into scope.
 
 Store all **in-scope** gap findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-GAPS] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted gap findings** (full citation blocks with evidence and suggestions, not just counts) — Step 05 can read this back if context degrades. Record out-of-scope pairs under a separate `<!-- [RA-OUT-OF-SCOPE] ... -->` marker (NOT `[RA-GAPS]`) so Step 05 does not compile them into the refined document — they are informational only. **Do NOT write to `{output_folder}/refined-architecture-{arch_project_name}.md` — that file is created only in step 5.**
 

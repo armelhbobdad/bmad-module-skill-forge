@@ -121,7 +121,3 @@ After enrichment is complete (or skipped for non-Deep tiers), immediately load, 
 - Deep tier displays brief enrichment summary then auto-proceeds
 - QMD failures do not halt — degrade and proceed
 
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN enrichment is complete (Deep tier) or the step is skipped (Quick/Forge/Forge+) will you proceed to load `{nextStepFile}` for SKILL.md compilation.
-

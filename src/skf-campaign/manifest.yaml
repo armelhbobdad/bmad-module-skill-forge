@@ -5,6 +5,10 @@ version: "2.0.0"
 trigger: campaign
 parent_module: skf
 
+# Canonical internal filenames for the campaign workspace. Fixed contract (the
+# step chain references these names directly and test-skf-campaign-state guards
+# them against drift) — NOT an operator-override surface; customize.toml is the
+# only customization mechanism.
 config:
   state_file: "_campaign-state.yaml"
   backup_file: "_campaign-state.yaml.bak"

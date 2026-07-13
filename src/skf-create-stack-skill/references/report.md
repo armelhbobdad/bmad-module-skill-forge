@@ -122,7 +122,23 @@ Include `SKILL.md`, `context-snippet.md`, and `metadata.json` paths in `outputs`
 
 If either atomic write fails, log the error, leave any prior `-latest.json` untouched, and continue — the report is advisory and should not block the health-check chain.
 
+**Headless success envelope.** When `{headless_mode}` is true, emit the single-line result envelope on **stdout** (the success counterpart to the error envelopes every HARD HALT emits on stderr) before chaining to step 10. `skill_package` is the absolute path to the committed package; `stack_libraries` is the included library names:
+
+```
+SKF_STACK_RESULT_JSON: {"status":"success","skill_package":"{skill_package}","skill_name":"{project_name}-stack","stack_libraries":["<lib>", "..."],"mode":"{code|compose}","exit_code":0,"halt_reason":null}
+```
+
+### 6c. Post-Completion Hook (optional)
+
+If `{onCompleteCommand}` (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) is non-empty, invoke it now — after the result contract (§6b) is written, before chaining to health-check:
+
+```bash
+{onCompleteCommand}
+```
+
+Run it with a bounded timeout (default 60s). On success, continue. On non-zero exit, timeout, or any failure, append the reason to `workflow_warnings[]` (e.g. `on_complete — failed (exit {N}): {stderr_first_line}`) and continue. **The hook must never fail the workflow** — it is integration glue (catalog registration, downstream pipeline notify) orthogonal to the forged stack. When `{onCompleteCommand}` is empty (bundled default), skip this section entirely.
+
 ### 7. Chain to Health Check
 
-ONLY WHEN the forge banner, confidence distribution, output file summary, validation summary, warnings (if any), next-workflow recommendations, and result contract have all been handled will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the report reads as final.
+After the report sections above are handled, load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the report reads as final.
 

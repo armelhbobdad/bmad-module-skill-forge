@@ -1,7 +1,7 @@
 ---
 nextStepFile: 'recommend.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-heuristicsFile: 'references/unit-detection-heuristics.md'
+heuristicsFile: '{unitDetectionHeuristicsPath}'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -31,7 +31,7 @@ Load {heuristicsFile} for stack skill candidate detection rules.
 
 ### 2. Map Export Surfaces Per Unit (Subagent Fan-Out)
 
-DO NOT BE LAZY — For EACH qualifying unit, delegate deep analysis to a subagent so per-unit work runs in parallel and the parent's context stays clean.
+For EACH qualifying unit, delegate deep analysis to a subagent so per-unit work runs in parallel and the parent's context stays clean.
 
 **Subagent fan-out protocol:**
 
@@ -200,6 +200,7 @@ Display: "**Select:** [C] Continue to Recommendations | [D] Discover Additional 
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
+- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue past export/integration findings, log: "headless: auto-continue past integration analysis"
 - ONLY proceed to next step when user selects 'C'
 
 ## CRITICAL STEP COMPLETION NOTE

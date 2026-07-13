@@ -79,6 +79,25 @@ DETECT_OUTPUT_SCHEMA (v1):
       "requested":     "Quick"|"Forge"|"Forge+"|"Deep"|null,
       "satisfied":     bool|null,
       "missing_tools": [str]
+    },
+    "prior": {
+      # Populated from --prior-state-from's forge-tier.yaml (first run: all null/empty).
+      "previous_tier":                          "Quick"|"Forge"|"Forge+"|"Deep"|null,
+      "previous_detection_date":                str|null,
+      "previous_tools":                         {tool: bool, ...},
+      "previous_ccc_index_status":              str|null,
+      "previous_ccc_indexed_path":              str|null,
+      "previous_ccc_last_indexed":              str|null,
+      "previous_ccc_staleness_threshold_hours": int|null,
+      # Deterministic CCC-index freshness verdict — computed against
+      # --project-root and datetime.now(UTC) captured at detect time, so the
+      # ccc-index.md step branches on a boolean instead of doing timestamp math.
+      "ccc_index_fresh":                        bool
+    },
+    "deltas": {
+      "tools_added":   [str],
+      "tools_removed": [str],
+      "tier_changed":  bool
     }
   }
 """
@@ -93,6 +112,7 @@ import subprocess
 import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 
 
 VALID_TIERS = ("Quick", "Forge", "Forge+", "Deep")
@@ -342,6 +362,73 @@ def read_prior_state(prior_state_path) -> dict:
     }
 
 
+def _parse_iso_timestamp(value) -> datetime | None:
+    """Parse an ISO 8601 timestamp into a timezone-aware datetime, or None.
+
+    Normalizes a trailing 'Z' (UTC designator) to '+00:00' because
+    `datetime.fromisoformat` does not accept 'Z' on Python < 3.11 and
+    requires-python here is >=3.10. A naive result (no tzinfo) is assumed to be
+    UTC so it can be compared against a tz-aware `now` without raising. Returns
+    None on any parse failure (non-string, empty, malformed).
+    """
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text[-1] in ("Z", "z"):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def compute_ccc_index_fresh(prior: dict, project_root, now: datetime) -> bool:
+    """Deterministic freshness verdict for a prior CCC index.
+
+    Replaces the ISO-8601 datetime arithmetic that ccc-index.md §2 used to ask
+    the model to perform (parse a timestamp, subtract from now, convert to
+    hours, compare against a threshold). Same inputs → same boolean.
+
+    Returns True only when ALL hold:
+      - the prior index covered this same project (indexed_path == project_root)
+      - the prior index status is "fresh" or "created"
+      - last_indexed parses AND (now - last_indexed) <= staleness threshold
+
+    The staleness threshold defaults to 24 hours when the prior field is null
+    (matching the ccc-index.md §2 default). Any null/unparseable required field
+    (indexed_path, status, last_indexed), path mismatch, non-fresh status,
+    unparseable threshold, or over-threshold delta yields False.
+    """
+    if not project_root:
+        return False
+    if prior.get("previous_ccc_indexed_path") != project_root:
+        return False
+    if prior.get("previous_ccc_index_status") not in ("fresh", "created"):
+        return False
+
+    last_indexed = _parse_iso_timestamp(prior.get("previous_ccc_last_indexed"))
+    if last_indexed is None:
+        return False
+
+    threshold = prior.get("previous_ccc_staleness_threshold_hours")
+    if threshold is None:
+        threshold = 24
+    try:
+        threshold_hours = float(threshold)
+    except (ValueError, TypeError):
+        return False
+
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    delta_hours = (now - last_indexed).total_seconds() / 3600.0
+    return delta_hours <= threshold_hours
+
+
 def detect(args: argparse.Namespace) -> dict:
     tools: dict = {}
     with ThreadPoolExecutor(max_workers=4) as ex:
@@ -394,6 +481,9 @@ def detect(args: argparse.Namespace) -> dict:
         require_satisfied = None
 
     prior = read_prior_state(getattr(args, "prior_state_from", None))
+    prior["ccc_index_fresh"] = compute_ccc_index_fresh(
+        prior, getattr(args, "project_root", None), datetime.now(timezone.utc)
+    )
     deltas = compute_deltas(tools, prior, calculated)
 
     return {
@@ -474,6 +564,14 @@ def main() -> None:
         default="SNYK_TOKEN",
         help="Environment variable name to check for security-scan availability"
              " (informational only — does NOT affect tier). Default: SNYK_TOKEN.",
+    )
+    parser.add_argument(
+        "--project-root",
+        default=None,
+        help="Absolute project root of the current run. Used only to compute"
+             " prior.ccc_index_fresh: the prior CCC index counts as fresh only"
+             " when its indexed_path equals this value (and its status/timestamp"
+             " still qualify). Omitted → ccc_index_fresh is always false.",
     )
     parser.add_argument(
         "--prior-state-from",

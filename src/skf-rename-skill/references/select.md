@@ -1,6 +1,16 @@
 ---
 nextStepFile: 'execute.md'
 versionPathsKnowledge: 'knowledge/version-paths.md'
+# Resolve `{manifestOpsHelper}` by probing `{manifestOpsProbeOrder}` in order
+# (installed SKF module path first, src/ dev-checkout fallback); first existing
+# path wins. §7 uses its `affected-versions` action to enumerate the versions a
+# rename must touch — the union of manifest version keys and on-disk version
+# dirs, deduped and semver-sorted (numeric, so 0.10.0 precedes 0.9.0). Unlike
+# execute.md's write helpers this one is not atomicity-critical: if neither path
+# resolves, §7 falls back to computing the union in the prompt.
+manifestOpsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
+  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -17,6 +27,14 @@ Identify the skill the user wants to rename, validate the new name against the a
 - Do not proceed without explicit user confirmation at the final gate
 - Do not accept a new name that fails validation (kebab-case, length, uniqueness)
 - Present the list of affected versions clearly so the user understands the scope
+
+**Headless error envelope (self-contained).** Where a halt below says *"emit the error envelope per SKILL.md 'Result Contract (Headless)'"*, write this single line to **stderr** (restated here so selection halts stay parseable even if SKILL.md is out of context) —
+
+```
+SKF_RENAME_SKILL_RESULT_JSON: {"status":"error","old_name":"…|null","new_name":"…|null","versions_renamed":[],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":<code>,"halt_reason":"<reason>"}
+```
+
+Use the `old_name`/`new_name`, `exit_code`, and `halt_reason` named at each halt site (see `references/exit-codes.md`) — `old_name`/`new_name` are `null` until resolved in §4/§5.
 
 ## MANDATORY SEQUENCE
 
@@ -114,7 +132,7 @@ printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK"
 ### 5. Ask for New Name
 
 "**What is the new name for this skill?**
-The new name must be kebab-case: lowercase alphanumeric with hyphens, 1-64 characters, matching the regex `^[a-z][a-z0-9-]*[a-z0-9]$` (single-character names may be a single lowercase letter or digit). Or type `cancel` / `exit` / `:q` to abort."
+The new name must be kebab-case: lowercase alphanumeric with hyphens, 1-64 characters, matching the regex `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` (starts and ends with a lowercase letter or digit; a single letter or digit is valid). Or type `cancel` / `exit` / `:q` to abort."
 
 Wait for user input. Trim whitespace. **GATE [default: use args]** — If `{headless_mode}` and new_name was provided as argument: use it and auto-proceed through validation. If not provided, release the lock and HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode requires new_name argument." In headless, emit the error envelope.
 
@@ -122,8 +140,8 @@ Wait for user input. Trim whitespace. **GATE [default: use args]** — If `{head
 
 Apply the following validations in order:
 
-1. **Kebab-case format:** Must match `^[a-z][a-z0-9-]*[a-z0-9]$` (or `^[a-z0-9]$` for the single-character case). If it fails:
-   "**Invalid name format.** The new name must be lowercase alphanumeric with hyphens, starting with a letter and ending with a letter or digit. Try again."
+1. **Kebab-case format:** Must match `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` — the module's canonical skill-name rule (same regex as `skf-validate-output.py` / `skf-validate-brief-inputs.py`), so a digit-leading name like `3d-tools` that the create path accepts also renames cleanly. If it fails:
+   "**Invalid name format.** The new name must be lowercase alphanumeric with hyphens, starting and ending with a lowercase letter or digit. Try again."
    Re-ask. In headless mode, instead of re-asking, release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`) and HALT (exit code 2, `halt_reason: "input-invalid"`) and emit the error envelope.
 
 2. **Length:** Must be 1-64 characters per the agentskills.io spec. If it fails:
@@ -142,6 +160,8 @@ Apply the following validations in order:
    If any collision is detected:
    "**Name collision.** `{new-name}` already exists at: {list the colliding locations}. Pick a different name."
    Re-ask. In headless mode, instead of re-asking, release the lock and HALT (exit code 5, `halt_reason: "name-collision"`) and emit the error envelope.
+
+   **Interrupted prior rename (recovery, not a true collision):** if `{new_name}` collides only in `{skills_output_folder}` / `{forge_data_folder}` (not the manifest `exports`) **and** the `{old_name}` directories are still present in both, this is the fingerprint of a rename that was interrupted between step 2 §1 (copy) and §8 (delete old) — an external kill/compaction, not a genuine collision. Add to the message: "This may be a stranded partial rename from an earlier interrupted run — `{new_name}` was staged but `{old_name}` was never removed. Confirm the `{new_name}` directories are not a skill you want to keep, then clean them up (`rm -rf {skills_output_folder}/{new_name} {forge_data_folder}/{new_name}`) and re-run this rename." This gives headless pipelines a named recovery path instead of a dead-end collision halt.
 
 Only after all four validations pass, store the input as `new_name`.
 
@@ -176,14 +196,15 @@ Wait for response.
 
 ### 7. Enumerate Affected Versions
 
-List all versions for `old_name`:
+Resolve `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}` (installed SKF module path first, `src/` dev-checkout fallback). Enumerate every version the rename must touch deterministically via its `affected-versions` action:
 
-1. Read every key under `exports.{old_name}.versions` in the manifest
-2. Also list every directory under `{skills_output_folder}/{old_name}/` that looks like a version (any entry that is not `active`)
-3. Union the two sets — this handles both manifest-tracked and orphaned on-disk versions
-4. Sort descending where possible (newest first)
+```bash
+python3 {manifestOpsHelper} {skills_output_folder} affected-versions {old_name}
+```
 
-Store the sorted list as `affected_versions` and count it as `affected_versions_count`.
+Read the JSON result. Store `affected_versions` = `result.affected_versions` and `affected_versions_count` = `result.count`. The helper unions the manifest's `exports.{old_name}.versions` keys with the on-disk version directories under `{skills_output_folder}/{old_name}/` (every entry that is not the `active` symlink), so it handles both manifest-tracked and orphaned on-disk versions, deduplicates, and applies a **numeric** semver-descending sort (so `0.10.0` correctly precedes `0.9.0`, which a lexical sort gets wrong). An incomplete union would risk leaving a version internally un-renamed in the new copy — a leftover that step 2 §5 only catches for the versions it was told about.
+
+**If `{manifestOpsHelper}` has no existing candidate** (neither probe path resolves — e.g. Python/`uv` unavailable): compute `affected_versions` in the prompt instead — read every key under `exports.{old_name}.versions` in the manifest, list every directory under `{skills_output_folder}/{old_name}/` that is not `active`, union the two sets, and sort descending (newest first, comparing version components numerically). Store the list as `affected_versions` and its length as `affected_versions_count`.
 
 Also resolve the four outer paths using the templates from `{versionPathsKnowledge}`:
 
@@ -252,8 +273,4 @@ Store the following decisions in workflow context for step 2:
 ### 10. Load Next Step
 
 Load, read the full file, and then execute `{nextStepFile}`.
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the user has confirmed with `Y` at the confirmation gate AND all selection decisions have been stored in context, will you then load and read fully `{nextStepFile}` to execute the rename.
 

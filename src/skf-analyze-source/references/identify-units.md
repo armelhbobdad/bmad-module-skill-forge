@@ -1,10 +1,13 @@
 ---
 nextStepFile: 'map-and-detect.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-heuristicsFile: 'references/unit-detection-heuristics.md'
+heuristicsFile: '{unitDetectionHeuristicsPath}'
 disqualifyCandidatesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-disqualify-candidates.py'
   - '{project-root}/src/shared/scripts/skf-disqualify-candidates.py'
+detectLanguageProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-language.py'
+  - '{project-root}/src/shared/scripts/skf-detect-language.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -127,10 +130,17 @@ After building the classification table, apply the Composite Boundary detection 
 
 ### 4. Detect Primary Language Per Unit
 
-For each qualifying unit (including any approved composites from §3b), determine the primary programming language based on:
-- File extensions in the unit directory
-- Manifest file type (package.json → JS/TS, Cargo.toml → Rust, go.mod → Go, etc.)
-- Entry point file extension
+For each qualifying unit (including any approved composites from §3b), detect the primary language deterministically via the shared helper — the single source of truth for the manifest→language rule table (no in-prose restatement, which drifts from the script's tsconfig JS-vs-TS and `build.gradle` Java-vs-Kotlin disambiguation).
+
+**Resolve `{detectLanguageHelper}`** from `{detectLanguageProbeOrder}`; first existing path wins.
+
+For each unit, pipe its file list — the `files` array built for that boundary in the §2 boundaries JSON — as the tree:
+
+```bash
+echo '{"tree": [<unit files — forward-slash, repo-relative>]}' | uv run {detectLanguageHelper}
+```
+
+Read `.language` and `.confidence` for the unit. When confidence is low (the extension-frequency fallback fired — no manifest matched), surface it in §5 so the user can override the guess.
 
 ### 5. Present Classifications
 

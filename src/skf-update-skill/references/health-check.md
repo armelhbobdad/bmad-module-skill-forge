@@ -19,7 +19,7 @@ Chain to the shared workflow self-improvement health check at `{nextStepFile}`. 
 - Delegate directly to `{nextStepFile}` with no additional commentary
 - Do not attempt any other action between loading this step and executing `{nextStepFile}` (other than the lock release below)
 
-## MANDATORY SEQUENCE
+## Steps
 
 1. **Release the concurrency lock** acquired by init.md §1b (skip when `detect_only_mode` or `dry_run_mode` is true — those modes never acquired one):
 

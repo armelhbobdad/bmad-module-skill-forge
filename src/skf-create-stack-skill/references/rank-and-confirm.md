@@ -56,7 +56,7 @@ Use ecosystem-appropriate import patterns:
 - Python: `import library`, `from library import`
 - Rust: `use library::`, `extern crate library`
 - Go: `"library"` in import blocks
-- (Match patterns from manifest-patterns.md)
+- (Match patterns from `{manifestPatternsPath}`)
 
 **Subprocess returns:** `{library_name: import_count, files: [file_paths]}` for each dependency.
 
@@ -126,9 +126,9 @@ Display: **Select:** [C] Continue to Extraction | [X] Cancel and exit
 
 #### EXECUTION RULES:
 
-- ALWAYS halt and wait for user input after presenting scope
+- This is a confirmation gate — advancing without the user's `C` would extract and ship a stack scope they never approved. Halt and wait for input after presenting scope.
 - **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue (accept all ranked libraries), log: "headless: auto-confirm library scope"
-- ONLY proceed to next step when user confirms scope and selects 'C'
+- Proceed to the next step only once the user confirms scope by selecting `C`.
 
 #### Menu Handling Logic:
 

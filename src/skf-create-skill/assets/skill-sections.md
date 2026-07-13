@@ -2,25 +2,9 @@
 
 ## agentskills.io Compliant Format
 
-### Frontmatter (Required — agentskills.io Compliance)
+### Frontmatter
 
-```yaml
----
-name: {skill-name}
-description: >
-  {Trigger-optimized description of what the skill does and when to use it.
-  Include specific keywords for agent discovery.
-  Mention what NOT to use it for if applicable.
-  1-1024 characters.}
----
-```
-
-**Frontmatter rules (agentskills.io specification):**
-
-- `name`: 1-64 characters, lowercase alphanumeric + hyphens only, must match parent directory name. Prefer gerund form (`processing-pdfs`, `analyzing-spreadsheets`) for clarity; noun phrases and action-oriented forms are acceptable alternatives.
-- `description`: 1-1024 characters, trigger-optimized for agent matching. MUST use third-person voice ("Processes..." not "I can..." or "You can...") AND include a trigger phrase ("Use when ...", "Triggers on ...", "Reach for this when ..."). When using "Use when ", follow with a gerund (`Use when building/processing/analyzing X…`) or noun-phrase clause — never a bare indicative verb, since `skill-check --fix` will prepend a literal "Use when " to descriptions missing the phrase. See `skf-brief-skill/assets/description-voice-examples.md`.
-- Only 6 fields permitted: `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`
-- `version` and `author` belong in metadata.json, NOT in frontmatter
+The authoritative frontmatter contract — permitted fields, the `name`/`description` rules, the trigger-phrase/voice requirements, and the no-angle-brackets rule — is owned by `assets/compile-assembly-rules.md` (## Frontmatter). This catalog does not restate it (both files load together at compile.md §1).
 
 ### Two-Tier Section Structure
 
@@ -49,91 +33,16 @@ SKILL.md uses a two-tier structure to ensure actionable content survives `split-
 | 10 | **Full Type Definitions** | All types, interfaces, enums with full field details |
 | 11 | **Full Integration Patterns** | Co-import patterns, adapter details, pipeline internals (Forge/Deep only) |
 
-#### Assembly Rules
+#### Section Conditionality
 
-- Tier 1 sections are assembled first — they form the standalone body
-- Tier 2 sections are assembled after — they are progressive disclosure detail
-- Tier 1 sections are kept short enough that `split-body` targets the larger Tier 2 sections (`## Full` headings) into `references/`
-- After split-body, SKILL.md retains all Tier 1 content — actionable without loading references
-- An agent loading only SKILL.md (no references) must get enough to act
 - **Section 4b (Migration & Deprecation Warnings)** is conditional: only emitted for Deep tier when T2-future annotations exist. Quick/Forge/Forge+ tiers and Deep tiers without T2-future annotations omit it entirely (no empty section). Parsers and validators must treat this section as optional.
 - **Section 7b (Scripts & Assets)** is conditional: only emitted when `scripts_inventory` or `assets_inventory` is non-empty. Omitted entirely when no scripts or assets are detected. Parsers and validators must treat this section as optional.
 
+Assembly ordering, the under-300-line Tier-1 budget, and split-body targeting are owned by `assets/compile-assembly-rules.md` (### Assembly Rules).
+
 ### Component Library Section Overrides
 
-When `scope.type: "component-library"`, these section formats replace their standard counterparts. All other sections (Overview, Common Workflows, Architecture, CLI, Manual Sections, etc.) use the standard format.
-
-#### Section 4 — Component Catalog (replaces Key API Summary)
-
-```markdown
-## Component Catalog
-
-| Category | Count | Key Components |
-|----------|-------|---------------|
-| {category} | {count} | {ComponentA}, {ComponentB}, {ComponentC}, ... |
-
-**Design system variants:** {primary} (primary), {variant2}, {variant3}
-**Total components:** {unique_count} | **With {variant1}:** {count1} | **With {variant2}:** {count2}
-```
-
-- Source: `component_catalog[]` from step 3d extraction
-- Group by `category` field from registry
-- Show top 3-5 component names per category
-- Cite registry file: `[SRC:{registry_file}:L1]`
-- Budget: ~20 lines (same as standard Section 4)
-
-#### Section 5 — Key Props (replaces Key Types)
-
-```markdown
-## Key Types
-
-### {ComponentName}Props
-
-| Prop | Type | Default | Required |
-|------|------|---------|----------|
-| {propName} | {type} | {default or —} | {yes/no} |
-
-{Repeat for top 5 Props interfaces}
-```
-
-- Show only the 5 most-used Props interfaces (by component count or documentation prominence)
-- Full Props details for all components go in Tier 2 reference
-- Budget: ~20 lines (same as standard Section 5)
-
-#### Tier 2 — Props Reference (replaces Full API Reference)
-
-```markdown
-## Full API Reference
-
-### {ComponentName}
-
-**Install:** `npx {cli} add {component-id}`
-**Available in:** {variant list}
-**Props:** `{ComponentName}Props`
-
-| Prop | Type | Default | Description |
-|------|------|---------|-------------|
-| {prop} | {type} | {default} | {description from JSDoc or —} |
-
-**Provenance:** `[AST:{file}:L{line}]`
-```
-
-- Organize by component, not by function
-- Each component shows: install command, variant availability, full props table
-- Include JSDoc descriptions for props when available
-- Standard provenance citations apply
-
-#### context-snippet.md — Component Library Format
-
-```markdown
-[{name} v{version}]|root: skills/{name}/
-|IMPORTANT: {name} v{version} — read SKILL.md before writing {name} code. Do NOT rely on training data.
-|install: npx {cli} add <component-id>
-|catalog:{SKILL.md#component-catalog} — {N} components: {category(count), ...}
-|variants: {variant list} — {provider wrapping note if applicable}
-|key-props:{SKILL.md#key-types} — {top props interfaces with key fields}
-|gotchas: {detected gotchas}
-```
+The `component-library` section formats — Component Catalog (§4), Key Props (§5), the Props Reference Tier 2 layout, and the component-library `context-snippet.md` format — are owned by `assets/compile-assembly-rules.md` (### Component Library Assembly Overrides), alongside the `reference-app` and whole-language override sets. This catalog does not restate them (both files load together at compile.md §1).
 
 ### Provenance Citation Format
 

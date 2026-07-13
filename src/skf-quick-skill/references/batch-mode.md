@@ -43,16 +43,18 @@ Per-line modifiers shadow the global `--description` / `--exports` / `--skip-sni
 3. After step 7 completes (success or HARD HALT), record the per-target outcome (target, status, exit_code, skill_package, error.code) into the batch result list.
 4. If `--fail-fast` is set and the target failed, exit the batch loop immediately. Otherwise continue with the next target.
 
-Per-target output lands in `{skill_package}/` as today, with the per-target result contract at `{skill_package}/quick-skill-result-latest.json` (success or error variant per "Result Contract on HARD HALT" above).
+Per-target output lands in `{skill_package}/` as today, with the per-target result contract at `{skill_package}/quick-skill-result-latest.json` (success or error variant per `references/halt-contract.md`).
 
 ## Batch summary contract
 
 After the last target completes (or `--fail-fast` triggers an early exit), write the batch summary at:
 
 ```
-{skills_output_folder}/_batch/quick-skill-batch-{YYYYMMDD-HHmmss}.json
-{skills_output_folder}/_batch/quick-skill-batch-latest.json   (copy, not symlink)
+{batchOutputPath}quick-skill-batch-{YYYYMMDD-HHmmss}.json
+{batchOutputPath}quick-skill-batch-latest.json   (copy, not symlink)
 ```
+
+`{batchOutputPath}` is resolved at SKILL.md On Activation §3 from `workflow.batch_output_path` (bundled default `{skills_output_folder}/_batch/`, trailing slash included).
 
 Schema:
 

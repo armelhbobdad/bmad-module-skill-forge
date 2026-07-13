@@ -19,6 +19,12 @@ Commands:
   remove <skill-name>           — Remove skill from manifest
   deprecate <skill-name> [ver]  — Mark skill or version as deprecated
   rename <old-name> <new-name>  — Rename a skill entry
+  affected-versions <name>      — List every version of <name> that a rename must
+                                  touch: the union of manifest
+                                  exports.<name>.versions keys and on-disk
+                                  version dirs under <skills-folder>/<name>/
+                                  (excluding the `active` symlink), deduped and
+                                  sorted semver-descending (newest first)
 """
 
 from __future__ import annotations
@@ -217,10 +223,68 @@ def cmd_rename(manifest_path, old_name, new_name):
     return {"status": "ok", "action": "renamed", "from": old_name, "to": new_name}
 
 
+def _version_sort_key(version):
+    """Semver-descending sort key (used with reverse=True → newest first).
+
+    Splits `X.Y.Z[-prerelease][+build]` into numeric release components so
+    0.10.0 sorts above 0.9.0 (a known LLM-unreliable numeric-vs-lexical case).
+    A non-numeric component sorts below any numeric one at the same position;
+    per semver, a version WITHOUT a prerelease outranks the same version WITH
+    one (1.0.0 > 1.0.0-rc1).
+    """
+    core = str(version).split("+", 1)[0]
+    main_part, _, pre = core.partition("-")
+    release = []
+    for part in main_part.split("."):
+        if part.isdigit():
+            release.append((1, int(part), ""))
+        else:
+            release.append((0, 0, part))
+    # pre == "" (no prerelease) must sort ABOVE a prerelease, i.e. compare higher.
+    return (release, pre == "", pre)
+
+
+def cmd_affected_versions(manifest_path, skills_folder, skill_name):
+    data, err = read_manifest(manifest_path)
+    if err:
+        return {"status": "error", "error": err}
+
+    manifest_versions = []
+    entry = data.get("exports", {}).get(skill_name)
+    if entry:
+        versions = entry.get("versions", {})
+        if isinstance(versions, dict):
+            manifest_versions = list(versions.keys())
+        elif isinstance(versions, list):  # residual v1 safety
+            manifest_versions = list(versions)
+
+    on_disk_versions = []
+    skill_dir = Path(skills_folder) / skill_name
+    if skill_dir.is_dir():
+        for child in skill_dir.iterdir():
+            if child.name == "active":
+                continue  # the active symlink is not a version
+            if child.is_dir():
+                on_disk_versions.append(child.name)
+
+    union = sorted(set(manifest_versions) | set(on_disk_versions), key=_version_sort_key, reverse=True)
+
+    return {
+        "status": "ok",
+        "skill": skill_name,
+        "affected_versions": union,
+        "count": len(union),
+        "sources": {
+            "manifest": sorted(set(manifest_versions), key=_version_sort_key, reverse=True),
+            "on_disk": sorted(set(on_disk_versions), key=_version_sort_key, reverse=True),
+        },
+    }
+
+
 def main():
     if len(sys.argv) < 3:
         print("Usage: python3 skf-manifest-ops.py <skills-folder> <command> [args]", file=sys.stderr)
-        print("Commands: read, get <name>, set <name> <version> [--ides a,b], remove <name>, deprecate <name> [version], rename <old> <new>", file=sys.stderr)
+        print("Commands: read, get <name>, set <name> <version> [--ides a,b], remove <name>, deprecate <name> [version], rename <old> <new>, affected-versions <name>", file=sys.stderr)
         sys.exit(1)
 
     skills_folder = Path(sys.argv[1])
@@ -245,6 +309,8 @@ def main():
         result = cmd_deprecate(manifest_path, sys.argv[3], ver)
     elif command == "rename" and len(sys.argv) >= 5:
         result = cmd_rename(manifest_path, sys.argv[3], sys.argv[4])
+    elif command == "affected-versions" and len(sys.argv) >= 4:
+        result = cmd_affected_versions(manifest_path, skills_folder, sys.argv[3])
     else:
         result = {"status": "error", "error": f"Unknown command or missing args: {command}"}
 

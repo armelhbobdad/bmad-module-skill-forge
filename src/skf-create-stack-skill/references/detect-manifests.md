@@ -1,6 +1,5 @@
 ---
 nextStepFile: 'rank-and-confirm.md'
-manifestPatterns: 'references/manifest-patterns.md'
 scanManifestsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-scan-manifests.py'
   - '{project-root}/src/shared/scripts/skf-scan-manifests.py'
@@ -39,7 +38,11 @@ Discover skills in `{skills_output_folder}` using version-aware resolution — s
    **Stale manifest fallback (H6):** If a manifest entry resolves to a path that does not exist (broken `active_version`, deleted version dir, missing `SKILL.md` / `metadata.json`), do NOT HALT for that single entry. Instead:
    a. Fall back to the symlink scan (rule 2) **for that one skill only**: probe `{skills_output_folder}/{skill-name}/active/{skill-name}/SKILL.md`.
    b. If the symlink-based path resolves, use it and log a warning: `"export-manifest entry '{skill-name}' is stale — resolved via active symlink instead"`.
-   c. If BOTH the manifest path AND the symlink path fail, only then HALT with a manifest-corruption diagnostic naming the affected skill and pointing the user at `[SKF-update-skill]` to repair.
+   c. If BOTH the manifest path AND the symlink path fail, only then HALT with a manifest-corruption diagnostic naming the affected skill and pointing the user at `[SKF-update-skill]` to repair. Emit the result envelope on stderr per the Result Contract in SKILL.md, then STOP:
+
+   ```
+   SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"compose","exit_code":3,"halt_reason":"resolution-failure"}
+   ```
 
    **Manifest JSON parse guard (B3):** Wrap the `.export-manifest.json` parse in try/except. If JSON parsing fails for any reason, fall through entirely to the `active` symlink scan (rule 2) across all skills; log a warning and validate each symlink target exists before including it.
 
@@ -53,7 +56,11 @@ Discover skills in `{skills_output_folder}` using version-aware resolution — s
 
 Maintain a **visited set keyed by `skill_dir`** (the top-level dir under `{skills_output_folder}`) while resolving. If a skill would be revisited via a circular reference (e.g., a constituent that claims another stack as dependency), skip the duplicate and log a warning `"cycle detected at {skill_dir} — skipping"`. Stack skills must not be loaded as source dependencies to avoid self-referencing loops.
 
-**If zero skills remain after filtering:** HALT with: "**Cannot proceed in compose-mode.** No individual skills found in `{skills_output_folder}` (after filtering stack skills). Run [CS] Create Skill or [QS] Quick Skill to generate individual skills first, then re-run [SS]."
+**If zero skills remain after filtering:** HALT with: "**Cannot proceed in compose-mode.** No individual skills found in `{skills_output_folder}` (after filtering stack skills). Run [CS] Create Skill or [QS] Quick Skill to generate individual skills first, then re-run [SS]." Then emit the result envelope on stderr per the Result Contract in SKILL.md, and STOP:
+
+```
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"compose","exit_code":3,"halt_reason":"resolution-failure"}
+```
 
 For each skill found:
 1. Read `metadata.json` from the resolved version-aware path (`{skill_package}` or `{active_skill}`). **Skill-type gate (S1):** the sibling `metadata.json` MUST be present AND parseable AND contain a `skill_type` field whose value is one of the known set (`skill`, `stack`, or any future values explicitly recognised by this workflow). Directories lacking a qualifying `metadata.json`/`skill_type` are NOT treated as skills — log `"{dir_name}: not a skill (no valid metadata.json/skill_type) — excluding"` and skip.
@@ -98,7 +105,7 @@ Invoke the deterministic manifest scanner — it walks the project root, parses 
 uv run {scanManifestsHelper} scan {scan_root}
 ```
 
-Where `{scan_root}` is the project root path. Load `{manifestPatterns}` for the ecosystem reference table that documents supported filenames, dependency keys, and normalisation rules; the script implements exactly that table (npm/pnpm/yarn, python pip/poetry/pdm, rust cargo, go modules, java/kotlin maven + gradle, ruby bundler, composer, swift package manager). Exclusion patterns (`node_modules/`, `.venv/`, `vendor/`, `dist/`, `build/`, `target/`, `.git/`, hidden dirs) are applied internally.
+Where `{scan_root}` is the project root path. Load `{manifestPatternsPath}` for the ecosystem reference table that documents supported filenames, dependency keys, and normalisation rules; the script implements exactly that table (npm/pnpm/yarn, python pip/poetry/pdm, rust cargo, go modules, java/kotlin maven + gradle, ruby bundler, composer, swift package manager). Exclusion patterns (`node_modules/`, `.venv/`, `vendor/`, `dist/`, `build/`, `target/`, `.git/`, hidden dirs) are applied internally.
 
 Parse the JSON output — shape:
 
@@ -116,7 +123,11 @@ Parse the JSON output — shape:
 
 If `manifests` is empty:
 
-**Headless auto-cancel (S2):** If `{headless_mode}` is true, do NOT wait for user input. Emit a structured error contract `{"status":"error","skill":"skf-create-stack-skill","stage":"step 2","reason":"no manifests found, headless cannot prompt"}` on stderr and exit non-zero. Headless mode cannot proceed without an explicit dependency list.
+**Headless auto-cancel (S2):** If `{headless_mode}` is true, do NOT wait for user input. Emit the result envelope on stderr per the Result Contract in SKILL.md and exit `2`. Headless mode cannot proceed without an explicit dependency list.
+
+```
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"code","exit_code":2,"halt_reason":"no-manifests"}
+```
 
 **Interactive mode:**
 

@@ -22,7 +22,7 @@ SKILL.md, then extract usage patterns per skill (the part that does
 benefit from LLM judgment).
 
 Subcommand:
-  enumerate <skills-root>
+  enumerate <skills-root> [--pairs] [--reliability]
       Emit JSON {"skills": [...], "cycles": [...], "warnings": [...]}
       describing every subdirectory of <skills-root> that resolves to a
       skill package. Both layouts from knowledge/version-paths.md are
@@ -84,18 +84,47 @@ Symlink handling:
 Per-skill errors (malformed metadata.json, OSError, etc.) are captured
 as warnings on the top-level result; they do not exit the process.
 
+Optional derived output (additive flags — off by default, so existing
+consumers that read only skills/cycles/warnings are unaffected):
+
+  --pairs
+      Attach the complete set of unique library pairs derived from the
+      inventory: `pairs = [{"library_a": a, "library_b": b}, ...]` over
+      `itertools.combinations` of the sorted, deduplicated skill names,
+      plus `pair_count == N*(N-1)/2`. This is the deterministic
+      combinatorics the refine-architecture gap-analysis prompt used to
+      do in-context (where a dropped pair is a silently missed
+      integration gap). Sorting the names first makes ordering
+      independent of directory-scan order and byte-stable across runs.
+
+  --reliability
+      Attach the inventory reliability verdict computed from the counts
+      the script already owns:
+        skill_count       — len(skills)
+        warning_count     — len(warnings)
+        unreliable_ratio  — warning_count / (skill_count + warning_count),
+                            or 0.0 when the inventory is empty
+        inventory_reliable — unreliable_ratio <= 0.20 (the RELIABILITY
+                            THRESHOLD lives here, in one unit-tested place,
+                            so consuming prompts read a boolean instead of
+                            re-deriving a ratio + threshold comparison).
+      The raw counts are emitted alongside the boolean so a caller's halt
+      message can still render "{warning_count}/{skill_count+warning_count}
+      skills returned malformed metadata".
+
 Exit codes:
   0  enumeration succeeded (including zero skills found)
   1  user error (bad skills-root path)
 
 CLI:
-  uv run skf-enumerate-stack-skills.py enumerate <skills-root>
+  uv run skf-enumerate-stack-skills.py enumerate <skills-root> [--pairs] [--reliability]
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import itertools
 import json
 import re
 import sys
@@ -111,6 +140,13 @@ SOURCE_METADATA = "metadata"
 SOURCE_REFERENCES = "references"
 SOURCE_SKILL_MD = "skill-md"
 SOURCE_UNKNOWN = "unknown"
+
+# Inventory reliability policy (single source of truth). If the fraction of
+# skip/malformed warnings exceeds this threshold, the inventory is deemed
+# unreliable. The gate is `ratio <= THRESHOLD` (i.e. a ratio of exactly 0.20
+# is still reliable) so a single malformed skill in a small 3-5 skill
+# inventory does not trip the halt.
+RELIABILITY_THRESHOLD = 0.20
 
 _CONFIDENCE_BY_SOURCE = {
     SOURCE_METADATA: "T1",
@@ -553,6 +589,53 @@ def enumerate_stack_skills(skills_root: Path) -> dict:
 
 
 # --------------------------------------------------------------------------
+# Derived output: unique library pairs (--pairs)
+# --------------------------------------------------------------------------
+
+
+def compute_pairs(skills: list[dict]) -> list[dict]:
+    """Deterministic unique library pairs from an inventory's skills[].
+
+    Returns `[{"library_a": a, "library_b": b}, ...]` over every
+    combination of the sorted, deduplicated skill names — exactly
+    N*(N-1)/2 entries for N distinct names. Sorting first makes the order
+    independent of directory-scan order and byte-stable across runs; the
+    dedup guards against a pathological repeated name yielding a duplicate
+    pair. Never drops or duplicates a pair, unlike in-context enumeration
+    at larger N.
+    """
+    names = sorted({e["name"] for e in skills})
+    return [
+        {"library_a": a, "library_b": b}
+        for a, b in itertools.combinations(names, 2)
+    ]
+
+
+# --------------------------------------------------------------------------
+# Derived output: inventory reliability verdict (--reliability)
+# --------------------------------------------------------------------------
+
+
+def compute_reliability(skill_count: int, warning_count: int) -> dict:
+    """Reliability verdict from the inventory's own counts.
+
+    `unreliable_ratio` = warning_count / (skill_count + warning_count),
+    or 0.0 for an empty inventory (no ZeroDivisionError). The inventory is
+    reliable when that ratio is <= RELIABILITY_THRESHOLD (boundary
+    inclusive). Emits the raw counts too so a caller's halt message can
+    render "{warning_count}/{skill_count+warning_count}".
+    """
+    total = skill_count + warning_count
+    unreliable_ratio = (warning_count / total) if total else 0.0
+    return {
+        "inventory_reliable": unreliable_ratio <= RELIABILITY_THRESHOLD,
+        "unreliable_ratio": unreliable_ratio,
+        "skill_count": skill_count,
+        "warning_count": warning_count,
+    }
+
+
+# --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
 
@@ -566,6 +649,15 @@ def _cmd_enumerate(args: argparse.Namespace) -> int:
         )
         return 1
     result = enumerate_stack_skills(skills_root)
+    # Additive derived output — attached only when the flag is set, so the
+    # default shape stays {skills, cycles, warnings} for existing consumers.
+    if args.pairs:
+        result["pairs"] = compute_pairs(result["skills"])
+        result["pair_count"] = len(result["pairs"])
+    if args.reliability:
+        result.update(
+            compute_reliability(len(result["skills"]), len(result["warnings"]))
+        )
     json.dump(result, sys.stdout, indent=2)
     sys.stdout.write("\n")
     return 0
@@ -589,6 +681,23 @@ def _build_parser() -> argparse.ArgumentParser:
     p_enum.add_argument(
         "skills_root",
         help="directory containing skill packages (each subdir has SKILL.md)",
+    )
+    p_enum.add_argument(
+        "--pairs",
+        action="store_true",
+        help=(
+            "additionally emit `pairs[]` (unique {library_a, library_b} "
+            "combinations over the sorted skill names) and `pair_count`"
+        ),
+    )
+    p_enum.add_argument(
+        "--reliability",
+        action="store_true",
+        help=(
+            "additionally emit the reliability verdict "
+            "(`inventory_reliable`, `unreliable_ratio`, `skill_count`, "
+            f"`warning_count`; threshold {RELIABILITY_THRESHOLD})"
+        ),
     )
     p_enum.set_defaults(func=_cmd_enumerate)
 

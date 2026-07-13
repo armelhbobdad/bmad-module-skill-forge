@@ -165,17 +165,7 @@ Append to `{outputFile}`:
 
 ### 6. Report Results
 
-"**External validation complete.**
-
-| Tool | Score | Status |
-|------|-------|--------|
-| skill-check | {score}/100 | {available/skipped} |
-| tessl | {average}% | {available/skipped} |
-| **Combined** | **{external_score}%** | |
-
-{content quality warning if tessl content < 70%}
-
-**Proceeding to scoring...**"
+Report the external validation result to the user: the per-tool scores and availability (skill-check out of 100, tessl as a percentage average, each `available` or `skipped`), the combined external score, and a content-quality warning if tessl content is below 70%. Then proceed to scoring.
 
 Update stepsCompleted, then load and execute {nextStepFile}.
 

@@ -50,7 +50,7 @@ These rules apply to every step in this workflow:
 |--------|--------|
 | **Inputs** | architecture_doc_path [required], vs_report_path [optional] |
 | **Flags** | `--headless` / `-H` (auto-resolve all gates); `--architecture-doc <path>` (skip step 1 prompt for the required input); `--vs-report-path <path>` (skip step 1 prompt for the optional VS report); `--scope-skills <names>` (comma-separated in-scope skill names; overrides scope derivation in gap analysis) |
-| **Gates** | step 1: Input Gate [use args] | step 5: Review Gate [C] |
+| **Gates** | step 1: Input Gate [use args] | step 5: Review Gate [C] continue / [X] cancel |
 | **Outputs** | `refined-architecture-{arch_project_name}.md` at `{outputFolderPath}` (`{arch_project_name}` = the architecture doc's frontmatter `project_name`, else config `project_name` — resolved in init.md), plus `refine-architecture-result-{timestamp}.json` and `refine-architecture-result-latest.json` |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. Per-flag args (`--architecture-doc`, `--vs-report-path`) consumed at the gates that would otherwise prompt. |
 | **Exit codes** | See "Exit Codes" below |
@@ -63,8 +63,8 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 | ---- | -------------------- | -------------------------------------------------------------------------------------------- |
 | 0    | success              | step 7 (terminal)                                                                           |
 | 2    | input-missing / input-invalid | step 1 §1 (headless missing `architecture-doc` arg, or invalid path) → `input-missing`; non-existent file → `input-invalid` |
-| 3    | resolution-failure   | step 1 §3 (`output_folder` or `forge_data_folder` unconfigured) |
-| 4    | write-failure        | On-Activation §3 pre-flight write probe; step 1 §3c (RA state file write failed); step 5 §6 (refined-architecture write failed); step 6 §3 (result-contract write failed) |
+| 3    | resolution-failure   | On-Activation §5 (`output_folder` or `forge_data_folder` unconfigured) |
+| 4    | write-failure        | On-Activation §5 pre-flight write probe; step 1 §3c (RA state file write failed); step 5 §6 (refined-architecture write failed); step 6 §3 (result-contract write failed) |
 | 5    | state-conflict       | step 1 §3 (no skills found — refinement requires ≥1 skill) |
 | 6    | user-cancelled       | step 1 §1 prompt cancelled; any prompt that accepted `cancel`/`exit`/`:q`; step 5 review gate `[X]` |
 | 7    | inventory-unreliable | step 1 §2 (>20% skill-inventory warnings exceed budget) |
@@ -110,10 +110,17 @@ SKF_REFINE_ARCHITECTURE_RESULT_JSON: {"status":"success|error","refined_path":"�
 
    - `{refinementRulesPath}` ← `workflow.refinement_rules_path` if non-empty, else `references/refinement-rules.md`
    - `{outputFolderPath}` ← `workflow.output_folder_path` if non-empty, else `{output_folder}`
+   - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty (no-op — report.md skips the hook invocation entirely)
 
-   Stash both as workflow-context variables. Stage files reference them directly — no conditional at the usage site.
+   Stash all three as workflow-context variables. Stage files reference them directly — no conditional at the usage site.
 
-5. **Pre-flight write probe.** Verify both `{outputFolderPath}` and `{forge_data_folder}` are writable. A read-only mount, full disk, or permissions-denied path otherwise only surfaces at init.md §3c's RA state file write — by then the user has already gone through input prompts:
+   Also apply the array surfaces (not silent no-ops): run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts), then run `workflow.activation_steps_append` after activation.
+
+5. **Pre-flight config + write probe.** Assert both output paths are configured, THEN probe writability — order matters: an empty path makes `mkdir -p ""` fail, which would misreport a *missing config* (exit 3) as a *write failure* (exit 4) and collapse the distinction the Result Contract draws.
+
+   **Config-completeness (exit 3).** If `{outputFolderPath}` is empty: HALT (exit code 3, `halt_reason: "output-folder-unconfigured"`) — "`output_folder` is not configured in config.yaml. Add an `output_folder` path and re-run [RA]." If `{forge_data_folder}` is empty: HALT (exit code 3, `halt_reason: "forge-folder-unconfigured"`) — "`forge_data_folder` is not configured in config.yaml. Add a `forge_data_folder` path and re-run [RA]."
+
+   **Write probe (exit 4).** With both paths now non-empty, verify each is writable — a read-only mount, full disk, or permissions-denied path otherwise only surfaces at init.md §3c's RA state file write, by which point the user has already gone through input prompts:
 
    ```bash
    for dir in "{outputFolderPath}" "{forge_data_folder}"; do
@@ -123,6 +130,6 @@ SKF_REFINE_ARCHITECTURE_RESULT_JSON: {"status":"success|error","refined_path":"�
    done
    ```
 
-   On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`). In headless mode, emit the error envelope per **Result Contract (Headless)** with `refined_path: null`.
+   On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`). In headless mode, every HALT above emits the error envelope per **Result Contract (Headless)** with `refined_path: null`.
 
 6. Load, read the full file, and then execute `references/init.md` to begin the workflow.

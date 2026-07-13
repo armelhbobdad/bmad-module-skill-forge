@@ -59,24 +59,20 @@ These rules apply to every step in this workflow:
 
 Every HARD HALT in this workflow exits with a stable code so headless automators can branch on the failure class without grepping message text:
 
-| Code | Meaning              | Raised by                                                                                    |
-| ---- | -------------------- | -------------------------------------------------------------------------------------------- |
-| 0    | success              | step 4 (terminal)                                                                           |
-| 2    | input-missing / input-invalid | step 1 §4 (headless missing `skill_name` arg) → `input-missing`; step 1 §4 (headless skill arg matches no listed skill) / step 1 §6 (headless version arg absent from the `versions` map) → `input-invalid` |
-| 3    | resolution-failure   | step 1 §2 (manifest is malformed JSON); step 1 §3 (no skills found anywhere)               |
-| 4    | write-failure        | On-Activation §3 pre-flight write probe (skills_output_folder unwritable); step 2 §2 (manifest write → `manifest-write-failed`); step 2 §3 (context-file rewrite → `context-rebuild-failed`); step 2 §4 (full purge failure — every target directory failed to delete → `delete-failed`) |
-| 5    | state-conflict       | step 1 §7 (active-version-guard refuses to drop the active version while non-deprecated peers remain) |
-| 6    | user-cancelled       | step 1 §10 confirmation gate `[N]`; any prompt that accepted `cancel`/`exit`/`:q`; On-Activation §4 (`headless-purge-forbidden`) |
+The `Raised by` column names the HALT *class* per code; the authoritative per-site HALT declarations (with their exact `halt_reason`) live in the step files.
+
+| Code | Meaning              | Raised by (class) |
+| ---- | -------------------- | ----------------- |
+| 0    | success              | step 4 (terminal) |
+| 2    | input-missing / input-invalid | step 1 headless input gates — missing or unmatched `skill_name`, `version`, or `--mode` value (§4 / §6 / §8) |
+| 3    | resolution-failure   | step 1 manifest/skill-list resolution (§2 corrupt manifest, §3 nothing to drop) |
+| 4    | write-failure        | On-Activation write probe; step 2 manifest write / context rebuild / full-purge failure |
+| 5    | state-conflict       | step 1 active-version guard (§7) |
+| 6    | user-cancelled       | any interactive cancel or confirm-gate `[N]`; On-Activation headless-purge guard |
 
 ## Result Contract (Headless)
 
-When `{headless_mode}` is true, step 3 emits a single-line JSON envelope on **stdout** before chaining to step 4, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
-
-```
-SKF_DROP_SKILL_RESULT_JSON: {"status":"success|error|dry-run","skill":"…|null","drop_mode":"…|null","versions_affected":[],"files_deleted":[],"manifest_updated":false,"exit_code":0,"halt_reason":null}
-```
-
-`status` is `"success"` on the terminal happy path, `"dry-run"` when `--dry-run` was set and the workflow exited before §11 stores decisions, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"manifest-corrupt"`, `"nothing-to-drop"`, `"active-version-guard-refused"`, `"headless-purge-forbidden"`, `"manifest-write-failed"`, `"context-rebuild-failed"`, `"delete-failed"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above.
+When `{headless_mode}` is true, step 3 emits a single-line `SKF_DROP_SKILL_RESULT_JSON:` envelope on **stdout** before chaining to step 4; every HARD HALT emits the same shape on **stderr** with `status: "error"`. The envelope template, the `status`/`halt_reason` semantics, and the full enum live in `references/headless-contract.md`, which the emitting stages load directly so an error path never depends on this file staying in context. `exit_code` matches the Exit Codes table above.
 
 ## On Activation
 
@@ -103,14 +99,17 @@ SKF_DROP_SKILL_RESULT_JSON: {"status":"success|error|dry-run","skill":"…|null"
 
    If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each scalar.
 
-   Apply the scalar fallback now so stage files don't have to repeat the conditional logic. For each of the four scalars, if the merged value is empty or absent, the bundled default applies:
+   Apply the scalar fallback now so stage files don't have to repeat the conditional logic. For each of the five scalars, if the merged value is empty or absent, the bundled default applies:
 
    - `{defaultMode}` ← `workflow.default_mode` (empty = always prompt; `"deprecate"` or `"purge"` = skip §8 Ask Mode)
    - `{forbidPurgeInHeadless}` ← `workflow.forbid_purge_in_headless` (empty or non-`"true"` = no guard)
    - `{unknownIdeDefaultContextFile}` ← `workflow.unknown_ide_default_context_file` if non-empty, else `AGENTS.md`
    - `{unknownIdeDefaultSkillRoot}` ← `workflow.unknown_ide_default_skill_root` if non-empty, else `.agents/skills/`
+   - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty (no-op — step 3 skips the post-drop hook entirely)
 
-   Stash all four as workflow-context variables. Stage files reference them directly — no conditional at the usage site.
+   Stash all five as workflow-context variables. Stage files reference them directly — no conditional at the usage site (`{defaultMode}` at select.md §8, the unknown-IDE fallbacks at execute.md §3 / select.md §9b, `{onCompleteCommand}` at report.md).
+
+   Also apply the array surfaces: run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts), then run `workflow.activation_steps_append` after activation.
 
 4. **Pre-flight write probe + headless-purge guard.**
 
@@ -124,6 +123,6 @@ SKF_DROP_SKILL_RESULT_JSON: {"status":"success|error|dry-run","skill":"…|null"
 
    On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`). In headless mode, emit the error envelope per **Result Contract (Headless)** with `skill: null` and `drop_mode: null` (neither is resolved yet at activation time).
 
-   Second, enforce the headless-purge guard. If `{headless_mode}` is true AND `{forbidPurgeInHeadless}` is `"true"` AND the parsed `mode` arg is `"purge"`: HALT with exit code 6 and `halt_reason: "headless-purge-forbidden"`, emit the error envelope, and exit immediately. The operator must re-run with `mode=deprecate` or set `forbid_purge_in_headless = ""` (or omit the override entirely) to proceed.
+   Second, enforce the headless-purge guard. First compute the **effective drop mode**: it is `"purge"` when the parsed `mode` arg is `"purge"`, OR when no `mode` arg was passed AND `{defaultMode}` (resolved in §3) is `"purge"` — a purge reached via `default_mode` is still an unattended irreversible purge and must be caught here, not only an explicit `--mode purge`. If `{headless_mode}` is true AND `{forbidPurgeInHeadless}` is `"true"` AND the effective drop mode is `"purge"`: HALT with exit code 6 and `halt_reason: "headless-purge-forbidden"`, emit the error envelope, and exit immediately. The operator must re-run with an explicit `mode=deprecate` (an explicit arg overrides `default_mode`) or set `forbid_purge_in_headless = ""` (or omit the override entirely) to proceed.
 
 5. Load, read the full file, and then execute `references/select.md` to begin the workflow.

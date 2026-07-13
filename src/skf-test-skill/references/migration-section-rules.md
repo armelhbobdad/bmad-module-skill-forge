@@ -48,7 +48,7 @@ Check whether SKILL.md contains a "Migration & Deprecation Warnings" section
 pinned `t2_future_count` field — this is the authoritative count, not the
 narrative body.
 
-**Detection contract (MANDATORY).** Read the frontmatter deterministically:
+**Detection contract.** Read the frontmatter deterministically:
 
 ```bash
 # Extract t2_future_count from frontmatter. Requires a `---` delimiter pair.

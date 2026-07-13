@@ -1,6 +1,14 @@
 ---
 nextStepFile: 'update-context.md'
 snippetFormatData: '{snippetFormatPath}'
+# Resolve `{countTokensHelper}` by probing `{countTokensProbeOrder}` in order
+# (installed SKF module path first, src/ dev-checkout fallback); the first
+# existing path wins. §5 uses it to report the written snippet's authoritative
+# token count (char-over-four, matching step 5's token report) instead of the
+# in-prompt `words * 1.3` heuristic.
+countTokensProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-count-tokens.py'
+  - '{project-root}/src/shared/scripts/skf-count-tokens.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Generate snippet content in {document_output_language}. -->
@@ -73,36 +81,17 @@ Store `{skill_root}` for use in snippet generation. The context-snippet.md writt
    - **If NO new gotchas are derived AND `prior_gotchas` exists AND `prior_gotchas_already_carried == true`:** Expiry reached (re-export only — first-export branch above takes precedence) — drop the gotchas line entirely. Emit warning: "**Stale gotchas dropped** — the prior gotchas were already carried forward once and cannot be derived from the current evidence report. The snippet now has no gotchas line. If the prior gotchas are still relevant, re-add them to the evidence report's T2-future section and re-run export."
    - **If NO new gotchas derived AND no `prior_gotchas`:** Omit the gotchas line.
 
-Generate:
-```
-[{skill-name} v{version}]|root: {skill_root}{skill-name}/
-|IMPORTANT: {skill-name} v{version} — read SKILL.md before writing {skill-name} code. Do NOT rely on training data.
-|quick-start:{SKILL.md#quick-start}
-|api: {export-1}(), {export-2}(), {export-3}, {export-4}(), {export-5}
-|key-types:{SKILL.md#key-types} — {inline summary ~10 words}
-|gotchas: {pitfall-1}, {pitfall-2}
-```
-
-**If fewer exports than limit:** List all available.
-**If no exports:** Omit the api line.
-**If no gotchas derivable AND no prior gotchas to carry forward:** Omit the gotchas line.
+Emit the single-skill template from {snippetFormatData} (loaded in §2), filling `api` from the exports selected above (list all if fewer than the limit; omit the line if there are none), `key-types` from the inline summary extracted above, and `gotchas` per the carry-forward decision tree above (omit the line when it resolves to none).
 
 **For stack skills (`skill_type: "stack"`):**
 
-Generate:
-```
-[{project}-stack v{version}]|root: {skill_root}{project}-stack/
-|IMPORTANT: {project}-stack — read SKILL.md before writing integration code. Do NOT rely on training data.
-|stack: {dep-1}@{v1}, {dep-2}@{v2}, {dep-3}@{v3}
-|integrations: {pattern-1}, {pattern-2}
-|gotchas: {pitfall-1}, {pitfall-2}
-```
+Emit the stack-skill template from {snippetFormatData}, filling `stack` from metadata.json `components` and `integrations` from metadata.json `integrations`.
 
 **Stack skill gotchas carry-forward:** Same one-cycle expiry logic as single skills. If no new gotchas derived and `prior_gotchas_already_carried == false`, preserve with the `[CARRIED]` prefix. If already carried once (`prior_gotchas_already_carried == true`), drop the line and warn loudly. See the single-skill steps for the complete protocol.
 
 ### 4. Verify Token Count
 
-Estimate token count of generated snippet (approximate: words * 1.3).
+Estimate the generated snippet's token count with the **char-over-four** convention (`len(snippet)//4`) over the content held in context — the same convention `skf-count-tokens.py` uses for step 5's token report, so the two numbers agree. The freshly generated snippet is only in context here (not yet on disk), so this pre-write estimate stays in-prompt to drive the trim decision below; step 5 confirms it authoritatively against the written file via the helper.
 
 - Target: ~80-120 tokens per skill (aspirational for Quick/Forge tiers)
 - Warning threshold: >300 tokens (hard ceiling — Deep tier may legitimately exceed 120 when gotchas carry load-bearing breaking-change notices)
@@ -122,11 +111,19 @@ Estimate token count of generated snippet (approximate: words * 1.3).
 
 **Estimated tokens:** {count}"
 
-Hold content in context for step 4.
+Use the §4 char-over-four estimate for `{count}` — nothing is written in dry-run, so the helper has no on-disk snippet to measure. Hold content in context for step 4.
 
 **If NOT dry-run:**
 
 Write the generated content to `{resolved_skill_package}/context-snippet.md`.
+
+Then confirm the token count authoritatively: resolve `{countTokensHelper}` from `{countTokensProbeOrder}` (first existing path wins) and run it against the written package, reading the `context-snippet.md` row's `tokens` value:
+
+```bash
+python3 {countTokensHelper} {resolved_skill_package}
+```
+
+Use that value as `{count}` — it matches step 5's token report exactly. If the helper cannot run (no Python/uv), fall back to the §4 char-over-four estimate.
 
 "**context-snippet.md written.**
 **Path:** `{resolved_skill_package}/context-snippet.md`
@@ -136,16 +133,5 @@ Write the generated content to `{resolved_skill_package}/context-snippet.md`.
 
 Display: "**Proceeding to context update...**"
 
-#### Menu Handling Logic:
-
-- After snippet generation completes, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed step with no user choices
-- Proceed directly to next step after generation
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN snippet generation is complete (or skipped due to passive_context opt-out) will you load and read fully `{nextStepFile}` to execute context update.
+Auto-proceed (no user choices): once snippet generation is complete (or skipped via the `passive_context` opt-out), load, read entirely, and execute `{nextStepFile}`.
 

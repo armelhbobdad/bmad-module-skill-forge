@@ -16,7 +16,7 @@ Present a comprehensive change summary showing what was updated, [MANUAL] sectio
 - Present clear, actionable summary with next step recommendations
 - Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing summary is NOT the terminal step
 
-## MANDATORY SEQUENCE
+## Steps
 
 ### 1. Handle No-Change Shortcut
 
@@ -207,6 +207,14 @@ SKF_UPDATE_RESULT_JSON: {"skf_update":{"status":"success|no-changes|halted-for-*
 - `error` — null on success or no-changes. Object `{phase, path?, reason}` describing the failure when a halt or write error fired. Pipelines branch on `error !== null` for non-zero exit semantics.
 
 The headless envelope is the structured channel; the per-run JSON written above is the audit trail. Both coexist — the envelope is one line on stdout for grep-friendly consumption, the per-run JSON is the full record on disk.
+
+**Post-finalization hook.** If `{onCompleteCommand}` (resolved in SKILL.md On Activation §3 from `workflow.on_complete`) is non-empty, invoke it after both result-JSON writes complete:
+
+```bash
+{onCompleteCommand} --result-path={forge_version}/update-skill-result-latest.json
+```
+
+Run it with a bounded timeout (default 60s). On success, log an Info note and continue; on non-zero exit, timeout, or any failure, append the reason to `warnings[]` (surfaced on the headless envelope) and continue. The hook must never fail the workflow — it is integration glue (notify a CI router, chain audit/export/test) orthogonal to the update outcome. Empty `{onCompleteCommand}` = no-op, no log entry.
 
 ### 6. Chain to Health Check
 

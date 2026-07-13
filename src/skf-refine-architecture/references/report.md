@@ -93,15 +93,17 @@ Re-run **[RA] Refine Architecture** anytime after updating your skills or archit
   SKF_REFINE_ARCHITECTURE_RESULT_JSON: {"status":"success","refined_path":"{outputFile}","gap_count":{gap_count},"issue_count":{issue_count},"improvement_count":{improvement_count},"exit_code":0,"halt_reason":null}
   ```
 
+  **Post-completion hook (optional).** If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §4 from `workflow.on_complete`), invoke it after the result contract is finalized:
+
+  ```bash
+  {onCompleteCommand} --result-path={result_json_path}
+  ```
+
+  where `{result_json_path}` is the per-run record written above (`{outputFolderPath}/refine-architecture-result-{timestamp}.json`). Log success/failure to `workflow_warnings[]` — never fail the workflow on a hook error. The hook runs after the result contract is finalized so notifiers, indexers, or downstream pipelines (index the refined doc, chain the next workflow) see a complete record. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
+
   Then load, read the full file, and execute `{nextStepFile}` — the health-check step is the true terminal step of this workflow.
 
 #### EXECUTION RULES:
 
-- ALWAYS halt and wait for user input after presenting the menu
-- R may be selected multiple times — always walk through all refinements
-- X triggers the health check, which is the true workflow exit
-
-## CRITICAL STEP COMPLETION NOTE
-
-When the user selects X, this step chains to the local health-check step (`{nextStepFile}`), which in turn delegates to `shared/health-check.md`. After the health check completes, the refine-architecture workflow is fully done. The refined architecture at `{outputFile}` contains the full original content plus all gap-fills, issue annotations, and improvement suggestions backed by skill API evidence.
+- This is the exit gate: halt for the user's choice. [R] walks every refinement with its evidence (repeatable — re-shows this menu after each pass); [X] chains to the health check, the true workflow exit. Headless auto-selects [X].
 

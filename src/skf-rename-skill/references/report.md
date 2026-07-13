@@ -15,7 +15,7 @@ Present a clear, final summary of what the rename workflow changed — old and n
 - Focus only on reporting results stored in context by step 2 — do not re-execute any part of the rename
 - Do not hide verification warnings, context file rebuild failures, or deletion errors
 - Present next-steps guidance so the user knows which downstream workflows to run
-- Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing report is NOT the terminal step
+- Chains to the local health-check step via `{nextStepFile}` after completion (see section 2)
 
 ## MANDATORY SEQUENCE
 
@@ -81,11 +81,15 @@ SKF_RENAME_SKILL_RESULT_JSON: {"status":"success","old_name":"{old_name}","new_n
 
 Substitute `{affected_versions}` and `{context_files_updated}` as JSON arrays; `manifest_rekeyed` is the boolean from step 2's context.
 
+**Post-completion hook (optional).** If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it after the result contract is finalized, passing the per-run result path:
+
+```bash
+{onCompleteCommand} --result-path={skills_output_folder}/{new_name}/rename-skill-result-{timestamp}.json
+```
+
+Log success/failure but never fail the workflow on a hook error — the rename is already committed. The hook runs last so an audit-log emit, registry re-index, or notifier sees the completed rename. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
+
 ### 2. Chain to Health Check
 
 ONLY WHEN the rename report has been rendered and the result contract saved will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the report reads as final.
-
-## CRITICAL STEP COMPLETION NOTE
-
-This step chains to the local health-check step (`{nextStepFile}`), which in turn delegates to `shared/health-check.md`. After the health check completes, the rename-skill workflow is fully done. Do not re-run any earlier step automatically — if the user wants another rename, they should re-invoke the workflow from the top.
 

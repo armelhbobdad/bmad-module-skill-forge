@@ -735,3 +735,148 @@ class TestCli:
         # argparse `required=True` on subparsers → returncode 2 on missing arg.
         result = _run_cli()
         assert result.returncode != 0
+
+    def test_default_output_has_no_derived_keys(self, tmp_path: Path) -> None:
+        # The additive flags must stay off by default: no --pairs/--reliability
+        # means the top-level shape is exactly {skills, cycles, warnings}, so
+        # existing consumers (skf-create-stack-skill/parallel-extract.md) that
+        # read only those keys are unaffected.
+        _make_skill(tmp_path, "alpha", metadata={"name": "alpha", "exports": ["a"]})
+        result = _run_cli("enumerate", str(tmp_path))
+        payload = json.loads(result.stdout)
+        assert set(payload) == {"skills", "cycles", "warnings"}
+
+
+# --------------------------------------------------------------------------
+# --pairs — deterministic unique library pairs (refine-architecture §3)
+# --------------------------------------------------------------------------
+
+
+class TestComputePairs:
+    def test_pure_fn_three_names_sorted(self) -> None:
+        # Names supplied out of order → pairs come back in sorted-name order.
+        skills = [{"name": "gamma"}, {"name": "alpha"}, {"name": "beta"}]
+        assert mod.compute_pairs(skills) == [
+            {"library_a": "alpha", "library_b": "beta"},
+            {"library_a": "alpha", "library_b": "gamma"},
+            {"library_a": "beta", "library_b": "gamma"},
+        ]
+
+    def test_pure_fn_single_name_empty(self) -> None:
+        assert mod.compute_pairs([{"name": "solo"}]) == []
+
+    def test_pure_fn_empty_inventory(self) -> None:
+        assert mod.compute_pairs([]) == []
+
+    def test_pure_fn_dedupes_repeated_name(self) -> None:
+        # A pathological duplicate name must not yield a duplicate pair.
+        skills = [{"name": "a"}, {"name": "a"}, {"name": "b"}]
+        assert mod.compute_pairs(skills) == [{"library_a": "a", "library_b": "b"}]
+
+    def test_pure_fn_count_is_n_choose_2(self) -> None:
+        skills = [{"name": n} for n in ("e", "a", "d", "b", "c")]
+        pairs = mod.compute_pairs(skills)
+        n = 5
+        assert len(pairs) == n * (n - 1) // 2 == 10
+
+    def test_cli_pairs_three_skills_exact(self, tmp_path: Path) -> None:
+        # Create in non-sorted order to prove ordering is independent of scan.
+        for name in ("skill-c", "skill-a", "skill-b"):
+            _make_skill(tmp_path, name, metadata={"name": name, "exports": ["x"]})
+        result = _run_cli("enumerate", str(tmp_path), "--pairs")
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["pairs"] == [
+            {"library_a": "skill-a", "library_b": "skill-b"},
+            {"library_a": "skill-a", "library_b": "skill-c"},
+            {"library_a": "skill-b", "library_b": "skill-c"},
+        ]
+        assert payload["pair_count"] == 3
+
+    def test_cli_pairs_single_skill_empty(self, tmp_path: Path) -> None:
+        _make_skill(tmp_path, "only", metadata={"name": "only", "exports": []})
+        payload = json.loads(_run_cli("enumerate", str(tmp_path), "--pairs").stdout)
+        assert payload["pairs"] == []
+        assert payload["pair_count"] == 0
+
+    def test_cli_pairs_count_matches_formula_n5(self, tmp_path: Path) -> None:
+        for name in ("a", "b", "c", "d", "e"):
+            _make_skill(tmp_path, name, metadata={"name": name, "exports": ["x"]})
+        payload = json.loads(_run_cli("enumerate", str(tmp_path), "--pairs").stdout)
+        n = 5
+        assert payload["pair_count"] == n * (n - 1) // 2 == 10
+        assert len(payload["pairs"]) == 10
+
+    def test_cli_pairs_byte_identical_across_runs(self, tmp_path: Path) -> None:
+        for name in ("zeta", "alpha", "mu", "beta"):
+            _make_skill(tmp_path, name, metadata={"name": name, "exports": ["x"]})
+        first = _run_cli("enumerate", str(tmp_path), "--pairs").stdout
+        second = _run_cli("enumerate", str(tmp_path), "--pairs").stdout
+        assert first == second
+        # No duplicate pairs.
+        pairs = json.loads(first)["pairs"]
+        seen = {(p["library_a"], p["library_b"]) for p in pairs}
+        assert len(seen) == len(pairs)
+
+
+# --------------------------------------------------------------------------
+# --reliability — inventory reliability verdict (verify-stack §2 guard)
+# --------------------------------------------------------------------------
+
+
+class TestComputeReliability:
+    def test_all_clean_is_reliable(self) -> None:
+        v = mod.compute_reliability(3, 0)
+        assert v["inventory_reliable"] is True
+        assert v["unreliable_ratio"] == 0.0
+        assert v["skill_count"] == 3
+        assert v["warning_count"] == 0
+
+    def test_boundary_ratio_020_is_reliable(self) -> None:
+        # 4 skills + 1 warning => 1/5 = 0.20 exactly. Gate is `<= 0.20`, so
+        # the boundary is reliable (matches the prose `> 0.20` halt).
+        v = mod.compute_reliability(4, 1)
+        assert v["unreliable_ratio"] == 0.20
+        assert v["inventory_reliable"] is True
+
+    def test_just_over_boundary_is_unreliable(self) -> None:
+        # 3 skills + 2 warnings => 2/5 = 0.40 > 0.20 => unreliable.
+        v = mod.compute_reliability(3, 2)
+        assert v["unreliable_ratio"] == 0.40
+        assert v["inventory_reliable"] is False
+
+    def test_empty_inventory_no_zero_division(self) -> None:
+        v = mod.compute_reliability(0, 0)
+        assert v["unreliable_ratio"] == 0.0
+        assert v["inventory_reliable"] is True
+
+    def test_boundary_flips_exactly_at_threshold(self) -> None:
+        # Just below and just above the 0.20 boundary flip the boolean.
+        # 1 warning / 5 total (0.20) reliable; 3 warnings / 12 total (0.25)
+        # not; 2 warnings / 10 total (0.20) reliable.
+        assert mod.compute_reliability(4, 1)["inventory_reliable"] is True
+        assert mod.compute_reliability(8, 2)["inventory_reliable"] is True
+        assert mod.compute_reliability(9, 3)["inventory_reliable"] is False
+
+    def test_cli_reliability_keys_present(self, tmp_path: Path) -> None:
+        _make_skill(tmp_path, "alpha", metadata={"name": "alpha", "exports": ["a"]})
+        payload = json.loads(
+            _run_cli("enumerate", str(tmp_path), "--reliability").stdout
+        )
+        assert payload["inventory_reliable"] is True
+        assert payload["skill_count"] == 1
+        assert payload["warning_count"] == 0
+        assert payload["unreliable_ratio"] == 0.0
+
+    def test_cli_reliability_unreliable_when_many_warnings(self, tmp_path: Path) -> None:
+        # 1 skill with exports + 2 skills that resolve to zero exports emit
+        # "no exports found" warnings => 2 warnings / 3 total = 0.667 > 0.20.
+        _make_skill(tmp_path, "good", metadata={"name": "good", "exports": ["x"]})
+        _make_skill(tmp_path, "bare1", skill_md="# bare1\n", metadata=None)
+        _make_skill(tmp_path, "bare2", skill_md="# bare2\n", metadata=None)
+        payload = json.loads(
+            _run_cli("enumerate", str(tmp_path), "--reliability").stdout
+        )
+        assert payload["skill_count"] == 3
+        assert payload["warning_count"] == 2
+        assert payload["inventory_reliable"] is False

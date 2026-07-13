@@ -16,10 +16,23 @@ Actions:
   clear         — Remove managed section entirely (markers + content)
   insert        — Insert managed section if not present (at end of file)
   check         — Check if managed section exists, report status
+
+Query actions (read-only, take positional file lists instead of <file> <action>):
+  orphan-detect <context-file>... --exported-skills a,b
+                — Parse `[skill-name v...]` rows across one or more context
+                  files, drop rows whose skill_name is in the exported set,
+                  and report the survivors (deduped by (skill_name, version),
+                  with verbatim snippet_text and sorted source_files provenance)
+                  as `orphan_managed_rows`.
+  root-probe <snippet-file>... --reference-root .claude/skills/
+                — Read each snippet's first line, parse its `root:` prefix
+                  (trailing `{skill-name}/` stripped), collect the unique
+                  `observed_prefixes`, and flag `mismatch` against the reference.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -33,6 +46,16 @@ MARKER_PATTERN = re.compile(
     r"(<!-- SKF:BEGIN[^>]*-->)(.*?)(<!-- SKF:END -->)",
     re.DOTALL,
 )
+
+# A managed-section skill row header: `[skill-name v1.2.3]…`, optionally
+# prefixed by the format's leading `|`. Requires a ` v<version>` inside the
+# brackets so the section header `[SKF Skills]|{n} skills|{m} stack` (no ` v`)
+# is never mistaken for a skill row.
+ROW_HEADER_PATTERN = re.compile(
+    r"^\|?\[(?P<name>[^\]]+?) v(?P<version>[^\]\s]+)\]"
+)
+# The `root:` field of a snippet's first line: `…|root: {prefix}{skill-name}/`.
+SNIPPET_ROOT_PATTERN = re.compile(r"root:\s*(?P<root>\S.*?)\s*$")
 
 
 def read_context_file(file_path):
@@ -222,7 +245,164 @@ def cmd_insert(file_path, new_content):
     return {"status": "ok", "action": "inserted", "bytes_written": len(updated)}
 
 
+def _is_row_separator(line):
+    """A blank/separator line between snippets: bare `|` or empty."""
+    return line.strip() in ("", "|")
+
+
+def parse_managed_rows(body):
+    """Split the between-marker `body` into skill rows.
+
+    Returns a list of {skill_name, version, snippet_text} dicts, one per
+    `[skill-name v...]` header found. `snippet_text` is the header line plus its
+    continuation lines, captured verbatim (byte-preserved) up to — but not
+    including — the next bare-`|` separator, the next row header, or end of body.
+    Non-row lines (the `[SKF Skills]` header, the IMPORTANT preamble) are skipped.
+    """
+    lines = body.split("\n")
+    rows = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        m = ROW_HEADER_PATTERN.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        start = i
+        i += 1
+        while i < n and not ROW_HEADER_PATTERN.match(lines[i]) and not _is_row_separator(lines[i]):
+            i += 1
+        rows.append(
+            {
+                "skill_name": m.group("name"),
+                "version": m.group("version"),
+                "snippet_text": "\n".join(lines[start:i]),
+            }
+        )
+    return rows
+
+
+def cmd_orphan_detect(context_files, exported_skills):
+    """Detect managed-section rows absent from the exported skill set.
+
+    Scans every context file that exists and has a managed section, parses its
+    skill rows, drops those whose skill_name is in `exported_skills`, and
+    accumulates the survivors keyed by (skill_name, version). The first-seen
+    snippet_text wins; each file the row appears in is added to source_files.
+    Deterministic: rows sorted by (skill_name, version), source_files sorted.
+    """
+    exported = {s.strip() for s in exported_skills.split(",") if s.strip()}
+    orphans = {}  # (name, version) -> {skill_name, version, snippet_text, source_files:set}
+    for cf in context_files:
+        content, err = read_context_file(cf)
+        if err:
+            continue  # missing file — no orphans by definition
+        match = find_managed_section(content)
+        if not match:
+            continue  # no managed section — no orphans
+        for row in parse_managed_rows(match.group(2)):
+            if row["skill_name"] in exported:
+                continue  # not an orphan — it is being (re)exported
+            key = (row["skill_name"], row["version"])
+            if key in orphans:
+                orphans[key]["source_files"].add(cf)  # keep first-seen snippet_text
+            else:
+                orphans[key] = {
+                    "skill_name": row["skill_name"],
+                    "version": row["version"],
+                    "snippet_text": row["snippet_text"],
+                    "source_files": {cf},
+                }
+    orphan_rows = [
+        {
+            "skill_name": v["skill_name"],
+            "version": v["version"],
+            "snippet_text": v["snippet_text"],
+            "source_files": sorted(v["source_files"]),
+        }
+        for _, v in sorted(orphans.items())
+    ]
+    return {"status": "ok", "orphan_managed_rows": orphan_rows}
+
+
+def cmd_root_probe(snippet_files, reference_root):
+    """Observe snippet root prefixes and flag mismatch against a reference.
+
+    Reads the first line of each snippet that exists, parses its `root:` value,
+    strips the trailing `{skill-name}/` to recover the prefix, and collects the
+    unique prefixes. `mismatch` is True when any observed prefix differs from
+    `reference_root`. Deterministic: observed_prefixes sorted.
+    """
+    observed = set()
+    for sf in snippet_files:
+        content, err = read_context_file(sf)
+        if err:
+            continue  # missing snippet — skip
+        first_line = content.split("\n", 1)[0]
+        header = ROW_HEADER_PATTERN.match(first_line)
+        root_match = SNIPPET_ROOT_PATTERN.search(first_line)
+        if not root_match:
+            continue  # no root: field — skip
+        root_value = root_match.group("root")
+        prefix = root_value
+        if header:
+            suffix = header.group("name") + "/"
+            if root_value.endswith(suffix):
+                prefix = root_value[: -len(suffix)]
+        observed.add(prefix)
+    observed_prefixes = sorted(observed)
+    return {
+        "status": "ok",
+        "reference_root": reference_root,
+        "observed_prefixes": observed_prefixes,
+        "mismatch": any(p != reference_root for p in observed_prefixes),
+    }
+
+
+def _run_query_action(argv):
+    """Dispatch the read-only query actions (orphan-detect / root-probe).
+
+    These take a positional file list rather than the legacy `<file> <action>`
+    shape, so they are parsed with argparse and routed here before the legacy
+    path. Returns (result_dict, exit_code).
+    """
+    action = argv[0]
+    if action == "orphan-detect":
+        parser = argparse.ArgumentParser(
+            prog="skf-rebuild-managed-sections.py orphan-detect",
+            description="Detect managed-section rows absent from the exported skill set.",
+        )
+        parser.add_argument("context_files", nargs="+", help="Context file paths to scan")
+        parser.add_argument(
+            "--exported-skills",
+            default="",
+            help="Comma-separated skill names being exported (excluded from orphans)",
+        )
+        args = parser.parse_args(argv[1:])
+        return cmd_orphan_detect(args.context_files, args.exported_skills), 0
+    # action == "root-probe"
+    parser = argparse.ArgumentParser(
+        prog="skf-rebuild-managed-sections.py root-probe",
+        description="Observe snippet root prefixes and flag mismatch against a reference.",
+    )
+    parser.add_argument("snippet_files", nargs="+", help="Snippet file paths to probe")
+    parser.add_argument(
+        "--reference-root",
+        required=True,
+        help="Reference skill root prefix to compare observed prefixes against",
+    )
+    args = parser.parse_args(argv[1:])
+    return cmd_root_probe(args.snippet_files, args.reference_root), 0
+
+
 def main():
+    # Query actions take a positional file list, so they are action-first
+    # (`orphan-detect <file>...`) rather than the legacy `<file> <action>` shape.
+    if len(sys.argv) >= 2 and sys.argv[1] in ("orphan-detect", "root-probe"):
+        result, code = _run_query_action(sys.argv[1:])
+        print(json.dumps(result, indent=2))
+        sys.exit(code)
+
     if len(sys.argv) < 3:
         print("Usage: python3 skf-rebuild-managed-sections.py <context-file> <action> [--content <text>]", file=sys.stderr)
         print("Actions: read, replace, clear, insert, check", file=sys.stderr)

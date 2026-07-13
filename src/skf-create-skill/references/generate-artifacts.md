@@ -231,7 +231,3 @@ After all artifacts are written, verified, and optionally indexed into QMD, imme
 - File write failures are real errors — halt, do not proceed with partial output
 - Proceed directly to next step after successful generation
 
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN all 7 artifact files are written, the active symlink is created, and verification is complete will you proceed to load `{nextStepFile}` for the compilation report.
-

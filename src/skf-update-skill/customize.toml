@@ -1,6 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-update-skill.
+# Team overrides:     {project-root}/_bmad/custom/skf-update-skill.toml
+# Personal overrides: {project-root}/_bmad/custom/skf-update-skill.user.toml
 
 [workflow]
 
@@ -33,3 +35,15 @@ activation_steps_append = []
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
+
+# Pipeline-integration hook invoked after report.md §5b writes the result
+# contract (the per-run record plus update-skill-result-latest.json). The
+# command is called as:
+#   <on_complete> --result-path=<{forge_version}/update-skill-result-latest.json>
+# Useful for Slack notifications, dashboard ingest, CI hooks, or chaining a
+# downstream skill (audit, export, test). Failures are logged to the run's
+# warnings[] but never fail the workflow.
+#
+# Empty string = no-op (default).
+
+on_complete = ""

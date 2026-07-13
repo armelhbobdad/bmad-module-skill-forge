@@ -70,7 +70,7 @@ Display: "**Ecosystem match found — Select an Option:** [P] Proceed with compi
 #### EXECUTION RULES:
 
 - ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: P]** — If `{headless_mode}` and match found: auto-proceed with [P] Proceed, log: "headless: ecosystem match found, auto-proceeding", AND append an entry to the in-context `headless_decisions[]` list: `{step: "ecosystem-check", gate: "ecosystem-match", decision: "P", rationale: "headless mode — match found, auto-proceed with user's own compilation", timestamp: {ISO}}`. Step-05 §7 (evidence-report assembly) reads `headless_decisions[]` and emits an "Auto-Decisions" section into evidence-report.md.
+- **GATE [default: P]** — If `{headless_mode}` and match found: auto-proceed with [P] Proceed, log: "headless: ecosystem match found, auto-proceeding", AND append an entry to the in-context `headless_decisions[]` list: `{step: "ecosystem-check", gate: "ecosystem-match", decision: "P", rationale: "headless mode — match found, auto-proceed with user's own compilation", timestamp: {ISO}}`. This entry is persisted to the evidence-report `## Auto-Decisions` table at step 5 §7 and reconciled from disk at step 6 §8.
 - This menu ONLY appears when an ecosystem match is found
 - If no match, timeout, or tool unavailable — auto-proceed with no menu
 
@@ -81,10 +81,4 @@ Display: "**Ecosystem match found — Select an Option:** [P] Proceed with compi
 - IF A: Display: "Compilation aborted. Return to Ferris menu to select another action." then halt workflow.
 - IF no match/timeout/error: Auto-proceed — immediately load, read entire file, then execute `{nextStepFile}`
 - IF Any other comments or queries: help user respond then redisplay the menu
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the ecosystem check is complete (match evaluated, user decision made if applicable) will you proceed to load `{nextStepFile}` for source extraction.
-
-If no match is found, this step auto-proceeds with no user interaction.
 

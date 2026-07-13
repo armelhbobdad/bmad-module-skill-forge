@@ -42,7 +42,7 @@ Before extraction, identify and exclude demo/example files to avoid inflating ex
 
 Confirm exclusion? [Y/n] Or adjust patterns:"
 
-**GATE [default: Y]** — if `{headless_mode}` is true: auto-confirm the auto-detected exclusion patterns, log "headless: auto-confirm demo/example exclusion ({N} files, {M} directories)", and append `{step: "component-extraction", gate: "demo-exclusion", decision: "Y", value: "{N} files / {M} dirs", rationale: "headless mode — auto-detected demo patterns accepted", timestamp: {ISO}}` to `headless_decisions[]` for evidence-report assembly in step 5 §7. Then proceed without waiting.
+**GATE [default: Y]** — if `{headless_mode}` is true: auto-confirm the auto-detected exclusion patterns, log "headless: auto-confirm demo/example exclusion ({N} files, {M} directories)", and append `{step: "component-extraction", gate: "demo-exclusion", decision: "Y", value: "{N} files / {M} dirs", rationale: "headless mode — auto-detected demo patterns accepted", timestamp: {ISO}}` to `headless_decisions[]`; these entries are persisted to the evidence-report `## Auto-Decisions` table at step 5 §7 and reconciled from disk at step 6 §8. Then proceed without waiting.
 
 Wait for user response (interactive only). Apply confirmed patterns to the exclude list. Record `demo_files_excluded: {count}` in context.
 

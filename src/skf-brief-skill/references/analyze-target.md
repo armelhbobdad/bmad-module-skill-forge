@@ -19,18 +19,12 @@ emitBriefEnvelopeProbeOrder:
 
 # Step 2: Analyze Target
 
-## STEP GOAL:
-
-To analyze the target repository by resolving its location, reading its structure, detecting the primary language, and listing top-level modules and exports — providing the user with a factual foundation for scoping decisions.
-
 ## Rules
 
-- Focus only on analysis — do not define scope yet (Step 03)
 - Do not make scoping decisions or recommendations
 - Do not hallucinate or guess about repository contents
-- All user-facing output in `{communication_language}`
 
-## MANDATORY SEQUENCE
+## Sequence
 
 ### 1. Resolve Target Location
 
@@ -291,13 +285,9 @@ Pause briefly for user input. If the user provides corrections or asks questions
 
 - After analysis report is presented to user and any corrections addressed, load, read entire file, then execute {nextStepFile}
 
-#### EXECUTION RULES:
+#### Execution rules:
 
 - This is a soft auto-proceed step — present the pause prompt, wait briefly for user input
 - If user provides corrections: address them, then proceed
 - If no user input after a brief pause: proceed directly to step 03
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the analysis is complete and the summary has been presented to the user will you load and read fully `scope-definition.md` to begin scope definition.
 

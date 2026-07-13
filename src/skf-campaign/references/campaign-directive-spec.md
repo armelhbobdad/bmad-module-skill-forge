@@ -25,7 +25,7 @@ The directive allows the operator to adjust campaign-wide policy without editing
 - **Encoding:** UTF-8 markdown
 - **Frontmatter:** not required (plain content is sufficient)
 - **Location:** the path specified by `campaign.directive_path` in the campaign state file
-- **Default filename:** `_campaign-directive.md` (configured in `manifest.yaml` as `config.directive_file`)
+- **Default filename:** `_campaign-directive.md` (fixed; the campaign step chain references it directly)
 
 ## Recognized Sections
 

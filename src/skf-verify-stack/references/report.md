@@ -11,6 +11,9 @@ feasibilitySchemaProbeOrder:
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+validateFeasibilityReportProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-feasibility-report.py'
+  - '{project-root}/src/shared/scripts/skf-validate-feasibility-report.py'
 nextStepFile: 'health-check.md'
 ---
 
@@ -35,11 +38,22 @@ Read the entire `{outputFile}` to have all data available for presentation.
 
 **Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback).
 
-Verify all expected sections are present in order per `{feasibilitySchemaRef}`: `## Executive Summary`, `## Coverage Analysis`, `## Integration Verdicts`, `## Recommendations`, `## Evidence Sources`. If any section is missing or out of order, HALT (exit code 5, `halt_reason: "schema-violation"`) and report the schema violation — do not display partial results. In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with `report_path: "{outputFile}"`, `overall_verdict: null`.
+**Validate report structure and schema version (deterministic gate).** Resolve `{validateFeasibilityReportHelper}` from `{validateFeasibilityReportProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback). Then run:
 
-**Extract metrics from `{outputFile}` frontmatter** (per shared schema in `{feasibilitySchemaRef}`): `skillsAnalyzed`, `coveragePercentage`, `pairsVerified` (as `verified_count`), `pairsPlausible` (as `plausible_count`), `pairsRisky` (as `risky_count`), `pairsBlocked` (as `blocked_count`), `requirementsFulfilled` (as `fulfilled_count`), `requirementsPartial` (as `partial_count`), `requirementsNotAddressed` (as `not_addressed_count`), `requirementsPass`, `overallVerdict`, and `recommendationCount`. Use these mapped display names in the summary table and next steps below.
+```bash
+python3 {validateFeasibilityReportHelper} {outputFile}
+```
 
-**Schema guard:** Verify `schemaVersion == "1.0"` in the frontmatter. If mismatched, HALT (exit code 5, `halt_reason: "schema-violation"`) with "Report frontmatter schemaVersion `{value}` does not match producer schema `1.0` — report was corrupted between steps. Re-run [VS]." (Producer never proceeds past a schema mismatch.) In headless, emit the error envelope.
+The script (see `--help`) deterministically confirms the five required body sections — `## Executive Summary`, `## Coverage Analysis`, `## Integration Verdicts`, `## Recommendations`, `## Evidence Sources` — are all present and in canonical order per `{feasibilitySchemaRef}`, **and** that frontmatter `schemaVersion == "1.0"`. It emits a JSON verdict on stdout (`headingsOk`, `missingHeadings`, `orderViolations`, `schemaVersionOk`, `schemaVersionFound`, `violation`) and exits `0` when valid, `1` on a schema violation, `2` on an IO/parse error.
+
+On any non-zero exit, HALT (exit code 5, `halt_reason: "schema-violation"`) — do not display partial results. Report the specific violation from the JSON:
+
+- a missing or out-of-order section (`missingHeadings` / `orderViolations`); or
+- a schemaVersion mismatch — "Report frontmatter schemaVersion `{schemaVersionFound}` does not match producer schema `1.0` — report was corrupted between steps. Re-run [VS]." (Producer never proceeds past a schema mismatch.)
+
+In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with `report_path: "{outputFile}"`, `overall_verdict: null`.
+
+With the deterministic gate passed (sections present + in order, `schemaVersion == "1.0"`), **extract metrics from `{outputFile}` frontmatter** (per shared schema in `{feasibilitySchemaRef}`): `skillsAnalyzed`, `coveragePercentage`, `pairsVerified` (as `verified_count`), `pairsPlausible` (as `plausible_count`), `pairsRisky` (as `risky_count`), `pairsBlocked` (as `blocked_count`), `requirementsFulfilled` (as `fulfilled_count`), `requirementsPartial` (as `partial_count`), `requirementsNotAddressed` (as `not_addressed_count`), `requirementsPass`, `overallVerdict`, and `recommendationCount`. Use these mapped display names in the summary table and next steps below.
 
 ### 2. Present Summary
 
@@ -76,31 +90,11 @@ Walk through the highlights — coverage gaps, risky/blocked integrations, and p
 
 ### 4. Present Next Steps
 
-Based on the overall verdict, present the appropriate recommendation:
+Step 05 already wrote a **Suggested next workflow** block (keyed on the case-sensitive `overallVerdict` token) at the end of `## Recommendations`. Surface that block from the §1 load rather than re-deriving it, prefixed with the one-line verdict-specific framing:
 
-**IF `overallVerdict == "FEASIBLE"`:**
-"**Your stack is verified.** All technologies are covered, integrations are compatible, and requirements are all fulfilled (or requirements pass was skipped).
-
-**Recommended next steps:**
-1. **[RA] Refine Architecture** — Produce an implementation-ready architecture document enriched with skill-backed API details
-2. **[SS] Create Stack Skill** — compose your individual skills into a unified stack skill, providing the refined architecture doc when prompted
-3. **[TS] Test Skill** → **[EX] Export Skill** — Verify completeness and package for distribution"
-
-**IF `overallVerdict == "CONDITIONALLY_FEASIBLE"`:**
-"**Your stack is conditionally feasible.** There are {recommendationCount} items to address before proceeding.
-
-**Required actions:**
-{List the specific recommendations from Step 05 synthesis}
-
-**After addressing these items:** Re-run **[VS] Verify Stack** to confirm resolution, then proceed to **[RA]**."
-
-**IF `overallVerdict == "NOT_FEASIBLE"`:**
-"**Critical blockers must be resolved.** The stack cannot support the architecture as described.
-
-**Critical actions:**
-{List the blocked integration recommendations and missing skill actions from Step 05}
-
-**After resolving blockers:** Re-run **[VS] Verify Stack**. Repeat until verdict improves to FEASIBLE or CONDITIONALLY FEASIBLE."
+- **`FEASIBLE`:** "**Your stack is verified.** All technologies are covered, integrations are compatible, and requirements are all fulfilled (or requirements pass was skipped)."
+- **`CONDITIONALLY_FEASIBLE`:** "**Your stack is conditionally feasible.** There are {recommendationCount} items to address before proceeding." — then list the specific recommendations from the report's `## Recommendations` section.
+- **`NOT_FEASIBLE`:** "**Critical blockers must be resolved.** The stack cannot support the architecture as described." — then list the blocked-integration and missing-skill recommendations from the report's `## Recommendations` section.
 
 ### 4b. Result Contract
 
@@ -133,13 +127,11 @@ Re-run **[VS] Verify Stack** anytime after making changes to your skills or arch
 
 **Verification workflow complete.**"
 
-  Then load, read the full file, and execute `{nextStepFile}` — the health-check step is the true terminal step of this workflow.
+  If `{workflow.on_complete}` is non-empty, execute it now (e.g. route the verdict onward or trigger a downstream step); in headless, log the action. Then load, read the full file, and execute `{nextStepFile}` — the health-check step is the true terminal step of this workflow.
 
 #### EXECUTION RULES:
 
-- ALWAYS halt and wait for user input after presenting the menu
 - **GATE [default: X]** — If `{headless_mode}`: auto-proceed with [X] Exit verification, log: "headless: auto-exit past report menu"
 - R may be selected multiple times — always walk through the full report
-- X triggers the health check, which is the true workflow exit
 
 

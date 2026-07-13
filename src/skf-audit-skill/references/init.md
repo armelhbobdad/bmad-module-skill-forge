@@ -1,13 +1,16 @@
 ---
 nextStepFile: 're-index.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
-templateFile: 'assets/drift-report-template.md'
+templateFile: '{driftReportTemplatePath}'
 loadProvenanceProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-load-provenance.py'
   - '{project-root}/src/shared/scripts/skf-load-provenance.py'
 compareFileHashesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-compare-file-hashes.py'
   - '{project-root}/src/shared/scripts/skf-compare-file-hashes.py'
+compareConstituentHashesProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
+  - '{project-root}/src/shared/scripts/skf-hash-content.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -125,17 +128,43 @@ Search for provenance map at `{forge_data_folder}/{skill_name}/{active_version}/
 - "**Degraded mode available:** I can perform text-based comparison without provenance data. Findings will have T1-low confidence."
 - "**[D]egraded mode** — proceed with text-diff only"
 - "**[X]** — abort audit"
-- Wait for user selection. If D, set `degraded_mode: true` and `confidence_mode = "degraded — all findings T1-low"`, then skip the normalize call above (no map to normalize). If X, halt workflow.
+- Wait for user selection. If D, set `degraded_mode: true` and `confidence_mode = "degraded — all findings T1-low"`, then skip the normalize call above (no map to normalize). If X, halt workflow (exit 6, `halt_reason: "user-cancelled"`).
+
+**Headless default** (when `{headless_mode}`): consume the pre-supplied `degraded` input from the Invocation Contract. If `degraded=true`, auto-select **[D]** (set `degraded_mode: true`, `confidence_mode = "degraded — all findings T1-low"`, skip the normalize call) and log: `"headless: no provenance map for {skill_name}; proceeding in degraded mode (text-diff, T1-low) per pre-supplied degraded=true."` If `degraded` is unset or false, auto-select **[X] abort** (exit 6, `halt_reason: "user-cancelled"`) and log: `"headless: no provenance map for {skill_name} and degraded not pre-supplied; aborting. Re-run with degraded=true for text-diff."` Never silently emit a low-confidence report under automation without explicit opt-in — same stance as the [A]-abort default at §5b's dirty-worktree sub-gate.
 
 ### Stack Skill Detection
 
 `{is_stack_skill}` and `{legacy_stack_provenance}` are already resolved by the normalize call in §4 — no additional walk needed. Apply the post-detection logic:
 
 If `{is_stack_skill}` is true and `constituents` array is present (compose-mode stack):
-- For each constituent, compute the current metadata hash: read `{constituent.skill_path}/active/{constituent.skill_name}/metadata.json` and compute SHA-256
-- Compare against `constituent.metadata_hash`
-- Flag any mismatches as **constituent drift** with severity HIGH
-- Record constituent freshness results for the report
+
+Re-hashing each constituent's live `metadata.json` and comparing against the compile-time snapshot is deterministic work — and the model cannot compute a `sha256:{hexdigest}` natively (it must shell out on every run). Delegate the whole read/hash/compare pass to the shared helper, which hashes byte-symmetrically with how `constituents[].metadata_hash` was written at compose time (the `sha256:`-prefixed digest of the raw `metadata.json` bytes). This mirrors the two sibling drift checks — `structural-diff.md` §4b (`skf-compare-file-hashes.py`) and `step-doc-drift.md` §2 (`skf-detect-docs.py compare-hashes`).
+
+**Resolve `{compareConstituentHashesHelper}`** from `{compareConstituentHashesProbeOrder}`; first existing path wins.
+
+Run one deterministic comparison subprocess over the provenance map's `constituents[]`. Relative constituent `skill_path` values (e.g. `skills/{skill-dir}/`) are project-root-relative, so resolve them against `{project-root}`:
+
+```bash
+uv run {compareConstituentHashesHelper} compare-constituent-hashes {provenanceMap} --skills-root {project-root}
+```
+
+Parse the emitted JSON:
+
+```json
+{
+  "drifted":           [{"skill_name": "...", "skill_path": "...", "stored_hash": "sha256:...", "current_hash": "sha256:..."}],
+  "fresh":             [{"skill_name": "..."}],
+  "missing":           [{"skill_name": "...", "skill_path": "...", "stored_hash": "sha256:...", "reason": "metadata-not-found|incomplete-record"}],
+  "skipped_null_hash": [{"skill_name": "..."}],
+  "stats": {"total": N, "drifted": N, "fresh": N, "missing": N, "skipped_null_hash": N}
+}
+```
+
+- **Flag every entry in `drifted[]` as constituent drift with severity HIGH** — its live `metadata.json` differs from the compile-time snapshot recorded in the provenance map.
+- `fresh[]` are unchanged constituents. `missing[]` (each carrying a `reason`) are constituents whose `metadata.json` could not be located (`metadata-not-found`) or whose provenance record lacked `skill_name`/`skill_path` (`incomplete-record`) — surface these as a lower-severity note, not HIGH drift. `skipped_null_hash[]` had no compile-time baseline hash (recorded from a references/ cascade) — never reported as drift.
+- Record the constituent freshness results (the four buckets + `stats`) for the report — read the counts straight from `stats`, no manual recount.
+
+**If `uv`/the helper cannot execute** (e.g. claude.ai web): fall back to hashing by hand — for each constituent, read its `metadata.json` at `{constituent.skill_path}/active/{constituent.skill_name}/metadata.json` (resolve `skill_path` against `{project-root}` when relative, use as-is when absolute), SHA-256 the raw bytes, and compare against `constituent.metadata_hash` (a stored bare-hex form still matches after stripping any `sha256:` prefix from both sides). Flag mismatches as HIGH constituent drift.
 
 If `{legacy_stack_provenance}` is true: log a note that this stack uses v1 provenance format with reduced audit depth (library-level only, no per-export verification).
 
@@ -252,7 +281,7 @@ When skipping, log the reason, then set the audit-ref context variables to basel
 - **[D]:** Read the prior report's findings_list (parse the Structural/Semantic/Severity sections, or the appended findings tables) and stash as `prior_findings` in workflow context. Run the new audit normally. In step 6 (report.md), after the Remediation Suggestions section, emit a `## Diff Against Prior Report` subsection summarizing added / removed / changed findings vs `prior_findings`.
 - **[R]:** Load the prior report's frontmatter (`stepsCompleted`, `drift_score`, any intermediate state). Set `{outputFile}` to the prior report path (do NOT create a new one). Determine the next un-completed step from `stepsCompleted` and skip forward to it; downstream steps append to the existing report.
 
-  > **Note (resumability):** the existing template frontmatter captures `stepsCompleted` and `drift_score` but does not currently persist intermediate findings_list between stages. If [R] is selected and stepsCompleted indicates the prior run halted after structural-diff or semantic-diff, the appended sections in the report body (`## Structural Drift`, `## Semantic Drift`, `## Severity Classification`) serve as the implicit intermediate state — re-parse them on resume rather than re-running completed stages. **Design note:** explicit mid-stage resume state is intentionally not persisted today — if resumability proves unreliable in practice, a future enhancement is to extend the report frontmatter to carry an explicit `intermediate_findings` block.
+  > **Note (resumability):** the template frontmatter captures `stepsCompleted` and `drift_score` but does not persist an intermediate findings_list between stages. If [R] is selected and stepsCompleted indicates the prior run halted after structural-diff or semantic-diff, the appended report-body sections (`## Structural Drift`, `## Semantic Drift`, `## Severity Classification`) serve as the implicit intermediate state — re-parse them on resume rather than re-running completed stages.
 
 - **Other input:** help user, redisplay the gate.
 
@@ -301,11 +330,6 @@ Display: "**Select:** [C] Continue to Analysis"
 
 #### EXECUTION RULES:
 
-- ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past baseline confirmation"
-- ONLY proceed to next step when user selects 'C'
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN C is selected and the drift report has been created with baseline data populated, will you then load and read fully `{nextStepFile}` to execute and begin source re-indexing.
+- Halt and wait for user input after presenting the menu; only proceed once the user selects [C] and the drift report has been created with baseline data populated.
+- **GATE [default: C]** — if `{headless_mode}`, auto-proceed with [C] Continue and log: "headless: auto-continue past baseline confirmation".
 

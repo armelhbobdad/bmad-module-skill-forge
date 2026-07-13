@@ -51,7 +51,7 @@ Compare current source code state against the provenance map to produce a comple
 - Focus only on detecting and classifying changes — do not extract or merge
 - Use subprocess Pattern 4 (parallel) when available; if unavailable, compare sequentially
 
-## MANDATORY SEQUENCE
+## Steps
 
 ### 0. Check for Test Report Input (Gap-Driven Mode)
 
@@ -105,7 +105,7 @@ Read the source directory at `{source_root}` and build a current file inventory:
 
 ### 1b. Discovered Authoritative Files Protocol (Mirror)
 
-**Purpose:** mirror `skf-create-skill` §2a into update-skill. `skf-create-skill` §2a catches authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.) during **creation**. But a project may add these files *after* the skill was created — for example, an upstream project adopts an `llms.txt` convention six months into development. Without this mirror, update-skill would either miss the new file entirely (if it doesn't match the provenance map's file patterns) or classify it as a generic ADDED file in §2 Category A with no authoritative-file treatment. The mirror surfaces the discovery with the same P/S/U prompt create-skill uses, honoring any prior amendments.
+**Purpose:** mirror `skf-create-skill` §2a into update-skill. `skf-create-skill` §2a catches authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.) during **creation**, but a project may add these files *after* the skill was created. Without this mirror, update-skill would either miss the new file entirely (if it doesn't match the provenance map's file patterns) or classify it as a generic ADDED file in §2 Category A with no authoritative-file treatment. The mirror surfaces the discovery with the same P/S/U prompt create-skill uses, honoring any prior amendments.
 
 **Skip this section entirely if:**
 
@@ -181,7 +181,7 @@ Read the source directory at `{source_root}` and build a current file inventory:
 
 ### 1c. Major-Version Scope Reconciliation (Pre-Detection)
 
-**Purpose:** When upstream undergoes a paradigm shift (rebrand, package restructure, major-version rewrite), the brief's `scope.include` no longer reflects the real public API. §1b handles new authoritative-doc files; §1c handles new **code globs** that fall outside the original scope. Without it, update-skill silently misses the new surface and pays the gap cost on every future update — the cocoindex `0.3.37 → 1.0.0` and cognee `0.5.8 → 1.0.0` runs are existence proofs that this case is real and recurring.
+**Purpose:** §1b handles new authoritative-doc files; §1c handles new **code globs** that fall outside the original scope when upstream restructures (rebrand, package restructure, major-version rewrite) so the brief's `scope.include` no longer reflects the real public API. Without it, update-skill silently misses the new public surface and pays the gap cost on every future update.
 
 **Skip this section entirely if:**
 
@@ -429,8 +429,6 @@ The upstream surface appears to have been substantially replaced. The brief's
 - **[B] Brief:** halt with status `halted-for-brief-refinement`. Display: `"Halting update-skill. Re-run skf-brief-skill to refine scope for {skill_name}, then re-run skf-update-skill."` Change manifest discarded — no partial writes.
 - **[A] Audit:** halt with status `halted-for-audit`. Display: `"Halting update-skill. Run skf-audit-skill against {skill_name} to map the new surface — its drift report will feed §1c on the next update-skill run."` Change manifest discarded.
 
-**Why both §1c and §2.2:** §1c is precise (per-path P/S/U) but requires upstream signal from audit-skill. §2.2 is coarse (single halt/continue) but self-contained — it fires even when the user runs update-skill directly without audit. Together they cover the major-version case across the two real workflows.
-
 ### 3. Build Change Manifest
 
 Hand the assembled Category A/B/C/D JSON to the helper:
@@ -490,7 +488,7 @@ The skill `{skill_name}` is current — no update needed.
 
 → Skip steps 03-06, immediately load {noChangeReportFile} with "no changes" status.
 
-### 5. Display Change Summary and Auto-Proceed
+### 5. Display Change Summary and Route
 
 "**Change Detection Complete:**
 
@@ -500,30 +498,11 @@ The skill `{skill_name}` is current — no update needed.
 | Files added | {count} |
 | Files deleted | {count} |
 | Files moved/renamed | {count} |
-| Exports affected | {total_export_changes} |
+| Exports affected | {total_export_changes} |"
 
-**Proceeding to re-extraction of {affected_file_count if normal mode, or gap_count if gap-driven mode} changes...**"
+This step auto-proceeds — no user choices. Once the change manifest is fully built, load and fully read the next file, then execute it, per the branch that applies:
 
-### 6. Present MENU OPTIONS
-
-Display: "**Proceeding to re-extraction...**"
-
-#### Menu Handling Logic:
-
-- **If `detect_only_mode` is true:** display "**Detect-only mode — skipping re-extract/merge/validate/write.** Loading report..." and load `{noChangeReportFile}` (report.md). The report handles the detect-only envelope. Do NOT load `{nextStepFile}`.
-- Else, after change manifest is built, immediately load, read entire file, then execute `{nextStepFile}`.
-- **EXCEPTION:** If no changes detected (section 4), load `{noChangeReportFile}` instead.
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed step with no user choices
-- Proceed directly to next step after change detection completes (or to report when `detect_only_mode` is true)
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the change manifest is fully built will you load the next file:
-
-- `detect_only_mode == true` → load `{noChangeReportFile}` (report.md). Report emits status `detect-only`.
-- No changes detected → load `{noChangeReportFile}` (report.md). Report emits status `no-changes`.
-- Otherwise → load `{nextStepFile}` (re-extract.md) to begin re-extraction.
+- **`detect_only_mode == true`** → display "**Detect-only mode — skipping re-extract/merge/validate/write.** Loading report..." and load `{noChangeReportFile}` (report.md), which emits status `detect-only`. Do not load `{nextStepFile}`.
+- **No changes detected** (section 4) → load `{noChangeReportFile}` (report.md), which emits status `no-changes`.
+- **Otherwise** → display "**Proceeding to re-extraction of {affected_file_count if normal mode, or gap_count if gap-driven mode} changes...**" and load `{nextStepFile}` (re-extract.md) to begin re-extraction.
 

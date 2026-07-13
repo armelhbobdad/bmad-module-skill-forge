@@ -147,7 +147,9 @@ Write the **Coverage Analysis** section to `{outputFile}` (see `{feasibilitySche
 
 **Select:** [X] Halt workflow (recommended) | [C] Continue anyway"
 
-- IF X: "**Workflow halted.** Update the architecture document and re-run [VS] when ready." — END workflow
+**GATE [default: C]** — Interactive-only guard. If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: continuing past all-Replaced coverage gate (nothing live to verify)". Headless never takes [X], so step 6 still emits the result contract — the run resolves to `NOT_FEASIBLE` via the synthesize zero-coverage short-circuit.
+
+- IF X: "**Workflow halted.** Coverage Analysis saved to `{outputFile}`. Update the architecture document and re-run [VS] when ready." HALT (exit code 8, `halt_reason: "analysis-halted"`).
 - IF C: "**Continuing — the analysis covers only technologies marked for removal and will be limited.**" Load, read the full file and then execute `{nextStepFile}`.
 
 {IF coveragePercentage is 0% AND live_count > 0:}
@@ -157,7 +159,9 @@ Write the **Coverage Analysis** section to `{outputFile}` (see `{feasibilitySche
 
 **Select:** [X] Halt workflow (recommended) | [C] Continue anyway"
 
-- IF X: "**Workflow halted.** Generate skills and re-run [VS] when ready." — END workflow
+**GATE [default: C]** — Interactive-only guard. If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: continuing past 0%-coverage gate". Headless never takes [X], so step 6 still emits the result contract — the run resolves to `NOT_FEASIBLE` via the synthesize zero-coverage short-circuit.
+
+- IF X: "**Workflow halted.** Coverage Analysis saved to `{outputFile}`. Generate skills and re-run [VS] when ready." HALT (exit code 8, `halt_reason: "analysis-halted"`).
 - IF C: "**Continuing with 0% coverage — results will be limited.**"
 
   Load, read the full file and then execute `{nextStepFile}`.

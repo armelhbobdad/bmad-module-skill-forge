@@ -14,7 +14,7 @@ Gaps are undocumented integration paths — library pairs that have compatible A
 
 ### Detection Method
 
-1. Generate all possible library pairs from the skill inventory
+1. Read the pre-computed unique library pairs from `skill_inventory.pairs` (emitted by the enumerate helper's `--pairs` flag) — do not re-derive them in-context
 2. For each pair, check if both skills export APIs that could connect (compatible types, shared protocols, complementary producer/consumer patterns)
 3. Cross-reference against the architecture document: does the document describe how these two libraries interact?
 4. If compatible APIs exist but NO architecture description exists, this is a **gap**
@@ -74,24 +74,6 @@ Improvements are capability expansions — library features documented in skills
 | **Unused Capability**     | Library has a feature the architecture does not mention                 | "Loro supports document CRDTs but architecture only uses data sync"            |
 | **Cross-Library Synergy** | Two libraries have complementary features not combined in architecture  | "Library A's event system could feed Library B's stream processor"             |
 | **Alternative Pattern**   | Skill documents a better pattern than the one described in architecture | "Skill shows batch API is more efficient than the per-item approach described" |
-
----
-
-## Refinement Citation Format
-
-Every refinement (gap, issue, or improvement) MUST cite evidence:
-
-```
-**[GAP|ISSUE|IMPROVEMENT]**: {description}
-
-Evidence:
-- {skill_name} exports: `{function_name}({params}) -> {return_type}`
-- {skill_name} provides: `{type_or_protocol}`
-- Architecture states: "{quoted text from original document}"
-- {IF VS report}: VS verdict: {verdict} for {pair}
-
-Suggestion: {specific, actionable recommendation}
-```
 
 ---
 

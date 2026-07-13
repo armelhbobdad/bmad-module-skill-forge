@@ -14,7 +14,7 @@ Present a clear, final summary of what the drop workflow changed — manifest st
 
 - Focus only on reporting results stored in context by step 2 — do not re-execute any part of the drop
 - Do not hide verification errors or failed context file rebuilds
-- Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing report is NOT the terminal step
+- Chains to the local health-check step via `{nextStepFile}` after completion (see §3)
 
 ## MANDATORY SEQUENCE
 
@@ -75,7 +75,7 @@ Write the result contract per `shared/references/output-contract-schema.md`: the
 
 Set the record's `status` from step 2's `purge_status`: `"partial"` when some (but not all) purge-mode directories failed to delete — surface the failing paths from `delete_failures` in `summary.delete_failures` — otherwise `"success"`. A *full* purge failure never reaches this step: step 2 §4 HALTs with `halt_reason: "delete-failed"` and the error-envelope path below handles it.
 
-When `{headless_mode}` is true, also emit the single-line envelope on **stdout** before chaining to step 4 (matches the SKILL.md "Result Contract (Headless)" shape):
+When `{headless_mode}` is true, also emit the single-line envelope on **stdout** before chaining to step 4 (the full shape and field rules are in `references/headless-contract.md`):
 
 ```
 SKF_DROP_SKILL_RESULT_JSON: {"status":"success","skill":"{target_skill}","drop_mode":"{drop_mode}","versions_affected":{target_versions},"files_deleted":{files_deleted},"manifest_updated":{manifest_updated},"exit_code":0,"halt_reason":null}
@@ -83,11 +83,21 @@ SKF_DROP_SKILL_RESULT_JSON: {"status":"success","skill":"{target_skill}","drop_m
 
 Substitute `{target_versions}` as a JSON array (e.g. `["0.5.0"]`) or the literal string `"all"`; substitute `{files_deleted}` as a JSON array of absolute paths (`[]` in soft-drop mode); `manifest_updated` is the boolean from step 2's context.
 
+### Post-drop hook (optional)
+
+If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it once the result contract above is finalized:
+
+```bash
+{onCompleteCommand} --result-path={result_json_path}
+```
+
+where `{result_json_path}` is the per-run record written above (`{skills_output_folder}/drop-skill-result-{YYYYMMDD-HHmmss}.json`). Log success or failure to `workflow_warnings[]` — never fail the workflow on a hook error; the drop has already completed and may be irreversible. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
+
 ### 3. Chain to Health Check
 
 ONLY WHEN the report has been rendered and the result contract saved will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the report reads as final.
 
 ## CRITICAL STEP COMPLETION NOTE
 
-This step chains to the local health-check step (`{nextStepFile}`), which in turn delegates to `shared/health-check.md`. After the health check completes, the drop-skill workflow is fully done. Do not re-run any earlier step automatically — if the user wants another drop, they should re-invoke the workflow from the top.
+After the health-check step (`{nextStepFile}`) completes, do not automatically re-run any earlier step — a fresh drop means the user re-invokes the workflow from the top.
 

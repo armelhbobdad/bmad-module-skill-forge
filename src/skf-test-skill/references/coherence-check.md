@@ -1,8 +1,8 @@
 ---
 nextStepFile: 'external-validators.md'
 outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
-outputFormatsFile: 'assets/output-section-formats.md'
-scoringRulesFile: 'references/scoring-rules.md'
+outputFormatsFile: '{outputFormatsPath}'
+scoringRulesFile: '{scoringRulesPath}'
 migrationSectionRules: 'references/migration-section-rules.md'
 scanSkillMdStructureProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-scan-skill-md-structure.py'

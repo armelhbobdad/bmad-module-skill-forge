@@ -21,10 +21,6 @@ emitBriefEnvelopeProbeOrder:
 
 # Step 1: Gather Intent
 
-## STEP GOAL:
-
-To initialize the brief-skill workflow by discovering the forge tier configuration, then gathering the user's target repository, intent, and any upfront scope hints for skill creation.
-
 ## Rules
 
 - Focus only on gathering intent — do not analyze the repo yet (Step 02)
@@ -32,7 +28,7 @@ To initialize the brief-skill workflow by discovering the forge tier configurati
 - Open-ended discovery facilitation — collect target repo, user intent, scope hints, skill name
 - All user-facing output in `{communication_language}`
 
-## MANDATORY SEQUENCE
+## Sequence
 
 ### 1. Discover Forge Tier
 
@@ -383,9 +379,8 @@ Display: "**Select:** [C] Continue to Target Analysis · [X] Cancel and exit"
 - IF X: Treat as user-cancellation. Display `"Cancelled — no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). When `{headless_mode}` is true the GATE auto-proceeds and never reaches this branch — `[X]` is interactive-only. Cancellation here is non-destructive: no files have been written yet by step 1.
 - IF Any other: Help user, then [Redisplay Menu Options](#8-present-menu-options)
 
-#### EXECUTION RULES:
+#### Execution rules:
 
-- ALWAYS halt and wait for user input after presenting menu
 - **Resolve `{validateBriefInputsHelper}`** from `{validateBriefInputsProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
 - **GATE [default: use args]** — If `{headless_mode}`, consume pre-supplied arguments and auto-proceed. The full argument set (required/optional, defaults, halt codes, enum values) is documented in `{headlessArgsFile}` — load it now if you need to look up a specific argument. Validation is delegated to `{validateBriefInputsHelper}`; the table is the canonical operator-facing documentation, the script enforces it.
@@ -415,10 +410,4 @@ Display: "**Select:** [C] Continue to Target Analysis · [X] Cancel and exit"
   3. **Hydrate and route.** Store `ratify_mode: true` and `ratify_source_path: <resolved-brief-path>` in workflow context, then hydrate the brief context variables from the parsed `brief` payload exactly as the §3.1a `[R]` branch does (the identical field-mapping list: `name`/`version`/`target_version`, `target_ref`/`source_ref`, `source_repo`/`source_type`/`source_authority`/`doc_urls`, `language`/`description`/`forge_tier`, `created`/`created_by`, `scope.type`/`scope.include`/`scope.exclude`/`scope.tier_a_include`/`scope.notes`/`scope.rationale`/`scope.amendments`, `scripts_intent`/`assets_intent` — preserving `target_ref`/`source_ref`/`tier_a_include`/`amendments` verbatim). Load, read entirely, and execute `{ratifyTargetFile}` — bypassing step 2 (analyze-target) and step 3 (scope-definition), both of which would re-derive fields already on disk. The forward chain resumes at step 4 (confirm-brief), which auto-confirms `[C]` under headless and proceeds to step 5's write (the step 5 §2b ratify branch auto-overwrites in place). Do **not** run the source-authority detection or the `[C] → {nextStepFile}` routing below — they belong to the derive path.
 
   **Headless source-authority detection (derive route only — no `from_brief`).** After consuming `normalized`, if `source_authority` is absent AND `source_type=source` AND `target_repo` is a GitHub URL, load `{headlessSourceAuthorityDetectionFile}` and follow the procedure there. Otherwise (precondition unmet, value already supplied, docs-only, or local-path) skip the load — `community` is the implicit default for the unmet branches.
-
-- ONLY proceed to next step when user selects 'C'
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN C is selected and target repository is confirmed will you load and read fully `analyze-target.md` to execute target analysis.
 

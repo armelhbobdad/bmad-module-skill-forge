@@ -41,18 +41,18 @@ Read `{ccc}` and `{ccc_skip_index}` from context.
 
 ### 2. Check Existing Index State
 
-Consume prior CCC state from stage 1's detector output (`prior.previous_ccc_*` context flags) — no YAML re-parse here, the detector already read forge-tier.yaml. Use `prior.previous_ccc_staleness_threshold_hours` if set, else default 24 hours.
+Consume prior CCC state from stage 1's detector output (`prior.*` context flags) — no YAML re-parse and no timestamp math here. The detector already read forge-tier.yaml and computed the freshness verdict `{ccc_index_fresh}` against `{project-root}` and the current time (same-project path match AND `"fresh"`/`"created"` status AND `last_indexed` within the staleness threshold, defaulting to 24 hours).
 
-Decide `{needs_reindex}` and `{ccc_index_result}` from those flags:
+Decide `{needs_reindex}` and `{ccc_index_result}` from `{ccc_index_fresh}`:
 
-- If `previous_ccc_indexed_path` matches `{project-root}` AND `previous_ccc_index_status` is `"fresh"` or `"created"` AND `previous_ccc_last_indexed` is within `staleness_threshold_hours` of now → index is fresh. Set `{needs_reindex: false}`, `{ccc_index_result: "fresh", ccc_indexed_path: {project-root}, ccc_last_indexed: <existing timestamp>}`. Exclusions still merge in section 3 (which may force a re-index).
-- If path matches but the timestamp is older than threshold, or if the path doesn't match, or if any prior CCC field is null → `{needs_reindex: true}`.
+- If `{ccc_index_fresh}` is true → index is fresh. Set `{needs_reindex: false}`, `{ccc_index_result: "fresh", ccc_indexed_path: {project-root}, ccc_last_indexed: {previous_ccc_last_indexed}}`. Exclusions still merge in section 3 (which may force a re-index).
+- If `{ccc_index_fresh}` is false (path mismatch, non-fresh status, stale timestamp, or any required prior CCC field null) → `{needs_reindex: true}`.
 
 ### 3. Merge SKF Exclusion Patterns
 
 SKF infrastructure and output directories must be excluded from the CCC index — they contain workflow instructions, build artifacts, and generated skills that pollute semantic search results with zero extraction value.
 
-Forward `skills_output_folder` and `forge_data_folder` from `{project-root}/_bmad/skf/config.yaml` **verbatim** — the script resolves `{project-root}/...` template strings and rejects absolute paths / placeholders / glob meta-chars internally. The step does no string surgery; that work moved into the helper. Invoke via `uv run` so PEP 723 inline metadata resolves the script's PyYAML dependency automatically (per `docs/getting-started.md`'s prereq list — uv exists for this exact purpose). Bare `python3` will fail on a fresh Python with `ModuleNotFoundError: No module named 'yaml'`.
+Forward `skills_output_folder` and `forge_data_folder` from `{project-root}/_bmad/skf/config.yaml` **verbatim** — the script resolves `{project-root}/...` template strings and rejects absolute paths / placeholders / glob meta-chars internally. The step does no string surgery; that work moved into the helper. Invoke via `uv run`.
 
 ```bash
 uv run {mergeCccExclusionsHelper} \

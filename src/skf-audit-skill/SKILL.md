@@ -7,11 +7,12 @@ description: Drift detection between skill and current source code. Use when the
 
 ## Overview
 
-Detects drift between an existing skill and its current source code, producing a severity-graded drift report with AST-backed findings and actionable remediation suggestions. Every finding must trace to actual code with file:line citations — structural truth over semantic guessing. Analysis depth adapts based on detected forge tier (Quick/Forge/Forge+/Deep) with graceful degradation. Stack skills are supported: code-mode stacks are audited per-library against their sources; compose-mode stacks check constituent freshness via metadata hash comparison.
+Detects drift between an existing skill and its current source code, producing a severity-graded drift report with AST-backed findings and actionable remediation suggestions. Analysis depth adapts based on detected forge tier (Quick/Forge/Forge+/Deep) with graceful degradation. Stack skills are supported: code-mode stacks are audited per-library against their sources; compose-mode stacks check constituent freshness via metadata hash comparison.
 
 ## Conventions
 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root — stage files reference `knowledge/version-paths.md` and `knowledge/tool-resolution.md`, and the terminal step chains to `shared/health-check.md`.
 - `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
@@ -106,6 +107,8 @@ SKF_AUDIT_RESULT_JSON: {"status":"success|error","skill_name":"…","drift_score
    - `{severityRulesPath}` ← `workflow.severity_rules_path` if non-empty, else `references/severity-rules.md`
    - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty (no-op — report.md skips the hook invocation entirely)
 
-   Stash all three as workflow-context variables. Stage files reference `{driftReportTemplatePath}` / `{severityRulesPath}` / `{onCompleteCommand}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies (custom drift-report layout, stricter severity thresholds) or wire in post-audit hooks (Slack notifier, ticket-tracker integration) without forking the skill.
+   Stash all three as workflow-context variables. Stage files reference `{driftReportTemplatePath}` / `{severityRulesPath}` / `{onCompleteCommand}` directly.
+
+   Also apply the array surfaces (not silent no-ops): run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts — the bundled default globs any `project-context.md`), then run `workflow.activation_steps_append` after activation.
 
 4. Load, read the full file, and then execute `references/init.md` to begin the workflow.

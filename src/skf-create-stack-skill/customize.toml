@@ -1,6 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-create-stack-skill.
+# Team overrides:     {project-root}/_bmad/custom/skf-create-stack-skill.toml
+# Personal overrides: {project-root}/_bmad/custom/skf-create-stack-skill.user.toml
 
 [workflow]
 
@@ -33,6 +35,14 @@ activation_steps_append = []
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
+
+# Command invoked once the workflow reaches its terminal stage — after the
+# stack package is committed and the result contract is written (step 9,
+# report.md §6c), before the health-check chain. Override wins. Use for a
+# terminal action such as catalog registration or notifying a downstream
+# pipeline. Empty string = no terminal action. The hook never fails the run.
+
+on_complete = ""
 
 # --- Optional asset overrides ---
 #

@@ -1,7 +1,7 @@
 ---
 nextStepFile: 'detect-mode.md'
 outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
-templateFile: 'templates/test-report-template.md'
+templateFile: '{testReportTemplatePath}'
 sidecarFile: '{sidecar_path}/forge-tier.yaml'
 skillsOutputFolder: '{skills_output_folder}'
 # frontmatterScript resolves deterministically by probing two candidate
@@ -77,6 +77,12 @@ Check that the skill package contains required files:
 
 This skill has not been created yet. Run the **create-skill** workflow first."
 
+**Headless envelope (if `{headless_mode}`):** emit to **stderr**:
+
+```
+SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":null,"next_workflow":null,"exit_code":1,"halt_reason":"target-inaccessible"}
+```
+
 HALT — do not proceed.
 
 **If metadata.json missing:**
@@ -144,6 +150,12 @@ This skill will fail `npx skills add` and `npx skill-check check`. {If warn:} Co
 **If forge-tier.yaml missing:**
 "**Cannot proceed.** forge-tier.yaml not found at `{sidecarFile}`. Please run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep), or re-run with `--tier=<Quick|Forge|Forge+|Deep>` to bypass the sidecar."
 
+**Headless envelope (if `{headless_mode}`):** emit to **stderr**:
+
+```
+SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":null,"next_workflow":null,"exit_code":1,"halt_reason":"forge-tier-missing"}
+```
+
 HALT — do not proceed.
 
 ### 4b. Apply Tier Override (if set)
@@ -169,11 +181,11 @@ Test-skill reads `source_path` during coverage and coherence analysis. If the lo
 
 - Resolve `pinned_commit` from `metadata.source_commit`.
 - **If `pinned_commit` is null, empty, or `"local"`:** skip the guard; log `workspace_drift_check: skipped (no pinned commit)` and continue to section 6.
-- **If `pinned_commit` is a per-repo map (stack skills):** iterate each `{repo_path: commit}` entry — for each repo run `git -C "{repo_path}" rev-parse HEAD` and compare to its pinned commit (accept full-SHA or short-SHA-prefix match). If ANY repo diverges and the user did not pass `--allow-workspace-drift`, HALT with exit status `halted-for-workspace-drift` listing every mismatched repo. On all-match: log `workspace_drift_check: ok (stack, {N} repos verified)` and continue to section 6. This guard MUST iterate every repo — do not skip stack skills.
+- **If `pinned_commit` is a per-repo map (stack skills):** iterate each `{repo_path: commit}` entry — for each repo run `git -C "{repo_path}" rev-parse HEAD` and compare to its pinned commit (accept full-SHA or short-SHA-prefix match). If ANY repo diverges and the user did not pass `--allow-workspace-drift`, HALT with exit status `workspace-drift` listing every mismatched repo (in `{headless_mode}`, emit the same `workspace-drift` stderr envelope shown in the single-tree branch below before halting). On all-match: log `workspace_drift_check: ok (stack, {N} repos verified)` and continue to section 6. This guard MUST iterate every repo — do not skip stack skills.
 - **If `source_path` is not a git working tree** (bare checkout, tarball extract, docs-only source) — detect by `git -C "{source_path}" rev-parse --is-inside-work-tree`, non-zero exit means skip: log `workspace_drift_check: skipped (not a git working tree)` and continue to section 6.
 - **Otherwise** run `git -C "{source_path}" rev-parse HEAD` and compare to `pinned_commit`. Accept full-SHA or short-SHA-prefix match (stored pins are often 8-char short hashes — see `src/knowledge/provenance-tracking.md`).
   - **On match:** log `workspace_drift_check: ok ({short_sha})` and continue.
-  - **On mismatch, AND the user did not pass `--allow-workspace-drift`:** HALT with exit status `halted-for-workspace-drift`. Display:
+  - **On mismatch, AND the user did not pass `--allow-workspace-drift`:** HALT with exit status `workspace-drift`. Display:
 
     ```
     Workspace HEAD does not match the commit this skill was pinned against.
@@ -191,6 +203,12 @@ Test-skill reads `source_path` during coverage and coherence analysis. If the lo
     current workspace (accepts that findings reflect HEAD, not the pin).
     ```
 
+    **Headless envelope (if `{headless_mode}`):** emit to **stderr**:
+
+    ```
+    SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":null,"next_workflow":null,"exit_code":1,"halt_reason":"workspace-drift"}
+    ```
+
     Do not proceed. The test report has not been created; no partial writes.
   - **On mismatch WITH `--allow-workspace-drift`:** log `workspace_drift_check: overridden (pinned={pinned_commit}, head={head_sha})`, carry the warning into the final report frontmatter (`workspaceDrift: overridden`), and set `allow_workspace_drift: true` in workflow context (consumed by step 5 §5 drift override — a PASS under drift is demoted to `pass-with-drift` and `nextWorkflow` is forced to `update-skill`, never `export-skill`). Continue.
 
@@ -198,7 +216,11 @@ Test-skill reads `source_path` during coverage and coherence analysis. If the lo
 
 **6a. Generate `{run_id}`**: a per-run identifier of the form `{YYYYMMDDTHHmmssZ}-{pid}-{rand4}` (UTC timestamp + process PID + 4-char random hex). Store in workflow context. All per-run artifacts in this and subsequent steps MUST carry this suffix; step 6 verifies `testDate` in the resulting report matches the run's stamp and fail-fast otherwise.
 
-**6b. Acquire the per-skill test lock**: `flock {forge_version}/.test-skill.lock` for the duration of this run to serialize concurrent `skf-test-skill` invocations against the same skill. If the lock is already held by another run, HALT with "another test-skill run is active for {skill_name}".
+**6b. Acquire the per-skill test lock**: `flock {forge_version}/.test-skill.lock` for the duration of this run to serialize concurrent `skf-test-skill` invocations against the same skill. If the lock is already held by another run, HALT with "another test-skill run is active for {skill_name}". **Headless envelope (if `{headless_mode}`):** emit to **stderr** before halting:
+
+```
+SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":null,"next_workflow":null,"exit_code":1,"halt_reason":"another-run-active"}
+```
 
 **6c. Create `{outputFile}` from `{templateFile}`** — use `{forge_version}/test-report-{skill_name}-{run_id}.md` Initial frontmatter:
 

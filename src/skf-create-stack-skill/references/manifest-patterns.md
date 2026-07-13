@@ -15,41 +15,11 @@
 | PHP                   | composer.json                                       | require, require-dev                     | `use ...`, `require_once`                 |
 | .NET                  | *.csproj                                            | PackageReference                         | `using ...`                               |
 
-## Detection Priority
-
-1. Search project root for manifest files (depth 0-1)
-2. Parse each found manifest to extract dependency names
-3. Normalize names across ecosystems (e.g., `@scope/package` → `package`)
-4. Deduplicate across multiple manifests
-
-## Scan Exclusion Patterns
-
-When scanning for manifest files, ALWAYS exclude these directories from glob results:
-
-**Dependency/Vendor Directories:**
-- `node_modules/`
-- `.venv/` / `venv/` / `.env/`
-- `vendor/` (PHP Composer, Go modules)
-- `Pods/` (iOS CocoaPods)
-
-**Build Output Directories:**
-- `dist/` / `build/` / `out/`
-- `target/` (Rust, Java/Maven)
-- `__pycache__/`
-- `.next/` / `.nuxt/` / `.output/`
-
-**Hidden and VCS Directories:**
-- `.git/`
-- Any directory starting with `.` (except project root hidden config files like `.csproj`)
-
-**Monorepo Note:** For monorepo structures (e.g., `packages/*/package.json`), the depth 0-1 scan rule already limits scope. If monorepo manifest detection is needed at deeper levels, these exclusions become critical to prevent scanning dependency trees within each package.
-
-## Filtering Rules
-
-- Exclude dev-only dependencies unless they appear in production imports
-- Exclude build tools (webpack, babel, eslint, etc.) unless significantly imported
-- Include all runtime dependencies by default
-- Flag transitive dependencies that appear in direct imports
+<!-- Manifest scanning, name normalization, dedup, exclusion-dir filtering, and
+dev/build-tool filtering are performed by `skf-scan-manifests.py` (invoked in
+detect-manifests.md §2), which implements exactly the ecosystem table above.
+This file is loaded only for that reference table and the import-counting
+exclusions below — see the script's `--help` for the operative scan contract. -->
 
 ## Import Counting
 

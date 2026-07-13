@@ -1,5 +1,13 @@
 ---
 nextStepFile: 'generate-snippet.md'
+# `{validateOutputHelper}` resolves from `{validateOutputProbeOrder}` (first
+# existing path wins). Step 1 §2 already ran `--export-gate` and retained the
+# JSON verdict; this step renders its status from that verdict. Only re-run the
+# command below if the step-1 JSON is not in context (e.g. package.md entered
+# directly). The verdict is deterministic — same package → same result.
+validateOutputProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-output.py'
+  - '{project-root}/src/shared/scripts/skf-validate-output.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Validate package contents in {document_output_language}. -->
@@ -34,19 +42,16 @@ Verify the skill package at `{resolved_skill_package}` (resolved in step 1 via m
 └── assets/               ← Optional: Templates, schemas, configs
 ```
 
-**Check each component:**
-1. `SKILL.md` — Verify has frontmatter with `name` field
-2. `metadata.json` — Verify required agentskills.io fields:
-   - `name` (string, non-empty)
-   - `version` (string, semver format preferred)
-   - `skill_type` ("single" or "stack")
-   - `source_authority` ("official", "internal", or "community")
-   - `exports` (array)
-   - `generation_date` (ISO date string)
-   - `confidence_tier` ("Quick", "Forge", "Forge+", or "Deep")
-3. `references/` — If exists, check at least one .md file present
-4. `scripts/` — If exists, verify at least one file present and each file referenced in SKILL.md Section 7b exists. Warn for orphaned scripts (present but not referenced).
-5. `assets/` — If exists, verify at least one file present and each file referenced in SKILL.md Section 7b exists. Warn for orphaned assets (present but not referenced).
+**Component checks — from the export-gate verdict (do not re-derive):**
+
+Step 1 §2 already ran the export gate (`python3 {validateOutputHelper} {resolved_skill_package} --export-gate`) and retained its JSON. Read that verdict rather than re-listing the required fields, enum values, or Section 7b rules here — it deterministically covers all of it:
+
+- `SKILL.md` present and non-empty; `metadata.json` present and valid JSON — `validation.skill_md.issues` / `validation.metadata.issues`
+- Required agentskills.io fields present (`name`, `version`, `skill_type`, `source_authority`, `exports`, `generation_date`, `confidence_tier`) — `validation.metadata.issues`
+- Enum membership (`skill_type`, `source_authority`, `confidence_tier`) — `validation.metadata.enum_issues`
+- SKILL.md Section 7b ↔ on-disk `scripts/`/`assets/` cross-reference — `validation.crossref_7b.missing` (high: §7b-named file absent on disk) and `validation.crossref_7b.orphans` (low: on-disk file not referenced in §7b)
+
+If the step-1 JSON is not in context (e.g. this step was entered directly), re-run the command above to regenerate it — the verdict is deterministic. `references/` presence (at least one `.md`) remains a simple on-disk observation for the §4 report.
 
 ### 2. Validate Metadata Completeness
 
@@ -62,26 +67,26 @@ Check metadata.json for recommended (non-required) fields:
 
 ### 3. Assess Package Readiness
 
-Determine package status:
+Read `export_status` directly from the export-gate verdict (step 1 §2) — do not re-compute the status by hand:
 
-**READY:** All required files present, all required metadata fields valid
-**WARNINGS:** Ready but with missing recommended fields or empty references/
-**NOT READY:** Missing required files or required metadata fields (should not reach here — step 1 would have halted)
+- **READY** — the verdict has no issues (`export_status: "READY"`).
+- **WARNINGS** — only medium/low issues remain (`export_status: "WARNINGS"`): §7b orphans, an empty `exports` array, or the recommended-field notes from §2 above.
+- **NOT READY** — any high-severity issue (`export_status: "NOT_READY"`). Step 1 §2 halts on this, so a healthy run never reaches here; if it does, surface the high-severity messages and halt.
 
 ### 4. Report Package Status
 
 "**Package structure validated.**
 
-**Status:** {READY / WARNINGS}
+**Status:** {export_status: READY / WARNINGS}
 
 **Required Components:**
 - SKILL.md: ✅
-- metadata.json: ✅ ({count} required fields valid)
+- metadata.json: ✅ (required fields valid per export-gate verdict)
 - references/: {✅ present ({count} files) / ⚠️ not present}
 
-{If warnings:}
+{If warnings (export_status: WARNINGS):}
 **Warnings:**
-- {list missing recommended fields}
+- {list missing recommended fields from §2, plus any `validation.crossref_7b.orphans` and an empty `exports` warning from the verdict}
 
 **Package is ready for snippet generation.**"
 
@@ -89,16 +94,5 @@ Determine package status:
 
 Display: "**Proceeding to snippet generation...**"
 
-#### Menu Handling Logic:
-
-- After package validation completes, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed step with no user choices
-- Proceed directly to next step after validation
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN package validation is complete will you load and read fully `{nextStepFile}` to execute snippet generation.
+Auto-proceed (no user choices): once package validation is complete, load, read entirely, and execute `{nextStepFile}`.
 

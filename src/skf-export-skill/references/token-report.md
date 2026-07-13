@@ -1,5 +1,14 @@
 ---
 nextStepFile: 'summary.md'
+# Resolve `{countTokensHelper}` by probing `{countTokensProbeOrder}` in order
+# (installed SKF module path first, src/ dev-checkout fallback); the first
+# existing path wins. The helper emits deterministic per-artifact word/token
+# metrics as JSON so this step renders exact numbers instead of re-reading every
+# reference file to word-count it in-prompt. `tokens` is the char-over-four
+# estimate shared with skf-validate-output.py so all SKF token numbers agree.
+countTokensProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-count-tokens.py'
+  - '{project-root}/src/shared/scripts/skf-count-tokens.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Render the token report in {document_output_language}. -->
@@ -14,26 +23,47 @@ To calculate approximate token counts for all exported artifacts and present a c
 
 - Focus only on token counting and reporting — read-only measurement
 - Auto-proceed when complete
-- **Multi-skill mode:** when step 1 loaded more than one skill (`len(skill_batch) > 1`), compute token counts per skill, then present one aggregate table with one row per skill (context-snippet.md, SKILL.md, metadata.json, references/, package total). Measure the managed section once for the run — it is shared across the batch. See step 1 §1c.
+- **Multi-skill mode:** when step 1 loaded more than one skill (`len(skill_batch) > 1`), run the helper once per skill, then present one aggregate table with one row per skill (context-snippet.md, SKILL.md, metadata.json, references/, package total). The `managed_section` value is identical across runs (same target files) — measure and report it once for the run. See step 1 §1c.
 
 ## MANDATORY SEQUENCE
 
-### 1. Calculate Token Counts
+### 1. Measure Token Counts
 
-For each artifact, estimate tokens using the heuristic: **words * 1.3** (approximate for GPT/Claude tokenizers). This same heuristic is used in step 3 for snippet token estimation.
+Resolve `{countTokensHelper}` from `{countTokensProbeOrder}` (see frontmatter) — the first existing path wins. Then run it against the resolved skill package, passing every target context file so the shared managed section is measured:
 
-**Artifacts to measure:**
+```bash
+python3 {countTokensHelper} {resolved_skill_package} --target-file {context_file_1} --target-file {context_file_2}
+```
 
-1. **context-snippet.md** — The compressed snippet (if generated)
-2. **Managed section** — The complete `<!-- SKF:BEGIN/END -->` block (all skills, not just this one)
-3. **SKILL.md** — The full active skill document
-4. **metadata.json** — The machine-readable metadata
-5. **references/** — Total across all reference files (if present)
-6. **Full package total** — Sum of this skill's own artifacts (context-snippet.md + SKILL.md + metadata.json + references/). **Exclude the Managed section row (item 2)** — it is a shared all-skills cost (it bundles this skill's snippet plus every other skill's snippet), reported separately under Context Budget Impact. Including it would double-count this skill's snippet and fold in unrelated skills' costs.
+Pass one `--target-file` per entry in `target_context_files` (resolved in step 1). The helper measures the managed section from the first target file that contains a `<!-- SKF:BEGIN -->…<!-- SKF:END -->` block.
 
-**If passive_context was disabled:** Skip context-snippet.md and managed section measurements, note as "N/A (disabled)".
+The helper emits JSON:
+
+```json
+{
+  "files": [{"path": "…", "role": "…", "exists": true, "words": 0, "tokens": 0}],
+  "references_total": {"count": 0, "words": 0, "tokens": 0},
+  "managed_section": {"present": true, "source_file": "…", "words": 0, "tokens": 0},
+  "package_total": {"words": 0, "tokens": 0}
+}
+```
+
+**Read the JSON — do not re-count words in-prompt.** Each `tokens` value is a char-over-four estimate (`len(text)//4`, the SKF-wide convention shared with `skf-validate-output.py`); each `words` value is the whitespace-split count for the report's Words column. The `files` array carries one row per artifact — `role` is one of `context-snippet`, `skill-md`, `metadata`, `reference`. `package_total` already sums context-snippet.md + SKILL.md + metadata.json + `references_total` and **excludes** the `managed_section` row: the managed section is a shared all-skills cost (it bundles this skill's snippet plus every other skill's snippet), so folding it in would double-count this skill's snippet and pull in unrelated skills. It is reported separately under Context Budget Impact.
+
+**If `passive_context` was disabled:** the helper reports the `context-snippet.md` row with `exists: false` and `managed_section.present: false` — render both as "N/A (disabled)".
+
+**Graceful fallback (helper cannot run — e.g. no Python/uv on claude.ai web):** count the same artifacts in-prompt using the char-over-four convention (`tokens ≈ len(text)//4`, `words` = whitespace-split count). The JSON shape above documents exactly what to measure: context-snippet.md, SKILL.md, metadata.json, each file under references/ (summed as references_total), and the `<!-- SKF:BEGIN -->…<!-- SKF:END -->` block from the first target context file. The package total sums the first four and excludes the managed section.
 
 ### 2. Present Token Report
+
+Render the table straight from the helper JSON — no re-counting.
+
+- `context-snippet.md` row → `files[].tokens` / `.words` for `role: context-snippet`
+- `Managed section` row → `managed_section.words` / `.tokens` (report once for the run)
+- `SKILL.md` row → `files[]` for `role: skill-md`
+- `metadata.json` row → `files[]` for `role: metadata`
+- `references/` row → `references_total.words` / `.tokens`; `{count}` files = `references_total.count`
+- `Package total` row → `package_total.words` / `.tokens`
 
 "**Token Report**
 
@@ -57,16 +87,4 @@ For each artifact, estimate tokens using the heuristic: **words * 1.3** (approxi
 
 Display: "**Proceeding to export summary...**"
 
-#### Menu Handling Logic:
-
-- After token report is displayed, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed step with no user choices
-- Proceed directly to next step after reporting
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the token report is displayed will you load and read fully `{nextStepFile}` to execute the export summary.
-
+Auto-proceed (no user choices): once the token report is displayed, load, read entirely, and execute `{nextStepFile}`.

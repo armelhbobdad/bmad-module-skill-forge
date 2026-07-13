@@ -936,3 +936,269 @@ class TestHomepageNullString:
                 results = mod.detect(REPO_URL, skip_pages_api=True)
 
         assert not any(r["detected_via"] == "homepageUrl" for r in results)
+
+
+# --------------------------------------------------------------------------
+# compare-hashes subcommand — doc-drift detection (determinism-2)
+# --------------------------------------------------------------------------
+
+import hashlib as _hashlib
+import urllib.error as _urlerror
+
+
+def _hash_bytes(content: bytes) -> str:
+    return "sha256:" + _hashlib.sha256(content).hexdigest()
+
+
+class TestNormalizeHash:
+    def test_strips_algo_prefix(self):
+        assert mod._normalize_hash("sha256:abc123") == "abc123"
+        assert mod._normalize_hash("sha1:deadbeef") == "deadbeef"
+
+    def test_bare_hex_idempotent(self):
+        assert mod._normalize_hash("abc123") == "abc123"
+
+    def test_none_and_nonstring(self):
+        assert mod._normalize_hash(None) is None
+        assert mod._normalize_hash(123) is None
+
+    def test_prefixed_and_bare_compare_equal(self):
+        assert mod._normalize_hash("sha256:abc") == mod._normalize_hash("abc")
+
+
+class TestFetchAndHashReasonByteSymmetry:
+    def test_matches_writer_side_hash(self, tmp_path):
+        """The reader-side hash must equal the writer-side (_fetch_and_hash)
+        hash for identical bytes — byte-symmetry is the whole point."""
+        f = tmp_path / "doc.md"
+        f.write_bytes(b"documentation body")
+        url = "file://" + f.as_posix()
+        writer = mod._fetch_and_hash(url)
+        reader_hash, reason = mod._fetch_and_hash_reason(url)
+        assert reason is None
+        assert reader_hash == writer
+        assert reader_hash == _hash_bytes(b"documentation body")
+
+    def test_missing_local_file_yields_reason(self, tmp_path):
+        url = "file://" + (tmp_path / "missing.md").as_posix()
+        h, reason = mod._fetch_and_hash_reason(url)
+        assert h is None
+        assert reason and "local read failed" in reason
+
+    def test_http_error_reason(self):
+        err = _urlerror.HTTPError("http://x/y", 404, "Not Found", {}, None)
+        with patch.object(mod.urllib.request, "urlopen", side_effect=err):
+            h, reason = mod._fetch_and_hash_reason("http://x/y")
+        assert h is None
+        assert reason == "HTTP 404"
+
+    def test_urlerror_reason(self):
+        err = _urlerror.URLError("name resolution failed")
+        with patch.object(mod.urllib.request, "urlopen", side_effect=err):
+            h, reason = mod._fetch_and_hash_reason("http://nonexistent.invalid/")
+        assert h is None
+        assert reason and "URL error" in reason
+
+    def test_timeout_reason(self):
+        with patch.object(mod.urllib.request, "urlopen", side_effect=mod.socket.timeout()):
+            h, reason = mod._fetch_and_hash_reason("http://slow.invalid/")
+        assert h is None
+        assert reason and "timeout" in reason.lower()
+
+
+class TestLoadDocSources:
+    def test_array_shape(self):
+        raw = json.dumps([{"url": "u", "content_hash": "sha256:x"}])
+        assert mod._load_doc_sources(raw, "x") == [{"url": "u", "content_hash": "sha256:x"}]
+
+    def test_object_with_doc_sources(self):
+        raw = json.dumps({"name": "s", "doc_sources": [{"url": "u", "content_hash": None}]})
+        assert mod._load_doc_sources(raw, "x") == [{"url": "u", "content_hash": None}]
+
+    def test_object_without_doc_sources_is_empty(self):
+        raw = json.dumps({"name": "s", "version": "1"})
+        assert mod._load_doc_sources(raw, "x") == []
+
+    def test_malformed_json_raises(self):
+        with pytest.raises(ValueError):
+            mod._load_doc_sources("not json{", "x")
+
+    def test_doc_sources_not_array_raises(self):
+        raw = json.dumps({"doc_sources": "oops"})
+        with pytest.raises(ValueError):
+            mod._load_doc_sources(raw, "x")
+
+    def test_bad_toplevel_shape_raises(self):
+        with pytest.raises(ValueError):
+            mod._load_doc_sources(json.dumps("scalar"), "x")
+
+
+class TestCompareDocHashes:
+    def _fake_fetch(self, served: Dict[str, bytes]):
+        """Return a _fetch_and_hash_reason replacement: hash canned bytes per
+        URL, or raise-equivalent (None, reason) for URLs marked as failing."""
+        def impl(url):
+            if url not in served:
+                return None, "URL error: unreachable"
+            return _hash_bytes(served[url]), None
+        return impl
+
+    def test_unchanged_when_bytes_hash_to_stored(self):
+        served = {"https://d/a": b"same"}
+        stored = _hash_bytes(b"same")
+        doc_sources = [{"url": "https://d/a", "content_hash": stored}]
+        with patch.object(mod, "_fetch_and_hash_reason", side_effect=self._fake_fetch(served)):
+            result = mod.compare_doc_hashes(doc_sources)
+        assert result["unchanged"] == [{"url": "https://d/a"}]
+        assert result["changed"] == []
+        assert result["stats"]["unchanged"] == 1
+
+    def test_changed_carries_old_and_new(self):
+        served = {"https://d/a": b"new bytes"}
+        old = _hash_bytes(b"old bytes")
+        doc_sources = [{"url": "https://d/a", "content_hash": old}]
+        with patch.object(mod, "_fetch_and_hash_reason", side_effect=self._fake_fetch(served)):
+            result = mod.compare_doc_hashes(doc_sources)
+        assert len(result["changed"]) == 1
+        entry = result["changed"][0]
+        assert entry["url"] == "https://d/a"
+        assert entry["old_hash"] == old
+        assert entry["new_hash"] == _hash_bytes(b"new bytes")
+        assert entry["old_hash"] != entry["new_hash"]
+
+    def test_null_content_hash_skipped_without_fetch(self):
+        calls = {"n": 0}
+
+        def impl(url):
+            calls["n"] += 1
+            return _hash_bytes(b"x"), None
+
+        doc_sources = [{"url": "https://d/a", "content_hash": None}]
+        with patch.object(mod, "_fetch_and_hash_reason", side_effect=impl):
+            result = mod.compare_doc_hashes(doc_sources)
+        assert result["skipped_null_hash"] == [{"url": "https://d/a"}]
+        assert calls["n"] == 0, "null-hash entry must NOT trigger a fetch"
+
+    def test_fetch_failure_lands_in_fetch_failed_with_reason(self):
+        served: Dict[str, bytes] = {}  # nothing served -> failing fetch
+        stored = _hash_bytes(b"whatever")
+        doc_sources = [{"url": "https://d/gone", "content_hash": stored}]
+        with patch.object(mod, "_fetch_and_hash_reason", side_effect=self._fake_fetch(served)):
+            result = mod.compare_doc_hashes(doc_sources)
+        assert len(result["fetch_failed"]) == 1
+        entry = result["fetch_failed"][0]
+        assert entry["url"] == "https://d/gone"
+        assert entry["old_hash"] == stored
+        assert entry["reason"] == "URL error: unreachable"
+
+    def test_prefixed_vs_bare_hex_stored_still_matches(self):
+        served = {"https://d/a": b"same"}
+        bare = _hashlib.sha256(b"same").hexdigest()  # no sha256: prefix
+        doc_sources = [{"url": "https://d/a", "content_hash": bare}]
+        with patch.object(mod, "_fetch_and_hash_reason", side_effect=self._fake_fetch(served)):
+            result = mod.compare_doc_hashes(doc_sources)
+        assert result["unchanged"] == [{"url": "https://d/a"}]
+        assert result["changed"] == []
+
+    def test_all_four_categories_and_stats_sum(self):
+        served = {
+            "https://d/unchanged": b"u",
+            "https://d/changed": b"newc",
+        }
+        doc_sources = [
+            {"url": "https://d/unchanged", "content_hash": _hash_bytes(b"u")},
+            {"url": "https://d/changed", "content_hash": _hash_bytes(b"oldc")},
+            {"url": "https://d/failed", "content_hash": _hash_bytes(b"f")},
+            {"url": "https://d/null", "content_hash": None},
+        ]
+        with patch.object(mod, "_fetch_and_hash_reason", side_effect=self._fake_fetch(served)):
+            result = mod.compare_doc_hashes(doc_sources)
+        stats = result["stats"]
+        # stats counts equal the category list lengths
+        assert stats["changed"] == len(result["changed"]) == 1
+        assert stats["unchanged"] == len(result["unchanged"]) == 1
+        assert stats["fetch_failed"] == len(result["fetch_failed"]) == 1
+        assert stats["skipped_null_hash"] == len(result["skipped_null_hash"]) == 1
+        # total_tracked == sum of the four buckets == number of entries
+        assert stats["total_tracked"] == 4
+        assert stats["total_tracked"] == (
+            stats["changed"] + stats["unchanged"]
+            + stats["fetch_failed"] + stats["skipped_null_hash"]
+        )
+
+    def test_deterministic_stable_sort(self):
+        served = {
+            "https://d/c": b"x", "https://d/a": b"x", "https://d/b": b"x",
+        }
+        stored = _hash_bytes(b"x")
+        doc_sources = [
+            {"url": "https://d/c", "content_hash": stored},
+            {"url": "https://d/a", "content_hash": stored},
+            {"url": "https://d/b", "content_hash": stored},
+        ]
+        with patch.object(mod, "_fetch_and_hash_reason", side_effect=self._fake_fetch(served)):
+            r1 = mod.compare_doc_hashes(doc_sources)
+            r2 = mod.compare_doc_hashes(doc_sources)
+        urls = [e["url"] for e in r1["unchanged"]]
+        assert urls == ["https://d/a", "https://d/b", "https://d/c"]
+        assert r1 == r2  # same input -> identical output
+
+    def test_non_dict_and_missing_url_entries_categorized(self):
+        doc_sources = [
+            "not-a-dict",
+            {"content_hash": "sha256:x"},  # no url
+        ]
+        with patch.object(mod, "_fetch_and_hash_reason", side_effect=lambda u: (None, "unused")):
+            result = mod.compare_doc_hashes(doc_sources)
+        # both malformed entries land in fetch_failed, keeping stats consistent
+        assert result["stats"]["fetch_failed"] == 2
+        assert result["stats"]["total_tracked"] == 2
+
+
+class TestCompareHashesCli:
+    def test_object_input_file_exit_0(self, tmp_path):
+        f = tmp_path / "meta.json"
+        f.write_text(json.dumps({"doc_sources": [{"url": "https://d/a", "content_hash": None}]}), encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "compare-hashes", str(f)],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0
+        parsed = json.loads(result.stdout.strip())
+        assert parsed["skipped_null_hash"] == [{"url": "https://d/a"}]
+        assert parsed["stats"]["total_tracked"] == 1
+
+    def test_stdin_input_exit_0(self):
+        payload = json.dumps([{"url": "https://d/a", "content_hash": None}])
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "compare-hashes", "-"],
+            input=payload, capture_output=True, text=True,
+        )
+        assert result.returncode == 0
+        parsed = json.loads(result.stdout.strip())
+        assert parsed["stats"]["skipped_null_hash"] == 1
+
+    def test_malformed_json_exit_2(self):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "compare-hashes", "-"],
+            input="not json{", capture_output=True, text=True,
+        )
+        assert result.returncode == 2
+        err = json.loads(result.stderr.strip())
+        assert err["code"] == "INVALID_JSON"
+
+    def test_unreadable_file_exit_2(self, tmp_path):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "compare-hashes", str(tmp_path / "nope.json")],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 2
+        err = json.loads(result.stderr.strip())
+        assert err["code"] == "READ_ERROR"
+
+    def test_missing_source_arg_exit_2(self):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "compare-hashes"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 2  # argparse usage error

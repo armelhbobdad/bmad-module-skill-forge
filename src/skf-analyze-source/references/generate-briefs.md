@@ -1,6 +1,6 @@
 ---
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-schemaFile: 'assets/skill-brief-schema.md'
+schemaFile: '{briefSchemaPath}'
 validateBriefSchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-schema.py'
   - '{project-root}/src/shared/scripts/skf-validate-brief-schema.py'
@@ -84,8 +84,9 @@ This catches structural YAML errors where they are created, rather than letting 
 1. **Name uniqueness** — no duplicate names within the batch or existing skills
 2. **Source accessible** — project_path exists
 3. **Language recognized** — valid programming language identifier
-4. **Include patterns** — at least one glob pattern present (the schema requires the `scope.include` key but does not enforce a non-empty list)
-5. **Forge tier match** — matches forge_tier from config
+4. **Forge tier match** — matches forge_tier from config
+
+(The non-empty `scope.include` constraint — at least one glob pattern for every scope type except `docs-only` — is enforced deterministically by the §3a gate, so it is not re-checked here.)
 
 **If any check fails:**
 - Document the failure with specific field and reason
@@ -112,6 +113,8 @@ This catches structural YAML errors where they are created, rather than letting 
 **Ready to write {count} skill-brief.yaml files.** Confirm to proceed? (Y to write all briefs / N to skip writing but continue to report update / M to modify a specific brief / X to cancel and exit the workflow)"
 
 Wait for explicit user confirmation before writing files.
+
+**GATE [default: Y]** — If `{headless_mode}` is true: auto-confirm [Y], write all briefs, and log: "headless: auto-write {count} briefs". Do not stall at this gate — it is the deliverable-producing step of a headless/pipeline run.
 
 ### 5. Write Files
 

@@ -60,7 +60,7 @@ When `{headless_mode}` is true, emit the campaign result envelope on stdout, cop
 SKF_CAMPAIGN_RESULT_JSON: {"status":"success","skills_completed":N,"skills_failed":N,"quality_scores":{...},"campaign_report_path":"{reportFile}","decision_log":"{campaignWorkspacePath}/_campaign-decision-log.md","duration":"..."}
 ```
 
-- `status`: "success" if the campaign completed normally (HARD HALTs emit the error variant per SKILL.md "Result Contract on HARD HALT")
+- `status`: "success" if the campaign completed normally (HARD HALTs emit the error variant per the "Result Contract on HARD HALT" in `references/campaign-contracts.md`)
 - `skills_completed` / `skills_failed` / `quality_scores` / `duration`: from the §2 report-script result JSON
 - `campaign_report_path`: `{reportFile}`
 - `decision_log`: path to the append-only decision log

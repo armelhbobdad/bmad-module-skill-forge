@@ -1,7 +1,7 @@
 ---
 nextStepFile: 'generate-briefs.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-schemaFile: 'assets/skill-brief-schema.md'
+schemaFile: '{briefSchemaPath}'
 advancedElicitationSkill: '/bmad-advanced-elicitation'
 partyModeSkill: '/bmad-party-mode'
 ---

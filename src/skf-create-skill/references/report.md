@@ -72,11 +72,6 @@ If there were warnings from extraction, validation, or enrichment, display them:
 
 If no warnings, omit this section entirely.
 
-**Next steps:** After reviewing the report, recommend the next workflow:
-- **TS** (test skill) — verify completeness before export
-- **EX** (export) — publish to your IDE's context system
-- If issues were flagged, suggest **reviewing the SKILL.md** and re-running compilation
-
 ### 4. Suggest Next Steps
 
 "**Recommended next steps:**
@@ -125,9 +120,17 @@ End workflow. No further steps.
 
 **Resolve the schema reference:** before writing, verify that `{project-root}/src/shared/references/output-contract-schema.md` exists and is readable. Try in order: `{project-root}/src/shared/references/output-contract-schema.md`, then `{project-root}/_bmad/skf/shared/references/output-contract-schema.md` (installed-forge path).
 
-- **If resolved:** write the result contract per the schema — the per-run record at `{forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_version}/create-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include `SKILL.md`, `context-snippet.md`, `metadata.json`, **and `{forge_version}/evidence-report.md`** paths in `outputs` (the evidence report carries the `## Auto-Decisions` audit table where every silent auto-decision is recorded — pipeline consumers follow this path to audit the run) and confidence distribution in `summary`. Also set `summary.auto_decision_count` to `len(headless_decisions[])` (0 when the run was interactive) so a consumer can tell from the result JSON alone whether any gate auto-resolved. Use `python3 {atomicWriteHelper} write --target {forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` (stdin-piped JSON) for the per-run record, then the same helper for the `-latest.json` copy.
+- **If resolved:** write the result contract per the schema — the per-run record at `{forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_version}/create-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include `SKILL.md`, `context-snippet.md`, `metadata.json`, **and `{forge_version}/evidence-report.md`** paths in `outputs` (the evidence report carries the `## Auto-Decisions` audit table where every silent auto-decision is recorded — pipeline consumers follow this path to audit the run) and confidence distribution in `summary`. Also set `summary.auto_decision_count` to the number of decision rows in the reconciled evidence-report `## Auto-Decisions` table (0 when the run was interactive and the section holds only the no-auto-decisions line) so a consumer can tell from the result JSON alone whether any gate auto-resolved. Count the persisted rows — the durable audit record step 6 §8 reconciled from disk — rather than the in-context `headless_decisions[]` length, so the count matches the table even if a long headless run compacted the buffer. Use `python3 {atomicWriteHelper} write --target {forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` (stdin-piped JSON) for the per-run record, then the same helper for the `-latest.json` copy.
 
 - **If neither candidate path resolves:** skip the result-contract write entirely. Append a warning to `evidence-report.md`: "Result contract skipped — `shared/references/output-contract-schema.md` could not be resolved at either candidate path." Then set `validation_status: 'schema-unavailable'` in `metadata.json` (and re-write metadata.json via `skf-atomic-write.py write`). Pipeline consumers will observe the missing `-latest.json` and the metadata flag.
+
+**Post-completion hook (optional).** After the result JSON and `metadata.json` are finalized, if `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it:
+
+```bash
+{onCompleteCommand} --result-path={forge_version}/create-skill-result-latest.json
+```
+
+Log success or failure to `workflow_warnings[]` but never fail the workflow on a hook error — the skill is already written and the result contract is final. The hook runs last so a git-add, registry registration, notifier, or downstream-skill chain sees a complete package. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
 
 ### Result Contract on HARD HALT
 
@@ -152,10 +155,4 @@ When `{headless_mode}` is false, HARD HALTs display their human message only —
 ONLY WHEN the compilation report, warnings (if any), recommended next steps, and result contract have been handled will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the report reads as final.
 
 **If batch mode with remaining briefs:** Skip the health-check chain — load and execute `references/load-brief.md` for the next brief instead. The health check runs only after the final brief in the batch.
-
-## CRITICAL STEP COMPLETION NOTE
-
-This step chains to the local health-check step (`{nextStepFile}`), which in turn delegates to `shared/health-check.md` (unless batch mode loops back to step 1). After the health check completes, the create-skill workflow is fully done.
-
-For batch mode: load and execute `references/load-brief.md` for remaining briefs via sidecar checkpoint. Health check runs only after the last brief.
 

@@ -76,7 +76,7 @@ When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **st
 SKF_EXPORT_RESULT_JSON: {"status":"success|error|dry-run","skills":[],"context_files_updated":[],"manifest_path":"…|null","headless_decisions":[],"exit_code":0,"halt_reason":null}
 ```
 
-`status` is `"success"` on the terminal happy path, `"dry-run"` when `--dry-run` was set and the workflow exited before §4 writes, `"error"` on any HALT. `halt_reason` is one of: `null` (success / dry-run), `"input-missing"`, `"input-invalid"`, `"resolution-failure"`, `"stack-redirect"`, `"orphan-cancelled"`, `"malformed-markers"`, `"manifest-write-failed"`, `"context-rebuild-failed"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above.
+`references/result-envelope.md` is the single source for the full field semantics and the `halt_reason` enum — halting stages load it directly, so the enum lives in exactly one place. `exit_code` matches the Exit Codes table above.
 
 ## On Activation
 
@@ -105,13 +105,15 @@ SKF_EXPORT_RESULT_JSON: {"status":"success|error|dry-run","skills":[],"context_f
 
    If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each path scalar.
 
-   Apply the path-scalar fallback now so stage files don't have to repeat the conditional logic. For each scalar, if the merged value is empty or absent, use the bundled default:
+   Apply the fallback now so stage files don't have to repeat the conditional logic. For each scalar, if the merged value is empty or absent, use the bundled default:
 
    - `{managedSectionFormatPath}` ← `workflow.managed_section_format_path` if non-empty, else `assets/managed-section-format.md`
    - `{snippetFormatPath}` ← `workflow.snippet_format_path` if non-empty, else `assets/snippet-format.md`
-   - `{exportManifestPath}` ← `workflow.export_manifest_path` if non-empty, else `{skills_output_folder}/.export-manifest.json`
+   - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string (no-op — step 6 skips the hook invocation)
 
    Stash all three as workflow-context variables. Stage files reference them directly — no conditional at the usage site.
+
+   **Apply the array surfaces so they are not silent no-ops:** execute each entry in `workflow.activation_steps_prepend` in order now (org-wide pre-flight such as auth, network, or compliance); treat every entry in `workflow.persistent_facts` as standing context for the whole run (`file:`-prefixed entries are paths or globs whose contents load as facts — the bundled default loads any `project-context.md`); then, after activation completes and before the first stage runs, execute each entry in `workflow.activation_steps_append` in order.
 
 5. **Pre-flight write probe.** Verify `{skills_output_folder}` is writable. A read-only mount, full disk, or permissions-denied path otherwise only surfaces at step 4's managed-section rewrite — by then the user has already confirmed the batch:
 
@@ -121,6 +123,6 @@ SKF_EXPORT_RESULT_JSON: {"status":"success|error|dry-run","skills":[],"context_f
      rm "{skills_output_folder}/.skf-write-probe"
    ```
 
-   On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`). In headless mode, emit the error envelope per **Result Contract (Headless)** with `skills: []`, `context_files_updated: []`, `manifest_path: null`.
+   On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`). In headless mode, emit the error envelope per `references/result-envelope.md` with `skills: []`, `context_files_updated: []`, `manifest_path: null`.
 
 6. Load, read the full file, and then execute `references/load-skill.md` to begin the workflow.

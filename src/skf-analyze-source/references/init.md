@@ -2,7 +2,7 @@
 nextStepFile: 'scan-project.md'
 continueFile: 'continue.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-templateFile: 'templates/analysis-report-template.md'
+templateFile: '{analysisReportTemplatePath}'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -21,6 +21,8 @@ To initialize the analyze-source workflow by loading configuration, detecting co
 
 ## MANDATORY SEQUENCE
 
+When `{headless_mode}` is true, every HARD HALT in this step emits the single-line error envelope on **stderr** before exiting — `SKF_ANALYZE_RESULT_JSON: {"status":"error","report_path":null,"brief_paths":[],"unit_counts":{"confirmed":0,"skipped":0,"maybe":0},"exit_code":<code>,"halt_reason":"<reason>","mode":"interactive|auto"}` — using the exit code and `halt_reason` named at that HALT, so a headless automator can branch on the failure class without grepping the human message. This satisfies SKILL.md's Result Contract promise that every HARD HALT surfaces the envelope.
+
 ### 1. Check for Existing Report (Continuation Detection)
 
 Look for {outputFile}.
@@ -29,7 +31,9 @@ Look for {outputFile}.
 - The report filename is keyed to `{project_name}` (the forge workspace), not the analyzed target — so a report from a *different* target can collide here. Before resuming, establish the requested target and compare it to the existing report:
   - Determine the requested target now: if `--project-path <path>` was passed at invocation, set `project_paths[]` from it (comma-split if multiple); otherwise collect the path(s) using the section-3 "Collect Project Path" prompt and store as `project_paths[]`. (Section 3 must NOT re-prompt when `project_paths[]` is already populated here.)
   - Read the existing report's frontmatter `project_paths`.
-  - **IF the existing report's `project_paths` matches the requested target:** "**Found an existing analysis report. Resuming previous session...**" — Load, read entirely, then execute {continueFile}. **STOP HERE** — do not continue this sequence.
+  - **IF the existing report's `project_paths` matches the requested target:**
+    - **IF this invocation carries the `[auto]` flag (e.g. `AN[auto]`):** do NOT route to {continueFile} — auto mode is a single idempotent pass, not a resumable interactive session. Skip continuation and proceed to section 2; the `[auto]` check in §2b re-enters step-auto-scope.md, which re-runs cleanly and overwrites the prior auto report. (This keeps a re-invoked or interrupted auto run on the auto path instead of dropping it into the interactive chain.)
+    - **ELSE:** "**Found an existing analysis report. Resuming previous session...**" — Load, read entirely, then execute {continueFile}. **STOP HERE** — do not continue this sequence. ({continueFile} is mode-aware: a report written by a prior auto run resumes through the auto path, not the interactive chain.)
   - **ELSE (different target — stale collision):** the existing report belongs to another analysis. Archive it by renaming to `{forge_data_folder}/analyze-source-report-{project_name}-<UTC-timestamp>.md`, announce "**Existing report belongs to a different target — archived as <name>; starting a fresh analysis.**", then continue to section 2 (skip re-collecting the path in section 3 — it is already set).
 
 **IF the file does not exist OR stepsCompleted is empty:**

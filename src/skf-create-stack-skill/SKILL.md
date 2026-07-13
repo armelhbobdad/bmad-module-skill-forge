@@ -12,6 +12,7 @@ Produces a consolidated stack skill documenting how libraries connect. **Code-mo
 ## Conventions
 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- The `knowledge/` and `shared/` prefixes are the exception: they resolve from the **SKF module root** (`{project-root}/_bmad/skf/` when installed, `src/` during development), not the skill root — they point at module-shared reference docs (`knowledge/tool-resolution.md`, `knowledge/version-paths.md`) and scripts/schemas (`shared/references/…`) that live once at the module root, mirroring the resolution note `references/health-check.md` carries for `shared/health-check.md`.
 - `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
@@ -34,7 +35,9 @@ These rules apply to every step in this workflow:
 
 ## Workflow state contract
 
-Every step that emits a warning ("log a warning", "record in workflow state for the evidence report", "Warning: ...", etc.) appends a structured entry to a single in-memory list named `workflow_warnings[]`. Each entry has the shape `{step: "step-NN", severity: "info|warn|error", code: "<short-slug>", message: "<human text>", context: {<optional fields>}}`. Step 7 surfaces these in `evidence-report.md`; step 8 may add validation findings; step 9 §5 reads the accumulated list and renders the user-facing "Warnings" section. There is exactly one accumulator for the whole workflow — do not invent per-step channels.
+Every step that emits a warning appends a structured entry to a single in-memory list named `workflow_warnings[]` (the one accumulator for the whole workflow). Each entry has the shape `{step: "step-NN", severity: "info|warn|error", code: "<short-slug>", message: "<human text>", context: {<optional fields>}}`. Step 7 surfaces these in `evidence-report.md`; step 8 may add validation findings; step 9 §5 reads the accumulated list and renders the user-facing "Warnings" section.
+
+**Single-pass — no mid-run checkpoint.** State lives in memory until step 7 commits `provenance-map.json`/`evidence-report.md`; the workflow keeps no resumable checkpoint and On Activation does not probe for a prior run — the analysis is deterministic and cheap to redo, and the two gates are trivially re-confirmed. If interrupted before that commit, restart from step 1.
 
 ## Stages
 
@@ -65,14 +68,13 @@ Every step that emits a warning ("log a warning", "record in workflow state for 
 
 Every HARD HALT in this workflow exits with a stable code so headless automators can branch on the failure class without grepping message text:
 
-| Code | Meaning              | Raised by                                                                                  |
+| Code | Meaning              | Raised by (halt_reason)                                                                     |
 | ---- | -------------------- | ------------------------------------------------------------------------------------------ |
 | 0    | success              | step 10 (terminal handoff to shared health-check)                                          |
-| 2    | input-missing / input-invalid | step 1 §0 (`config.yaml` missing or malformed); step 2 §2 headless cannot proceed without manifests (S2); step 4 §3 all extractions failed (B7); step 5 §2 feasibility-report `schemaVersion` mismatch; compose-mode-rules `schemaVersion` mismatch |
-| 3    | resolution-failure   | step 1 §1 (`forge-tier.yaml` missing); step 2 §0 compose-mode skill resolution corruption (manifest + symlink both fail); step 2 §0 compose-mode zero qualifying skills (S1/S3) |
-| 4    | write-failure        | step 7 §1 stage-dir / commit-dir failure; step 7 §1 group-dir collision when an existing non-stack skill occupies the target path |
-| 5    | overwrite-cancelled  | step 7 collision when the user declines to replace an existing stack package |
-| 6    | user-cancelled       | any interactive menu in step 3 / step 6 (user selected `[X]` Cancel and exit) |
+| 2    | input / precondition invalid | step 1 §0 `config.yaml` missing/malformed (`config-missing`); step 2 §2 headless with no manifests (`no-manifests`, S2); step 4 §3 all extractions failed (`all-extractions-failed`, B7); step 5 §2 feasibility-report `schemaVersion` mismatch (`schema-version-mismatch`) |
+| 3    | resolution-failure   | step 1 §1 `forge-tier.yaml` missing (`forge-tier-missing`); step 2 §0 compose-mode skill-resolution corruption (manifest + symlink both fail); step 2 §0 compose-mode zero qualifying skills (S1/S3); step 4 §0 compose-cycle — all `resolution-failure` |
+| 4    | write-failure        | step 7 §1 stage-dir / commit-dir failure; step 7 §1 group-dir collision when an existing non-stack skill occupies the target path — both `write-failure` |
+| 6    | user-cancelled       | any interactive menu in step 3 / step 6 when the user selects `[X]` Cancel and exit (`user-cancelled`) |
 
 ## Result Contract (Headless)
 
@@ -82,7 +84,7 @@ When `{headless_mode}` is true, step 9 emits a single-line JSON envelope on **st
 SKF_STACK_RESULT_JSON: {"status":"success|error","skill_package":"…|null","skill_name":"…","stack_libraries":["…"],"mode":"code|compose","exit_code":0,"halt_reason":null}
 ```
 
-`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `skill_package` is the absolute path to the committed stack-skill directory (or `null` on error before commit). `skill_name` is the stack skill's published name (e.g. `{project_name}-stack`). `stack_libraries` is the array of library names included in the stack (constituent skill names in compose-mode, dependency names in code-mode). `mode` is `"code"` or `"compose"` per the run's resolved mode. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"forge-tier-missing"`, `"config-missing"`, `"no-manifests"`, `"all-extractions-failed"`, `"schema-version-mismatch"`, `"resolution-failure"`, `"write-failure"`, `"overwrite-cancelled"`, `"user-cancelled"`. `exit_code` matches the table above.
+`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `skill_package` is the absolute path to the committed stack-skill directory (or `null` on error before commit). `skill_name` is the stack skill's published name (e.g. `{project_name}-stack`). `stack_libraries` is the array of library names included in the stack (constituent skill names in compose-mode, dependency names in code-mode). `mode` is `"code"` or `"compose"` per the run's resolved mode (`null` if the run halts before mode resolution). `halt_reason` is one of: `null` (success), `"config-missing"`, `"forge-tier-missing"`, `"no-manifests"`, `"all-extractions-failed"`, `"schema-version-mismatch"`, `"resolution-failure"`, `"write-failure"`, `"user-cancelled"`. `exit_code` matches the table above. Fields unknown at the halt point are `null` (`skill_name`) or `[]` (`stack_libraries`) — e.g. a `config-missing` halt precedes `project_name` resolution.
 
 ## On Activation
 
@@ -118,6 +120,10 @@ SKF_STACK_RESULT_JSON: {"status":"success|error","skill_package":"…|null","ski
    - `{composeModeRulesPath}` ← `workflow.compose_mode_rules_path` if non-empty, else `references/compose-mode-rules.md`
    - `{provenanceMapSchemaPath}` ← `workflow.provenance_map_schema_path` if non-empty, else `assets/provenance-map-schema.md`
 
-   Stash all five as workflow-context variables. Stage files reference `{stackSkillTemplatePath}` / `{integrationPatternsPath}` / `{manifestPatternsPath}` / `{composeModeRulesPath}` / `{provenanceMapSchemaPath}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies without forking the skill.
+   Also resolve `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string (no-op — `references/report.md` §6c skips the hook invocation entirely).
+
+   Stash all five paths plus `{onCompleteCommand}` as workflow-context variables. Stage files reference `{stackSkillTemplatePath}` / `{integrationPatternsPath}` / `{manifestPatternsPath}` / `{composeModeRulesPath}` / `{provenanceMapSchemaPath}` directly; empty-string overrides fall through to the bundled default.
+
+   Also apply the array surfaces: run `workflow.activation_steps_prepend` now, keep `workflow.persistent_facts` as standing context (`file:` entries load their contents), then run `workflow.activation_steps_append` after.
 
 4. Load, read the full file, and then execute `references/init.md` to begin the workflow.

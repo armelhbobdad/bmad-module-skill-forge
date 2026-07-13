@@ -1,7 +1,7 @@
 ---
 nextStepFile: 'report.md'
 outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
-scoringRulesFile: 'references/scoring-rules.md'
+scoringRulesFile: '{scoringRulesPath}'
 sourceAccessProtocol: 'references/source-access-protocol.md'
 scoringScript: 'scripts/compute-score.py'
 ---
@@ -85,11 +85,13 @@ Build a JSON object from the data gathered in steps 1-2:
     "coherence": "{combined_coherence_percentage or null if naive mode}",
     "externalValidation": "{external_validation_score or null if N/A}"
   },
-  "threshold": "{effective_threshold from §1 — CLI --threshold wins, then pipeline default, then workflow.default_threshold scalar, then 80}"
+  "threshold": "{effective_threshold from §1 — CLI --threshold wins, then pipeline default, then workflow.default_threshold scalar, then 80}",
+  "analysisConfidence": "{resolved analysis confidence — 'degraded' when python3/frontmatter validator missing; else full/provenance-map/metadata-only/remote-only/docs-only; omit if unknown}",
+  "toolingStatus": "{a missing-helper marker like 'python3-missing' or 'frontmatter-validator-missing' when a helper is unavailable, else omit}"
 }
 ```
 
-**Important:** Score values must be numbers (not strings). Use `null` (not `"N/A"`) for categories that were not scored. Read `metadata.json.skill_type` from `{resolved_skill_package}/metadata.json`; if the value is `"stack"`, set `stackSkill: true` and pass `null` for `signatureAccuracy` and `typeCoverage` (the categories will be redistributed per `{scoringRulesFile}` Stack Skills rule). Likewise read `metadata.json.scope_type`; if the value is `"reference-app"`, set `referenceApp: true` and pass `null` for `signatureAccuracy` and `typeCoverage` (redistributed per `{scoringRulesFile}` Reference-App rule — a reference app documents wiring patterns, not library export signatures).
+**Important:** Score values must be numbers (not strings). Use `null` (not `"N/A"`) for categories that were not scored. `analysisConfidence` and `toolingStatus` are optional strings — pass them so the script can apply the post-score tooling cap (§3d) deterministically; the script fires Cap 1 when `analysisConfidence == "degraded"` or `toolingStatus` contains `missing`. Read `metadata.json.skill_type` from `{resolved_skill_package}/metadata.json`; if the value is `"stack"`, set `stackSkill: true` and pass `null` for `signatureAccuracy` and `typeCoverage` (the categories will be redistributed per `{scoringRulesFile}` Stack Skills rule). Likewise read `metadata.json.scope_type`; if the value is `"reference-app"`, set `referenceApp: true` and pass `null` for `signatureAccuracy` and `typeCoverage` (redistributed per `{scoringRulesFile}` Reference-App rule — a reference app documents wiring patterns, not library export signatures).
 
 #### 3b. Run the Scoring Script
 
@@ -110,8 +112,14 @@ Parse the JSON output. The script returns:
 - `skipReasons` — why each category was skipped
 - `weightSum` — sum of final weights (should be ~100)
 - `inconclusiveReasons` — only present when `result == "INCONCLUSIVE"`; explains which floor clause tripped
+- **Verdict-override group** — present as an atomic set of four keys ONLY when a post-score cap or the threshold fallback engaged (§3d/§4b are now applied by the script, not re-derived here):
+  - `effectiveResult` — the **final verdict** after caps + fallback (`"PASS"` / `"FAIL"`); read this as the outcome for §4–§8
+  - `capReason` — string describing the cap(s) that fired, or `null`
+  - `thresholdFallback` — `true` when the FAIL→PASS-at-80-floor fallback fired
+  - `originalThreshold` — the pre-fallback threshold when `thresholdFallback` is `true`, else `null`
+  - When the group is **absent**, no cap or fallback engaged and `result` is the final verdict.
 
-Use these values for Section 4 (pass/fail/inconclusive) and Section 6 (output formatting). **Never override the script's `result` value** — floor enforcement is centralized in the script for determinism.
+Use these values for Section 4 (pass/fail/inconclusive) and Section 6 (output formatting). **The script owns the minimum-evidence floor, both post-score caps, and the threshold fallback — everywhere below, read its emitted fields (`result`, `effectiveResult`, `capReason`, `thresholdFallback`) and never recompute a verdict, cap, or threshold decision.** The final verdict is `effectiveResult` when the override group is present, otherwise `result` (INCONCLUSIVE is never overridden).
 
 #### 3c. Fallback (if script execution fails)
 
@@ -127,57 +135,45 @@ If the script is unavailable or returns an error, fall back to manual calculatio
 
 Report: "**Note:** Scoring script unavailable — calculated manually per scoring-rules.md."
 
-### 3d. Apply Post-Score Caps (BEFORE PASS/FAIL determination)
+### 3d. Read Post-Score Caps (applied by the script)
 
-The scoring script returns `totalScore` and a preliminary `result`. Two caps may override the script's PASS into FAIL — applied in this order, and ONLY if the script did NOT return INCONCLUSIVE (floor always takes precedence):
+The scoring script applies the two post-score caps deterministically and returns the outcome as `capReason` + `effectiveResult` (§3b). The caps are documented here for interpretation only:
 
-**Cap 1 — Tooling degraded:** if `analysisConfidence == "degraded"` or `toolingStatus` indicates a missing helper (`python3-missing`, `frontmatter-validator-missing`), set `effective_score = min(totalScore, threshold - 1)` and record `scoring_notes: tooling degraded — capped below threshold until helper restored`.
+- **Cap 1 — Tooling degraded:** fires when `analysisConfidence == "degraded"` or `toolingStatus` contains a missing-helper marker (`python3-missing`, `frontmatter-validator-missing`). Pass both fields in §3a so the script can evaluate this.
+- **Cap 2 — Docs-only without external validators:** fires when `docsOnly == true` AND `externalValidation` was null (neither skill-check nor tessl ran).
 
-**Cap 2 — Docs-only without external validators:** if `docsOnly == true` AND `externalValidation` score was null (neither skill-check nor tessl ran), set `effective_score = min(effective_score, threshold - 1)` and record `scoring_notes: docs-only without external validators — capped below threshold`.
-
-If either cap fired and `result` was `PASS`, change it to `FAIL`. If `result` was already `INCONCLUSIVE`, leave it — the evidence-floor verdict is never overridden by a cap.
+A cap that fires forces the script's `PASS` into `FAIL` on the effective score, and never touches an INCONCLUSIVE verdict. If `capReason` is non-null, record `scoring_notes: {capReason}` in the report. A fired cap may still be re-flipped to PASS by the threshold fallback (§4b); `effectiveResult` reflects that settled outcome.
 
 ### 4. Determine Result (PASS / FAIL / INCONCLUSIVE)
 
-The scoring script enforces the minimum-evidence floor BEFORE comparing score vs threshold. Three possible outcomes:
+The scoring script enforces the minimum-evidence floor BEFORE comparing score vs threshold, then applies the post-score caps (§3d) and threshold fallback (§4b). The **settled verdict** is `effectiveResult` when the override group is present, otherwise `result`:
 
 ```
-IF result == "INCONCLUSIVE" — minimum-evidence floor tripped; not PASS, not FAIL
-IF score >= threshold       → PASS
-IF score < threshold        → FAIL
+IF result == "INCONCLUSIVE" — minimum-evidence floor tripped; not PASS, not FAIL (never overridden)
+ELSE settled verdict = effectiveResult if the override group is present, else result   (PASS or FAIL)
 ```
 
 **INCONCLUSIVE floor clauses** (see `{scoringRulesFile}`):
 - `active_categories < 2` (after all redistribution), OR
 - `tier == "Quick"` AND Export Coverage is the sole scoring contributor
 
-**Tooling-degraded cap:** If the `analysisConfidence` in output frontmatter is `degraded` (python3 missing, frontmatter validator missing, or other degraded state flagged in step 1), the step MUST cap the score at `threshold - 1` BEFORE the PASS/FAIL comparison. This forces a deterministic FAIL until tooling is restored. Do NOT override an INCONCLUSIVE result with the cap — INCONCLUSIVE remains the verdict.
-
 ### 4b. Threshold Fallback and Evidence Report
 
-After §4 determines the result but before §5 recommends the next workflow, check whether a threshold fallback applies. The fallback converts a FAIL into a PASS at the 80% floor when the score is between 80% and the effective threshold, and documents the quality compromise in an evidence report.
+After §4 determines the result but before §5 recommends the next workflow, the script's threshold fallback may already have converted a FAIL into a PASS at the 80% floor. This step documents that quality compromise in an evidence report.
 
-**Fallback trigger conditions:**
+The rule the script encodes (documented for interpretation): when `result == "FAIL"` AND `totalScore >= 80` AND `effective_threshold > 80`, the script overrides `result` to `"PASS"` at the 80% floor; an `INCONCLUSIVE` verdict is never overridden. Read the script's fields:
 
-```
-IF result == "FAIL"
-  AND totalScore >= 80
-  AND effective_threshold > 80
-THEN
-  → THRESHOLD FALLBACK triggered
-```
+- `thresholdFallback == true` → the fallback fired; `effectiveResult` is `"PASS"` and `originalThreshold` holds the pre-fallback threshold.
+- `thresholdFallback` absent or `false` → no fallback; the settled verdict from §4 stands.
 
-**Do NOT trigger fallback when:**
-- `result == "INCONCLUSIVE"` — the evidence-floor verdict is never overridden by fallback
-- `totalScore < 80` — that is a genuine FAIL (floor not met)
-- `effective_threshold == 80` — there is nothing to fall back from
+**When `thresholdFallback` is true:**
 
-**When fallback triggers:**
-
-1. Record `threshold_fallback: true`, `original_threshold: {effective_threshold}`, `fallback_threshold: 80` in workflow context.
-2. Override `result` to `"PASS"`.
+1. Record `threshold_fallback: true`, `original_threshold: {originalThreshold}`, `fallback_threshold: 80` in workflow context.
+2. Use `effectiveResult` (`"PASS"`) as the settled verdict — do not recompute it.
 3. Set `effective_threshold = 80` for use by §5/§6/§7/§8.
 4. Generate the evidence report (§4b.1 below).
+
+The cap↔fallback interaction (a cap forcing FAIL that the fallback then re-flips to PASS at the 80 floor) is resolved inside the script — `effectiveResult` reflects the settled outcome. The `{totalScore}` used in the report below is the script's raw `totalScore`.
 
 #### 4b.1 Generate Evidence Report
 
@@ -234,7 +230,7 @@ Record `evidence_report_path: '{forge_version}/evidence-report-fallback.md'` in 
 
 ### 5. Determine Next Workflow Recommendation
 
-Based on test result:
+Based on the **settled verdict** (§4 — `effectiveResult` when the override group is present, else `result`; INCONCLUSIVE is never overridden):
 
 **IF PASS:**
 - `nextWorkflow: 'export-skill'` — skill is ready for export
@@ -307,7 +303,7 @@ If `analysis_confidence` is not `full`, append a degradation notice. **The notic
 ### 7. Update Output Frontmatter
 
 Update `{outputFile}` frontmatter:
-- `testResult: '{pass|pass-with-drift|fail|inconclusive}'` (lowercase; mirrors script `result`, with `pass-with-drift` substituted for `pass` when `allow_workspace_drift` was set and drift was observed — see §5 drift override)
+- `testResult: '{pass|pass-with-drift|fail|inconclusive}'` (lowercase; mirrors the **settled verdict** — `effectiveResult` when the override group is present, else `result` — with `pass-with-drift` substituted for `pass` when `allow_workspace_drift` was set and drift was observed — see §5 drift override)
 - `score: '{total}%'`
 - `threshold: '{threshold}%'`
 - `thresholdSource: '{threshold_source}'`
@@ -318,24 +314,11 @@ Update `{outputFile}` frontmatter:
 
 ### 8. Report Score
 
-"**Completeness score calculated.**
+Report the completeness score to the user: the total percentage and PASS/FAIL verdict, the per-category weighted breakdown (already appended to the report in §6), the threshold, and the recommended next workflow (export-skill on pass, update-skill on fail). When `threshold_fallback` is true, include the fallback notice:
 
-**{skill_name}:** **{total}%** — **{PASS|FAIL}**
-
-| Category | Score | Weighted |
-|----------|-------|----------|
-| Export Coverage | {N}% | {WS}% |
-| Signature Accuracy | {N}% | {WS}% |
-| Type Coverage | {N}% | {WS}% |
-| Coherence | {N}% | {WS}% |
-| External Validation | {N}% | {WS}% |
-
-**Threshold:** {threshold}%
-{If threshold_fallback is true:}
 **Threshold fallback:** scored {totalScore}% against {original_threshold}% target — accepted at 80% floor. Evidence report: {evidence_report_path}
-**Recommendation:** {export-skill if pass | update-skill if fail}
 
-**Proceeding to gap report...**"
+Then proceed to the gap report.
 
 Update stepsCompleted, then load and execute {nextStepFile}.
 

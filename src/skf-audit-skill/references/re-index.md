@@ -14,7 +14,7 @@ Re-scan the source code using the current forge tier tools to build a fresh extr
 ## Rules
 
 - Focus only on extracting current source state — do not compare yet (that's Step 03)
-- Do not skip files or take shortcuts in extraction
+- Extract every file in the bounded scan list — a file skipped here makes step 3 flag its exports as false "removed" drift
 - Use subprocess Pattern 2 (per-file deep analysis) when available for AST extraction; if unavailable, extract in main thread file by file
 
 ## MANDATORY SEQUENCE
@@ -76,7 +76,7 @@ Audit-skill detects drift on files that were in scope during create-skill. The a
 
 ### 3. Extract Current Exports
 
-**DO NOT BE LAZY — For EACH file in the bounded scan list from §2, launch a subprocess that:**
+**For EACH file in the bounded scan list from §2, launch a subprocess that:**
 1. Loads the source file
 2. Extracts all public exports using tier-appropriate method
 3. Records: export name, type, signature, file path, line number, confidence tier
@@ -86,7 +86,7 @@ Audit-skill detects drift on files that were in scope during create-skill. The a
 
 **If subprocess unavailable:** Perform extraction in main thread, processing each file sequentially.
 
-**Build extraction snapshot:**
+**Build extraction snapshot and persist it to `{forge_version}/extraction-snapshot.json`** — step 3 (`structural-diff.md`) reads this file directly, so it must be written to disk, not merely held in context:
 ```
 {
   "extraction_date": "{timestamp}",
@@ -107,6 +107,8 @@ Audit-skill detects drift on files that were in scope during create-skill. The a
   ]
 }
 ```
+
+Record the written path as `{extractionSnapshot}` in workflow context — step 3 passes it to the deterministic structural-diff helper.
 
 ### 4. Deep Tier Enhancement (Deep Only)
 
@@ -174,23 +176,5 @@ CCC failures: skip rename detection silently, proceed with standard structural d
 
 ### 6. Update Report and Auto-Proceed
 
-Update {outputFile} frontmatter:
-- Append `'re-index'` to `stepsCompleted`
-
-### 7. Present MENU OPTIONS
-
-Display: "**Proceeding to structural diff...**"
-
-#### Menu Handling Logic:
-
-- After extraction is complete and frontmatter updated, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed analysis step with no user choices
-- Proceed directly to next step after extraction
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the extraction snapshot is complete with all source files processed will you then load and read fully `{nextStepFile}` to execute and begin structural comparison.
+Update {outputFile} frontmatter — append `'re-index'` to `stepsCompleted`. This is an auto-proceed step with no user choice: once the extraction snapshot is complete with all source files processed, load, read fully, and execute `{nextStepFile}` (structural diff).
 

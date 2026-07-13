@@ -60,7 +60,11 @@ The script emits JSON of the form:
 }
 ```
 
-Cache this result as `stack_skill_inventory` in workflow state — the per-skill subagent fan-out at §1+ MUST read from this cache rather than re-reading each skill's `SKILL.md` / `metadata.json` / `references/` to determine exports. Append every entry in `warnings[]` to workflow state for the evidence report (the script already labels them per-skill, e.g. `"<skill-name>: no exports found via any resolution path"`). For every entry in `cycles[]`, halt with a structured-error contract on stderr — a composes-cycle makes the stack unbuildable.
+Cache this result as `stack_skill_inventory` in workflow state — the per-skill subagent fan-out at §1+ MUST read from this cache rather than re-reading each skill's `SKILL.md` / `metadata.json` / `references/` to determine exports. Append every entry in `warnings[]` to workflow state for the evidence report (the script already labels them per-skill, e.g. `"<skill-name>: no exports found via any resolution path"`). If `cycles[]` is non-empty, a composes-cycle makes the stack unbuildable — emit the result envelope on stderr per the Result Contract in SKILL.md and exit `3`:
+
+```
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"compose","exit_code":3,"halt_reason":"resolution-failure"}
+```
 
 Build a `per_library_extractions[]` entry for each skill by reading from the cached inventory:
 - `library`: `inventory.skills[i].name`
@@ -177,8 +181,11 @@ For each library extraction:
 **If ALL extractions fail:** HALT — cannot produce meaningful stack skill. Before halting (B7):
 
 1. Purge any in-flight staging artifacts under the forge workspace: remove `{forge_data_folder}/{project_name}-stack/{version}/*-tmp` and any `{forge_data_folder}/{project_name}-stack/{version}/*.skf-tmp` directories so partial state does not linger.
-2. Emit a structured error contract on stderr: `{"status":"error","skill":"skf-create-stack-skill","stage":"step 4","reason":"all extractions failed","libraries":[...]}`.
-3. Exit with a non-zero status so headless pipelines detect the failure.
+2. Emit the result envelope on stderr per the Result Contract in SKILL.md (`stack_libraries` carries the confirmed library names that failed extraction), and exit `2`:
+
+   ```
+   SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","exit_code":2,"halt_reason":"all-extractions-failed"}
+   ```
 
 ### 4. Display Extraction Summary
 

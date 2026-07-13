@@ -1,7 +1,7 @@
 ---
 nextStepFile: 'identify-units.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-heuristicsFile: 'references/unit-detection-heuristics.md'
+heuristicsFile: '{unitDetectionHeuristicsPath}'
 scanManifestsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-scan-manifests.py'
   - '{project-root}/src/shared/scripts/skf-scan-manifests.py'

@@ -31,3 +31,11 @@ activation_steps_append = []
 #     contents are loaded and treated as facts).
 
 persistent_facts = []
+
+# Instruction run once the forge is fully configured — after the status report
+# (step 4) emits, before chaining to the shared health check. Override wins. Use
+# for a post-setup action an org wants after the forge is configured — e.g.
+# trigger the first index build or notify an onboarding channel. Empty string =
+# no terminal hook.
+
+on_complete = ""

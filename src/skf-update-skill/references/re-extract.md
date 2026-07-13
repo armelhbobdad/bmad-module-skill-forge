@@ -28,7 +28,7 @@ Perform tier-aware extraction on only the changed files identified in step 02, p
 - Only extract files in the change manifest — do not touch unchanged files. **Exception (gap-driven mode):** §0a's Targeted Re-Extraction Branch also scans files listed in each manifest entry's `remediation_paths[]` to resolve citation-less Critical/High gaps.
 - For each changed file, launch a subprocess for deep AST analysis (Pattern 2); if unavailable, extract sequentially
 
-## MANDATORY SEQUENCE
+## Steps
 
 ### 0. Check for Gap-Driven Mode
 
@@ -223,7 +223,7 @@ The helper emits a result envelope:
 
 **Forge tier (AST structural extraction):**
 
-⚠️ **CRITICAL:** Load and follow the **AST Extraction Protocol** from `{extractionPatternsData}`. Use the decision tree based on the number of changed files: prefer MCP `find_code()` for small sets, `find_code_by_rule()` with scoped YAML rules for medium sets, and CLI `--json=stream` with line-by-line streaming for large sets. Never use `ast-grep --json` (without `=stream`) — it loads the entire result set into memory and will fail on large codebases.
+Load and follow the **AST Extraction Protocol** from `{extractionPatternsData}`. Use the decision tree based on the number of changed files: prefer MCP `find_code()` for small sets, `find_code_by_rule()` with scoped YAML rules for medium sets, and CLI `--json=stream` with line-by-line streaming for large sets. Never use `ast-grep --json` (without `=stream`) — it loads the entire result set into memory and will fail on large codebases.
 
 - Extract: function signatures, type definitions, class members, exported constants
 - Extract: parameter types, return types, JSDoc/docstring comments
@@ -243,17 +243,11 @@ The helper emits a result envelope:
 
 **Skip authoritative doc paths.** Before iterating the change manifest, build a skip set from `promoted_docs_new[]` (populated by step 2 §1b) and any existing `file_entries[]` entries with `file_type: "doc"` from the provenance map. These are documentation files tracked for drift detection only — they must not reach AST extraction, which would produce ghost entries on non-code content. If a change manifest entry matches the skip set, skip it silently and continue; doc-type drift is handled by step 2 Category D and step 4 Priority 6/7.
 
-DO NOT BE LAZY — For EACH remaining file in the change manifest with status MODIFIED, ADDED, or RENAMED, launch a subprocess that:
+For each remaining file in the change manifest with status MODIFIED, ADDED, or RENAMED, launch a subprocess that:
 
 1. Loads the source file
 2. Performs tier-appropriate extraction (Quick/Forge/Forge+/Deep)
-3. For each export found:
-   - Record: export name, type (function/class/type/constant), signature
-   - Record: file path, start line, end line
-   - Record: parameters with types (if function/method)
-   - Record: return type (if function/method)
-   - Record: JSDoc/docstring summary (if present)
-   - Label: confidence tier (T1/T1-low/T2)
+3. Extract each export into the per-file return contract shown in bullet 4.
 4. **Return contract.** Each extraction worker returns ONLY this per-file block — no prose, no commentary, no markdown fences (the parent strips wrapping fences before parsing). The shape is exactly the per-file record §4 aggregates (the `Per-file extractions` block, lines below), so the parent appends it verbatim rather than re-parsing free text:
 
    ```json
@@ -356,16 +350,10 @@ Extraction Results:
 
 **Proceeding to merge with existing skill...**"
 
-### 6. Present MENU OPTIONS
+### 6. Route to Next Step
 
-- **If `dry_run_mode` is true:** display "**Dry-run mode — skipping merge/validate/write.** Loading report..." and load `report.md` (NOT `{nextStepFile}`). The report emits the dry-run envelope describing what merge+write WOULD have done.
-- Else, display "**Proceeding to merge...**" and after extraction results are compiled, immediately load, read entire file, then execute `{nextStepFile}`.
-- This is an auto-proceed step with no user choices.
+This step auto-proceeds — no user choices. Once all changed files are extracted and results compiled, load and fully read the next file, then execute it, per the branch that applies:
 
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN all changed files have been extracted and results compiled will you load the next file:
-
-- `dry_run_mode == true` → load `report.md`. Report emits status `dry-run`. No artifact is modified on disk by this run.
-- Otherwise → load `{nextStepFile}` (merge.md) to begin the merge operation.
+- **`dry_run_mode == true`** → display "**Dry-run mode — skipping merge/validate/write.** Loading report..." and load `report.md` (NOT `{nextStepFile}`); it emits status `dry-run` describing what merge+write would have done. No artifact is modified on disk by this run.
+- **Otherwise** → display "**Proceeding to merge...**" and load `{nextStepFile}` (merge.md) to begin the merge operation.
 

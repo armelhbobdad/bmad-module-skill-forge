@@ -1,6 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-analyze-source.
+# Team overrides:     _bmad/custom/skf-analyze-source.toml (under {project-root})
+# Personal overrides: _bmad/custom/skf-analyze-source.user.toml (under {project-root})
 
 [workflow]
 

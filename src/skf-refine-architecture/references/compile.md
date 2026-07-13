@@ -135,16 +135,15 @@ Please review the refinements:
 
 ### 8. Present MENU OPTIONS
 
-Display: **Select:** [C] Continue to Final Report
+Display: **Select:** [C] Continue to Final Report | [X] Cancel
 
-#### EXECUTION RULES:
+#### GATE [default: C]
 
-- ALWAYS halt and wait for user input after presenting compilation
-- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-approve compiled architecture"
-- ONLY proceed to next step when user approves and selects 'C'
+This is a review gate: halt for the user's decision and do not chain onward until they approve — an unreviewed compile ships un-vetted refinements. Headless auto-selects [C] (log: "headless: auto-approve compiled architecture").
 
 #### Menu Handling Logic:
 
 - IF C: Load, read entire file, then execute {nextStepFile}
+- IF cancel / exit / [X] / q / :q: HALT (exit code 6, `halt_reason: "user-cancelled"`) — display "Cancelled — refinement not finalized." In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with `refined_path: null`. These global cancel tokens pre-empt the feedback branch below.
 - IF Any other: Process as feedback, adjust specific refinements in the document, rewrite {outputFile}, redisplay preview, then [Redisplay Menu Options](#8-present-menu-options)
 

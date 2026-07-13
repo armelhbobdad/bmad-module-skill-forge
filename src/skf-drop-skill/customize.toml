@@ -1,6 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-drop-skill.
+# Team overrides:     {project-root}/_bmad/custom/skf-drop-skill.toml
+# Personal overrides: {project-root}/_bmad/custom/skf-drop-skill.user.toml
 
 [workflow]
 
@@ -33,6 +35,14 @@ activation_steps_append = []
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
+
+# Optional post-drop hook. When non-empty, invoked with
+# `--result-path=<path>` after the drop-skill result JSON is finalized
+# (references/report.md). Failures are logged to workflow_warnings[] but
+# never fail the workflow — useful for audit-log emit, a notifier, or a
+# ticket-tracker integration after an irreversible purge.
+
+on_complete = ""
 
 # --- Optional safety + default scalars ---
 #

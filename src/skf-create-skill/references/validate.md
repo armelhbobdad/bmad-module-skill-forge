@@ -24,6 +24,20 @@ descriptionGuardProbeOrder:
 frontmatterValidatorProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py'
   - '{project-root}/src/shared/scripts/skf-validate-frontmatter.py'
+# Resolve `{shardBodyHelper}` by probing `{shardBodyProbeOrder}` in order
+# (installed SKF module path first, src/ dev-checkout fallback); first existing
+# path wins. §4 uses it as the deterministic selective splitter and reads its
+# `tier1_preserved` field instead of counting Tier-1 headings pre/post by hand.
+shardBodyProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-shard-body.py'
+  - '{project-root}/src/shared/scripts/skf-shard-body.py'
+# Resolve `{renderMetadataStatsHelper}` by probing `{renderMetadataStatsProbeOrder}`
+# in order (installed SKF module path first, src/ dev-checkout fallback); first
+# existing path wins. §7 uses it in --check mode to re-derive the metadata
+# `stats` / `confidence_distribution` instead of re-doing the arithmetic by hand.
+renderMetadataStatsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
+  - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -144,13 +158,21 @@ If `restored: true` in the verify-restore output, apply §0's post-restore re-va
 
 **Mandatory approach — selective split:** Identify Tier 2 sections by their `## Full` heading prefix (e.g., `## Full API Reference`, `## Full Type Definitions`, `## Full Integration Patterns`). Extract ONLY those sections to `references/`, starting with the largest. Keep ALL Tier 1 content and any smaller sections inline. Inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval (per Vercel research).
 
+This selective split is deterministic — run `{shardBodyHelper}` (the same splitter step 5b auto-shard uses) rather than counting and extracting by hand. **Resolve `{shardBodyHelper}`** from `{shardBodyProbeOrder}`; first existing path wins.
+
+```bash
+uv run {shardBodyHelper} <staging-skill-dir>/SKILL.md --budget 400
+```
+
+It extracts the largest `## Full` sections to `references/` until the body fits, rewrites each as a cross-reference blockquote through the atomic-write helper, and reports `sections_extracted`, `body_lines_after`, `tier1_preserved`, `xref_ok`, and `under_budget`.
+
 **FORBIDDEN:** Running `npx skill-check split-body --write` without prior selective extraction. The `split-body --write` command extracts ALL `##` sections top-to-bottom, destroying Tier 1 inline content that the two-tier design depends on. This command is a LAST RESORT only after selective split has been attempted and proven insufficient.
 
-**If selective split alone does not bring body under the limit** (rare — typically only occurs when Tier 1 itself exceeds 300 lines): reduce Tier 1 Key API Summary and Architecture at a Glance sections to fit within limits. Do NOT fall back to automated `split-body --write` to solve a Tier 1 sizing problem.
+**If selective split alone does not bring body under the limit** (the splitter reports `under_budget: false` — rare, typically only when Tier 1 itself exceeds 300 lines): reduce Tier 1 Key API Summary and Architecture at a Glance sections to fit within limits. Do NOT fall back to automated `split-body --write` to solve a Tier 1 sizing problem.
 
 **Tier 1 preservation check:** After ANY split operation, verify that ALL of the following sections remain inline in SKILL.md (not moved to references/): Overview, Quick Start, Common Workflows, Key API Summary, Migration & Deprecation Warnings (if present), Key Types, Architecture at a Glance, CLI (if present), Scripts & Assets (if present), Manual Sections. If any Tier 1 section was moved to references/, restore it immediately and re-split targeting only Tier 2 sections.
 
-**Post-split Tier-1 count check (mandatory):** before invoking the splitter, count the Tier-1 `##`-level section headings present in SKILL.md (any heading whose title matches one of the Tier-1 names listed above) and store as `tier1_count_pre`. After the split completes, recount as `tier1_count_post`. **HALT** if `tier1_count_post < tier1_count_pre` with: "Split reduced Tier-1 section count from {pre} to {post}. Tier-1 sections must remain inline. Restoring from staging backup and aborting body split — manual review required." Do not proceed past §4 — Tier-1 preservation is a hard invariant and a count drop indicates the splitter pulled an inline section into references/ regardless of the section-list check above (e.g., heading-text variation, capitalization, or the splitter's own heuristics).
+**Post-split Tier-1 count check (mandatory):** do NOT recount Tier-1 headings by hand — consume the splitter's `tier1_preserved` field. `{shardBodyHelper}` compares the Tier-1 headings inline before extraction against those inline afterward and reports `tier1_preserved` (with any pulled headings in `tier1_missing`). Read it from the invocation above, or re-check any split's result with `uv run {shardBodyHelper} <staging-skill-dir>/SKILL.md --dry-run`. **HALT** if `tier1_preserved` is false with: "Split reduced Tier-1 section count (missing {tier1_missing}). Tier-1 sections must remain inline. Restoring from staging backup and aborting body split — manual review required." Do not proceed past §4 — Tier-1 preservation is a hard invariant and a `tier1_preserved: false` result means the splitter pulled an inline section into references/ regardless of the section-list check above (e.g., heading-text variation, capitalization, or the splitter's own heuristics).
 
 **Anchor validation and remediation:** After any split, verify that context-snippet section anchors (`#quick-start`, `#key-types`) still resolve to headings in SKILL.md. If an anchor no longer resolves (section was split out), restore that section to SKILL.md inline content — the context-snippet must always reference sections that exist in the main file.
 
@@ -206,7 +228,7 @@ tessl installs automatically via `npx`. A missing tool is not an error — grace
 
 **If §6 produced no novel suggestions (all dismissed via `{tesslDismissalData}`) OR tessl was unavailable:** Skip this gate — auto-proceed.
 
-**GATE [default: S]** — If `{headless_mode}` is true AND §6 produced novel suggestions: auto-select [S] Skip (a headless run has no human to triage novel suggestions), record `"tessl suggestions: {N} novel suggestion(s) auto-skipped (headless)"` in the evidence report under "Dismissed tessl suggestions", log `"headless: auto-skip {N} novel tessl suggestion(s)"`, and append `{step: "validate", gate: "tessl-suggestions", decision: "S", value: "{N} novel auto-skipped", rationale: "headless mode — no human to triage novel tessl suggestions", timestamp: {ISO}}` to the in-context `headless_decisions[]` list (step 5 §7 reads it into the evidence-report `## Auto-Decisions` table). This is the one consequential auto-decision that drops human-relevant feedback, so it must leave an audit row rather than vanishing. Then auto-proceed to §7 — do NOT present the menu below.
+**GATE [default: S]** — If `{headless_mode}` is true AND §6 produced novel suggestions: auto-select [S] Skip (a headless run has no human to triage novel suggestions), record `"tessl suggestions: {N} novel suggestion(s) auto-skipped (headless)"` in the evidence report under "Dismissed tessl suggestions", log `"headless: auto-skip {N} novel tessl suggestion(s)"`, and append `{step: "validate", gate: "tessl-suggestions", decision: "S", value: "{N} novel auto-skipped", rationale: "headless mode — no human to triage novel tessl suggestions", timestamp: {ISO}}` to the in-context `headless_decisions[]` list (§8 below reconciles it into the evidence-report `## Auto-Decisions` table — this is the last gate to fire, so its row is added at §8; the earlier gates' rows were already persisted to disk at step 5 §7). This is the one consequential auto-decision that drops human-relevant feedback, so it must leave an audit row rather than vanishing. Then auto-proceed to §7 — do NOT present the menu below.
 
 **If §6 produced novel suggestions** (ones not matched by any dismissal rule) AND `{headless_mode}` is false, present them to the user:
 
@@ -234,14 +256,21 @@ tessl suggestions (novel — not matched by `{tesslDismissalData}`):
 
 ### 7. Validate metadata.json
 
-Cross-check metadata.json against extraction inventory:
-- `stats.exports_documented` / `stats.exports_public_api` / `stats.exports_internal` / `stats.exports_total` are accurate
-- `stats.public_api_coverage` and `stats.total_coverage` are correctly computed (null when denominator is 0)
-- `confidence_distribution.{t1, t1_low, t2, t3}` bin **per-export signature tiers** — each documented export lands in exactly one tier, so the four bins must **sum to `stats.exports_documented`**. Do NOT fold T2 annotation counts or T3 doc-item counts into the bins (a common error: binning ~8 annotations + ~80 doc items on top of 59 exports → sum 147 ≠ 59). `skf-test-skill` coverage-check §4b enforces this sum as an internal-consistency defect. Carve-outs mirror that consumer: for a **stack** skill the distribution bins constituents (sums to the constituent count, not `exports_documented`); for a **reference-app** it bins per-citation provenance entries (sums to the citation count, not `pattern_surfaces_documented`)
-- `spec_version` is "1.3"
-- If `scripts[]` or `assets[]` arrays present: verify `stats.scripts_count`/`stats.assets_count` match array lengths; verify `file_entries` count in provenance-map.json matches
+**Re-derive the computed fields with `{renderMetadataStatsHelper}` in check mode** rather than re-doing the arithmetic by hand. Resolve `{renderMetadataStatsHelper}` from `{renderMetadataStatsProbeOrder}` (first existing path wins; HALT if neither resolves), then run it against the staged provenance-map and metadata.json:
 
-Auto-fix any discrepancies (these are computed values).
+```bash
+uv run {renderMetadataStatsHelper} <staging-skill-dir>/provenance-map.json \
+    --check <staging-skill-dir>/metadata.json
+```
+
+The helper re-bins `entries[]` by `signature_source`, recomputes `exports_documented`, `exports_total`, and `public_api_coverage` / `total_coverage` (null when the denominator is 0), and cross-checks `stats.scripts_count` / `stats.assets_count` against the `scripts[]` / `assets[]` array lengths and the provenance-map `file_entries` counts. It takes the judgment values (`exports_public_api`, `exports_internal`, `effective_denominator`) from `metadata.json` itself and infers the shape from `scope_type` / `skill_type` (pass `--shape` to override). Parse the emitted JSON (rely on the JSON, not the exit code):
+
+- **`coherence.ok: true`** — the computed fields are internally consistent; record "Metadata: PASS".
+- **`coherence.ok: false`** — each `violations[]` entry is `{field, expected, actual}` where `expected` is the correct value. **Auto-fix each computed-value violation** (`field` starting `stats.` or `confidence_distribution.`) by setting that field in `metadata.json` to `expected` (write via `python3 {atomicWriteHelper} write --target <staging-skill-dir>/metadata.json`), leaving every other stats field — e.g. `stats.notes` on a reference app — untouched. Record "Metadata: auto-fixed {N} computed-value discrepanc(y|ies)" listing the fields. These are computed values, so the helper is authoritative — a `confidence_distribution` violation is exactly the historical 147 ≠ 59 fold (T2 annotations + T3 doc items binned on top of the per-export tiers); the helper's per-entry counts replace them. Carve-outs are handled by `--shape`: a **stack** distribution sums to the constituent count and a **reference-app** distribution to the per-citation count, so those are consistent states, not violations. A `provenance.file_entries.*` violation is not a computed metadata field — it means the provenance-map `file_entries` and metadata counts disagree; record it as a warning for manual reconciliation rather than auto-editing the count.
+
+Then verify the two fields the helper does not own (genuine constants/contract):
+- `spec_version` is `"1.3"`.
+- `scope_type` is present and equals the brief's `scope.type` verbatim.
 
 ### 8. Update Evidence Report
 
@@ -272,6 +301,18 @@ Add validation results to evidence-report content in context:
 - {warnings, security results, tessl scores and suggestions — or "skipped"}
 ```
 
+**Auto-Decisions table (reconcile on-disk rows with the buffer — idempotent):** all gates have now fired — step 5 §7 rendered the step 1–3d rows into the on-disk staging evidence-report, §6b just added the tessl-suggestions row to the buffer, and steps 7–9 add none. Reconcile: read the `## Auto-Decisions` rows already persisted in `<staging-skill-dir>/evidence-report.md` (step 5 §7 wrote them, so they survive any compaction of the in-context buffer between step 5 and here), union them with the in-context `headless_decisions[]` entries (which carry the §6b row) keyed on `step`+`gate` so no decision is duplicated or dropped, and re-render the section from that union. Because the earlier rows are recovered from disk rather than from the possibly-compacted buffer, the audit table stays complete on a long headless run. Emit one row per entry:
+
+```
+## Auto-Decisions
+
+| Step | Gate | Decision | Rationale | Timestamp |
+|------|------|----------|-----------|-----------|
+| {step} | {gate} | {decision}{value?} | {rationale} | {timestamp} |
+```
+
+If both the on-disk rows and `headless_decisions[]` are empty, keep the single line step 5 §7 emitted: `No auto-decisions — workflow ran interactively (or all gates had no match to auto-resolve).` This keeps the section always present so reviewers can tell "zero auto-decisions" apart from "section missing", and keeps the row count equal to `summary.auto_decision_count`.
+
 **Description Guard population:** if the §0 protocol fired during §2 (`skill-check --fix`) or §4 (`split-body`), fill the four Description Guard fields from context:
 
 - `Restored: true` when `description_guard_restored == true`, otherwise `false`.
@@ -290,8 +331,4 @@ After validation completes (including any user decisions from section 6b), immed
 - Tool unavailability is a skip, not a halt
 - Validation failures are warnings — proceed to artifact generation
 - tessl gate only triggers when suggestions exist — no gate for clean reviews or unavailable tools
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN validation is complete (or skipped) and evidence-report content is updated will you proceed to load `{nextStepFile}` for artifact generation.
 

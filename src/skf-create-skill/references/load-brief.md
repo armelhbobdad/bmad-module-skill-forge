@@ -47,7 +47,7 @@ Extract and report:
 - Valid override applied: `{step: "load-brief", gate: "tier-override", decision: "apply", value: "{tier_override}", rationale: "explicit preferences.yaml tier_override", timestamp: {ISO}}`
 - Invalid override rejected: `{step: "load-brief", gate: "tier-override", decision: "reject-invalid", value: "{tier_override}", fallback: "{detected_tier}", rationale: "tier_override not in {Quick,Forge,Forge+,Deep}", timestamp: {ISO}}`
 
-Step-05 §7 reads `headless_decisions[]` and emits an "Auto-Decisions" section into `evidence-report.md` so reviewers can audit every silent choice the workflow made.
+These entries are persisted to the evidence-report `## Auto-Decisions` table at step 5 §7 (the first point the report is written to disk) and reconciled from disk at step 6 §8, so reviewers can audit every silent choice the workflow made even on a run long enough to compact the in-context buffer.
 
 ### 2. Discover Skill Brief
 
@@ -148,8 +148,4 @@ After initialization is complete and all data is loaded (including `target_versi
 - This is an auto-proceed initialization step with no user choices
 - Proceed directly to next step after successful initialization
 - If any prerequisite check fails, HALT with actionable error — do NOT proceed
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN forge-tier.yaml is loaded, skill-brief.yaml is validated, and source code location is resolved will you proceed to load `{nextStepFile}` for ecosystem check.
 

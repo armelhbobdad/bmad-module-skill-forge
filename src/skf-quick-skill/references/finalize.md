@@ -37,7 +37,7 @@ python3 {atomicWriteHelper} flip-link \
   --target {version}
 ```
 
-The helper returns non-zero (helper exit 2) if `{skill_group}/active` already exists as a real directory or file rather than a link — in that case, HARD HALT the workflow with **exit code 7 (finalize-blocked)** per the SKILL.md exit-code map: "Refusing to flip `{skill_group}/active` — existing path is not a symlink or junction. Investigate manually; expected a link pointing at a version directory." Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "finalize"`, `error.code: "finalize-blocked"`, `skill_package` set, `outputs` listing the deliverables already on disk from step 5). A common cause on Windows is a prior run that executed `ln -s` under git-bash without Developer Mode enabled, which silently wrote a full directory copy; remove that copy and retry.
+The helper returns non-zero (helper exit 2) if `{skill_group}/active` already exists as a real directory or file rather than a link — in that case, HARD HALT the workflow with **exit code 7 (finalize-blocked)** per the exit-code map in `references/halt-contract.md`: "Refusing to flip `{skill_group}/active` — existing path is not a symlink or junction. Investigate manually; expected a link pointing at a version directory." Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "finalize"`, `error.code: "finalize-blocked"`, `skill_package` set, `outputs` listing the deliverables already on disk from step 5). A common cause on Windows is a prior run that executed `ln -s` under git-bash without Developer Mode enabled, which silently wrote a full directory copy; remove that copy and retry.
 
 **Never `rm` + `ln -s` the active pointer manually.** The bare-rm pattern has two failure modes: (1) a concurrent reader sees a missing `active` mid-flip, and (2) a bug or typo that replaces `{skill_group}/active` with a plain directory turns the next manual `rm -rf {skill_group}/active` into data loss. The helper encapsulates both guards and the Windows junction fallback.
 
@@ -76,6 +76,14 @@ Confirm: "Active pointer: {skill_group}/active -> {version} ({kind})" where `{ki
 
 Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skill_package}/quick-skill-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{skill_package}/quick-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include `SKILL.md`, `context-snippet.md`, and `metadata.json` paths in `outputs` and export count in `summary`.
 
+**Post-completion hook (optional).** If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it after the result contract is finalized:
+
+```bash
+{onCompleteCommand} --skill-package={skill_package}
+```
+
+Log success/failure but never fail the workflow on a hook error — the skill is already written. The hook runs last so a git-add, registry registration, or notifier sees a complete package. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
+
 ### 4. Chain to Health Check
 
-ONLY WHEN the active pointer has been created and the completion summary and result contract have been written will you then load, read the full file, and proceed to `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.
+Once the active pointer, completion summary, result contract, and any post-completion hook are done, load and execute {nextStepFile}. Do not stop here — health-check is the true terminal step even though the summary reads as final.

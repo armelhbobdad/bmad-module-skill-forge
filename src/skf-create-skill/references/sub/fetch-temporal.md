@@ -254,7 +254,3 @@ After temporal context is fetched and indexed (or skipped for any reason), immed
 - Deep tier with fresh fetch displays brief confirmation then auto-proceeds
 - All failures degrade gracefully — skip and auto-proceed
 
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN temporal context is indexed into QMD (or the step is skipped due to eligibility, cache, or failure) will you proceed to load `{nextStepFile}` for documentation fetch.
-

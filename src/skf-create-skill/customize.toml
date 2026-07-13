@@ -33,3 +33,14 @@ activation_steps_append = []
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
+
+# Pipeline-integration hook invoked after the final report (step 8) and the
+# result JSON / metadata.json are finalized. The command is called as:
+#   <on_complete> --result-path=<{forge_version}/create-skill-result-latest.json>
+# Useful for Slack notifications, dashboard ingest, CI hooks, or chaining a
+# downstream skill (TS test-skill, EX export). Failures are logged to
+# workflow_warnings[] but never fail the workflow.
+#
+# Empty string = no-op (default).
+
+on_complete = ""
