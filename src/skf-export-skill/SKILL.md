@@ -7,20 +7,21 @@ description: Package for distribution and inject context into CLAUDE.md/AGENTS.m
 
 ## Overview
 
-Packages a completed skill as an agentskills.io-compliant package, generates context snippets, and updates the managed section in CLAUDE.md/.cursorrules/AGENTS.md for platform-aware context injection. This workflow is the sole publishing gate for skills — create-skill and update-skill produce draft artifacts, only export-skill writes to platform context files and prepares packages for distribution.
+Packages a completed skill as an agentskills.io-compliant package, generates context snippets, and updates the managed section in CLAUDE.md/.cursorrules/AGENTS.md for platform-aware context injection. It is the sole publishing gate — create-skill/update-skill produce drafts; only export writes platform context files and distribution packages.
 
 ## Conventions
 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- **Module-level path exception:** bare `knowledge/` and `shared/` paths resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root (e.g. `knowledge/version-paths.md`, `shared/health-check.md`).
 - `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
-- **Cross-skill data coupling (export-skill is a hub):** `assets/managed-section-format.md` is loaded by `skf-drop-skill/references/execute.md` and `skf-rename-skill/references/execute.md` (IDE→context-file mapping table and four-case logic). `references/update-context.md` §4a manifest-schema documentation is the source of truth for the v2 schema enforced by `skf-manifest-ops.py`. Other skills depend on these files at install time — schema-breaking changes here require coordinated updates across at least three skills.
+- **Cross-skill data coupling:** `assets/managed-section-format.md` (loaded by drop-skill and rename-skill's `execute.md`) and `references/update-context.md` §4a (v2 manifest schema enforced by `skf-manifest-ops.py`) are the source of truth for those contracts — schema-breaking changes here need coordinated updates across those skills.
 
 ## Role
 
-You are a delivery and packaging specialist collaborating with a skill developer. You bring expertise in skill packaging, ecosystem compliance, and context injection patterns, while the user brings their completed skill and distribution requirements.
+You are a delivery and packaging specialist collaborating with a skill developer, pairing your skill-packaging, ecosystem-compliance, and context-injection expertise with their completed skill and distribution requirements.
 
 ## Workflow Rules
 
@@ -64,7 +65,7 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 | 0    | success              | step 7 (terminal); also `status="dry-run"` when `--dry-run` is set                          |
 | 2    | input-missing        | step 1 §1 — headless run with no `skill_name` and no `--all` (a non-interactive run cannot answer the skill-selection menu) → `input-missing` |
 | 3    | resolution-failure   | step 1 §1 (discovery finds no skills on disk / in the manifest); step 1 §2 (a named skill's required artifacts are missing or its metadata is invalid — export-gate FAIL); multi-skill batch (any skill failing §2 validation halts the whole batch) → `resolution-failure` |
-| 4    | write-failure        | On-Activation §5 pre-flight write probe → `write-failed`; step 4 §9 / §4c.1 (managed-section create/append/rewrite verify fails, or a required helper is unresolvable) → `context-rebuild-failed`; step 4 §9b manifest write → `manifest-write-failed` |
+| 4    | write-failure        | On-Activation §5 pre-flight write probe → `write-failed`; step 4 §3b / §9 / §4c.1 (managed-section create/append/rewrite/clear verify fails, or a required helper is unresolvable) → `context-rebuild-failed`; step 4 §9b manifest write → `manifest-write-failed` |
 | 5    | state-conflict       | step 4 §6 — malformed `<!-- SKF:BEGIN/END -->` markers in the target context file (`<!-- SKF:BEGIN` present, `<!-- SKF:END -->` missing) → `malformed-markers` |
 | 6    | user-cancelled       | step 1 §6 gate `[X]`/cancel; step 1 §1b snippet-root probe (a)/(c); step 4 §8 gate `[X]`/cancel; step 4 §4c.1 orphan-row (c) Cancel; any prompt accepting `cancel`/`exit`/`:q` → `user-cancelled` |
 

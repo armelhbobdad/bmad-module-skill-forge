@@ -67,10 +67,10 @@ Execute the rename decisions recorded in step 1 as a transaction. Copy the old `
 **Headless error envelope (self-contained).** Every HALT below that says *"emit the error envelope"* means: write this single line to **stderr**, mirroring SKILL.md's Result Contract (Headless) so this stage stays parseable even if SKILL.md is out of context on a `nextStepFile` chain —
 
 ```
-SKF_RENAME_SKILL_RESULT_JSON: {"status":"error","old_name":"{old_name}","new_name":"{new_name}","versions_renamed":[],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":<code>,"halt_reason":"<reason>"}
+SKF_RENAME_SKILL_RESULT_JSON: {"status":"error","old_name":"{old_name}","new_name":"{new_name}","versions_renamed":[],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":<code>,"halt_reason":"<reason>","headless_decisions":{headless_decisions}}
 ```
 
-Set `exit_code` and `halt_reason` to the values named at that HALT site (see `references/exit-codes.md`); `old_name`/`new_name` are both resolved by step 1 before this stage runs.
+Set `exit_code` and `halt_reason` to the values named at that HALT site (see `references/exit-codes.md`); `old_name`/`new_name` are both resolved by step 1 before this stage runs. `{headless_decisions}` is the audit trail carried from step 1 (the §6 source-authority override if it fired; `[]` otherwise) — emit it verbatim so a halt in this stage still preserves the decision trail.
 
 ## MANDATORY SEQUENCE
 
@@ -327,6 +327,7 @@ Store the following for step 3:
 - `section3_warnings` — list of missing file warnings (empty if none)
 - `verification_warnings` — list of informational SKILL.md body mentions of `{old_name}` retained (empty if none)
 - `deletion_errors` — list of post-commit deletion errors (empty if none)
+- `headless_decisions` — the audit trail of confirmation gates auto-resolved under `{headless_mode}`, carried forward from step 1 unchanged (empty in interactive runs). Step 3 surfaces it in the result envelope and the per-run result JSON.
 
 ### 10. Load Next Step
 

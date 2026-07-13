@@ -47,7 +47,7 @@ Extract and report:
 - Valid override applied: `{step: "load-brief", gate: "tier-override", decision: "apply", value: "{tier_override}", rationale: "explicit preferences.yaml tier_override", timestamp: {ISO}}`
 - Invalid override rejected: `{step: "load-brief", gate: "tier-override", decision: "reject-invalid", value: "{tier_override}", fallback: "{detected_tier}", rationale: "tier_override not in {Quick,Forge,Forge+,Deep}", timestamp: {ISO}}`
 
-These entries are persisted to the evidence-report `## Auto-Decisions` table at step 5 §7 (the first point the report is written to disk) and reconciled from disk at step 6 §8, so reviewers can audit every silent choice the workflow made even on a run long enough to compact the in-context buffer.
+These entries stay in the in-context buffer until §3 establishes the on-disk auto-decision sink and seeds it with the buffer-so-far; from then on every later gate's decision is appended to the sink as it lands (per the headless Workflow Rule). Step 5 §7 renders the sink into the evidence-report `## Auto-Decisions` table and step 6 §8 reconciles it, so reviewers can audit every silent choice even on a run long enough to compact the in-context buffer before step 5.
 
 ### 2. Discover Skill Brief
 
@@ -94,6 +94,16 @@ The helper emits:
 - `brief-invalid` — schema or conditional-rule violation. Display the first `errors[].message`. Multiple errors may appear; the user typically fixes one source and re-runs.
 
 **If `valid` is true:** continue with `brief` (the parsed object) for downstream sections. Surface any `warnings[]` to the user but do not halt.
+
+**Establish the auto-decision sink (durable headless audit).** The brief is now confirmed, so create the on-disk audit sink at `{sidecar_path}/auto-decisions.jsonl` — one compact JSON object per line — and seed it with whatever is already in the in-context `headless_decisions[]` buffer (the §1 tier-override row, or nothing if none fired). This truncates any stale sink a prior brief left behind:
+
+```bash
+: > {sidecar_path}/auto-decisions.jsonl          # truncate / create empty
+# then, for each entry already in headless_decisions[], append its compact JSON:
+printf '%s\n' '{decision-json}' >> {sidecar_path}/auto-decisions.jsonl
+```
+
+From here on, **every time a later gate appends an auto-decision to `headless_decisions[]`, append that same object as a line to this sink the moment it lands** (the on-landing append the headless Workflow Rule mandates). The array is tiny, so the append costs nothing and keeps a complete on-disk copy across the token-heavy step 3→5 extraction window — the point where a long component-library run can compact the in-context buffer. Step 5 §7 renders this sink into the evidence-report `## Auto-Decisions` table and step 6 §8 reconciles it, so the audit table and `auto_decision_count` stay complete even when the buffer is lost.
 
 **Field reference (for human readers):**
 

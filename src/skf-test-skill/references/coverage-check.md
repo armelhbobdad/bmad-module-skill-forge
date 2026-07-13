@@ -74,7 +74,7 @@ Delegate reading of the skill under test to a subagent. The subagent receives th
 
 test-skill is a quality gate — it must not trust subagent output blindly. Before any downstream step consumes the inventory, the parent runs a schema validator and a grep spot-check, and HALTs on any failure.
 
-**Schema validation (required keys + types) — delegated to `scripts/validate-inventory.py`.** Stripping the wrapping code fence, parsing the JSON, and asserting the required-keys / per-entry-type / `kind`-enum / mismatch-field contract is pure structural validation with one correct verdict per input — deterministic plumbing, not judgment — so it runs in the script, not in-prompt. Pipe the subagent's **raw** response (fence and all) to it exactly as §2c pipes the reconcile input:
+**Schema validation (required keys + types) — delegated to `scripts/validate-inventory.py`.** Fence-stripping, JSON parsing, and the required-keys / per-entry-type / `kind`-enum / mismatch-field contract are structural validation with one correct verdict per input, so they run in the script, not in-prompt. Pipe the subagent's **raw** response (fence and all) to it exactly as §2c pipes the reconcile input:
 
 ```bash
 echo '<subagent raw response>' | uv run scripts/validate-inventory.py --stdin
@@ -210,7 +210,7 @@ Do not write the Coverage Analysis section. Do not proceed to scoring. This is a
 
 ### 2c. Reconcile Documented vs Source Surface (Deterministic Intersection)
 
-On a split-body skill the §1 inventory (documented surface) and the §2 AST output (source barrel) are two independent lists, so the `Documented` count must be their **intersection**, not a parent estimate. This reconciliation — the set intersection/difference/cardinality of the enumerated path plus the grep-verified numerator of the scalar/stack branches — is **deterministic arithmetic with one correct answer per input**, so it is performed by `uv run {reconcileScript}`, not by hand. Computing it in-prompt is exactly what swings the documented count between runs (e.g., "85 from the AST agent" vs "~120 from a hand intersection") and can cross the PASS threshold on split-body skills; delegating it to the script gives the run-to-run reproducibility this section exists to provide.
+On a split-body skill the §1 inventory (documented surface) and the §2 AST output (source barrel) are two independent lists, so the `Documented` count must be their **intersection**, not a parent estimate. That reconciliation — set intersection/difference/cardinality plus the grep-verified numerator of the scalar/stack branches — is deterministic arithmetic with one correct answer per input, so it is performed by `uv run {reconcileScript}`, not by hand.
 
 **Which branch applies — and therefore which `denominatorSource` the script runs — is the policy decision made here.** The denominator itself is resolved by §4/§4b; the script consumes the *already-resolved* denominator and does only the counting (`documented_set` is derived inside the script from the §1 `exports[]`, de-duplicated and with `kind: "method"` excluded — methods are members of an already-counted class/type, not top-level barrel exports). Pick exactly one branch:
 
@@ -323,7 +323,7 @@ After the denominator has been resolved (standard, stratified, or State 2), cros
 
 Cluster assignment is canonical: `skf-create-skill` step 5 derives `exports_public_api` from entry-point validation and writes the `exports[]` array from the same barrel surface (see `skf-create-skill/references/compile.md:105`), while `exports_documented` tracks the broader documented surface that the provenance-map also enumerates.
 
-**Delegate the drift arithmetic to `uv run {coherenceScript}`.** The intra-cluster / cross-cluster `>10%` comparisons are deterministic count arithmetic — one correct answer per input — and eyeballing "13% drift → emit, 4% → skip" in-prompt is exactly what swings the finding set between runs; the script owns the binning, the divergence percentages, and every skip condition (a cluster with fewer than two present counts, and clusters that agree within the threshold, are skipped inside the script). Build the input from the counts collected above and run it (`{coherenceScript}` resolves relative to the skill root):
+**Delegate the drift arithmetic to `uv run {coherenceScript}`.** The intra-cluster / cross-cluster `>10%` comparisons are deterministic count arithmetic with one correct answer per input, so the script — not the prompt — owns the binning, the divergence percentages, and every skip condition (a cluster with fewer than two present counts, and clusters that agree within the threshold, are skipped inside the script). Build the input from the counts collected above and run it (`{coherenceScript}` resolves relative to the skill root):
 
 ```bash
 echo '<JSON>' | uv run {coherenceScript} --stdin

@@ -148,10 +148,7 @@ Write the **Recommendations** and **Evidence Sources** sections to `{outputFile}
   - Set `recommendationCount` to the total number of recommendations
   - If delta was computed (section 3), set `deltaImproved`, `deltaRegressed`, `deltaNew`, `deltaUnchanged` from the delta helper's `improvedCount` / `regressedCount` / `newCount` / `unchangedCount`
   - Verify that `pairsVerified`, `pairsPlausible`, `pairsRisky`, `pairsBlocked` match the counts from Step 03 (these were set in Step 03). If a discrepancy is found, overwrite the frontmatter counts with the values from Step 03 — the report file is the system of record
-- **Overall verdict enforcement (schema producer obligation):**
-  - If any pair has Check 4 missing/weak and was capped at `Plausible`, that alone does not force `NOT_FEASIBLE`, but `FEASIBLE` requires zero such pairs
-  - `FEASIBLE` requires 100% coverage AND zero Blocked pairs AND zero Check-4-missing pairs — otherwise downgrade to `CONDITIONALLY_FEASIBLE`
-  - `coveragePercentage == 0` forces `NOT_FEASIBLE` (per section 1 short-circuit)
+- **Overall verdict enforcement (schema producer obligation):** write the `overallVerdict` computed and stored in §1 verbatim — do not re-derive the ladder here. §1 is its single source of truth (the 100%-coverage + zero-Blocked + zero-Check-4-missing bar for `FEASIBLE`, and the `coveragePercentage == 0` → `NOT_FEASIBLE` short-circuit included).
 - Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`
 
 ### 6. Auto-Proceed to Next Step

@@ -129,12 +129,7 @@ Identify cross-unit integration patterns:
 
 ### 5. Flag Stack Skill Candidates
 
-Using rules from {heuristicsFile}, check for stack skill indicators:
-
-1. **Co-import frequency:** Two or more units imported together in 3+ files
-2. **Integration adapter:** A unit exists primarily to bridge two other units
-3. **Shared state:** Multiple units read/write to the same data store
-4. **Orchestration layer:** A unit coordinates calls across multiple other units
+Check each of the four stack-skill indicators defined in {heuristicsFile}'s Stack Skill Candidate Detection section — co-import frequency, integration adapter, shared state, orchestration layer — against the units.
 
 **For each candidate, document:**
 - Units involved

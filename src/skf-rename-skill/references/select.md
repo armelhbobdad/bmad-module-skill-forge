@@ -46,10 +46,10 @@ Identify the skill the user wants to rename, validate the new name against the a
 **Headless error envelope (self-contained).** Where a halt below says *"emit the error envelope per SKILL.md 'Result Contract (Headless)'"*, write this single line to **stderr** (restated here so selection halts stay parseable even if SKILL.md is out of context) —
 
 ```
-SKF_RENAME_SKILL_RESULT_JSON: {"status":"error","old_name":"…|null","new_name":"…|null","versions_renamed":[],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":<code>,"halt_reason":"<reason>"}
+SKF_RENAME_SKILL_RESULT_JSON: {"status":"error","old_name":"…|null","new_name":"…|null","versions_renamed":[],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":<code>,"halt_reason":"<reason>","headless_decisions":[]}
 ```
 
-Use the `old_name`/`new_name`, `exit_code`, and `halt_reason` named at each halt site (see `references/exit-codes.md`) — `old_name`/`new_name` are `null` until resolved in §4/§5.
+Use the `old_name`/`new_name`, `exit_code`, and `halt_reason` named at each halt site (see `references/exit-codes.md`) — `old_name`/`new_name` are `null` until resolved in §4/§5. `headless_decisions` is `[]` at every selection-stage halt: the only decision this step records (the §6 source-authority override) means *proceed*, so no recorded decision is ever paired with a halt here.
 
 ## MANDATORY SEQUENCE
 
@@ -254,11 +254,11 @@ directories are removed and the old skill remains intact.
 Proceed? [Y/N]
 ```
 
-**GATE [default: Y]** — If `{headless_mode}`: auto-proceed with [Y], log: "headless: auto-confirmed rename {old_name} → {new_name}"
+**GATE [default: Y]** — If `{headless_mode}`: auto-proceed with [Y] and append `{gate: "confirm-rename", default_action: "proceed", taken_action: "proceed", reason: "headless auto-confirm"}` to `headless_decisions[]` (log line: "headless: auto-confirmed rename {old_name} → {new_name}"). Skip this append when `--dry-run` is set — a dry run does not execute the rename, so there is no confirmation to record.
 
 Wait for explicit user response.
 
-**If `--dry-run` was passed**: skip the Y/N prompt entirely. Release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`), display "**[DRY RUN] No changes were made — preview above shows what would be renamed.**", and emit the success envelope per SKILL.md "Result Contract (Headless)" with `status: "dry-run"`, the resolved `old_name`, `new_name`, and `versions_renamed: {affected_versions}`, then HALT (exit code 0). No copy, no manifest re-key, no delete.
+**If `--dry-run` was passed**: skip the Y/N prompt entirely. Release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`), display "**[DRY RUN] No changes were made — preview above shows what would be renamed.**", and emit the success envelope per SKILL.md "Result Contract (Headless)" with `status: "dry-run"`, the resolved `old_name`, `new_name`, `versions_renamed: {affected_versions}`, and `headless_decisions: {headless_decisions}` (carries the §6 source-authority override entry if it fired, else `[]`), then HALT (exit code 0). No copy, no manifest re-key, no delete.
 
 - **If `Y`** → proceed to section 9
 - **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`), display "**Cancelled.** No changes were made.", HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with the resolved `old_name` and `new_name`.
@@ -277,6 +277,7 @@ Store the following decisions in workflow context for step 2:
 - `old_forge_group` — absolute path `{forge_data_folder}/{old_name}/`
 - `new_forge_group` — absolute path `{forge_data_folder}/{new_name}/`
 - `source_authority_override` — boolean (true if the user acknowledged the `"official"` warning, false/absent otherwise)
+- `headless_decisions` — the audit trail of confirmation gates auto-resolved under `{headless_mode}` (the §6 source-authority override and the §8 auto-confirm entries appended above). Initialize to `[]`; in interactive runs it stays `[]`. Step 2 carries it forward and step 3 surfaces it in the result envelope.
 
 ### 10. Load Next Step
 

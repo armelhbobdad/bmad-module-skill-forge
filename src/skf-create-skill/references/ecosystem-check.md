@@ -63,7 +63,7 @@ Auto-proceed silently. Log a note in context: "Ecosystem check skipped (timeout/
 
 This gate fires only when §2 found a match; on no match, timeout, or unavailable tool the step already auto-proceeded to `{nextStepFile}` with no menu.
 
-**GATE [default: P]** — under `{headless_mode}` with a match, auto-proceed as [P], log "headless: ecosystem match found, auto-proceeding", and append `{step: "ecosystem-check", gate: "ecosystem-match", decision: "P", rationale: "headless mode — match found, auto-proceed with user's own compilation", timestamp: {ISO}}` to `headless_decisions[]` (persisted to the evidence-report `## Auto-Decisions` table at step 5 §7, reconciled from disk at step 6 §8).
+**GATE [default: P]** — under `{headless_mode}` with a match, auto-proceed as [P], log "headless: ecosystem match found, auto-proceeding", and append `{step: "ecosystem-check", gate: "ecosystem-match", decision: "P", rationale: "headless mode — match found, auto-proceed with user's own compilation", timestamp: {ISO}}` to `headless_decisions[]` and, the moment it lands, append the same object as a JSON line to the durable audit sink `{sidecar_path}/auto-decisions.jsonl` (the on-landing append established at step 1 §3) — the sink feeds the evidence-report `## Auto-Decisions` table at step 5 §7 and step 6 §8.
 
 Interactively, halt and wait for the user's choice on the §2 menu:
 

@@ -51,8 +51,8 @@ These rules apply to every step in this workflow:
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | project_path [required], scope_hint [optional]. `project_path` can be a GitHub repo URL, a local filesystem path, or a documentation URL for docs-only mode. The URL type heuristic at §0 determines the mode. |
-| **Headless inputs** | `--project-path <path>` (skip Step 1 project-path prompt; accepts documentation URLs for docs-only mode), `--scope-hint <text>` (skip Step 1 scope-hint prompt), `--intent-hint <text>` (pre-supply analysis intent; drives recommendation ranking in Step 5), `--pin <version>` (pin to a specific version tag or branch; accepts semver tags, git tags, and branch names; when absent, resolves to the latest release tag) |
+| **Inputs** | project_path [required], scope_hint [optional]. `project_path` is a GitHub repo URL or a local filesystem path. In `[auto]` mode it may also be a documentation URL — step 1a classifies the URL type and routes docs-only targets (see Stages row 1a). |
+| **Headless inputs** | `--project-path <path>` (skip Step 1 project-path prompt; in `[auto]` mode also accepts documentation URLs for docs-only mode), `--scope-hint <text>` (skip Step 1 scope-hint prompt), `--intent-hint <text>` (pre-supply analysis intent; drives recommendation ranking in Step 5), `--pin <version>` (`[auto]` mode only — pin to a specific version tag or branch; accepts semver tags, git tags, and branch names; when absent, resolves to the latest release tag; interactive/headless runs use `--target-refs`/`--target-ref` instead) |
 | **Headless flag** | `--headless` / `-H` flips every confirm gate to auto-proceed |
 | **Auto flag** | `[auto]` bracket modifier — activates auto-scope mode (step 1a; see **Auto mode path** above). Pipelines pass this as `AN[auto]`. Requires `--project-path`. |
 | **Gates** | steps 2/3/5: Confirm Gate [C]; step 6: Confirm Gate [Y] (write briefs) — all skipped in auto mode |

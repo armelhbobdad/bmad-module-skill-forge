@@ -42,7 +42,7 @@ Before extraction, identify and exclude demo/example files to avoid inflating ex
 
 Confirm exclusion? [Y/n] Or adjust patterns:"
 
-**GATE [default: Y]** — if `{headless_mode}` is true: auto-confirm the auto-detected exclusion patterns, log "headless: auto-confirm demo/example exclusion ({N} files, {M} directories)", and append `{step: "component-extraction", gate: "demo-exclusion", decision: "Y", value: "{N} files / {M} dirs", rationale: "headless mode — auto-detected demo patterns accepted", timestamp: {ISO}}` to `headless_decisions[]`; these entries are persisted to the evidence-report `## Auto-Decisions` table at step 5 §7 and reconciled from disk at step 6 §8. Then proceed without waiting.
+**GATE [default: Y]** — if `{headless_mode}` is true: auto-confirm the auto-detected exclusion patterns, log "headless: auto-confirm demo/example exclusion ({N} files, {M} directories)", and append `{step: "component-extraction", gate: "demo-exclusion", decision: "Y", value: "{N} files / {M} dirs", rationale: "headless mode — auto-detected demo patterns accepted", timestamp: {ISO}}` to `headless_decisions[]` and, the moment it lands, append the same object as a JSON line to the durable audit sink `{sidecar_path}/auto-decisions.jsonl` (the on-landing append established at step 1 §3) — the sink feeds the evidence-report `## Auto-Decisions` table at step 5 §7 and step 6 §8. Then proceed without waiting.
 
 Wait for user response (interactive only). Apply confirmed patterns to the exclude list. Record `demo_files_excluded: {count}` in context.
 
@@ -85,7 +85,7 @@ Sample entries:
 
 Is this the component registry? [Y/n] Or provide the correct path:"
 
-**GATE [default: Y]** — if `{headless_mode}` is true AND `score >= 7` (high-confidence candidate): auto-confirm the registry candidate, log "headless: auto-confirm registry candidate `{path}` (score {score}/9)", and append `{step: "component-extraction", gate: "registry-confirm", decision: "Y", value: "{path} score={score}/9", rationale: "headless mode — high-confidence registry candidate auto-accepted", timestamp: {ISO}}` to `headless_decisions[]`. If `score < 7` in headless mode, auto-reject the candidate (treat as "no registry found"), log "headless: auto-reject low-confidence registry candidate (score {score}/9) — below auto-accept threshold 7", record the decision, and fall through to the "no registry found" branch below. Confidence threshold 7 matches the minimum score the heuristic considers "probable enough to risk" without human eyes.
+**GATE [default: Y]** — if `{headless_mode}` is true AND `score >= 7` (high-confidence candidate): auto-confirm the registry candidate, log "headless: auto-confirm registry candidate `{path}` (score {score}/9)", and append `{step: "component-extraction", gate: "registry-confirm", decision: "Y", value: "{path} score={score}/9", rationale: "headless mode — high-confidence registry candidate auto-accepted", timestamp: {ISO}}` to `headless_decisions[]` and, the moment it lands, append the same object as a JSON line to the durable audit sink `{sidecar_path}/auto-decisions.jsonl` (the on-landing append established at step 1 §3). If `score < 7` in headless mode, auto-reject the candidate (treat as "no registry found"), log "headless: auto-reject low-confidence registry candidate (score {score}/9) — below auto-accept threshold 7", record the decision the same way (buffer + sink, `decision: "reject-low-score"`), and fall through to the "no registry found" branch below. Confidence threshold 7 matches the minimum score the heuristic considers "probable enough to risk" without human eyes.
 
 Wait for user response (interactive only).
 
@@ -95,7 +95,7 @@ Wait for user response (interactive only).
 - **[P]** Provide the registry file path
 - **[S]** Skip registry — proceed with standard props-first extraction only"
 
-**GATE [default: S]** — if `{headless_mode}` is true: auto-select [S] Skip (props-first extraction without registry), log "headless: no registry detected, auto-skip to props-first extraction (no path was provided in brief.scope.registry_path)", and append `{step: "component-extraction", gate: "provide-or-skip-registry", decision: "S", rationale: "headless mode — no human to provide registry path", timestamp: {ISO}}` to `headless_decisions[]`. The default is `[S]` rather than `[P]` because providing a path requires user input that headless cannot supply; skipping degrades gracefully to a smaller but valid extraction.
+**GATE [default: S]** — if `{headless_mode}` is true: auto-select [S] Skip (props-first extraction without registry), log "headless: no registry detected, auto-skip to props-first extraction (no path was provided in brief.scope.registry_path)", and append `{step: "component-extraction", gate: "provide-or-skip-registry", decision: "S", rationale: "headless mode — no human to provide registry path", timestamp: {ISO}}` to `headless_decisions[]` and, the moment it lands, append the same object as a JSON line to the durable audit sink `{sidecar_path}/auto-decisions.jsonl` (the on-landing append established at step 1 §3). The default is `[S]` rather than `[P]` because providing a path requires user input that headless cannot supply; skipping degrades gracefully to a smaller but valid extraction.
 
 Wait for user response (interactive only).
 

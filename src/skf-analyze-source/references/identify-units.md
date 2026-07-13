@@ -39,24 +39,13 @@ Load {heuristicsFile} for classification rules.
 
 **Resolve `{disqualifyCandidatesHelper}`** from `{disqualifyCandidatesProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
-For each detected boundary from the scan:
+For each detected boundary from the scan, apply the classification rules from {heuristicsFile} (loaded in §1):
 
-**Step A — Count detection signals:**
-- Check strong signals (independent manifest, separate entry point, Docker config, distinct export surface, workspace member)
-- Check moderate signals (directory depth, naming convention, separate tests, README, CI/CD reference)
-- Check weak signals (large directory, comment boundaries, import clustering)
+**Step A — Count detection signals:** tally the Strong / Moderate / Weak signals per its Detection Signals tables.
 
-**Step B — Classify boundary type:**
-- Service Boundary — independent deployable unit
-- Package Boundary — workspace member or independently versioned
-- Module Boundary — logical grouping within a package
-- Library Boundary — third-party with significant project-specific usage
-- Composite Boundary — ≥2 boundaries that only deliver value together (detected in §3b below; not assigned during initial per-boundary classification)
+**Step B — Classify boundary type** per its Boundary Classification section. (Composite is detected separately in §3b below — not during this initial per-boundary pass.)
 
-**Step C — Assign scope type:**
-- `full-library` — entire codebase of the unit
-- `specific-modules` — selected components or packages
-- `public-api` — only exported interfaces
+**Step C — Assign scope type** from that same section for the boundary's type.
 
 **Step D — Run deterministic disqualification filter (script):**
 
@@ -113,9 +102,7 @@ For disqualified candidates, note reason:
 
 After building the classification table, apply the Composite Boundary detection heuristic from {heuristicsFile} against the qualifying units:
 
-1. **Scan for merge candidates:** Among the qualifying units (from `kept[]`), find groups of ≥2 Package or Module boundaries that meet either trigger:
-   - **Mutual hard dependency:** Every constituent imports from at least one other constituent in the group, AND no constituent's public API is self-contained
-   - **Shared integration surface:** Constituents share types/traits defined in one constituent but consumed by all others, AND the consuming constituents have no independent barrel
+1. **Scan for merge candidates:** Among the qualifying units (from `kept[]`), find groups of ≥2 Package or Module boundaries that meet either Composite trigger — **Mutual hard dependency** or **Shared integration surface** — as defined in {heuristicsFile}'s Composite Boundary heuristic.
 
 2. **If candidate groups are found**, propose each merge:
    - Derive a composite name from the common namespace prefix or repo name

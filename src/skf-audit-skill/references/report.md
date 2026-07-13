@@ -115,45 +115,13 @@ If finalizing the report or writing the result JSON below fails (read-only mount
 
 ### 5. Present Final Report Summary
 
-"**Audit Complete: {skill_name}**
+Present a concise completion summary to the user conveying: the skill name, the **overall drift score** (CLEAN / MINOR / SIGNIFICANT / CRITICAL), the severity-count table (CRITICAL / HIGH / MEDIUM / LOW / Total), and the saved report path (`{outputFile}`). Close with the next-action recommendation matching the drift level:
 
----
+- **CRITICAL or HIGH findings** → action required: recommend running the `[US] Update Skill` workflow to apply the priority remediations; manual review at `{outputFile}` is the alternative.
+- **MEDIUM or LOW only** → minor drift: manual updates suffice, or run `[US] Update Skill` for automated remediation.
+- **CLEAN** → no action needed; the skill is current and ready for `[EX] Export Skill`.
 
-**Overall Drift Score: {CLEAN / MINOR / SIGNIFICANT / CRITICAL}**
-
-| Severity | Count |
-|----------|-------|
-| CRITICAL | {count} |
-| HIGH | {count} |
-| MEDIUM | {count} |
-| LOW | {count} |
-| **Total** | {total} |
-
-**Report saved to:** `{outputFile}`
-
-{IF CRITICAL/HIGH findings:}
-**Action Required:** {count} priority items need remediation. Recommend running `[US] Update Skill` workflow.
-
-{IF MEDIUM/LOW only:}
-**Minor Drift:** Skill is functional but could benefit from updates. See report for details.
-
-{IF CLEAN:}
-**All Clear:** No drift detected. Skill accurately reflects current source code.
-
----
-
-**Next Steps:**
-{IF findings exist:}
-1. **[US] Update Skill** — Automatically apply remediations from this drift report
-2. **Review report** — Manual review at `{outputFile}`
-
-{IF CLEAN:}
-1. **No action needed** — Skill is current
-2. **[EX] Export Skill** — Skill is ready for distribution
-
----
-
-**Audit workflow complete.**"
+This summary reads as final but is **not** the terminal step — proceed to §6.
 
 ### Result Contract
 

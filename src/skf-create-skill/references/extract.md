@@ -280,7 +280,7 @@ Compile all extracted data into a structured inventory:
 
 **[C] Continue anyway** — compile an empty surface (default)"
 
-Under `{headless_mode}`, do not auto-pass silently: set `status: "partial"` and `summary.warning: "zero-exports"` on the result contract (carried to step 8's record), log `"headless: zero public exports extracted — likely scope/branch/tag mismatch, continuing"`, append a `headless_decisions[]` entry `{step: "extract", gate: "zero-exports", decision: "C", rationale: "headless mode — zero exports, no human to confirm scope/ref", timestamp: {ISO}}`, and proceed. The distinct warning string surfaces the worst kind of failure (looks green, isn't) where a human or automator can act on it.
+Under `{headless_mode}`, do not auto-pass silently: set `status: "partial"` and `summary.warning: "zero-exports"` on the result contract (carried to step 8's record), log `"headless: zero public exports extracted — likely scope/branch/tag mismatch, continuing"`, append a `headless_decisions[]` entry `{step: "extract", gate: "zero-exports", decision: "C", rationale: "headless mode — zero exports, no human to confirm scope/ref", timestamp: {ISO}}` and, the moment it lands, append the same object as a JSON line to the durable audit sink `{sidecar_path}/auto-decisions.jsonl` (the on-landing append established at step 1 §3), and proceed. The distinct warning string surfaces the worst kind of failure (looks green, isn't) where a human or automator can act on it.
 
 Display the extraction findings for user confirmation:
 

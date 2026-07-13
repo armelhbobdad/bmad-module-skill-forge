@@ -90,8 +90,8 @@ if [ -f "$LOCK" ]; then
     # (LLM emits SKF_UPDATE_RESULT_JSON status=halted-for-concurrent-run, see below)
     exit 1
   fi
-  # Stale lock (PID is dead) — log + overwrite
-  echo "skf-update-skill: clearing stale lock from pid=$HELD_PID"
+  # Dead PID — lock left by a prior halted or crashed run; clear + overwrite
+  echo "skf-update-skill: clearing lock from a prior halted/crashed run (pid=$HELD_PID)"
 fi
 
 # Acquire: write our PID + start timestamp (one per line)
@@ -105,9 +105,9 @@ printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK"
 
 **Release contract:**
 
-- The terminal health-check step (step 8) deletes the lock file as its final action.
-- **Every halt path in this workflow — any `halted-for-*` status, or a `blocked` halt like §4/§6's headless exits — must delete the lock before exiting** — otherwise the next attempt would see a stale lock from this run. The lock-release is a single `rm -f "$LOCK"` per halt site; do not skip it.
-- The lock is best-effort: a crash mid-workflow (process kill, host reboot) leaves a stale lock that the next run will clear via the live-PID check above. No manual cleanup needed in the common case.
+- The terminal health-check step (step 8) deletes the lock as its final action — the normal end of every non-inspection run. The two init-stage headless halts below (§4 no-provenance-map, §6 invalid-source-path) also delete it explicitly, since they fire right after acquisition, before the terminal step runs.
+- Mid-workflow halts (detect-changes, re-extract, merge, write) do **not** delete the lock themselves — they rely on the self-heal below. This is deliberate: several of those halt sites are also reachable under `--detect-only`/`--dry-run`, which never acquired this lock, so a blind `rm -f` there could clobber a concurrent real update's lock.
+- The lock is best-effort and self-healing: whatever a halt or crash (process kill, host reboot) leaves behind is cleared by the next run's live-PID check above, since the stored PID is a short-lived bash PID that is already dead. No manual cleanup needed in the common case.
 
 ### 2. Validate Required Artifacts
 

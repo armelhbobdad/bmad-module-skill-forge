@@ -62,10 +62,10 @@ These rules apply to every step in this workflow:
 When `{headless_mode}` is true, step 3 emits a single-line JSON envelope on **stdout** before chaining to step 4, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
 
 ```
-SKF_RENAME_SKILL_RESULT_JSON: {"status":"success|error|dry-run","old_name":"…|null","new_name":"…|null","versions_renamed":[],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":0,"halt_reason":null}
+SKF_RENAME_SKILL_RESULT_JSON: {"status":"success|error|dry-run","old_name":"…|null","new_name":"…|null","versions_renamed":[],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":0,"halt_reason":null,"headless_decisions":[]}
 ```
 
-`status` is `"success"` on the terminal happy path, `"dry-run"` when `--dry-run` was set and the workflow exited before §9 stores decisions, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"manifest-corrupt"`, `"nothing-to-rename"`, `"name-collision"`, `"source-authority-blocked"`, `"halted-for-concurrent-run"`, `"copy-failed"`, `"verify-failed"`, `"manifest-write-failed"`, `"write-failed"`, `"user-cancelled"`. (§7 context-file rebuild is best-effort and never halts, so it has no `halt_reason`.) `exit_code` matches `references/exit-codes.md`.
+`status` is `"success"` on the terminal happy path, `"dry-run"` when `--dry-run` was set and the workflow exited before §9 stores decisions, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"manifest-corrupt"`, `"nothing-to-rename"`, `"name-collision"`, `"source-authority-blocked"`, `"halted-for-concurrent-run"`, `"copy-failed"`, `"verify-failed"`, `"manifest-write-failed"`, `"write-failed"`, `"user-cancelled"`. (§7 context-file rebuild is best-effort and never halts, so it has no `halt_reason`.) `exit_code` matches `references/exit-codes.md`. `headless_decisions` is the audit trail of confirmation gates auto-resolved under `{headless_mode}` — each entry `{gate, default_action, taken_action, reason}` (the §6 source-authority override and the §8 auto-confirm); it is `[]` in interactive runs and whenever no gate was auto-resolved before the envelope was emitted.
 
 ## On Activation
 

@@ -28,10 +28,6 @@ Display the forge status report with positive capability framing, surface tier c
 - Never inline-render the envelope JSON — the script owns the schema; drift breaks pipelines
 - Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing status report is not the terminal step
 
-## Headless Mode Display Rule
-
-In `{headless_mode}` or `{quiet_mode}` the human sections (2 and 3) skip per their heading gates and the only stdout line is the `SKF_SETUP_RESULT_JSON: {…}` envelope from section 4 — and nothing is lost, because every signal the banner would surface is already in the envelope (`tier`, `previous_tier`, `tier_changed`, `tools`, `tools_added`, `tools_removed`, `files_written`, `tier_override_*`, `require_tier_satisfied`, `warnings`, `error`).
-
 ## MANDATORY SEQUENCE
 
 ### 1. Load Capability Descriptions

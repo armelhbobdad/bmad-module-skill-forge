@@ -161,7 +161,7 @@ results.
 
 ### 5c. Calculate Coherence Scores
 
-**Contextual mode only.** The reference-validity ratio, the integration-completeness ratio, and their fixed 0.6 / 0.4 weighted mean are pure arithmetic — the judgment (which references are valid in §4, which patterns are complete in §5) has already happened. Do not compute these percentages by hand; the tally + weighted mean feeds the 18%-weight `coherence` scoring input, so it is aggregated deterministically by `{coherenceAggregationScript}` (the formulas it encodes are documented in `{scoringRulesFile}` — Coherence Score Aggregation).
+**Contextual mode only.** The reference-validity ratio, the integration-completeness ratio, and their fixed 0.6 / 0.4 weighted mean are pure arithmetic — the judgment (which references are valid in §4, which patterns are complete in §5) has already happened. Do not compute these percentages by hand; they are aggregated by `{coherenceAggregationScript}` (the formulas it encodes are documented in `{scoringRulesFile}` — Coherence Score Aggregation).
 
 Tally the counts from the §4 per-reference JSON (`valid_references` = references with `target_exists && type_match && signature_match && no issues`; `total_references` = references extracted in §3) and the §5 integration JSON (`patterns_documented`, `patterns_complete`), then invoke:
 

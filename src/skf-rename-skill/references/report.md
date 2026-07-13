@@ -61,6 +61,10 @@ Informational: the old name still appears in SKILL.md body text (prose only, non
   {list each error}
   → The new name is fully committed. Remove the remnants manually with `rm -rf {path}`.
 
+{if headless_decisions is non-empty:}
+Headless auto-decisions:
+  {for each entry: "{gate}: took {taken_action} (default {default_action}) — {reason}"}
+
 ---
 
 **Next steps:**
@@ -71,15 +75,15 @@ Informational: the old name still appears in SKILL.md body text (prose only, non
 
 ### Result Contract
 
-Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/{new_name}/rename-skill-result-{timestamp}.json` (reuse the activation-stored `{timestamp}`, resolution to seconds) and a copy at `{skills_output_folder}/{new_name}/rename-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all updated file paths (SKILL.md, metadata.json, context-snippet.md, provenance-map.json) in `outputs`; include `old_name`, `new_name`, and `versions_renamed` in `summary`.
+Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/{new_name}/rename-skill-result-{timestamp}.json` (reuse the activation-stored `{timestamp}`, resolution to seconds) and a copy at `{skills_output_folder}/{new_name}/rename-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all updated file paths (SKILL.md, metadata.json, context-snippet.md, provenance-map.json) in `outputs`; include `old_name`, `new_name`, `versions_renamed`, and `headless_decisions` (the auto-resolved gate audit trail carried from step 1 — `[]` in interactive runs) in `summary`.
 
 When `{headless_mode}` is true, also emit the single-line envelope on **stdout** before chaining to step 4 (matches the SKILL.md "Result Contract (Headless)" shape):
 
 ```
-SKF_RENAME_SKILL_RESULT_JSON: {"status":"success","old_name":"{old_name}","new_name":"{new_name}","versions_renamed":{affected_versions},"manifest_rekeyed":{manifest_rekeyed},"context_files_updated":{context_files_updated},"exit_code":0,"halt_reason":null}
+SKF_RENAME_SKILL_RESULT_JSON: {"status":"success","old_name":"{old_name}","new_name":"{new_name}","versions_renamed":{affected_versions},"manifest_rekeyed":{manifest_rekeyed},"context_files_updated":{context_files_updated},"exit_code":0,"halt_reason":null,"headless_decisions":{headless_decisions}}
 ```
 
-Substitute `{affected_versions}` and `{context_files_updated}` as JSON arrays; `manifest_rekeyed` is the boolean from step 2's context.
+Substitute `{affected_versions}`, `{context_files_updated}`, and `{headless_decisions}` as JSON arrays; `manifest_rekeyed` is the boolean from step 2's context.
 
 **Post-completion hook (optional).** If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it after the result contract is finalized, passing the per-run result path:
 

@@ -127,7 +127,7 @@ combined_coherence = (reference_validity * 0.6) + (integration_completeness * 0.
 
 If no integration patterns exist, combined coherence equals reference validity.
 
-This is the documented contract. The tally + weighted mean is computed deterministically by `scripts/aggregate-coherence.py` (invoked from coherence-check.md §5c), not by hand — the per-reference validity judgment (§4) and pattern-completeness judgment (§5) stay in the prompt; only the arithmetic is scripted, so the 18%-weight `coherence` input is reproducible run-to-run.
+This is the documented contract. The tally + weighted mean is computed by `scripts/aggregate-coherence.py` (invoked from coherence-check.md §5c), not by hand; the per-reference validity judgment (§4) and pattern-completeness judgment (§5) stay in the prompt, only the arithmetic is scripted.
 
 ## Result Determination
 

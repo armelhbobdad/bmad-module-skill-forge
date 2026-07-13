@@ -124,7 +124,7 @@ Store in context: `tessl_description_score`, `tessl_content_score`, `tessl_revie
 
 ### 4. Calculate Combined External Score
 
-The combined external score feeds `externalValidation` into the scoring script (step 5), so its mean is computed by a script, not in-prompt — an odd-sum average like `(80 + 73) / 2 = 76.5` is exactly where a hand round swings the verdict. Both scores are on the same 0-100 scale (skill-check quality score; tessl review percentage). Pass each score, or `null` when its tool did not run or returned N/A (`{externalScoreScript}` resolves relative to the skill root):
+The combined external score feeds `externalValidation` into the scoring script (step 5), so its mean is computed by a script, not in-prompt. Both scores are on the same 0-100 scale (skill-check quality score; tessl review percentage). Pass each score, or `null` when its tool did not run or returned N/A (`{externalScoreScript}` resolves relative to the skill root):
 
 ```bash
 echo '{"skillCheckScore": <score or null>, "tesslReviewScore": <score or null>}' | uv run {externalScoreScript} --stdin
