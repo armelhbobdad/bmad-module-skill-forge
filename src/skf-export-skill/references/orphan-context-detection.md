@@ -43,10 +43,18 @@ Wait for user choice.
 
 ### (a) clear
 
+The marker excision is deterministic surgery with one correct answer per input — a mis-parsed boundary silently corrupts the user's surrounding content. Delegate it to the tested `clear` action of `skf-rebuild-managed-sections.py`, the same helper `update-context.md` §9 uses for the between-marker swap; do not excise markers in-prompt. Resolve `{rebuildManagedSectionsHelper}` from `update-context.md`'s `{rebuildManagedSectionsProbeOrder}` frontmatter (first existing path wins). If no candidate exists, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) per `update-context.md` §9 — falling through to an in-prompt excision would regress the atomic-write + post-clear verify guarantee.
+
 For each file in `orphaned_context_files`:
 
-1. Replace everything between `<!-- SKF:BEGIN` and `<!-- SKF:END -->` (inclusive) with an empty string, preserving surrounding content byte-exactly.
-2. Append the file path to `orphans_cleared` (workflow-context list, surfaced in the §6 result contract).
+1. Run:
+
+   ```bash
+   python3 {rebuildManagedSectionsHelper} {file_path} clear
+   ```
+
+   The `clear` action removes the entire `<!-- SKF:BEGIN -->`…`<!-- SKF:END -->` block (and its surrounding blank lines), leaves the rest of the file intact, and performs an atomic temp-file + rename write with a post-clear verify that the section is gone. Treat any non-zero exit (or a `status: "error"` envelope) as a clear failure — HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) reporting `{file_path}: {captured stderr}`. This branch is interactive-only (the headless default is (b) keep), so it emits no result envelope here.
+2. On success (`status: "ok"`, `action: "cleared"`), append the file path to `orphans_cleared`. On a non-empty list, record it in the §6 result contract as a `deviations[]` entry (`kind: "clear_orphan_context"`, `files: [...]`) — the extensible deviations mechanism summary.md §6 documents for choices that diverge from the canonical export path.
 
 ### (b) keep
 
@@ -58,7 +66,7 @@ Add each entry in `orphaned_context_files` to a separate `rewrite_context_files`
 
 Use `.agents/skills/` as the default skill root for rewritten orphans (the IDE-neutral path used when the original IDE mapping is no longer available).
 
-Record each rewritten file in `orphans_rewritten` (workflow-context list, surfaced in the §6 result contract).
+Record each rewritten file in `orphans_rewritten`. On a non-empty list, record it in the §6 result contract as a `deviations[]` entry (`kind: "rewrite_orphan_context"`, `files: [...]`) — the same extensible deviations mechanism summary.md §6 documents.
 
 ## Downstream contract
 

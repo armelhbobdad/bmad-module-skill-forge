@@ -5,8 +5,7 @@ refinementRulesData: '{refinementRulesPath}'
 # `{enumerateStackSkillsProbeOrder}` in order (installed SKF module path
 # first, src/ dev-checkout fallback); first existing path wins. §2 calls
 # it for the deterministic skill inventory (cascade-resolved exports,
-# metadata-hash, confidence-tier mapping) — replacing a hand-rolled
-# subagent fan-out that re-derived the same data on every run.
+# metadata-hash, confidence-tier mapping).
 enumerateStackSkillsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
   - '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
@@ -62,16 +61,18 @@ Wait for user input. Store the validated architecture document path as `architec
 **Primary path — deterministic enumeration via shared helper:**
 
 ```bash
-python3 {enumerateStackSkillsHelper} enumerate {skills_output_folder}
+python3 {enumerateStackSkillsHelper} enumerate {skills_output_folder} --pairs --reliability
 ```
 
 The helper walks `{skills_output_folder}`, reads each `metadata.json`, applies the version-aware resolution (export-manifest → `active` symlink → flat fallback), captures the exports cascade (metadata → references → SKILL.md), maps `confidence_tier`, and emits structured JSON with one entry per skill plus a top-level `warnings[]` array. Cache the result as `skill_inventory`.
 
+`--pairs` additionally attaches `skill_inventory.pairs` — the complete, deterministic set of unique `{library_a, library_b}` combinations over the skill names (`itertools.combinations`, sorted-name order, `pair_count == N*(N-1)/2`) — plus `skill_inventory.pair_count`. Cache both alongside the inventory. This is the exact pair set Step 02 (gap analysis) iterates; the helper owns the combinatorics, so a pair can never be silently dropped or duplicated at larger N and downstream steps read the set rather than re-deriving it.
+
 Each helper-emitted entry includes: `skill_name`, `version`, `language`, `confidence_tier`, `exports_documented`, `source_repo`, `source_root`, and a `metadata_hash` for change-detection across runs. The helper's `warnings[]` carries per-skill skip reasons (missing SKILL.md/metadata.json, non-symlink `active`, orphan-versions, schema-version violations).
 
-**Failure-budget guard:** If `len(warnings) / (len(skill_inventory) + len(warnings)) > 0.20`, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) with: "Inventory scan unreliable — {len(warnings)}/{total} skills returned skip warnings. Re-run [RA] after skills stabilize." In headless, emit the error envelope.
+**Failure-budget guard:** `--reliability` attaches the helper-computed verdict — `inventory_reliable` (boolean), `unreliable_ratio`, `skill_count`, `warning_count` — so the reliability threshold lives in one unit-tested place and this step reads a boolean rather than re-deriving a ratio. If `inventory_reliable` is false, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) with: "Inventory scan unreliable — {warning_count}/{skill_count + warning_count} skills returned skip warnings. Re-run [RA] after skills stabilize." In headless, emit the error envelope.
 
-**Fallback path — graceful degradation when the helper is unavailable:** If `{enumerateStackSkillsHelper}` has no existing candidate, fall through to the LLM-driven inventory: walk `{skills_output_folder}` and for each `{skill_package}` read `metadata.json` and extract `name`, `language`, `confidence_tier`, `stats.exports_documented`, `source_repo`/`source_root`. Skip packages missing SKILL.md or metadata.json with a logged warning. Same 20% failure budget applies.
+**Fallback path — graceful degradation when the helper is unavailable:** If `{enumerateStackSkillsHelper}` has no existing candidate, fall through to the LLM-driven inventory: walk `{skills_output_folder}` and for each `{skill_package}` read `metadata.json` and extract `name`, `language`, `confidence_tier`, `stats.exports_documented`, `source_repo`/`source_root`. Skip packages missing SKILL.md or metadata.json with a logged warning. On this degraded path only — with no helper to consult — treat the run as unreliable and HALT the same way if skip warnings exceed one in five of the scanned packages.
 
 ### 3. Validate Minimum Requirements
 
@@ -81,17 +82,7 @@ Each helper-emitted entry includes: `skill_name`, `version`, `language`, `confid
 - HALT (exit code 5, `halt_reason: "insufficient-skills"`). In headless, emit the error envelope.
 - If exactly 1 valid skill found: "⚠️ Proceeding with 1 skill. Note: gap analysis will find no gaps — pairwise analysis requires at least 2 skills. Step 02 will still execute and issue an appropriate notice. Issue detection and improvement detection will proceed normally."
 
-**Check `{outputFolderPath}`** (resolved at activation from `output_folder` config + customize override):
-- Verify the path is non-empty
-- If undefined or empty: "**Cannot proceed.** `output_folder` is not configured in config.yaml. Add an `output_folder` path and re-run [RA]."
-- HALT (exit code 3, `halt_reason: "output-folder-unconfigured"`). In headless, emit the error envelope.
-- The directory existence + writability was probed at On-Activation §5 — if it failed there, this section never runs.
-
-**Check forge_data_folder:**
-- Verify `forge_data_folder` was resolved from config.yaml and is non-empty
-- If undefined or empty: "**Cannot proceed.** `forge_data_folder` is not configured in config.yaml. Add a `forge_data_folder` path to your config.yaml and re-run [RA]."
-- HALT (exit code 3, `halt_reason: "forge-folder-unconfigured"`). In headless, emit the error envelope.
-- The directory existence + writability was probed at On-Activation §5.
+**Output paths (`{outputFolderPath}`, `forge_data_folder`):** both were asserted non-empty (config-completeness → exit 3, `output-folder-unconfigured` / `forge-folder-unconfigured`) and then probed for writability (→ exit 4, `write-failed`) at On-Activation §5. If either was unconfigured or unwritable the run already halted there, so both are guaranteed present and writable here — no re-check needed.
 
 **Check architecture document:**
 - Confirm it was loaded successfully in section 1

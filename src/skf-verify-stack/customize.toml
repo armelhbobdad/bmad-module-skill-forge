@@ -1,6 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-verify-stack.
+# Team overrides:     _bmad/custom/skf-verify-stack.toml under {project-root}
+# Personal overrides: _bmad/custom/skf-verify-stack.user.toml under {project-root}
 
 [workflow]
 
@@ -34,6 +36,12 @@ persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
 
+# Instruction executed when the workflow reaches its terminal stage (after the
+# feasibility report + result JSON are written). Empty = no-op. Use to route
+# the verdict onward or trigger a downstream step without forking the skill.
+
+on_complete = ""
+
 # --- Optional asset overrides ---
 #
 # Lift the canonical asset paths so orgs can substitute house-style copies
@@ -43,8 +51,9 @@ report_template_path = ""
 integration_rules_path = ""
 coverage_patterns_path = ""
 
-# Override the destination directory for the feasibility report. Empty =
-# use {forge_data_folder} from config.yaml. Useful for orgs that want
-# verification artifacts to land outside the per-skill forge tree.
+# Override the destination directory for the feasibility report only. Empty =
+# use {forge_data_folder} from config.yaml. The result-contract JSON
+# (verify-stack-result-*.json) always stays in {forge_data_folder} as a stable
+# path for pipeline consumers, so redirecting this does not relocate it.
 
 output_folder_path = ""

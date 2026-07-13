@@ -1,6 +1,15 @@
 ---
 nextStepFile: 'detect-changes.md'
 manualSectionRulesFile: 'references/manual-section-rules.md'
+# Resolve `{hashContentHelper}` to the first existing path; HALT if neither
+# candidate exists. §5 uses its `manual-inventory` subcommand to capture the
+# exact pre-write [MANUAL] inventory (per-block byte-exact interior hashes),
+# which write.md §1 (HALT gate) and validate.md Check B later verify against.
+# An LLM marker-count would miss an interior truncation that leaves the marker
+# count unchanged.
+hashContentProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
+  - '{project-root}/src/shared/scripts/skf-hash-content.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -16,7 +25,7 @@ Load the existing skill and all its provenance data, detect whether this is an i
 - Focus only on loading existing artifacts and establishing the baseline — read-only operations
 - Do not begin change detection (Step 02)
 
-## MANDATORY SEQUENCE
+## Steps
 
 ### 1. Request Skill Path
 
@@ -27,6 +36,7 @@ Provide either:
 - A full path to the skill folder
 - A skill name with `--from-test-report` to use the test report's gap findings instead of source drift detection
 - `--allow-workspace-drift` (gap-driven mode only) to intentionally bypass the step 3 §0.a guard that halts when the local workspace HEAD does not match `metadata.source_commit`. Only use this if you know the spot-checks should read the current workspace instead of the pinned tree — step 6 will NOT automatically re-pin
+- `--allow-degraded` (headless mode only) to pre-authorize the lossy degraded full re-extraction if §4 finds no provenance map — without it, a headless run halts `blocked` there rather than silently rebuilding
 - `--detect-only` to run detect-changes only and exit; emits the change manifest with no further work and no writes
 - `--dry-run` to run detect-changes + re-extract and exit before merge/write; emits what WOULD change without modifying any artifact
 
@@ -53,6 +63,8 @@ Resolve the path to an absolute skill folder location.
 If a report is located, set `test_report_path` in context to the resolved absolute path and set `update_mode: gap-driven`. Surface the actual file picked in the message (e.g. `test-report-{skill_name}-20260507T050917Z-487606-9b2f.md`) so an operator can navigate to the report from the log. If all three lookups fail, warn and continue with normal source drift mode.
 
 **If `--allow-workspace-drift` was provided:** set `allow_workspace_drift: true` in workflow context. This flag is consumed by step 3 §0.a's pre-flight drift guard (gap-driven mode only) and has no effect in normal source-drift mode.
+
+**If `--allow-degraded` was provided:** set `allow_degraded: true` in workflow context. This flag is consumed by §4 below when no provenance map is found under `{headless_mode}`; it has no effect interactively (the [D]/[X] prompt is shown) or when a provenance map is present.
 
 **If `--detect-only` was provided:** set `detect_only_mode: true` in workflow context. After step 2 (detect-changes) completes, jump directly to step 7 (report) — skip re-extract, merge, validate, and write. The report emits the change manifest and a `SKF_UPDATE_RESULT_JSON` envelope with `status: "detect-only"`. **Compatibility:** `--detect-only` short-circuits before §0.a runs, so `--allow-workspace-drift` is silently ignored in detect-only mode (warn the user once at flag-parse time: "`--allow-workspace-drift` has no effect with `--detect-only` — workspace drift guard runs in step 3 §0.a, which is skipped").
 
@@ -81,8 +93,8 @@ if [ -f "$LOCK" ]; then
     # (LLM emits SKF_UPDATE_RESULT_JSON status=halted-for-concurrent-run, see below)
     exit 1
   fi
-  # Stale lock (PID is dead) — log + overwrite
-  echo "skf-update-skill: clearing stale lock from pid=$HELD_PID"
+  # Dead PID — lock left by a prior halted or crashed run; clear + overwrite
+  echo "skf-update-skill: clearing lock from a prior halted/crashed run (pid=$HELD_PID)"
 fi
 
 # Acquire: write our PID + start timestamp (one per line)
@@ -96,9 +108,9 @@ printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK"
 
 **Release contract:**
 
-- The terminal health-check step (step 8) deletes the lock file as its final action.
-- **Every halted-for-\* path in this workflow must delete the lock before exiting** — otherwise the next attempt would see a stale lock from this run. The lock-release is a single `rm -f "$LOCK"` per halt site; do not skip it.
-- The lock is best-effort: a crash mid-workflow (process kill, host reboot) leaves a stale lock that the next run will clear via the live-PID check above. No manual cleanup needed in the common case.
+- The terminal health-check step (step 8) deletes the lock as its final action — the normal end of every non-inspection run. The two init-stage headless halts below (§4 no-provenance-map, §6 invalid-source-path) also delete it explicitly, since they fire right after acquisition, before the terminal step runs.
+- Mid-workflow halts (detect-changes, re-extract, merge, write) do **not** delete the lock themselves — they rely on the self-heal below. This is deliberate: several of those halt sites are also reachable under `--detect-only`/`--dry-run`, which never acquired this lock, so a blind `rm -f` there could clobber a concurrent real update's lock.
+- The lock is best-effort and self-healing: whatever a halt or crash (process kill, host reboot) leaves behind is cleared by the next run's live-PID check above, since the stored PID is a short-lived bash PID that is already dead. No manual cleanup needed in the common case.
 
 ### 2. Validate Required Artifacts
 
@@ -113,7 +125,7 @@ printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK"
 
 **Detect skill type from metadata:**
 - If `skill_type == "single"` or absent: flag as single skill
-- If `skill_type == "stack"`: flag as stack skill (multi-file update mode)
+- If `skill_type == "stack"`: flag as stack skill — the guard below redirects it
 
 ### Stack Skill Guard
 
@@ -125,6 +137,8 @@ After loading metadata.json, check `skill_type`:
   
   If you came here from an audit report, the drift report identifies which constituent libraries changed — use that to decide whether re-composition is needed."
 - Exit the workflow (do not proceed to step 2)
+
+**This guard is the single gate for stack skills** — every stack is redirected to `skf-create-stack-skill` here, before step 2, and no flag (`--detect-only`, `--dry-run`, `--from-test-report`, `--allow-workspace-drift`) bypasses it. Every later stage therefore runs against a single skill only and carries no stack-merge branch.
 
 ### 3. Load Forge Tier Configuration
 
@@ -160,18 +174,22 @@ Select: [D] Degraded / [X] Abort"
 - If D: set `degraded_mode = true`, proceed with full extraction scope
 - If X: **ABORT**
 
+**In `{headless_mode}` without `--allow-degraded` (default):** do not auto-select [D]. Degraded mode is a full, lossy T1-low re-extraction — choosing it unattended would silently swap surgical update for a create-skill-equivalent rebuild, a policy call that belongs to an operator. Halt instead: release the lock (`rm -f "$LOCK"`), emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `error: {phase: "init:load-provenance-map", path: "{forge_version}/provenance-map.json", reason: "no provenance map at versioned or flat path; degraded full re-extraction needs a human decision"}`, and exit. No `headless_decisions[]` entry — this is a hard halt, not an auto-resolved gate.
+
+**In `{headless_mode}` with `--allow-degraded` (`allow_degraded: true`):** the operator pre-authorized the lossy rebuild for this run, so treat it as an auto-resolved [D] rather than a halt. Set `degraded_mode = true`, proceed with full extraction scope, and append to in-context `headless_decisions[]`: `{gate: "init.degraded-rebuild", default_action: "X", taken_action: "D", reason: "headless: --allow-degraded pre-authorized degraded full re-extraction", evidence: "no provenance map at {forge_version}/provenance-map.json or flat fallback"}`. Continue to step 2.
+
 ### 5. Load [MANUAL] Section Inventory
 
-Load {manualSectionRulesFile} to understand [MANUAL] detection patterns.
+Load {manualSectionRulesFile} to understand [MANUAL] detection patterns (the human-readable rules for markers, parent-section mapping, and orphan/nesting handling).
 
-**Scan SKILL.md for [MANUAL] sections:**
-- Count all `<!-- [MANUAL:*] -->` markers
-- Map each [MANUAL] block to its parent section (by heading hierarchy)
-- Record section names and approximate line positions
+**Capture the [MANUAL] inventory deterministically.** The workflow's headline rule is "[MANUAL] sections survive regeneration with zero content loss" — the pre-write inventory captured here is the exact baseline that write.md §1 and validate.md Check B verify against, so it must be a per-block byte-exact hash, not an eyeballed marker count. Run the `manual-inventory` subcommand of `{hashContentHelper}` and persist its JSON:
 
-**For stack skills, also scan:**
-- All `references/*.md` files for [MANUAL] markers
-- All `references/integrations/*.md` files for [MANUAL] markers
+```bash
+uv run {hashContentHelper} manual-inventory {resolved_skill_package}/SKILL.md \
+    > {forge_version}/.manual-inventory.json
+```
+
+The emitted JSON is `{"blocks":[{name, content_hash, byte_offset, parent_heading}...], "count":N}` — each `content_hash` covers the block's byte-exact interior, so a later interior truncation that leaves the marker count unchanged is still caught. Bind the persisted path as `{manual_inventory}` in context; write.md §1 and validate.md Check B pass it to `manual-verify`. Surface the block `count` in the baseline summary (§7 `{manual_count}`).
 
 ### 6. Resolve Source Code Path
 
@@ -186,6 +204,8 @@ Load {manualSectionRulesFile} to understand [MANUAL] detection patterns.
 Provide the current source code path:
 **Path:** {user provides path}"
 
+**In `{headless_mode}`:** there is no operator to supply a path. Halt: release the lock (`rm -f "$LOCK"`), emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `error: {phase: "init:resolve-source-path", path: "{source_root}", reason: "source_root from provenance map is invalid or inaccessible and no interactive path can be supplied"}`, and exit. No `headless_decisions[]` entry — this is a hard halt, not an auto-resolved gate.
+
 ### 7. Present Baseline Summary
 
 "**Update Skill Baseline:**
@@ -193,7 +213,7 @@ Provide the current source code path:
 | Property | Value |
 |----------|-------|
 | **Skill** | {skill_name} |
-| **Type** | {single/stack} |
+| **Type** | single |
 | **Version** | {version} |
 | **Created** | {created date} |
 | **Source** | {source_root} |
@@ -210,22 +230,9 @@ Provide the current source code path:
 
 **Ready to detect changes and update this skill?**"
 
-### 8. Present MENU OPTIONS
+### 8. Confirmation Gate
 
-Display: "**Select:** [C] Continue to Change Detection"
+Present "**Select:** [C] Continue to Change Detection" and wait for the user to confirm; on [C], load, read the full file, then execute {nextStepFile}.
 
-#### Menu Handling Logic:
-
-- IF C: Load, read entire file, then execute {nextStepFile}
-- IF Any other: help user respond, then [Redisplay Menu Options](#8-present-menu-options)
-
-#### EXECUTION RULES:
-
-- ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past update confirmation". **Also append to in-context `headless_decisions[]`** (step 7 surfaces this list in `SKF_UPDATE_RESULT_JSON`): `{gate: "init.update-confirmation", default_action: "C", taken_action: "C", reason: "headless: no user to prompt"}`. The headless_decisions[] array is the structured audit trail for non-interactive runs — see `src/shared/scripts/schemas/skf-update-result-envelope.v1.json` for the entry shape.
-- ONLY proceed to next step when user selects 'C'
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN [C] is selected and baseline has been established with all required artifacts loaded, will you then load and read fully `{nextStepFile}` to execute change detection.
+**Headless (`{headless_mode}` true):** auto-continue and append to in-context `headless_decisions[]` (step 7 surfaces it in `SKF_UPDATE_RESULT_JSON`): `{gate: "init.update-confirmation", default_action: "C", taken_action: "C", reason: "headless: no user to prompt"}`. Entry shape: `src/shared/scripts/schemas/skf-update-result-envelope.v1.json`.
 

@@ -29,7 +29,7 @@ The brief's `version` field is resolved from three candidate sources, in priorit
 
 ## Invariant
 
-When `target_version` is set, the written brief MUST satisfy:
+When `target_version` is set, the written brief must satisfy:
 
 ```
 brief.target_version == brief.version

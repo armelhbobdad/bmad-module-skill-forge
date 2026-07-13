@@ -26,8 +26,7 @@ It must be preserved during any update operation.
 2. **Preserve marker positions** — if the surrounding generated content moves, the [MANUAL] block moves with its logical parent section
 3. **Orphan detection** — if the parent section is deleted (export removed), flag as WARNING and present to user
 4. **Multiple [MANUAL] blocks** — a single SKILL.md may have multiple [MANUAL] sections; preserve all
-5. **Stack skill [MANUAL] blocks** — [MANUAL] markers can appear in any output file (SKILL.md, references/*.md, integrations/*.md); preserve across all files
-6. **Nested [MANUAL] forbidden** — [MANUAL] blocks cannot be nested; if detected, flag as ERROR
+5. **Nested [MANUAL] forbidden** — [MANUAL] blocks cannot be nested; if detected, flag as ERROR
 
 ### Conflict Types
 

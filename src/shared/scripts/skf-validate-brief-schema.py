@@ -6,7 +6,7 @@
 
 Loads `skill-brief.yaml` from a path (or from stdin/inline-YAML), validates
 it against `schemas/skill-brief.v1.json` (sibling of this script), and applies the
-two conditional rules from `skf-create-skill/references/load-brief.md §3`
+conditional rules from `skf-create-skill/references/load-brief.md §3`
 that the JSON schema doesn't express today:
 
   - When `source_type == "docs-only"`: `doc_urls` must have ≥1 entry, and
@@ -18,6 +18,11 @@ that the JSON schema doesn't express today:
     only contains whitespace would slip past a naive presence check; we
     catch that case explicitly so the downstream directory-resolution code
     doesn't produce `{name}//` paths.
+  - `scope.include` must contain ≥1 glob pattern for every scope type except
+    `docs-only`. The schema requires the `scope.include` key but types it as
+    an array without a `minItems` floor; this rule enforces the non-empty
+    constraint conditional on `scope.type`, matching brief-skill's
+    consumption-time validation.
 
 The script produces skill-friendly error messages — translating raw
 jsonschema diagnostics into the "Brief validation failed: ..." form the
@@ -262,6 +267,38 @@ def _version_non_empty_rule(brief: dict) -> list[dict]:
     return []
 
 
+def _scope_include_non_empty_rule(brief: dict) -> list[dict]:
+    """`scope.include` must carry ≥1 glob pattern, except for docs-only scope.
+
+    The JSON schema requires the `scope.include` key and types it as an array of
+    strings, but cannot express the non-empty constraint conditional on
+    `scope.type`. A `docs-only` skill has no source globs to include, so it is
+    exempt; every other scope type must name at least one pattern or the
+    downstream extraction has nothing to walk. Surfacing it here keeps the
+    deterministic gate consistent with brief-skill's consumption-time
+    validation instead of paying the model to re-check structure each run.
+    """
+    scope = brief.get("scope")
+    if not isinstance(scope, dict):
+        # missing/malformed scope is the schema's `required`/`type` job
+        return []
+    if scope.get("type") == "docs-only":
+        return []
+    include = scope.get("include")
+    if not (isinstance(include, list) and len(include) >= 1):
+        return [
+            {
+                "field": "scope.include",
+                "message": (
+                    "Brief validation failed: `scope.include` must contain at "
+                    "least one glob pattern (docs-only scope excepted). "
+                    "Update your skill-brief.yaml and re-run."
+                ),
+            }
+        ]
+    return []
+
+
 # --------------------------------------------------------------------------
 # Main validate
 # --------------------------------------------------------------------------
@@ -284,6 +321,7 @@ def validate_brief(brief: dict) -> dict:
 
     errors.extend(_version_non_empty_rule(brief))
     errors.extend(_target_version_matches_version_rule(brief))
+    errors.extend(_scope_include_non_empty_rule(brief))
 
     return {
         "valid": not errors,

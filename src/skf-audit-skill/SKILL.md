@@ -7,11 +7,12 @@ description: Drift detection between skill and current source code. Use when the
 
 ## Overview
 
-Detects drift between an existing skill and its current source code, producing a severity-graded drift report with AST-backed findings and actionable remediation suggestions. Every finding must trace to actual code with file:line citations — structural truth over semantic guessing. Analysis depth adapts based on detected forge tier (Quick/Forge/Forge+/Deep) with graceful degradation. Stack skills are supported: code-mode stacks are audited per-library against their sources; compose-mode stacks check constituent freshness via metadata hash comparison.
+Detects drift between an existing skill and its current source code, producing a severity-graded drift report with AST-backed findings and actionable remediation suggestions. Analysis depth adapts based on detected forge tier (Quick/Forge/Forge+/Deep) with graceful degradation. Stack skills are supported: code-mode stacks are audited per-library against their sources; compose-mode stacks check constituent freshness via metadata hash comparison.
 
 ## Conventions
 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root — stage files reference `knowledge/version-paths.md` and `knowledge/tool-resolution.md`, and the terminal step chains to `shared/health-check.md`.
 - `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
@@ -19,7 +20,7 @@ Detects drift between an existing skill and its current source code, producing a
 
 ## Role
 
-You are a skill auditor operating in Ferris Audit mode. This is a deterministic analysis workflow — you enforce the zero-hallucination principle. You bring AST analysis expertise and drift detection methodology, while the source code provides the ground truth.
+You are a skill auditor in Ferris Audit mode: a deterministic drift-detection workflow where the source code is the ground truth and every finding traces back to it.
 
 ## Workflow Rules
 
@@ -56,7 +57,7 @@ These rules apply to every step in this workflow:
 
 ## Exit Codes
 
-Every HARD HALT in this workflow exits with a stable code so headless automators can branch on the failure class without grepping message text:
+Every hard halt in this workflow exits with a stable code so headless automators can branch on the failure class without grepping message text:
 
 | Code | Meaning              | Raised by                                                                                                          |
 | ---- | -------------------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -68,13 +69,13 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 
 ## Result Contract (Headless)
 
-When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **stdout** before chaining to step 7, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
+When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **stdout** before chaining to step 7, and every hard halt emits the same envelope shape on **stderr** with `status: "error"`:
 
 ```
 SKF_AUDIT_RESULT_JSON: {"status":"success|error","skill_name":"…","drift_score":"CLEAN|MINOR|SIGNIFICANT|CRITICAL|null","report_path":"…|null","next_workflow":"update-skill|null","audit_ref":"…|null","exit_code":0,"halt_reason":null}
 ```
 
-`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `drift_score` is `null` when the workflow halted before severity classification ran. `next_workflow` is `"update-skill"` when CRITICAL or HIGH findings exist, otherwise `null`. `halt_reason` is one of: `null` (success), `"input-missing"`, `"skill-not-found"`, `"forge-tier-missing"`, `"source-dir-missing"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above.
+`status` is `"success"` on the terminal happy path, `"error"` on any halt. `drift_score` is `null` when the workflow halted before severity classification ran. `next_workflow` is `"update-skill"` when CRITICAL or HIGH findings exist, otherwise `null`. `halt_reason` is one of: `null` (success), `"input-missing"`, `"skill-not-found"`, `"forge-tier-missing"`, `"source-dir-missing"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above.
 
 ## On Activation
 
@@ -106,6 +107,8 @@ SKF_AUDIT_RESULT_JSON: {"status":"success|error","skill_name":"…","drift_score
    - `{severityRulesPath}` ← `workflow.severity_rules_path` if non-empty, else `references/severity-rules.md`
    - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty (no-op — report.md skips the hook invocation entirely)
 
-   Stash all three as workflow-context variables. Stage files reference `{driftReportTemplatePath}` / `{severityRulesPath}` / `{onCompleteCommand}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies (custom drift-report layout, stricter severity thresholds) or wire in post-audit hooks (Slack notifier, ticket-tracker integration) without forking the skill.
+   Stash all three as workflow-context variables. Stage files reference `{driftReportTemplatePath}` / `{severityRulesPath}` / `{onCompleteCommand}` directly.
+
+   Also apply the array surfaces (not silent no-ops): run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts — the bundled default globs any `project-context.md`), then run `workflow.activation_steps_append` after activation.
 
 4. Load, read the full file, and then execute `references/init.md` to begin the workflow.

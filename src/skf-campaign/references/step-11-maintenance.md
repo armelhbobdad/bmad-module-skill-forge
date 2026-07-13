@@ -60,7 +60,7 @@ When `{headless_mode}` is true, emit the campaign result envelope on stdout, cop
 SKF_CAMPAIGN_RESULT_JSON: {"status":"success","skills_completed":N,"skills_failed":N,"quality_scores":{...},"campaign_report_path":"{reportFile}","decision_log":"{campaignWorkspacePath}/_campaign-decision-log.md","duration":"..."}
 ```
 
-- `status`: "success" if the campaign completed normally (HARD HALTs emit the error variant per SKILL.md "Result Contract on HARD HALT")
+- `status`: "success" if the campaign completed normally (HARD HALTs emit the error variant per the "Result Contract on HARD HALT" in `references/campaign-contracts.md`)
 - `skills_completed` / `skills_failed` / `quality_scores` / `duration`: from the §2 report-script result JSON
 - `campaign_report_path`: `{reportFile}`
 - `decision_log`: path to the append-only decision log
@@ -73,7 +73,7 @@ Set `campaign.current_stage` to `10`. Update `campaign.last_updated` to current 
 
 ### §5 — Chain to Health Check
 
-The operator's findings-routing consent (`campaign.health_findings_queue`) is applied by the terminal health-check step: `references/health-check.md` §1 reads it from state and carries it into the shared health check as the pre-decided opt-in (`"improvement"` → route non-bug findings to the shared improvement queue without re-prompting; `"local"` → local queue only). That is what makes the §2 setup consent prompt actionable rather than cosmetic — surface the active setting here for visibility.
+The operator's findings-routing consent (`campaign.health_findings_queue`) is applied by the terminal health-check step: `references/health-check.md` §1 reads it from state and carries it into the shared health check as the pre-decided opt-in (`"improvement"` → route non-bug findings to the shared improvement queue without re-prompting; `"local"` → local queue only). Surface the active setting here.
 
 Display: "**Campaign complete.** Report at `{reportFile}`. Findings routing: {campaign.health_findings_queue}. Chaining to health check..."
 

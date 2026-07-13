@@ -9,17 +9,11 @@ partyModeSkill: '/bmad-party-mode'
 
 # Step 4: Confirm Brief
 
-## STEP GOAL:
-
-To present the complete skill brief in human-readable format, highlighting all fields that will be written to skill-brief.yaml, and obtain explicit user approval before writing.
-
 ## Rules
 
-- Focus only on presenting and confirming — do not write files yet (Step 05)
 - Do not proceed without explicit user approval (P2 confirmation gate)
-- All user-facing output in `{communication_language}`
 
-## MANDATORY SEQUENCE
+## Sequence
 
 ### 1. Assemble Complete Brief
 
@@ -162,15 +156,9 @@ Display: **Select an Option:** [R] Revise Scope [A] Advanced Elicitation [P] Par
 - IF X: Treat as user-cancellation. Display `"Cancelled — no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). Cancellation here is non-destructive — step 5 has not run, no skill-brief.yaml file exists yet. `[X]` is interactive-only; the headless GATE never reaches this branch.
 - IF Any other comments or queries: help user respond, apply any field adjustments, re-present brief if changed, then [Redisplay Menu Options](#5-present-menu-options)
 
-#### EXECUTION RULES:
+#### Execution rules:
 
-- ALWAYS halt and wait for user input after presenting menu
 - **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Confirm, log: "headless: auto-confirm brief"
-- ONLY proceed to write step when user selects 'C'
 - After other menu items execution, return to this menu
 - User can chat, request field changes, or ask questions — always respond and then redisplay menu
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN C is selected and the user has explicitly approved the brief will you load and read fully `write-brief.md` to write the skill-brief.yaml file.
 

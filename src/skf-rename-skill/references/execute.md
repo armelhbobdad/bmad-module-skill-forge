@@ -24,11 +24,28 @@ updateActiveSymlinkProbeOrder:
 manifestOpsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
   - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
-# Resolve `{rebuildManagedSectionsHelper}` similarly. §7.7 uses the
+# Resolve `{rebuildManagedSectionsHelper}` similarly. §7 uses the
 # `replace` action for the surgical between-marker rewrite.
 rebuildManagedSectionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
   - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
+# Resolve `{rewriteSkillNameHelper}` similarly. §3 uses it for the four
+# field-scoped in-file rename transforms (SKILL.md frontmatter `name`,
+# metadata.json `name`, provenance-map.json `skill_name`, context-snippet
+# header + `root:` paths) — each a JSON round-trip or anchored-region edit
+# plus the atomic write in one call, so the LLM never hand-edits JSON (which
+# risks key reorder/drop) or eyeballs "only within the frontmatter" (which
+# mis-fires when {old_name} is a substring, e.g. rename -> renamer).
+rewriteSkillNameProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-rewrite-skill-name.py'
+  - '{project-root}/src/shared/scripts/skf-rewrite-skill-name.py'
+# Resolve `{verifyNoTraceHelper}` similarly. §5 uses it for the commit-point
+# no-trace gate: a fixed-file-set, name-token scan over affected_versions with
+# the SKILL.md frontmatter/body region split (frontmatter = hard failure, body
+# = advisory warning) and the directory-listing check, returned as JSON.
+verifyNoTraceProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-verify-no-trace.py'
+  - '{project-root}/src/shared/scripts/skf-verify-no-trace.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -47,9 +64,17 @@ Execute the rename decisions recorded in step 1 as a transaction. Copy the old `
 - Do not proceed past a verification failure in section 5
 - Report each section's outcome as it completes
 
+**Headless error envelope (self-contained).** Every HALT below that says *"emit the error envelope"* means: write this single line to **stderr**, mirroring SKILL.md's Result Contract (Headless) so this stage stays parseable even if SKILL.md is out of context on a `nextStepFile` chain —
+
+```
+SKF_RENAME_SKILL_RESULT_JSON: {"status":"error","old_name":"{old_name}","new_name":"{new_name}","versions_renamed":[],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":<code>,"halt_reason":"<reason>","headless_decisions":{headless_decisions}}
+```
+
+Set `exit_code` and `halt_reason` to the values named at that HALT site (see `references/exit-codes.md`); `old_name`/`new_name` are both resolved by step 1 before this stage runs. `{headless_decisions}` is the audit trail carried from step 1 (the §6 source-authority override if it fired; `[]` otherwise) — emit it verbatim so a halt in this stage still preserves the decision trail.
+
 ## MANDATORY SEQUENCE
 
-**CRITICAL:** This is transactional. After section 1 (copy), the old skill is untouched. If any section between 2 and 7 fails, delete `{new_skill_group}` and `{new_forge_group}`, report the failure, and halt — the old skill remains intact. Only section 8 (delete old) makes the operation irreversible. Do not skip, reorder, or improvise.
+**Transactional boundary.** After section 1 (copy), the old skill is untouched; a failure in any of sections 2-7 deletes the two new directories (`{new_skill_group}`, `{new_forge_group}`), reports, and halts with the old skill intact. Section 8 (delete old) is the only irreversible point.
 
 ### 0. Re-read Version-Paths Knowledge + Resolve Helpers
 
@@ -57,12 +82,14 @@ Read `{versionPathsKnowledge}` again and confirm the templates (`{skill_package}
 
 **Resolve helpers** in parallel — these are independent file-existence checks that batch into one tool-call message:
 
-- `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` (used in §3, §6 for crash-safe writes)
+- `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` (used in §6 for crash-safe manifest restore)
+- `{rewriteSkillNameHelper}` ← first existing path in `{rewriteSkillNameProbeOrder}` (used in §3 for the field-scoped in-file rename transforms + atomic write)
 - `{updateActiveSymlinkHelper}` ← first existing path in `{updateActiveSymlinkProbeOrder}` (used in §4 for atomic symlink repair)
+- `{verifyNoTraceHelper}` ← first existing path in `{verifyNoTraceProbeOrder}` (used in §5 for the deterministic no-trace commit gate)
 - `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}` (used in §6 for the manifest re-key)
-- `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}` (used in §7.7 for between-marker swap)
+- `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}` (used in §7 for between-marker swap)
 
-If any helper has no existing candidate, release the lock and HALT (exit code 4, `halt_reason: "write-failed"`) — the rename's safety guarantees depend on these helpers and a fall-through to LLM-driven writes would silently regress atomicity.
+If any helper has no existing candidate, release the lock and HALT (exit code 4, `halt_reason: "write-failed"`) — the rename's safety guarantees depend on these helpers, and a fall-through to LLM-driven writes/scans would silently regress atomicity (the write helpers) or the deterministic transform and commit-gate checks (`{rewriteSkillNameHelper}`, `{verifyNoTraceHelper}`).
 
 **Lock release contract:** every halt path in this step ends with `rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"` before exiting. The terminal health-check (step 4) is the success-path release.
 
@@ -103,44 +130,25 @@ Report: "**Renamed {count} inner directories** to `{new_name}/`."
 
 ### 3. Update File Contents Inside the New Location
 
-For each version `v` in `affected_versions`, operate on the files inside `{new_skill_group}/{v}/{new_name}/` (the freshly renamed inner directory) and `{new_forge_group}/{v}/`:
+For each version `v` in `affected_versions`, operate on the files inside `{new_skill_group}/{v}/{new_name}/` (the freshly renamed inner directory) and `{new_forge_group}/{v}/`.
 
-**Write semantics (apply to 3a / 3b / 3c / 3d):** Compute the new file content in memory (LLM judgment work), then pipe it to `{atomicWriteHelper} write <target>` so the rewrite is staged in `<target>.skf-tmp`, fsync'd, and atomically renamed into place. A process kill or disk-full event mid-rewrite leaves the original file intact — no half-written artifacts.
+**Transform semantics (apply to 3a / 3b / 3c / 3d):** `{rewriteSkillNameHelper}` performs each field-scoped substitution AND the crash-safe write (stage to `<target>.skf-tmp`, fsync, atomic rename) in one call — do NOT compute file content in the prompt. Each `--kind` edits exactly one field/region and leaves everything else byte-for-byte intact, so there is no key reorder/drop from hand-editing JSON and no wrong-region substitution when `{old_name}` is a substring (e.g. `rename` → `renamer`). Invoke it once per file:
 
 ```bash
-echo "{new_content}" | python3 {atomicWriteHelper} write "{target_path}"
+python3 {rewriteSkillNameHelper} "{target_path}" \
+  --kind {skill-frontmatter|metadata-json|context-snippet|provenance-json} \
+  --old-name {old_name} --new-name {new_name}
 ```
 
-**3a. SKILL.md frontmatter:**
+Read the JSON result (`changed`, `wrote`, and per-kind fields). Exit 0 = processed (written only if the content changed). A non-zero exit — a missing structural region (no frontmatter delimiters), invalid JSON, or a write failure — is a **file update failure**: trigger the rollback below. Check file existence first: if the target file does not exist, skip the invocation and record it in `section3_warnings` per the per-item notes (a missing file is not a failure).
 
-- Path: `{new_skill_group}/{v}/{new_name}/SKILL.md`
-- In the YAML frontmatter (between the leading `---` markers), replace the `name:` field value from `{old_name}` to `{new_name}`
-- Only replace within the frontmatter block — do not substitute matches inside the body text
-- Pipe via `{atomicWriteHelper} write` per the write semantics above
-- If the file is missing, record it in `section3_warnings` and continue
+**3a. SKILL.md frontmatter** — `--kind skill-frontmatter` on `{new_skill_group}/{v}/{new_name}/SKILL.md`. Replaces the top-level `name:` value inside the frontmatter block only (anchored on `^name:`, so a nested `name:` or a longer key like `renamed:` is untouched); body text is preserved verbatim, so a legitimate mention of `{old_name}` below the closing `---` survives. If the file is missing, record it in `section3_warnings` and continue.
 
-**3b. metadata.json:**
+**3b. metadata.json** — `--kind metadata-json` on `{new_skill_group}/{v}/{new_name}/metadata.json`. Sets `name` = `{new_name}` via a JSON round-trip (key order preserved). If the file is missing, record it in `section3_warnings` and continue.
 
-- Path: `{new_skill_group}/{v}/{new_name}/metadata.json`
-- Parse the JSON, set `name` = `{new_name}`, write back preserving formatting via `{atomicWriteHelper} write`
-- If the file is missing, record it in `section3_warnings` and continue
+**3c. context-snippet.md** — `--kind context-snippet` on `{new_skill_group}/{v}/{new_name}/context-snippet.md`. Rewrites the display header `[{old_name} v...]` → `[{new_name} v...]` (version suffix preserved) and every `root:` path: it parses `root: {prefix}{old_name}/`, keeps the prefix verbatim, and swaps the trailing `{old_name}/` segment for `{new_name}/` — handling any IDE prefix (`.claude/skills/`, `.windsurf/skills/`, `.github/skills/`, the draft `skills/` prefix) generically, and flattening the legacy `root: skills/{old_name}/active/{old_name}/` form to `root: skills/{new_name}/`. If the file is missing, record it in `section3_warnings` and continue.
 
-**3c. context-snippet.md:**
-
-- Path: `{new_skill_group}/{v}/{new_name}/context-snippet.md`
-- Replace the display name header `[{old_name} v...]` → `[{new_name} v...]` (preserving the version suffix)
-- Rewrite every `root:` path that references the old name to use the new name. Parse the `root:` line as `root: {prefix}{old_name}/`, preserve the prefix as-is, and replace `{old_name}` with `{new_name}`. This generically handles any IDE's skill root path (e.g., `.claude/skills/`, `.windsurf/skills/`, `.github/skills/`) as well as the draft `skills/` prefix and legacy forms — no enumeration of known prefixes needed.
-  - Example: `root: .windsurf/skills/{old_name}/` → `root: .windsurf/skills/{new_name}/`
-  - Example: `root: skills/{old_name}/` → `root: skills/{new_name}/`
-  - Legacy pre-fix form `root: skills/{old_name}/active/{old_name}/` → `root: skills/{new_name}/` (normalize to flat form during rename)
-- Pipe via `{atomicWriteHelper} write` per the write semantics above
-- If the file is missing, record it in `section3_warnings` and continue
-
-**3d. provenance-map.json:**
-
-- Path: `{new_forge_group}/{v}/provenance-map.json`
-- Parse JSON, set `skill_name` = `{new_name}`, write back via `{atomicWriteHelper} write`
-- If the file is missing (some versions may not have a provenance map), record it in `section3_warnings` and continue
+**3d. provenance-map.json** — `--kind provenance-json` on `{new_forge_group}/{v}/provenance-map.json`. Sets `skill_name` = `{new_name}` via a JSON round-trip. If the file is missing (some versions may not have a provenance map), record it in `section3_warnings` and continue.
 
 **Rollback on any update failure (not just a missing file):**
 
@@ -173,26 +181,24 @@ Recreate or repair the `active` symlink in `{new_skill_group}` via `{updateActiv
 
 ### 5. Verify — No Trace of `{old_name}` Inside the New Location
 
-This is the commit-point check. If any match is found, the rename is not safe to commit.
+This is the commit-point check. If any structural reference to `{old_name}` remains, the rename is not safe to commit. `{verifyNoTraceHelper}` performs the whole scan deterministically — a fixed-file-set, name-token scan across every `affected_versions` entry, the SKILL.md frontmatter/body region split, and the directory-listing check — and returns the verdict as JSON. Invoke it once:
 
-For every version `v` in `affected_versions`, grep (literal substring, case-sensitive) for `{old_name}` in:
+```bash
+python3 {verifyNoTraceHelper} "{new_skill_group}" \
+  --forge-group "{new_forge_group}" \
+  --old-name {old_name} --new-name {new_name} \
+  --versions {comma-separated affected_versions}
+```
 
-- `{new_skill_group}/{v}/{new_name}/SKILL.md`
-- `{new_skill_group}/{v}/{new_name}/metadata.json`
-- `{new_skill_group}/{v}/{new_name}/context-snippet.md`
-- `{new_forge_group}/{v}/provenance-map.json`
+Per version `v`, the helper scans `SKILL.md` (frontmatter matches → `hard_matches`; matches in the body below the closing `---` → `body_warnings`), `metadata.json`, `context-snippet.md`, and `provenance-map.json` (any match → `hard_matches`), plus the `{new_skill_group}/{v}/` listing (an `{old_name}/` directory present, or the `{new_name}/` directory missing → `dir_violations`). It matches `{old_name}` only as a complete skill-name token — bounded by non-name characters — so a correctly-renamed `{new_name}` that contains `{old_name}` as a substring (e.g. `rename` → `rename-skill`) is never a false leftover, and the frontmatter=hard / body=warning split is applied by region with no meaning-interpretation. A missing file is recorded under `skipped`, not treated as a match. Exit 0 = clean; exit 1 = at least one hard match or dir violation.
 
-Also check the directory listing itself:
+Read the JSON and decide:
 
-- `{new_skill_group}/{v}/` should contain `{new_name}/` and MUST NOT contain `{old_name}/`
-
-**Important nuance:** body text of SKILL.md may legitimately mention the old name (e.g., historical notes, changelog, cross-references). The grep is allowed to match within SKILL.md body text ONLY if the match is clearly informational (surrounding prose, not a structural reference). For the purposes of this step, treat any match in `metadata.json`, `context-snippet.md`, `provenance-map.json`, or the SKILL.md frontmatter block as a hard failure. Matches inside the SKILL.md body below the closing `---` are recorded as `verification_warnings` but do not block the rename.
-
-**On hard failure (any structural reference to `{old_name}` remains):**
-
-- `rm -rf {new_skill_group}` and `rm -rf {new_forge_group}`
-- Release the lock: `rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`
-- Halt with: "**Verification failed.** `{old_name}` still appears in: {list of paths}. Rolled back both new directories. Old skill is intact." HALT (exit code 5, `halt_reason: "verify-failed"`). In headless, emit the error envelope.
+- **If `clean` is `true` (empty `hard_matches` AND empty `dir_violations`):** the rename is safe to commit. Set `verification_warnings` = the returned `body_warnings` (informational SKILL.md body mentions of `{old_name}` that are retained). Proceed.
+- **If `clean` is `false`:** this is a hard failure —
+  - `rm -rf {new_skill_group}` and `rm -rf {new_forge_group}`
+  - Release the lock: `rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`
+  - Halt with: "**Verification failed.** `{old_name}` still appears in: {the files from `hard_matches` plus any `dir_violations`}. Rolled back both new directories. Old skill is intact." HALT (exit code 5, `halt_reason: "verify-failed"`). In headless, emit the error envelope.
 
 Report: "**Verified** — no structural references to `{old_name}` remain inside the new location across {affected_versions_count} version(s). {if verification_warnings is non-empty: 'Informational body-text mentions retained in SKILL.md: {list}.'}"
 
@@ -228,26 +234,65 @@ Report: "**Manifest updated** — re-keyed `exports.{old_name}` → `exports.{ne
 
 ### 7. Rebuild Context Files
 
-Load `references/rebuild-context.md` and follow its per-IDE managed-section sweep. The reference resolves `target_context_files` from `config.yaml.ides` (via `{managedSectionLogic}`'s mapping table), iterates each context file, builds the exported skill set (version-aware, deprecated-excluded — the manifest re-key from §6 is already in effect so `{new_name}` is present and `{old_name}` is absent), rewrites root paths via the §4d algorithm, assembles the new managed section, and invokes `{rebuildManagedSectionsHelper}` for the surgical between-marker swap.
+After §6 re-keys the manifest from `{old_name}` to `{new_name}`, every IDE's context file (`CLAUDE.md`, `.cursorrules`, `AGENTS.md`, etc.) still carries the old name in its managed-section snippet rows. This section rewrites each one in-place via the surgical between-marker swap so the on-disk managed sections reflect the new name. It runs only on the success path — the §4–§6 rollback jumps never reach here.
 
-After the loop returns, the workflow context contains:
+**7a. Resolve `target_context_files`.** Load the `ides` list from `config.yaml`. The installer writes IDE identifiers — map each to a context file and skill root via the "IDE → Context File Mapping" table in `{managedSectionLogic}`:
+
+1. For each entry in `config.yaml.ides`, look up its `context_file` and `skill_root` from the mapping table.
+2. For any entry not in the table, default to `{unknownIdeDefaultContextFile}` / `{unknownIdeDefaultSkillRoot}` and emit a warning: `Unknown IDE '{value}' in config.yaml — defaulting to {unknownIdeDefaultContextFile}`.
+3. Deduplicate by `context_file` — when multiple IDEs map to the same context file, use the first configured IDE's `skill_root`.
+4. If `config.yaml.ides` is absent or the mapping yields an empty list, fall back to `[{context_file: "{unknownIdeDefaultContextFile}", skill_root: "{unknownIdeDefaultSkillRoot}"}]` and emit a note: `No IDEs configured in config.yaml — defaulting to {unknownIdeDefaultContextFile}`.
+
+**7b. Per-file loop.** For each entry in `target_context_files`:
+
+1. **Resolve the target file** at `{context_file}` (absolute path).
+2. **Read the current file:**
+   - If it does not exist, skip (nothing to rebuild — export-skill re-creates it on its next run).
+   - If it exists but has no `<!-- SKF:BEGIN -->` marker, skip (no managed section to rewrite).
+   - If it has `<!-- SKF:BEGIN -->` but no matching `<!-- SKF:END -->`, record the error against that file and continue to the next entry — do not halt the whole rename on one malformed context file.
+3. **Build the exported skill set (version-aware, deprecated-excluded)** using the same logic as `skf-export-skill/references/update-context.md` §4b (skill set) and §4c (snippet resolution):
+   - Read the manifest's `exports` object (already updated in §6, so `{new_name}` is present and `{old_name}` is absent).
+   - For each skill, resolve its `active_version`; if `versions.{active_version}.status == "deprecated"`, skip that skill.
+   - For each remaining `{skill-name, active_version}` pair, read `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/context-snippet.md`; if missing, fall back to the `active` symlink path; if still missing, skip with a warning.
+4. **Rewrite root paths** using the generic algorithm from `skf-export-skill/references/update-context.md` §4d: parse each snippet's `root:` line (`root: {prefix}{skill-name}/`), strip the trailing `{skill-name}/` to extract the current prefix, and replace it with the effective target prefix if different. The effective target prefix is `snippet_skill_root_override` when that key is set in `config.yaml` (applied uniformly to every snippet so the managed section references the real on-disk location and never mixes override and per-IDE paths), otherwise the current entry's `skill_root`.
+5. **Sort and count.** Sort skills alphabetically by name; count totals (skills, stack skills).
+6. **Assemble the new managed section** using the format from `{managedSectionLogic}`:
+
+   ```markdown
+   <!-- SKF:BEGIN updated:{current-date} -->
+   [SKF Skills]|{n} skills|{m} stack
+   |IMPORTANT: Prefer documented APIs over training data.
+   |When using a listed library, read its SKILL.md before writing code.
+   |
+   |{skill-snippet-1}
+   |
+   |{skill-snippet-2}
+   |
+   |{skill-snippet-N}
+   <!-- SKF:END -->
+   ```
+
+7. **Surgical replacement — atomic, deterministic.** Invoke `{rebuildManagedSectionsHelper}` (resolved in §0) for the between-marker swap:
+
+   ```bash
+   python3 {rebuildManagedSectionsHelper} {context_file} replace --content "{new_managed_section_text}"
+   ```
+
+   The helper handles marker location, the between-marker swap, atomic temp-file + rename, and post-write verification (markers preserved, content outside markers byte-identical). It exits non-zero on any failure with a clear `stderr` reason — treat any non-zero exit as a per-file failure.
+8. **On per-file failure**, record the error against that context file and continue to the next entry. Do not halt the rename on a recoverable per-context-file error — the manifest and filesystem are already consistent, so context files can be re-rebuilt later via `[EX] Export Skill`.
+
+**7c. After the loop**, record:
 
 - `context_files_updated` — list of files successfully rewritten
-- `context_files_failed` — list of any that failed (per-file failures do not halt the rename — the manifest and filesystem are already canonical state, so context files can be re-rebuilt later via `[EX] Export Skill`)
+- `context_files_failed` — list of any that failed
 
-Report per the reference's after-loop block, then proceed to §8.
+Report: `**Rebuilt managed sections in:** {list of updated files}. {if any failed: 'Failed: {list} — re-run [EX] Export Skill to retry.'}` Then proceed to §8.
 
 **Note:** §7 failures do not trigger a rollback. Platform context files are derived artifacts; the manifest and on-disk skill directories are the canonical state.
 
 ### 8. Delete Old Directories (Point of No Return)
 
-This is the only section after which rollback is impossible. By this point:
-
-- `{new_skill_group}` is fully materialized with all inner directories renamed and files updated
-- `{new_forge_group}` is fully materialized with `skill_name` updated in every provenance map
-- No structural references to `{old_name}` remain inside either new directory (verified in section 5)
-- The manifest has been re-keyed (section 6)
-- Platform context files reference `{new_name}` (section 7, best-effort)
+This is the only section after which rollback is impossible. Precondition: §1–7 have fully materialized and verified the new name (both new directories renamed, no `{old_name}` references remaining, manifest re-keyed, context files rebuilt best-effort) — only now is deleting the old name safe.
 
 Execute the deletes:
 
@@ -282,25 +327,9 @@ Store the following for step 3:
 - `section3_warnings` — list of missing file warnings (empty if none)
 - `verification_warnings` — list of informational SKILL.md body mentions of `{old_name}` retained (empty if none)
 - `deletion_errors` — list of post-commit deletion errors (empty if none)
+- `headless_decisions` — the audit trail of confirmation gates auto-resolved under `{headless_mode}`, carried forward from step 1 unchanged (empty in interactive runs). Step 3 surfaces it in the result envelope and the per-run result JSON.
 
 ### 10. Load Next Step
 
 Load, read the full file, and then execute `{nextStepFile}`.
-
-## Error Handling Summary
-
-| Section | Failure Mode | Reversible? | Recovery Action |
-|---------|--------------|-------------|-----------------|
-| 1 | Copy failure | Yes | Delete whichever new directory exists; old skill intact |
-| 2 | Inner rename failure | Yes | `rm -rf` both new directories; old skill intact |
-| 3 | File update failure | Yes | `rm -rf` both new directories; old skill intact |
-| 4 | `active` symlink repair failure | Yes | `rm -rf` both new directories; old skill intact |
-| 5 | Verification failure | Yes | `rm -rf` both new directories; old skill intact |
-| 6 | Manifest write failure | Yes | Restore manifest from backup; `rm -rf` both new directories; old skill intact |
-| 7 | Platform context rebuild failure | Per-file | Record errors, continue other platforms; do NOT rollback — manifest and disk are canonical |
-| 8 | Delete failure | **No** | Record deletion errors; new name is already committed; user removes remnants manually |
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN all execution sections have been attempted (copy, inner rename, file updates, symlink fix, verification, manifest re-key, context rebuild, old delete) and results have been stored in context, will you then load and read fully `{nextStepFile}` to generate the final report.
 

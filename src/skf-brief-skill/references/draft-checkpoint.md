@@ -4,31 +4,31 @@ The `.brief-draft.json` file at `{forge_data_folder}/{skill-name}/.brief-draft.j
 
 **Headless mode skips this entire lifecycle** — the run completes in a single invocation, so no resume is meaningful and no checkpoint is written.
 
-The two halves of the lifecycle (resume on entry, write on §7 confirmation) form a pair. This file documents both so a single load covers them.
+The two halves of the lifecycle (resume after the target is confirmed in §3, write on §7 confirmation) form a pair. This file documents both so a single load covers them.
 
-## Half 1 — Resume Check (loaded from §6 after name confirmation)
+## Half 1 — Resume Check (loaded from §3 after the target is confirmed)
 
-After the skill name is confirmed in §6, check for an in-progress draft at `{forge_data_folder}/{name}/.brief-draft.json`. **Only present the resume prompt** when the file exists AND no `skill-brief.yaml` sits beside it (a finished brief uses the same dir; if a finished brief exists, the draft is stale and step 5's overwrite gate is the right control point).
+Keyed on the confirmed **target**, not the derived skill name, so the offer can fire right after §3 — before the returning user re-answers version (§3b), intent (§4), or scope (§5), which is exactly the state a draft restores. The caller (gather-intent §3) has already globbed `{forge_data_folder}/*/.brief-draft.json`, kept only drafts whose `target_repo` equals the confirmed target (or whose `doc_urls` contain it, for docs-only) with no `skill-brief.yaml` beside them, and selected the most-recently-modified survivor. Its directory basename is the candidate skill `name`. Present the resume prompt for that draft.
 
-When the precondition is met, present:
+When a live draft is found, present:
 
 ```
 **An in-progress draft for `{name}` was found** (last updated: {mtime}).
   [Y] Resume from the saved draft (jump to §8 with prior answers restored)
-  [N] Start fresh (delete the draft and re-gather)
+  [N] Start fresh (ignore this draft and keep gathering)
 ```
 
 ### `[Y]` — Resume
 
-Load the JSON and restore the captured fields: `target_repo`, `source_type`, `source_authority`, `target_version`, `doc_urls`, `intent`, `scope_hint`, `description`, `forge_tier`, `tier_source`. Then jump directly to §8 — **skip the rest of §6, all of §7, and all of §7b**.
+Restore the candidate `name` (the matched draft's directory basename), then load the JSON and restore the captured fields: `target_repo`, `source_type`, `source_authority`, `target_version`, `doc_urls`, `intent`, `scope_hint`, `description`, `forge_tier`, `tier_source`. Then jump directly to §8 — **skip §3b, §4, §5, §6, §7, and §7b** — so the version, intent, scope, and description the draft already holds are never re-gathered.
 
-The skip rule for §7b is load-bearing: re-running §7b would overwrite the user's previously accepted `description` with a fresh candidate synthesized from the seed material. The restored `description` is authoritative.
+The skip rule for §7b is load-bearing: re-running §7b would overwrite the user's previously accepted `description` with a fresh candidate synthesized from the seed material. The restored `description` is authoritative. §6 is skipped too, so the restored `name` is used as-is — it already cleared the collision and portfolio-similarity checks in the session that wrote the draft.
 
 The user can still revise any field at step 4 §3 if a refinement is needed after the full brief is visible.
 
 ### `[N]` — Start fresh
 
-Delete `.brief-draft.json` and continue forward to §7 — the collision check and portfolio-similarity check have already executed earlier in §6 (before the resume prompt fired) and do not repeat. §7 / §7b then proceed in their normal order.
+Leave the draft in place and continue forward to §3b — the normal gather flow (§3b version, §4 intent, §5 scope, §6 name) resumes, and the §6 collision / portfolio-similarity checks run in their usual place. Do not delete the draft here: the skill name has not been chosen yet, so there is nothing to key a deletion on. If the user lands on the same name, step 5's atomic write overwrites the stale draft; otherwise it stays a harmless orphan that the resume check offers again on a future run targeting the same repo.
 
 ## Half 2 — Checkpoint Write (loaded from §7 after summary confirmation)
 

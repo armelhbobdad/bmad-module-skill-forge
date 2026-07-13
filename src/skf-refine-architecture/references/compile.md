@@ -24,7 +24,7 @@ Produce the refined architecture document by starting with the original as a bas
 
 Load the complete original architecture document.
 
-This is the base. Every line of the original MUST appear in the refined document, unmodified.
+This is the base. Every line of the original appears in the refined document unmodified — the workflow only adds annotations and subsections; dropping or rewording original content silently discards the user's architecture.
 
 **Context recovery check:** If gap, issue, or improvement findings from Steps 02-04 are not available in context (e.g., due to context degradation in long runs), attempt to read the durability state from `{forge_data_folder}/ra-state-{project_name}.md`. Parse the `<!-- [RA-GAPS] -->`, `<!-- [RA-ISSUES] -->`, and `<!-- [RA-IMPROVEMENTS] -->` comment blocks to recover the complete formatted findings (each block contains full citation text with evidence, not just counts). If a section is still missing or contains only summary counts after recovery, HALT (exit code 8, `halt_reason: "recovery-failed"`): "⚠️ Context for the [Gaps|Issues|Improvements] analysis was lost and the durability state is insufficient to reconstruct findings. Re-run [RA] from the beginning — step 01 will reset the state file, then steps 02-04 will rebuild all findings." In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with `refined_path: null`.
 
@@ -113,6 +113,8 @@ Append a `## Refinement Summary` section containing:
 
 Write the complete refined architecture to `{outputFile}`.
 
+On any write failure (read-only mount, disk full, permissions denied): HALT (exit code 4, `halt_reason: "write-failed"`) with the captured error. In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with `refined_path: null`. The On-Activation §5 write probe should have caught an unwritable output folder earlier — if it surfaces here, the filesystem state changed mid-workflow.
+
 ### 7. Present Compiled Document for Review
 
 "**Refined architecture compiled. Please review:**
@@ -135,16 +137,15 @@ Please review the refinements:
 
 ### 8. Present MENU OPTIONS
 
-Display: **Select:** [C] Continue to Final Report
+Display: **Select:** [C] Continue to Final Report | [X] Cancel
 
-#### EXECUTION RULES:
+#### GATE [default: C]
 
-- ALWAYS halt and wait for user input after presenting compilation
-- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-approve compiled architecture"
-- ONLY proceed to next step when user approves and selects 'C'
+This is a review gate: halt for the user's decision and do not chain onward until they approve — an unreviewed compile ships un-vetted refinements. Headless auto-selects [C] (log: "headless: auto-approve compiled architecture").
 
 #### Menu Handling Logic:
 
 - IF C: Load, read entire file, then execute {nextStepFile}
+- IF cancel / exit / [X] / q / :q: HALT (exit code 6, `halt_reason: "user-cancelled"`) — display "Cancelled — refinement not finalized." In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with `refined_path: null`. These global cancel tokens pre-empt the feedback branch below.
 - IF Any other: Process as feedback, adjust specific refinements in the document, rewrite {outputFile}, redisplay preview, then [Redisplay Menu Options](#8-present-menu-options)
 

@@ -19,7 +19,7 @@ To read the resolved GitHub repository source and extract the public API surface
 - Do not begin compilation or write output files
 - If no exports found, use README content as fallback
 
-## MANDATORY SEQUENCE
+## Steps
 
 **Ref-aware source reading:** When `source_ref` is set from tag resolution (see step 1), append `?ref={source_ref}` to all GitHub API content and tree requests (e.g., `gh api repos/{owner}/{repo}/contents/{path}?ref={source_ref}`) to read from the tagged version. When using web browsing, use the tagged URL format (e.g., `github.com/{owner}/{repo}/blob/{source_ref}/{path}`). This ensures extraction reads from the same source version resolved during tag resolution.
 
@@ -57,7 +57,7 @@ Quick-skill is designed to wrap a library's public API. The compiled SKILL.md wi
 Select: [C] Continue anyway · [A] Abort"
 
 - **IF C** — log "user accepted `{shape}` shape" and proceed to §2. Set `extraction_inventory.repo_shape` to the detected shape so the result contract carries the signal for automators.
-- **IF A** — HARD HALT with **exit code 3 (resolution-failure)** per the SKILL.md exit-code map: "Aborted. `{shape}` repos are best wrapped manually with `/skf-create-skill` from a brief, not auto-extracted." Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "quick-extract"`, `error.code: "resolution-failure"`, `error.details: {repo_shape: "{shape}"}`, `skill_package: null`).
+- **IF A** — HARD HALT with **exit code 3 (resolution-failure)** per the exit-code map in `references/halt-contract.md`: "Aborted. `{shape}` repos are best wrapped manually with `/skf-create-skill` from a brief, not auto-extracted." Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "quick-extract"`, `error.code: "resolution-failure"`, `error.details: {repo_shape: "{shape}"}`, `skill_package: null`).
 
 **GATE [default: C]** — In headless mode, log "headless: detected `{shape}` repo, continuing anyway" and proceed; the result contract's `summary.repo_shape` carries the signal so automators can flag low-quality outputs without re-parsing logs.
 
@@ -76,13 +76,13 @@ Fetch the manifest file and the top-level entry-point file(s) for the detected l
 
 **If `scope_hint` provided:** focus the entry-point fetch on the specified directories instead of repo root.
 
-For multi-module Maven (`<modules>`) and multi-project Gradle (`include(...)`) builds, fetch the parent manifest first, then loop §2+§3 per module. Sub-module fetches are safe to issue as one batched tool-call message — N module fetches collapse to O(1) wall-clock time.
+For multi-module Maven (`<modules>`) and multi-project Gradle (`include(...)`) builds, fetch the parent manifest first, then loop §2+§3 per module. Batch the sub-module fetches per the parallel-fetch directive at the top of this step.
 
 ### 3. Parse Manifest and Scan Exports
 
 Run the shared extractor against the contents fetched in §2. The helper does manifest parse + export scan in one invocation and emits a structured envelope ready to feed §4's inventory.
 
-**Resolve `{publicApiExtractor}`** from `{publicApiExtractorProbeOrder}`; first existing path wins. If no candidate exists, fall back to in-prompt parsing (the legacy per-language regex tables that this section replaces).
+**Resolve `{publicApiExtractor}`** from `{publicApiExtractorProbeOrder}`; first existing path wins. If no candidate exists, fall back to in-prompt per-language regex parsing of the manifest and entry-point files.
 
 Build the input payload from §2's fetched files and pipe it to the helper:
 
@@ -129,7 +129,7 @@ extraction_inventory:
 
 ### 4.5. Zero-Exports Soft Gate (rescue mode)
 
-Run this gate **only when** `extraction_inventory.exports.length == 0` AND `extraction_inventory.description` is empty (no usable README content either). When either is non-empty, the README-fallback in §4 produces a usable skill and this section is skipped.
+Run this gate **only when** `extraction_inventory.exports.length == 0` and `extraction_inventory.description` is empty (no usable README content either). When either is non-empty, the README-fallback in §4 produces a usable skill and this section is skipped.
 
 When both are empty, the compiled SKILL.md would be effectively empty — no API surface to document and no description to fall back on. Offer the user a chance to retry with hints before producing a degenerate output:
 
@@ -146,7 +146,7 @@ Select: [R] Retry with new hints · [P] Proceed anyway (low-confidence skill) ·
 
 - **IF R** — prompt for new `scope_hint` ("New scope hint (e.g. `src/server/`):") and optional new `language_hint` ("New language hint (or empty to keep `{language}`):"). Update the extraction context with the new hints, then **re-execute step 3 from §1** with the new values. Discards the prior empty inventory.
 - **IF P** — log "user accepted zero-exports outcome" and proceed to §5. The compiled skill will be README-content-only with confidence `low`. Record `zero_exports_rescue: "user-accepted"` in the inventory so the result contract summary surfaces it.
-- **IF A** — HARD HALT with **exit code 3 (resolution-failure)**: "Aborted. Run `/skf-create-skill` from a brief if you want a guided extraction with provenance tracking." Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "quick-extract"`, `error.code: "resolution-failure"`, `error.details: {exports_found: 0, description_empty: true, language: "{language}", scope: "{scope_hint or 'entire repo'}"}`, `skill_package: null`).
+- **IF A** — HARD HALT with **exit code 3 (resolution-failure)**: "Aborted. Run `/skf-create-skill` from a brief if you want a guided extraction with provenance tracking." Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "quick-extract"`, `error.code: "resolution-failure"`, `error.details: {exports_found: 0, description_empty: true, language: "{language}", scope: "{scope_hint or 'entire repo'}"}`, `skill_package: null`).
 
 **GATE [default: P]** — In headless mode, log "headless: zero exports + empty description, proceeding with low-confidence skill" and proceed; record `zero_exports_rescue: "auto-proceeded"` in the result contract summary so batch automators can re-queue these targets with stricter hints downstream. [P] preserves the pre-rescue behaviour for unattended pipelines.
 
@@ -164,16 +164,5 @@ Select: [R] Retry with new hints · [P] Proceed anyway (low-confidence skill) ·
 
 ### 6. Auto-Proceed to Compilation
 
-#### Menu Handling Logic:
-
-- After extraction summary, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed step — extraction results flow directly to compilation
-- Proceed directly to next step after summary
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN extraction is complete and extraction_inventory is assembled (even if minimal/low-confidence) will you load and read fully `{nextStepFile}` to execute compilation.
+Once extraction_inventory is assembled (even if minimal or low-confidence), load and execute {nextStepFile} to compile.
 

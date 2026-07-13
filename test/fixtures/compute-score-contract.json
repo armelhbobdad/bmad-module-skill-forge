@@ -487,7 +487,11 @@
       "totalScore": 88.02,
       "threshold": 90,
       "result": "FAIL",
-      "weightSum": 100
+      "weightSum": 100,
+      "effectiveResult": "PASS",
+      "capReason": null,
+      "thresholdFallback": true,
+      "originalThreshold": 90
     }
   },
   {
@@ -607,7 +611,11 @@
       "totalScore": 84,
       "threshold": 84.01,
       "result": "FAIL",
-      "weightSum": 100
+      "weightSum": 100,
+      "effectiveResult": "PASS",
+      "capReason": null,
+      "thresholdFallback": true,
+      "originalThreshold": 84.01
     }
   },
   {
@@ -1300,6 +1308,138 @@
       "threshold": 80,
       "result": "PASS",
       "weightSum": 100.01
+    }
+  },
+  {
+    "name": "suite_w_degraded_fallback_interaction",
+    "input": {
+      "mode": "contextual",
+      "tier": "Deep",
+      "threshold": 90,
+      "analysisConfidence": "degraded",
+      "scores": {
+        "exportCoverage": 95,
+        "signatureAccuracy": 95,
+        "typeCoverage": 95,
+        "coherence": 95,
+        "externalValidation": 95
+      }
+    },
+    "expected_output": {
+      "input": {
+        "mode": "contextual",
+        "tier": "Deep",
+        "docsOnly": false,
+        "state2": false,
+        "stackSkill": false,
+        "threshold": 90,
+        "scores": {
+          "exportCoverage": 95,
+          "signatureAccuracy": 95,
+          "typeCoverage": 95,
+          "coherence": 95,
+          "externalValidation": 95
+        }
+      },
+      "activeCategories": [
+        "exportCoverage",
+        "signatureAccuracy",
+        "typeCoverage",
+        "coherence",
+        "externalValidation"
+      ],
+      "skippedCategories": [],
+      "skipReasons": {},
+      "weights": {
+        "exportCoverage": 36.0,
+        "signatureAccuracy": 22.0,
+        "typeCoverage": 14.0,
+        "coherence": 18.0,
+        "externalValidation": 10.0
+      },
+      "weightedScores": {
+        "exportCoverage": 34.2,
+        "signatureAccuracy": 20.9,
+        "typeCoverage": 13.3,
+        "coherence": 17.1,
+        "externalValidation": 9.5
+      },
+      "totalScore": 95.0,
+      "threshold": 90,
+      "result": "PASS",
+      "weightSum": 100.0,
+      "effectiveResult": "PASS",
+      "capReason": "tooling degraded — capped below threshold until helper restored",
+      "thresholdFallback": true,
+      "originalThreshold": 90
+    }
+  },
+  {
+    "name": "suite_x_docsonly_cap2_fail",
+    "input": {
+      "mode": "contextual",
+      "tier": "Deep",
+      "docsOnly": true,
+      "scores": {
+        "exportCoverage": 82,
+        "signatureAccuracy": null,
+        "typeCoverage": null,
+        "coherence": 82,
+        "externalValidation": null
+      }
+    },
+    "expected_output": {
+      "input": {
+        "mode": "contextual",
+        "tier": "Deep",
+        "docsOnly": true,
+        "state2": false,
+        "stackSkill": false,
+        "threshold": 80,
+        "scores": {
+          "exportCoverage": 82,
+          "signatureAccuracy": null,
+          "typeCoverage": null,
+          "coherence": 82,
+          "externalValidation": null
+        }
+      },
+      "activeCategories": [
+        "exportCoverage",
+        "coherence"
+      ],
+      "skippedCategories": [
+        "signatureAccuracy",
+        "typeCoverage",
+        "externalValidation"
+      ],
+      "skipReasons": {
+        "signatureAccuracy": "docs-only mode",
+        "typeCoverage": "docs-only mode",
+        "externalValidation": "No external validators available"
+      },
+      "weights": {
+        "exportCoverage": 66.67,
+        "signatureAccuracy": 0,
+        "typeCoverage": 0,
+        "coherence": 33.33,
+        "externalValidation": 0
+      },
+      "weightedScores": {
+        "exportCoverage": 54.67,
+        "signatureAccuracy": 0,
+        "typeCoverage": 0,
+        "coherence": 27.33,
+        "externalValidation": 0
+      },
+      "totalScore": 82.0,
+      "threshold": 80,
+      "result": "PASS",
+      "weightSum": 100.0,
+      "effectiveResult": "FAIL",
+      "capReason": "docs-only without external validators — capped below threshold",
+      "thresholdFallback": false,
+      "originalThreshold": null
     }
   }
 ]

@@ -34,24 +34,7 @@ Update the ## Audit Summary section at the top of {outputFile} with final calcul
 
 ### 2. Generate Remediation Suggestions
 
-For EACH classified drift finding, generate a specific remediation suggestion:
-
-**CRITICAL findings remediation:**
-- Removed export → "Remove reference to `{export_name}` from SKILL.md section {section}. Export no longer exists at `{file}:{line}`."
-- Changed signature → "Update `{export_name}` signature in SKILL.md from `{old_signature}` to `{new_signature}`. See `{file}:{line}`."
-- Renamed export → "Replace `{old_name}` with `{new_name}` throughout SKILL.md. Renamed at `{file}:{line}`."
-
-**HIGH findings remediation:**
-- New public API (>3) → "Add documentation for {count} new exports to SKILL.md: {export_list}. Consider running update-skill workflow."
-- Deprecated API → "Mark `{export_name}` as deprecated in SKILL.md. Current replacement: `{replacement}` at `{file}:{line}`."
-
-**MEDIUM findings remediation:**
-- Moved function → "Update file reference for `{export_name}` from `{old_file}` to `{new_file}:{line}`."
-- New exports (1-3) → "Consider adding `{export_names}` to SKILL.md for completeness."
-- Changed convention → "Review convention documentation in SKILL.md for currency."
-
-**LOW findings remediation:**
-- Style changes → "Optional: Update style references in SKILL.md to reflect current conventions."
+For each classified drift finding, write one concrete remediation derived from the finding itself: **what** to change in the audited **SKILL.md** (or its `references/`) — not the source code — **where** (the section plus the source `{file}:{line}` the finding cites), and **why**. Set effort (`low`/`medium`/`high`) by how much of the skill doc the change touches. A reviewer should be able to act on each row without re-deriving the finding.
 
 Append to {outputFile}:
 
@@ -125,50 +108,20 @@ Append to {outputFile}:
 
 Update {outputFile} frontmatter:
 - Append `'report'` to `stepsCompleted`
-- Set `drift_score` to final calculated score
+- Set `drift_score` to the score from step 5's classification helper
 - Set `nextWorkflow` to `'update-skill'` if CRITICAL or HIGH findings, otherwise leave empty
+
+If finalizing the report or writing the result JSON below fails (read-only mount, disk full, permissions denied) → HALT with **exit 4**, `halt_reason: "write-failed"`. When `{headless_mode}`, emit the error envelope on **stderr** (shape per SKILL.md → Result Contract) with `report_path: null`.
 
 ### 5. Present Final Report Summary
 
-"**Audit Complete: {skill_name}**
+Present a concise completion summary to the user conveying: the skill name, the **overall drift score** (CLEAN / MINOR / SIGNIFICANT / CRITICAL), the severity-count table (CRITICAL / HIGH / MEDIUM / LOW / Total), and the saved report path (`{outputFile}`). Close with the next-action recommendation matching the drift level:
 
----
+- **CRITICAL or HIGH findings** → action required: recommend running the `[US] Update Skill` workflow to apply the priority remediations; manual review at `{outputFile}` is the alternative.
+- **MEDIUM or LOW only** → minor drift: manual updates suffice, or run `[US] Update Skill` for automated remediation.
+- **CLEAN** → no action needed; the skill is current and ready for `[EX] Export Skill`.
 
-**Overall Drift Score: {CLEAN / MINOR / SIGNIFICANT / CRITICAL}**
-
-| Severity | Count |
-|----------|-------|
-| CRITICAL | {count} |
-| HIGH | {count} |
-| MEDIUM | {count} |
-| LOW | {count} |
-| **Total** | {total} |
-
-**Report saved to:** `{outputFile}`
-
-{IF CRITICAL/HIGH findings:}
-**Action Required:** {count} priority items need remediation. Recommend running `[US] Update Skill` workflow.
-
-{IF MEDIUM/LOW only:}
-**Minor Drift:** Skill is functional but could benefit from updates. See report for details.
-
-{IF CLEAN:}
-**All Clear:** No drift detected. Skill accurately reflects current source code.
-
----
-
-**Next Steps:**
-{IF findings exist:}
-1. **[US] Update Skill** — Automatically apply remediations from this drift report
-2. **Review report** — Manual review at `{outputFile}`
-
-{IF CLEAN:}
-1. **No action needed** — Skill is current
-2. **[EX] Export Skill** — Skill is ready for distribution
-
----
-
-**Audit workflow complete.**"
+This summary reads as final but is **not** the terminal step — proceed to §6.
 
 ### Result Contract
 
@@ -182,7 +135,7 @@ SKF_AUDIT_RESULT_JSON: {"status":"success","skill_name":"{skill_name}","drift_sc
 
 Field rules: `next_workflow` is `"update-skill"` when CRITICAL or HIGH findings exist (matches the frontmatter `nextWorkflow` set in §4), otherwise `null`. `audit_ref` carries the resolved value from step 1 §5b (`baseline_ref` when no upstream drift was detected, `latest_tag` or `remote_head` when the operator chose `[C] Checkout-and-audit-against-latest`).
 
-**HALT envelope mirror (headless only).** For every HARD HALT raised in this workflow (skill-not-found at init.md §1, forge-tier missing at §2, source-dir missing at §5, write-failed at §6, user-cancelled at any `[X]` selection), emit the same envelope shape on **stderr** with `status: "error"`, `drift_score: null` (or last known value if classification ran), `report_path: null` if the report write failed, `exit_code` matching the Exit Codes table, and `halt_reason` set to the failure class from the table (`"skill-not-found"`, `"forge-tier-missing"`, `"source-dir-missing"`, `"write-failed"`, `"user-cancelled"`). This is the only signal a wrapping pipeline receives on failure — log it before exiting.
+**Hard-halt envelope (headless only).** Every hard halt emits this same envelope shape on **stderr** with `status: "error"` and the `exit_code` / `halt_reason` for its failure class (per SKILL.md → Exit Codes and Result Contract), produced at the halting site before exit — it is the only failure signal a wrapping pipeline receives, so log it before exiting. `drift_score` carries its last known value (`null` if classification never ran); `report_path` is `null` when the report write failed.
 
 **Post-audit hook (optional).** If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it as:
 
@@ -194,5 +147,5 @@ where `{result_json_path}` is the per-run record path written above (`{forge_ver
 
 ### 6. Chain to Health Check
 
-ONLY WHEN the report has been written, presented, and the result contract saved will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the user-facing summary reads as final.
+Only when the report has been written, presented, and the result contract saved do you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the user-facing summary reads as final.
 

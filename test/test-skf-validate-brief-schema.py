@@ -248,6 +248,52 @@ class TestVersionNonEmpty:
 
 
 # --------------------------------------------------------------------------
+# scope.include non-empty rule (docs-only excepted)
+# --------------------------------------------------------------------------
+
+
+class TestScopeIncludeNonEmpty:
+    def test_full_library_empty_include_errors(self) -> None:
+        # A non-docs-only brief with an empty include array must fail with a
+        # scope.include error — the deterministic gate enforces the non-empty
+        # constraint the schema cannot express.
+        brief = _valid_brief()
+        brief["scope"] = {
+            "type": "full-library",
+            "include": [],
+            "exclude": [],
+            "notes": "x",
+        }
+        result = mod.validate_brief(brief)
+        assert result["valid"] is False
+        assert any(e["field"] == "scope.include" for e in result["errors"])
+
+    def test_full_library_with_include_valid(self) -> None:
+        brief = _valid_brief()
+        brief["scope"] = {
+            "type": "full-library",
+            "include": ["src/**/*.ts"],
+            "exclude": [],
+            "notes": "x",
+        }
+        result = mod.validate_brief(brief)
+        assert result["valid"] is True, result["errors"]
+
+    def test_docs_only_scope_type_empty_include_valid(self) -> None:
+        # docs-only scope has no source globs to include — the empty include
+        # array is honored (proves this is NOT a blanket minItems:1).
+        brief = _valid_brief()
+        brief["scope"] = {
+            "type": "docs-only",
+            "include": [],
+            "exclude": [],
+            "notes": "x",
+        }
+        result = mod.validate_brief(brief)
+        assert result["valid"] is True, result["errors"]
+
+
+# --------------------------------------------------------------------------
 # load_brief_text
 # --------------------------------------------------------------------------
 

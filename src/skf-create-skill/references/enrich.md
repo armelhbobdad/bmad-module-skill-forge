@@ -34,7 +34,7 @@ Continue to step 2.
 Before searching, check which QMD collections are available:
 
 1. Read the sidecar `forge-tier.yaml` to get registered `qmd_collections` entries
-2. Identify which collections contain enrichment context — collections with `type` equal to `"temporal"` (issues, PRs, changelogs) or `"docs"` (fetched external documentation). Do NOT include `"extraction"` or `"brief"` type collections.
+2. Identify which collections contain enrichment context — collections with `type` equal to `"temporal"` (issues, PRs, changelogs) or `"docs"` (fetched external documentation). Do not include `"extraction"` or `"brief"` type collections.
 3. **If no enrichment collections exist** (no `"temporal"` or `"docs"` type collections): report this and auto-proceed. Display:
 
 "**Enrichment: no enrichment collections available.**
@@ -66,7 +66,7 @@ For each function, derive the **module context** from the extraction inventory's
 
 **Tool resolution for qmd_bridge:** QMD MCP exposes a single `query` tool that accepts a `searches[]` array. Each entry has a `type` field — `'lex'` for BM25 keyword search, `'vec'` for semantic vector search, `'hyde'` for hypothetical-document retrieval — plus `query` and `intent` fields. Claude Code: `mcp__plugin_qmd-plugin_qmd__query`. Cursor: qmd MCP server. CLI: `qmd search "{query}"` (BM25) / `qmd vector-search "{query}"` (semantic). See `knowledge/tool-resolution.md`.
 
-**Tool probe (graceful degradation):** If any tool-not-found error surfaces while invoking `query` (e.g., legacy `vector_search` still expected by an older client, or a bridge returns "tool not registered"), treat it as a non-fatal failure for that function's enrichment and continue with the remaining functions. Do NOT retry against the stale `vector_search` tool name — that name was removed from the QMD MCP server. Record the degradation in context for the evidence report.
+**Tool probe (graceful degradation):** If any tool-not-found error surfaces while invoking `query` (e.g., legacy `vector_search` still expected by an older client, or a bridge returns "tool not registered"), treat it as a non-fatal failure for that function's enrichment and continue with the remaining functions. Do not retry against the stale `vector_search` tool name — that name was removed from the QMD MCP server. Record the degradation in context for the evidence report.
 
 **For each QMD result:**
 
@@ -108,20 +108,7 @@ Display brief enrichment summary:
 
 Proceeding to compilation..."
 
-### 6. Menu Handling Logic
+### 6. Auto-Proceed
 
-**Auto-proceed step — no user interaction.**
-
-After enrichment is complete (or skipped for non-Deep tiers), immediately load, read entire file, then execute `{nextStepFile}`.
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed step with no user choices
-- Quick/Forge/Forge+ tiers skip directly to next step with no output
-- Deep tier displays brief enrichment summary then auto-proceeds
-- QMD failures do not halt — degrade and proceed
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN enrichment is complete (Deep tier) or the step is skipped (Quick/Forge/Forge+) will you proceed to load `{nextStepFile}` for SKILL.md compilation.
+No user interaction. After enrichment completes (or is skipped for non-Deep tiers), load `{nextStepFile}`, read it fully, then execute it.
 

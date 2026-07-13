@@ -82,7 +82,7 @@ Set `{ccc_discovery: []}` in context.
 
 Display: "CCC discovery unavailable — proceeding with standard extraction."
 
-Do NOT halt. This is not an error.
+Do not halt. This is not an error.
 
 **If search returns empty results:**
 
@@ -92,16 +92,5 @@ No message needed — empty results are normal for small or highly focused libra
 
 ### 5. Auto-Proceed
 
-Immediately load, read entire file, then execute `{nextStepFile}`.
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed step with no user choices
-- Quick/Forge tiers skip directly with no output
-- Forge+/Deep with ccc displays brief discovery summary then auto-proceeds
-- CCC failures do not halt — degrade and proceed
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN discovery is complete (Forge+/Deep with ccc) or the step is skipped (Quick/Forge or ccc unavailable) will you proceed to load `{nextStepFile}` for AST extraction.
+No user interaction. Load `{nextStepFile}`, read it fully, then execute it. CCC failures degrade and proceed — they never halt.
 

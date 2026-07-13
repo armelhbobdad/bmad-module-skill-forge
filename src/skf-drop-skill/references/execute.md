@@ -18,6 +18,23 @@ manifestOpsProbeOrder:
 rebuildManagedSectionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
   - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
+# Resolve `{updateActiveSymlinkHelper}` similarly. §4 uses it (update
+# action) to atomically repoint `{skill_group}/active` after a version-level
+# purge deletes the version the symlink pointed at — the helper does a
+# temp-symlink + os.replace flip so concurrent readers never see a missing
+# link. Matches skf-update-skill/references/write.md and
+# skf-rename-skill/references/execute.md. HALT if neither candidate exists.
+updateActiveSymlinkProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-update-active-symlink.py'
+  - '{project-root}/src/shared/scripts/skf-update-active-symlink.py'
+# Standalone single-line result-envelope contract emitted at every headless
+# HALT in this step. Loaded in §1 so no error path depends on SKILL.md
+# remaining in context under compaction.
+headlessContract: 'headless-contract.md'
+# Deterministic recursive byte sizing + human formatting for `disk_freed`
+# (§4). Bundled with this skill; the same helper backs select.md §9b's
+# blast-radius preview, so gate and report agree on the method.
+dirSizesHelper: 'scripts/dir-sizes.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -42,6 +59,8 @@ Execute the drop decisions recorded in step 1: update the export manifest, rebui
 Read `{versionPathsKnowledge}` again and confirm the templates and management operations. This ensures the execution step uses the same rules as the selection step even when run in isolation.
 
 Also read `{managedSectionLogic}` for the format template, the four-case logic, and the skill index rebuild rules that will be reused in section 3.
+
+If `{headless_mode}` is true, also read `{headlessContract}` now — it defines the single-line result envelope the error paths below emit, so the shape is in context even if SKILL.md was compacted out.
 
 ### 2. Update Export Manifest
 
@@ -75,7 +94,7 @@ Set context flag `manifest_updated = true`.
 
 - Do not proceed to section 3
 - Report: "**Manifest update failed:** {captured stderr}. No files were deleted and platform context files were not rebuilt. The manifest is in its pre-drop state — rerun the workflow once the underlying issue is resolved."
-- Store `manifest_updated = false` and jump to section 6. In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with `halt_reason: "manifest-write-failed"` and exit code 4.
+- Store `manifest_updated = false` and jump to section 6. In headless mode, emit the error envelope per `{headlessContract}` with `halt_reason: "manifest-write-failed"` and exit code 4.
 
 ### 3. Rebuild Context Files
 
@@ -84,9 +103,9 @@ Load the `ides` list from `config.yaml`. The installer writes IDE identifiers �
 **Resolve `target_context_files`** using the canonical mapping table in `{managedSectionLogic}`:
 
 1. For each entry in `config.yaml.ides`, look up its `context_file` and `skill_root` from the mapping table
-2. For any entry not found in the table, default to AGENTS.md / `.agents/skills/` and emit a warning: "Unknown IDE '{value}' in config.yaml — defaulting to AGENTS.md"
+2. For any entry not found in the table, default to `{unknownIdeDefaultContextFile}` / `{unknownIdeDefaultSkillRoot}` (resolved at SKILL.md On Activation §3 from `workflow.unknown_ide_default_*`, bundled defaults `AGENTS.md` / `.agents/skills/`) and emit a warning: "Unknown IDE '{value}' in config.yaml — defaulting to {unknownIdeDefaultContextFile}"
 3. Deduplicate by `context_file` — when multiple IDEs map to the same context file, use the first configured IDE's `skill_root`
-4. If `config.yaml.ides` is absent or the mapping yields an empty list, fall back to `[{context_file: "AGENTS.md", skill_root: ".agents/skills/"}]` and emit a note: "No IDEs configured in config.yaml — defaulting to AGENTS.md"
+4. If `config.yaml.ides` is absent or the mapping yields an empty list, fall back to `[{context_file: "{unknownIdeDefaultContextFile}", skill_root: "{unknownIdeDefaultSkillRoot}"}]` and emit a note: "No IDEs configured in config.yaml — defaulting to {unknownIdeDefaultContextFile}"
 
 Store the result as `target_context_files` for this section.
 
@@ -156,28 +175,45 @@ Report: "**Rebuilt managed sections in:** {list of updated files}. {if any faile
 
 **If `drop_mode == "purge"`:**
 
-1. Initialize `files_deleted = []` and `bytes_freed = 0`.
+1. Initialize `files_deleted = []` and `delete_failures = []` (paths whose deletion was attempted but did not succeed).
 
-2. Also initialize `delete_failures = []` to track paths whose deletion was attempted but did not succeed.
+2. **Measure sizes before deleting anything.** Run the sizing helper once over `affected_directories` so each path's byte size is captured while it still exists:
+
+   ```bash
+   uv run {dirSizesHelper} sizes {each path in affected_directories, space-separated}
+   ```
+
+   Keep each `result.paths[].bytes` as `path_bytes[{path}]`; a path reported `exists: false` is already gone. If the helper is unavailable, fall back to `du -sb` per existing path.
 
 3. For each directory path in `affected_directories`:
    a. Verify the path is inside either `{skills_output_folder}` or `{forge_data_folder}` (defense in depth against accidental deletion of unrelated paths)
    b. If the directory does not exist, record it as "(already absent)" and continue
-   c. Compute the directory size in bytes before deletion (recursive sum)
-   d. Delete the directory recursively
-   e. Verify deletion succeeded (the path no longer exists)
-   f. Append the path to `files_deleted` and add its byte size to `bytes_freed`
+   c. Delete the directory recursively
+   d. Verify deletion succeeded (the path no longer exists)
+   e. Append the path to `files_deleted`
 
 4. **Version-level purge, single version:**
    - `{skills_output_folder}/{target_skill}/{version}/` is deleted, but `{skills_output_folder}/{target_skill}/` remains (it still contains other versions or the `active` symlink)
-   - If the `active` symlink pointed to the just-deleted version, update or remove it:
-     - If other versions remain in the manifest for `{target_skill}`, repoint `active` to the manifest's current `active_version` (skipping deprecated)
-     - If no non-deprecated versions remain, remove the `active` symlink (reachable only when dropping the sole surviving version, which in step 1 was permitted because no other non-deprecated versions existed)
+   - If the `active` symlink pointed to the just-deleted version, update or remove it. The version directory is already gone at this point, so a symlink problem never claims `delete-failed` — record it and continue (`verification_errors`) so the report surfaces the manual repair rather than masking a successful purge.
+     - **Other non-deprecated versions remain** for `{target_skill}`: resolve `{new_active_version}` = the version the manifest now lists as `active_version` for `{target_skill}` (if that one is deprecated, the newest non-deprecated version in its `versions` map). Repoint `active` to it atomically through the shared helper rather than a hand-rolled `ln` — resolve `{updateActiveSymlinkHelper}` from `{updateActiveSymlinkProbeOrder}` (first existing path wins), then:
+       ```bash
+       python3 {updateActiveSymlinkHelper} update \
+         --skill-group {skills_output_folder}/{target_skill} \
+         --version {new_active_version}
+       ```
+       The helper does a temp-symlink + `os.replace` flip, so a concurrent reader never sees a missing `active`. Record a `mismatch`/`missing-target` exit (code 2), or a missing helper (no probe candidate), in `verification_errors` with the manual fix (`ln -sfn {new_active_version} {skills_output_folder}/{target_skill}/active`) and continue.
+     - **No non-deprecated versions remain** (reachable only when dropping the sole surviving version, permitted in step 1 because no other non-deprecated versions existed): remove the now-dangling `active` symlink with a single atomic unlink of the link itself — `rm {skills_output_folder}/{target_skill}/active` (unlink removes only the symlink, never its target, and is atomic). A single unlink has one correct outcome and no intermediate state, so it stays in-prompt (the helper has no removal action).
 
 5. **Skill-level purge:**
    - `{skills_output_folder}/{target_skill}/` and `{forge_data_folder}/{target_skill}/` are deleted in full — the `active` symlink disappears with the parent directory
 
-6. Convert `bytes_freed` to a human-readable string for the final report (e.g. `"4.2 MB"`). Store as `disk_freed`.
+6. Sum the sizes of the paths in `files_deleted` and format one human-readable label through the helper — do not add or round in-prompt:
+
+   ```bash
+   uv run {dirSizesHelper} humanize {path_bytes[p] for each p in files_deleted, space-separated}
+   ```
+
+   Store `result.total_human` as `disk_freed` (e.g. `"4.2 MB"`; `"0 B"` when nothing was deleted).
 
 **On deletion error (per path):**
 
@@ -187,7 +223,7 @@ Report: "**Rebuilt managed sections in:** {list of updated files}. {if any faile
 
 **After the loop — classify the deletion outcome.** Let `attempted` be the number of paths in `affected_directories` that existed on disk (i.e. were not recorded as "(already absent)"):
 
-- **Full purge failure** — `attempted > 0` AND every attempted path is in `delete_failures` (nothing was deleted): the purge accomplished none of its destructive intent, so it must NOT report success. HALT (exit code 4, `halt_reason: "delete-failed"`): "**Purge failed** — none of the {attempted} target director(ies) could be deleted: {list each path with its error}. The manifest and context files were already updated in sections 2–3; the on-disk files remain and can be removed manually (`rm -rf {path}`)." In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with the resolved `skill`, `drop_mode`, `versions_affected`, `files_deleted: []`, and `manifest_updated` from section 2. Do not proceed to section 5.
+- **Full purge failure** — `attempted > 0` AND every attempted path is in `delete_failures` (nothing was deleted): the purge accomplished none of its destructive intent, so it must NOT report success. HALT (exit code 4, `halt_reason: "delete-failed"`): "**Purge failed** — none of the {attempted} target director(ies) could be deleted: {list each path with its error}. The manifest and context files were already updated in sections 2–3; the on-disk files remain and can be removed manually (`rm -rf {path}`)." In headless mode, emit the error envelope per `{headlessContract}` with the resolved `skill`, `drop_mode`, `versions_affected`, `files_deleted: []`, and `manifest_updated` from section 2. Do not proceed to section 5.
 - **Partial purge failure** — `delete_failures` is non-empty but at least one path was deleted: keep record-and-continue. Set `purge_status = "partial"` so step 3's on-disk result record reflects it (the `output-contract-schema.md` `status` enum supports `"partial"`); proceed to section 5. The headless single-line envelope has no `"partial"` value in its enum, so it stays `"success"` while `context_files_failed`/`verification_errors`/the report surface the unfreed paths.
 - **No failures** — `delete_failures` is empty: set `purge_status = "success"` and proceed to section 5.
 
@@ -220,21 +256,5 @@ Store the following for step 3:
 
 ### 7. Load Next Step
 
-Load, read the full file, and then execute `{nextStepFile}`.
-
-## Error Handling Summary
-
-If any stage fails, record which stage failed and provide recovery guidance in the final report:
-
-| Failed Stage | Recovery Guidance |
-|--------------|-------------------|
-| Manifest update | "Manifest is in pre-drop state. Re-run the workflow once the underlying I/O issue is resolved. No files were deleted." |
-| Context file rebuild | "Manifest is already updated. Re-run `[EX] Export Skill` against any still-valid skill to regenerate the affected managed sections, or rerun the drop workflow." |
-| File deletion (purge — partial) | "Manifest and context files are consistent. Remaining directories listed in the report can be deleted manually: `rm -rf {path}`." (status `partial`) |
-| File deletion (purge — full) | "No target directory could be deleted. Manifest and context files are already updated; the on-disk files remain. HALT with `delete-failed` (exit 4) — re-run once the I/O issue is resolved, or remove the listed directories manually." |
-| Verification | "Execution completed but post-write checks found drift. See the report for specific paths requiring manual review." |
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN all execution stages have been attempted (manifest update, context rebuild, file deletion in purge mode, verification) and results have been stored in context, will you then load and read fully `{nextStepFile}` to generate the final report.
+The report in `{nextStepFile}` renders from the results stored in §6, so chain to it only after every execution stage above has been attempted and its outcome stored. Load, read the full file, and then execute it.
 

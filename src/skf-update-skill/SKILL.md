@@ -12,6 +12,7 @@ Surgically updates existing skills when source code changes, preserving all [MAN
 ## Conventions
 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root — stage files reference `knowledge/version-paths.md` and `knowledge/tool-resolution.md`, and the terminal step chains to `shared/health-check.md`.
 - `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
@@ -50,11 +51,11 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | skill_name [required] |
-| **Flags** | `--headless` / `-H` (auto-resolve all gates); `--from-test-report` (gap-driven mode); `--allow-workspace-drift` (gap-driven only — bypass §0.a pinning guard); `--detect-only` (run detect-changes only, exit before re-extract; envelope `status="detect-only"`); `--dry-run` (run detect-changes + re-extract, exit before merge/write; envelope `status="dry-run"` describes what would change). If both `--detect-only` and `--dry-run` are passed, `--detect-only` wins. |
+| **Flags** | `--headless` / `-H` (auto-resolve all gates); `--from-test-report` (gap-driven mode); `--allow-workspace-drift` (gap-driven only — bypass §0.a pinning guard); `--allow-degraded` (headless only — pre-authorize the lossy degraded full re-extraction when the provenance map is missing, instead of halting `blocked`; init.md §4); `--detect-only` (run detect-changes only, exit before re-extract; envelope `status="detect-only"`); `--dry-run` (run detect-changes + re-extract, exit before merge/write; envelope `status="dry-run"` describes what would change). If both `--detect-only` and `--dry-run` are passed, `--detect-only` wins. |
 | **Gates** | step 1: Confirm Gate [C] | step 4: Confirm Gate [C if clean merge, HALT if conflicts] |
-| **Outputs** | Updated SKILL.md, updated provenance-map.json, evidence-report.md (none when `--detect-only` or `--dry-run` is set — those modes are read-only inspection paths) |
-| **Concurrency** | Two simultaneous real-update runs against the same skill would corrupt provenance. init.md §1b acquires a PID-file lock at `{forge_data_folder}/{skill_name}/.skf-update.lock` before any artifact read; live-PID collisions halt with `status: "halted-for-concurrent-run"`. Stale locks (dead PID) are cleared silently with a warning. The lock is released by the terminal health-check step (step 8) and by every documented halt path. Read-only modes (`--detect-only`, `--dry-run`) skip the lock entirely — they're safe alongside a concurrent real update. |
-| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. Each auto-resolved gate appends a `{gate, default_action, taken_action, reason, evidence?}` entry to `headless_decisions[]`, surfaced in step 7's `SKF_UPDATE_RESULT_JSON` envelope so non-interactive runs can be audited post-hoc. Pipeline branches on the envelope's top-level `status` field (`success`, `no-changes`, `detect-only`, `dry-run`, or one of the documented `halted-for-*` codes). The first four are successful exits — pipelines treating non-success as failure must include them in the success set. Schema: `src/shared/scripts/schemas/skf-update-result-envelope.v1.json`. |
+| **Outputs** | Updated SKILL.md, metadata.json, provenance-map.json, evidence-report.md (none when `--detect-only` or `--dry-run` is set — those modes are read-only inspection paths) |
+| **Concurrency** | Two simultaneous real-update runs against the same skill would corrupt provenance. init.md §1b acquires a PID-file lock at `{forge_data_folder}/{skill_name}/.skf-update.lock` before any artifact read; live-PID collisions halt with `status: "halted-for-concurrent-run"`. Stale locks (dead PID) are cleared silently with a warning. The lock is released by the terminal health-check step (step 8) on the normal path and by the two init-stage headless halts (§4/§6); mid-workflow halts leave it for the next run's stale-lock self-heal (see init.md §1b Release contract). Read-only modes (`--detect-only`, `--dry-run`) skip the lock entirely — they're safe alongside a concurrent real update. |
+| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. Each auto-resolved gate appends a `{gate, default_action, taken_action, reason, evidence?}` entry to `headless_decisions[]`, surfaced in step 7's `SKF_UPDATE_RESULT_JSON` envelope so non-interactive runs can be audited post-hoc. A HALT reached in headless mode emits its own `SKF_UPDATE_RESULT_JSON` at the halt site (the site's `status` code plus an `error: {phase, path?, reason}` object) and exits — halts do not fall through to step 7. Pipeline branches on the envelope's top-level `status` field (`success`, `no-changes`, `detect-only`, `dry-run`, or one of the documented `halted-for-*`/`blocked` codes). The first four are successful exits — pipelines treating non-success as failure must include them in the success set. The status enum is defined once in `src/shared/scripts/schemas/skf-update-result-envelope.v1.json`. |
 
 ## On Activation
 
@@ -64,4 +65,15 @@ These rules apply to every step in this workflow:
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 
-3. Load, read the full file, and then execute `references/init.md` to begin the workflow.
+3. **Resolve workflow customization.** Run:
+
+   ```bash
+   python3 {project-root}/_bmad/scripts/resolve_customization.py \
+       --skill {skill-root} --key workflow
+   ```
+
+   This merges the three layers per `bmad-customize` rules (scalars override, arrays append): `{skill-root}/customize.toml` (bundled defaults), `_bmad/custom/<skill-name>.toml` under `{project-root}` (team overrides), and `_bmad/custom/<skill-name>.user.toml` under `{project-root}` (personal overrides). If the script is missing or fails, read `{skill-root}/customize.toml` directly.
+
+   Apply the resolved values so no surface is a silent no-op: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (entries prefixed `file:` are paths or globs whose contents load as facts — the bundled default loads any `project-context.md` under `{project-root}`); resolve `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string, and stash it in workflow context (`references/report.md` §5b invokes it after the result contract is written; empty string = the hook is a no-op). After activation completes, execute each entry in `workflow.activation_steps_append` in order before `init.md` runs.
+
+4. Load, read the full file, and then execute `references/init.md` to begin the workflow.

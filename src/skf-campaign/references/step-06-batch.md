@@ -5,6 +5,7 @@ stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 backupFile: '{campaignWorkspacePath}/_campaign-state.yaml.bak'
 briefFile: '{campaignWorkspacePath}/campaign-brief.yaml'
 batchFile: '{campaignWorkspacePath}/_batch-input.txt'
+batchScript: 'scripts/campaign-render-batch.py'
 validateScript: 'scripts/campaign-validate-state.py'
 ---
 
@@ -42,15 +43,15 @@ If no Tier B skills need processing, skip to §7 (Stage Completion) — the batc
 
 ### §4 — Generate Batch File
 
-Load `{briefFile}` to look up `repo_url` for each Tier B skill (repo URLs are in the brief's `targets[]`, not in the state schema). HALT (exit code 8, `missing-brief`) if the brief is missing or unreadable.
+Generate the QS `--batch` input file deterministically:
 
-Write a batch input file listing Tier B skills for QS `--batch` consumption. For each pending Tier B skill, include:
+```
+uv run {batchScript} --state-file {stateFile} --brief-file {briefFile} -o {batchFile}
+```
 
-- Skill name (from `skills[].name`)
-- Repository URL (from brief's `targets[].repo_url`, matched by name)
-- Pin (from `skills[].pin`, or omit if null for latest)
+The script filters `skills[]` for `tier == "B" && status == "pending"`, looks up each skill's `repo_url` from the brief's `targets[]` (repo URLs live in the brief, not the state schema), and writes one line per skill at `{batchFile}` in the exact single-target shape QS parses (see `src/skf-quick-skill/references/batch-mode.md`) — the line format is owned once by the script, not re-derived here. It emits a JSON summary (`written`, `count`, `skipped_non_tierB`, `skipped_non_pending`) on stderr.
 
-Place the batch file at `{batchFile}`.
+HALT on non-zero exit: exit code 8 (`missing-brief`) when the brief is missing/unreadable **or** a pending Tier B skill has no matching brief target; exit code 2 (`invalid-input`) on a state file/parse error.
 
 ### §5 — Execute QS Batch
 

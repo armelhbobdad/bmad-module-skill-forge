@@ -28,7 +28,7 @@ These rules apply to every step in this workflow:
 - Never include content in SKILL.md that cannot be cited to source code
 - Only load one step file at a time — never preload future steps
 - Always communicate in `{communication_language}`
-- If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
+- If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action, logging each auto-decision to the in-context `headless_decisions[]` buffer AND appending it as a JSON line to the on-disk auto-decision sink (established at step 1 §3) the moment it lands, so the audit trail survives context compaction before step 5 first writes the evidence report
 
 ## Stages
 
@@ -58,7 +58,7 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | brief_path (path to skill-brief.yaml) [required], --batch [optional] |
-| **Gates** | step 2: Choice Gate [P] (if match) | step 3: Review Gate [C] |
+| **Gates** | step 2: Choice Gate [P] (if match) | step 3: Review Gate [C] | step 6: Content-Quality Gate [C] (if novel tessl suggestions) |
 | **Outputs** | SKILL.md, context-snippet.md, metadata.json, provenance-map.json, evidence-report.md, references/ |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 
@@ -69,4 +69,15 @@ These rules apply to every step in this workflow:
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in preferences.yaml. Default: false.
 
-3. Load, read the full file, and then execute `references/load-brief.md` to begin the workflow.
+3. **Resolve workflow customization.** Run:
+
+   ```bash
+   python3 {project-root}/_bmad/scripts/resolve_customization.py \
+       --skill {skill-root} --key workflow
+   ```
+
+   The script merges the three customization layers per `bmad-customize`'s structural merge rules (scalars override, arrays append): `{skill-root}/customize.toml` (bundled defaults), `_bmad/custom/skf-create-skill.toml` under `{project-root}` (team overrides, committed), and `_bmad/custom/skf-create-skill.user.toml` under `{project-root}` (personal overrides, gitignored). If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly.
+
+   Apply the resolved values so the surface is not a silent no-op: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (entries prefixed `file:` are paths or globs whose contents load as facts); and stash `{onCompleteCommand}` ← `workflow.on_complete` (empty string = no-op) for the final stage to invoke after the result JSON and metadata.json are finalized. After activation completes, execute each entry in `workflow.activation_steps_append` in order.
+
+4. Load, read the full file, and then execute `references/load-brief.md` to begin the workflow.

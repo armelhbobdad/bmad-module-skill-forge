@@ -1,6 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-rename-skill.
+# Team overrides:     _bmad/custom/skf-rename-skill.toml (under {project-root})
+# Personal overrides: _bmad/custom/skf-rename-skill.user.toml (under {project-root})
 
 [workflow]
 
@@ -33,6 +35,14 @@ activation_steps_append = []
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
+
+# Optional post-completion hook. When non-empty, invoked with
+# `--result-path=<path>` in step 3 after the rename result JSON is
+# finalized (before the terminal health-check step). Failures are logged
+# but never fail the workflow — the rename is already committed. Use for
+# an audit-log emit, skill-registry re-index, or a post-rename notifier.
+
+on_complete = ""
 
 # --- Optional safety + default scalars ---
 #

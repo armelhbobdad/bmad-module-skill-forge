@@ -6,18 +6,7 @@ Rules for synthesizing a stack skill from pre-generated individual skills and an
 
 ## Skill Loading
 
-Skills use version-nested directories — see `knowledge/version-paths.md` for the full path templates and resolution rules.
-
-**Version-aware skill enumeration:**
-
-1. **Primary: Export manifest** — Read `{skills_output_folder}/.export-manifest.json`. For each entry in `exports`, resolve the active version path: `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/` — this directory must contain both `SKILL.md` and `metadata.json`.
-2. **Fallback: `active` symlinks** — If the manifest does not exist, is empty, or a manifest entry lacks an `active_version`, scan for `{skills_output_folder}/*/active/*/SKILL.md`. Each match resolves to a skill package at `{skills_output_folder}/{skill-name}/active/{skill-name}/` (the `{active_skill}` template).
-3. **Filter:** Skip any skill named `{project_name}-stack` or any skill where `metadata.json` has `"skill_type": "stack"` — stack skills must not be loaded as source dependencies to avoid self-referencing loops
-4. Skip any resolved skill package missing either `SKILL.md` or `metadata.json` — log a warning and skip
-5. Load each `metadata.json` from the resolved version-aware path and extract: `name`, `language`, `confidence_tier`, `source_repo`, `exports` (count), `version`
-6. Store the skill group directory name as `skill_dir` (the top-level name under `{skills_output_folder}`, distinct from `name` — the directory may differ from the metadata name)
-7. Store the resolved package path as `skill_package_path` for use in later steps (extraction, integration detection)
-8. Store loaded skills as `raw_dependencies` with `source: "existing_skill"`
+The version-aware skill-enumeration protocol (export-manifest primary → active-symlink fallback → stack-skill filter → load metadata fields → store as `raw_dependencies`) is specified operationally in `detect-manifests.md` §0. That step runs at step 2 and has already enumerated and loaded every constituent skill into workflow state before this file is consulted at step 5, so the loading is not re-performed here — this file covers only the compose-mode composition rules below.
 
 ## Compose-mode Co-mention Precision
 
@@ -86,4 +75,4 @@ When no architecture document is available:
 - Mark all inferred integrations: `[inferred from shared domain]`
 - Inferred integrations default to lowest confidence of the pair with `[inferred from shared domain]` suffix (use this instead of `[composed]` for inferred integrations)
 
-**Constituent-documented contracts (distinct from shared-domain inference):** When a constituent skill's own integration docs cite a verifiable cross-library contract (e.g. a grep-verified upstream seam) that the architecture document does not co-mention, record it with `detection_method: constituent_documented_contract` (see `assets/provenance-map-schema.md`) — NOT `inferred_from_shared_domain`. It is a cited contract, not a synthesized guess. Its confidence still inherits the weaker tier of the pair per the matrix above — detection method is orthogonal to tier and never forces a fixed band.
+**Constituent-documented contracts (distinct from shared-domain inference):** When a constituent skill's own integration docs cite a verifiable cross-library contract (e.g. a grep-verified upstream seam) that the architecture document does not co-mention, record it with `detection_method: constituent_documented_contract` (see `{provenanceMapSchemaPath}`) — NOT `inferred_from_shared_domain`. It is a cited contract, not a synthesized guess. Its confidence still inherits the weaker tier of the pair per the matrix above — detection method is orthogonal to tier and never forces a fixed band.

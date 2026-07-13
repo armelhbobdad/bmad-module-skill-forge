@@ -1,6 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-export-skill.
+# Team overrides:     _bmad/custom/skf-export-skill.toml (under {project-root})
+# Personal overrides: _bmad/custom/skf-export-skill.user.toml (under {project-root})
 
 [workflow]
 
@@ -34,6 +36,14 @@ persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
 
+# Optional post-export hook. When non-empty, invoked with
+# `--result-path=<path>` after step 6 finalizes the per-run result JSON
+# (before the terminal health-check step). Useful for downstream
+# distribution, notification, or pipeline chaining. Failures are logged to
+# workflow_warnings[] but never fail the workflow. Empty = no-op (default).
+
+on_complete = ""
+
 # --- Optional asset overrides ---
 #
 # Lift the canonical asset paths so orgs can substitute house-style copies
@@ -41,9 +51,3 @@ persistent_facts = [
 
 managed_section_format_path = ""
 snippet_format_path = ""
-
-# Override the manifest location. Empty = use
-# {skills_output_folder}/.export-manifest.json. Useful for orgs that want
-# a cross-project manifest at a stable path (e.g. ~/.skf/export-manifest.json).
-
-export_manifest_path = ""

@@ -66,8 +66,6 @@ The hard gate passes. Medium, low, and info findings are documented in the gap r
 Update `{outputFile}` frontmatter:
 - Append `'hard-gate'` to `stepsCompleted`
 
-Report:
-
-"**Hard gate passed** — {N} medium/low/info finding(s) noted, proceeding to scoring."
+Report that the hard gate passed, noting the count of non-blocking medium/low/info finding(s), then proceed to scoring.
 
 Update stepsCompleted, then load and execute `{nextStepFile}`.

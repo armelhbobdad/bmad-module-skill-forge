@@ -1,7 +1,7 @@
 ---
 # `shared/health-check.md` resolves relative to the SKF module root
 # (`{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during
-# development), NOT relative to this step file.
+# development), not relative to this step file.
 nextStepFile: 'shared/health-check.md'
 ---
 

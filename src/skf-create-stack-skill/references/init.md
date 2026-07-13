@@ -27,73 +27,11 @@ Before anything else, load `{project-root}/_bmad/skf/config.yaml`. If the file i
 
 **Halting workflow.**"
 
-STOP — do not proceed.
-
-### 0b. Resume Check
-
-Before any further init work, check for an interrupted prior run.
-
-**Probe path.** Resolve `{resume_skill_name}` as `{project_name}-stack` (the same skill name used at step 7) and probe `{forge_data_folder}/{resume_skill_name}/in-progress.json`. (The file lives at the version-agnostic skill root so it can be found before `{version}` resolution.)
-
-**If no in-progress.json exists:** Continue to §1.
-
-**If in-progress.json exists:** Load and parse it. Read `last_completed_step` and `started_at` (ISO-8601 timestamp). Surface a soft gate:
-
-"**Resume previous run?**
-
-Found a previous in-progress run at `{forge_data_folder}/{resume_skill_name}/in-progress.json` from {started_at}, last completed at step {last_completed_step}.
-
-- **[C] Continue** (recommended) — resume from the next step after {last_completed_step}, restoring saved workflow state.
-- **[F] Fresh** — archive the existing in-progress.json (rename to `in-progress.{timestamp}.json`) and start over from step 1.
-- **[X] Cancel and exit** — leave the in-progress.json untouched and halt.
-
-Select [C/F/X]:"
-
-**Headless default:** `[C]` Continue.
-
-**On [C] Continue:**
-1. Restore workflow context from in-progress.json fields: `last_completed_step`, `workflow_state` (mode, tier, scope), and any accumulator fields (partial extractions, ranked libraries, integration pairs, compile-stack output) that the writing step persisted.
-2. Determine the resume target: the step file that runs immediately after `last_completed_step`.
-3. Jump directly to that step file by loading and executing it (skip the remaining §0b–§5 init substeps for this run).
-
-**On [F] Fresh:**
-1. Compute `{archive_timestamp}` as the current UTC time in `YYYYMMDDTHHMMSSZ` form.
-2. Rename `{forge_data_folder}/{resume_skill_name}/in-progress.json` → `{forge_data_folder}/{resume_skill_name}/in-progress.{archive_timestamp}.json`.
-3. Continue with §1 of this file as if no prior run existed.
-
-**On [X] Cancel and exit:** HARD HALT with exit code 6 (user-cancelled). Do NOT modify the in-progress.json. Emit the result envelope on stderr per the Result Contract in SKILL.md:
+Then emit the result envelope on stderr per the Result Contract in SKILL.md (`project_name` is unresolved here, so `skill_name` is `null`), and STOP — do not proceed:
 
 ```
-SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{resume_skill_name}","stack_libraries":[],"mode":null,"exit_code":6,"halt_reason":"user-cancelled"}
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":null,"stack_libraries":[],"mode":null,"exit_code":2,"halt_reason":"config-missing"}
 ```
-
-**in-progress.json schema (read side).** This PR wires only the READ side of the resume protocol. The WRITE side — each stage step persisting an updated in-progress.json after it completes — is deferred to a follow-up PR. When write-side wiring lands, each step writes the file via `skf-atomic-write.py write` at the end of its mandatory sequence with this shape:
-
-```json
-{
-  "schema_version": "1.0",
-  "skill_name": "{project_name}-stack",
-  "started_at": "{ISO-8601 of step 1 start}",
-  "updated_at": "{ISO-8601 of most recent step completion}",
-  "last_completed_step": "step-NN",
-  "workflow_state": {
-    "mode": "code|compose",
-    "forge_tier": "Quick|Forge|Forge+|Deep",
-    "headless_mode": false,
-    "scope": {"explicit_deps": [], "scope_overrides": {}, "architecture_doc_path": null}
-  },
-  "accumulators": {
-    "manifests": [],
-    "ranked_libraries": [],
-    "extractions": {},
-    "integration_pairs": [],
-    "compiled_stack": null,
-    "workflow_warnings": []
-  }
-}
-```
-
-Until the write side is wired, in-progress.json will not naturally appear and §0b will fall through to §1 on every run. The resume gate is a no-op until that follow-up lands.
 
 ### 1. Load Forge Tier Configuration
 
@@ -107,7 +45,11 @@ Load `{forgeTierFile}` from the Ferris sidecar.
 
 **Halting workflow.**"
 
-STOP — do not proceed.
+Then emit the result envelope on stderr per the Result Contract in SKILL.md (config loaded, so `skill_name` is known; `mode` is not yet resolved), and STOP — do not proceed:
+
+```
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":null,"exit_code":3,"halt_reason":"forge-tier-missing"}
+```
 
 **If forge-tier.yaml exists:**
 
@@ -156,6 +98,7 @@ Skills use version-nested directories — see `knowledge/version-paths.md` for t
 - If user provides an architecture document path for composition or explicitly requests compose mode → set `compose_mode: true` and store `architecture_doc_path`
 - If no manifest files exist in project root AND at least one skill is discoverable in `{skills_output_folder}` → suggest compose mode to the user and ask for optional architecture document path
   - **Skill discovery (version-aware):** First, read `{skills_output_folder}/.export-manifest.json` — each entry in `exports` names a skill with an `active_version`, which resolves to `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/` containing `SKILL.md` and `metadata.json`. If the export manifest does not exist or is empty, fall back to scanning for `active` symlinks: check `{skills_output_folder}/*/active/*/SKILL.md` — each match indicates a skill whose package lives at `{skills_output_folder}/{skill-name}/active/{skill-name}/` (the `{active_skill}` template).
+  - **Headless default (B8):** If `{headless_mode}` is true, do NOT prompt — auto-accept the suggestion: set `compose_mode: true` and `architecture_doc_path: null` (unless an architecture doc path was supplied via the optional inputs above). This is the constructive default: with no manifests present, code-mode would only halt at step 2 (`no-manifests`), so compose is the sole path that produces output. Log the auto-decision by appending to `workflow_warnings[]`: `{step: "step-01", severity: "info", code: "headless-compose-autodetect", message: "no manifests + {N} discoverable skills — auto-selected compose mode", context: {discoverable_skills: {N}}}`.
   - If user accepts → set `compose_mode: true` and store `architecture_doc_path` (may be `null` if user chose not to provide one)
   - If user declines → `compose_mode` remains `false`, continue with code-mode
 
@@ -166,22 +109,7 @@ If no optional inputs provided, auto-detection will be used.
 
 ### 4. Display Initialization Summary
 
-"**Stack Skill Forge initialized.**
-
-**Project:** {project_name}
-**Forge Tier:** {forge_tier} — {tier_description}
-
-Where tier_description follows positive capability framing:
-- Quick: "Source reading and import counting"
-- Forge: "AST-backed structural analysis"
-- Forge+: "AST structural + CCC semantic co-import augmentation"
-- Deep: "Full intelligence — structural + contextual + temporal"
-
-**Available Tools:** {tool_list}
-**Input Mode:** {auto-detect | explicit dependency list | compose mode}
-
-**If compose mode:** Proceeding to skill loading...
-**If code mode:** Proceeding to manifest detection..."
+Report that the Stack Skill Forge is initialized, naming: the project (`{project_name}`); the forge tier (`{forge_tier}`) with its positive-capability framing (Quick = source reading and import counting; Forge = AST-backed structural analysis; Forge+ = AST structural + CCC semantic co-import augmentation; Deep = full intelligence — structural + contextual + temporal); the available tools (`{tool_list}`); and the resolved input mode (auto-detect, explicit dependency list, or compose mode).
 
 ### 5. Auto-Proceed to Next Step
 

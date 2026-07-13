@@ -38,6 +38,11 @@ def assert_result_shape(out: dict) -> None:
     assert out["confidence"] in {"high", "medium", "low"}
     assert isinstance(out["detection_source"], str) and out["detection_source"]
     assert isinstance(out["fallback_to_extension_frequency"], bool)
+    assert "detected_languages" in out, out
+    assert isinstance(out["detected_languages"], list)
+    assert all(isinstance(x, str) for x in out["detected_languages"])
+    # No duplicates — the accumulator dedups in priority order.
+    assert len(out["detected_languages"]) == len(set(out["detected_languages"]))
 
 
 # --------------------------------------------------------------------------
@@ -333,3 +338,109 @@ def test_cli_invalid_json_dies_with_2():
     )
     assert proc.returncode == 2
     assert "invalid JSON" in proc.stderr
+
+
+# --------------------------------------------------------------------------
+# detected_languages[] — full manifest match set for the multi-language gate
+# --------------------------------------------------------------------------
+
+
+def test_multi_manifest_reports_all_matches_in_priority_order():
+    """package.json(+tsconfig) + pyproject.toml — the gate must see both, TS-first."""
+    tree = [
+        "package.json",
+        "tsconfig.json",
+        "src/index.ts",
+        "bindings/pyproject.toml",
+        "bindings/mod.py",
+    ]
+    result = mod.detect({"tree": tree})
+    assert_result_shape(result)
+    # Winner is unchanged — rule 1 fires first.
+    assert result["language"] == "typescript"
+    assert result["confidence"] == "high"
+    # Full match set, priority order (package.json rule 1 before pyproject rule 3).
+    assert result["detected_languages"] == ["typescript", "python"]
+    assert len(result["detected_languages"]) > 1  # the multi-language gate can fire
+    assert result["detected_languages"][0] == result["language"]
+
+
+def test_single_manifest_reports_one_language_and_preserves_envelope():
+    """Only go.mod — detected_languages==['go'] and the legacy envelope is verbatim."""
+    tree = ["go.mod", "main.go", "internal/util.go"]
+    result = mod.detect({"tree": tree})
+    assert result["detected_languages"] == ["go"]
+    # Legacy single-winner fields preserved exactly (no-regression for delegating siblings).
+    assert result["language"] == "go"
+    assert result["confidence"] == "high"
+    assert result["detection_source"] == "go.mod present"
+    assert result["fallback_to_extension_frequency"] is False
+    assert result["detected_languages"][0] == result["language"]
+
+
+def test_multi_manifest_three_ecosystems_in_priority_order():
+    """package.json (no tsconfig) + Cargo.toml + go.mod — javascript, then rust, then go."""
+    tree = ["package.json", "Cargo.toml", "go.mod", "src/lib.rs"]
+    result = mod.detect({"tree": tree})
+    assert result["language"] == "javascript"  # winner unchanged (rule 1 first)
+    assert result["detected_languages"] == ["javascript", "rust", "go"]
+
+
+def test_dedup_of_same_language_manifests():
+    """pyproject.toml + setup.cfg both map to python — python appears once."""
+    tree = ["pyproject.toml", "setup.cfg", "pkg/__init__.py"]
+    result = mod.detect({"tree": tree})
+    assert result["detected_languages"] == ["python"]
+    assert result["language"] == "python"
+
+
+def test_extension_fallback_reports_single_element():
+    """Rule 10 best guess — detected_languages stays within one element."""
+    tree = ["a.swift", "b.swift", "c.swift", "README.md", "LICENSE"]
+    result = mod.detect({"tree": tree})
+    assert_result_shape(result)
+    assert result["fallback_to_extension_frequency"] is True
+    assert result["language"] == "swift"
+    assert result["detected_languages"] == ["swift"]
+    assert len(result["detected_languages"]) <= 1
+
+
+def test_unknown_language_reports_empty_detected_languages():
+    """No recognized manifests or source extensions — empty list, len <= 1, no spurious gate."""
+    tree = ["README.md", "LICENSE", "Dockerfile", "data.json"]
+    result = mod.detect({"tree": tree})
+    assert result["language"] == "unknown"
+    assert result["detected_languages"] == []
+    assert len(result["detected_languages"]) <= 1
+
+
+def test_workspace_signal_override_reports_single_decisive_language():
+    """Rule 0 is authoritative — a cargo-workspace with a nested TS docs site is [rust] only."""
+    tree = [
+        "Cargo.toml",
+        "crates/core/src/lib.rs",
+        "docs/package.json",
+        "docs/tsconfig.json",
+        "docs/pages/index.tsx",
+    ]
+    result = mod.detect({"tree": tree, "workspace_signal": "cargo-workspace"})
+    assert result["language"] == "rust"
+    # Decisive: the nested package.json+tsconfig must NOT surface a multi-language gate.
+    assert result["detected_languages"] == ["rust"]
+    assert len(result["detected_languages"]) <= 1
+
+
+def test_cli_stdin_emits_detected_languages():
+    """detected_languages round-trips through the CLI/JSON boundary."""
+    payload = {"tree": ["package.json", "tsconfig.json", "Cargo.toml", "src/lib.rs"]}
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH)],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["language"] == "typescript"
+    assert out["detected_languages"] == ["typescript", "rust"]

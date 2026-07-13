@@ -156,3 +156,164 @@ class TestReferenceAppSkip:
         assert "signatureAccuracy" not in out["skippedCategories"]
         assert "typeCoverage" not in out["skippedCategories"]
         assert out.get("skipReasons", {}).get("signatureAccuracy") is None
+
+
+class TestPostScoreCapsAndFallback:
+    """Behavioral tests for the post-score caps + threshold fallback lifted from
+    score.md §3d/§4b into compute-score.py.
+
+    Invariants pinned here:
+    - `result` is NEVER mutated — it is always the pre-cap/pre-fallback verdict.
+      The final verdict after caps/fallback is `effectiveResult`.
+    - The override group (`effectiveResult`, `capReason`, `thresholdFallback`,
+      `originalThreshold`) is emitted atomically, and ONLY when a cap or the
+      fallback engaged — otherwise `result` stands alone.
+    - INCONCLUSIVE (the minimum-evidence floor) is a gate that no cap or
+      fallback may override.
+    """
+
+    OVERRIDE_KEYS = (
+        "effectiveResult",
+        "capReason",
+        "thresholdFallback",
+        "originalThreshold",
+    )
+
+    def test_degraded_cap_then_fallback_reflips_to_pass(self):
+        """Cap 1 (degraded tooling) forces the PASS to FAIL on the capped score,
+        then the threshold fallback re-flips it back to PASS at the 80 floor
+        because the RAW totalScore clears 80. This pins the cap<->fallback
+        interaction that was previously ambiguous prose."""
+        out = compute_score({
+            "mode": "contextual",
+            "tier": "Deep",
+            "threshold": 90,
+            "analysisConfidence": "degraded",
+            "scores": {
+                "exportCoverage": 95,
+                "signatureAccuracy": 95,
+                "typeCoverage": 95,
+                "coherence": 95,
+                "externalValidation": 95,
+            },
+        })
+        assert out["totalScore"] == 95.0
+        assert out["result"] == "PASS"          # pre-cap score-vs-threshold verdict, unchanged
+        assert out["effectiveResult"] == "PASS"  # capped FAIL re-flipped by fallback
+        assert out["capReason"] is not None
+        assert "tooling degraded" in out["capReason"]
+        assert out["thresholdFallback"] is True
+        assert out["originalThreshold"] == 90
+
+    def test_tooling_status_missing_marker_fires_cap(self):
+        """A toolingStatus '*-missing' marker triggers Cap 1 identically to
+        analysisConfidence == 'degraded'."""
+        out = compute_score({
+            "mode": "contextual",
+            "tier": "Deep",
+            "threshold": 90,
+            "toolingStatus": "frontmatter-validator-missing",
+            "scores": {
+                "exportCoverage": 95,
+                "signatureAccuracy": 95,
+                "typeCoverage": 95,
+                "coherence": 95,
+                "externalValidation": 95,
+            },
+        })
+        assert out["capReason"] is not None
+        assert "tooling degraded" in out["capReason"]
+
+    def test_cap2_docs_only_no_ext_forces_fail(self):
+        """Cap 2 (docs-only with no external validators) forces a PASS to FAIL;
+        with threshold == 80 the fallback cannot fire, so the FAIL stands."""
+        out = compute_score({
+            "mode": "contextual",
+            "tier": "Deep",
+            "docsOnly": True,
+            "scores": {
+                "exportCoverage": 82,
+                "signatureAccuracy": None,
+                "typeCoverage": None,
+                "coherence": 82,
+                "externalValidation": None,
+            },
+        })
+        assert out["totalScore"] == 82.0
+        assert out["result"] == "PASS"           # would pass at 80 pre-cap
+        assert out["effectiveResult"] == "FAIL"  # Cap 2 forces FAIL
+        assert "docs-only without external validators" in out["capReason"]
+        assert out["thresholdFallback"] is False
+        assert out["originalThreshold"] is None
+
+    def test_inconclusive_is_never_overridden_by_cap_or_fallback(self):
+        """The minimum-evidence floor wins: degraded tooling on an INCONCLUSIVE
+        result emits no override group at all."""
+        out = compute_score({
+            "mode": "naive",
+            "tier": "Quick",
+            "analysisConfidence": "degraded",
+            "scores": {
+                "exportCoverage": 95,
+                "signatureAccuracy": None,
+                "typeCoverage": None,
+                "coherence": None,
+                "externalValidation": None,
+            },
+        })
+        assert out["result"] == "INCONCLUSIVE"
+        for key in self.OVERRIDE_KEYS:
+            assert key not in out, f"{key} must not be emitted for INCONCLUSIVE"
+
+    def test_plain_fail_fallback_flips_to_pass(self):
+        """A plain FAIL (no cap) with totalScore >= 80 and threshold > 80 is
+        converted to PASS by the threshold fallback."""
+        out = compute_score({
+            "mode": "contextual",
+            "tier": "Deep",
+            "threshold": 90,
+            "scores": {
+                "exportCoverage": 85,
+                "signatureAccuracy": 85,
+                "typeCoverage": 85,
+                "coherence": 85,
+                "externalValidation": 85,
+            },
+        })
+        assert out["totalScore"] == 85.0
+        assert out["result"] == "FAIL"           # pre-fallback verdict
+        assert out["effectiveResult"] == "PASS"  # fallback at 80 floor
+        assert out["capReason"] is None
+        assert out["thresholdFallback"] is True
+        assert out["originalThreshold"] == 90
+
+    def test_no_cap_no_fallback_omits_override_group(self):
+        """A clean PASS with no cap/fallback emits none of the override keys —
+        the group is conditional, matching `warnings`/`inconclusiveReasons`."""
+        out = compute_score({
+            "mode": "contextual",
+            "tier": "Deep",
+            "scores": {
+                "exportCoverage": 92,
+                "signatureAccuracy": 85,
+                "typeCoverage": 100,
+                "coherence": 80,
+                "externalValidation": 78,
+            },
+        })
+        assert out["result"] == "PASS"
+        for key in self.OVERRIDE_KEYS:
+            assert key not in out
+
+    def test_non_string_tooling_status_rejected(self):
+        """New string fields are validated: a non-string toolingStatus is an
+        INVALID_INPUT error (additive validation, existing inputs unaffected)."""
+        out = compute_score({
+            "mode": "contextual",
+            "tier": "Deep",
+            "toolingStatus": 123,
+            "scores": {"exportCoverage": 90, "signatureAccuracy": 85,
+                       "typeCoverage": 100, "coherence": 80, "externalValidation": 78},
+        })
+        assert out.get("code") == "INVALID_INPUT"
+        assert "toolingStatus" in out.get("error", "")

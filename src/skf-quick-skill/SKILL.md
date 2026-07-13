@@ -7,7 +7,7 @@ description: Fast skill from a package name or GitHub URL — no brief needed. U
 
 ## Overview
 
-The fastest path to a skill — accept a GitHub URL or package name, resolve to source, extract the public API surface, and produce a best-effort SKILL.md with context snippet and metadata. No brief needed. Quick Skill is tier-unaware by design — all output is produced at community-tier quality regardless of available tools.
+The fastest path to a skill — accept a GitHub URL or package name, resolve to source, extract the public API surface, and produce a best-effort SKILL.md with context snippet and metadata. No brief needed. Output is always community-tier quality, regardless of which tools are available.
 
 ## Conventions
 
@@ -28,7 +28,7 @@ These rules apply to every step in this workflow:
 - Never fabricate content — all data must come from source extraction or user input
 - Only load one step file at a time — never preload future steps
 - Always communicate in `{communication_language}`
-- **Universal cancel-line affordance** — at any interactive prompt the user may type `cancel`, `exit`, `:q`, or select the `[X] Cancel and exit` menu option (where surfaced) to leave cleanly. HARD HALT with **exit code 6 (user-cancelled)** and emit the error result contract per "Result Contract on HARD HALT" with `error.code: "user-cancelled"`. In step 4 §6 the equivalent affordance is `[Q] Quit without writing` — same exit code, same envelope contract.
+- **Universal cancel-line affordance** — at any interactive prompt the user may type `cancel`, `exit`, `:q`, or select the `[X] Cancel and exit` menu option (where surfaced) to leave cleanly. HARD HALT with **exit code 6 (user-cancelled)** and emit the error result contract per `references/halt-contract.md` with `error.code: "user-cancelled"`. In step 4 §6 the equivalent affordance is `[Q] Quit without writing` — same exit code, same envelope contract.
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
 - If `{headless_mode}` is true, emit a single-line JSON progress event to **stderr** at each step's entry and exit so pipeline schedulers can stream live progress instead of post-mortem-parsing the result contract:
   - entry: `{"step":N,"name":"<slug>","status":"start"}`
@@ -55,61 +55,14 @@ These rules apply to every step in this workflow:
 |--------|--------|
 | **Inputs** | target (GitHub URL or package name) [required for single-target mode], language_hint [optional], scope_hint [optional] |
 | **Overrides** | `--description`, `--exports`, `--skip-snippet`, `--no-active-pointer`, `--batch <file>`, `--fail-fast` — see On Activation step 4 |
-| **Gates** | step 1: Input Gate [use args]; step 2: Choice Gate [P] (if match); step 4: Review Gate [C/E/S/Q] |
+| **Gates** | step 1: target input, multi-language disambiguation [C/A]; step 2: ecosystem match [P/I/A] (if match); step 3: repo-shape [C/A] + zero-exports rescue [R/P/A]; step 4: review [C/E/S/Q]; step 5: overwrite [Y/N] |
 | **Outputs** | SKILL.md, context-snippet.md, metadata.json, active pointer, result contract (timestamped + `-latest` copy). Snippet and active pointer can be skipped per overrides. |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
-| **Exit codes** | See "Exit Codes" below |
+| **Exit codes** | See `references/halt-contract.md` |
 
-## Exit Codes
+## Exit Codes & HARD HALT Contract
 
-Every HARD HALT in this workflow exits with a stable, documented code so headless automators can branch on the failure class without grepping message text:
-
-| Code | Meaning                | Raised by                                                   |
-| ---- | ---------------------- | ----------------------------------------------------------- |
-| 0    | success                | step 7 (terminal)                                          |
-| 3    | resolution-failure     | step 1 §2c (prose input), step 1 §3 (registry chain failed) |
-| 4    | write-failure          | step 5 §2 (deliverable write failed)                       |
-| 5    | overwrite-cancelled    | step 5 §1 (user selected [N])                              |
-| 6    | user-cancelled         | step 1 §1 ([X] Cancel and exit, or cancel-line affordance); step 2 §3 ([A] Abort at ecosystem-match gate); step 4 §6 (user selected [Q]) — originally `compile-cancelled`, generalised to cover any interactive gate |
-| 7    | finalize-blocked       | step 6 §1 (active-pointer flip refused — non-link in place) |
-| 8    | ecosystem-redirect     | step 2 §3 ([I] Install at ecosystem-match gate — user opted to install the existing official skill instead of compiling a custom community skill) |
-
-Reserved: `validator-missing` may be promoted from advisory log to fatal exit code in a future revision.
-
-## Result Contract on HARD HALT
-
-In addition to the success-variant result contract written by step 6 §3, every HARD HALT must surface an **error variant** so headless automators don't silently break when `quick-skill-result-latest.json` is missing on failed runs.
-
-**Always (every HARD HALT, regardless of phase)** — emit a single line on **stderr**:
-
-```
-SKF_QUICK_SKILL_RESULT_JSON: {"status":"error","exit_code":<N>,"phase":"<slug>","error":{"code":"<class>","message":"<short>"},"outputs":{},"summary":{},"skill_package":"<path-or-null>"}
-```
-
-One line, no pretty-print. Matches the prefix-and-envelope convention used by `skf-emit-result-envelope.py`.
-
-**Additionally, when `{skill_package}` is known** (HALT at step 5 §1 onward) — write the same JSON object (without the `SKF_QUICK_SKILL_RESULT_JSON: ` prefix) to disk:
-
-```
-{skill_package}/quick-skill-result-{YYYYMMDD-HHmmss}.json
-{skill_package}/quick-skill-result-latest.json   (copy, not symlink)
-```
-
-so consumers that hardcode the `-latest.json` path see a deterministic file even on failed runs. HALTs at step 1/02/03/04 cannot write to disk because `{skill_package}` is computed only in step 5 §1; for those, the stderr envelope plus exit code is the contract.
-
-**Schema:**
-
-| Field           | Type           | Notes                                                                                                       |
-| --------------- | -------------- | ----------------------------------------------------------------------------------------------------------- |
-| `status`        | string         | always `"error"` for HARD HALTs                                                                             |
-| `exit_code`     | integer        | matches the Exit Codes table                                                                                |
-| `phase`         | string         | step slug where the HALT occurred (e.g. `resolve-target`, `compile`)                                        |
-| `error.code`    | string         | one of: `resolution-failure`, `write-failure`, `overwrite-cancelled`, `user-cancelled` (formerly `compile-cancelled`), `finalize-blocked`, `ecosystem-redirect` |
-| `error.message` | string         | the user-facing message that was displayed                                                                  |
-| `error.details` | any            | optional — phase-specific context (e.g. the failed file path)                                               |
-| `outputs`       | object         | empty `{}` on early HALTs; partial when files were already written                                          |
-| `summary`       | object         | empty `{}` on early HALTs                                                                                   |
-| `skill_package` | string \| null | absolute path when known, `null` when HALT preceded step 5 §1                                              |
+See `references/halt-contract.md` for the exit-code map and the error-result envelope every HARD HALT emits (the `SKF_QUICK_SKILL_RESULT_JSON:` stderr line, the on-disk `-latest.json` write once `{skill_package}` is known, and the schema). Steps load it on their failure path so the wire format survives compaction.
 
 ## On Activation
 
@@ -139,8 +92,11 @@ so consumers that hardcode the `-latest.json` path see a deterministic file even
    - `{skillTemplatePath}` ← `workflow.skill_template_path` if non-empty, else `assets/skill-template.md`
    - `{registryResolutionPath}` ← `workflow.registry_resolution_path` if non-empty, else `references/registry-resolution.md`
    - `{batchOutputPath}` ← `workflow.batch_output_path` if non-empty, else `{skills_output_folder}/_batch/`
+   - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty (no-op — step 6 §3 skips the hook invocation entirely)
 
-   Stash all three as workflow-context variables. Stage files reference `{skillTemplatePath}` / `{registryResolutionPath}` / `{batchOutputPath}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies without forking the skill.
+   Stash all four as workflow-context variables. Stage files reference `{skillTemplatePath}` / `{registryResolutionPath}` / `{batchOutputPath}` / `{onCompleteCommand}` directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default; non-empty values let orgs swap in house-style copies (custom template, registry chain, batch output dir) or wire in a post-completion hook (git-add, register, notify) without forking the skill.
+
+   **Apply the array surfaces** so the declared overrides are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (`file:`-prefixed entries are paths or globs whose contents load as facts — the bundled default loads any `project-context.md`); then, after activation completes and before the first stage runs, execute each entry in `workflow.activation_steps_append` in order.
 
 4. **Parse CLI overrides** — capture optional override flags into the workflow context as `{overrides}`. Each override is opt-in; when omitted, the workflow runs as today.
 
@@ -156,9 +112,3 @@ so consumers that hardcode the `-latest.json` path see a deterministic file even
 5. **If `--batch` is set**, force `{headless_mode} = true` (log "headless: coerced by --batch" if it was false), then load and read `references/batch-mode.md` in full before proceeding. Follow its protocol to read the batch file, parse the target list, and drive the batch loop that wraps the step 1 → step 7 pipeline that follows.
 
 6. Load, read the full file, and then execute `references/resolve-target.md` to begin the workflow. (In batch mode, control returns here for each subsequent target after step 7 completes; see `references/batch-mode.md`.)
-
-## Batch Mode
-
-When `--batch <file>` is supplied, quick-skill processes a list of targets from a text file in sequence rather than a single argument.
-
-See `references/batch-mode.md` for the full protocol (input format, execution loop, summary contract, headless events, exit code).

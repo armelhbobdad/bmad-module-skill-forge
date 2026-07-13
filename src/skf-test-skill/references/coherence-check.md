@@ -1,8 +1,9 @@
 ---
 nextStepFile: 'external-validators.md'
 outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
-outputFormatsFile: 'assets/output-section-formats.md'
-scoringRulesFile: 'references/scoring-rules.md'
+outputFormatsFile: '{outputFormatsPath}'
+scoringRulesFile: '{scoringRulesPath}'
+coherenceAggregationScript: 'scripts/aggregate-coherence.py'
 migrationSectionRules: 'references/migration-section-rules.md'
 scanSkillMdStructureProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-scan-skill-md-structure.py'
@@ -104,7 +105,7 @@ Scan SKILL.md for all cross-references:
 - Integration pattern references (middleware chains, plugin hooks, shared state)
 - Script/asset references (`scripts/{file}`, `assets/{file}`) in SKILL.md body
 
-Delegate to a subagent that grep/regexes SKILL.md for reference patterns and returns ONLY this JSON shape — no prose, no commentary, no markdown fences: `{"references_found": [{"line": N, "type": "file-path|skill|type-import|integration-pattern|script-asset", "target": "..."}]}`. Parent strips wrapping markdown fences (if present) before parsing. If subagent unavailable, scan in main thread.
+Delegate to a subagent that grep/regexes SKILL.md for reference patterns and returns only this JSON shape — no prose, no commentary, no markdown fences: `{"references_found": [{"line": N, "type": "file-path|skill|type-import|integration-pattern|script-asset", "target": "..."}]}`. Parent strips wrapping markdown fences (if present) before parsing. If subagent unavailable, scan in main thread.
 
 ### 4. Contextual Mode: Validate Each Reference
 
@@ -117,13 +118,13 @@ For EACH reference found, delegate to a subagent that:
    - Skill references: referenced skill exists in skills output folder
    - Integration patterns: documented pattern matches actual implementation
    - Script/asset references: verify the referenced file exists in the skill's `scripts/` or `assets/` directory
-3. Returns ONLY this JSON shape per reference — no prose, no commentary, no markdown fences: `{"reference": "...", "line": N, "target_exists": <bool>, "type_match": <bool>, "signature_match": <bool>, "issues": ["..."]}`
+3. Returns only this JSON shape per reference — no prose, no commentary, no markdown fences: `{"reference": "...", "line": N, "target_exists": <bool>, "type_match": <bool>, "signature_match": <bool>, "issues": ["..."]}`
 
 Parent strips wrapping markdown fences (if present) before parsing. If subagent unavailable, validate each reference in main thread.
 
 4. **Scripts/assets directory check:** If a `scripts/` or `assets/` directory exists alongside SKILL.md, verify that a "Scripts & Assets" section (Section 7b) is present in SKILL.md. This directory-level check applies in both modes (naive mode performs it in Section 2; contextual mode performs it here alongside per-reference validation). Flag absence as Medium severity gap per `{scoringRulesFile}`.
 
-5. **Path containment:** for every resolved reference target, compute its canonical path (`os.path.realpath`) and require that it lives inside `{skillDir}`, inside `{source_path}` (the extraction tree recorded in metadata.json), OR — for stack skills — inside `{skills_output_folder}`. The third root applies only here in contextual mode: a stack's constituent cross-references legitimately resolve to `skills/{name}/active` under `{skills_output_folder}`, which lies outside `{skillDir}`, and a stack's metadata.json records no single `source_path` to anchor them. References whose canonical path escapes all applicable roots (e.g. `../../../etc/passwd`, absolute paths to unrelated dirs, symlink redirections outside the skill, its source, or — for a stack — the skills output tree) are **High severity** findings: `coherence — reference escapes skill/source sandbox: {raw_ref} → {canonical_path}`. Canonicalization happens before the root check, so a symlink that points outside every applicable root is still caught. Do NOT validate the target's contents for escaping references — the escape itself is the finding.
+5. **Path containment:** for every resolved reference target, compute its canonical path (`os.path.realpath`) and require that it lives inside `{skillDir}`, inside `{source_path}` (the extraction tree recorded in metadata.json), OR — for stack skills — inside `{skills_output_folder}`. The third root applies only here in contextual mode: a stack's constituent cross-references legitimately resolve to `skills/{name}/active` under `{skills_output_folder}`, which lies outside `{skillDir}`, and a stack's metadata.json records no single `source_path` to anchor them. References whose canonical path escapes all applicable roots (e.g. `../../../etc/passwd`, absolute paths to unrelated dirs, symlink redirections outside the skill, its source, or — for a stack — the skills output tree) are **High severity** findings: `coherence — reference escapes skill/source sandbox: {raw_ref} → {canonical_path}`. Canonicalization happens before the root check, so a symlink that points outside every applicable root is still caught. Do not validate the target's contents for escaping references — the escape itself is the finding.
 
 ### 5. Contextual Mode: Check Integration Pattern Completeness
 
@@ -160,17 +161,20 @@ results.
 
 ### 5c. Calculate Coherence Scores
 
-**Contextual mode only.** Calculate coherence percentages using the formulas defined in `{scoringRulesFile}` — Coherence Score Aggregation section:
+**Contextual mode only.** The reference-validity ratio, the integration-completeness ratio, and their fixed 0.6 / 0.4 weighted mean are pure arithmetic — the judgment (which references are valid in §4, which patterns are complete in §5) has already happened. Do not compute these percentages by hand; they are aggregated by `{coherenceAggregationScript}` (the formulas it encodes are documented in `{scoringRulesFile}` — Coherence Score Aggregation).
 
+Tally the counts from the §4 per-reference JSON (`valid_references` = references with `target_exists && type_match && signature_match && no issues`; `total_references` = references extracted in §3) and the §5 integration JSON (`patterns_documented`, `patterns_complete`), then invoke:
+
+```bash
+echo '{"valid_references": <V>, "total_references": <T>, "patterns_documented": <PD>, "patterns_complete": <PC>}' | uv run {coherenceAggregationScript} --stdin
 ```
-reference_validity = (valid_references / total_references) * 100
-integration_completeness = (complete_patterns / total_patterns) * 100
-combined_coherence = (reference_validity * 0.6) + (integration_completeness * 0.4)
-```
 
-**Edge case:** If no integration patterns are documented (patterns_documented = 0), combined coherence equals reference validity alone. Do not divide by zero.
+The script also accepts the JSON as a positional argument or via `--json-input`. Parse its output and read:
+- `referenceValidity` — reference-validity percentage
+- `integrationCompleteness` — integration-completeness percentage (`null` when no patterns are documented)
+- `combinedCoherence` — the combined coherence percentage passed to score.md §3a as the `coherence` input
 
-These values fill the `{percentage}%` placeholders in the output template loaded in Section 6.
+The script handles both edge cases the formula requires: `patterns_documented == 0` → `combinedCoherence` equals `referenceValidity` (no divide-by-zero); `total_references == 0` → `referenceValidity` is 100.0 (no references means no broken references). These values fill the `{percentage}%` placeholders in the output template loaded in Section 6.
 
 ### 6. Append Coherence Analysis to Output
 
@@ -178,26 +182,10 @@ Load `{outputFormatsFile}` and use the appropriate Coherence Analysis section fo
 
 ### 7. Report Coherence Results
 
-**For Naive Mode:**
-"**Coherence check complete (naive mode).**
+Report the coherence result to the user, then proceed to external validation:
 
-Basic structural validation of **{skill_name}**:
-- {N} structural issues found
-- Coherence category not scored (weight redistributed to coverage)
-
-**Proceeding to external validation...**"
-
-**For Contextual Mode:**
-"**Coherence check complete (contextual mode).**
-
-Reference validation of **{skill_name}**:
-- References: {valid}/{total} valid ({percentage}%)
-- Integration patterns: {complete}/{total} complete ({percentage}%)
-- Combined coherence: {percentage}%
-
-**{N} issues found** — details in Coherence Analysis section.
-
-**Proceeding to external validation...**"
+- **Naive mode:** the count of structural issues found (the coherence category is not scored — its weight redistributes to coverage).
+- **Contextual mode:** the reference-validity ratio, the integration-completeness ratio, the combined coherence percentage, and the issue count — full details are in the Coherence Analysis section.
 
 Update stepsCompleted, then load and execute {nextStepFile}.
 

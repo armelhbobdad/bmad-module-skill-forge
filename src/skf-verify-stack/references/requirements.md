@@ -28,7 +28,7 @@ If a PRD or vision document was provided in Step 01, verify that the combined ca
 
 ### 1. Check PRD Availability
 
-**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. HALT if no candidate exists.
+**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`); in headless, emit the error envelope.
 
 **Read `prdAvailable` from `{outputFile}` frontmatter (set in Step 01). If `prdAvailable` is false (no PRD/vision document was provided):**
 
@@ -42,7 +42,7 @@ To include this pass, re-run **[VS]** with a PRD or vision document path.
 
 Update `{outputFile}` frontmatter: append `'requirements'` to `stepsCompleted`; set `requirementsPass: "skipped"`. Pipe the updated content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`.
 
-Load, read the full file and then execute `{nextStepFile}`. **STOP HERE — do not execute sections 2-6.**
+Load, read the full file and then execute `{nextStepFile}`. The no-PRD path ends here — sections 2-6 are the PRD-present branch and do not run.
 
 **If PRD/vision document was provided:** Continue to section 2.
 
@@ -78,7 +78,7 @@ For each requirement, evaluate whether the combined capabilities of the generate
 - **Partially Fulfilled** — skills provide related capability but gaps remain (specify what is covered and what is not)
 - **Not Addressed** — no skill in the stack provides capability relevant to this requirement
 
-**Each verdict MUST include:**
+**Each verdict includes:**
 - Which skills contribute (if any)
 - Specific exports or capabilities from those skills that are relevant
 - For Partially Fulfilled: what gap remains

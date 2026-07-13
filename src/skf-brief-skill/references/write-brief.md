@@ -18,20 +18,15 @@ forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 
 # Step 5: Write Brief
 
-## STEP GOAL:
-
-To generate the complete skill-brief.yaml from the approved brief data and write it to the forge data folder, completing the brief-skill workflow.
-
 ## Rules
 
 - Focus only on writing the file — all decisions have been made
 - Do not change any field values without user request — the brief was already approved
-- Create the output directory if it doesn't exist
 - Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing success summary is NOT the terminal step
 - All user-facing output in `{communication_language}`; written artifact (`description`, `notes`) in `{document_output_language}`
 - **Determinism delegation:** YAML rendering, version-precedence, atomic write, the headless result envelope, and the QMD-collection registry mutation are all delegated to shared SKF scripts. The LLM's job in this step is to assemble inputs, branch on script results, and surface user-facing prose — not to render YAML, JSON envelopes, or YAML-mutation diffs in the model.
 
-## MANDATORY SEQUENCE
+## Sequence
 
 ### 1. Reference the Schema (LLM context only)
 
@@ -202,10 +197,22 @@ After compilation, you can:
 
 **Brief-skill workflow complete.**"
 
+### 6b. On-Complete Hook (pipeline integration)
+
+If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it now — after the brief has been written (§3) and the result contract finalized (§4b) — as:
+
+```bash
+{onCompleteCommand} --result-path={brief_path}
+```
+
+where `{brief_path}` is the absolute path captured from the §3 response envelope (the freshly written `skill-brief.yaml`, the stable artifact a downstream consumer chains from).
+
+- On success: log to `workflow_warnings[]` as informational only if the hook emitted stderr (`on_complete hook stderr: …`); otherwise no entry.
+- On non-zero exit / process error: log to `workflow_warnings[]` (`on_complete hook failed (exit {code}): {stderr_snippet}`).
+- **Never fail the workflow on hook errors** — the hook is for pipeline integration (chaining into create-skill, Slack, dashboards, CI), not for gating brief production.
+
+When `{onCompleteCommand}` is empty (bundled default), skip this section entirely — no hook is invoked.
+
 ### 7. Chain to Health Check
 
-ONLY WHEN the brief file has been written and the success summary displayed will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.
-
-## CRITICAL STEP COMPLETION NOTE
-
-This step chains to the local health-check step (`{nextStepFile}`), which in turn delegates to `shared/health-check.md`. After the health check completes, the brief-skill workflow is fully done.
+Once the brief file has been written and the success summary displayed, load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.

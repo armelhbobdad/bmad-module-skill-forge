@@ -14,7 +14,7 @@ Re-scan the source code using the current forge tier tools to build a fresh extr
 ## Rules
 
 - Focus only on extracting current source state — do not compare yet (that's Step 03)
-- Do not skip files or take shortcuts in extraction
+- Extract every file in the bounded scan list — a file skipped here makes step 3 flag its exports as false "removed" drift
 - Use subprocess Pattern 2 (per-file deep analysis) when available for AST extraction; if unavailable, extract in main thread file by file
 
 ## MANDATORY SEQUENCE
@@ -53,13 +53,10 @@ Audit-skill detects drift on files that were in scope during create-skill. The a
 
 **If a provenance map was loaded in step 1** (normal mode):
 
-1. Extract the unique set of file paths from the provenance map:
-   - `entries[].source_file` (one path per extracted export)
-   - `file_entries[].source_file` (one path per tracked script/asset, when present)
-2. Deduplicate the combined list. This is the **bounded scan list**.
-3. Verify each path under `{source_root}`. Files that existed at creation time but are now missing are **not** errors at this stage — keep them in the list so step 3 can classify them as DELETED. Handling missing files is step 3's job, not step 2's.
-4. Record `bounded_scan: true` and `bounded_scan_source: "provenance-map"` in context for the evidence report.
-5. Report:
+1. The **bounded scan list** is `{bounded_scan_files}` — the union of `entries[].source_file` and `file_entries[].source_file`, deduplicated, sorted, and forward-slash normalized by init.md §4's `skf-load-provenance.py normalize` call. Consume it directly; do **not** re-walk the provenance map to rebuild it. The union/dedup/sort has one correct answer per map and is already scripted — re-deriving it in-prompt risks diverging from step 3, which diffs against the same normalized projection.
+2. Verify each path under `{source_root}`. Files that existed at creation time but are now missing are **not** errors at this stage — keep them in the list so step 3 can classify them as DELETED. Handling missing files is step 3's job, not step 2's.
+3. Record `bounded_scan: true` and `bounded_scan_source: "provenance-map"` in context for the evidence report.
+4. Report:
 
    "**Bounded scan:** {count} files from provenance map ({provenance_date})."
 
@@ -76,7 +73,7 @@ Audit-skill detects drift on files that were in scope during create-skill. The a
 
 ### 3. Extract Current Exports
 
-**DO NOT BE LAZY — For EACH file in the bounded scan list from §2, launch a subprocess that:**
+**For each file in the bounded scan list from §2, launch a subprocess that:**
 1. Loads the source file
 2. Extracts all public exports using tier-appropriate method
 3. Records: export name, type, signature, file path, line number, confidence tier
@@ -86,7 +83,7 @@ Audit-skill detects drift on files that were in scope during create-skill. The a
 
 **If subprocess unavailable:** Perform extraction in main thread, processing each file sequentially.
 
-**Build extraction snapshot:**
+**Build extraction snapshot and persist it to `{forge_version}/extraction-snapshot.json`** — step 3 (`structural-diff.md`) reads this file directly, so it must be written to disk, not merely held in context:
 ```
 {
   "extraction_date": "{timestamp}",
@@ -108,15 +105,17 @@ Audit-skill detects drift on files that were in scope during create-skill. The a
 }
 ```
 
+Record the written path as `{extractionSnapshot}` in workflow context — step 3 passes it to the deterministic structural-diff helper.
+
 ### 4. Deep Tier Enhancement (Deep Only)
 
-**IF forge tier is Deep:**
+**If forge tier is Deep:**
 
 Read the `qmd_collections` registry from `{sidecar_path}/forge-tier.yaml`.
 
 Find the collection entry matching the current skill: look for an entry where `skill_name` matches the current skill being audited AND `type` is `"extraction"`.
 
-Three collection states must be handled distinctly (same branching as step 4 §2 — keep them in sync):
+Three collection states must be handled distinctly — semantic-diff.md §2 branches the same way:
 
 **If a matching extraction collection is found and populated** (pre-query probe via `qmd ls {collection_name}` or equivalent returns one or more files):
 Query qmd_bridge against the `{skill_name}-extraction` collection for temporal context on each extracted export:
@@ -135,12 +134,12 @@ Continue without T2 enrichment — the unpopulated collection is a setup gap, no
 Log: "No QMD extraction collection found for {skill_name}. Temporal enrichment skipped. Re-run [CS] Create Skill to generate the collection."
 Continue without T2 enrichment — this is not an error.
 
-**IF forge tier is Quick, Forge, or Forge+:**
+**If forge tier is Quick, Forge, or Forge+:**
 Skip this section. Temporal context requires Deep tier.
 
 ### 4b. CCC Rename Detection (Forge+ and Deep with ccc)
 
-**IF `tools.ccc` is true in forge-tier.yaml:**
+**If `tools.ccc` is true in forge-tier.yaml:**
 
 For each export in the skill baseline that was NOT found at its recorded file path during re-extraction (potential "deleted" export):
 
@@ -153,7 +152,7 @@ For each export in the skill baseline that was NOT found at its recorded file pa
 
 CCC failures: skip rename detection silently, proceed with standard structural diff.
 
-**IF `tools.ccc` is false:** Skip this section silently.
+**If `tools.ccc` is false:** Skip this section silently.
 
 ### 5. Validate Extraction Completeness
 
@@ -174,23 +173,5 @@ CCC failures: skip rename detection silently, proceed with standard structural d
 
 ### 6. Update Report and Auto-Proceed
 
-Update {outputFile} frontmatter:
-- Append `'re-index'` to `stepsCompleted`
-
-### 7. Present MENU OPTIONS
-
-Display: "**Proceeding to structural diff...**"
-
-#### Menu Handling Logic:
-
-- After extraction is complete and frontmatter updated, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed analysis step with no user choices
-- Proceed directly to next step after extraction
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the extraction snapshot is complete with all source files processed will you then load and read fully `{nextStepFile}` to execute and begin structural comparison.
+Update {outputFile} frontmatter — append `'re-index'` to `stepsCompleted`. Once the extraction snapshot is complete with all source files processed, load, read fully, and execute `{nextStepFile}` (structural diff).
 

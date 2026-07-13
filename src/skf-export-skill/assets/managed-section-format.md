@@ -132,7 +132,4 @@ When regenerating (Case 3) or creating/appending (Cases 1-2), rebuild the skill 
 
 ## Safety Rules
 
-- NEVER modify content outside the `<!-- SKF:BEGIN/END -->` markers
-- ALWAYS preserve existing file content above and below markers
-- ALWAYS verify file was written correctly after write
-- If write fails, report error — do not attempt partial writes
+Only the bytes between `<!-- SKF:BEGIN -->` and `<!-- SKF:END -->` are yours to rewrite; everything above and below is the user's own file (their CLAUDE.md/AGENTS.md/.cursorrules) and must survive byte-for-byte — rewriting outside the markers destroys their content. On write failure, report and stop — never leave a partial write. Route writes through the atomic-write / rebuild-managed-sections helpers: they verify byte-identity of the content outside the markers after each write, so no separate hand-check is needed.

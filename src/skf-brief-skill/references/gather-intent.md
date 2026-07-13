@@ -21,10 +21,6 @@ emitBriefEnvelopeProbeOrder:
 
 # Step 1: Gather Intent
 
-## STEP GOAL:
-
-To initialize the brief-skill workflow by discovering the forge tier configuration, then gathering the user's target repository, intent, and any upfront scope hints for skill creation.
-
 ## Rules
 
 - Focus only on gathering intent — do not analyze the repo yet (Step 02)
@@ -32,7 +28,7 @@ To initialize the brief-skill workflow by discovering the forge tier configurati
 - Open-ended discovery facilitation — collect target repo, user intent, scope hints, skill name
 - All user-facing output in `{communication_language}`
 
-## MANDATORY SEQUENCE
+## Sequence
 
 ### 1. Discover Forge Tier
 
@@ -72,7 +68,7 @@ Attempt to load `{forgeTierFile}`:
 1. **Load upstream brief path:** Read `brief_path` from the pipeline data context (passed by the forger from AN's `SKF_ANALYZE_RESULT_JSON` `brief_paths[]`). If `brief_path` is not available, HARD HALT with exit code 2 (`input-missing`): "**Auto mode requires `brief_path` in pipeline context — AN must run before BS[auto].**"
 2. **Load source repo:** Read `source_repo` from the pipeline data context (the target repo URL or path, forwarded by the forger). If not available, attempt to extract it from the upstream brief at `brief_path`.
 3. "**Auto mode activated — bypassing interactive brief workflow.**"
-4. **Route to auto-brief:** Load, read fully, then execute `references/step-auto-brief.md`. **STOP HERE** — do not continue to §2 or any subsequent section.
+4. **Route to auto-brief:** Load, read fully, then execute `references/step-auto-brief.md`, and hand off there — do not fall through to §2 or any subsequent section of this file.
 
 **IF `{auto_mode}` is NOT true:**
 Continue to §2 as normal — the entire interactive flow below is unchanged.
@@ -84,12 +80,6 @@ Continue to §2 as normal — the entire interactive flow below is unchanged.
 **Wanted something different?** This workflow *creates* a new brief — a YAML scoping document for a skill that doesn't yet exist. If you meant to compile an existing brief into a skill (`/skf-create-skill`), package one for distribution (`/skf-export-skill`), or just ask SKF a question, type `cancel` at any prompt and run that workflow instead.
 
 I'll help you define exactly what to skill and produce a `skill-brief.yaml` that drives the create-skill compilation workflow.
-
-We'll work through this together:
-1. **Now:** Understand what you want to skill and why
-2. **Next:** Analyze the target repo structure
-3. **Then:** Define scope boundaries
-4. **Finally:** Confirm and write the brief
 
 {If tier override was applied:}
 **Your forge tier:** {override tier} (overridden from {original tier}) — {tier_gloss}
@@ -222,6 +212,20 @@ Default to `"community"` if user does not specify or skips.
 
 Confirm the target.
 
+**Draft-resume check (interactive only).** Now that the target is confirmed — and *before* the version prompt (§3b), intent (§4), or scope (§5) spend the user's time — offer to resume an in-progress draft that already covers this exact target, so a returning user re-types nothing. Keying on the target (not the not-yet-derived skill name) is what lets the offer fire this early. When the flow is interactive:
+
+1. **Cheap pre-filter** — list any draft file that mentions the confirmed target at all:
+
+   ```bash
+   grep -lF "{target}" "{forge_data_folder}"/*/.brief-draft.json 2>/dev/null
+   ```
+
+   `{target}` is the repo URL, local path, or primary doc URL just entered. No output → no draft; skip straight to §3b.
+
+2. **Confirm each candidate on the target *field*, not free text.** Read the candidate draft's JSON and keep it only if its `target_repo` equals the confirmed target (source targets) or the target appears in its `doc_urls` (docs-only) — this rejects a draft that merely mentions the URL in its `intent` or `description`. Drop any candidate that has a finished `skill-brief.yaml` in the same directory (that brief is done; step 5's overwrite gate owns it).
+
+3. If one or more live drafts survive, load `{draftCheckpointFile}` and follow Half 1 (Resume Check) against the most-recently-modified survivor; its directory basename is the candidate skill name. On `[Y]` resume, Half 1 restores every gathered answer and jumps straight to §8 — **§3b, §4, §5, §6, §7, and §7b are all skipped**. Otherwise (headless, no surviving draft, or every match already has a finished brief beside it) skip the load and continue to §3b.
+
 ### 3b. Gather Target Version
 
 This step only collects `target_version` and validates its shape with the regex below — auto-detection runs in step 2 and precedence/invariant resolution lands in step 5's writer script. The canonical precedence rules live in `references/version-resolution.md`; load it from step 2 / step 5 only when the relevant section needs it.
@@ -320,7 +324,7 @@ Wait for confirmation or alternative.
 
 **Portfolio-similarity check.** When the flow is interactive AND forge tier is `Deep` AND `tools.qmd` is true in `forge-tier.yaml`, load `{portfolioSimilarityCheckFile}` and follow the procedure there to catch semantic near-duplicates that exact-name collision misses. Otherwise (headless, or tier below Deep, or qmd unavailable) skip the load — the check does not run.
 
-**Draft-resume check.** When the flow is interactive AND `{forge_data_folder}/{name}/.brief-draft.json` exists AND no `skill-brief.yaml` sits beside it, load `{draftCheckpointFile}` and follow Half 1 (Resume Check). On `[Y]` resume, the procedure jumps directly to §8 with prior answers restored — **the rest of §6, all of §7, and all of §7b are skipped**. Otherwise (headless, or no draft file, or a finished brief sits beside the draft) skip the load and continue with §6 normally.
+(The resume-a-draft offer for a returning user fires earlier, right after the target is confirmed in §3 — see the §3 "Draft-resume check" — so the intent, scope, and description a draft holds are spared *before* they get re-gathered here.)
 
 ### 7. Summarize Gathered Intent
 
@@ -340,7 +344,7 @@ Wait for confirmation or alternative.
 
 Ready to analyze the target repository?"
 
-**Draft checkpoint.** When the flow is interactive, load `{draftCheckpointFile}` (or reuse it if already loaded for the §6 resume check) and follow Half 2 (Checkpoint Write) to persist the captured state atomically. Headless mode skips this — the run completes in a single invocation, no resume is meaningful.
+**Draft checkpoint.** When the flow is interactive, load `{draftCheckpointFile}` (or reuse it if already loaded for the §3 resume check) and follow Half 2 (Checkpoint Write) to persist the captured state atomically. Headless mode skips this — the run completes in a single invocation, no resume is meaningful.
 
 ### 7b. Synthesize Skill Description
 
@@ -383,9 +387,8 @@ Display: "**Select:** [C] Continue to Target Analysis · [X] Cancel and exit"
 - IF X: Treat as user-cancellation. Display `"Cancelled — no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). When `{headless_mode}` is true the GATE auto-proceeds and never reaches this branch — `[X]` is interactive-only. Cancellation here is non-destructive: no files have been written yet by step 1.
 - IF Any other: Help user, then [Redisplay Menu Options](#8-present-menu-options)
 
-#### EXECUTION RULES:
+#### Execution rules:
 
-- ALWAYS halt and wait for user input after presenting menu
 - **Resolve `{validateBriefInputsHelper}`** from `{validateBriefInputsProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
 - **GATE [default: use args]** — If `{headless_mode}`, consume pre-supplied arguments and auto-proceed. The full argument set (required/optional, defaults, halt codes, enum values) is documented in `{headlessArgsFile}` — load it now if you need to look up a specific argument. Validation is delegated to `{validateBriefInputsHelper}`; the table is the canonical operator-facing documentation, the script enforces it.
@@ -415,10 +418,4 @@ Display: "**Select:** [C] Continue to Target Analysis · [X] Cancel and exit"
   3. **Hydrate and route.** Store `ratify_mode: true` and `ratify_source_path: <resolved-brief-path>` in workflow context, then hydrate the brief context variables from the parsed `brief` payload exactly as the §3.1a `[R]` branch does (the identical field-mapping list: `name`/`version`/`target_version`, `target_ref`/`source_ref`, `source_repo`/`source_type`/`source_authority`/`doc_urls`, `language`/`description`/`forge_tier`, `created`/`created_by`, `scope.type`/`scope.include`/`scope.exclude`/`scope.tier_a_include`/`scope.notes`/`scope.rationale`/`scope.amendments`, `scripts_intent`/`assets_intent` — preserving `target_ref`/`source_ref`/`tier_a_include`/`amendments` verbatim). Load, read entirely, and execute `{ratifyTargetFile}` — bypassing step 2 (analyze-target) and step 3 (scope-definition), both of which would re-derive fields already on disk. The forward chain resumes at step 4 (confirm-brief), which auto-confirms `[C]` under headless and proceeds to step 5's write (the step 5 §2b ratify branch auto-overwrites in place). Do **not** run the source-authority detection or the `[C] → {nextStepFile}` routing below — they belong to the derive path.
 
   **Headless source-authority detection (derive route only — no `from_brief`).** After consuming `normalized`, if `source_authority` is absent AND `source_type=source` AND `target_repo` is a GitHub URL, load `{headlessSourceAuthorityDetectionFile}` and follow the procedure there. Otherwise (precondition unmet, value already supplied, docs-only, or local-path) skip the load — `community` is the implicit default for the unmet branches.
-
-- ONLY proceed to next step when user selects 'C'
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN C is selected and target repository is confirmed will you load and read fully `analyze-target.md` to execute target analysis.
 

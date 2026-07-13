@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.10"
 # dependencies = []
@@ -25,8 +26,18 @@ Input schema (one object):
       "externalValidation": <0-100>
     },
     "threshold": <0-100, optional, default 80>,
-    "evidenceCount": <int, optional, used for INCONCLUSIVE floor>
+    "evidenceCount": <int, optional, used for INCONCLUSIVE floor>,
+    "analysisConfidence": "<optional string; 'degraded' fires the tooling cap>",
+    "toolingStatus": "<optional string; a '*-missing' marker fires the tooling cap>"
   }
+
+Verdict override (post-score caps + threshold fallback — see compute_score):
+  When a cap or the threshold fallback engages, the output additionally carries
+  `effectiveResult` (the final verdict after caps/fallback), `capReason`
+  (string or null), `thresholdFallback` (bool), and `originalThreshold` (the
+  pre-fallback threshold, or null). When neither engages, those keys are omitted
+  and `result` is the final verdict. `result` itself is never mutated — it is
+  always the pre-cap/pre-fallback score-vs-threshold (or evidence-floor) verdict.
 
 Exit codes:
   0  — input was parsed; either a score was computed (verdict may be
@@ -69,6 +80,59 @@ CATEGORIES = [
 ]
 
 DEFAULT_THRESHOLD = 80
+
+
+# --- Redistribution equivalence classes (moved here from scoring-rules.md) ---
+#
+# Determinism note for maintainers — NOT reader-model context. The redistributed
+# `weights` / `activeCategories` / `skippedCategories` output depends ONLY on
+# three things: the base table (contextual vs naive), whether Signature Accuracy
+# + Type Coverage are skipped (Quick tier OR docsOnly OR state2 OR stackSkill OR
+# referenceApp), and whether External Validation is skipped (externalValidation
+# is null). Every (mode × tier × docsOnly × state2 × stackSkill × referenceApp)
+# cell with an identical skip set + base table therefore reduces to the same
+# equivalence class below and emits identical final weights for identical input
+# scores — only the `skipReasons` string differs. The prompt (score.md) never
+# names a class or fixture; it sets the flags and reads the script's output back.
+# The rightmost column pins each class to a representative fixture in
+# test/fixtures/compute-score-contract.json (see test-compute-score-contract.py);
+# "(equiv.)" cells reduce algebraically to a listed representative.
+#
+# |  # | mode       | tier   | docsOnly | state2 | base       | sig/type skip          | ext skip | class | representative fixture           |
+# |----|------------|--------|----------|--------|------------|------------------------|----------|-------|----------------------------------|
+# |  1 | contextual | Deep   | F        | F      | contextual | —                      | if null  | A     | suite_a_all_active               |
+# |  2 | contextual | Forge+ | F        | F      | contextual | —                      | if null  | A     | suite_k_forge_plus               |
+# |  3 | contextual | Forge  | F        | F      | contextual | —                      | if null  | A     | suite_p_contextual_forge         |
+# |  4 | contextual | Quick  | F        | F      | contextual | Quick tier             | if null  | B     | suite_c_quick_tier               |
+# |  5 | contextual | Deep   | T        | F      | contextual | docs-only              | if null  | B     | suite_r_contextual_deep_docsonly |
+# |  6 | contextual | Forge+ | T        | F      | contextual | docs-only              | if null  | B     | (equiv.)                         |
+# |  7 | contextual | Forge  | T        | F      | contextual | docs-only              | if null  | B     | (equiv.)                         |
+# |  8 | contextual | Quick  | T        | F      | contextual | Quick tier + docs-only | if null  | B     | suite_f_docs_only                |
+# |  9 | contextual | Deep   | F        | T      | contextual | State 2                | if null  | B     | suite_g_state2                   |
+# | 10 | contextual | Forge+ | F        | T      | contextual | State 2                | if null  | B     | (equiv.)                         |
+# | 11 | contextual | Forge  | F        | T      | contextual | State 2                | if null  | B     | (equiv.)                         |
+# | 12 | contextual | Quick  | F        | T      | contextual | Quick + State 2        | if null  | B     | (equiv.)                         |
+# | 13 | contextual | *      | T        | T      | contextual | docs-only + State 2    | if null  | B     | (equiv.)                         |
+# | 14 | naive      | Deep   | F        | F      | naive      | —                      | if null  | C     | suite_q_naive_deep               |
+# | 15 | naive      | Forge+ | F        | F      | naive      | —                      | if null  | C     | (equiv.)                         |
+# | 16 | naive      | Forge  | F        | F      | naive      | —                      | if null  | C     | suite_b_naive                    |
+# | 17 | naive      | Quick  | F        | F      | naive      | Quick tier             | if null  | D     | suite_e_triple_skip              |
+# | 18 | naive      | Deep   | T        | F      | naive      | docs-only              | if null  | D     | suite_s_naive_deep_docsonly      |
+# | 19 | naive      | Forge+ | T        | F      | naive      | docs-only              | if null  | D     | (equiv.)                         |
+# | 20 | naive      | Forge  | T        | F      | naive      | docs-only              | if null  | D     | (equiv.)                         |
+# | 21 | naive      | Quick  | T        | F      | naive      | Quick + docs-only      | if null  | D     | suite_o_input_echo               |
+# | 22 | naive      | Deep   | F        | T      | naive      | State 2                | if null  | D     | suite_t_naive_state2             |
+# | 23 | naive      | Forge+ | F        | T      | naive      | State 2                | if null  | D     | (equiv.)                         |
+# | 24 | naive      | Forge  | F        | T      | naive      | State 2                | if null  | D     | (equiv.)                         |
+# | 25 | naive      | Quick  | F        | T      | naive      | Quick + State 2        | if null  | D     | (equiv.)                         |
+# | 26 | naive      | *      | T        | T      | naive      | docs-only + State 2    | if null  | D     | (equiv.)                         |
+#
+# Stack skills (stackSkill) and reference-app skills (referenceApp) share the
+# skip set of the docsOnly/state2 rows: contextual → class B, naive → class D;
+# only skipReasons differs (fixtures suite_u_stack_skill_deep,
+# suite_v_reference_app_deep). Quick-tier rows (4, 8, 12, 17, 21, 25) then feed
+# the minimum-evidence floor in the result block below (§7 of compute_score),
+# which can force INCONCLUSIVE after this pre-floor redistribution.
 
 
 # --- Helpers ---
@@ -129,6 +193,11 @@ def validate_input(inp):
     if threshold is not None:
         if not isinstance(threshold, (int, float)) or threshold < 0 or threshold > 100:
             return "threshold must be a number between 0 and 100"
+
+    for str_field in ("analysisConfidence", "toolingStatus"):
+        val = inp.get(str_field)
+        if val is not None and not isinstance(val, str):
+            return f"{str_field} must be a string or null, got: {type(val).__name__}"
 
     for cat in CATEGORIES:
         score = inp["scores"].get(cat)
@@ -277,6 +346,58 @@ def compute_score(inp):
     else:
         result = "PASS" if total_score >= threshold else "FAIL"
 
+    # 7b. Post-score caps + threshold fallback — deterministic verdict override.
+    # Lifted from score.md §3d/§4b so the cap<->fallback interaction is centralized
+    # and unit-tested here rather than re-derived in the prompt. The minimum-
+    # evidence floor (INCONCLUSIVE) is a gate that NO cap or fallback may override,
+    # so all of this is skipped when result == "INCONCLUSIVE".
+    analysis_confidence = inp.get("analysisConfidence")
+    tooling_status = inp.get("toolingStatus")
+
+    effective_result = result
+    cap_reason = None
+    threshold_fallback = False
+    original_threshold = None
+    cap_fired = False
+
+    if result != "INCONCLUSIVE":
+        cap_reasons = []
+        # Cap 1 — tooling degraded: analysis confidence is "degraded", or a
+        # missing-helper marker (e.g. python3-missing, frontmatter-validator-missing).
+        tooling_degraded = analysis_confidence == "degraded" or (
+            isinstance(tooling_status, str) and "missing" in tooling_status
+        )
+        if tooling_degraded:
+            cap_fired = True
+            cap_reasons.append(
+                "tooling degraded — capped below threshold until helper restored"
+            )
+        # Cap 2 — docs-only mode with no external validators available.
+        if docs_only and scores.get("externalValidation") is None:
+            cap_fired = True
+            cap_reasons.append(
+                "docs-only without external validators — capped below threshold"
+            )
+        if cap_fired:
+            cap_reason = "; ".join(cap_reasons)
+            # A cap only flips a PASS into FAIL; a pre-existing FAIL stays FAIL.
+            if result == "PASS":
+                effective_result = "FAIL"
+
+        # Threshold fallback — convert a FAIL into PASS at the 80 floor when the
+        # RAW totalScore clears 80 and the effective threshold was above 80. The
+        # fallback reads the raw totalScore (matching score.md §4b's documented
+        # `totalScore >= 80`), not the capped value; because it also requires
+        # threshold > 80 (so threshold - 1 >= 80), min(totalScore, threshold - 1)
+        # is itself >= 80 whenever totalScore >= 80, so raw-vs-capped is the same
+        # decision — raw is used for spec fidelity and testability.
+        if effective_result == "FAIL" and total_score >= 80 and threshold > 80:
+            threshold_fallback = True
+            original_threshold = threshold
+            effective_result = "PASS"
+
+    overrides_engaged = cap_fired or threshold_fallback
+
     # Build scores echo with null preservation
     scores_echo = {}
     for cat in CATEGORIES:
@@ -302,6 +423,15 @@ def compute_score(inp):
         "result": result,
         "weightSum": weight_sum,
     }
+
+    # Verdict-override fields — emitted as an atomic group only when a post-score
+    # cap or the threshold fallback engaged (mirrors the conditional `warnings` /
+    # `inconclusiveReasons` fields). When absent, `result` is the final verdict.
+    if overrides_engaged:
+        output["effectiveResult"] = effective_result
+        output["capReason"] = cap_reason
+        output["thresholdFallback"] = threshold_fallback
+        output["originalThreshold"] = original_threshold
 
     if warnings:
         output["warnings"] = warnings

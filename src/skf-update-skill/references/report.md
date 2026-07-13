@@ -16,7 +16,7 @@ Present a comprehensive change summary showing what was updated, [MANUAL] sectio
 - Present clear, actionable summary with next step recommendations
 - Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing summary is NOT the terminal step
 
-## MANDATORY SEQUENCE
+## Steps
 
 ### 1. Handle No-Change Shortcut
 
@@ -89,7 +89,7 @@ The headless envelope carries `status: "dry-run"`, `files_written: []`, the `hea
 
 | Metric | Value |
 |--------|-------|
-| **Skill** | {skill_name} ({single/stack}) |
+| **Skill** | {skill_name} |
 | **Forge Tier** | {tier} |
 | **Mode** | {update_mode}{mode_fallback_note} |
 | **Duration** | {step count} steps |
@@ -169,7 +169,6 @@ These signals also appear in `warnings[]` on the headless envelope; the Mode row
 | `{resolved_skill_package}/metadata.json` | Updated |
 | `{forge_version}/provenance-map.json` | Updated |
 | `{forge_version}/evidence-report.md` | Appended |
-| {stack reference files if applicable} | Updated |
 
 Where `{resolved_skill_package}` = `{skills_output_folder}/{skill_name}/{version}/{skill_name}/` and `{forge_version}` = `{forge_data_folder}/{skill_name}/{version}/` — see `knowledge/version-paths.md`."
 
@@ -199,16 +198,24 @@ Write the result contract per `shared/references/output-contract-schema.md`: the
 **Headless envelope (`SKF_UPDATE_RESULT_JSON`):** when `{headless_mode}` is true, ALSO emit a single-line JSON envelope to stdout prefixed with the literal `SKF_UPDATE_RESULT_JSON: `. Schema: `src/shared/scripts/schemas/skf-update-result-envelope.v1.json`. Construct the envelope from in-context state:
 
 ```json
-SKF_UPDATE_RESULT_JSON: {"skf_update":{"status":"success|no-changes|halted-for-*|blocked","skill_name":"<name>","version":"<v>","previous_version":"<v>","update_mode":"normal|gap-driven|degraded","files_written":[...],"headless_decisions":[...],"warnings":[...],"error":null|{...}}}
+SKF_UPDATE_RESULT_JSON: {"skf_update":{"status":"success|no-changes|detect-only|dry-run|halted-for-*|blocked","skill_name":"<name>","version":"<v>","previous_version":"<v>","update_mode":"normal|gap-driven|degraded","files_written":[...],"headless_decisions":[...],"warnings":[...],"error":null|{...}}}
 ```
 
-- `headless_decisions[]` — verbatim from the in-context array populated by gates (init.md §confirmation, detect-changes.md §1b/§1c/§2.2, merge.md §gate). Each entry `{gate, default_action, taken_action, reason, evidence?}`. Empty when no gates auto-resolved (e.g. no-changes path skipped detect-changes' gates).
-- `status` — single-field outcome for pipeline branching. `"success"` when the run wrote artifacts and produced no halts; `"no-changes"` when §1 short-circuited; one of the documented `halted-for-*` codes when a halt fired; `"blocked"` as the catch-all.
+- `headless_decisions[]` — verbatim from the in-context array populated by gates (init.md §confirmation and §4 degraded-rebuild, detect-changes.md §1b/§1c/§2.2, merge.md §gate). Each entry `{gate, default_action, taken_action, reason, evidence?}`. Empty when no gates auto-resolved (e.g. no-changes path skipped detect-changes' gates).
+- `status` — single-field outcome for pipeline branching. `"success"` when the run wrote artifacts and produced no halts; `"no-changes"` when §1 short-circuited; `"detect-only"` / `"dry-run"` for the §1a/§1b read-only exits; one of the documented `halted-for-*` codes when a halt fired; `"blocked"` as the catch-all. The full enum lives in the schema (this step emits the value already resolved in context).
 - `error` — null on success or no-changes. Object `{phase, path?, reason}` describing the failure when a halt or write error fired. Pipelines branch on `error !== null` for non-zero exit semantics.
 
 The headless envelope is the structured channel; the per-run JSON written above is the audit trail. Both coexist — the envelope is one line on stdout for grep-friendly consumption, the per-run JSON is the full record on disk.
 
+**Post-finalization hook.** If `{onCompleteCommand}` (resolved in SKILL.md On Activation §3 from `workflow.on_complete`) is non-empty, invoke it after both result-JSON writes complete:
+
+```bash
+{onCompleteCommand} --result-path={forge_version}/update-skill-result-latest.json
+```
+
+Run it with a bounded timeout (default 60s). On success, log an Info note and continue; on non-zero exit, timeout, or any failure, append the reason to `warnings[]` (surfaced on the headless envelope) and continue. The hook must never fail the workflow — it is integration glue (notify a CI router, chain audit/export/test) orthogonal to the update outcome. Empty `{onCompleteCommand}` = no-op, no log entry.
+
 ### 6. Chain to Health Check
 
-ONLY WHEN the change summary has been presented, files-written list displayed, and result contract saved will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the report reads as final.
+Once the change summary has been presented, the files-written list displayed, and the result contract saved, load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop at the report even though it reads as final.
 

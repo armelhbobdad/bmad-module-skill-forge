@@ -18,12 +18,10 @@ To write the compiled SKILL.md, context-snippet.md, and metadata.json to the ver
 
 ## Rules
 
-- Write exactly what was compiled — do not modify content during writing
-- Validation is advisory — report issues but never block output
-- Do not modify compiled content post-validation — report only
+- Write exactly what was compiled — do not modify content during writing or after validation
 - Community-tier validation (lighter than official requirements)
 
-## MANDATORY SEQUENCE
+## Steps
 
 ### 1. Create Output Directory
 
@@ -39,7 +37,7 @@ If `{skill_package}` already exists, confirm with user before overwriting:
 "**Directory `{skill_package}` already exists.** Overwrite will replace the prior compiled output; validation results, result contracts, and any manual tweaks from the previous run will not be preserved. Overwrite existing files? [Y/N]"
 
 - **If user selects Y:** Proceed to section 2.
-- **If user selects N:** HARD HALT with **exit code 5 (overwrite-cancelled)** per the SKILL.md exit-code map: "Overwrite cancelled. Existing skill preserved. Run [QS] with a different skill name or remove the existing directory manually." Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "write-and-validate"`, `error.code: "overwrite-cancelled"`, `skill_package` set to the existing path that was preserved). Disk write of the `-latest.json` envelope is REQUIRED here since `{skill_package}` is known.
+- **If user selects N:** HARD HALT with **exit code 5 (overwrite-cancelled)** per the exit-code map in `references/halt-contract.md`: "Overwrite cancelled. Existing skill preserved. Run [QS] with a different skill name or remove the existing directory manually." Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "write-and-validate"`, `error.code: "overwrite-cancelled"`, `skill_package` set to the existing path that was preserved). Write the `-latest.json` envelope to disk here — `{skill_package}` is known, so consumers that hardcode that path see a deterministic file even on this cancelled run.
 
 **GATE [default: Y]** — If `{headless_mode}` is true, auto-proceed with Y and log: "headless: overwriting existing `{skill_package}`".
 
@@ -53,7 +51,7 @@ Write the three compiled artifacts to the skill package so that validation in se
 
 Confirm after each write: "Written: SKILL.md" / "Written: context-snippet.md" / "Written: metadata.json". When `--skip-snippet` is active, log "Skipped: context-snippet.md (--skip-snippet)" instead of the snippet write confirmation.
 
-**If any write fails — HARD HALT (exit code 4, write-failure):** Before exiting, emit the error result contract per SKILL.md "Result Contract on HARD HALT" (`phase: "write-and-validate"`, `error.code: "write-failure"`, `error.details: {failed_path: <path>, error: <details>}`, `skill_package` set, `outputs` listing any files that did write successfully before the failure).
+**If any write fails — HARD HALT (exit code 4, write-failure):** Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "write-and-validate"`, `error.code: "write-failure"`, `error.details: {failed_path: <path>, error: <details>}`, `skill_package` set, `outputs` listing any files that did write successfully before the failure).
 
 "**Write failed:** Could not write to `{file_path}`.
 
@@ -71,8 +69,6 @@ Run: `npx skill-check -h`
 - If succeeds (returns usage information): Continue to automated validation (section 4)
 - If fails (command not found or error): Skip to manual fallback in section 4
 
-**Important:** Use the verification command. Do not assume availability — empirical check required.
-
 ### 4. Validate SKILL.md via skill-check (if available)
 
 **If `npx skill-check` is available**, run automated validation + security scan in one invocation against the skill package written in section 2 (security scan is enabled by default when `--no-security-scan` is omitted, so the same call covers §6 and avoids paying the npx startup cost twice):
@@ -84,24 +80,24 @@ npx skill-check check {skill_package} --fix --format json
 This validates frontmatter, description, body limits, links, and formatting; runs the security scan; and auto-fixes deterministic issues (field ordering, slug format, required fields, trailing newlines).
 
 **Parse JSON output** to extract:
-- `scores[].score` — overall score (0-100); match the entry by `relativePath`/`skillId` (older skill-check builds exposed this as a top-level `qualityScore`)
+- `scores[].score` — overall score (0-100); match the entry by `relativePath`/`skillId`
 - `diagnostics[]` — remaining issues after auto-fix
 - `fixed[]` — issues automatically corrected
 - `security[]` (when present) — security findings, recorded as advisory warnings (security issues do not block output)
 
 Record quality score, remaining diagnostics, and security findings as validation issues.
 
-**If skill-check is NOT available**, run the shared frontmatter validator instead of an LLM-walked checklist. Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}`; first existing path wins. If no candidate exists, log a high-severity issue ("frontmatter validator unavailable — both `npx skill-check` and `skf-validate-frontmatter.py` missing") and skip frontmatter validation.
+**If skill-check is not available**, run the shared frontmatter validator. Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}`; first existing path wins. If no candidate exists, log a high-severity issue ("frontmatter validator unavailable — both `npx skill-check` and `skf-validate-frontmatter.py` missing") and skip frontmatter validation.
 
 ```bash
 uv run {frontmatterValidator} {skill_package}/SKILL.md --skill-dir-name {repo_name}
 ```
 
-The validator emits JSON with `status` (`pass`/`fail`), `issues[]` (each with `severity`, `code`, `message`), and `frontmatter` (the parsed name/description). It checks frontmatter delimiters, name format (Unicode letters + digits + hyphens, no consecutive/trailing hyphens), name-directory match, description presence and length, and unknown fields against the agentskills.io spec — the same shape this step would otherwise hand-walk. Record each `issues[]` entry as a validation issue with its reported severity. Missing frontmatter or missing required fields are high-severity — skills without valid frontmatter will fail `npx skills add` and `npx skill-check check`.
+The validator emits JSON with `status` (`pass`/`fail`), `issues[]` (each with `severity`, `code`, `message`), and `frontmatter` (the parsed name/description). It checks frontmatter delimiters, name format (Unicode letters + digits + hyphens, no consecutive/trailing hyphens), name-directory match, description presence and length, and unknown fields against the agentskills.io spec. Record each `issues[]` entry as a validation issue with its reported severity. Missing frontmatter or missing required fields are high-severity — skills without valid frontmatter will fail `npx skills add` and `npx skill-check check`.
 
 ### 5. Validate Body, Snippet, and Metadata via skf-validate-output.py
 
-Run the shared output validator against the on-disk skill package — it performs the body-structure, snippet-format, and metadata-shape checks that this step previously walked by hand. Pass `--skip-frontmatter` since §4 has already covered frontmatter.
+Run the shared output validator against the on-disk skill package — it performs the body-structure, snippet-format, and metadata-shape checks. Pass `--skip-frontmatter` since §4 has already covered frontmatter.
 
 **Resolve `{outputValidator}`:** probe `{outputValidatorProbeOrder}` (installed first, dev fallback); first existing path wins. If neither candidate exists, log a high-severity issue ("output validator unavailable — `skf-validate-output.py` missing") and skip body/snippet/metadata validation.
 
@@ -111,7 +107,7 @@ python3 {outputValidator} {skill_package} --generated-by quick-skill --skip-fron
 
 The validator emits JSON with `result` (PASS/FAIL), `validation.skill_md.body[]`, `validation.context_snippet.issues[]`, `validation.metadata.issues[]`, and a severity-bucketed `summary`. Record each issue as a validation issue at its reported severity.
 
-Coverage replaces these former hand-walked checklists:
+The validator covers:
 
 - **Body structure** — Overview, Description, Key Exports, Usage sections present (medium when missing)
 - **Context snippet** — `[{name} v{version}]|root: ...` first line, `|IMPORTANT:` second line, ~80–120-token length
@@ -149,16 +145,5 @@ Set `validation_result` with pass/fail status, quality score, and issues list.
 
 ### 8. Auto-Proceed to Finalize
 
-#### Menu Handling Logic:
-
-- After validation report, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed step — validation is advisory
-- Proceed directly to finalize step after reporting results
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN deliverables have been written to `{skill_package}` and validation checks are complete and results reported will you load and read fully `{nextStepFile}` to execute finalization.
+Once deliverables are written to `{skill_package}` and validation is reported (advisory), load and execute {nextStepFile} to finalize.
 

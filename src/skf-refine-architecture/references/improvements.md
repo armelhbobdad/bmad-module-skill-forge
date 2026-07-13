@@ -23,7 +23,7 @@ Identify capability expansions — library features documented in the generated 
 
 Use the refinement rules loaded in Step 01 from `{refinementRulesData}`. If not available in context, reload from `{refinementRulesData}`.
 
-Extract: improvement classification (Unused Capability, Cross-Library Synergy, Alternative Pattern), detection method, and citation format.
+Extract: improvement classification (Unused Capability, Cross-Library Synergy, Alternative Pattern) and detection method.
 
 ### 2. Build Architecture Usage Map
 
@@ -39,15 +39,13 @@ This creates a map of `{library} -> {described_usage[]}` for comparison against 
 
 For each skill in the inventory:
 
-**Load the full API surface from SKILL.md:**
-- All exported functions with signatures
-- All exported types and interfaces
-- All documented capabilities and features
-- All protocol support indicators
+**Start from the surfaces already collected.** Reuse `{skill_api_surfaces}` (the compact `{exports, protocols, data_formats}` summaries from Step 02 §4) for exports, types, and protocol support — do not re-read SKILL.md in the parent.
+
+**For the fuller capability read** — documented capabilities and features that go beyond §4's exports/protocols/data_formats extraction — delegate to parallel subagents mirroring Step 02 §4 (the canonical delegate-the-read pattern): each subagent reads one SKILL.md and returns compact JSON listing that skill's documented capabilities/features; the parent collects the summaries without loading full SKILL.md content. Reload a file directly only if its summary is unavailable or context has compacted.
 
 **Compare against the architecture usage map:**
 - Which exports does the architecture reference or imply usage of?
-- Which exports are NOT referenced in the architecture at all?
+- Which exports are not referenced in the architecture at all?
 
 **For each unreferenced capability:**
 - Evaluate relevance: would this capability strengthen the architecture?
@@ -66,7 +64,7 @@ Examine pairs of skills for complementary capabilities not exploited in the arch
 
 ### 5. Document Each Improvement
 
-For each detected improvement, apply the citation format from {refinementRulesData}:
+For each detected improvement, cite it in this format:
 
 ```
 **[IMPROVEMENT]**: {description}
@@ -84,25 +82,11 @@ Suggestion: {how to incorporate this capability into the architecture}
 - **Medium:** Capabilities that add convenience or efficiency improvements
 - **Low:** Capabilities that are nice-to-have but not impactful
 
-### 6. Display Improvement Suggestions
+### 6. Report Improvements & Store Findings
 
-"**Pass 3: Improvement Detection — Untapped Capabilities**
+Report the improvement count with its high/medium/low value breakdown, then list each improvement as a row of **# / Library / Improvement Type / Value / Summary** followed by its full §5 citation.
 
-**Improvements Found:** {count} ({high_count} high value, {medium_count} medium, {low_count} low)
-
-{IF improvements found:}
-| # | Library | Improvement Type | Value | Summary |
-|---|---------|-----------------|-------|---------|
-| {n} | {lib} | {type} | {value} | {brief description} |
-
-{For each improvement, display the full citation with evidence and suggestion}
-
-{IF no improvements found:}
-**No untapped capabilities detected.** The architecture fully leverages the skill API surfaces.
-
-**Proceeding to compile refined architecture...**"
-
-Store all improvement findings as workflow state for Step 05. To ensure durability across long runs, also append a `<!-- [RA-IMPROVEMENTS] ... -->` comment block to `{forge_data_folder}/ra-state-{project_name}.md` containing the **complete formatted improvement findings** (full citation blocks with evidence, value ratings, and suggestions — not just counts) — Step 05 can read this back if context degrades. **Do NOT write to `{output_folder}/refined-architecture-{arch_project_name}.md` — that file is created only in step 5.**
+Store the improvement findings per the Finding Storage rule (refinement rules), under a `<!-- [RA-IMPROVEMENTS] ... -->` block (its citations carry the evidence, value rating, and suggestion).
 
 ### 7. Auto-Proceed to Next Step
 

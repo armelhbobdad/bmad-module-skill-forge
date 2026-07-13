@@ -7,6 +7,9 @@ loadProvenanceProbeOrder:
 compareFileHashesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-compare-file-hashes.py'
   - '{project-root}/src/shared/scripts/skf-compare-file-hashes.py'
+structuralDiffProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-structural-diff.py'
+  - '{project-root}/src/shared/scripts/skf-structural-diff.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -25,69 +28,57 @@ Compare the original provenance map extractions from create-skill against the cu
 
 ## MANDATORY SEQUENCE
 
-### 1. Prepare Comparison Sets
+### 1. Run the Deterministic Export Diff
 
-Load both datasets:
+The export comparison — canonicalization, set arithmetic (added/removed/moved), and field-level change detection — is fully deterministic and runs in one subprocess. Do **not** diff the two export lists by hand: an LLM comparing dozens or hundreds of exports can silently drop or mis-match entries, which violates this skill's zero-hallucination contract.
 
-**Baseline (from provenance map):**
-- Export list with names, types, signatures, file paths, line numbers
+**Resolve `{structuralDiffHelper}`** from `{structuralDiffProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
-**Current (from Step 02 extraction):**
-- Export list with names, types, signatures, file paths, line numbers
+Run one comparison over the baseline provenance map (from step 1) and the current extraction snapshot (`{extractionSnapshot}`, written to disk by step 2 §3):
 
-**Canonicalize extractor methodology differences before matching.** The extractor used by `skf-create-skill` at baseline time and the re-extractor used by step 2 can differ in cosmetic detail (quote style, module qualification, re-export resolution). Without normalization, those cosmetic differences surface as false-positive "Changed" and "Removed" entries even when the source commit has not moved. Apply these transforms to both sets symmetrically:
+```bash
+uv run {structuralDiffHelper} {provenanceMap} {extractionSnapshot}
+```
 
-- **Quote style on string defaults.** Normalize string-literal defaults in signatures to a single style — e.g., `kind: str = "Hnsw"` ↔ `kind: str = 'Hnsw'`. Pick one canonical form and apply to both sides.
-- **Module qualification of stdlib helpers.** Strip module prefixes on well-known stdlib helpers when the unqualified form is importable at the call site: `dataclasses.field(...)` → `field(...)`, `typing.Optional[...]` → `Optional[...]`, `typing.List[...]` → `List[...]`. Do not collapse user-defined namespaces.
-- **Public-API re-export resolution.** When `{source_root}/**/__init__.py` re-exports an internal symbol under a different public name (`from .internal import _Impl as Public`, or via `__all__`), resolve both sides to the public name before key-matching — otherwise a renamed re-export in the current scan shows up as "Removed `_Impl`" + "Added `Public`" instead of matching the baseline entry. The re-export map is already in workflow context as `{reexport_map}` (produced by `skf-load-provenance.py normalize` in step 1 §4). Apply it directly without re-walking `__init__.py` files.
+The helper reads both shapes directly — the provenance map's `entries[]` (with `export_name`/`export_type`/`source_file`/`source_line`) and the snapshot's `exports[]` — and aliases the field names, so no manual projection is needed.
 
-Record the set of transforms actually applied in workflow context — step 6 surfaces them in the Provenance section so a reviewer can tell which differences the diff collapsed and which were real.
+**Canonicalization is applied inside the helper, symmetrically to both sides**, before name-keyed matching — so cosmetic extractor differences do not surface as false-positive "Changed"/"Removed"/"Added" entries:
 
-Normalize both sets for comparison:
-- Match by canonicalized export name (primary key)
-- Group by file for location-aware comparison
+- **Quote style on string defaults** — `kind: str = "Hnsw"` ↔ `kind: str = 'Hnsw'`.
+- **Stdlib module qualification** — `typing.Optional[...]` → `Optional[...]`, `dataclasses.field(...)` → `field(...)` (user-defined namespaces are never collapsed).
+- **Public-API re-export resolution** — a renamed public re-export (`_Impl` → `Public`) matches the baseline entry instead of splitting into "Removed `_Impl`" + "Added `Public`". The re-export map is **auto-derived from the provenance map** (identical to the `{reexport_map}` projection `skf-load-provenance.py normalize` produced in step 1 §4). Pass `--reexport-map {file}` only to override with a custom map.
 
-> **Longer-term fix.** The principled remedy is to persist `skf-create-skill`'s ast-grep ruleset to `{forge_version}/extraction-rules.yaml` at create time and have step 2 replay that exact ruleset. When the file is present, step 2 extraction becomes reproducible against the baseline and the canonicalization pass above becomes a no-op. Until then, normalization is the salvage remediation for provenance maps that predate extractor pinning.
+Parse the emitted JSON:
 
-### 2. Detect Added Exports
+```
+{
+  "summary": {"added": N, "removed": N, "changed": N, "moved": N, "unchanged": N},
+  "added":   [ <entry>, ... ],   // in current snapshot, NOT in provenance map
+  "removed": [ <entry>, ... ],   // in provenance map, NOT in current snapshot
+  "changed": [ {"name", "field", "baseline_value", "current_value"}, ... ],
+  "moved":   [ {"name", "previous_file", "current_file"}, ... ],
+  "unchanged_count": N,
+  "applied_transforms": [ {"transform": "quote-style|stdlib-prefix|reexport-resolution", "count": N}, ... ]
+}
+```
 
-**Launch subprocess (Pattern 4 — parallel execution):** In Claude Code, use multiple parallel Agent tool calls. In CLI, use `xargs -P` or equivalent.
+Stash `applied_transforms` in workflow context — step 6 surfaces it in the Provenance section so a reviewer can tell which cosmetic differences the diff collapsed and which changes were real.
 
-Find exports that exist in current scan but NOT in provenance map.
+**If `uv` / the helper cannot execute** (e.g. claude.ai web): fall back to comparing the two lists by hand — match by canonicalized export name (apply the three transforms above to both sides), then read off added (current-only), removed (baseline-only), moved (same name, different `file`), and changed (matched name, differing type/signature/line). Compare a field only when it is present on both sides.
 
-For each added export, record:
-- Export name, type, signature
-- File path and line number (from current scan)
-- Confidence tier (T1 if AST-backed, T1-low if text-based)
+### 2. Read Added / Removed / Moved from the Diff
 
-**If subprocess unavailable:** Iterate current exports, check against provenance map set.
+These sets come straight from the helper's JSON — no further set arithmetic:
 
-### 3. Detect Removed Exports
+- **Added** — `added[]`: exports in the current snapshot but not the provenance map. Each carries name, type, signature, file, line, confidence.
+- **Removed** — `removed[]`: exports in the provenance map but not the current snapshot. Same fields (in provenance-map field names).
+- **Moved** — `moved[]`: matched exports whose file path changed (`previous_file` → `current_file`). A move is **not** a removal.
 
-Find exports that exist in provenance map but NOT in current scan.
+Confidence tier for each entry is the `confidence` field the extractor recorded (T1 if AST-backed, T1-low if text-based).
 
-For each removed export, record:
-- Export name, type, signature (from provenance map)
-- Original file path and line number
-- Confidence tier (T1 if AST-backed, T1-low if text-based)
+### 3. Read Changed Exports from the Diff
 
-**Special check:** If export name exists but in a different file, classify as MOVED (not removed).
-
-### 4. Detect Changed Exports
-
-Find exports that exist in BOTH sets but have differences.
-
-Compare:
-- **Signature changes:** Parameter count, parameter types, return type
-- **Type changes:** Function became class, const became function, etc.
-- **Location changes:** Same name/signature but different file or line number (MOVED)
-
-For each changed export, record:
-- Export name
-- Original signature → Current signature
-- Original location → Current location
-- What changed (signature / type / location)
-- Confidence tier
+`changed[]` lists per-field differences for exports present in BOTH sets. Each item names the export, the `field` that changed (type / signature / line / confidence), and its `baseline_value` → `current_value`. Group items by export name when compiling the report, and pair with the export's `moved[]` entry (if any) to describe location changes.
 
 ### 4b. Detect Script/Asset Drift
 
@@ -114,7 +105,9 @@ Parse the emitted JSON:
 
 Hash-prefix normalization (writer-vs-reader compatibility — `skf-create-skill` writes `content_hash` with a `"sha256:"` prefix, a bare-hex hash from `hashlib` would otherwise never match) is handled inside the script. Downstream consumers read `added`/`removed`/`changed` directly with no further normalization.
 
-Append the three lists into the Structural Drift section as "### Script/Asset Drift ({stats.added + stats.removed + stats.changed})".
+Append the three lists into the Structural Drift section under a `### Script/Asset Drift (added {stats.added}, removed {stats.removed}, changed {stats.changed})` heading — take each count straight from `stats`, no recount.
+
+**If `uv`/the helper cannot execute** (e.g. claude.ai web): skip the script/asset drift check with a `### Script/Asset Drift — skipped (hashing helper unavailable)` note rather than blocking the audit. This check is supplementary to the export diff, which has its own by-hand fallback in §1.
 
 ### Stack-Specific Structural Diff
 
@@ -122,7 +115,7 @@ If `{is_stack_skill}` is true:
 
 **For v2 provenance (per-export entries with `source_library`):**
 - Group entries by `source_library`
-- For each library, perform the standard structural diff (same as single-skill) against current source
+- For each library, run the same deterministic diff as the single-skill path (§1) — pass the per-library baseline slice and the matching current snapshot to `{structuralDiffHelper}`
 - Report per-library diff results
 
 **For code-mode stacks:** Re-extract from each source repo and compare per-library entries.
@@ -135,7 +128,7 @@ If `{is_stack_skill}` is true:
 
 ### 5. Compile Structural Drift Section
 
-**Rollup for high-volume uniform findings.** When ≥ 10 findings in the same table share one root cause (deleted source file, renamed module, entire package tree removed), you MAY collapse them into one row per root cause. Rollup rows replace the per-symbol `Export`/`Signature` columns with `Count` and `Representative symbols` (up to 3 names, `…` if more). Rollup applies to **Added Exports**, **Removed Exports**, and **Script/Asset Drift** tables — **not** to Changed Exports, which are heterogeneous by construction (signature changes and cross-file changes are inspected per-finding). Record which groupings were collapsed in workflow context for reviewer traceability.
+**Rollup for high-volume uniform findings.** When ≥ 10 findings in the same table share one root cause (deleted source file, renamed module, entire package tree removed), you may collapse them into one row per root cause. Rollup rows replace the per-symbol `Export`/`Signature` columns with `Count` and `Representative symbols` (up to 3 names, `…` if more). Rollup applies to **Added Exports**, **Removed Exports**, and **Script/Asset Drift** tables — **not** to Changed Exports, which are heterogeneous by construction (signature changes and cross-file changes are inspected per-finding). Record which groupings were collapsed in workflow context for reviewer traceability.
 
 **Rollup row form (Added / Removed Exports):**
 
@@ -181,23 +174,5 @@ Append to {outputFile}:
 
 ### 6. Update Report and Auto-Proceed
 
-Update {outputFile} frontmatter:
-- Append `'structural-diff'` to `stepsCompleted`
-
-### 7. Present MENU OPTIONS
-
-Display: "**Structural diff complete. {total} drift items found. Proceeding to semantic diff...**"
-
-#### Menu Handling Logic:
-
-- After structural diff section is appended and frontmatter updated, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed analysis step with no user choices
-- Proceed directly to next step after completion
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the ## Structural Drift section has been appended to {outputFile} with all findings documented will you then load and read fully `{nextStepFile}` to execute and begin semantic diff analysis.
+Update {outputFile} frontmatter — append `'structural-diff'` to `stepsCompleted`. Once the ## Structural Drift section has been appended, load, read fully, and execute `{nextStepFile}` (semantic diff).
 

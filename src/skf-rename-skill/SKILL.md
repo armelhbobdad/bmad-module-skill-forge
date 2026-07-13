@@ -21,7 +21,7 @@ Renames a skill across all its versions with transactional safety — copy to th
 
 ## Role
 
-You are Ferris in Management mode — a precision surgeon who operates on the entire skill group atomically. You guarantee safety via copy-before-delete: the new name is fully materialized and verified before the old name is removed, so any failure mid-operation leaves the original skill intact.
+You are Ferris in Management mode — a precision surgeon who operates on the entire skill group atomically.
 
 ## Workflow Rules
 
@@ -31,7 +31,7 @@ These rules apply to every step in this workflow:
 - Never proceed past a verification failure — roll back (delete new directories) and halt
 - Never allow a rename to collide with an existing skill name
 - Only load one step file at a time — never preload future steps
-- If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread
+- If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread — **except** the atomicity and commit-gate safety helpers that execute.md §0 resolves: a missing one there is a HARD HALT (exit 4), never an LLM fall-through, because hand-driven writes/scans would silently regress the transactional guarantees that keep a failed rename recoverable
 - Always communicate in `{communication_language}`
 - At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
@@ -53,32 +53,19 @@ These rules apply to every step in this workflow:
 | **Flags** | `--headless` / `-H` (auto-resolve all gates); `--dry-run` (run selection + validation + display the §8 confirmation block, then exit with `status="dry-run"` — no copy, no manifest re-key, no delete). Useful for verifying the rename plan before the irreversible §8 (delete old) section. |
 | **Gates** | step 1: Input Gate [use args] x2, Confirm Gate [Y] |
 | **Outputs** | Renamed skill directories, updated manifest, updated context files, `{new_name}/rename-skill-result-{timestamp}.json` and `{new_name}/rename-skill-result-latest.json` |
-| **Concurrency** | Two simultaneous rename runs against the same `old_name` would corrupt state mid-copy. select.md §4b acquires a PID-file lock at `{forge_data_folder}/{old_name}/.skf-rename.lock` once `old_name` is resolved; live-PID collisions HALT with `halt_reason: "halted-for-concurrent-run"`. Stale locks (dead PID) are cleared silently with a warning. The lock is released by the terminal health-check step (step 4) and by every documented halt path. |
+| **Concurrency** | A PID-file lock at `{forge_data_folder}/{old_name}/.skf-rename.lock` serializes concurrent runs against the same `old_name`; a live-PID collision HALTs with `halt_reason: "halted-for-concurrent-run"` (exit 5). See select.md §4b for the acquire / stale-clear / release mechanism. |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. The §6 source-authority warning HALTs by default in headless when `source_authority="official"`; set `force_source_authority_in_headless = "true"` in `customize.toml` to auto-acknowledge and proceed (the override is recorded in `headless_decisions[]`). |
-| **Exit codes** | See "Exit Codes" below |
-
-## Exit Codes
-
-Every HARD HALT in this workflow exits with a stable code so headless automators can branch on the failure class without grepping message text:
-
-| Code | Meaning              | Raised by                                                                                    |
-| ---- | -------------------- | -------------------------------------------------------------------------------------------- |
-| 0    | success              | step 4 (terminal)                                                                           |
-| 2    | input-missing / input-invalid | step 1 §4/§5 (headless missing `old_name`/`new_name` arg) → `input-missing`; new name fails kebab-case / length / same-as-old → `input-invalid` |
-| 3    | resolution-failure   | step 1 §2 (manifest is malformed JSON); step 1 §3 (no skills found anywhere)               |
-| 4    | write-failure        | On-Activation §3 pre-flight write probe (skills_output_folder / forge_data_folder unwritable); step 2 §1 (copy → `copy-failed`); step 2 §2 (inner-dir rename) / §3 (file content update) / §4 (symlink repair) → `write-failed`; step 2 §6 (manifest write → `manifest-write-failed`). step 2 §7 (context-file rewrite) is **best-effort and never halts** — per-file failures are recorded in `context_files_failed` and the rename still succeeds (manifest + disk are canonical; re-run `[EX] Export Skill` to retry). |
-| 5    | state-conflict       | step 1 §5 (name-collision check fails: target name already in use); step 1 §6 (source-authority="official" headless without `force_source_authority_in_headless`); concurrency lock collision (`halted-for-concurrent-run`) |
-| 6    | user-cancelled       | step 1 §6 (source-authority warning [N]); step 1 §8 confirmation gate `[N]`; any prompt that accepted `cancel`/`exit`/`:q` |
+| **Exit codes** | Stable per-failure-class codes — see `references/exit-codes.md` |
 
 ## Result Contract (Headless)
 
 When `{headless_mode}` is true, step 3 emits a single-line JSON envelope on **stdout** before chaining to step 4, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
 
 ```
-SKF_RENAME_SKILL_RESULT_JSON: {"status":"success|error|dry-run","old_name":"…|null","new_name":"…|null","versions_renamed":[],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":0,"halt_reason":null}
+SKF_RENAME_SKILL_RESULT_JSON: {"status":"success|error|dry-run","old_name":"…|null","new_name":"…|null","versions_renamed":[],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":0,"halt_reason":null,"headless_decisions":[]}
 ```
 
-`status` is `"success"` on the terminal happy path, `"dry-run"` when `--dry-run` was set and the workflow exited before §9 stores decisions, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"manifest-corrupt"`, `"nothing-to-rename"`, `"name-collision"`, `"source-authority-blocked"`, `"halted-for-concurrent-run"`, `"copy-failed"`, `"verify-failed"`, `"manifest-write-failed"`, `"write-failed"`, `"user-cancelled"`. (§7 context-file rebuild is best-effort and never halts, so it has no `halt_reason`.) `exit_code` matches the table above.
+`status` is `"success"` on the terminal happy path, `"dry-run"` when `--dry-run` was set and the workflow exited before §9 stores decisions, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"manifest-corrupt"`, `"nothing-to-rename"`, `"name-collision"`, `"source-authority-blocked"`, `"halted-for-concurrent-run"`, `"copy-failed"`, `"verify-failed"`, `"manifest-write-failed"`, `"write-failed"`, `"user-cancelled"`. (§7 context-file rebuild is best-effort and never halts, so it has no `halt_reason`.) `exit_code` matches `references/exit-codes.md`. `headless_decisions` is the audit trail of confirmation gates auto-resolved under `{headless_mode}` — each entry `{gate, default_action, taken_action, reason}` (the §6 source-authority override and the §8 auto-confirm); it is `[]` in interactive runs and whenever no gate was auto-resolved before the envelope was emitted.
 
 ## On Activation
 
@@ -105,13 +92,16 @@ SKF_RENAME_SKILL_RESULT_JSON: {"status":"success|error|dry-run","old_name":"…|
 
    If the script fails or is missing, fall back to reading `{skill-root}/customize.toml` directly — the bundled defaults are an empty string for each scalar.
 
-   Apply the scalar fallback now so stage files don't have to repeat the conditional logic. For each of the three scalars, if the merged value is empty or absent, the bundled default applies:
+   Apply the scalar fallback now so stage files don't have to repeat the conditional logic. For each of the four scalars, if the merged value is empty or absent, the bundled default applies:
 
    - `{forceSourceAuthorityInHeadless}` ← `workflow.force_source_authority_in_headless` (empty or non-`"true"` = HALT in headless on `"official"` source-authority)
    - `{unknownIdeDefaultContextFile}` ← `workflow.unknown_ide_default_context_file` if non-empty, else `AGENTS.md`
    - `{unknownIdeDefaultSkillRoot}` ← `workflow.unknown_ide_default_skill_root` if non-empty, else `.agents/skills/`
+   - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string (no-op — step 3 skips the post-completion hook invocation)
 
-   Stash all three as workflow-context variables. Stage files reference them directly — no conditional at the usage site.
+   Stash all four as workflow-context variables. Stage files reference them directly — no conditional at the usage site.
+
+   Then apply the resolved array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (entries prefixed `file:` are paths or globs whose contents load as facts — the bundled default loads any `project-context.md` so rename-policy and public-name-stability guardrails stay in mind); and after activation completes, execute each entry in `workflow.activation_steps_append` in order.
 
 4. **Pre-flight write probe.** Verify both `{skills_output_folder}` and `{forge_data_folder}` are writable. A read-only mount, full disk, or permissions-denied path otherwise only surfaces inside step 2's transactional copy — by then the user has already gone through name validation and confirmation:
 

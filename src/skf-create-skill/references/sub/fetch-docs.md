@@ -86,7 +86,7 @@ Subpage discovery is triggered if **either** of the following independent trigge
 
 The URL matches the path criteria above (ends in `/`, bare domain, or 1 segment) AND the fetched content is under **2000 words**. Short content on root-like URLs almost certainly indicates a navigation hub or landing page, even if it contains introductory code examples that would prevent Trigger 1 from firing. This handles modern doc sites (Mintlify, Docusaurus, GitBook) that include hero sections with code snippets on their root pages.
 
-If neither trigger fires, keep the page content as-is and do NOT trigger subpage discovery.
+If neither trigger fires, keep the page content as-is and do not trigger subpage discovery.
 
 **If a root URL with minimal content is detected:**
 
@@ -136,16 +136,16 @@ Parse the successfully fetched markdown for:
 
 **No hallucination:** If information cannot be found in the fetched content, exclude it. Do not infer or fabricate API details.
 
-**Whole-language references — retain prose, do NOT shred (`whole_language_reference: true`):** For a whole-language reference the registry-sourced corpora (the guide/Book, the standard/library docs) ARE the product, not the compiler's internal exports. Reducing that prose to per-export signature items and then discarding it under the §5 "T3 never overrides T1" rule (the compiler's AST already owns names like `Vec`, `Option`, `HashMap`) would gut exactly the content the skill exists to teach. So for these briefs, skip §4a below for the registry corpora.
+**Whole-language references — retain prose, do not shred (`whole_language_reference: true`):** For a whole-language reference the registry-sourced corpora (the guide/Book, the standard/library docs) ARE the product, not the compiler's internal exports. Reducing that prose to per-export signature items and then discarding it under the §5 "T3 never overrides T1" rule (the compiler's AST already owns names like `Vec`, `Option`, `HashMap`) would gut exactly the content the skill exists to teach. So for these briefs, skip §4a below for the registry corpora.
 
 ### 4a. Retain the Language Guide (whole-language references only)
 
 **Skip this section entirely unless `whole_language_reference: true`.** When it is true, for each `doc_urls` entry whose `source` is `language-registry`:
 
-- Do NOT reduce its fetched markdown to per-export items. Instead retain the cleaned prose as a Language-Guide entry `{url, label, prose}`, where `prose` is the substantive body (narrative, idioms, usage examples, conceptual reference) lightly trimmed of navigation/boilerplate, each block cited `[EXT:{url}]`.
+- Do not reduce its fetched markdown to per-export items. Instead retain the cleaned prose as a Language-Guide entry `{url, label, prose}`, where `prose` is the substantive body (narrative, idioms, usage examples, conceptual reference) lightly trimmed of navigation/boilerplate, each block cited `[EXT:{url}]`.
 - Collect these into a `language_guide[]` context artifact, in `doc_urls` order.
 
-This artifact is a **distinct** carrier — it is NOT merged into the extraction inventory and is NOT subject to the §5 conflict rule, so the canonical prose survives intact into step 5 (compile), which foregrounds it as the skill's Language Guide. Non-registry docs (README-detected, homepage, Pages, docs-folder) still flow through §4's normal per-export extraction and the §5 merge unchanged.
+This artifact is a **distinct** carrier — it is not merged into the extraction inventory and is not subject to the §5 conflict rule, so the canonical prose survives intact into step 5 (compile), which foregrounds it as the skill's Language Guide. Non-registry docs (README-detected, homepage, Pages, docs-folder) still flow through §4's normal per-export extraction and the §5 merge unchanged.
 
 **If a registry corpus could not be fetched** (network failure), record it in `language_guide[]` as `{url, label, prose: null}` and warn — step 5 surfaces the gap rather than emitting a thin guide silently.
 
@@ -156,9 +156,9 @@ This artifact is a **distinct** carrier — it is NOT merged into the extraction
 - **`source_type: "docs-only"`** — The doc-fetch inventory IS the extraction inventory. It replaces the empty inventory from step 3, since there was no source code to extract from.
 - **`source_type: "source"` (supplemental mode)** — Merge T3 items into the existing extraction inventory from step 3.
 
-**Conflict rule:** T3 items NEVER override existing T1, T1-low, or T2 items for the same export. When an export already has a higher-confidence entry, the T3 item is discarded. T3 has the lowest priority.
+**Conflict rule:** T3 items never override existing T1, T1-low, or T2 items for the same export. When an export already has a higher-confidence entry, the T3 item is discarded — T3 has the lowest priority.
 
-**Language-Guide carve-out:** the `language_guide[]` artifact from §4a (whole-language references) is NOT part of the export inventory and is therefore NOT subject to this conflict rule — it carries no export key, so it cannot collide with a T1 compiler export and can never be pruned. It is passed separately into step 5, which renders it as the foregrounded Language Guide section. Only the per-export T3 items participate in the T1/T2/T3 merge.
+**Language-Guide carve-out:** the `language_guide[]` artifact from §4a (whole-language references) is not part of the export inventory and is therefore not subject to this conflict rule — it carries no export key, so it cannot collide with a T1 compiler export and can never be pruned. It is passed separately into step 5, which renders it as the foregrounded Language Guide section. Only the per-export T3 items participate in the T1/T2/T3 merge.
 
 **Edge case — T1-zero supplemental mode:** If T1 extraction produced zero results and `doc_urls` are present in supplemental mode, T3 items should be used as the primary inventory since no T1 data exists to conflict with.
 
@@ -202,48 +202,6 @@ Display:
 
 Proceeding to enrichment..."
 
-### 7. Menu Handling Logic
+### 7. Auto-Proceed
 
-**Auto-proceed step — no user interaction.**
-
-After documentation fetch is complete (or skipped for any reason), immediately load, read entire file, then execute `{nextStepFile}`.
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed step with no user choices
-- No `doc_urls` in brief: skip directly to next step with no output
-- No web fetching available: skip with warning then auto-proceed
-- All URLs failed: skip with warning then auto-proceed
-- Successful fetch: display report then auto-proceed
-- All failures degrade gracefully — skip and auto-proceed
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN documentation is fetched and T3 items are merged into the extraction inventory (or the step is skipped due to no `doc_urls`, no web tools, or fetch failures) will you proceed to load `{nextStepFile}` for enrichment.
-
----
-
-## SYSTEM SUCCESS/FAILURE METRICS
-
-### SUCCESS:
-
-- No `doc_urls` in brief: skipped silently, auto-proceeded
-- `doc_urls` present: each URL fetched using whatever web tool is available
-- Root URLs with minimal content: subpage discovery attempted, relevant subpages fetched
-- Individual fetch failures handled gracefully (skip and continue)
-- All extracted content cited as T3 with `[EXT:{url}]` provenance
-- Existing T1/T1-low/T2 items never overridden by T3 data
-- Docs-only mode: doc-fetch inventory correctly replaces empty extraction inventory
-- Supplemental mode: T3 items merged into existing inventory respecting conflict rule
-- Auto-proceeded to step 4
-
-### SYSTEM FAILURE:
-
-- Halting the workflow because web fetching is unavailable or a URL fails
-- Including fetched content without `[EXT:{url}]` citations
-- Overriding existing higher-confidence extractions (T1, T1-low, T2) with T3 data
-- Hardcoding a specific fetching tool instead of being tool-agnostic
-- Hallucinating API details not found in the fetched content
-- Beginning compilation in this step (that is step 5)
-
-**Master Rule:** Documentation fetching is best-effort T3 enrichment. Fetch what you can, cite everything as `[EXT:{url}]`, never override higher-confidence data, and move on. Failures degrade gracefully — they never block the skill compilation pipeline.
+No user interaction. After the fetch completes or is skipped for any reason, load `{nextStepFile}`, read it fully, then execute it.

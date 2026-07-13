@@ -1,6 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-brief-skill.
+# Team overrides:     _bmad/custom/skf-brief-skill.toml (under {project-root})
+# Personal overrides: _bmad/custom/skf-brief-skill.user.toml (under {project-root})
 
 [workflow]
 
@@ -42,3 +44,15 @@ persistent_facts = [
 description_voice_examples_path = ""
 scope_templates_path = ""
 brief_schema_path = ""
+
+# Pipeline-integration hook invoked once the brief is written and the result
+# contract is finalized (write-brief.md, step 5), before the workflow chains to
+# the terminal health-check step. The command is called as:
+#   <on_complete> --result-path=<absolute_path_to_skill-brief.yaml>
+# Useful for chaining into create-skill, Slack notifications, dashboard ingest,
+# or CI hooks. Override wins. Failures are logged to workflow_warnings[] but
+# never fail the workflow.
+#
+# Empty string = no-op (default).
+
+on_complete = ""

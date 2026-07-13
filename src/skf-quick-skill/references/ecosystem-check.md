@@ -12,11 +12,10 @@ To query the agentskills.io ecosystem for an existing official skill matching th
 
 ## Rules
 
-- This check is advisory — never block the workflow on failure
 - 5-second timeout on ecosystem queries; tool unavailability is a silent skip, not an error
 - Do not begin extraction or compilation
 
-## MANDATORY SEQUENCE
+## Steps
 
 ### 1. Query Ecosystem
 
@@ -54,34 +53,20 @@ An official skill already exists. You can:
 **[I] Install** — Install the existing official skill instead (exits this workflow)
 **[A] Abort** — Cancel compilation"
 
-### 3. Handle Match Menu (ONLY if match found)
+### 3. Handle Match Menu (only when a match was found)
 
 #### Menu Handling Logic:
 
 - IF P: Set `ecosystem_status: match-proceed`, then load, read entire file, then execute {nextStepFile}
-- IF I: Display install instructions for the official skill, emit the HARD HALT envelope per SKILL.md "Result Contract on HARD HALT" (`phase: "ecosystem-check"`, `error.code: "ecosystem-redirect"`, `error.message: "User opted to install existing official skill instead of compiling a custom community skill."`, `skill_package: null`), exit with code 8 (ecosystem-redirect). Skill package is unknown at this phase — no on-disk result file is written.
+- IF I: Display install instructions for the official skill, emit the HARD HALT envelope per `references/halt-contract.md` (`phase: "ecosystem-check"`, `error.code: "ecosystem-redirect"`, `error.message: "User opted to install existing official skill instead of compiling a custom community skill."`, `skill_package: null`), exit with code 8 (ecosystem-redirect). Skill package is unknown at this phase — no on-disk result file is written.
 - IF A: Display "Compilation cancelled.", emit the HARD HALT envelope (`phase: "ecosystem-check"`, `error.code: "user-cancelled"`, `error.message: "User aborted at ecosystem-match gate."`, `skill_package: null`), exit with code 6 (user-cancelled). Skill package is unknown at this phase — no on-disk result file is written.
 - IF Any other: help user, then redisplay the match menu
 
-#### EXECUTION RULES:
+#### Gate:
 
-- ONLY display this menu when ecosystem_status is match
-- ALWAYS halt and wait for user input when match is found
 - **GATE [default: P]** — If `{headless_mode}` and match found: auto-proceed with [P] Proceed (compile custom skill anyway), log: "headless: ecosystem match found, auto-proceeding with custom compilation"
-- For no-match and skip cases, auto-proceed without menu
 
 ### 4. Auto-Proceed (No Match or Skip)
 
-#### Menu Handling Logic:
-
-- After no-match or skip determination, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed path — no user interaction needed
-- Proceed directly to extraction step
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN ecosystem check completes (match with user choice, no-match, or skip) will you load and read fully `{nextStepFile}` to proceed to source extraction.
+For no-match and skip, load and execute {nextStepFile} to proceed to source extraction.
 

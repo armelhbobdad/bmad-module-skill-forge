@@ -1,8 +1,11 @@
 ---
 nextStepFile: 'coherence-check.md'
 outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
-scoringRulesFile: 'references/scoring-rules.md'
+scoringRulesFile: '{scoringRulesPath}'
 sourceAccessProtocol: 'references/source-access-protocol.md'
+reconcileScript: 'scripts/reconcile-coverage.py'
+coherenceScript: 'scripts/check-metadata-coherence.py'
+numeratorVerifyScript: 'scripts/verify-declared-numerator.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -35,10 +38,10 @@ Load `{sourceAccessProtocol}` and follow both sections:
 
 <!-- Subagent delegation: read SKILL.md + references/*.md, return compact JSON inventory -->
 
-Delegate reading of the skill under test to a subagent. The subagent receives the path to SKILL.md (and the `references/` directory path if it exists) and MUST:
+Delegate reading of the skill under test to a subagent. The subagent receives the path to SKILL.md (and the `references/` directory path if it exists) and must:
 1. Read SKILL.md
 2. If a `references/` directory exists alongside SKILL.md and SKILL.md's `## Full` headings are absent or stubs, also read all `references/*.md` files
-3. ONLY return this compact JSON inventory — no prose, no extra commentary:
+3. only return this compact JSON inventory — no prose, no extra commentary:
 
 ```json
 {
@@ -65,22 +68,32 @@ Delegate reading of the skill under test to a subagent. The subagent receives th
 
 **Parent uses this JSON summary as the documented inventory.** Do not load SKILL.md or references file contents into parent context.
 
-#### 1a. Parent-Side Schema Validation + Spot-Check (MANDATORY)
+**If subagent delegation is unavailable:** the parent performs the read itself in the main thread — read SKILL.md (and, per step 2 above, all `references/*.md` when a `references/` directory exists and SKILL.md's `## Full` headings are absent or stubs) and assemble the same compact JSON inventory. The §1a schema validation and ground-truth spot-check still run on the parent-built inventory — a quality gate does not skip its own hallucination guards just because the extraction ran in-thread. This mirrors the §2 fallback ("perform ast-grep analysis in main thread") so §1 degrades gracefully instead of stalling.
 
-test-skill is a quality gate — it MUST NOT trust subagent output blindly. Before any downstream step consumes the inventory, the parent performs two checks and HALTs on any failure:
+#### 1a. Parent-Side Schema Validation + Spot-Check
 
-**Schema validation (required keys + types):**
+test-skill is a quality gate — it must not trust subagent output blindly. Before any downstream step consumes the inventory, the parent runs a schema validator and a grep spot-check, and HALTs on any failure.
 
-1. Strip wrapping markdown fences before parsing. Subagents frequently return JSON wrapped in a code fence — a line of three backticks (optionally followed by a language tag like `json`) preceding the JSON and a closing line of three backticks after it — despite prompt instructions to return raw JSON. When the first non-empty line of the response is three backticks (optionally with a language tag) and the last non-empty line is three backticks, remove those two fence lines before parsing. Then parse the remaining content as JSON. On parse failure of the inner content → HALT "coverage-check: subagent response not valid JSON".
-2. Required keys present: `exports` (list), `cross_check_mismatches` (list — may be empty). Missing key or wrong type → HALT "coverage-check: subagent JSON schema invalid — missing/typo: {key}". Note: the parent already knows the skill name from workflow context (`{resolved_skill_package}` from step 1) — the subagent is not required to echo it back, and doing so introduces a contract-drift surface without improving verification.
-3. Each `exports[]` entry must be a dict with at minimum `name` (non-empty string) and `kind` (one of `function|class|type|constant|hook|interface|method|struct|enum|trait|macro|adapter`). The enum spans the constructs SKF actually documents across languages and skill types: JS/TS (`function`/`class`/`type`/`constant`/`hook`/`interface`/`method`), Rust public-API items (`struct`/`enum`/`trait`/`macro` — alongside the shared `type`/`constant`/`function`), and stack-composition scaffolds (`adapter`). Reject entries violating this; if >0 rejections, HALT "coverage-check: subagent returned malformed export entries — {count} entries do not match schema".
-4. `cross_check_mismatches[]` entries (when non-empty) must carry `export`, `skill_md_line`, `reference_file`, `reference_line`, `issue`. Missing fields → HALT.
+**Schema validation (required keys + types) — delegated to `scripts/validate-inventory.py`.** Fence-stripping, JSON parsing, and the required-keys / per-entry-type / `kind`-enum / mismatch-field contract are structural validation with one correct verdict per input, so they run in the script, not in-prompt. Pipe the subagent's **raw** response (fence and all) to it exactly as §2c pipes the reconcile input:
 
-**Spot-check (ground-truth verification, zero-hallucination guard):**
+```bash
+echo '<subagent raw response>' | uv run scripts/validate-inventory.py --stdin
+```
 
-1. If `len(exports) == 0`: skip the spot-check (no names to verify). Zero-exports policy is handled in the §2b zero-exports guard.
-2. Otherwise, sample `min(3, len(exports))` exports deterministically — by default take indices `[0, len//2, len-1]` (first, middle, last) from the `exports` array after a stable sort by `name`.
-3. For each sampled export, grep for the name across SKILL.md **and every reference file the subagent listed in its `references[]` array** (the documented surface of a split-body skill spans both): `grep -n "{export.name}" {resolved_skill_package}/SKILL.md {resolved_skill_package}/{each references[] path}` in the parent context. The name MUST appear at least once somewhere in that file set. Greping SKILL.md alone would false-HALT a split-body skill whose sampled export is documented only in a `references/*.md` file (a legitimate placement per §1 step 2 and the split-body note below).
+The script strips a wrapping markdown fence (a leading line of three backticks with an optional language tag like `json`, and a trailing line of three backticks — subagents frequently return fenced JSON despite instructions), parses the inner content, and enforces exactly this contract, returning a `violations[]` entry for each breach:
+
+- Parses as JSON after fence stripping (parse failure → `not valid JSON`).
+- Required keys present with correct types: `exports` (list), `cross_check_mismatches` (list — may be empty). Note: the parent already knows the skill name from workflow context (`{resolved_skill_package}` from step 1) — the subagent is not required to echo it back, and doing so introduces a contract-drift surface without improving verification.
+- Each `exports[]` entry is a dict with at minimum `name` (non-empty string) and `kind` (one of `function|class|type|constant|hook|interface|method|struct|enum|trait|macro|adapter`). The enum spans the constructs SKF actually documents across languages and skill types: JS/TS (`function`/`class`/`type`/`constant`/`hook`/`interface`/`method`), Rust public-API items (`struct`/`enum`/`trait`/`macro` — alongside the shared `type`/`constant`/`function`), and stack-composition scaffolds (`adapter`). Malformed entries are counted in `rejectedCount`.
+- Each non-empty `cross_check_mismatches[]` entry carries `export`, `skill_md_line`, `reference_file`, `reference_line`, `issue`.
+
+The script returns `{"valid": bool, "violations": [...], "rejectedCount": N, "exportsCount": N, "inventory": {...}|null}`. **If `valid` is false → HALT** `coverage-check: subagent inventory failed schema validation — {violations joined}` (do not downgrade to a warning; a grader must not trust malformed subagent output). When `valid` is true, consume the script's returned `inventory` object as the documented inventory for the spot-check and all downstream steps — do **not** re-parse the raw response by hand.
+
+**Spot-check (ground-truth verification, zero-hallucination guard):** operate on the validated `inventory` from the script.
+
+1. If `inventory.exports` is empty (`exportsCount == 0`): skip the spot-check (no names to verify). Zero-exports policy is handled in the §2b zero-exports guard.
+2. Otherwise, sample `min(3, exportsCount)` exports deterministically — by default take indices `[0, len//2, len-1]` (first, middle, last) from `inventory.exports` after a stable sort by `name`.
+3. For each sampled export, grep for the name across SKILL.md **and every reference file the subagent listed in `inventory.references`** (the documented surface of a split-body skill spans both): `grep -n "{export.name}" {resolved_skill_package}/SKILL.md {resolved_skill_package}/{each references[] path}` in the parent context. The name must appear at least once somewhere in that file set. Greping SKILL.md alone would false-HALT a split-body skill whose sampled export is documented only in a `references/*.md` file (a legitimate placement per §1 step 2 and the split-body note below).
 4. If a sampled name returns zero matches across SKILL.md **and** all listed reference files, HALT "coverage-check: subagent inventory failed ground-truth spot-check — `{name}` claimed as export but absent from SKILL.md and the listed reference files".
 
 These checks catch two hallucination classes: schema-shape drift (subagent paraphrased or dropped the contract) and fabricated exports (subagent invented names not in the document). Both are disqualifying for a grader skill — do not downgrade to a warning.
@@ -91,7 +104,7 @@ These checks catch two hallucination classes: schema-shape drift (subagent parap
 
 **Only execute if the subagent's `references` array is non-empty** (detected during split-body traversal in Section 1). Skip silently otherwise.
 
-The subagent has already read both SKILL.md body and `references/*.md` files. For each function, class, type, or interface that appears in BOTH the SKILL.md body AND any `references/*.md` file, instruct the subagent (or perform in the same subagent call from Section 1) to compare the documented signatures and include mismatches in its JSON output as a `cross_check_mismatches` array:
+The subagent has already read both SKILL.md body and `references/*.md` files. For each function, class, type, or interface that appears in both the SKILL.md body AND any `references/*.md` file, instruct the subagent (or perform in the same subagent call from Section 1) to compare the documented signatures and include mismatches in its JSON output as a `cross_check_mismatches` array:
 
 - **Parameters:** name, type, order, optionality
 - **Return types:** exact type match
@@ -136,7 +149,7 @@ Start from the package entry point (see 0b) and identify the public API surface.
 For EACH source file that defines public API exports, delegate to a subagent that:
 1. Uses ast-grep to extract all exported symbols with their full signatures (the `source_sig`)
 2. Matches each export against the `documented_signatures` map supplied by the parent, comparing params (name, type, order, optionality) and return type
-3. Returns ONLY the JSON object below — no prose, no commentary, no markdown fences:
+3. Returns only the JSON object below — no prose, no commentary, no markdown fences:
 
 ```json
 {
@@ -167,7 +180,7 @@ Parent strips wrapping markdown fences (if present) before parsing, same as §1a
 
 After the source-code analysis (§2) completes, compute `total_exports` — the count of exports discovered in the source / provenance-map / metadata.json, per the stratified-scope and State 2 rules resolved in §4.
 
-**Stack-skill branch (`metadata.json.skill_type == "stack"`):** A stack skill's own barrel is empty by design — it composes constituent skills rather than exporting a proprietary surface — so `total_exports` derived from its own barrel is `0` for a *correctly* built stack, and its `[from skill: …]` citations never trip §0's `[EXT:…]`-only docs-only trigger. The zero-exports HALT below targets individual source-based skills and must NOT fire for stacks. Derive the stack's coverage denominator (`stack_denominator`) from its composition surface, in priority order, and use it as `total_exports` for the rest of coverage scoring:
+**Stack-skill branch (`metadata.json.skill_type == "stack"`):** A stack skill's own barrel is empty by design — it composes constituent skills rather than exporting a proprietary surface — so `total_exports` derived from its own barrel is `0` for a *correctly* built stack, and its `[from skill: …]` citations never trip §0's `[EXT:…]`-only docs-only trigger. The zero-exports HALT below targets individual source-based skills and must not fire for stacks. Derive the stack's coverage denominator (`stack_denominator`) from its composition surface, in priority order, and use it as `total_exports` for the rest of coverage scoring:
 
 1. Provenance-map cited-contract count — when `{forge_data_folder}/{skill_name}/provenance-map.json` exists **and its `entries[]` is non-empty**: count the named cited contracts, **excluding entries whose `export_name` contains `::`** (impl-block methods roll up under an already-counted type). Use the same exclusion as §4b's named-export rule so the §2b and §4b stack denominators agree.
 2. Otherwise the composition surface from `metadata.json`: `len(libraries) + len(integration_pairs)`.
@@ -197,21 +210,45 @@ Do not write the Coverage Analysis section. Do not proceed to scoring. This is a
 
 ### 2c. Reconcile Documented vs Source Surface (Deterministic Intersection)
 
-On a split-body skill the §1 inventory (documented surface) and the §2 AST output (source barrel) are two independent lists, so the `Documented` count must be their **intersection**, not a parent estimate. Compute three sets deterministically so the Export Coverage numerator is reproducible across runs and reviewers:
+On a split-body skill the §1 inventory (documented surface) and the §2 AST output (source barrel) are two independent lists, so the `Documented` count must be their **intersection**, not a parent estimate. That reconciliation — set intersection/difference/cardinality plus the grep-verified numerator of the scalar/stack branches — is deterministic arithmetic with one correct answer per input, so it is performed by `uv run {reconcileScript}`, not by hand.
 
-**Stack-skill branch (`metadata.json.skill_type == "stack"`):** A stack's source barrel is empty by design, so `barrel_set` is `{}` and the `|documented_set ∩ barrel_set|` / `|barrel_set|` formulas in steps 3–4 would divide by zero. Do NOT use the source barrel for a stack. Instead use the §2b `stack_denominator` as the denominator and compute the numerator by full-grep verification (same mechanism as the scalar-denominator branch below): enumerate the stack's composition-surface names — the provenance-map cited-contract names (`::`-excluded) when the map exists and is non-empty, else the `libraries` and `integration_pairs` names — and for each, grep across `SKILL.md ∪ references/*.md`; `Documented` := the count that appear at least once. Set `Missing` := `stack_denominator − Documented` and omit `Stale` (no source barrel to enumerate against). Carry these into §3/§4 with `Export Coverage = Documented / stack_denominator * 100`, and skip steps 1–4 below.
+**Which branch applies — and therefore which `denominatorSource` the script runs — is the policy decision made here.** The denominator itself is resolved by §4/§4b; the script consumes the *already-resolved* denominator and does only the counting (`documented_set` is derived inside the script from the §1 `exports[]`, de-duplicated and with `kind: "method"` excluded — methods are members of an already-counted class/type, not top-level barrel exports). Pick exactly one branch:
 
-1. **`documented_set`** := the de-duplicated set of `name` from the §1 inventory `exports[]`, excluding `kind: "method"` (methods are members of an already-counted class/type, not top-level barrel exports).
-2. **`barrel_set`** := the union of `exports_found[]` across every §2 per-file result (the actual source public surface). When a stratified-scope or State-2 denominator applies (see §4) **and it resolves to an enumerated name set** — the priority-2/3 re-derivation from `scope.tier_a_include` / `scope.include` globs — `barrel_set` is that resolved denominator's name set instead of the raw union.
+1. **Enumerated path (`denominatorSource: "barrel"`)** — the common split-body case. `barrel_set` is the union of `exports_found[]` across every §2 per-file result. **When a stratified-scope or State-2 denominator applies (see §4) and it resolves to an enumerated name set** — the priority-2/3 re-derivation from `scope.tier_a_include` / `scope.include` globs — pass that resolved name set as `barrelSet` so the script intersects against it instead of the raw per-file union. The script computes `Documented := |documented_set ∩ barrel_set|`, `Missing := barrel_set − documented_set` (in source, not documented), `Stale := documented_set − barrel_set` (documented, not in source), and `Export Coverage = |Documented| / |barrel_set| * 100`.
 
-   **Scalar-denominator branch (§4 priority 1):** when the resolved denominator is the scalar `metadata.json.stats.effective_denominator` (a count with **no enumerated name set**), there is no `barrel_set` to intersect against — the `documented_set ∩ barrel_set` formula in step 3 does not apply. Instead compute the numerator by full-grep verification: for each name in `documented_set`, grep it across `SKILL.md ∪ references/*.md`; `Documented` := the count of `documented_set` names that appear at least once. Use `effective_denominator` directly as the denominator, set `Missing` := `effective_denominator − Documented`, and omit `Stale` (not enumerable without a barrel name set). If §4b's numerator-ground-truth arm fires (it triggers only when `exports_documented == effective_denominator`), its verified count is authoritative and **overrides** this numerator — do not apply both.
-3. Compute (**enumerated path only** — skip when the scalar-denominator branch above applies):
-   - `Documented` := `|documented_set ∩ barrel_set|`
-   - `Missing` := `barrel_set − documented_set` (in source, not documented)
-   - `Stale` := `documented_set − barrel_set` (documented, not in source)
-4. Carry the resulting counts into §3's table and §4's Export Coverage: `Export Coverage = |Documented| / |barrel_set| * 100` (enumerated path) or `Documented / effective_denominator * 100` (scalar-denominator branch). Record the counts in the Coverage Analysis section so the numerator is auditable.
+2. **Scalar-denominator branch (`denominatorSource: "scalar"`)** — §4 priority 1, when the resolved denominator is the scalar `metadata.json.stats.effective_denominator` (a count with **no enumerated name set**). There is no `barrel_set` to intersect, so the script instead greps each `documented_set` name across `SKILL.md ∪ references/*.md` and counts appearances. Pass `denominatorValue: effective_denominator` and `skillPackagePath: {resolved_skill_package}`; the script sets `Missing := effective_denominator − Documented` and returns an empty `Stale` (not enumerable without a barrel name set). If §4b's numerator-ground-truth arm fires (it triggers only when `exports_documented == effective_denominator`), its verified count is authoritative and **overrides** this numerator — do not apply both.
 
-This removes the parent-side guess that otherwise swings the documented count between runs (e.g., "85 from the AST agent" vs "~120 from a hand intersection") and can cross the PASS threshold on split-body skills.
+3. **Stack-skill branch (`denominatorSource: "stack"`, `metadata.json.skill_type == "stack"`)** — a stack's source barrel is empty by design, so intersecting against it would divide by zero. Pass `denominatorValue: stack_denominator` (the §2b composition-surface denominator) and `compositionNames`: the provenance-map cited-contract names (`::`-excluded) when the map exists and is non-empty, else the `libraries` and `integration_pairs` names. The script greps each composition name across `SKILL.md ∪ references/*.md` for the numerator, sets `Missing := stack_denominator − Documented`, and omits `Stale` (no source barrel to enumerate against).
+
+**Build the reconciliation input and run the script:**
+
+```bash
+echo '<JSON>' | uv run {reconcileScript} --stdin
+```
+
+Input JSON (one object — supply only the fields the chosen branch needs; `{reconcileScript}` is resolved relative to the skill root):
+
+```json
+{
+  "denominatorSource": "barrel | scalar | stack",
+  "exports": [ /* §1 inventory exports[] — used for barrel + scalar; kind:"method" entries are excluded automatically */ ],
+  "barrelSet": [ /* barrel: resolved enumerated name set, when §4 supplies one */ ],
+  "perFileResults": [ /* barrel: the §2 per-file results, unioned into barrel_set when no barrelSet */ ],
+  "denominatorValue": 0,
+  "compositionNames": [ /* stack: composition-surface names to grep */ ],
+  "skillPackagePath": "{resolved_skill_package}"
+}
+```
+
+The script returns (read these — **do not re-derive them by hand**):
+
+- `documented` — the numerator (`|documented_set ∩ barrel_set|` for barrel; grep-verified count for scalar/stack)
+- `missing` / `missingCount` — source names not documented (barrel enumerates the names; scalar/stack give only the residual count)
+- `stale` / `staleCount` — documented names not in source (barrel only; empty with `staleApplicable: false` for scalar/stack)
+- `denominator` — `|barrel_set|` (barrel) or the resolved scalar/stack denominator
+- `exportCoverage` — `documented / denominator * 100`, already rounded
+
+Carry these into §3's table/summary and §4's Export Coverage, and record the counts in the Coverage Analysis section (§5) so the numerator is auditable. The `exportCoverage` recorded here is the value step 5 feeds to `compute-score.py` — it is the script's value, not a parent estimate.
 
 ### 3. Build Coverage Results
 
@@ -223,29 +260,22 @@ Aggregate findings across all source files:
 |--------|------|-----------|-----------------|-----------|--------|
 | {name} | function/class/type | yes/no | yes/no/unverified | src/file.ts:42 | PASS/FAIL/WARN |
 
-**Summary counts** (from the §2c reconciliation — not re-estimated here):
-- Total exports in source: `|barrel_set|`
-- Documented in SKILL.md: `Documented` (`|documented_set ∩ barrel_set|`)
-- Missing documentation: `|Missing|`
+**Summary counts** (read from the §2c reconciliation script's JSON — not re-estimated here):
+- Total exports in source: `denominator`
+- Documented in SKILL.md: `documented`
+- Missing documentation: `missingCount`
 - Signature mismatches: {N}
-- Undocumented in SKILL.md but not in source (stale docs): `|Stale|`
+- Undocumented in SKILL.md but not in source (stale docs): `staleCount`
 
 ### 4. Load Scoring Rules
 
 Load `{scoringRulesFile}` to determine category scores:
 
-- **Export Coverage:** (documented / total_exports) * 100
+- **Export Coverage:** the `exportCoverage` value returned by the §2c reconciliation script (`documented / denominator * 100`) — read it from the script's JSON, do not re-compute it here
 - **Signature Accuracy:** (matching_signatures / total_documented) * 100 (Forge/Deep only, "N/A" for Quick)
 - **Type Coverage:** (documented_types / total_types) * 100 (Forge/Deep only, "N/A" for Quick)
 
-**Stratified-scope denominator (monorepo curated subsets):** Before computing Export Coverage, check whether the Source Access Protocol's stratified-scope clause applies to this skill (see `{sourceAccessProtocol}` §Source API Surface Definition — "Stratified-scope monorepo packages"). When it applies:
-
-1. **Prefer `metadata.json.stats.effective_denominator`** when present. Use it directly as `total_exports` — but apply the **denominator deflation guard** from `{sourceAccessProtocol}` stratified-scope resolution step 1: when source is readable, re-derive the source barrel and, if it exceeds `effective_denominator` by >25% with no `scope.tier_a_include`, treat the stored value as deflated, use the re-derived count, and emit the `denominator deflation` gap.
-2. **Otherwise re-derive at test time** from the brief's scope globs per the protocol. When the brief supplies `scope.tier_a_include`, re-derive from that narrower list (excluding umbrella barrel files per the protocol's umbrella-barrel note); otherwise re-derive from `scope.include`. Use the resulting union count as `total_exports`.
-3. **Run the denominator inflation check** defined in `{sourceAccessProtocol}` stratified-scope resolution step 3 whenever re-derivation fell back to `scope.include`. If the `scope.include` union exceeds the provenance-map entry count by more than 25%, emit the Medium-severity `denominator inflation — coarse scope.include union exceeds authored surface` gap and append it to the Coverage Analysis gap list.
-4. **Apply provenance-map canonicalization** before intersecting documented exports against the raw provenance-map entry list — see `{sourceAccessProtocol}` §Source API Surface Definition → "Provenance-map canonicalization" for the folding rules (`_def`/`_exact` suffix, `a11y_` prefix, renderer-prefix disambiguation). Skip folding when `metadata.json.stats.effective_denominator` is present and already equals the raw provenance-map entry count. Record the fold summary in the Coverage Analysis section so it's auditable.
-
-Record the denominator source in the Coverage Analysis section as `Denominator: stratified ({effective_denominator | tier_a_include union | scope.include union}, {N} files matched)`. When stratified scope does not apply, use the standard barrel-based denominator and omit the stratified annotation.
+**Resolve the coverage denominator per `{sourceAccessProtocol}` (already loaded in §0b) — do not re-derive its ladders here.** Determine which §Source API Surface Definition clause matches this skill and apply that clause exactly as written: **stratified-scope** (monorepo curated subset), **multi-entry (exports-map)**, **specific-modules**, **pattern-reference**, or the **State 2** provenance-vs-metadata cross-reference (union on divergence). Each clause fixes its own resolution priority (prefer `metadata.json.stats.effective_denominator` → `scope.tier_a_include` → `scope.include` / subpath union), its deflation and inflation guards, the umbrella-barrel exclusion, and provenance-map canonicalization (including the fold summary the canonicalization records). Use the clause's resolved value as `total_exports`; when no clause matches, use the standard barrel-based denominator. Record the denominator source in the Coverage Analysis section using the exact `Denominator: {barrel | stratified (…) | multi-entry (…) | specific-modules (…) | pattern-reference (…)}` annotation string the matching clause specifies.
 
 **Record the two non-chosen candidate values alongside the chosen one.**
 Stratified-scope resolution picks ONE of three denominator candidates
@@ -266,17 +296,9 @@ as-observed (or `absent` when the candidate was not present for this skill):
 
 Readers can then spot-check whether the chosen denominator is reasonable
 against the other two without re-running the extraction. A future reviewer who
-suspects denominator gaming has the evidence inline.
-
-**Multi-entry (exports-map) denominator (single-package multi-subpath libraries):** Before computing Export Coverage, check whether the Source Access Protocol's multi-entry clause applies to this skill (see `{sourceAccessProtocol}` §Source API Surface Definition — "Multi-entry (exports-map) packages"). It applies when the in-scope `package.json` declares an `exports` map with multiple non-root subpath entries, no monorepo markers — covering `scope.type: "full-library"` AND `scope.type: "public-api"` for such packages. When it applies:
-
-1. **Prefer `metadata.json.stats.effective_denominator`** when present. Use it directly as `total_exports` — subject to the same **denominator deflation guard** the stratified-scope branch applies.
-2. **Otherwise prefer `scope.tier_a_include`** (filtered by `scope.exclude`, excluding umbrella barrel files per the protocol's umbrella-barrel note) when the brief supplies it; **else** re-derive the **union of named exports across the files each NON-WILDCARD `exports` subpath resolves to** per the protocol (resolving committed `.d.ts` / `.d.mts` targets, applying the multi-line brace-accumulation and `export *` star-resolution rules, and excluding `"./*"` wildcard subpaths). Use the resulting count as `total_exports`. When the `exports` map has only a root `"."` entry or only wildcards, fall back to the standard root-barrel rule instead.
-3. **Report the root-barrel named-export count as a secondary candidate** in the Denominator Candidates block so the root-barrel-vs-subpath-union choice is auditable.
-
-Record the denominator source in the Coverage Analysis section as `Denominator: multi-entry ({effective_denominator | tier_a_include union | subpath union}, {N} subpaths resolved; root barrel: {R})`.
-
-**State 2 denominator validation:** When using provenance-map as the baseline (State 2), cross-reference the provenance-map entry count against `metadata.json`'s `exports[]` array before computing Export Coverage. If they diverge, use the union as the denominator per the source-access-protocol rules. Log the gap size if any. The stratified-scope rule above takes precedence when both conditions apply — compute the stratified denominator first, then validate the provenance-map entry count against it.
+suspects denominator gaming has the evidence inline. The `multi-entry` clause
+requires the root-barrel named-export count in the `root barrel` row so the
+root-barrel-vs-subpath-union choice is auditable.
 
 ### 4b. Metadata Export-Count Coherence Cross-Check
 
@@ -296,27 +318,49 @@ After the denominator has been resolved (standard, stratified, or State 2), cros
 **Cluster B — documented surface** (what was extracted and documented, including methods and submodule members):
 
 3. `metadata.json.stats.exports_documented` — the declared documented count
-4. Provenance-map **named-export count** (if `{forge_data_folder}/{skill_name}/provenance-map.json` exists) — count only top-level named exports: **exclude entries whose `export_name` contains `::`** (impl-block methods like `Type::method`, which roll up under an already-counted type and are not separate barrel exports). Comparing the raw entry count instead false-positives on any method-enumerating provenance map (common for Rust/TS type-heavy skills): e.g. a map with 88 named exports + 48 `Type::method` entries reports 136 against `exports_documented` ≈ 92 → a spurious ~32% Cluster-B drift, while the comparable named-export count (88) agrees within ~4%.
-5. `confidence_distribution` sum (`t1 + t1_low + t2 + t3`, when present in `metadata.json.stats`) — every extracted/documented export is binned into exactly one confidence tier, so the distribution must sum to the documented-surface total; a divergence (e.g., distribution sums to 91 while `exports_documented` is 85) is an internal-consistency defect even when the two clusters look fine
+4. Provenance-map **named-export count** (if `{forge_data_folder}/{skill_name}/provenance-map.json` exists) — pass the raw `export_name` values as `provenanceExportNames`; the script counts top-level named exports, **excluding entries whose `export_name` contains `::`** (impl-block methods like `Type::method`, which roll up under an already-counted type and are not separate barrel exports). Comparing the raw entry count instead false-positives on any method-enumerating provenance map (common for Rust/TS type-heavy skills): e.g. a map with 88 named exports + 48 `Type::method` entries reports 136 against `exports_documented` ≈ 92 → a spurious ~32% Cluster-B drift, while the comparable named-export count (88) agrees within ~4%.
+5. `confidence_distribution` (`t1`, `t1_low`, `t2`, `t3`, when present in `metadata.json.stats`) — pass the tiers as `confidenceDistribution`; the script sums them. Every extracted/documented export is binned into exactly one confidence tier, so the distribution must sum to the documented-surface total; a divergence (e.g., distribution sums to 91 while `exports_documented` is 85) is an internal-consistency defect even when the two clusters look fine
 
 Cluster assignment is canonical: `skf-create-skill` step 5 derives `exports_public_api` from entry-point validation and writes the `exports[]` array from the same barrel surface (see `skf-create-skill/references/compile.md:105`), while `exports_documented` tracks the broader documented surface that the provenance-map also enumerates.
 
-**Intra-cluster divergence (Medium):** For each cluster, if two or more counts are present and the largest and smallest disagree by more than 10% of the larger, emit a **Medium**-severity gap titled `metadata drift — {cluster} export counts diverge` (substitute `barrel` for Cluster A, `documented-surface` for Cluster B). Enumerate the offending counts in the gap body (e.g., `stats.exports_public_api=55, exports[].length=48` → 13% drift). This is the real drift signal — the two sources should mirror the same surface and they don't, so upstream extraction or compilation produced inconsistent output that a re-compile should reconcile. Classify under structural/metadata coherence regardless of naive/contextual mode.
+**Delegate the drift arithmetic to `uv run {coherenceScript}`.** The intra-cluster / cross-cluster `>10%` comparisons are deterministic count arithmetic with one correct answer per input, so the script — not the prompt — owns the binning, the divergence percentages, and every skip condition (a cluster with fewer than two present counts, and clusters that agree within the threshold, are skipped inside the script). Build the input from the counts collected above and run it (`{coherenceScript}` resolves relative to the skill root):
 
-**Cross-cluster divergence (Info):** After intra-cluster checks, if both clusters resolved to a representative count (pick the higher of each cluster's available counts) and the two cluster values differ by more than 10%, append a single **Info**-severity note titled `multi-denominator reporting — barrel vs documented surface` with both values (e.g., `barrel=55, documented=114`). This is expected for skills whose documented surface intentionally exceeds the barrel (methods, submodule members, re-exported classes) — it is not drift. The note exists so the test report makes the dual-denominator design visible and auditable without demanding action.
+```bash
+echo '<JSON>' | uv run {coherenceScript} --stdin
+```
 
-**When a cluster has only one count available:** Skip that cluster's intra-cluster check silently — there is nothing to cross-check within it.
+Input JSON (omit any count that is absent; `driftThresholdPct` defaults to `10`):
 
-**When both clusters agree within 10% of each other:** Skip the cross-cluster note silently — no multi-denominator reporting is in play.
+```json
+{
+  "skillType": "{metadata.json.skill_type or null}",
+  "scopeType": "{metadata.json.scope_type or null}",
+  "clusterA": {"exports_public_api": 0, "exports_length": 0},
+  "clusterB": {"exports_documented": 0},
+  "provenanceExportNames": [ /* raw provenance-map export_name values — the script excludes `::` impl-block methods and counts the rest */ ],
+  "confidenceDistribution": {"t1": 0, "t1_low": 0, "t2": 0, "t3": 0}
+}
+```
 
-**When only one count is available across both clusters:** Skip silently — there is nothing to cross-check.
+The script returns `{"skipped": bool, "clusterACounts": {...}, "clusterBCounts": {...}, "findings": [...]}`. Read `findings[]` and append each entry directly — **do not re-derive the percentages by hand.** Each entry carries `severity`, `title`, `detail` (the enumerated counts + drift %), and `category: structural/metadata coherence`:
 
-**Numerator ground-truth — force a full grep on the inflation signature:** The intra/cross-cluster checks above only compare *counts*; they cannot tell whether the declared documented exports actually appear in the skill. When `metadata.json.stats.exports_documented == effective_denominator` exactly (the numerator equals the denominator — the signature of a numerator inflated to match the full surface), do **not** trust the documented count. Grep every declared export name (the full `metadata.exports[]` / provenance-map declared set — not the §1a 3-sample) against `SKILL.md ∪ references/*.md`. The count of declared names that actually appear is the **verified numerator**:
+- A **Medium** `metadata drift — {barrel|documented-surface} export counts diverge` is the real drift signal — the two sources should mirror the same surface and they don't, so upstream extraction or compilation produced inconsistent output that a re-compile should reconcile. It is classified under structural/metadata coherence regardless of naive/contextual mode.
+- An **Info** `multi-denominator reporting — barrel vs documented surface` is expected for skills whose documented surface intentionally exceeds the barrel (methods, submodule members, re-exported classes) — it is not drift. The note exists so the test report makes the dual-denominator design visible and auditable without demanding action.
 
-- If verified == declared, the skill is genuinely fully documented — no finding; coverage stands.
-- If verified < declared, emit a **High**-severity gap `numerator inflation — {declared − verified} of {declared} declared exports absent from SKILL.md/references` listing the absent names, and use the verified count as the Export Coverage numerator (overriding `exports_documented`). A numerator padded to equal the denominator otherwise produces a tautological 100% that passes the gate.
+(The stack and reference-app branches above already skip this delegation; the script also returns `skipped: true` when passed their `skillType` / `scopeType`, so an unconditional call stays safe.)
 
-The full grep runs only on the exact equality signature, so it adds no cost to the common case where the numerator is already below the denominator. Unlike the count-coherence findings above, this arm is authoritative — it changes the numerator used for scoring.
+**Numerator ground-truth — force a full grep on the inflation signature.** The intra/cross-cluster checks above only compare *counts*; they cannot tell whether the declared exports actually appear in the skill. When `metadata.json.stats.exports_documented == effective_denominator` exactly (numerator equals denominator — the signature of a numerator padded to match the full surface), do not trust the documented count: grep the full declared set (the `metadata.exports[]` / provenance-map names, not the §1a 3-sample) against `SKILL.md ∪ references/*.md`. That grep + present/absent set-diff + count has one correct answer per input, so it runs in `uv run {numeratorVerifyScript}`, not in-prompt (`{numeratorVerifyScript}` resolves relative to the skill root):
+
+```bash
+echo '{"declaredNames": [ /* full declared set */ ], "skillPackagePath": "{resolved_skill_package}"}' | uv run {numeratorVerifyScript} --stdin
+```
+
+Read the script's output — do not re-derive it by hand:
+
+- `inflated: false` (`verified == declared`) → the skill is genuinely fully documented; no finding, coverage stands.
+- `inflated: true` (`verified < declared`) → emit a **High**-severity gap `numerator inflation — {declared − verified} of {declared} declared exports absent from SKILL.md/references` listing the script's `absent[]` names, and use `verified` as the Export Coverage numerator (overriding `exports_documented`). A numerator padded to equal the denominator otherwise produces a tautological 100% that passes the gate.
+
+The grep runs only on the exact-equality signature, so it adds no cost to the common case where the numerator is already below the denominator. Unlike the count-coherence findings above, this arm is authoritative — it changes the numerator used for scoring.
 
 Append any findings (Medium gaps, the Info note, and/or the High numerator-inflation gap) to the Coverage Analysis section's gap list (built in section 5) so they surface in the final test report alongside coverage and signature findings. The count-coherence findings are informational about data quality and do not change the denominator chosen above; the numerator ground-truth arm is the one exception that overrides the numerator.
 
@@ -360,17 +404,7 @@ Note: Weight application is deferred to step 5 where all category weights are ca
 
 ### 6. Report Coverage Results
 
-"**Coverage check complete.**
-
-**{skill_name}** — {forge_tier} tier analysis of {file_count} source files:
-
-- Exports: {documented}/{total} documented ({percentage}%)
-- Signatures: {matching}/{total} accurate ({percentage}% or N/A for Quick)
-- Types: {documented_types}/{total_types} covered ({percentage}% or N/A for Quick)
-
-**{N} issues found** — details in Coverage Analysis section.
-
-**Proceeding to coherence check...**"
+Report the coverage result to the user: the {forge_tier}-tier analysis of {file_count} source files, the documented ratios for exports / signatures / types (signatures and types are N/A for Quick tier), and the issue count — full details are in the Coverage Analysis section. Then proceed to the coherence check.
 
 Update stepsCompleted, then load and execute {nextStepFile}.
 

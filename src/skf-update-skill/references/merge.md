@@ -10,21 +10,21 @@ mergeConflictRulesFile: 'references/merge-conflict-rules.md'
 
 ## STEP GOAL:
 
-Merge freshly extracted export data into the existing SKILL.md content while preserving all [MANUAL] sections. Detect and resolve conflicts where regenerated content overlaps developer-authored content. For stack skills, merge across all output files.
+Merge freshly extracted export data into the existing SKILL.md content while preserving all [MANUAL] sections. Detect and resolve conflicts where regenerated content overlaps developer-authored content.
 
 ## Rules
 
 - Focus only on merging extractions into existing skill content
 - Never delete or modify [MANUAL] section content
-- Write merged SKILL.md (and stack reference files) directly to disk at section 6b — Claude Code's Edit/Write tools commit on call, so there is no held-in-memory "edit plan" primitive; subsequent steps validate and verify against the on-disk files
+- Write merged SKILL.md directly to disk at section 6b — Claude Code's Edit/Write tools commit on call, so there is no held-in-memory "edit plan" primitive; subsequent steps validate and verify against the on-disk files
 - If [MANUAL] conflicts detected: halt and present to user. If clean merge: auto-proceed
 
-## MANDATORY SEQUENCE
+## Steps
 
 ### 1. Load Merge Rules
 
 Load {manualSectionRulesFile} for [MANUAL] detection and preservation patterns.
-Load {mergeConflictRulesFile} for change category merge strategies and priority order.
+Load {mergeConflictRulesFile} for the conflict-resolution strategy table (the change-category actions and priority order live in §3 below).
 
 ### 2. Extract [MANUAL] Blocks
 
@@ -35,7 +35,7 @@ From the [MANUAL] inventory captured in step 01:
 
 ### 3. Apply Merge by Priority Order
 
-Follow the merge priority order from {mergeConflictRulesFile}:
+Apply merge in the following priority order:
 
 **Priority 1 — Process DELETED exports:**
 - Remove generated content for deleted exports
@@ -146,20 +146,6 @@ Select: [K] Keep / [R] Remove / [E] Edit"
 
 Process each conflict with user's decision.
 
-### 5. Stack Skill Merge (Conditional)
-
-**ONLY if skill_type == "stack":**
-
-Apply the same merge process to each stack output file:
-- `references/{library}.md` — merge per-library changes, preserve [MANUAL] blocks
-- `references/integrations/{pair}.md` — merge per-integration-pair
-- `metadata.json` — regenerate completely (no [MANUAL] support)
-- `context-snippet.md` — regenerate completely (no [MANUAL] support)
-
-Report stack file merge status for each file.
-
-**If skill_type != "stack":** Skip with notice: "Individual skill — single file merge."
-
 ### 6. Compile Merge Results
 
 Build merge result summary:
@@ -176,30 +162,22 @@ Merge Results:
   manual_conflicts_resolved: [count]
   manual_orphans_kept: [count]
   manual_orphans_removed: [count]
-
-  stack_files_merged: [count] (if stack skill)
 ```
 
 ### 6b. Write Merged Files to Disk
 
-Write the merged content produced by sections 3–5 directly to disk now. Later steps read from these files for validation and verification. The write must happen exactly once, here.
+Write the merged content produced by sections 3–4 directly to disk now. Later steps read from these files for validation and verification. The write must happen exactly once, here.
 
 **Write SKILL.md:**
 - Use the `Edit` or `Write` tool to write merged SKILL.md content to `{skill_package}/SKILL.md`
 - Preserve UTF-8 encoding
 - If the source version detected during step 3 differs from the previous metadata version, create the new `{skill_package}` directory (`{skill_group}/{new_version}/`) first and write there — the previous version's directory is preserved on disk. Update `{skill_package}` in context to point at the new path.
 
-**Write stack reference files (if `skill_type == "stack"`):**
-- For each affected file from section 5, use `Edit` or `Write` to write:
-  - `references/{library}.md` with merged per-library content
-  - `references/integrations/{pair}.md` with merged per-integration content
-- Preserve [MANUAL] blocks exactly as captured in section 2.
-
 **Do NOT write here:**
 - `metadata.json`, `provenance-map.json`, `evidence-report.md` — derived from merge + validation output, written by step 6 sections 2–4
 - `context-snippet.md` — regenerated from the on-disk SKILL.md + metadata.json by step 6 section 5
 
-**Halt-on-tool-failure:** If any `Edit`/`Write` call errors (permission denied, disk full, path invalid, etc.), halt and report the failure — do not proceed to step 5 validation. The skill package may be in a partial state and will need manual recovery before re-running update-skill.
+**Halt-on-tool-failure:** If any `Edit`/`Write` call errors (permission denied, disk full, path invalid, etc.), halt with status `halted-for-write-failure` and report the failure — do not proceed to step 5 validation. The skill package may be in a partial state and will need manual recovery before re-running update-skill. In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "merge:write-skill-md", path: "{skill_package}/SKILL.md", reason: "..."}`).
 
 ### 7. Display Merge Summary
 
@@ -213,36 +191,14 @@ Write the merged content produced by sections 3–5 directly to disk now. Later 
 | [MANUAL] sections preserved | {count} |
 | Conflicts resolved | {count} |"
 
-### 8. Present MENU OPTIONS
+### 8. Gate to Validation
 
-**If conflicts were resolved (user interaction occurred):**
+**Clean merge (no conflicts):** display "**Clean merge — proceeding to validation...**", then load, read the full file, and execute {nextStepFile} (auto-proceed).
 
-Display: "**Merge complete with conflict resolution. Select:** [C] Continue to Validation"
+**Conflicts were resolved (user interaction occurred):** present "**Merge complete with conflict resolution. Select:** [C] Continue to Validation" and wait for the user to confirm before loading {nextStepFile}.
 
-#### Menu Handling Logic:
+**Headless (`{headless_mode}` true):**
 
-- IF C: Load, read entire file, then execute {nextStepFile}
-- IF Any other: help user respond, then [Redisplay Menu Options](#8-present-menu-options)
-
-#### EXECUTION RULES:
-
-- ALWAYS halt and wait for user input after conflict resolution
-- **GATE [default: C if clean merge]** — If `{headless_mode}` and merge is clean (no [MANUAL] conflicts): auto-proceed with [C] Continue, log: "headless: clean merge, auto-continue". **Also append to in-context `headless_decisions[]`** (surfaced via `SKF_UPDATE_RESULT_JSON` by step 7): `{gate: "merge.clean-merge-gate", default_action: "C", taken_action: "C", reason: "headless: clean merge, no conflicts to resolve"}`. If conflicts exist, HALT even in headless mode — conflicts require human judgment, and the headless_decisions[] array does NOT get a continue-on-conflict entry (the workflow status becomes `halted-for-manual-mismatch` instead).
-- ONLY proceed when user selects 'C'
-
-**If clean merge (no conflicts):**
-
-Display: "**Clean merge — proceeding to validation...**"
-
-#### Clean Merge Menu Handling Logic:
-
-- Immediately load, read entire file, then execute {nextStepFile}
-
-#### Clean Merge EXECUTION RULES:
-
-- This is an auto-proceed path when no conflicts exist
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN all merge operations are complete and any [MANUAL] conflicts have been resolved by the user will you load {nextStepFile} to begin validation.
+- Clean merge → auto-continue and append to in-context `headless_decisions[]` (surfaced via `SKF_UPDATE_RESULT_JSON` by step 7): `{gate: "merge.clean-merge-gate", default_action: "C", taken_action: "C", reason: "headless: clean merge, no conflicts to resolve"}`.
+- Conflicts present → halt even in headless mode (conflicts require human judgment): status `halted-for-manual-mismatch`, emitting the halt envelope per SKILL.md §Headless (`error: {phase: "merge:conflict-resolution", reason: "..."}`); no `headless_decisions[]` entry is added.
 

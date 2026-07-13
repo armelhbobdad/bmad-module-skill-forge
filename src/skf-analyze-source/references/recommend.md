@@ -1,7 +1,7 @@
 ---
 nextStepFile: 'generate-briefs.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-schemaFile: 'assets/skill-brief-schema.md'
+schemaFile: '{briefSchemaPath}'
 advancedElicitationSkill: '/bmad-advanced-elicitation'
 partyModeSkill: '/bmad-party-mode'
 ---
@@ -38,7 +38,7 @@ Load {schemaFile} for reference on what skill-brief.yaml requires (so recommenda
 
 ### 2. Build Recommendation Cards
 
-For EACH qualifying unit, prepare a recommendation card:
+For each qualifying unit, prepare a recommendation card:
 
 ```
 **Unit: {name}**
@@ -167,18 +167,8 @@ Display: "**Select an Option:** [A] Advanced Elicitation [P] Party Mode [D] Disc
 - IF P: Invoke {partyModeSkill}, and when finished redisplay the menu
 - IF D: Accept a new repo path/URL from the user. Run a lightweight scan + classify (subset of steps 02-03) for the new source only. Merge new units into the existing report and update `project_paths[]` in frontmatter. Run export mapping for the new units (same logic as step 04 section 2). Generate recommendation cards for the new units and present them for confirmation. Then redisplay this menu.
 - IF C: Save recommendations to {outputFile}, update frontmatter, then load, read entire file, then execute {nextStepFile}
-- IF X: HARD HALT with exit code 6 (`user-cancelled`). Emit the `SKF_ANALYZE_RESULT_JSON` envelope on stderr with `status: "error"`, `halt_reason: "user-cancelled"`, and counts/paths reflecting state at cancellation
+- IF X: HARD HALT with exit code 6 (`user-cancelled`). Emit the error envelope on stderr with `halt_reason: "user-cancelled"` and counts/paths reflecting state at cancellation (shape in `references/headless-contract.md`)
 - IF Any other comments or queries: help user respond then [Redisplay Menu Options](#8-present-menu-options)
 
-#### EXECUTION RULES:
-
-- ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: C]** — If `{headless_mode}`: accept all recommendations and auto-proceed, log: "headless: auto-accept all recommendations"
-- ONLY proceed to next step when user selects 'C'
-- After other menu items execution, return to this menu
-- User can chat or ask questions — always respond and then redisplay menu
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN all units have explicit user decisions (Y/N/M), the confirmed_units list is finalized in frontmatter, and the user has given final confirmation, will you load and read fully {nextStepFile} to begin brief generation.
+**GATE [default: C]** — present the menu and wait for the user's choice. If `{headless_mode}`: accept all recommendations and auto-proceed, log: "headless: auto-accept all recommendations".
 

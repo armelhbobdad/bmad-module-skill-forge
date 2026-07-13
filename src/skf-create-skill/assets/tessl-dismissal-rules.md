@@ -1,8 +1,6 @@
 # tessl Dismissal Rules
 
-This file is the **single source of truth** for tessl review findings that Skill Forge expects and must dismiss. Step-06 §6 loads this file, parses the `tessl skill review` JSON output, and cross-references each finding against the rules below. Matches are dismissed with their rationale logged to the evidence report; non-matches surface to the user via §6b.
-
-**Why this file exists:** Previously, expected tessl behavior was enumerated as prose in step 6 itself. Each time tessl evolved a scorer or added a new rule, step 6 had to be manually patched and the prose re-read by every execution. This file moves the expected behavior into a structured list with stable rule IDs, rationales, and match criteria — one place to update when tessl changes, one place to audit what SKF expects.
+This file is the **single source of truth** for tessl review findings that Skill Forge expects and must dismiss. Step-06 §6 loads this file, parses the `tessl skill review` JSON output, and cross-references each finding against the rules below. Matches are dismissed with their rationale logged to the evidence report; non-matches surface to the user via §6b. Never embed dismissal logic in step files — update the rules here first and reference them from step 6.
 
 ---
 
@@ -17,7 +15,7 @@ When parsing tessl output, check these fields against the thresholds below. Viol
 | `description_score` (LLM judge %) | `>= 60` | warn | The judge's 0–100 discoverability score, composed of `trigger_term_quality`, `specificity`, `completeness`, and `distinctiveness` sub-scores. A value below 100 while the deterministic `description_field` validator PASSES is a soft discoverability hint (e.g. jargon density), **not** a sanitizer bypass — record a warning and continue. Never halt on the judge percentage alone; the authored brief is the source of truth for the description. |
 | `content_score` | `>= 60` | warn | Two-tier design deliberately duplicates key API data across Tier 1 and Tier 2. Conciseness scorer penalizes this. 60 is the acceptable floor. |
 
-**Recovery is gated on the deterministic validator, not the judge percentage.** If tessl emits a `findings[]` entry with rule ID `description_field` (angle-bracket / XML-tag rejection), **attempt recovery first** per rule `description-xml-tags-guarded-upstream` below: re-apply step 5 §2a's `<` → `{` / `>` → `}` substitution in place on the staging SKILL.md frontmatter `description`, then re-run `npx -y tessl skill review <staging-skill-dir>` once. If the re-run clears the `description_field` finding, log `description-recovery: applied ({count} substitutions)` in the evidence report and proceed to normal suggestion handling. If recovery fails, halt with: "Description sanitization recovery failed — step 5 §2a's `<`/`>` → `{`/`}` replacement did not resolve the tessl finding. Investigate the staging SKILL.md frontmatter for non-angle-bracket content that tessl is still rejecting, and patch §2a accordingly. Do not edit the description manually." Do NOT proceed to §6b user prompt on an unrecovered failure.
+**Recovery is gated on the deterministic validator, not the judge percentage.** If tessl emits a `findings[]` entry with rule ID `description_field` (angle-bracket / XML-tag rejection), **attempt recovery first** per rule `description-xml-tags-guarded-upstream` below: re-apply step 5 §2a's `<` → `{` / `>` → `}` substitution in place on the staging SKILL.md frontmatter `description`, then re-run `npx -y tessl skill review <staging-skill-dir>` once. If the re-run clears the `description_field` finding, log `description-recovery: applied ({count} substitutions)` in the evidence report and proceed to normal suggestion handling. If recovery fails, halt with: "Description sanitization recovery failed — step 5 §2a's `<`/`>` → `{`/`}` replacement did not resolve the tessl finding. Investigate the staging SKILL.md frontmatter for non-angle-bracket content that tessl is still rejecting, and patch §2a accordingly. Do not edit the description manually." Do not proceed to §6b user prompt on an unrecovered failure.
 
 A `description_score` (LLM judge %) below 100 **without** an accompanying `description_field` finding is **not** a recovery trigger and **not** a halt condition: record `description_judge_score: {n}% (deterministic description_field validator PASSED)` as a warning in the evidence report and continue to suggestion handling. The recover-then-halt path is reserved for the deterministic validator.
 
@@ -25,7 +23,7 @@ A `description_score` (LLM judge %) below 100 **without** an accompanying `descr
 
 ## Suggestion Dismissal Rules
 
-Each rule below describes a tessl suggestion that Skill Forge expects and dismisses automatically. For each `judge_suggestion` in tessl output, check it against these rules in order. If any rule matches, record the dismissal in the evidence report (`rule_id`, `rationale`) and do NOT apply the suggestion. If no rule matches, the suggestion is novel and must surface to the user in §6b.
+Each rule below describes a tessl suggestion that Skill Forge expects and dismisses automatically. For each `judge_suggestion` in tessl output, check it against these rules in order. If any rule matches, record the dismissal in the evidence report (`rule_id`, `rationale`) and do not apply the suggestion. If no rule matches, the suggestion is novel and must surface to the user in §6b.
 
 ### Rule: `remove-manual-markers`
 
@@ -105,11 +103,4 @@ The recovery path makes the skill shippable when a downstream tool (`skill-check
 
 ## Evolving This List
 
-When tessl introduces new rules, changes scorer behavior, or SKF design decisions change:
-
-1. **Add a new rule section** above with `Rule:`, `Scorer:`, `Match criteria`, `Rationale`, `Action`.
-2. **Link the rationale** to the concrete SKF design principle it protects (two-tier design, MANUAL markers, sanitization, split-body preservation, etc.). A rationale without a design-principle link is a smell.
-3. **Keep score thresholds above current production floors.** Do not lower them to suppress real regressions.
-4. **Never embed dismissal logic in step files.** If step 6 needs updated behavior, update this file first and reference it from step 6.
-
-This file is load-bearing: step 6 §6 has no other source of truth for expected tessl behavior.
+When tessl changes or an SKF design decision shifts, add a new rule section above (`Rule:` / `Scorer:` / `Match criteria` / `Rationale` / `Action`), link each rationale to the concrete SKF design principle it protects (two-tier design, MANUAL markers, sanitization, split-body preservation — a rationale without such a link is a smell), and keep score thresholds at or above current production floors — never lower them to suppress real regressions.

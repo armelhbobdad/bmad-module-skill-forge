@@ -36,6 +36,10 @@ provenanceGapDispatchProbeOrder:
 detectScriptsAssetsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-scripts-assets.py'
   - '{project-root}/src/shared/scripts/skf-detect-scripts-assets.py'
+# `{newFileDiffHelper}` derives NEW_FILE (inventory source_files not in the
+# provenance map, minus [MANUAL] paths) — the set-difference §Category D would
+# otherwise ask the model to compute by hand. Per-skill helper, always bundled.
+newFileDiffHelper: 'scripts/skf-new-file-diff.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -51,7 +55,7 @@ Compare current source code state against the provenance map to produce a comple
 - Focus only on detecting and classifying changes — do not extract or merge
 - Use subprocess Pattern 4 (parallel) when available; if unavailable, compare sequentially
 
-## MANDATORY SEQUENCE
+## Steps
 
 ### 0. Check for Test Report Input (Gap-Driven Mode)
 
@@ -105,7 +109,7 @@ Read the source directory at `{source_root}` and build a current file inventory:
 
 ### 1b. Discovered Authoritative Files Protocol (Mirror)
 
-**Purpose:** mirror `skf-create-skill` §2a into update-skill. `skf-create-skill` §2a catches authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.) during **creation**. But a project may add these files *after* the skill was created — for example, an upstream project adopts an `llms.txt` convention six months into development. Without this mirror, update-skill would either miss the new file entirely (if it doesn't match the provenance map's file patterns) or classify it as a generic ADDED file in §2 Category A with no authoritative-file treatment. The mirror surfaces the discovery with the same P/S/U prompt create-skill uses, honoring any prior amendments.
+**Purpose:** mirror `skf-create-skill` §2a into update-skill. `skf-create-skill` §2a catches authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.) during **creation**, but a project may add these files *after* the skill was created. Without this mirror, update-skill would either miss the new file entirely (if it doesn't match the provenance map's file patterns) or classify it as a generic ADDED file in §2 Category A with no authoritative-file treatment. The mirror surfaces the discovery with the same P/S/U prompt create-skill uses, honoring any prior amendments.
 
 **Skip this section entirely if:**
 
@@ -177,11 +181,11 @@ Read the source directory at `{source_root}` and build a current file inventory:
 
 **Record for evidence report:** the update-skill evidence report appends `authoritative_files_mirror: {candidates: N, promoted: P, skipped: S, pre_decided: A, already_tracked: T, decisions: [{path, action, heuristic, reason}]}`.
 
-**Interaction with §2 change detection:** promoted docs live in `promoted_docs_new[]`, NOT in the change manifest. But §2 Category A ("files in source but not in provenance map → ADDED") would still find the promoted doc files on disk and classify them as ADDED if nothing prevents it. The coordination mechanism is an explicit pre-filter exclusion set built in §2.0 (below) that every Category A subprocess worker receives as an input before it starts scanning. See §2.0 for the exact contract. The exclusion set is the only mechanism guaranteeing that parallel subprocesses cannot double-count `promoted_docs_new[]` paths — prose-level "skip any path" instructions cannot cross subprocess boundaries.
+**Interaction with §2 change detection:** promoted docs live in `promoted_docs_new[]`, not in the change manifest. §2.0's `change_detection_excludes` set (built below) is what stops §2 Category A from re-classifying them as ADDED — it is the only coordination that survives across the parallel Category A subprocesses.
 
 ### 1c. Major-Version Scope Reconciliation (Pre-Detection)
 
-**Purpose:** When upstream undergoes a paradigm shift (rebrand, package restructure, major-version rewrite), the brief's `scope.include` no longer reflects the real public API. §1b handles new authoritative-doc files; §1c handles new **code globs** that fall outside the original scope. Without it, update-skill silently misses the new surface and pays the gap cost on every future update — the cocoindex `0.3.37 → 1.0.0` and cognee `0.5.8 → 1.0.0` runs are existence proofs that this case is real and recurring.
+**Purpose:** §1b handles new authoritative-doc files; §1c handles new **code globs** that fall outside the original scope when upstream restructures (rebrand, package restructure, major-version rewrite) so the brief's `scope.include` no longer reflects the real public API. Without it, update-skill silently misses the new public surface and pays the gap cost on every future update.
 
 **Skip this section entirely if:**
 
@@ -233,7 +237,7 @@ Read the source directory at `{source_root}` and build a current file inventory:
      - `status: "pre-decided-demoted"` → record as `pre_decided`; do not re-prompt (`prior_action` ∈ `demoted-include`, `demoted-exclude`).
      - `status: "unresolved"` → continue to step 4 (user prompt).
 
-   **Note:** the Out-of-Scope section is an optional audit-skill output. `skf-audit-skill` does not currently discover new files (per `src/skf-audit-skill/references/re-index.md` — new-file detection is the responsibility of update-skill). The section is a forward-looking integration point: manual additions or a future audit-skill enhancement populate it.
+   **Note:** the Out-of-Scope section is an optional audit-skill output and is often absent or empty — new-file detection is update-skill's job (§1b/§2.2), not audit-skill's — so the `no-report` / `no-candidates` paths above are the common case.
 
 3. **Prompt for each unresolved candidate.** Present the same menu shape as §1b:
 
@@ -358,15 +362,14 @@ Translate the helper's output into the change manifest:
 - `DELETED_FILE` rows → add to manifest as DELETED_FILE
 - `UNCHANGED` rows → omit from the manifest (no action needed)
 
-The helper does NOT detect NEW_FILE — its job is provenance comparison only. Detect new files by running the same deterministic detector create-skill step 3 §4c uses (resolved via `detectScriptsAssetsProbeOrder`) against the current source tree:
+The compare helper reports only tracked files; NEW_FILE detection (a file present in source but absent from the provenance map) is a set-difference, so it runs through a script rather than the prompt. Pipe the same deterministic detector create-skill step 3 §4c uses (resolved via `detectScriptsAssetsProbeOrder`) into `{newFileDiffHelper}`, which subtracts the provenance map's `file_entries[].source_file` and sets aside user-authored `[MANUAL]` paths:
 
 ```bash
-uv run {detectScriptsAssetsHelper} detect <source-root>
+uv run {detectScriptsAssetsHelper} detect <source-root> \
+    | uv run {newFileDiffHelper} {forge_version}/provenance-map.json
 ```
 
-It emits `scripts_inventory[]` and `assets_inventory[]` (each entry carries `source_file`). Take every `source_file` across both inventories, then subtract the paths already present in `provenance.file_entries[].source_file`. Of the remaining files, those matching detection patterns (`scripts/`, `bin/`, `assets/`, `templates/`) and NOT under `scripts/[MANUAL]/` or `assets/[MANUAL]/` are NEW_FILE.
-
-Files in `scripts/[MANUAL]/` or `assets/[MANUAL]/` → SKIP (user-authored, preserved).
+It emits `{"new_files":[{source_file, kind}], "skipped_manual":[...], "already_tracked":[...], "stats":{...}}`. Add each `new_files[]` entry to the manifest as NEW_FILE — `kind` (`script`/`asset`) selects the target array. `skipped_manual[]` are user-authored files under `scripts/[MANUAL]/` or `assets/[MANUAL]/`, preserved and not touched; `already_tracked[]` were handled by the compare above.
 
 Aggregate all subprocess results into a unified change manifest.
 
@@ -429,8 +432,6 @@ The upstream surface appears to have been substantially replaced. The brief's
 - **[B] Brief:** halt with status `halted-for-brief-refinement`. Display: `"Halting update-skill. Re-run skf-brief-skill to refine scope for {skill_name}, then re-run skf-update-skill."` Change manifest discarded — no partial writes.
 - **[A] Audit:** halt with status `halted-for-audit`. Display: `"Halting update-skill. Run skf-audit-skill against {skill_name} to map the new surface — its drift report will feed §1c on the next update-skill run."` Change manifest discarded.
 
-**Why both §1c and §2.2:** §1c is precise (per-path P/S/U) but requires upstream signal from audit-skill. §2.2 is coarse (single halt/continue) but self-contained — it fires even when the user runs update-skill directly without audit. Together they cover the major-version case across the two real workflows.
-
 ### 3. Build Change Manifest
 
 Hand the assembled Category A/B/C/D JSON to the helper:
@@ -490,7 +491,7 @@ The skill `{skill_name}` is current — no update needed.
 
 → Skip steps 03-06, immediately load {noChangeReportFile} with "no changes" status.
 
-### 5. Display Change Summary and Auto-Proceed
+### 5. Display Change Summary and Route
 
 "**Change Detection Complete:**
 
@@ -500,30 +501,11 @@ The skill `{skill_name}` is current — no update needed.
 | Files added | {count} |
 | Files deleted | {count} |
 | Files moved/renamed | {count} |
-| Exports affected | {total_export_changes} |
+| Exports affected | {total_export_changes} |"
 
-**Proceeding to re-extraction of {affected_file_count if normal mode, or gap_count if gap-driven mode} changes...**"
+This step auto-proceeds — no user choices. Once the change manifest is fully built, load and fully read the next file, then execute it, per the branch that applies:
 
-### 6. Present MENU OPTIONS
-
-Display: "**Proceeding to re-extraction...**"
-
-#### Menu Handling Logic:
-
-- **If `detect_only_mode` is true:** display "**Detect-only mode — skipping re-extract/merge/validate/write.** Loading report..." and load `{noChangeReportFile}` (report.md). The report handles the detect-only envelope. Do NOT load `{nextStepFile}`.
-- Else, after change manifest is built, immediately load, read entire file, then execute `{nextStepFile}`.
-- **EXCEPTION:** If no changes detected (section 4), load `{noChangeReportFile}` instead.
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed step with no user choices
-- Proceed directly to next step after change detection completes (or to report when `detect_only_mode` is true)
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the change manifest is fully built will you load the next file:
-
-- `detect_only_mode == true` → load `{noChangeReportFile}` (report.md). Report emits status `detect-only`.
-- No changes detected → load `{noChangeReportFile}` (report.md). Report emits status `no-changes`.
-- Otherwise → load `{nextStepFile}` (re-extract.md) to begin re-extraction.
+- **`detect_only_mode == true`** → display "**Detect-only mode — skipping re-extract/merge/validate/write.** Loading report..." and load `{noChangeReportFile}` (report.md), which emits status `detect-only`. Do not load `{nextStepFile}`.
+- **No changes detected** (section 4) → load `{noChangeReportFile}` (report.md), which emits status `no-changes`.
+- **Otherwise** → display "**Proceeding to re-extraction of {affected_file_count if normal mode, or gap_count if gap-driven mode} changes...**" and load `{nextStepFile}` (re-extract.md) to begin re-extraction.
 

@@ -19,9 +19,6 @@ detectLanguageProbeOrder:
 languageCorporaProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-language-corpora.py'
   - '{project-root}/src/shared/scripts/skf-language-corpora.py'
-writeSkillBriefProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
-  - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -53,7 +50,7 @@ Apply the following heuristic to classify the input:
 | `github.com/{owner}/{repo}` (with or without `.git` suffix, with or without scheme prefix) | GitHub repo | §1 (standard auto-scope) |
 | `gitlab.com/...`, `bitbucket.org/...` | Git hosting | §1 (standard auto-scope) |
 | Starts with `/`, `./`, `~/`, or `~` | Local filesystem path | §1 (standard auto-scope) |
-| Any other `https://` or `http://` URL | Documentation URL | §0a (docs-only) |
+| Any other `https://` or `http://` URL | Documentation URL | `references/auto-docs-only.md` (docs-only, via §0c) |
 | Anything else (SSH URLs, `git://`, bare hostnames, etc.) | Unclassified | §1 (standard auto-scope) |
 
 Store the classification result (documentation URL vs. repo/local/other). For all input types, continue to §0b (Pin Resolution).
@@ -77,13 +74,10 @@ uv run {validatePinsHelper} --repo-url {project_path} --pin {pin_value}
 Handle exit codes:
 
 - **Exit 0** (`status: "valid"`): Store `{pinned_ref}` = `resolved_ref`, `{pinned_ref_type}` = `ref_type`, `{pinned_version}` = `version`. Continue to §0c.
-- **Exit 1** (`status: "invalid"`): HARD HALT with exit code 3 (`resolution-failure`). Emit error: `"Version pin '{pin_value}' not found in {project_path}. Available matches: {suggestions}. Use a valid tag, branch, or omit --pin for latest."` Emit error envelope:
-  ```
-  SKF_ANALYZE_RESULT_JSON: {"status":"error","report_path":null,"brief_paths":[],"unit_counts":{"confirmed":0,"skipped":0,"maybe":0},"exit_code":3,"halt_reason":"pin-invalid","mode":"auto"}
-  ```
-- **Exit 2** (error): HARD HALT with exit code 3 (`resolution-failure`). Emit error envelope with `halt_reason: "resolution-failure"`.
+- **Exit 1** (`status: "invalid"`): HARD HALT with exit code 3 (`resolution-failure`). Emit error: `"Version pin '{pin_value}' not found in {project_path}. Available matches: {suggestions}. Use a valid tag, branch, or omit --pin for latest."` Emit the error envelope (shape in `references/headless-contract.md`) with `exit_code: 3`, `halt_reason: "pin-invalid"`, `mode: "auto"`.
+- **Exit 2** (error): HARD HALT with exit code 3 (`resolution-failure`). Emit the error envelope with `halt_reason: "resolution-failure"`.
 
-**For repo URLs when `--pin` is NOT provided (default):**
+**For repo URLs when `--pin` is not provided (default):**
 
 Using the same `{validatePinsHelper}` resolved above:
 
@@ -105,32 +99,35 @@ This section checks for existing skills matching the target before proceeding. I
 
 **Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`; first existing path wins; HALT if neither resolves.
 
+Pass the target (`{project_path}`) so the helper computes the coexistence match set for you — do not re-match by hand:
+
 ```bash
-uv run {skillInventoryHelper} {skills_output_folder}
+uv run {skillInventoryHelper} {skills_output_folder} --match-target {project_path}
 ```
 
-Parse the JSON output. If the exit code is non-zero or the `skills` array is empty, skip coexistence detection silently (no existing skills to conflict with) and continue to the next section: §0a for documentation URLs, §1 for all other input types.
+Parse the JSON output. If the exit code is non-zero or the `skills` array is empty, skip coexistence detection silently (no existing skills to conflict with) and continue: load, read fully, then execute `references/auto-docs-only.md` for documentation URLs; §1 for all other input types.
 
-**2. Match target against existing skills:**
+**2. Read the match set:**
 
-For each skill in the inventory, check two match conditions (either triggers a hit):
+The helper already performed the match deterministically — scheme / trailing-`.git` / trailing-slash normalization, kebab expected-name derivation (§6 repo/package name, doc hostname per `references/auto-docs-only.md`), and case-insensitive comparison of both the normalized `source_repo` (URL match) and the derived name (name match). Read the top-level **`matches[]`** array from the JSON; do not normalize, derive, or compare anything in the prompt. Each entry is:
 
-- **URL match:** Normalize both the target URL/path and the skill's `metadata.source_repo` — strip scheme (`http://`, `https://`), strip trailing `.git`, strip trailing `/`, compare case-insensitively. A match on the normalized values is a hit.
-- **Name match:** Derive the expected skill name from the target (same logic as §6 for repo URLs, §0a for doc URLs — kebab-case from the project/domain name), then compare against each skill's `name`.
+```json
+{ "name": "...", "active_version": "...", "source_repo": "...", "active_path": "...", "match_reason": "url" | "name" | "both" }
+```
 
-**3. If zero matches:**
+**3. If `matches[]` is empty:**
 
-Complete silently. Continue to §0a for documentation URLs, §1 for all other input types. No user output.
+Complete silently. Continue: execute `references/auto-docs-only.md` for documentation URLs; §1 for all other input types. No user output.
 
-**4. If one or more matches — coexistence gate:**
+**4. If `matches[]` has one or more entries — coexistence gate:**
 
-Present the user with the coexistence decision:
+Present the user with the coexistence decision, one bullet per `matches[]` entry (`{skill_name}` = `matches[].name`, `{version}` = `matches[].active_version`, `{source_repo}` = `matches[].source_repo`):
 
 ```
 ⚠️ Existing skill(s) found for {target_name}:
 
   • {skill_name} (v{version}) — source: {source_repo}
-  [repeat for each match]
+  [repeat for each entry in matches[]]
 
 Actions:
   [A]longside — Create a new wiki skill with "-wiki" suffix (existing skill untouched)
@@ -144,127 +141,21 @@ In headless mode (`{headless_mode}` is true): auto-select `[A]longside` and log:
 
 **5. Handle user selection:**
 
-- **[A]longside:** Set `{coexistence_suffix}` to `-wiki`. Continue to §0a for documentation URLs, §1 for all other input types. The existing skill is untouched.
+- **[A]longside:** Set `{coexistence_suffix}` to `-wiki`. Continue: execute `references/auto-docs-only.md` for documentation URLs; §1 for all other input types. The existing skill is untouched.
 
-- **[M]erge:** If multiple skills match, prompt the user to select which one to merge into before proceeding. Emit a redirect envelope signaling the forger to route to the US workflow for the selected skill:
+- **[M]erge:** If `matches[]` has more than one entry, prompt the user to select which one to merge into before proceeding. Read `{matched_skill_name}` = the selected entry's `matches[].name` and `{matched_active_path}` = its `matches[].active_path`. Emit a redirect envelope signaling the forger to route to the US workflow for the selected skill:
   ```
   SKF_ANALYZE_RESULT_JSON: {"status":"redirect","redirect_to":"US","skill_name":"{matched_skill_name}","skill_path":"{matched_active_path}","exit_code":0,"halt_reason":null,"mode":"auto","coexistence":"merge"}
   ```
   Write the result contract per `shared/references/output-contract-schema.md` with `status: "redirect"`.
-  Chain to {nextStepFile} (health-check.md). **STOP HERE — do not proceed to §0a or §1.**
+  Chain to {nextStepFile} (health-check.md). **STOP HERE — do not proceed to the docs-only sub-flow or §1.**
 
 - **[S]kip:** Emit a skip envelope:
   ```
   SKF_ANALYZE_RESULT_JSON: {"status":"skipped","report_path":null,"brief_paths":[],"unit_counts":{"confirmed":0,"skipped":1,"maybe":0},"exit_code":0,"halt_reason":null,"mode":"auto","coexistence":"skip","skipped_reason":"Existing skill for {matched_skill_name}"}
   ```
   Write the result contract with `status: "skipped"`.
-  Chain to {nextStepFile} (health-check.md). **STOP HERE — do not proceed to §0a or §1.**
-
-### 0a. Docs-Only Short-Circuit
-
-This section handles documentation URLs that are not GitHub repos or local paths. It validates the URL, writes a minimal brief and analysis report, emits the envelope, and chains directly to health-check — skipping §1 through §11 entirely.
-
-**1. Validate URL reachability:**
-
-```bash
-curl -sI --max-time 5 {url}
-```
-
-- On **2xx/3xx** response: URL is reachable. Continue.
-- On **4xx/5xx**, DNS failure, or timeout: HARD HALT with exit code 3 (`resolution-failure`). Emit error message: `"Documentation URL unreachable: {url} — {status or error}"`. Emit error envelope:
-  ```
-  SKF_ANALYZE_RESULT_JSON: {"status":"error","report_path":null,"brief_paths":[],"unit_counts":{"confirmed":0,"skipped":0,"maybe":0},"exit_code":3,"halt_reason":"path-invalid","mode":"auto","source_type":"docs-only"}
-  ```
-
-**2. Derive skill name from URL domain:**
-
-Extract the hostname from the URL (e.g., `docs.example.com` from `https://docs.example.com/guide/intro`), convert to kebab-case (replace `.` with `-`), yielding e.g. `docs-example-com`. If `{coexistence_suffix}` is non-empty, append it to the skill name (e.g., `docs-example-com-wiki`).
-
-**3. Write analysis report:**
-
-Update {outputFile} with docs-only results.
-
-**Update frontmatter:**
-```yaml
-stepsCompleted: ['init', 'auto-scope']
-lastStep: 'auto-scope'
-source_type: docs-only
-confirmed_units:
-  - name: '{skill_name}'
-    shape: 'docs-only'
-    confidence: 1.0
-    export_count: 0
-    package_count: 0
-```
-
-**Append body section:**
-```markdown
-## Auto-Scope Analysis
-
-**Mode:** auto (docs-only short-circuit)
-**Source Type:** docs-only
-**Documentation URL:** {url}
-**Skill Name:** {skill_name}
-```
-
-**4. Write skill brief via canonical writer:**
-
-**Resolve `{writeSkillBriefHelper}`** from `{writeSkillBriefProbeOrder}`; first existing path wins; HALT if neither resolves.
-
-Create directory `{forge_data_folder}/{skill_name}/` if it does not exist.
-
-Pipe the flat context JSON below into the resolved writer with the `--from-flat` flag:
-
-```json
-{
-  "name":             "{skill_name}",
-  "target_version":   null,
-  "detected_version": null,
-  "source_type":      "docs-only",
-  "source_repo":      "{url}",
-  "language":         "documentation",
-  "description":      "Skill created from documentation at {url}",
-  "forge_tier":       "{forge_tier}",
-  "created":          "{current_date}",
-  "created_by":       "{user_name}",
-  "scope_type":       "docs-only",
-  "scope_include":    [],
-  "scope_exclude":    [],
-  "scope_notes":      "Docs-only skill created from documentation URL",
-  "scope_rationale":  null,
-  "scope_tier_a_include": null,
-  "scope_amendments":     null,
-  "doc_urls":         [{"url": "{url}", "label": "Primary Documentation"}],
-  "scripts_intent":   null,
-  "assets_intent":    null,
-  "source_authority": "community",
-  "target_ref":       null,
-  "source_ref":       null,
-  "version_resolved": "1.0.0"
-}
-```
-
-```bash
-echo '<context-json>' | uv run {writeSkillBriefHelper} write --target {forge_data_folder}/{skill_name}/skill-brief.yaml --from-flat
-```
-
-**5. Emit success envelope:**
-
-```
-SKF_ANALYZE_RESULT_JSON: {"status":"success","report_path":"{outputFile_path}","brief_paths":["{brief_path}"],"unit_counts":{"confirmed":1,"skipped":0,"maybe":0},"exit_code":0,"halt_reason":null,"mode":"auto","source_type":"docs-only"}
-```
-
-If `{coexistence_suffix}` is non-empty (i.e., [A]longside was selected in §0c), include `"coexistence":"alongside"` in the envelope.
-
-The `source_type` field signals downstream consumers (BS) to skip repo-based enrichment.
-
-**6. Write result contract** per `shared/references/output-contract-schema.md`: the per-run record and latest copy, same as §10.
-
-If `{onCompleteCommand}` is non-empty, invoke it now with `--result-path={result_json_path}`.
-
-**7. Chain to health check:**
-
-Load, read fully, then execute {nextStepFile} to run the shared workflow health check. **Skip §1 through §11 entirely.**
+  Chain to {nextStepFile} (health-check.md). **STOP HERE — do not proceed to the docs-only sub-flow or §1.**
 
 ### 1. Load Context
 
@@ -355,22 +246,13 @@ uv run {shapeDetectHelper} --repo-url <project_path_or_url> \
 
 - **Exit 0 (shape classified):** Continue to §3a.
 - **Exit 1 (unknown shape):** Emit fallback message: "**Auto-scope could not classify this repo — switching to interactive mode.**" Load, read fully, then execute `references/scan-project.md`. **STOP HERE.**
-- **Exit 2 (error):** HARD HALT with exit code 3 (`resolution-failure`). Emit the error envelope:
-  ```
-  SKF_ANALYZE_RESULT_JSON: {"status":"error","report_path":null,"brief_paths":[],"unit_counts":{"confirmed":0,"skipped":0,"maybe":0},"exit_code":3,"halt_reason":"resolution-failure","mode":"auto"}
-  ```
+- **Exit 2 (error):** HARD HALT with exit code 3 (`resolution-failure`). Emit the error envelope (shape in `references/headless-contract.md`) with `exit_code: 3`, `halt_reason: "resolution-failure"`, `mode: "auto"`.
 
 ### 3a. Check Decomposition Thresholds
 
 Evaluate the shape detection output to determine whether this **monorepo** should be decomposed into multiple skills.
 
-**Threshold condition:**
-
-| Threshold | Condition | Signal |
-|-----------|-----------|--------|
-| Monorepo / multi-package | `package_count > 3` | 4+ packages — a decomposition **candidate** (empirically validated: fires on real 15-, 38-, and 442-package workspaces) |
-
-> A *single* package with a large API surface is **not** a decomposition trigger — it produces one cohesive skill that `skf-create-skill`'s auto-shard step splits into `references/` shards at the 400-line ceiling (a single library is one install / one import namespace; fragmenting it by source directory loses cohesion). Decomposition is for genuinely multi-package monorepos only.
+Apply the **Decomposition Thresholds** ladder from `step-shape-detect.md` (loaded at §1). A *single* package with a large API surface is **not** a trigger — only a genuine multi-package monorepo is.
 
 **Decision:**
 
@@ -400,28 +282,19 @@ If genuinely unsure, **prefer merge** — a too-broad single skill is recoverabl
 
 ### 4. Map Shape to Scope
 
-Apply the shape→scope.type mapping:
-
-| Shape (from skf-shape-detect.py) | scope.type | Condition |
-|----------------------------------|------------|-----------|
-| `library-API` | `full-library` | export_count ≤ 200 |
-| `library-API` | `public-api` | export_count > 200 |
-| `reference-app` | `reference-app` | — |
-| `language-reference` | `full-library` | — |
-| `stack-compose` | `full-library` | Decomposition candidate when `package_count > 3` — cohesion-checked at §3b |
+Apply the canonical **Shape → Scope Type Mapping** table from `step-shape-detect.md` (loaded at §1) — the single source of truth for this ladder (the `export_count > 200 → public-api` split, the `language-reference` corpora caveat, and the `stack-compose` decomposition note).
 
 ### 5. Generate Include/Exclude Patterns
 
 Generate `scope.include` and `scope.exclude` arrays from the detected language and project structure.
 
-**Detect primary language** from manifest type (the same set shape detection classifies):
-- `package.json` → TypeScript/JavaScript
-- `pyproject.toml` → Python
-- `Cargo.toml` → Rust
-- `go.mod` → Go
-- `pom.xml` → Java
-- `build.gradle` / `build.gradle.kts` → Java or Kotlin (Kotlin when a `src/main/kotlin/` tree exists)
-- `Package.swift` → Swift
+**Detect the primary language once, deterministically**, via the shared helper — the single source of truth for the manifest→language rule table (§6b resolves the same helper; do not restate the table in prose, where it drifts from the script). **Resolve `{detectLanguageHelper}`** from `{detectLanguageProbeOrder}` (first existing path wins). Pipe the §2 supported-manifest paths (and, for a manifest-less toolchain, the harvested `<tree_paths>`) as the file tree:
+
+```bash
+echo '{"tree": [<§2 supported manifest paths + harvested tree paths>]}' | uv run {detectLanguageHelper}
+```
+
+Read `.language` as `{detected_language}` (and `.confidence`) — the helper owns the `tsconfig.json` JS-vs-TS and `build.gradle` Java-vs-Kotlin disambiguation. §6 reuses `{detected_language}` for the brief's `language` field: detect once.
 
 **Default patterns (adjust based on actual project structure):**
 
@@ -450,14 +323,7 @@ scope:
 
 Determine the skill name from the project name or package name (kebab-case, lowercase). Use the manifest `name` field if available, otherwise derive from the project directory name. If `{coexistence_suffix}` is non-empty, append it to the skill name.
 
-Detect the primary language from the manifest ecosystem:
-- `npm` → `typescript` (or `javascript` if no `.ts` files in includes)
-- `python` → `python`
-- `rust` → `rust`
-- `go` → `go`
-- `maven` → `java`
-- `gradle` → `java` (or `kotlin` when a `src/main/kotlin/` tree exists)
-- `swift` → `swift`
+For the brief's `language` field, **reuse `{detected_language}` from §5** — do not re-detect (the §5 helper already resolved js-vs-ts from `tsconfig.json` and Java-vs-Kotlin from the tree).
 
 ### 6b. Seed Companion Corpora (whole-language references only)
 
@@ -467,7 +333,7 @@ A whole-language skill's value is in the language's **prose** — the guide/Book
 
 **Resolve `{detectLanguageHelper}`** from `{detectLanguageProbeOrder}` and **`{languageCorporaHelper}`** from `{languageCorporaProbeOrder}` (first existing path wins).
 
-1. **Derive the corpus language key `{corpus_language}`.** Prefer the §6 manifest language when non-empty. Otherwise — a manifest-less toolchain such as CPython or Ruby — resolve it from the file paths harvested in §2:
+1. **Derive the corpus language key `{corpus_language}`.** Prefer `{detected_language}` (from §5) when non-empty. Otherwise — a manifest-less toolchain such as CPython or Ruby — resolve it from the file paths harvested in §2:
    ```bash
    echo '{"tree": [<harvested §2 file paths>]}' | uv run {detectLanguageHelper}
    ```
@@ -514,7 +380,7 @@ After building all N scopes, continue to §7 with the full set of boundaries.
 
 ### 7. Write Analysis Report
 
-Update {outputFile} with auto-scope results.
+Update {outputFile} with auto-scope results. If the write fails, HARD HALT with exit code 4 (`write-failed`) per `references/headless-contract.md`.
 
 **Update frontmatter:**
 ```yaml
@@ -596,9 +462,9 @@ For multi-scope (N > 1):
 
 **For each confirmed unit** (1 for single-scope, N for decomposition):
 
-Create directory `{forge_data_folder}/{skill_name}/` if it does not exist.
+Create directory `{forge_data_folder}/{skill_name}/` if it does not exist. If a brief write fails, HARD HALT with exit code 4 (`write-failed`) per `references/headless-contract.md`.
 
-Write `{forge_data_folder}/{skill_name}/skill-brief.yaml` conforming to the skill-brief schema (`assets/skill-brief-schema.md`):
+Write `{forge_data_folder}/{skill_name}/skill-brief.yaml` conforming to the skill-brief schema (`{briefSchemaPath}`):
 
 ```yaml
 name: '{skill_name}'
@@ -636,7 +502,7 @@ Loop over all N boundaries. For each boundary:
 - `description` references the parent project and boundary role (e.g., "Core library package of the my-monorepo project, providing...")
 - All N briefs share the same `version`, `source_repo`, `language`, `forge_tier`, `created`, `created_by` values as the parent project
 
-**Version detection:** Attempt to auto-detect the source version per the version detection rules in `assets/skill-brief-schema.md`. Fall back to `1.0.0` if detection fails.
+**Version detection:** Attempt to auto-detect the source version per the version detection rules in `{briefSchemaPath}`. Fall back to `1.0.0` if detection fails.
 
 **Pin data (from §0b):** When `{pinned_ref}` is non-null, enrich the brief with pin data:
 
@@ -646,7 +512,7 @@ Loop over all N boundaries. For each boundary:
 
 When `{pinned_ref}` is null (no pin, no releases): leave `target_version` = null, `target_ref` = null — existing version detection applies unchanged.
 
-In the docs-only path (§0a), `--pin` is ignored (already skipped at §0b). No changes to §0a.
+In the docs-only path (`references/auto-docs-only.md`), `--pin` is ignored (already skipped at §0b). No changes to that path.
 
 ### 9. Emit Result Envelope
 
@@ -656,22 +522,18 @@ Emit the `SKF_ANALYZE_RESULT_JSON` envelope on stdout:
 SKF_ANALYZE_RESULT_JSON: {"status":"success","report_path":"{outputFile_path}","brief_paths":["{brief_path_1}","{brief_path_2}",...,"{brief_path_N}"],"unit_counts":{"confirmed":N,"skipped":0,"maybe":0},"exit_code":0,"halt_reason":null,"mode":"auto"}
 ```
 
-`brief_paths` contains N paths (one per confirmed unit). `unit_counts.confirmed` is N. The envelope JSON format is structurally unchanged — `brief_paths` was already an array and `unit_counts.confirmed` was already a number. No breaking change for downstream consumers.
+`brief_paths` contains N paths (one per confirmed unit). `unit_counts.confirmed` is N.
 
 If `{coexistence_suffix}` is non-empty (i.e., [A]longside was selected in §0c), include `"coexistence":"alongside"` in the envelope.
 
-When `{pinned_ref}` is non-null, include `"pinned_ref":"{pinned_ref}"` and `"pinned_version":"{pinned_version}"` in the envelope. These flow downstream to BS/CS for provenance recording. When `{pinned_ref}` is null, omit these fields (backward-compatible — existing consumers don't expect them).
+When `{pinned_ref}` is non-null, include `"pinned_ref":"{pinned_ref}"` and `"pinned_version":"{pinned_version}"` in the envelope. These flow downstream to BS/CS for provenance recording. When `{pinned_ref}` is null, omit these fields.
 
 ### 10. Write Result Contract
 
-Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{forge_data_folder}/analyze-source-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_data_folder}/analyze-source-result-latest.json`. `outputs` lists all N brief paths and `summary` includes the brief count N.
+Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{forge_data_folder}/analyze-source-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{forge_data_folder}/analyze-source-result-latest.json`. `outputs` lists all N brief paths and `summary` includes the brief count N. If the per-run record cannot be written, HARD HALT with exit code 4 (`write-failed`) per `references/headless-contract.md`.
 
 If `{onCompleteCommand}` is non-empty, invoke it now with `--result-path={result_json_path}`.
 
 ### 11. Chain to Health Check
 
 Load, read fully, then execute {nextStepFile} to run the shared workflow health check.
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the analysis report has been updated, the skill-brief.yaml written and validated, the result envelope emitted, and the result contract saved will you load and read fully {nextStepFile} to begin the health check.

@@ -17,6 +17,31 @@ descriptionGuardProbeOrder:
 updateActiveSymlinkProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-update-active-symlink.py'
   - '{project-root}/src/shared/scripts/skf-update-active-symlink.py'
+# Resolve `{verifyProvenanceCompletenessHelper}` to the first existing path.
+# §6a runs Check D (Provenance Completeness), deferred from step 5 because it
+# needs both metadata.json + provenance-map.json on disk: the export/provenance
+# set-diff (missing + orphaned entries) and file:line citation resolution.
+# Advisory — do not HALT if neither path resolves; fall back to the in-prose
+# set comparison §6a documents (graceful degradation).
+verifyProvenanceCompletenessProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py'
+  - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
+# Resolve `{hashContentHelper}` to the first existing path; HALT if neither
+# candidate exists. §1 uses its `manual-verify` subcommand to verify the
+# post-merge file against the byte-exact [MANUAL] inventory captured in step 1
+# §5; a marker-count comparison would pass a block whose interior was truncated
+# without changing the marker count.
+hashContentProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
+  - '{project-root}/src/shared/scripts/skf-hash-content.py'
+# Resolve `{renderMetadataStatsHelper}` by probing `{renderMetadataStatsProbeOrder}`
+# in order (installed SKF module path first, src/ dev-checkout fallback); first
+# existing path wins. HALT if neither resolves — §2's `stats` block and
+# `confidence_distribution` are computed values that must not be hand-binned,
+# and this is the same helper sibling create-skill compiles them with.
+renderMetadataStatsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
+  - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -25,7 +50,7 @@ updateActiveSymlinkProbeOrder:
 
 ## STEP GOAL:
 
-Verify the merged SKILL.md and stack reference files that step 4 section 6b wrote to disk, then write the derived artifacts (metadata.json, provenance-map.json, evidence-report.md, context-snippet.md, and the active symlink).
+Verify the merged SKILL.md that step 4 section 6b wrote to disk, then write the derived artifacts (metadata.json, provenance-map.json, evidence-report.md, context-snippet.md, and the active symlink).
 
 ## Rules
 
@@ -34,7 +59,7 @@ Verify the merged SKILL.md and stack reference files that step 4 section 6b wrot
 - Do not skip provenance map update — critical for future audits
 - HALT immediately on verification failure before writing any derived artifact — a partial-write skill package is worse than an unchanged one
 
-## MANDATORY SEQUENCE
+## Steps
 
 ### 0. Description Guard Protocol
 
@@ -48,13 +73,19 @@ Update-skill does not run the optional post-restore frontmatter re-validation to
 
 SKILL.md was written in step 4 section 6b. Verify the write landed intact before proceeding to any derived-artifact writes.
 
-- Read `{skill_package}/SKILL.md` from disk
-- Count `<!-- [MANUAL:*] -->` opening markers and compare against the [MANUAL] inventory captured in step 1
 - Verify the resolved `{skill_package}` path matches the version directory step 4 wrote to (if the version changed, step 4 updated `{skill_package}` in context to point at the new path)
-- If [MANUAL] count matches and path resolves: proceed to section 2
-- **If [MANUAL] count does not match: HALT immediately.** Do not write `metadata.json`, `provenance-map.json`, or any other artifact — further writes would compound the inconsistency. Alert the user:
+- Run the deterministic [MANUAL]-integrity verifier against the byte-exact inventory captured in step 1 §5:
 
-  "**[MANUAL] section count mismatch after write.** Expected {N} from step 1 inventory, found {M} on disk at `{skill_package}/SKILL.md`. The skill package is in an inconsistent state. Manual recovery required — restore the previous version from `{skill_group}/{previous_version}/` or fix the file in place, then re-run update-skill."
+  ```bash
+  uv run {hashContentHelper} manual-verify {skill_package}/SKILL.md \
+      --inventory {manual_inventory}
+  ```
+
+  The verdict JSON is `{"preserved":[...], "modified":[...], "missing":[...], "moved":[...], "ok":bool}`. A `modified` block is one whose byte-exact interior changed (an interior truncation); a `missing` block lost its markers entirely; a `moved` block is byte-identical but relocated with its logical parent section (clean — does not fail the gate). `ok == (modified empty AND missing empty)`.
+- If `ok == true` and the path resolves: proceed to section 2
+- **If `ok == false`: HALT immediately** with status `halted-for-manual-mismatch`. Do not write `metadata.json`, `provenance-map.json`, or any other artifact — further writes would compound the inconsistency. In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "write:verify-manual-integrity", path: "{skill_package}/SKILL.md", reason: "..."}`). Alert the user:
+
+  "**[MANUAL] section integrity failure after write.** Blocks modified (interior changed): {modified}. Blocks missing (markers lost): {missing}. Relocated-but-intact (advisory only): {moved}. Verified against the step-1 inventory `{manual_inventory}`, on disk at `{skill_package}/SKILL.md`. The skill package is in an inconsistent state. Manual recovery required — restore the previous version from `{skill_group}/{previous_version}/` or fix the file in place, then re-run update-skill."
 
 ### 2. Write Updated metadata.json
 
@@ -64,21 +95,27 @@ Update `{skill_package}/metadata.json`:
 - Update `version`: **if `update_mode == "gap-driven"`, do not bump — the skill is being repaired against the same source commit, so leave `version` unchanged and update only `generation_date` / `last_update` below.** This keeps metadata `version` consistent with the on-disk `{skill_package}` path, which step 4 §6b also leaves unchanged in gap-driven mode (see step 4 §6b's "If the source version detected during step 3 differs..." carve-out — in gap-driven mode no source version is detected, so step 4 writes into the existing version directory). Otherwise, if a source version was detected during re-extraction and differs from the current metadata version, use the source version; otherwise increment patch version
 - Update `generation_date` timestamp to current ISO-8601 date
 - Update `exports` array to reflect current export list
-- Update `stats` from re-extraction results:
-  - `exports_documented`: count of exports with documentation in the merged skill
+- **Compute the `stats` block and `confidence_distribution` deterministically** with `{renderMetadataStatsHelper}` (resolve from `{renderMetadataStatsProbeOrder}`; first existing path wins) — the same helper sibling create-skill compiles them with, so create and update emit byte-identical stats for identical inputs. The helper owns all the arithmetic: it bins each provenance `entries[]` row once by its `signature_source` tier into `confidence_distribution.{t1,t1_low,t2,t3}`, sets `exports_documented` = the entry count, and derives `exports_total` = `exports_public_api` + `exports_internal`, `public_api_coverage` = documented / public_api (`null` if public_api is 0), `total_coverage` = documented / total (`null` if total is 0), plus `scripts_count` / `assets_count` from the inventory arrays. Run `uv run {renderMetadataStatsHelper} --help` for the full contract. Do not hand-bin the distribution — binning T2 annotations + T3 doc items on top of the per-export tiers double-counts, which per-entry binning by `signature_source` makes structurally impossible. You supply only the judgment payload:
+
+  **Judgment payload (what you decide — passed as JSON on stdin):**
   - `exports_public_api`: count of exports from public entry points (`__init__.py`, `index.ts`, `lib.rs`, or equivalent)
   - `exports_internal`: count of all other non-underscore-prefixed exports
-  - `exports_total`: `exports_public_api` + `exports_internal`
-  - `public_api_coverage`: `exports_documented / exports_public_api` (`null` if `exports_public_api` is 0)
-  - `total_coverage`: `exports_documented / exports_total` (`null` if `exports_total` is 0)
-- Update `confidence_distribution` from re-extraction results:
-  - `confidence_distribution.t1`, `confidence_distribution.t1_low`, `confidence_distribution.t2`, `confidence_distribution.t3`: update counts from re-extraction results
-  - `scripts_count`, `assets_count`: update from re-extraction results if scripts/assets changed
-- For stack skills: update `library_count`, `integration_count` if changed
+  - `scripts` / `assets`: the scripts / assets inventory arrays (or `[]` when empty) — the helper sets `scripts_count` / `assets_count` from their lengths
+
+  **Invoke** — since the helper reads `entries[]`, stage §3's `provenance-map.json` write first (§3 does not depend on these stats):
+
+  ```bash
+  echo '{"exports_public_api": {N}, "exports_internal": {M}, "scripts": {scripts-inventory-or-[]}, "assets": {assets-inventory-or-[]}}' \
+    | uv run {renderMetadataStatsHelper} {forge_version}/provenance-map.json
+  ```
+
+  Write the returned `stats` and `confidence_distribution` objects into `metadata.json` **verbatim**. If the helper reports `coherence.ok: false`, some provenance entries carry a missing/unrecognized `signature_source` (§3 must write it on every entry) — fix the provenance map, do not hand-edit the stats.
 
 ### 3. Write Updated provenance-map.json
 
 Write to `{forge_version}/provenance-map.json`:
+
+**Every entry this step writes or rewrites carries a `signature_source` (`T1` / `T1-low` / `T2` / `T3`)** — the tier that contributed the structural signature, matching create-skill's entry contract. §2's stats helper bins each entry on this field, so a missing value trips its `coherence.ok: false` check. Preserve it byte-identical on untouched entries; set it from the contributing extraction tier on every re-extracted or new entry.
 
 **If `no_reextraction == true` (gap-driven mode from step 3 section 0):**
 Dispatch per-entry on the verification outcome recorded by step 3 — gap-driven runs produce a mix of `verified`, `moved`, `re-extracted`, and `unknown` outcomes, and each requires a different provenance-map write strategy:
@@ -121,6 +158,8 @@ Dispatch per-entry on the verification outcome recorded by step 3 — gap-driven
   "manual_sections_preserved": {count}
 }
 ```
+
+`manual_sections_preserved` = `len(preserved) + len(moved)` from the §1 `manual-verify` verdict (blocks that survived byte-identical, whether in place or relocated). Do not re-count markers by hand — the §1 verdict is the deterministic source.
 
 ### 4. Write Updated evidence-report.md
 
@@ -168,18 +207,9 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 
 **Context Snippet population** (used by §5 after the staleness check runs): §4 writes the sub-block with placeholders; §5 updates the on-disk evidence report in place after deciding whether to regenerate. Set `Regenerated: true` and populate `Triggers fired` with any combination of `headline-exports`, `version`, `gotchas` when at least one trigger fired. Set `Regenerated: false` and `Triggers fired: —` when none fired (the gap-driven / internals-only outcome). Always fill `Notes` with a one-sentence reason (e.g., `"Gap-driven repair — no snippet surface changed"`, `"Version bumped 0.1.0 → 0.2.0; headline exports re-ranked"`).
 
-### 5. Verify Stack Skill Reference File Writes (Conditional) and Regenerate context-snippet.md
+### 5. Regenerate context-snippet.md
 
-**ONLY if skill_type == "stack":**
-
-Stack reference files were written in step 4 section 6b. Verify each affected reference file that the merge produced:
-
-- Read each `references/{library}.md` back from disk
-- Read each `references/integrations/{pair}.md` back from disk
-- Verify per-file [MANUAL] section counts match the per-file inventory captured in step 1
-- **If any verification fails: HALT** using the same recovery protocol as section 1 — do not regenerate `context-snippet.md` or write any further derived artifact
-
-**For all skills (both single and stack) — regenerate `context-snippet.md` if stale:**
+**Regenerate `context-snippet.md` if stale:**
 
 `context-snippet.md` is a `{skill_package}` deliverable that goes stale whenever **headline exports**, **version**, or **gotchas** change in this run. Regenerate it only when at least one of these triggers fired; otherwise skip — a skip is the correct outcome for gap-driven repairs and other runs that touch internals below the snippet's surface, where regenerating would produce byte-identical content.
 
@@ -193,18 +223,13 @@ Stack reference files were written in step 4 section 6b. Verify each affected re
 
 **If no trigger fired:** skip regeneration — do not touch `context-snippet.md` on disk. The snippet remains valid against the prior run's surface. Continue to §5b.
 
-**If at least one trigger fired:** regenerate the snippet using the format from the matching template file:
-
-- For single skills: `skf-create-skill/assets/skill-sections.md` (pipe-delimited indexed format)
-- For stack skills: `skf-create-stack-skill/assets/stack-skill-template.md`
+**If at least one trigger fired:** regenerate the snippet using the format from `skf-create-skill/assets/skill-sections.md` (pipe-delimited indexed format).
 
 Use the **flat draft form** for the `root:` path in the draft snippet: `root: skills/{skill-name}/`. The per-IDE skill root (e.g., `.claude/skills/`, `.windsurf/skills/`, `.github/skills/` — see `skf-export-skill/assets/managed-section-format.md`) is applied later by `export-skill` step 3 when the skill is exported. Do not choose an IDE-specific prefix in update-skill — that is an export-time decision that depends on config.yaml.
 
 Pull values for the regenerated snippet from the updated metadata.json (version, top exports), the merged SKILL.md (section anchors, inline summaries), and the evidence report (new gotchas). If gotchas cannot be derived from the updated evidence but the prior snippet has a `|gotchas:` line, carry forward the prior line with the `[CARRIED]` marker — see `skf-export-skill/references/generate-snippet.md` for the carry-forward protocol (one-cycle limit).
 
 Write the regenerated snippet to `{skill_package}/context-snippet.md`, preserving file permissions.
-
-**If skill_type == "stack"**, also verify that the reference file updates from the first half of this section have been applied before writing the snippet so the stack snippet reflects the newest integration list.
 
 ### 5b. Update Active Symlink
 
@@ -225,9 +250,11 @@ The helper emits a result envelope with `status` ∈ `{ok, flipped, mismatch, mi
 - **`missing-target`** (exit 2): `{skill_group}/{version}/` directory does not exist on disk. HALT — display `halt_message` verbatim. This indicates §4 §6b did not write the version directory before §5b ran (a workflow bug, not a user error).
 - **`mismatch`** (exit 2): re-read after flip showed the symlink still points elsewhere. HALT — display `halt_message`. Should be impossible because the helper uses `os.replace` (atomic rename); a mismatch here indicates filesystem-level interference (concurrent writer, broken FUSE mount).
 
+Both exit-2 halts carry status `halted-for-write-failure`; in `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "write:active-symlink", reason: "..."}`).
+
 ### 6. Verify Derived Artifact Writes
 
-SKILL.md was verified in section 1 and stack reference files in section 5 (both written by step 4 section 6b). This section verifies the artifacts this step wrote: `metadata.json`, `provenance-map.json`, `evidence-report.md`, `context-snippet.md`, and the `active` symlink from §5b.
+SKILL.md was verified in section 1 (written by step 4 section 6b). This section verifies the artifacts this step wrote: `metadata.json`, `provenance-map.json`, `evidence-report.md`, `context-snippet.md`, and the `active` symlink from §5b.
 
 For each derived artifact:
 - Read back the file
@@ -246,11 +273,32 @@ For each derived artifact:
 | evidence-report.md | {VERIFIED/FAILED} |
 | context-snippet.md | {VERIFIED/FAILED} |
 | {skill_group}/active symlink | {VERIFIED/FAILED} (readlink → {resolved_version}, expected {version}) |
-| {stack reference files...} | {VERIFIED in section 5} |
 
-**On symlink `mismatch` (helper exit 2):** HALT. Do not proceed to §7 post-write validation or §8 menu. Display the helper's `halt_message` verbatim — it already includes the diverged target, the expected version, and the recovery command. This matches the severity of the other four artifact checks — silent divergence here mis-routes any downstream consumer that uses the symlink fallback.
+**On symlink `mismatch` (helper exit 2):** HALT with status `halted-for-write-failure`. Do not proceed to §7 post-write validation or §8 menu. Display the helper's `halt_message` verbatim — it already includes the diverged target, the expected version, and the recovery command; in `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "write:verify-active-symlink", reason: "..."}`). This matches the severity of the other four artifact checks — silent divergence here mis-routes any downstream consumer that uses the symlink fallback.
 
 **All files written and verified.**"
+
+### 6a. Provenance Completeness (Check D — Deferred from Step 05)
+
+`validate.md` Check D (Provenance Completeness) is a deterministic set-diff plus citation resolution, and it needs both `metadata.json` (written in §2) and `provenance-map.json` (written in §3) on disk — neither exists at validate time, so the check is deferred here. Run it against the just-written artifacts via `{verifyProvenanceCompletenessHelper}`:
+
+```bash
+uv run {verifyProvenanceCompletenessHelper} verify \
+    --metadata {skill_package}/metadata.json \
+    --provenance {forge_version}/provenance-map.json \
+    --source-root {source_root}
+```
+
+The helper reads its `--source-root` (falling back to the provenance map's own `source_root` field when the flag is omitted); pass the resolved `{source_root}` so citation resolution runs against the same tree re-extraction read. **Read the emitted JSON — do NOT recompute the set operations by eye; an LLM set-diff can silently pass a dropped or orphaned entry:**
+
+- `missing[]` — documented exports (metadata `exports[]`) with no provenance entry: a coverage gap.
+- `orphaned[]` — provenance `entries[].export_name` whose export was removed but the entry remains.
+- `stale[]` — entries whose `source_file:source_line` no longer resolves; each carries a `reason` of `file-missing`, `line-out-of-bounds`, or `line-invalid`. Internal names are canonicalized through `reexport_map` before the diff, so a barrel-renamed export does not read as missing or orphaned.
+- `summary.stale_check` — `"checked"` when citations were resolved against the source tree, or `"skipped-no-source-root"` when no source root resolved on disk (the completeness + orphan diffs still ran; `stale` is empty by construction, not clean-by-verification).
+
+Map `status` to the `Provenance:` line of the §4 evidence report's Validation Summary: `PASS` when `status == "pass"`, `WARN` when `status == "findings"` (this is the persistent record — step 5 §5's table was rendered before the provenance map existed, so it necessarily showed this row as deferred). Provenance findings are **advisory** — they do not block the update. Surface each `missing` / `orphaned` / `stale` entry in the evidence report's Validation Summary so the user can decide, and note when `stale_check` was `skipped-no-source-root`.
+
+**Graceful degradation:** if neither probe path resolves (no `uv` / script available), fall back to the manual set comparison the script encapsulates — enumerate metadata `exports[]` and provenance `entries[].export_name` (canonicalizing internal names through `reexport_map`), diff the two sets for missing/orphaned entries, and spot-check that each `source_file:source_line` still points at a real line in the source tree. Prefer the script — it does this deterministically.
 
 ### 7. Run Post-Write Validation (Deferred from Step 05)
 
@@ -284,20 +332,7 @@ Record findings in the evidence report (section 4), including any `description_g
 
 **If skill-check unavailable:** Skip with note — structural checks from step 5 are sufficient.
 
-### 8. Present MENU OPTIONS
+### 8. Route to Next Step
 
-Display: "**Proceeding to report...**"
-
-#### Menu Handling Logic:
-
-- After all writes verified and post-write validation complete, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed step with no user choices
-- Proceed directly to report after verification
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN all files have been written and verified will you load {nextStepFile} to display the change report.
+This step auto-proceeds — no user choices. Once all files have been written and verified and post-write validation is complete, display "**Proceeding to report...**", then load, fully read, and execute `{nextStepFile}` to display the change report.
 

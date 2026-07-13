@@ -19,7 +19,7 @@ When `scope.type: "component-library"`, perform specialized extraction that trea
 
 ## MANDATORY SEQUENCE
 
-**Prerequisite — §2a already ran.** Step-03 executes `§2a Discovered Authoritative Files Protocol` before delegating to this file. Any promoted authoritative files (`llms.txt`, `AGENTS.md`, etc.) are tracked in the `promoted_docs[]` context list and will be written to `file_entries[]` with `file_type: "doc"` by step 5 §6 — they do NOT appear in the filtered file list that was passed into this step, so Phase 1 demo exclusion below only operates on code files. No special handling is required in this file for promoted docs. See step 3 §2a for the full flow.
+**Prerequisite — §2a already ran.** Step-03 executes `§2a Discovered Authoritative Files Protocol` before delegating to this file. Any promoted authoritative files (`llms.txt`, `AGENTS.md`, etc.) are tracked in the `promoted_docs[]` context list and will be written to `file_entries[]` with `file_type: "doc"` by step 5 §6 — they do not appear in the filtered file list that was passed into this step, so Phase 1 demo exclusion below only operates on code files. No special handling is required in this file for promoted docs. See step 3 §2a for the full flow.
 
 ### Phase 1: Demo/Example Exclusion
 
@@ -42,7 +42,7 @@ Before extraction, identify and exclude demo/example files to avoid inflating ex
 
 Confirm exclusion? [Y/n] Or adjust patterns:"
 
-**GATE [default: Y]** — if `{headless_mode}` is true: auto-confirm the auto-detected exclusion patterns, log "headless: auto-confirm demo/example exclusion ({N} files, {M} directories)", and append `{step: "component-extraction", gate: "demo-exclusion", decision: "Y", value: "{N} files / {M} dirs", rationale: "headless mode — auto-detected demo patterns accepted", timestamp: {ISO}}` to `headless_decisions[]` for evidence-report assembly in step 5 §7. Then proceed without waiting.
+**GATE [default: Y]** — if `{headless_mode}` is true: auto-confirm the auto-detected exclusion patterns, log "headless: auto-confirm demo/example exclusion ({N} files, {M} directories)", and append `{step: "component-extraction", gate: "demo-exclusion", decision: "Y", value: "{N} files / {M} dirs", rationale: "headless mode — auto-detected demo patterns accepted", timestamp: {ISO}}` to `headless_decisions[]` and, the moment it lands, append the same object as a JSON line to the durable audit sink `{sidecar_path}/auto-decisions.jsonl` (the on-landing append established at step 1 §3) — the sink feeds the evidence-report `## Auto-Decisions` table at step 5 §7 and step 6 §8. Then proceed without waiting.
 
 Wait for user response (interactive only). Apply confirmed patterns to the exclude list. Record `demo_files_excluded: {count}` in context.
 
@@ -85,7 +85,7 @@ Sample entries:
 
 Is this the component registry? [Y/n] Or provide the correct path:"
 
-**GATE [default: Y]** — if `{headless_mode}` is true AND `score >= 7` (high-confidence candidate): auto-confirm the registry candidate, log "headless: auto-confirm registry candidate `{path}` (score {score}/9)", and append `{step: "component-extraction", gate: "registry-confirm", decision: "Y", value: "{path} score={score}/9", rationale: "headless mode — high-confidence registry candidate auto-accepted", timestamp: {ISO}}` to `headless_decisions[]`. If `score < 7` in headless mode, auto-reject the candidate (treat as "no registry found"), log "headless: auto-reject low-confidence registry candidate (score {score}/9) — below auto-accept threshold 7", record the decision, and fall through to the "no registry found" branch below. Confidence threshold 7 matches the minimum score the heuristic considers "probable enough to risk" without human eyes.
+**GATE [default: Y]** — if `{headless_mode}` is true AND `score >= 7` (high-confidence candidate): auto-confirm the registry candidate, log "headless: auto-confirm registry candidate `{path}` (score {score}/9)", and append `{step: "component-extraction", gate: "registry-confirm", decision: "Y", value: "{path} score={score}/9", rationale: "headless mode — high-confidence registry candidate auto-accepted", timestamp: {ISO}}` to `headless_decisions[]` and, the moment it lands, append the same object as a JSON line to the durable audit sink `{sidecar_path}/auto-decisions.jsonl` (the on-landing append established at step 1 §3). If `score < 7` in headless mode, auto-reject the candidate (treat as "no registry found"), log "headless: auto-reject low-confidence registry candidate (score {score}/9) — below auto-accept threshold 7", record the decision the same way (buffer + sink, `decision: "reject-low-score"`), and fall through to the "no registry found" branch below. Confidence threshold 7 matches the minimum score the heuristic considers "probable enough to risk" without human eyes.
 
 Wait for user response (interactive only).
 
@@ -95,7 +95,7 @@ Wait for user response (interactive only).
 - **[P]** Provide the registry file path
 - **[S]** Skip registry — proceed with standard props-first extraction only"
 
-**GATE [default: S]** — if `{headless_mode}` is true: auto-select [S] Skip (props-first extraction without registry), log "headless: no registry detected, auto-skip to props-first extraction (no path was provided in brief.scope.registry_path)", and append `{step: "component-extraction", gate: "provide-or-skip-registry", decision: "S", rationale: "headless mode — no human to provide registry path", timestamp: {ISO}}` to `headless_decisions[]`. The default is `[S]` rather than `[P]` because providing a path requires user input that headless cannot supply; skipping degrades gracefully to a smaller but valid extraction.
+**GATE [default: S]** — if `{headless_mode}` is true: auto-select [S] Skip (props-first extraction without registry), log "headless: no registry detected, auto-skip to props-first extraction (no path was provided in brief.scope.registry_path)", and append `{step: "component-extraction", gate: "provide-or-skip-registry", decision: "S", rationale: "headless mode — no human to provide registry path", timestamp: {ISO}}` to `headless_decisions[]` and, the moment it lands, append the same object as a JSON line to the durable audit sink `{sidecar_path}/auto-decisions.jsonl` (the on-landing append established at step 1 §3). The default is `[S]` rather than `[P]` because providing a path requires user input that headless cannot supply; skipping degrades gracefully to a smaller but valid extraction.
 
 Wait for user response (interactive only).
 
@@ -160,7 +160,7 @@ constraints:
 
 Also run `export const $NAME` patterns for arrow function components.
 
-For each component export: record name, source file, line number. Do NOT document the function signature in detail (it's always `(props: XProps) => JSX.Element`).
+For each component export: record name, source file, line number. Do not document the function signature in detail (it's always `(props: XProps) => JSX.Element`).
 
 **Step 3 — Link Props to Components:**
 
@@ -185,7 +185,7 @@ Extract non-Props type exports using standard AST patterns (same as Forge tier):
 
 When multiple design system variants exist:
 
-1. **Group components by registry `id`** (NOT by filename — registry is source of truth):
+1. **Group components by registry `id`** (not by filename — registry is source of truth):
    - For each `id` in `component_catalog[]`, collect all variant paths from `available_in[]` and `code_paths[]`
 
 2. **Select canonical props definition:**
@@ -243,33 +243,6 @@ Display: "**Component extraction complete.** Returning to main extraction flow."
 
 ## RETURN PROTOCOL
 
-After Phase 6 completes, return control to step 3 section 5 (Build Extraction Inventory). The extraction results from this step are merged into the standard extraction inventory format. Step-03 continues with its normal Gate 2 summary and menu.
+After Phase 6 completes, return control to step 3 section 5 (Build Extraction Inventory). The extraction results from this step are merged into the standard extraction inventory format. Step-03 continues with its normal Gate 2 summary and confirmation.
 
-Do NOT load `{returnToStep}` — the calling step (step 3) will continue from where it delegated.
-
----
-
-## SYSTEM SUCCESS/FAILURE METRICS
-
-### SUCCESS:
-
-- Demo/example files detected and excluded with user confirmation
-- Registry detected (or user provided path) and parsed into component_catalog
-- Props interfaces extracted as primary API contracts
-- Components linked to Props via 3-level fallback chain
-- Variant consolidation produced deduplicated counts (if applicable)
-- All extracted items have provenance citations
-- Results compatible with step 3 section 5 inventory format
-- component_catalog stored in context for step 5
-
-### FAILURE:
-
-- Excluding demo files without user confirmation
-- Accepting a registry candidate without user confirmation
-- Not extracting Props interfaces as primary API surface
-- Documenting component function signatures instead of Props
-- Including hallucinated component data not in source
-- Variant deduplication based on filenames instead of registry IDs
-- Not returning control to step 3 after completion
-
-**Master Rule:** Zero hallucination — every extraction must trace to source code. The component registry is the source of truth for the API surface.
+Do not load `{returnToStep}` — the calling step (step 3) continues from where it delegated.

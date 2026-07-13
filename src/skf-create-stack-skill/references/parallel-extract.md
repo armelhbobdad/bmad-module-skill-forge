@@ -60,7 +60,11 @@ The script emits JSON of the form:
 }
 ```
 
-Cache this result as `stack_skill_inventory` in workflow state — the per-skill subagent fan-out at §1+ MUST read from this cache rather than re-reading each skill's `SKILL.md` / `metadata.json` / `references/` to determine exports. Append every entry in `warnings[]` to workflow state for the evidence report (the script already labels them per-skill, e.g. `"<skill-name>: no exports found via any resolution path"`). For every entry in `cycles[]`, halt with a structured-error contract on stderr — a composes-cycle makes the stack unbuildable.
+Cache this result as `stack_skill_inventory` in workflow state — the per-skill subagent fan-out at §1+ MUST read from this cache rather than re-reading each skill's `SKILL.md` / `metadata.json` / `references/` to determine exports. Append every entry in `warnings[]` to workflow state for the evidence report (the script already labels them per-skill, e.g. `"<skill-name>: no exports found via any resolution path"`). If `cycles[]` is non-empty, a composes-cycle makes the stack unbuildable — emit the result envelope on stderr per the Result Contract in SKILL.md and exit `3`:
+
+```
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"compose","exit_code":3,"halt_reason":"resolution-failure"}
+```
 
 Build a `per_library_extractions[]` entry for each skill by reading from the cached inventory:
 - `library`: `inventory.skills[i].name`
@@ -70,15 +74,7 @@ Build a `per_library_extractions[]` entry for each skill by reading from the cac
 - `metadata_hash`: `inventory.skills[i].metadata_hash` — record for step 7 provenance (null when exports came from references/ or SKILL.md prose).
 - `usage_patterns`: populated by the §1+ per-skill subagent fan-out, NOT by this script. The script provides the inventory + exports; the subagent does the per-skill usage analysis. They're complementary.
 
-Display an extraction summary:
-
-"**Loaded {N} skill extractions from existing skills.**
-
-| Skill | Exports | Confidence | Status |
-|-------|---------|------------|--------|
-| {name} | {count} | {tier} | Loaded |"
-
-Auto-proceed to next step.
+Report the loaded extractions — for each skill: export count, confidence tier, and load status. Then auto-proceed to the next step.
 
 **If not compose_mode:** Continue with section 1 (existing flow).
 
@@ -177,26 +173,15 @@ For each library extraction:
 **If ALL extractions fail:** HALT — cannot produce meaningful stack skill. Before halting (B7):
 
 1. Purge any in-flight staging artifacts under the forge workspace: remove `{forge_data_folder}/{project_name}-stack/{version}/*-tmp` and any `{forge_data_folder}/{project_name}-stack/{version}/*.skf-tmp` directories so partial state does not linger.
-2. Emit a structured error contract on stderr: `{"status":"error","skill":"skf-create-stack-skill","stage":"step 4","reason":"all extractions failed","libraries":[...]}`.
-3. Exit with a non-zero status so headless pipelines detect the failure.
+2. Emit the result envelope on stderr per the Result Contract in SKILL.md (`stack_libraries` carries the confirmed library names that failed extraction), and exit `2`:
+
+   ```
+   SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","exit_code":2,"halt_reason":"all-extractions-failed"}
+   ```
 
 ### 4. Display Extraction Summary
 
-"**Library extraction complete.**
-
-| Library | Exports | Patterns | Confidence | Status |
-|---------|---------|----------|------------|--------|
-| {name} | {count} | {count} | {tier} | ✓ |
-| {name} | {count} | {count} | {tier} | ✓ |
-| {name} | — | — | — | ⚠ partial |
-
-**Results:** {success_count}/{total_count} libraries extracted
-**Confidence distribution:** T1: {count}, T1-low: {count}, T2: {count}
-{If Deep tier:} **T2 enrichment:** {enriched_count}/{total_count} libraries had temporal collections available
-{If libraries without temporal > 0:} **Tip:** Run [CS] Create Skill at Deep tier for individual libraries to generate temporal collections, then re-run [SS] for full T2 enrichment.
-{If warnings:} **Warnings:** {warning_count} issues noted
-
-**Proceeding to integration detection...**"
+Report the extraction results: per library the export count, pattern count, confidence tier, and success/partial status; the overall `{success_count}/{total_count}` extracted; and the T1 / T1-low / T2 confidence distribution. At Deep tier, add the T2-enrichment count (`{enriched_count}/{total_count}` libraries with temporal collections available); and if any library lacked a temporal collection, add the tip: run **[CS] Create Skill** at Deep tier for those libraries to generate temporal collections, then re-run **[SS]** for full T2 enrichment. Note any warning count.
 
 ### 5. Auto-Proceed to Next Step
 

@@ -1,5 +1,16 @@
 ---
 nextStepFile: 'package.md'
+managedSectionData: '{managedSectionFormatPath}'
+# Resolve `{validateOutputHelper}` by probing `{validateOutputProbeOrder}` in
+# order (installed SKF module path first, src/ dev-checkout fallback); first
+# existing path wins. §2 runs it with `--export-gate` to obtain the
+# agentskills.io export verdict — required-field presence, enum membership,
+# JSON validity, and the SKILL.md Section 7b <-> scripts/assets cross-reference
+# — as one deterministic JSON result, instead of re-deriving those checks
+# in-prompt each run. package.md §1-4 renders its status from the same verdict.
+validateOutputProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-output.py'
+  - '{project-root}/src/shared/scripts/skf-validate-output.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -26,12 +37,14 @@ Determine the skill(s) to export and any flags:
 **Skill Path Discovery (version-aware — see `knowledge/version-paths.md`):**
 - If user provided one or more skill names or paths as arguments, use that list directly
 - If `--all` was passed, build the list from every skill in `{skills_output_folder}/.export-manifest.json.exports` whose `active_version` entry is not `status: "deprecated"` (deprecated skills are excluded from all exports — see step 4 §4b). **First-export fallback:** if the manifest is absent or its `exports` object is empty (a fresh repo with skills on disk but no prior export), do not resolve to an empty set — enumerate skills on disk instead, using the same discovery ladder as the no-argument branch below (`active` symlinks at `{skills_output_folder}/{skill-name}/active/{skill-name}/SKILL.md`, then flat `{skills_output_folder}/{skill-name}/SKILL.md`). Every disk-discovered skill is non-deprecated by definition — deprecation status lives only in the manifest.
-- If no explicit skill and no `--all`, discover available skills using the export manifest:
-  1. Read `{skills_output_folder}/.export-manifest.json` — list skill names from `exports`
-  2. For each skill group directory in `{skills_output_folder}/`, check for `{skill_group}/active/{skill-name}/SKILL.md`
-  3. If neither manifest nor `active` symlink yields results, fall back to flat path: `{skills_output_folder}/{skill-name}/SKILL.md`
+- If no explicit skill and no `--all`, then:
+  - **Headless guard:** if `{headless_mode}` is true, HALT (exit code 2, `halt_reason: "input-missing"`) — a non-interactive run cannot answer the skill-selection menu; the operator must pass an explicit `skill_name` or `--all`. Emit the error envelope per `references/result-envelope.md` with `skills: []`, `context_files_updated: []`, `manifest_path: null`.
+  - **Interactive:** discover available skills using the export manifest:
+    1. Read `{skills_output_folder}/.export-manifest.json` — list skill names from `exports`
+    2. For each skill group directory in `{skills_output_folder}/`, check for `{skill_group}/active/{skill-name}/SKILL.md`
+    3. If neither manifest nor `active` symlink yields results, fall back to flat path: `{skills_output_folder}/{skill-name}/SKILL.md`
 - If multiple skills are found, present the list and accept either a single selection or a comma-/space-separated multi-selection (e.g. `1, 2, 3` or `all`)
-- If no skills found, halt: "No skills found in {skills_output_folder}/. Run create-skill first."
+- If no skills found, HALT (exit code 3, `halt_reason: "resolution-failure"`): "No skills found in {skills_output_folder}/. Run create-skill first." In headless, emit the error envelope per `references/result-envelope.md` with `skills: []`, `context_files_updated: []`, `manifest_path: null`.
 
 Store the resolved selection as `skill_batch` — a list of one or more skill names. `len(skill_batch) > 1` activates multi-skill mode (see §1c below).
 
@@ -44,16 +57,9 @@ Store the resolved selection as `skill_batch` — a list of one or more skill na
 
 If `--context-file` is explicitly provided, use that single context file as the sole target. Determine the skill root from the first configured IDE that maps to that context file (or `.agents/skills/` for AGENTS.md if no matching IDE is configured). If other IDEs are configured in config.yaml, emit a note: "**Note:** Exporting to {context-file} only. config.yaml also lists: {other-ides}. Run without `--context-file` to export to all configured IDEs."
 
-If `--context-file` is NOT provided, read the `ides` list from config.yaml and map each IDE to its context file and skill root using the "IDE → Context File Mapping" table in `skf-export-skill/assets/managed-section-format.md`. Every IDE the installer offers has an explicit mapping — no silent skips.
+If `--context-file` is NOT provided, read the `ides` list from config.yaml and map each entry to its `context_file` and `skill_root` using the "IDE → Context File Mapping" table plus the "Resolution rules" in `{managedSectionData}` — that canonical file carries the deduplication (group by context file; first configured IDE's skill root wins), the unknown-IDE default-and-warn, and the missing-`ides`-key (treat as empty list) behavior, each with its exact warning/report string. Every IDE the installer offers has an explicit mapping — no silent skips.
 
-For each IDE in `config.yaml.ides`:
-
-1. Look up its `context_file` and `skill_root` from the canonical mapping table
-2. If the IDE is not in the table, default to AGENTS.md / `.agents/skills/` and warn: "Unknown IDE '{value}' in config.yaml — defaulting to AGENTS.md with `.agents/skills/`"
-
-**Deduplication:** Group by `context_file`. When multiple IDE entries map to the same context file (e.g. both `codex` and `cline` map to AGENTS.md), deduplicate so each context file appears in `target_context_files` only once. Use the **first configured IDE's** `skill_root` for that context file. Report the deduplication: "Multiple IDEs target AGENTS.md — using {first-ide}'s skill root (`{skill_root}`). Each IDE's skills are installed to its own directory."
-
-**Missing-key handling:** If the `ides` key is absent from config.yaml (older installation or manually edited file), treat it as an empty list.
+Apply those rules to `config.yaml.ides`, then:
 
 - If mapping produces one or more context files (after dedup), store as `target_context_files` list — each entry has `{context_file, skill_root}`
 - If mapping produces zero entries (empty ides list and no recognized entries), fall back to `[{context_file: "AGENTS.md", skill_root: ".agents/skills/"}]` with note: "No IDEs configured in config.yaml — defaulting to AGENTS.md with `.agents/skills/`."
@@ -64,13 +70,13 @@ For each IDE in `config.yaml.ides`:
 
 ### 1b. Detect Snippet Root Prefix Mismatch
 
-**Skip entirely if `snippet_skill_root_override` is set in `config.yaml`** — the authoring-repo escape hatch is already configured and any on-disk prefix that matches it is ground truth (see `assets/managed-section-format.md` override rules).
+**Skip entirely if `snippet_skill_root_override` is set in `config.yaml`** — the authoring-repo escape hatch is already configured and any on-disk prefix that matches it is ground truth (see `{managedSectionData}` override rules).
 
 **Otherwise:** load `references/preflight-snippet-root-probe.md` and follow its probe + (a) Set override / (b) Proceed with IDE mapping / (c) Cancel gate protocol. The reference handles candidate snippet collection (manifest-driven), prefix observation, the mismatch warning, and headless default ((b) Proceed). Returns control to §1c on no-mismatch fast path or after a (b) choice.
 
 ### 1c. Multi-skill Mode (when `len(skill_batch) > 1`)
 
-**If `len(skill_batch) == 1`:** single-skill mode (legacy behavior) — every section below operates on the one skill without iteration. Skip this subsection.
+**If `len(skill_batch) == 1`:** single-skill mode — every section below operates on the one skill without iteration. Skip this subsection.
 
 **If `len(skill_batch) > 1`:** load `references/multi-skill-mode.md` and apply its per-step behavior matrix. The reference partitions work so that step 1 §2–5 iterates per skill, step 1 §6 presents a single consolidated [C] gate, step 4 batches once across the whole run, and step 7 health check runs once. It also defines the all-or-nothing halt semantics if any single skill fails §2 validation.
 
@@ -95,15 +101,22 @@ Load all files from `{resolved_skill_package}`:
 - `references/` — Progressive disclosure directory
 - `context-snippet.md` — Existing snippet (will be regenerated)
 
-**Validation Checks:**
-1. `SKILL.md` exists and is non-empty
-2. `metadata.json` exists and is valid JSON
-3. `metadata.json` contains required fields: `name`, `version`, `skill_type`, `source_authority`, `exports`, `generation_date`, `confidence_tier`
-4. `metadata.json.exports` is a non-empty array (warn if empty — graceful handling)
+**Validation (deterministic — the export gate):**
 
-**If any required validation fails:**
-"**Export cannot proceed.** Missing or invalid: {list failures}
+Run the export gate against the resolved package. Resolve `{validateOutputHelper}` from `{validateOutputProbeOrder}` (first existing path wins):
+
+```bash
+python3 {validateOutputHelper} {resolved_skill_package} --export-gate
+```
+
+The script emits one JSON verdict covering every check this step used to derive by hand: `SKILL.md` present and non-empty; `metadata.json` present and valid JSON; the required agentskills.io fields present (`name`, `version`, `skill_type`, `source_authority`, `exports`, `generation_date`, `confidence_tier`); enum membership (`skill_type` ∈ single/stack, `source_authority` ∈ official/internal/community, `confidence_tier` ∈ Quick/Forge/Forge+/Deep); a non-empty `exports` array (empty is a low warning, not a halt); and the SKILL.md Section 7b ↔ on-disk `scripts/`/`assets/` cross-reference (a §7b-named file absent on disk is a high issue; an unreferenced on-disk file is a low orphan warning). Read `result` (PASS/FAIL), `export_status` (READY/WARNINGS/NOT_READY), and the issue arrays under `validation.metadata.{issues,enum_issues}` and `validation.crossref_7b.{missing,orphans}`. **Retain this JSON as the export verdict** — step 2 (`package.md`) renders its status from it without re-deriving the checks.
+
+**If the script cannot run** (no `uv`/Python — e.g. claude.ai web): perform the equivalent checks by hand; `python3 {validateOutputHelper} --help` documents exactly what it verifies.
+
+**If `result` is `FAIL` / `export_status` is `NOT_READY`** (any high-severity issue in `validation.*`):
+"**Export cannot proceed.** Missing or invalid: {list the high-severity issue messages from the script's `validation.metadata.{issues,enum_issues}` and `validation.crossref_7b.missing`}
 Run create-skill to generate a complete skill first."
+Then HALT (exit code 3, `halt_reason: "resolution-failure"`). In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, `manifest_path: null`.
 
 ### 3. Read Skill Metadata
 
@@ -196,23 +209,12 @@ Continue to step 5 regardless — this is advisory, not blocking.
 
 **Are these the correct skills to export?**"
 
-### 6. Present MENU OPTIONS
+### 6. Confirmation Gate
 
-Display: "**Select:** [C] Continue to packaging | [X] Cancel and exit (or type `cancel` / `exit` / `:q`)" (multi-skill mode: the single [C] gate covers the whole batch)
+Display: "**Select:** [C] Continue to packaging | [X] Cancel and exit (or type `cancel` / `exit` / `:q`)" (multi-skill mode: the single [C] gate covers the whole batch), then wait for the reply.
 
-#### Menu Handling Logic:
-
-- IF C: Proceed with loaded skill data, then load, read entire file, then execute {nextStepFile}
-- IF X (or `cancel` / `exit` / `:q`): Display "Cancelled — no packaging or context file writes were performed." and HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless, emit the error envelope per SKILL.md "Result Contract (Headless)" with the resolved `skills`, `context_files_updated: []`, and `manifest_path: null`.
-- IF Any other: help user respond, then [Redisplay Menu Options](#6-present-menu-options)
-
-#### EXECUTION RULES:
-
-- ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past skill confirmation"
-- ONLY proceed to next step when user selects 'C'
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the user confirms the correct skill is loaded by selecting 'C' will you load and read fully `{nextStepFile}` to execute packaging.
+- **[C]** — proceed with the loaded skill data: load, read entirely, and execute `{nextStepFile}`.
+- **[X]** / `cancel` / `exit` / `:q` — Display "Cancelled — no packaging or context file writes were performed." and HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, and `manifest_path: null`.
+- **Any other input** — help the user respond, then redisplay this gate.
+- **Headless** [default C]: auto-proceed with [C], log "headless: auto-continue past skill confirmation".
 

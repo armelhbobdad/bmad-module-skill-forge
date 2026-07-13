@@ -46,11 +46,14 @@ Run the deterministic topological sort — do not hand-compute it:
 uv run {depsScript} --compute --state-file {stateFile}
 ```
 
-Parse the JSON output: `execution_order` (the ordered skill names — Kahn's sort with Tier A placed before Tier B within a dependency level), `circular_deps_detected` (bool), and `cycle_participants` (the unplaced skills when a cycle exists, else null). Exit code 1 from the script signals a cycle or a dangling dependency reference; exit code 2 signals a state/parse error — surface either and HALT.
+Parse the JSON output: `execution_order` (the ordered skill names — Kahn's sort with Tier A placed before Tier B within a dependency level), `circular_deps_detected` (bool), `cycle_participants` (the unplaced skills when a cycle exists, else null), and `tier_counts` (`{"A": n, "B": m}`, for the §7 strategy view). Script exit 1 signals an unorderable graph — a cycle or a dangling `depends_on` reference — handled at §5. Script exit 2 signals the helper could not read/parse the state file; HALT (exit code 2, `invalid-input`) surfacing its error.
 
-### §5 — Handle Circular Dependencies
+### §5 — Handle Unorderable Graph
 
-If `circular_deps_detected` is `true`, HALT (exit code 4, `circular-deps`) with a clear error listing `cycle_participants` and their mutual `depends_on` edges. Do NOT proceed — circular dependencies make execution order impossible.
+If the graph cannot be ordered (script exit 1), HALT (exit code 4, `circular-deps`) — the execution order is impossible, so do not proceed. Two cases:
+
+- **Cycle** (`circular_deps_detected: true`): list `cycle_participants` and their mutual `depends_on` edges.
+- **Dangling reference** (a `DANGLING_DEPENDENCY` error with no `execution_order`): name the skill and the unknown dependency it references.
 
 ### §6 — Write State
 
@@ -82,6 +85,8 @@ TIER DISTRIBUTION:
   Tier A (full pipeline): {count}
   Tier B (QS batch): {count}
 ```
+
+Fill the TIER DISTRIBUTION counts from `tier_counts` in the §4 script output — do not re-tally `skills[]` by hand.
 
 ### §8 — Plan Confirmation Gate
 

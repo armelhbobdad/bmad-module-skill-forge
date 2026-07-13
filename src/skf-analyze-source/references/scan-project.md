@@ -1,7 +1,7 @@
 ---
 nextStepFile: 'identify-units.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-heuristicsFile: 'references/unit-detection-heuristics.md'
+heuristicsFile: '{unitDetectionHeuristicsPath}'
 scanManifestsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-scan-manifests.py'
   - '{project-root}/src/shared/scripts/skf-scan-manifests.py'
@@ -149,16 +149,8 @@ Display: "**Select:** [C] Continue to Unit Identification | [X] Cancel and exit"
 #### Menu Handling Logic:
 
 - IF C: Save scan results to {outputFile}, update frontmatter, then load, read entire file, then execute {nextStepFile}
-- IF X: HARD HALT with exit code 6 (`user-cancelled`). Emit the `SKF_ANALYZE_RESULT_JSON` envelope on stderr with `status: "error"`, `halt_reason: "user-cancelled"`, and counts/paths reflecting state at cancellation
+- IF X: HARD HALT with exit code 6 (`user-cancelled`). Emit the error envelope on stderr with `halt_reason: "user-cancelled"` and counts/paths reflecting state at cancellation (shape in `references/headless-contract.md`)
 - IF Any other: help user, then [Redisplay Menu Options](#7-present-menu-options)
 
-#### EXECUTION RULES:
-
-- ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past scan results"
-- ONLY proceed to next step when user selects 'C'
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the Project Scan section has been appended to {outputFile} with complete boundary, manifest, and entry point catalogs, and frontmatter stepsCompleted has been updated, will you load and read fully {nextStepFile} to begin unit identification.
+**GATE [default: C]** — present the menu and wait for the user's choice. If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past scan results".
 

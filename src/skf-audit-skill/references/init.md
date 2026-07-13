@@ -1,13 +1,16 @@
 ---
 nextStepFile: 're-index.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
-templateFile: 'assets/drift-report-template.md'
+templateFile: '{driftReportTemplatePath}'
 loadProvenanceProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-load-provenance.py'
   - '{project-root}/src/shared/scripts/skf-load-provenance.py'
 compareFileHashesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-compare-file-hashes.py'
   - '{project-root}/src/shared/scripts/skf-compare-file-hashes.py'
+compareConstituentHashesProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
+  - '{project-root}/src/shared/scripts/skf-hash-content.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -52,9 +55,9 @@ Which skill would you like to audit? Please provide the skill name or path."
 
      - **[N] Audit symlink target ({symlink_target})** — recommended. The drift report describes the version the skill currently resolves to.
      - **[M] Audit manifest version ({active_version})** — only useful when investigating the older version specifically.
-     - **[X] Abort** — halt without producing a report. Run `[EX] Export Skill` to reconcile the manifest before re-running audit-skill."
+     - **[X] Abort** — halt without producing a report (exit 6, `halt_reason: "user-cancelled"`). Run `[EX] Export Skill` to reconcile the manifest before re-running audit-skill."
 
-     Default is **[N]**. Headless mode auto-selects **[N]** with a loud log line: `"headless: manifest active_version ({active_version}) is older than symlink target ({symlink_target}); auditing symlink target. Run export-skill to reconcile."` This mirrors §5b's upstream-drift handling — when the manifest and the working tree disagree, the working tree is the more honest signal under automation.
+     Default is **[N]**. Headless mode auto-selects **[N]** with a loud log line: `"headless: manifest active_version ({active_version}) is older than symlink target ({symlink_target}); auditing symlink target. Run export-skill to reconcile."` When the manifest and on-disk state disagree, the working tree is the more honest signal under automation.
 
    - When the symlink target's provenance is **older** than (or equal to) the manifest's `last_exported`, the symlink predates the export — this is the normal post-export shape, no gate needed. Resolve to the manifest's `active_version`.
    - When only one of the two versions has a provenance map, resolve to the version that has one (the other is inert — auditing it would degrade to text-diff). Log the choice.
@@ -70,13 +73,17 @@ Which skill would you like to audit? Please provide the skill name or path."
 - If missing → "Skill not found at `{resolved_skill_package}`. Check the path and try again."
 - If found → Continue
 
+**Headless default** (when `{headless_mode}`): the interactive prompt and its "check the path and try again" re-prompt cannot be answered under automation, so §1 halts deterministically instead of looping. This is the origin site for the exit-2 / exit-3 rows the Exit Codes table attributes to step 1 §1 — emit the `SKF_AUDIT_RESULT_JSON` error envelope on **stderr** (shape per SKILL.md → Result Contract; `status: "error"`, `drift_score: null`, `report_path: null`, `next_workflow: null`, `audit_ref: null`) at each halt:
+- **No `skill_name` supplied** (neither name nor path given): HALT with **exit 2**, `halt_reason: "input-missing"`, `skill_name: null`. Log: `"headless: no skill_name supplied; cannot resolve interactively. Re-run with skill_name set."`
+- **`SKILL.md` missing at `{resolved_skill_package}`**: HALT with **exit 3**, `halt_reason: "skill-not-found"`, `skill_name: {skill_name}`. Log: `"headless: skill not found at {resolved_skill_package}; no interactive retry. Check the exported skill name/path."`
+
 ### 2. Load Forge Tier
 
 Load `{sidecar_path}/forge-tier.yaml` to detect available tools.
 
 **If file missing:**
 - "Setup-forge has not been run. Cannot determine tool availability. Run `[SF] Setup Forge` first."
-- HALT workflow
+- HALT with **exit 3**, `halt_reason: "forge-tier-missing"`. When `{headless_mode}`, emit the error envelope on **stderr** (shape per SKILL.md → Result Contract) and log: `"headless: forge-tier.yaml missing at {sidecar_path}; run setup-forge. Aborting."`
 
 **If found:**
 - Extract tier level: Quick / Forge / Forge+ / Deep
@@ -118,24 +125,50 @@ Search for provenance map at `{forge_data_folder}/{skill_name}/{active_version}/
   - `{source_root}`, `{baseline_commit}`, `{baseline_ref}` — used by §5 Resolve Source Path and §5b Detect Upstream Drift.
   - `{reexport_map}` — `{<internal>: <public>}` mapping consumed by `structural-diff.md` §1 to collapse public-API renames before diffing.
 
-  If the script exits non-zero, surface the stderr as a HARD HALT — the map is structurally invalid and downstream steps cannot proceed.
+  If the script exits non-zero, surface the stderr as a hard halt — the map is structurally invalid and downstream steps cannot proceed.
 
 **If missing at both paths:**
 - "No provenance map found for `{skill_name}`. This skill may not have been created by create-skill."
 - "**Degraded mode available:** I can perform text-based comparison without provenance data. Findings will have T1-low confidence."
 - "**[D]egraded mode** — proceed with text-diff only"
 - "**[X]** — abort audit"
-- Wait for user selection. If D, set `degraded_mode: true` and `confidence_mode = "degraded — all findings T1-low"`, then skip the normalize call above (no map to normalize). If X, halt workflow.
+- Wait for user selection. If D, set `degraded_mode: true` and `confidence_mode = "degraded — all findings T1-low"`, then skip the normalize call above (no map to normalize). If X, halt workflow (exit 6, `halt_reason: "user-cancelled"`).
+
+**Headless default** (when `{headless_mode}`): consume the pre-supplied `degraded` input from the Invocation Contract. If `degraded=true`, auto-select **[D]** (set `degraded_mode: true`, `confidence_mode = "degraded — all findings T1-low"`, skip the normalize call) and log: `"headless: no provenance map for {skill_name}; proceeding in degraded mode (text-diff, T1-low) per pre-supplied degraded=true."` If `degraded` is unset or false, auto-select **[X] abort** (exit 6, `halt_reason: "user-cancelled"`) and log: `"headless: no provenance map for {skill_name} and degraded not pre-supplied; aborting. Re-run with degraded=true for text-diff."` Never silently emit a low-confidence report under automation without explicit opt-in — same stance as the [A]-abort default at §5b's dirty-worktree sub-gate.
 
 ### Stack Skill Detection
 
 `{is_stack_skill}` and `{legacy_stack_provenance}` are already resolved by the normalize call in §4 — no additional walk needed. Apply the post-detection logic:
 
 If `{is_stack_skill}` is true and `constituents` array is present (compose-mode stack):
-- For each constituent, compute the current metadata hash: read `{constituent.skill_path}/active/{constituent.skill_name}/metadata.json` and compute SHA-256
-- Compare against `constituent.metadata_hash`
-- Flag any mismatches as **constituent drift** with severity HIGH
-- Record constituent freshness results for the report
+
+Re-hashing each constituent's live `metadata.json` and comparing against the compile-time snapshot is deterministic work — and the model cannot compute a `sha256:{hexdigest}` natively (it must shell out on every run). Delegate the whole read/hash/compare pass to the shared helper, which hashes byte-symmetrically with how `constituents[].metadata_hash` was written at compose time (the `sha256:`-prefixed digest of the raw `metadata.json` bytes). This mirrors the two sibling drift checks — `structural-diff.md` §4b (`skf-compare-file-hashes.py`) and `step-doc-drift.md` §2 (`skf-detect-docs.py compare-hashes`).
+
+**Resolve `{compareConstituentHashesHelper}`** from `{compareConstituentHashesProbeOrder}`; first existing path wins.
+
+Run one deterministic comparison subprocess over the provenance map's `constituents[]`. Relative constituent `skill_path` values (e.g. `skills/{skill-dir}/`) are project-root-relative, so resolve them against `{project-root}`:
+
+```bash
+uv run {compareConstituentHashesHelper} compare-constituent-hashes {provenanceMap} --skills-root {project-root}
+```
+
+Parse the emitted JSON:
+
+```json
+{
+  "drifted":           [{"skill_name": "...", "skill_path": "...", "stored_hash": "sha256:...", "current_hash": "sha256:..."}],
+  "fresh":             [{"skill_name": "..."}],
+  "missing":           [{"skill_name": "...", "skill_path": "...", "stored_hash": "sha256:...", "reason": "metadata-not-found|incomplete-record"}],
+  "skipped_null_hash": [{"skill_name": "..."}],
+  "stats": {"total": N, "drifted": N, "fresh": N, "missing": N, "skipped_null_hash": N}
+}
+```
+
+- **Flag every entry in `drifted[]` as constituent drift with severity HIGH** — its live `metadata.json` differs from the compile-time snapshot recorded in the provenance map.
+- `fresh[]` are unchanged constituents. `missing[]` (each carrying a `reason`) are constituents whose `metadata.json` could not be located (`metadata-not-found`) or whose provenance record lacked `skill_name`/`skill_path` (`incomplete-record`) — surface these as a lower-severity note, not HIGH drift. `skipped_null_hash[]` had no compile-time baseline hash (recorded from a references/ cascade) — never reported as drift.
+- Record the constituent freshness results (the four buckets + `stats`) for the report — read the counts straight from `stats`, no manual recount.
+
+**If `uv`/the helper cannot execute** (e.g. claude.ai web): fall back to hashing by hand — for each constituent, read its `metadata.json` at `{constituent.skill_path}/active/{constituent.skill_name}/metadata.json` (resolve `skill_path` against `{project-root}` when relative, use as-is when absolute), SHA-256 the raw bytes, and compare against `constituent.metadata_hash` (a stored bare-hex form still matches after stripping any `sha256:` prefix from both sides). Flag mismatches as HIGH constituent drift.
 
 If `{legacy_stack_provenance}` is true: log a note that this stack uses v1 provenance format with reduced audit depth (library-level only, no per-export verification).
 
@@ -150,7 +183,7 @@ If `{legacy_stack_provenance}` is true: log a note that this stack uses v1 prove
 - Ask user: "Please provide the path to the current source code."
 - `baseline_commit` and `baseline_ref` are unavailable — §5b will short-circuit
 
-**Validate:** Confirm source directory exists and contains expected files.
+**Validate:** Confirm the source directory exists and is accessible. If it is missing or unreadable → HALT with **exit 3**, `halt_reason: "source-dir-missing"`. When `{headless_mode}`, emit the error envelope on **stderr** (shape per SKILL.md → Result Contract) and log: `"headless: source directory {source_root} from the provenance map no longer exists; aborting."`
 
 ### 5b. Detect Upstream Drift
 
@@ -221,7 +254,10 @@ When skipping, log the reason, then set the audit-ref context variables to basel
      - **[F]:** Run `git -C {source_root} checkout --force {chosen_ref}` instead of the plain checkout. Record `pre_checkout_force_discard: true` in workflow context for step 6 to surface as a loud warning. Skip the stash path.
      - **Other input:** help user, redisplay the sub-gate.
 
-     **Headless default** (when `{headless_mode}`): auto-select **[A] Abort** rather than silently mutating the working tree. Emit a loud log line: `"headless: dirty worktree detected at {source_root}; refusing to checkout {chosen_ref} or stash. Re-run interactively to choose [T]/[A]/[F]."` Stashing under automation could lose work if the operator never returns to pop; force-checkout under automation could destroy uncommitted work outright. Abort is the only safe non-interactive default.
+     **Headless default** (when `{headless_mode}`): consume the pre-supplied `dirty_worktree_choice` from the Invocation Contract — the operator's explicit answer is the consent that a silent working-tree mutation would otherwise lack.
+     - **`dirty_worktree_choice=T`**: run the `[T]` transient-stash path. Log: `"headless: dirty worktree at {source_root}; stashing before checkout per pre-supplied dirty_worktree_choice=T."`
+     - **`dirty_worktree_choice=F` with `force=true`**: run the `[F]` force-checkout path — `force=true` is the required consent to discard uncommitted changes irrecoverably. Log: `"headless: dirty worktree at {source_root}; force-discarding uncommitted changes per pre-supplied dirty_worktree_choice=F force=true."`
+     - **`dirty_worktree_choice=A`, unset, or `=F` without `force=true`**: auto-select **[A] Abort** (exit 6, `halt_reason: "user-cancelled"`). Abort is the safe default, and a force-discard without `force=true` consent is refused rather than executed. Log: `"headless: dirty worktree detected at {source_root}; refusing to checkout {chosen_ref} (dirty_worktree_choice={value or 'unset'}). Pass dirty_worktree_choice=T, or =F with force=true, to proceed non-interactively."` Stashing that is never popped could lose work; force-checkout without consent could destroy uncommitted work outright — so both require an explicit pre-supplied choice.
 
      If `git status --porcelain` is empty, skip the sub-gate and proceed directly to the checkout.
 
@@ -230,7 +266,10 @@ When skipping, log the reason, then set the audit-ref context variables to basel
    - **[X]:** HALT workflow — do not create drift report.
    - **Other input:** help user, redisplay gate.
 
-   **Headless default** (when `{headless_mode}`): auto-select **[S]** and emit a loud log line: `"headless: upstream drift detected ({baseline_ref} → {latest_tag or remote_head}); staying on baseline. Re-run interactively to audit against latest."` Do not check out in headless mode — silent ref changes under automation would mutate the user's working tree without consent.
+   **Headless default** (when `{headless_mode}`): consume the pre-supplied `upstream_drift_choice` from the Invocation Contract.
+   - **`upstream_drift_choice=S`, or unset**: auto-select **[S] Stay-on-baseline** (default). Set `audit_ref = baseline_ref`, `audit_ref_source = "baseline"`, `audit_commit = baseline_commit`. Log: `"headless: upstream drift detected ({baseline_ref} → {latest_tag or remote_head}); staying on baseline per upstream_drift_choice={value or 'default S'}. Pass upstream_drift_choice=C to audit against latest."` Defaulting to a checkout would mutate the working tree without consent, so `[S]` remains the default when no choice is supplied.
+   - **`upstream_drift_choice=C`**: run the `[C] Checkout-and-audit-against-latest` path above — the operator's pre-supplied choice is the explicit consent that a silent ref change would otherwise lack. The dirty-worktree sub-gate still applies and consults its own pre-supplied `dirty_worktree_choice`. Log: `"headless: upstream drift detected; checking out {latest_tag or remote_head} per pre-supplied upstream_drift_choice=C."`
+   - **`upstream_drift_choice=X`**: HALT the workflow (exit 6, `halt_reason: "user-cancelled"`) — do not create a drift report. Log: `"headless: upstream drift detected; aborting per pre-supplied upstream_drift_choice=X."`
 
 5. **Record for report:** store `audit_ref`, `audit_ref_source`, `audit_commit`, `latest_tag`, `remote_head`, and `baseline_commit` in context. Step-06 surfaces them in the Provenance section so readers can tell which comparison actually ran.
 
@@ -252,7 +291,7 @@ When skipping, log the reason, then set the audit-ref context variables to basel
 - **[D]:** Read the prior report's findings_list (parse the Structural/Semantic/Severity sections, or the appended findings tables) and stash as `prior_findings` in workflow context. Run the new audit normally. In step 6 (report.md), after the Remediation Suggestions section, emit a `## Diff Against Prior Report` subsection summarizing added / removed / changed findings vs `prior_findings`.
 - **[R]:** Load the prior report's frontmatter (`stepsCompleted`, `drift_score`, any intermediate state). Set `{outputFile}` to the prior report path (do NOT create a new one). Determine the next un-completed step from `stepsCompleted` and skip forward to it; downstream steps append to the existing report.
 
-  > **Note (resumability):** the existing template frontmatter captures `stepsCompleted` and `drift_score` but does not currently persist intermediate findings_list between stages. If [R] is selected and stepsCompleted indicates the prior run halted after structural-diff or semantic-diff, the appended sections in the report body (`## Structural Drift`, `## Semantic Drift`, `## Severity Classification`) serve as the implicit intermediate state — re-parse them on resume rather than re-running completed stages. **Design note:** explicit mid-stage resume state is intentionally not persisted today — if resumability proves unreliable in practice, a future enhancement is to extend the report frontmatter to carry an explicit `intermediate_findings` block.
+  > **Note (resumability):** the template frontmatter captures `stepsCompleted` and `drift_score` but does not persist an intermediate findings_list between stages. If [R] is selected and stepsCompleted indicates the prior run halted after structural-diff or semantic-diff, the appended report-body sections (`## Structural Drift`, `## Semantic Drift`, `## Severity Classification`) serve as the implicit intermediate state — re-parse them on resume rather than re-running completed stages.
 
 - **Other input:** help user, redisplay the gate.
 
@@ -268,7 +307,9 @@ Create `{outputFile}` from `{templateFile}`:
 - Set `stepsCompleted: ['init']`
 - Fill Audit Summary skeleton with loaded baseline data
 
-### 7. Present Baseline Summary (User Gate)
+If the write fails (read-only mount, disk full, permissions denied) → HALT with **exit 4**, `halt_reason: "write-failed"`. When `{headless_mode}`, emit the error envelope on **stderr** (shape per SKILL.md → Result Contract).
+
+### 7. Present Baseline Summary and Confirm (User Gate)
 
 "**Audit Baseline Loaded**
 
@@ -290,22 +331,7 @@ Create `{outputFile}` from `{templateFile}`:
 
 **Ready to begin drift analysis?**"
 
-### 8. Present MENU OPTIONS
+Halt and wait for the user's go-ahead. Only proceed once the drift report has been created with baseline data populated. On confirmation, save the baseline to `{outputFile}`, append `'init'` to the frontmatter `stepsCompleted`, then load, read the entire file, and execute `{nextStepFile}`. On any other input, help the user, then re-ask.
 
-Display: "**Select:** [C] Continue to Analysis"
-
-#### Menu Handling Logic:
-
-- IF C: Save baseline to {outputFile}, update frontmatter stepsCompleted, then load, read entire file, then execute {nextStepFile}
-- IF Any other: help user, then [Redisplay Menu Options](#8-present-menu-options)
-
-#### EXECUTION RULES:
-
-- ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: C]** — If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: auto-continue past baseline confirmation"
-- ONLY proceed to next step when user selects 'C'
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN C is selected and the drift report has been created with baseline data populated, will you then load and read fully `{nextStepFile}` to execute and begin source re-indexing.
+**GATE [default: proceed]** — if `{headless_mode}`, auto-proceed and log: "headless: auto-continue past baseline confirmation".
 

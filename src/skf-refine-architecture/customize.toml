@@ -1,6 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-refine-architecture.
+# Team overrides:     _bmad/custom/skf-refine-architecture.toml (under {project-root})
+# Personal overrides: _bmad/custom/skf-refine-architecture.user.toml (under {project-root})
 
 [workflow]
 
@@ -47,3 +49,10 @@ refinement_rules_path = ""
 # refined-architecture artifacts to land under a curated docs tree.
 
 output_folder_path = ""
+
+# Optional post-completion hook. When non-empty, invoked with
+# `--result-path=<path>` after the refined architecture and result JSON are
+# finalized (step 6). Use to index the refined doc, notify, or chain the next
+# workflow. Failures are logged to workflow_warnings[] but never fail the run.
+
+on_complete = ""

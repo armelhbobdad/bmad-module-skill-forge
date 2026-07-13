@@ -1,6 +1,7 @@
 ---
 nextStepFile: 'integrations.md'
 coveragePatternsData: '{coveragePatternsPath}'
+coverageTallyScript: 'scripts/skf-coverage-tally.py'
 feasibilitySchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md'
   - '{project-root}/src/shared/references/feasibility-report-schema.md'
@@ -66,7 +67,7 @@ For each referenced technology in the list:
   4. Compare the resulting basenames/segments against the tech tokens via case-insensitive equality (no substring/fuzzy matching)
   5. A match on either `source_repo` basename or `source_root` last segment counts as a hit
 
-**Detect a deliberate-removal signal (from the architecture document):** Before assigning Covered/Missing, check whether the referenced technology is explicitly marked for removal or replacement in the architecture document itself. Be conservative — recognize a removal signal ONLY when one of these is present, and when in doubt do NOT treat it as removal:
+**Detect a deliberate-removal signal (from the architecture document):** Before assigning Covered/Missing, check whether the referenced technology is explicitly marked for removal or replacement in the architecture document itself. Be conservative — recognize a removal signal only when one of these is present, and when in doubt leave it as a normal reference (a false removal signal silently drops a real coverage gap):
 - The technology is listed under a section whose heading matches (case-insensitive) one of: "deprecated", "removed", "legacy", "migrating away", "being replaced", "to be removed", "sunset", "retiring".
 - The technology's own mention carries an inline removal annotation, e.g. "(deprecated)", "(being replaced by …)", "(removing)", "(to be removed)", "(legacy)".
 
@@ -77,13 +78,19 @@ Record the cited section heading or annotation text as evidence for every techno
 - **Replaced** — no matching skill exists AND a deliberate-removal signal (above) was found; the technology is intentionally being removed/replaced, so no skill should exist for it
 - **Missing** — no matching skill found and no removal signal
 
-**Replaced** technologies are EXCLUDED from the coverage denominator — they are not a gap to close. The denominator (`live_count`) is the count of referenced technologies that are **Covered** or **Missing**; **Replaced** technologies do not count toward it.
-
 Build the coverage matrix as a structured table.
+
+**Tally the matrix deterministically.** Assigning each verdict is judgment; counting the classes and computing the percentage has one correct answer, so delegate it. Serialize the matrix as `{"rows": [{"technology": "…", "verdict": "Covered|Missing|Replaced"}, …]}` and run:
+
+```bash
+echo '<rows JSON>' | uv run {coverageTallyScript} --stdin
+```
+
+The script (run `uv run {coverageTallyScript} --help` for the contract) returns `covered_count`, `missing_count`, `replaced_count`, `live_count` (the denominator — Covered + Missing, with Replaced excluded because a technology being removed is not a gap to close), `total_referenced`, and `coverage_percentage` (Replaced excluded from the denominator, half-up rounding pinned so the same matrix always yields the same integer). Consume these values in §5 and §6 rather than recomputing them. If `uv` is unavailable (e.g. claude.ai web), compute the same values inline per the `--help` contract: `live_count = covered + missing`; `coverage_percentage = round-half-up(covered / live_count * 100)`, or `0` when `live_count` is `0`.
 
 ### 4. Detect Extra Skills
 
-Check if any skills in the inventory are NOT referenced in the architecture document.
+Check if any skills in the inventory are not referenced in the architecture document.
 
 **Subdivide into two categories (both informational — not errors):**
 - **Extra (unreferenced)** — The skill's `source_repo` / `source_root` resolves cleanly (both non-empty and well-formed), but no architecture document tech token matches it.
@@ -103,7 +110,7 @@ Extra and Orphan skills are informational only. They do not affect the coverage 
 |------------|---------------|-------------|---------|
 | {tech_name} | {section_heading} | {skill_name or '—'} | {Covered / Missing / Replaced} |
 
-**Coverage: {covered_count}/{live_count} ({percentage}%)** — `live_count` excludes technologies marked **Replaced** (being removed/replaced); they are not a coverage gap.
+**Coverage: {covered_count}/{live_count} ({coverage_percentage}%)** (from the §3 tally; `live_count` excludes **Replaced** technologies)
 
 {IF 100% coverage AND no Extra skills:}
 **All referenced technologies have a matching skill. No extra skills detected.**
@@ -125,7 +132,7 @@ Extra and Orphan skills are informational only. They do not affect the coverage 
 
 ### 6. Append to Report
 
-**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. HALT if no candidate exists.
+**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`); in headless, emit the error envelope.
 
 **Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback).
 
@@ -133,9 +140,9 @@ Write the **Coverage Analysis** section to `{outputFile}` (see `{feasibilitySche
 - Include the full coverage table
 - Include coverage percentage
 - Include missing skill recommendations
-- Include the Replaced (being removed/replaced) subdivision from section 3, with the cited removal evidence — these are NOT gaps and carry no [CS]/[QS] recommendation
+- Include the Replaced (being removed/replaced) subdivision from section 3, with the cited removal evidence — these are not gaps and carry no [CS]/[QS] recommendation
 - Include the Extra (unreferenced) and Orphan (source_repo unresolvable) subdivisions from section 4
-- Update frontmatter: append `'coverage'` to `stepsCompleted`; set `coveragePercentage` (integer 0..100) computed as `covered_count / live_count` (Replaced technologies excluded from the denominator; if `live_count` is 0, set `coveragePercentage: 0`)
+- Update frontmatter: append `'coverage'` to `stepsCompleted`; set `coveragePercentage` to the `coverage_percentage` value from the §3 tally (integer 0..100)
 - Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`
 
 ### 7. Auto-Proceed to Next Step
@@ -147,7 +154,9 @@ Write the **Coverage Analysis** section to `{outputFile}` (see `{feasibilitySche
 
 **Select:** [X] Halt workflow (recommended) | [C] Continue anyway"
 
-- IF X: "**Workflow halted.** Update the architecture document and re-run [VS] when ready." — END workflow
+**GATE [default: C]** — Interactive-only guard. If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: continuing past all-Replaced coverage gate (nothing live to verify)". Headless never takes [X], so step 6 still emits the result contract — the run resolves to `NOT_FEASIBLE` via the synthesize zero-coverage short-circuit.
+
+- IF X: "**Workflow halted.** Coverage Analysis saved to `{outputFile}`. Update the architecture document and re-run [VS] when ready." HALT (exit code 8, `halt_reason: "analysis-halted"`).
 - IF C: "**Continuing — the analysis covers only technologies marked for removal and will be limited.**" Load, read the full file and then execute `{nextStepFile}`.
 
 {IF coveragePercentage is 0% AND live_count > 0:}
@@ -157,7 +166,9 @@ Write the **Coverage Analysis** section to `{outputFile}` (see `{feasibilitySche
 
 **Select:** [X] Halt workflow (recommended) | [C] Continue anyway"
 
-- IF X: "**Workflow halted.** Generate skills and re-run [VS] when ready." — END workflow
+**GATE [default: C]** — Interactive-only guard. If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: continuing past 0%-coverage gate". Headless never takes [X], so step 6 still emits the result contract — the run resolves to `NOT_FEASIBLE` via the synthesize zero-coverage short-circuit.
+
+- IF X: "**Workflow halted.** Coverage Analysis saved to `{outputFile}`. Generate skills and re-run [VS] when ready." HALT (exit code 8, `halt_reason: "analysis-halted"`).
 - IF C: "**Continuing with 0% coverage — results will be limited.**"
 
   Load, read the full file and then execute `{nextStepFile}`.

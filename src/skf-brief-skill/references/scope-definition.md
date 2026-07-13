@@ -11,19 +11,13 @@ partyModeSkill: '/bmad-party-mode'
 
 # Step 3: Scope Definition
 
-## STEP GOAL:
-
-To collaboratively define the skill's inclusion and exclusion boundaries using the analysis findings from step 02, scope templates, and the user's intent from step 01.
-
 ## Rules
 
-- Focus only on defining scope boundaries — do not write the brief yet (Step 05)
 - Do not make scope decisions unilaterally — user drives all scope choices
 - Produce: scope type, include patterns, exclude patterns
-- All user-facing output in `{communication_language}`
 - **Re-entry from step 4 [R] revise:** prior selections (`scope.type`, `scope.include`, `scope.exclude`, `scope.notes`, `scope.tier_a_include`, `scope.rationale`, `scripts_intent`, `assets_intent`, supplemental `doc_urls`) are preserved as the current state. Re-present them at each section as the existing answer; the user only re-confirms or overrides. Do not reset to the §2c template menu unless the user explicitly asks to start scope over. When `scope.rationale` is preserved and the user changes `chosen` (the scope type) on this pass, recompute `accepted_recommendation` (`chosen == recommended`) and refresh `reason` and `recorded` per the §2c capture rules — revise in place, do not append.
 
-## MANDATORY SEQUENCE
+## Sequence
 
 ### 1. Present Scope Context
 
@@ -155,6 +149,8 @@ The analysis detected **{language}** with low confidence. Is this correct, or sh
 
 Wait for confirmation or override.
 
+**Headless:** `language_hint`, when supplied, already set the language at step 02 §3; otherwise accept the detected language and continue. This confirmation prompt is interactive-only, so a headless run never stalls here.
+
 ### 5. Summarize Scope Decisions
 
 "**Scope Summary:**
@@ -200,9 +196,8 @@ Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Conti
 - IF X: Treat as user-cancellation. Display `"Cancelled — no brief was written."` and HALT (exit code 6, `halt_reason: "user-cancelled"`). Cancellation here is non-destructive — no files have been written yet. `[X]` is interactive-only; the headless GATE never reaches this branch.
 - IF Any other comments or queries: help user respond then [Redisplay Menu Options](#6-present-menu-options)
 
-#### EXECUTION RULES:
+#### Execution rules:
 
-- ALWAYS halt and wait for user input after presenting menu
 - **GATE [default: C]** — If `{headless_mode}`: consume the headless inputs from step 1 in priority order:
   - If `scope_type` was supplied, use it (must match one of the six valid types) and skip the §2c template menu.
   - Otherwise auto-select via `{recommendScopeTypeHelper}` — invoke the script with the **same payload shape** documented in §2c but with `mode: "headless"` (presence-only matching for the component-registry rule, since `entry_files` may not be available without an interactive context). Use the returned `scope_type` and log `"headless: scope_type={value} from heuristic={matched_heuristic}"`. The script's docs-only short-circuit handles `source_type=docs-only` automatically.
@@ -210,11 +205,6 @@ Display: **Select an Option:** [A] Advanced Elicitation [P] Party Mode [C] Conti
   - If `scripts_intent`/`assets_intent` were supplied, record them and skip §5b; otherwise default to `detect`.
   - Set `scope.rationale`: `recommended`/`heuristic` from the script (or `recommended = scope_type` arg, `heuristic = "user-supplied-arg"` when `scope_type` was passed); `chosen = <resolved type>`; `accepted_recommendation = (no scope_type arg)`; `reason = "<script rationale>"` (auto path) or `"headless: scope_type supplied as argument"` (arg path); `recorded = {date}`. No prompt — headless never asks "why".
   - Log: `"headless: scope_type={value} include={n} exclude={n} scripts_intent={value} assets_intent={value}"`.
-- ONLY proceed to next step when user selects 'C'
 - After other menu items execution, return to this menu
 - User can chat or ask questions — always respond and then redisplay menu
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN C is selected and scope boundaries are confirmed will you load and read fully `confirm-brief.md` to present the complete brief for confirmation.
 

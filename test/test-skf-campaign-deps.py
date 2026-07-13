@@ -158,6 +158,46 @@ class TestComputeNoDeps:
 
 
 # --------------------------------------------------------------------------
+# Test --compute: tier_counts payload (strategy view consumes this instead of
+# hand-tallying skills[] by tier)
+# --------------------------------------------------------------------------
+
+class TestComputeTierCounts:
+    def test_tier_counts_on_success(self, tmp_path):
+        state = _make_state([
+            _make_skill("a", tier="A"),
+            _make_skill("b", tier="A"),
+            _make_skill("c", tier="B"),
+        ])
+        state_file = tmp_path / "state.yaml"
+        _write_yaml(state_file, state)
+
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            exit_code = mod.compute(str(state_file))
+
+        assert exit_code == 0
+        output = json.loads(captured.getvalue())
+        assert output["tier_counts"] == {"A": 2, "B": 1}
+
+    def test_tier_counts_present_on_cycle(self, tmp_path):
+        state = _make_state([
+            _make_skill("A", depends_on=["B"], tier="A"),
+            _make_skill("B", depends_on=["A"], tier="B"),
+        ])
+        state_file = tmp_path / "state.yaml"
+        _write_yaml(state_file, state)
+
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            exit_code = mod.compute(str(state_file))
+
+        assert exit_code == 1
+        output = json.loads(captured.getvalue())
+        assert output["tier_counts"] == {"A": 1, "B": 1}
+
+
+# --------------------------------------------------------------------------
 # Test --compute: circular dependency A→B→A
 # --------------------------------------------------------------------------
 

@@ -14,7 +14,7 @@ Gaps are undocumented integration paths — library pairs that have compatible A
 
 ### Detection Method
 
-1. Generate all possible library pairs from the skill inventory
+1. Read the pre-computed unique library pairs from `skill_inventory.pairs` (emitted by the enumerate helper's `--pairs` flag) — do not re-derive them in-context
 2. For each pair, check if both skills export APIs that could connect (compatible types, shared protocols, complementary producer/consumer patterns)
 3. Cross-reference against the architecture document: does the document describe how these two libraries interact?
 4. If compatible APIs exist but NO architecture description exists, this is a **gap**
@@ -77,27 +77,15 @@ Improvements are capability expansions — library features documented in skills
 
 ---
 
-## Refinement Citation Format
+## Finding Storage (Steps 02-04)
 
-Every refinement (gap, issue, or improvement) MUST cite evidence:
-
-```
-**[GAP|ISSUE|IMPROVEMENT]**: {description}
-
-Evidence:
-- {skill_name} exports: `{function_name}({params}) -> {return_type}`
-- {skill_name} provides: `{type_or_protocol}`
-- Architecture states: "{quoted text from original document}"
-- {IF VS report}: VS verdict: {verdict} for {pair}
-
-Suggestion: {specific, actionable recommendation}
-```
+Each analysis step stores its findings two ways: as workflow state for Step 05, and appended to `{forge_data_folder}/ra-state-{project_name}.md` as a labeled `<!-- [RA-...] ... -->` block holding the **complete formatted findings** — full citation blocks with evidence and suggestions, not just counts — so Step 05 can recover them if context degrades on a long run. The refined document itself is written once, in Step 05; Steps 02-04 never write to it.
 
 ---
 
 ## Preservation Rules
 
-1. **NEVER delete original content** — only add annotations and subsections
+1. **Never delete original content** — only add annotations and subsections
 2. **Follow original section layout** — add refinement subsections within existing sections
 3. **Use callout blocks** for issues: `> [!WARNING]` or `> [!NOTE]` format
 4. **Mark additions clearly** — prefix added subsections with "RA:" or use a refinement marker

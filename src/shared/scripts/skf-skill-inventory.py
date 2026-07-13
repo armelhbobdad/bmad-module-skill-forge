@@ -10,12 +10,21 @@ versions via symlinks, and outputs a JSON inventory. Reused by 9+ skills.
 CLI: python3 skf-skill-inventory.py <skills-output-folder>
      python3 skf-skill-inventory.py <skills-output-folder> --skill <name>
      python3 skf-skill-inventory.py <skills-output-folder> --manifest-only
+     python3 skf-skill-inventory.py <skills-output-folder> --match-target <url-or-name>
+
+The --match-target mode deterministically computes coexistence matches: it
+normalizes scheme / trailing .git / trailing slash, derives the expected kebab
+skill name, compares case-insensitively, and emits a top-level `matches[]`
+array. This replaces the equivalent normalize/derive/compare that a consuming
+prompt would otherwise perform by hand (identical (target, inventory) always
+yields the same match set).
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -115,7 +124,115 @@ def scan_skill_group(skill_group_dir, skill_name):
     return entry
 
 
-def scan_inventory(skills_folder, skill_filter=None, manifest_only=False):
+def normalize_url(value):
+    """Normalize a URL / path / source_repo for case-insensitive comparison.
+
+    Lowercase; strip an ``http://`` / ``https://`` scheme; strip a trailing
+    ``.git`` suffix and any trailing slashes. Deterministic and idempotent, so
+    ``https://github.com/Foo/Bar.git/`` and ``github.com/foo/bar`` normalize to
+    the same value. Mirrors step-auto-scope §0c's URL-match normalization.
+    """
+    if not value:
+        return ""
+    s = str(value).strip().lower()
+    for scheme in ("https://", "http://"):
+        if s.startswith(scheme):
+            s = s[len(scheme):]
+            break
+    s = s.rstrip("/")
+    if s.endswith(".git"):
+        s = s[:-4]
+    s = s.rstrip("/")
+    return s
+
+
+def _kebab(segment):
+    """Kebab-case, lowercase a single name segment (§6 skill-name rule).
+
+    Lowercase, drop a trailing ``.git``, collapse every run of non-alphanumeric
+    characters (``.``, ``_``, spaces, ...) to a single hyphen, and strip leading
+    / trailing hyphens. ``docs.example.com`` -> ``docs-example-com`` (mirrors
+    §0a's dot-to-hyphen), ``Bar`` -> ``bar``, ``my_project`` -> ``my-project``.
+    """
+    s = str(segment).strip().lower()
+    if s.endswith(".git"):
+        s = s[:-4]
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    return s.strip("-")
+
+
+def derive_name(target):
+    """Derive the expected skill name from a target URL / path / bare name.
+
+    Mirrors step-auto-scope §6 (repo/package name = the last non-empty path
+    segment, kebab-lowercased) and §0a (a bare doc hostname has its dots turned
+    into hyphens). Both cases funnel through :func:`_kebab`, so
+    ``github.com/x/bar-baz`` -> ``bar-baz`` and ``docs.example.com`` ->
+    ``docs-example-com``. Returns "" when no segment can be derived.
+    """
+    if not target:
+        return ""
+    s = str(target).strip().lower()
+    for scheme in ("https://", "http://"):
+        if s.startswith(scheme):
+            s = s[len(scheme):]
+            break
+    s = s.rstrip("/")
+    if s.endswith(".git"):
+        s = s[:-4]
+    s = s.rstrip("/")
+    segments = [seg for seg in s.split("/") if seg]
+    if not segments:
+        return ""
+    return _kebab(segments[-1])
+
+
+def compute_matches(skills, target):
+    """Return the deterministic coexistence match set for ``target``.
+
+    For each inventory skill, a hit fires when either the normalized
+    ``metadata.source_repo`` equals the normalized target (URL match) or the
+    derived expected name equals the skill's name, case-insensitively (name
+    match). Each match entry is
+    ``{name, active_version, source_repo, active_path, match_reason}`` where
+    ``match_reason`` is ``"url"``, ``"name"``, or ``"both"``.
+    """
+    norm_target = normalize_url(target)
+    derived = derive_name(target)
+    matches = []
+    for entry in skills:
+        source_repo = None
+        meta = entry.get("metadata")
+        if meta:
+            source_repo = meta.get("source_repo")
+        url_match = (
+            bool(source_repo)
+            and norm_target != ""
+            and normalize_url(source_repo) == norm_target
+        )
+        name_match = (
+            bool(derived)
+            and str(entry.get("name") or "").strip().lower() == derived
+        )
+        if not (url_match or name_match):
+            continue
+        if url_match and name_match:
+            reason = "both"
+        elif url_match:
+            reason = "url"
+        else:
+            reason = "name"
+        matches.append({
+            "name": entry.get("name"),
+            "active_version": entry.get("active_version"),
+            "source_repo": source_repo,
+            "active_path": entry.get("active_path"),
+            "match_reason": reason,
+        })
+    return matches
+
+
+def scan_inventory(skills_folder, skill_filter=None, manifest_only=False, match_target=None):
     """Scan the skills output folder and produce an inventory."""
     skills_dir = Path(skills_folder)
 
@@ -188,23 +305,42 @@ def scan_inventory(skills_folder, skill_filter=None, manifest_only=False):
     result["summary"]["with_metadata"] = sum(1 for s in result["skills"] if s["metadata"])
     result["summary"]["with_provenance"] = sum(1 for s in result["skills"] if s["has_provenance_map"])
 
+    # Coexistence matching (opt-in via --match-target; additive top-level key).
+    if match_target is not None:
+        result["matches"] = compute_matches(result["skills"], match_target)
+
     return result
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python3 skf-skill-inventory.py <skills-output-folder> [--skill <name>] [--manifest-only]", file=sys.stderr)
+        print(
+            "Usage: python3 skf-skill-inventory.py <skills-output-folder> "
+            "[--skill <name>] [--manifest-only] [--match-target <url-or-name>]",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     folder = sys.argv[1]
     skill = None
     manifest_only = "--manifest-only" in sys.argv
+    match_target = None
 
     if "--skill" in sys.argv:
         idx = sys.argv.index("--skill")
         if idx + 1 < len(sys.argv):
             skill = sys.argv[idx + 1]
 
-    result = scan_inventory(folder, skill_filter=skill, manifest_only=manifest_only)
+    if "--match-target" in sys.argv:
+        idx = sys.argv.index("--match-target")
+        if idx + 1 < len(sys.argv):
+            match_target = sys.argv[idx + 1]
+
+    result = scan_inventory(
+        folder,
+        skill_filter=skill,
+        manifest_only=manifest_only,
+        match_target=match_target,
+    )
     print(json.dumps(result, indent=2))
     sys.exit(0 if result["status"] == "ok" else 1)

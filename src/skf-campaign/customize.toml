@@ -1,6 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Workflow customization surface for skf-campaign.
+# Team overrides:     _bmad/custom/skf-campaign.toml (under {project-root})
+# Personal overrides: _bmad/custom/skf-campaign.user.toml (under {project-root})
 
 [workflow]
 

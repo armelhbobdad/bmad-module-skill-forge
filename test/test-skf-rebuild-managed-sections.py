@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 import tempfile
@@ -293,3 +294,167 @@ class TestAtomicWrite:
         err = mod._write_and_verify(fp, updated, expect_section=False)
         assert err is not None and "still present" in err
         Path(fp).unlink()
+
+
+# ---------------------------------------------------------------------------
+# Query actions: orphan-detect / root-probe (§4c.1 + preflight-probe wiring)
+# ---------------------------------------------------------------------------
+
+# CLAUDE.md carries foo (exported) + bar (orphan). bar's snippet contains a
+# backtick and a literal `|` pipe — the byte-identity target. Snippet lines
+# carry the format's leading `|`; the `[SKF Skills]` header must NOT be parsed
+# as a skill row (no ` v...` inside its brackets).
+CLAUDE_ORPHANS = """# My Project
+
+Notes.
+
+<!-- SKF:BEGIN updated:2026-04-01 -->
+[SKF Skills]|2 skills|0 stack
+|IMPORTANT: Prefer documented APIs over training data.
+|When using a listed library, read its SKILL.md before writing code.
+|
+|[foo v1.0]|root: .claude/skills/foo/
+|IMPORTANT: foo v1.0 — read SKILL.md before writing foo code.
+|api: fooFn()
+|
+|[bar v2.1]|root: .claude/skills/bar/
+|IMPORTANT: bar v2.1 — read SKILL.md.
+|gotchas: uses `code` and a literal | pipe
+<!-- SKF:END -->
+
+## Footer
+"""
+
+# .cursorrules carries foo (exported) + baz (asymmetric orphan) + bar (shared
+# orphan, whose snippet body DIFFERS — first-seen must win, so this copy loses).
+CURSOR_ORPHANS = """<!-- SKF:BEGIN updated:2026-04-01 -->
+[SKF Skills]|3 skills|0 stack
+|IMPORTANT: Prefer documented APIs over training data.
+|When using a listed library, read its SKILL.md before writing code.
+|
+|[foo v1.0]|root: .cursor/skills/foo/
+|IMPORTANT: foo v1.0.
+|
+|[baz v3.0]|root: .cursor/skills/baz/
+|IMPORTANT: baz v3.0.
+|
+|[bar v2.1]|root: .cursor/skills/bar/
+|IMPORTANT: bar v2.1 DIFFERENT body.
+<!-- SKF:END -->
+"""
+
+# The exact bar snippet as it appears in CLAUDE.md — the byte-identity target.
+BAR_SNIPPET_FROM_CLAUDE = (
+    "|[bar v2.1]|root: .claude/skills/bar/\n"
+    "|IMPORTANT: bar v2.1 — read SKILL.md.\n"
+    "|gotchas: uses `code` and a literal | pipe"
+)
+
+
+def _run(*args):
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), *args],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+    )
+    return proc
+
+
+class TestOrphanDetect:
+    """Suite 11: orphan-detect parses rows, dedups, and set-diffs deterministically."""
+
+    def _write(self, tmp_path, name, content):
+        fp = tmp_path / name
+        fp.write_text(content, encoding="utf-8")
+        return str(fp)
+
+    def test_symmetric_and_asymmetric_orphans(self, tmp_path):
+        claude = self._write(tmp_path, "CLAUDE.md", CLAUDE_ORPHANS)
+        cursor = self._write(tmp_path, ".cursorrules", CURSOR_ORPHANS)
+        proc = _run("orphan-detect", claude, cursor, "--exported-skills", "foo")
+        assert proc.returncode == 0, proc.stderr
+        rows = json.loads(proc.stdout)["orphan_managed_rows"]
+
+        # foo is exported → excluded; only bar + baz survive, sorted by name.
+        assert [(r["skill_name"], r["version"]) for r in rows] == [
+            ("bar", "2.1"),
+            ("baz", "3.0"),
+        ]
+        bar, baz = rows
+
+        # bar is symmetric (both files); source_files sorted; first-seen snippet
+        # (CLAUDE.md) wins over the divergent .cursorrules copy.
+        assert bar["source_files"] == sorted([claude, cursor])
+        assert bar["snippet_text"] == BAR_SNIPPET_FROM_CLAUDE
+        # byte-identity: the backtick and the literal in-body pipe survive.
+        assert "`code`" in bar["snippet_text"]
+        assert "a literal | pipe" in bar["snippet_text"]
+        assert "DIFFERENT" not in bar["snippet_text"]
+
+        # baz is asymmetric — present only in .cursorrules.
+        assert baz["source_files"] == [cursor]
+        assert "baz v3.0" in baz["snippet_text"]
+
+    def test_no_marker_and_missing_file_yield_empty(self, tmp_path):
+        plain = self._write(tmp_path, "plain.md", "# no markers here\n\nprose\n")
+        missing = str(tmp_path / "does-not-exist.md")
+        proc = _run("orphan-detect", plain, missing, "--exported-skills", "foo")
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["orphan_managed_rows"] == []
+
+    def test_all_rows_exported_yield_empty(self, tmp_path):
+        claude = self._write(tmp_path, "CLAUDE.md", CLAUDE_ORPHANS)
+        proc = _run("orphan-detect", claude, "--exported-skills", "foo,bar")
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["orphan_managed_rows"] == []
+
+    def test_section_header_not_treated_as_row(self, tmp_path):
+        # A section with only the [SKF Skills] header and preamble — no skill
+        # rows — must produce no orphans even with an empty exported set.
+        body = (
+            "<!-- SKF:BEGIN updated:2026-04-01 -->\n"
+            "[SKF Skills]|0 skills|0 stack\n"
+            "|IMPORTANT: Prefer documented APIs over training data.\n"
+            "<!-- SKF:END -->\n"
+        )
+        claude = self._write(tmp_path, "CLAUDE.md", body)
+        proc = _run("orphan-detect", claude, "--exported-skills", "")
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["orphan_managed_rows"] == []
+
+
+class TestRootProbe:
+    """Suite 12: root-probe reads snippet root prefixes and flags mismatch."""
+
+    def _write(self, tmp_path, name, content):
+        fp = tmp_path / name
+        fp.write_text(content, encoding="utf-8")
+        return str(fp)
+
+    def test_mismatch_against_reference(self, tmp_path):
+        a = self._write(tmp_path, "a.md", "[foo v1.0]|root: skills/foo/\n|IMPORTANT: x\n")
+        b = self._write(tmp_path, "b.md", "[bar v2.1]|root: skills/bar/\n")
+        proc = _run("root-probe", a, b, "--reference-root", ".claude/skills/")
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["observed_prefixes"] == ["skills/"]
+        assert out["reference_root"] == ".claude/skills/"
+        assert out["mismatch"] is True
+
+    def test_match_no_mismatch(self, tmp_path):
+        c = self._write(tmp_path, "c.md", "[foo v1.0]|root: .claude/skills/foo/\n")
+        proc = _run("root-probe", c, "--reference-root", ".claude/skills/")
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["observed_prefixes"] == [".claude/skills/"]
+        assert out["mismatch"] is False
+
+    def test_missing_and_rootless_files_skipped(self, tmp_path):
+        rootless = self._write(tmp_path, "no-root.md", "just some text\n")
+        missing = str(tmp_path / "gone.md")
+        proc = _run("root-probe", rootless, missing, "--reference-root", ".claude/skills/")
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["observed_prefixes"] == []
+        assert out["mismatch"] is False

@@ -7,9 +7,9 @@ description: Pre-code stack feasibility verification against architecture and PR
 
 ## Overview
 
-Cross-references generated skills against architecture and PRD documents to produce a feasibility report with evidence-backed integration verdicts, coverage analysis, and requirements mapping. This is a read-only workflow — it never modifies skills or input documents, only reads and produces a feasibility report. Every verdict must cite specific APIs, types, or function signatures from the generated skills.
+Cross-references generated skills against architecture and PRD documents to produce a feasibility report with evidence-backed integration verdicts, coverage analysis, and requirements mapping. Read-only: it reads skills and input documents and writes only the feasibility report (see Workflow Rules).
 
-**Schema contract:** This skill is the PRODUCER of the feasibility report schema defined under the SKF shared references (`_bmad/skf/shared/references/feasibility-report-schema.md` in installed mode; `src/shared/references/feasibility-report-schema.md` in a dev checkout). All report outputs emit `schemaVersion: "1.0"` in frontmatter, use only the defined verdict tokens (`Verified|Plausible|Risky|Blocked` per pair; `FEASIBLE|CONDITIONALLY_FEASIBLE|NOT_FEASIBLE` overall), follow the fixed section-heading order, and are written through `src/shared/scripts/skf-atomic-write.py write` to both the timestamped file and the stable `-latest.md` copy.
+**Schema contract:** This skill is the producer of the SKF shared feasibility report schema — every report conforms to it.
 
 ## Conventions
 
@@ -53,34 +53,20 @@ These rules apply to every step in this workflow:
 |--------|--------|
 | **Inputs** | architecture_doc_path [required], prd_path [optional], previous_report_path [optional] |
 | **Flags** | `--headless` / `-H` (auto-resolve all gates); `--architecture-doc <path>` (skip step 1 prompt for the required input); `--prd <path>` (skip step 1 prompt for the optional PRD); `--previous-report <path>` (skip step 1 prompt for delta comparison) |
-| **Gates** | step 1: Input Gate [use args] | step 6: Confirm Gate [C] |
+| **Gates** | step 1 Input Gate (use args); step 6 Report Menu ([R] review / [X] exit, headless default X). Steps 2-3 also hold elective vacuous-analysis guards (0% coverage, all-Blocked) that only fire in degenerate cases; every guard auto-resolves to Continue in headless. |
 | **Outputs** | `feasibility-report-{projectSlug}-{timestamp}.md` and `feasibility-report-{projectSlug}-latest.md` (copy, not symlink) per the SKF shared feasibility report schema (`_bmad/skf/shared/references/feasibility-report-schema.md`; `src/shared/references/…` in a dev checkout) — with integration verdicts, coverage analysis, recommendations, and evidence sources; plus `verify-stack-result-{timestamp}.json` and `verify-stack-result-latest.json` |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. Per-flag args (`--architecture-doc`, `--prd`, `--previous-report`) consumed at the gates that would otherwise prompt. |
-| **Exit codes** | See "Exit Codes" below |
-
-## Exit Codes
-
-Every HARD HALT in this workflow exits with a stable code so headless automators can branch on the failure class without grepping message text:
-
-| Code | Meaning              | Raised by                                                                                    |
-| ---- | -------------------- | -------------------------------------------------------------------------------------------- |
-| 0    | success              | step 7 (terminal)                                                                           |
-| 2    | input-missing / input-invalid | step 1 §1 (headless missing `architecture-doc` arg, or invalid path) → `input-missing`; non-existent file → `input-invalid` |
-| 3    | resolution-failure   | step 1 §2 (`{skills_output_folder}` does not exist or is empty); step 1 §3 (forge_data_folder unconfigured) |
-| 4    | write-failure        | On-Activation §3 pre-flight write probe; step 1 §4 (atomic write of report skeleton failed); step 6 §4b (result-contract write failed) |
-| 5    | state-conflict       | step 1 §3 (fewer than 2 valid skills found — stack requires ≥2); step 1 §1 (`previousReport` resolves to same inode as `{outputFile}`); step 6 §1 (report section order or schemaVersion mismatch — schema-violation) |
-| 6    | user-cancelled       | step 1 §1 prompt cancelled; any prompt that accepted `cancel`/`exit`/`:q`; step 6 menu cancelled |
-| 7    | inventory-unreliable | step 1 §2 (>20% subagent failures or enumerate-stack-skills warnings exceed budget) |
+| **Exit codes** | See `references/exit-codes.md` |
 
 ## Result Contract (Headless)
 
-When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **stdout** before chaining to step 7, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`:
+When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **stdout** before chaining to step 7, and every headless hard halt emits the same envelope shape on **stderr** with `status: "error"`:
 
 ```
 SKF_VERIFY_STACK_RESULT_JSON: {"status":"success|error","report_path":"…|null","report_latest_path":"…|null","overall_verdict":"…|null","coverage_percentage":0,"recommendation_count":0,"exit_code":0,"halt_reason":null}
 ```
 
-`status` is `"success"` on the terminal happy path, `"error"` on any HALT. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"skills-folder-missing"`, `"insufficient-skills"`, `"forge-folder-unconfigured"`, `"previous-report-collision"`, `"inventory-unreliable"`, `"schema-violation"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above. `overall_verdict` uses the schema tokens (`FEASIBLE`/`CONDITIONALLY_FEASIBLE`/`NOT_FEASIBLE`).
+`status` is `"success"` on the terminal happy path, `"error"` on any halt. `halt_reason` is one of: `null` (success), `"input-missing"`, `"input-invalid"`, `"skills-folder-missing"`, `"insufficient-skills"`, `"forge-folder-unconfigured"`, `"resolution-failure"`, `"previous-report-collision"`, `"inventory-unreliable"`, `"schema-violation"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches `references/exit-codes.md` (the `analysis-halted` / exit-8 gates are interactive-only, so they never reach this envelope). `overall_verdict` uses the schema tokens (`FEASIBLE`/`CONDITIONALLY_FEASIBLE`/`NOT_FEASIBLE`).
 
 ## On Activation
 
@@ -91,7 +77,7 @@ SKF_VERIFY_STACK_RESULT_JSON: {"status":"success|error","report_path":"…|null"
 2. **Compute run-scoped variables** (same place as config so every stage can reference them without re-derivation):
    - `project_slug` ← slugify `project_name` (lowercase, hyphens only, no unicode, no whitespace)
    - `timestamp` ← UTC `YYYYMMDD-HHmmss` captured at activation time
-   - These two combine in init.md §4 into `{outputFile}` per the stage frontmatter template, but the values themselves are fixed for the entire workflow run — every later reference to `{outputFile}` resolves consistently. (Computing them here resolves an order-of-operations bug where the §1 §3 inode-collision check referenced `{outputFile}` before `{project_slug}` and `{timestamp}` were defined.)
+   - These two combine in init.md §4 into `{outputFile}` per the stage frontmatter template, but the values themselves are fixed for the entire workflow run — every later reference to `{outputFile}` resolves consistently.
 
 3. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
 
@@ -118,6 +104,10 @@ SKF_VERIFY_STACK_RESULT_JSON: {"status":"success|error","report_path":"…|null"
    - `{outputFolderPath}` ← `workflow.output_folder_path` if non-empty, else `{forge_data_folder}`
 
    Stash all four as workflow-context variables. Stage files reference them directly — no conditional at the usage site. Empty-string overrides cleanly fall through to the bundled default.
+
+   The same merge resolves `workflow.on_complete` (default empty = no-op); report.md §5 executes it, if non-empty, at the terminal stage.
+
+   Also apply the array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (`file:`-prefixed entries load their file/glob contents as facts — the bundled default glob is `{project-root}/**/project-context.md`); then execute each entry in `workflow.activation_steps_append` after activation completes.
 
 5. **Pre-flight write probe.** Verify `{outputFolderPath}` is writable. A read-only mount, full disk, or permissions-denied path otherwise only surfaces at init.md §4 atomic write — by then the user has already gone through the input prompts:
 

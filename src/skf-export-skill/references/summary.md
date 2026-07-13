@@ -132,7 +132,7 @@ No files were written. To run the export for real:
 
 Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/export-skill-result-{timestamp}.json` (reuse the activation-stored `{timestamp}`, resolution to seconds) and a copy at `{skills_output_folder}/export-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all context files and target managed-section files in `outputs`; include total always-on and on-trigger token counts in `summary`.
 
-When `{headless_mode}` is true, also emit the single-line envelope on **stdout** before chaining to step 7 (matches the SKILL.md "Result Contract (Headless)" shape):
+When `{headless_mode}` is true, also emit the single-line envelope on **stdout** before chaining to step 7 (per `references/result-envelope.md`):
 
 ```
 SKF_EXPORT_RESULT_JSON: {"status":"success","skills":{skill_batch_names},"context_files_updated":{context_files_updated},"manifest_path":"{skills_output_folder}/.export-manifest.json","headless_decisions":{headless_decisions},"exit_code":0,"halt_reason":null}
@@ -156,11 +156,17 @@ Substitute `{skill_batch_names}`, `{context_files_updated}`, and `{headless_deci
 
 Other workflow choices that diverge from the strict spec path may add their own entries with a distinct `kind` value — auditors then have one place to look for "what did this run choose to do differently from the canonical flow." Omit the field when there are no deviations rather than writing an empty array, so the absence is readable as "ran the canonical path."
 
+### 6b. Post-Export Hook (Optional)
+
+If `{onCompleteCommand}` (resolved at SKILL.md On Activation §4 from `workflow.on_complete`) is non-empty, invoke it now — after both the per-run and `-latest` result JSON have been written:
+
+```bash
+{onCompleteCommand} --result-path={skills_output_folder}/export-skill-result-{timestamp}.json
+```
+
+Run it with a bounded timeout. On success, continue. On non-zero exit, timeout, or any failure, append the reason to `workflow_warnings[]` (e.g. `on_complete — failed (exit {N}): {stderr_first_line}`) and continue. **The hook must never fail the workflow** — it is integration glue (downstream distribution, notifier, pipeline chain) and any failure there is orthogonal to the export outcome. When `{onCompleteCommand}` is empty (bundled default), skip this section entirely.
+
 ### 7. Chain to Health Check
 
-ONLY WHEN the export summary, distribution instructions, and result contract are complete will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.
-
-## CRITICAL STEP COMPLETION NOTE
-
-This step chains to the local health-check step (`{nextStepFile}`), which in turn delegates to `shared/health-check.md`. After the health check completes, the export-skill workflow is fully done.
+ONLY WHEN the export summary, distribution instructions, result contract, and on-complete hook (or its skip on an empty `{onCompleteCommand}`) are complete will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the summary reads as final.
 

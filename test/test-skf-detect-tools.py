@@ -454,6 +454,160 @@ def test_detect_require_tier_invalid_value_dies():
     assert exc.value.code == 1
 
 
+# ─── CCC index freshness (compute_ccc_index_fresh) ───────────────────────────
+
+from datetime import datetime, timedelta, timezone
+
+# Fixed "now" so every freshness case is deterministic (same input → same bool).
+_NOW = datetime(2026, 7, 13, 12, 0, 0, tzinfo=timezone.utc)
+_PROJ = "/home/user/proj"
+
+
+def _fresh_prior(**over):
+    """A prior-state dict that classifies as FRESH by default (1h-old index)."""
+    base = {
+        "previous_ccc_indexed_path": _PROJ,
+        "previous_ccc_index_status": "created",
+        "previous_ccc_last_indexed": (_NOW - timedelta(hours=1)).isoformat(),
+        "previous_ccc_staleness_threshold_hours": 24,
+    }
+    base.update(over)
+    return base
+
+
+def test_ccc_fresh_baseline_true():
+    assert mod.compute_ccc_index_fresh(_fresh_prior(), _PROJ, _NOW) is True
+
+
+def test_ccc_fresh_boundary_exactly_at_threshold_is_fresh():
+    """delta == threshold_hours is inclusive (<=) → still fresh."""
+    prior = _fresh_prior(
+        previous_ccc_last_indexed=(_NOW - timedelta(hours=24)).isoformat(),
+        previous_ccc_staleness_threshold_hours=24,
+    )
+    assert mod.compute_ccc_index_fresh(prior, _PROJ, _NOW) is True
+
+
+def test_ccc_fresh_boundary_just_over_threshold_is_stale():
+    prior = _fresh_prior(
+        previous_ccc_last_indexed=(_NOW - timedelta(hours=24, seconds=1)).isoformat(),
+        previous_ccc_staleness_threshold_hours=24,
+    )
+    assert mod.compute_ccc_index_fresh(prior, _PROJ, _NOW) is False
+
+
+def test_ccc_fresh_z_suffix_timestamp_parses():
+    """A trailing 'Z' (UTC designator) must parse on Python 3.10 (no crash)."""
+    prior = _fresh_prior(previous_ccc_last_indexed="2026-07-13T11:00:00Z")  # 1h before _NOW
+    assert mod.compute_ccc_index_fresh(prior, _PROJ, _NOW) is True
+
+
+def test_ccc_fresh_naive_timestamp_assumed_utc():
+    """A timezone-naive timestamp is assumed UTC and compared without raising."""
+    prior = _fresh_prior(previous_ccc_last_indexed="2026-07-13T11:00:00")  # 1h before _NOW
+    assert mod.compute_ccc_index_fresh(prior, _PROJ, _NOW) is True
+
+
+def test_ccc_fresh_unparseable_timestamp_is_false():
+    prior = _fresh_prior(previous_ccc_last_indexed="not-a-timestamp")
+    assert mod.compute_ccc_index_fresh(prior, _PROJ, _NOW) is False
+
+
+@pytest.mark.parametrize("null_field", [
+    "previous_ccc_indexed_path",
+    "previous_ccc_index_status",
+    "previous_ccc_last_indexed",
+])
+def test_ccc_fresh_required_field_null_is_false(null_field):
+    """The three required fields, each null in turn, force a stale verdict.
+    (The threshold field is the exception — see the 24h-default test below.)"""
+    prior = _fresh_prior(**{null_field: None})
+    assert mod.compute_ccc_index_fresh(prior, _PROJ, _NOW) is False
+
+
+def test_ccc_fresh_threshold_null_defaults_to_24h():
+    """Null threshold → 24h default (matches ccc-index.md §2's prior default)."""
+    # 23h-old index with no threshold set → fresh under the 24h default.
+    prior = _fresh_prior(
+        previous_ccc_last_indexed=(_NOW - timedelta(hours=23)).isoformat(),
+        previous_ccc_staleness_threshold_hours=None,
+    )
+    assert mod.compute_ccc_index_fresh(prior, _PROJ, _NOW) is True
+    # 25h-old index with no threshold set → stale under the 24h default.
+    prior_stale = _fresh_prior(
+        previous_ccc_last_indexed=(_NOW - timedelta(hours=25)).isoformat(),
+        previous_ccc_staleness_threshold_hours=None,
+    )
+    assert mod.compute_ccc_index_fresh(prior_stale, _PROJ, _NOW) is False
+
+
+def test_ccc_fresh_path_mismatch_is_false():
+    prior = _fresh_prior(previous_ccc_indexed_path="/some/other/project")
+    assert mod.compute_ccc_index_fresh(prior, _PROJ, _NOW) is False
+
+
+def test_ccc_fresh_no_project_root_is_false():
+    """No --project-root supplied → cannot confirm same-project → false."""
+    assert mod.compute_ccc_index_fresh(_fresh_prior(), None, _NOW) is False
+
+
+@pytest.mark.parametrize("status", ["failed", "skipped", "none", "error"])
+def test_ccc_fresh_non_qualifying_status_is_false(status):
+    prior = _fresh_prior(previous_ccc_index_status=status)
+    assert mod.compute_ccc_index_fresh(prior, _PROJ, _NOW) is False
+
+
+@pytest.mark.parametrize("status", ["fresh", "created"])
+def test_ccc_fresh_qualifying_status_is_true(status):
+    prior = _fresh_prior(previous_ccc_index_status=status)
+    assert mod.compute_ccc_index_fresh(prior, _PROJ, _NOW) is True
+
+
+def test_ccc_fresh_unparseable_threshold_is_false():
+    prior = _fresh_prior(previous_ccc_staleness_threshold_hours="soon")
+    assert mod.compute_ccc_index_fresh(prior, _PROJ, _NOW) is False
+
+
+def _detect_args_full(**overrides):
+    """Namespace including the --prior-state-from / --project-root fields that
+    detect() reads via getattr (the lean _detect_args omits them)."""
+    import argparse
+    return argparse.Namespace(
+        tier_override=overrides.get("tier_override"),
+        require_tier=overrides.get("require_tier"),
+        snyk_env_var=overrides.get("snyk_env_var", "SNYK_TOKEN_DOES_NOT_EXIST"),
+        prior_state_from=overrides.get("prior_state_from"),
+        project_root=overrides.get("project_root"),
+    )
+
+
+def test_detect_surfaces_ccc_index_fresh_from_prior_state(tmp_path):
+    """End-to-end through detect(): a recent, same-project index reads as fresh."""
+    recent = datetime.now(timezone.utc).isoformat()
+    yaml_file = tmp_path / "forge-tier.yaml"
+    yaml_file.write_text(
+        "tier: Forge+\n"
+        "tier_detected_at: 2026-01-01T00:00:00Z\n"
+        "ccc_index:\n"
+        "  status: created\n"
+        f"  indexed_path: {tmp_path}\n"
+        f"  last_indexed: '{recent}'\n"
+        "  staleness_threshold_hours: 24\n",
+        encoding="utf-8",
+    )
+    args = _detect_args_full(prior_state_from=str(yaml_file), project_root=str(tmp_path))
+    with _patch_all_probes(ag=True, cc=True):
+        out = mod.detect(args)
+    assert out["prior"]["ccc_index_fresh"] is True
+
+
+def test_detect_ccc_index_fresh_false_on_first_run():
+    """No --prior-state-from / --project-root → first-run shape → not fresh."""
+    with _patch_all_probes(ag=True, gh=True, qm=True, cc=True):
+        out = mod.detect(_detect_args())
+    assert out["prior"]["ccc_index_fresh"] is False
+
+
 # ─── End-to-end CLI integration ──────────────────────────────────────────────
 
 

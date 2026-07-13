@@ -40,14 +40,14 @@ Extract and report:
 - `tools`: which tools are available (gh, ast-grep, ccc, qmd)
 - `ccc_index`: ccc index state (status, indexed_path, last_indexed) — needed by step 2b
 
-**Apply tier override:** Read `{preferencesFile}`. If `tier_override` is set and is one of the exact valid tier values (`Quick`, `Forge`, `Forge+`, `Deep`), use it instead of the detected tier. **If `tier_override` is set but is NOT one of those four values:** log a warning — "Unknown tier_override `{value}` in preferences.yaml; falling back to detected tier `{detected_tier}`. Valid values: Quick, Forge, Forge+, Deep." — and use the detected tier. Never silently apply an unknown override value, and never map it heuristically to a tier.
+**Apply tier override:** Read `{preferencesFile}`. If `tier_override` is set and is one of the exact valid tier values (`Quick`, `Forge`, `Forge+`, `Deep`), use it instead of the detected tier. **If `tier_override` is set but is not one of those four values:** log a warning — "Unknown tier_override `{value}` in preferences.yaml; falling back to detected tier `{detected_tier}`. Valid values: Quick, Forge, Forge+, Deep." — and use the detected tier. Never silently apply an unknown override value, and never map it heuristically to a tier.
 
 **Record the decision:** append an entry to the in-context `headless_decisions[]` buffer (initialize to `[]` at the start of this step if absent) whenever a non-interactive choice is made automatically — both the valid-override path AND the rejected-override path:
 
 - Valid override applied: `{step: "load-brief", gate: "tier-override", decision: "apply", value: "{tier_override}", rationale: "explicit preferences.yaml tier_override", timestamp: {ISO}}`
 - Invalid override rejected: `{step: "load-brief", gate: "tier-override", decision: "reject-invalid", value: "{tier_override}", fallback: "{detected_tier}", rationale: "tier_override not in {Quick,Forge,Forge+,Deep}", timestamp: {ISO}}`
 
-Step-05 §7 reads `headless_decisions[]` and emits an "Auto-Decisions" section into `evidence-report.md` so reviewers can audit every silent choice the workflow made.
+These entries stay in the in-context buffer until §3 establishes the on-disk auto-decision sink and seeds it with the buffer-so-far; from then on every later gate's decision is appended to the sink as it lands (per the headless Workflow Rule). Step 5 §7 renders the sink into the evidence-report `## Auto-Decisions` table and step 6 §8 reconciles it, so reviewers can audit every silent choice even on a run long enough to compact the in-context buffer before step 5.
 
 ### 2. Discover Skill Brief
 
@@ -58,7 +58,7 @@ Step-05 §7 reads `headless_decisions[]` and emits an "Auto-Decisions" section i
 
 **If user invoked with --batch flag:**
 - Check `{sidecar_path}/batch-state.yaml` for an active batch checkpoint:
-  - If `batch_active: true`: validate the checkpoint before trusting it. Both conditions below MUST hold:
+  - If `batch_active: true`: validate the checkpoint before trusting it — both conditions below must hold:
     1. `0 <= current_index < len(brief_list)` — the index points inside the recorded list.
     2. `os.path.exists(brief_list[current_index])` — the brief file is still on disk.
     If both hold, load the brief at `brief_list[current_index]` (resuming a batch loop from step 8). If **either** check fails, the checkpoint is stale (briefs renamed, moved, or deleted between runs; index off the end after a partial failure). Log a warning — "Stale batch checkpoint — current_index={i}, brief_list length={n}, brief_exists={bool}. Resetting and re-discovering." — then set `batch_active: false` in `batch-state.yaml` and fall through to the no-checkpoint branch below.
@@ -95,9 +95,19 @@ The helper emits:
 
 **If `valid` is true:** continue with `brief` (the parsed object) for downstream sections. Surface any `warnings[]` to the user but do not halt.
 
+**Establish the auto-decision sink (durable headless audit).** The brief is now confirmed, so create the on-disk audit sink at `{sidecar_path}/auto-decisions.jsonl` — one compact JSON object per line — and seed it with whatever is already in the in-context `headless_decisions[]` buffer (the §1 tier-override row, or nothing if none fired). This truncates any stale sink a prior brief left behind:
+
+```bash
+: > {sidecar_path}/auto-decisions.jsonl          # truncate / create empty
+# then, for each entry already in headless_decisions[], append its compact JSON:
+printf '%s\n' '{decision-json}' >> {sidecar_path}/auto-decisions.jsonl
+```
+
+From here on, **every time a later gate appends an auto-decision to `headless_decisions[]`, append that same object as a line to this sink the moment it lands** (the on-landing append the headless Workflow Rule mandates). The array is tiny, so the append costs nothing and keeps a complete on-disk copy across the token-heavy step 3→5 extraction window — the point where a long component-library run can compact the in-context buffer. Step 5 §7 renders this sink into the evidence-report `## Auto-Decisions` table and step 6 §8 reconciles it, so the audit table and `auto_decision_count` stay complete even when the buffer is lost.
+
 **Field reference (for human readers):**
 
-The complete contract — required fields, optional fields, types, and rules — lives in `src/shared/scripts/schemas/skill-brief.v1.json` and the prose mirror at `src/skf-brief-skill/assets/skill-brief-schema.md`. Read those if you need to explain a specific field; do NOT restate the rules here.
+The complete contract — required fields, optional fields, types, and rules — lives in `src/shared/scripts/schemas/skill-brief.v1.json` and the prose mirror at `src/skf-brief-skill/assets/skill-brief-schema.md`. Read those if you need to explain a specific field; do not restate the rules here.
 
 ### 4. Resolve Source Code Location
 
@@ -137,19 +147,7 @@ Where tier_description follows positive capability framing:
 - Forge+: "Semantic-guided precision — ccc pre-ranks files before AST extraction"
 - Deep: "Full intelligence — structural + contextual + QMD knowledge synthesis"
 
-### 6. Menu Handling Logic
+### 6. Auto-Proceed
 
-**Auto-proceed step — no user interaction.**
-
-After initialization is complete and all data is loaded (including `target_version` if present in the brief), immediately load, read entire file, then execute `{nextStepFile}`.
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed initialization step with no user choices
-- Proceed directly to next step after successful initialization
-- If any prerequisite check fails, HALT with actionable error — do NOT proceed
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN forge-tier.yaml is loaded, skill-brief.yaml is validated, and source code location is resolved will you proceed to load `{nextStepFile}` for ecosystem check.
+No user interaction. After initialization completes and all data is loaded (including `target_version` if present), load `{nextStepFile}`, read it fully, then execute it. A failed prerequisite check above has already halted with an actionable error rather than reaching here.
 

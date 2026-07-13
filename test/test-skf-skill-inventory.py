@@ -19,6 +19,9 @@ spec = importlib.util.spec_from_file_location(
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 scan_inventory = mod.scan_inventory
+normalize_url = mod.normalize_url
+derive_name = mod.derive_name
+compute_matches = mod.compute_matches
 
 
 def _link_active(active_link: Path, version: str) -> None:
@@ -47,7 +50,8 @@ def _link_active(active_link: Path, version: str) -> None:
             ) from e
 
 
-def make_skill(skills_dir, name, version="1.0.0", with_metadata=True, with_provenance=False):
+def make_skill(skills_dir, name, version="1.0.0", with_metadata=True, with_provenance=False,
+               source_repo=None):
     """Create a mock skill with versioned directory structure."""
     skill_group = skills_dir / name
     version_dir = skill_group / version / name
@@ -62,7 +66,7 @@ def make_skill(skills_dir, name, version="1.0.0", with_metadata=True, with_prove
             "version": version,
             "language": "TypeScript",
             "source_authority": "community",
-            "source_repo": f"https://github.com/test/{name}",
+            "source_repo": source_repo if source_repo is not None else f"https://github.com/test/{name}",
             "generated_by": "create-skill",
             "confidence_tier": "Forge",
             "stats": {"exports_total": 10},
@@ -148,3 +152,116 @@ class TestSkfSkillInventory:
         result = scan_inventory(str(skills_dir))
         assert result["manifest"] is not None
         assert "cocoindex" in result["manifest"]["exports"]
+
+    def test_no_matches_key_without_flag(self, skills_dir):
+        """The additive matches[] key is absent unless --match-target is used."""
+        make_skill(skills_dir, "react", "18.0.0")
+        result = scan_inventory(str(skills_dir))
+        assert "matches" not in result
+
+
+class TestNormalizeUrl:
+    """Unit tests for the URL/path normalization helper."""
+
+    def test_strips_scheme_git_and_trailing_slash(self):
+        assert normalize_url("https://github.com/Foo/Bar.git/") == "github.com/foo/bar"
+
+    def test_idempotent(self):
+        once = normalize_url("HTTP://GitHub.com/Foo/Bar.git")
+        assert once == "github.com/foo/bar"
+        assert normalize_url(once) == once
+
+    def test_bare_repo_unchanged(self):
+        assert normalize_url("github.com/foo/bar") == "github.com/foo/bar"
+
+    def test_empty_and_none(self):
+        assert normalize_url("") == ""
+        assert normalize_url(None) == ""
+
+
+class TestDeriveName:
+    """Unit tests for the expected-skill-name derivation."""
+
+    def test_last_path_segment(self):
+        assert derive_name("github.com/x/bar-baz") == "bar-baz"
+
+    def test_url_scheme_and_git_and_case(self):
+        assert derive_name("https://github.com/Foo/Bar.git/") == "bar"
+
+    def test_bare_doc_hostname_dots_to_hyphens(self):
+        assert derive_name("docs.example.com") == "docs-example-com"
+
+    def test_local_path(self):
+        assert derive_name("/srv/code/my_project") == "my-project"
+
+    def test_empty(self):
+        assert derive_name("") == ""
+
+
+class TestCoexistenceMatch:
+    """Tests for the --match-target coexistence match set (matches[])."""
+
+    @pytest.fixture()
+    def skills_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp) / "skills"
+            d.mkdir()
+            yield d
+
+    def test_url_match_normalizes(self, skills_dir):
+        """source_repo github.com/foo/bar matches a scheme/.git/slash/case-varied target.
+
+        The skill is named ``legacy-bar`` (not the ``bar`` the target derives) so
+        the hit fires on URL normalization alone, isolating the url reason.
+        """
+        make_skill(skills_dir, "legacy-bar", "1.0.0", source_repo="github.com/foo/bar")
+        result = scan_inventory(str(skills_dir), match_target="https://github.com/Foo/Bar.git/")
+        assert result["status"] == "ok"
+        assert len(result["matches"]) == 1
+        m = result["matches"][0]
+        assert m["match_reason"] == "url"
+        assert m["name"] == "legacy-bar"
+        assert m["active_version"] == "1.0.0"
+        assert m["active_path"] is not None
+
+    def test_name_match_derives_from_target(self, skills_dir):
+        """A skill named bar-baz matches by derived name even when the URL differs."""
+        make_skill(skills_dir, "bar-baz", "2.0.0", source_repo="github.com/unrelated/thing")
+        result = scan_inventory(str(skills_dir), match_target="github.com/x/bar-baz")
+        assert len(result["matches"]) == 1
+        m = result["matches"][0]
+        assert m["match_reason"] == "name"
+        assert m["name"] == "bar-baz"
+
+    def test_both_reason(self, skills_dir):
+        """URL and name both hit -> match_reason 'both'."""
+        make_skill(skills_dir, "bar", "1.0.0", source_repo="github.com/foo/bar")
+        result = scan_inventory(str(skills_dir), match_target="https://github.com/foo/bar")
+        assert len(result["matches"]) == 1
+        assert result["matches"][0]["match_reason"] == "both"
+
+    def test_no_match_is_empty(self, skills_dir):
+        make_skill(skills_dir, "react", "18.0.0", source_repo="github.com/facebook/react")
+        result = scan_inventory(str(skills_dir), match_target="github.com/vuejs/core")
+        assert result["matches"] == []
+
+    def test_doc_url_matches_by_source_repo(self, skills_dir):
+        """A docs-only skill (source_repo = full doc URL) is caught by URL match."""
+        make_skill(
+            skills_dir, "docs-example-com", "1.0.0",
+            source_repo="https://docs.example.com/guide/intro",
+        )
+        result = scan_inventory(
+            str(skills_dir), match_target="https://docs.example.com/guide/intro"
+        )
+        assert len(result["matches"]) == 1
+        assert result["matches"][0]["match_reason"] == "url"
+
+    def test_skill_without_metadata_only_name_matches(self, skills_dir):
+        """No metadata -> no source_repo -> URL match cannot fire, name match still can."""
+        make_skill(skills_dir, "bar", "1.0.0", with_metadata=False)
+        result = scan_inventory(str(skills_dir), match_target="github.com/foo/bar")
+        assert len(result["matches"]) == 1
+        m = result["matches"][0]
+        assert m["match_reason"] == "name"
+        assert m["source_repo"] is None

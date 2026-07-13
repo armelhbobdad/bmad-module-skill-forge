@@ -70,26 +70,4 @@ Please provide the GitHub URL directly, or check:
 
 **Hard halt** — cannot proceed without a resolved source.
 
-## Language Detection
-
-After resolving to a GitHub repo, detect primary language from:
-
-1. Manifest file presence:
-   - `package.json` → JavaScript/TypeScript
-   - `pyproject.toml` or `setup.py` → Python
-   - `Cargo.toml` → Rust
-   - `go.mod` → Go
-   - `pom.xml` or `build.gradle` → Java
-2. User-provided language hint (overrides detection)
-3. GitHub API language field (if accessible)
-
-## Manifest File Priority
-
-For each language, the primary manifest to read:
-
-| Language | Manifest       | Key Fields                                                               |
-|----------|----------------|--------------------------------------------------------------------------|
-| JS/TS    | package.json   | name, version, description, main, exports, dependencies                  |
-| Python   | pyproject.toml | project.name, project.version, project.description, project.dependencies |
-| Rust     | Cargo.toml     | package.name, package.version, package.description, dependencies         |
-| Go       | go.mod         | module path, require list                                                |
+Language detection is authoritative in `resolve-target.md` §4 (Detect Language) — this file covers only the package-to-repo registry chain.

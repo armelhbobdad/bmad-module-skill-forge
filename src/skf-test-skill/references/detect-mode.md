@@ -11,41 +11,19 @@ outputFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'
 
 Examine the skill metadata to determine whether this is an individual skill (naive mode — API surface coverage only) or a stack skill (contextual mode — full coherence validation including cross-references and integration patterns).
 
-### 1. Examine Skill Type
+### 1. Determine Test Mode
 
-Read the skill metadata (loaded in step 01) and check:
+Read the skill metadata (loaded in step 01) and branch on its `skill_type` field — a single deterministic lookup:
 
-**Individual Skill indicators:**
-- `skill_type: 'single'` in metadata
-- Single source library/package
-- No cross-references to other skills
-- Self-contained API surface
+- `skill_type: 'single'` → **Naive Mode** (API-surface coverage; coherence is structural only, no coherence category in scoring)
+- `skill_type: 'stack'` → **Contextual Mode** (full coherence validation — cross-references resolve, types match, integration patterns complete; coherence category scored)
+- unset or unclear → default to **Naive Mode** (conservative — fewer checks, less chance of false negatives from missing context) and note the default in the report
 
-**Stack Skill indicators:**
-- `skill_type: 'stack'` in metadata
-- References multiple skills or packages
-- Contains cross-references in SKILL.md
-- Integration patterns documented between components
+What each mode actually checks and how category weights are distributed is owned by `scoring-rules.md` (Tier-Dependent Scoring) and `coherence-check.md` — do not restate it here.
 
-### 2. Determine Test Mode
+**Quick-tier adjustment (applies to both modes):** If `forge_tier` is `Quick`, Signature Accuracy and Type Coverage are skipped during scoring (no AST available); their weights are redistributed proportionally to the remaining active categories per `scoring-rules.md` Tier-Dependent Scoring.
 
-**IF individual skill → Naive Mode:**
-- Coverage check: documented exports vs source API surface
-- Coherence check: basic structural validation only (no cross-references to verify)
-- Scoring: redistributed weights (no coherence category)
-
-**IF stack skill → Contextual Mode:**
-- Coverage check: documented exports vs source API surface (same as naive)
-- Coherence check: full validation — cross-references exist, types match, integration patterns complete
-- Scoring: full category weights including coherence
-
-**IF metadata unclear or skill_type not set:**
-- Default to **naive mode** (conservative — fewer checks, less chance of false negatives from missing context)
-- Note the default in the report
-
-**Quick-tier adjustment (applies to both modes):** If `forge_tier` is `Quick`, Signature Accuracy and Type Coverage are skipped during scoring (no AST available). Their weights are redistributed proportionally to remaining active categories. See `scoring-rules.md` Tier-Dependent Scoring section for details.
-
-### 3. Update Output Document
+### 2. Update Output Document
 
 Update `{outputFile}` frontmatter:
 - Set `testMode: '{naive|contextual}'`
@@ -66,18 +44,9 @@ Append the **Test Summary** section to `{outputFile}`:
 - Coherence Check: {what will be checked based on mode + tier}
 ```
 
-### 4. Report Mode Detection
+### 3. Report Mode Detection
 
-"**Mode detected: {NAIVE|CONTEXTUAL}**
-
-**{skill_name}** is {an individual skill / a stack skill}, so we'll run in **{naive/contextual}** mode.
-
-**What this means:**
-- Coverage: {brief description of coverage scope}
-- Coherence: {brief description of coherence scope}
-- Scoring: {which weight distribution applies}
-
-**Proceeding to coverage check...**"
+Report the detected mode ({naive|contextual}) and why it was selected (individual skill → naive, stack → contextual), then proceed to the coverage check.
 
 Update stepsCompleted, then load and execute {nextStepFile}.
 

@@ -13,7 +13,7 @@ Compare QMD knowledge context between the original skill creation and current st
 
 ## Rules
 
-- CONDITIONAL: Skip entire analysis at Quick/Forge/Forge+ tier — append skip notice only
+- At Quick/Forge/Forge+ tier, skip the entire analysis — append the skip notice only
 - Focus only on semantic/meaning-level changes via QMD context — do not repeat structural findings from Step 03
 - Do not classify severity (Step 05)
 - Use subprocess Pattern 3 when available for QMD queries; if unavailable, query in main thread
@@ -22,7 +22,7 @@ Compare QMD knowledge context between the original skill creation and current st
 
 ### 1. Check Forge Tier
 
-**IF forge tier is Quick, Forge, or Forge+:**
+**If forge tier is Quick, Forge, or Forge+:**
 
 Append to {outputFile}:
 
@@ -40,7 +40,7 @@ Update frontmatter: append `'semantic-diff'` to `stepsCompleted`
 
 → Auto-proceed to {nextStepFile}
 
-**IF forge tier is Deep:**
+**If forge tier is Deep:**
 
 Continue to section 2.
 
@@ -127,23 +127,5 @@ Append to {outputFile}:
 
 ### 5. Update Report and Auto-Proceed
 
-Update {outputFile} frontmatter:
-- Append `'semantic-diff'` to `stepsCompleted`
-
-### 6. Present MENU OPTIONS
-
-Display: "**Semantic diff complete. {total} semantic drift items found. Proceeding to severity classification...**"
-
-#### Menu Handling Logic:
-
-- After semantic diff section is appended and frontmatter updated, immediately load, read entire file, then execute {nextStepFile}
-
-#### EXECUTION RULES:
-
-- This is an auto-proceed analysis step with no user choices
-- Proceed directly to next step after completion
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the ## Semantic Drift section (or skip notice) has been appended to {outputFile} will you then load and read fully `{nextStepFile}` to execute and begin severity classification.
+Update {outputFile} frontmatter — append `'semantic-diff'` to `stepsCompleted`. Once the ## Semantic Drift section (or skip notice) has been appended, load, read fully, and execute `{nextStepFile}` (severity classification).
 

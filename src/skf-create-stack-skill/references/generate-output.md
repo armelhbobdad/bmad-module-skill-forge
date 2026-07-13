@@ -1,7 +1,5 @@
 ---
 nextStepFile: 'validate.md'
-stackSkillTemplate: 'assets/stack-skill-template.md'
-provenanceMapSchemaPath: 'assets/provenance-map-schema.md'
 # Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
 # path wins. HALT if neither resolves — stage/commit/flip-link/write below
@@ -49,7 +47,7 @@ Resolve `{version}` per S11 below — the primary library version in code-mode, 
 
 Where the skill name is `{project_name}-stack` and `{version}` is the semver version (with build metadata stripped per `knowledge/version-paths.md`).
 
-**Primary library definition (S11):** In code-mode, the primary library is the dependency with the highest import count from step 3; its `version` (from the manifest) becomes `{primary_library_version}`, falling back to `1.0.0` if unavailable. In compose-mode, the stack carries its own release identity: default `{version}` to `1.0.0` (a stack-local scheme) — do NOT borrow the highest constituent semver. Constituent versions are preserved in `dependencies[]`, so no information is lost, and the package no longer reads as tracking whichever constituent happened to have the highest version. The `1.0.0` default applies only to a **genuinely new** stack — see the re-composition rule below.
+**Primary library definition (S11):** In code-mode, the primary library is the dependency with the highest import count from step 3; its `version` (from the manifest) becomes `{primary_library_version}`, falling back to `1.0.0` if unavailable. In compose-mode, the stack carries its own release identity: default `{version}` to `1.0.0` (a stack-local scheme) rather than borrowing the highest constituent semver. Constituent versions are preserved in `dependencies[]`, so no information is lost, and the stack's version does not track whichever constituent happens to have the highest version. The `1.0.0` default applies only to a **genuinely new** stack — see the re-composition rule below.
 
 **Re-composition versioning (S11, compose-mode):** When the S3 pre-flight resolves a `{prior_stack_version}` (re-composing a stack that already has a release line), continue that line instead of resetting — defaulting to `1.0.0` would publish a version *below* the existing release (e.g. `1.0.0` shadowing a prior `3.0.5`, a backward jump). Bump `{prior_stack_version}`:
 
@@ -62,7 +60,11 @@ Never emit a `{version}` ≤ `{prior_stack_version}`. Narrate the resolved versi
 
 "**Cannot proceed.** `{skills_output_folder}/{project_name}-stack/` exists but is not a stack skill (`skill_type={found_type}`). Rename the existing directory or choose a different `project_name` to avoid collision."
 
-Do NOT proceed to staging or commit.
+Do NOT proceed to staging or commit. Emit the result envelope on stderr per the Result Contract in SKILL.md and exit `4` (`stack_libraries` carries the confirmed library names; nothing was committed, so `skill_package` is `null`):
+
+```
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","exit_code":4,"halt_reason":"write-failure"}
+```
 
 If that metadata exists and `skill_type == "stack"`, this run is a **re-composition**: capture its `version` as `{prior_stack_version}` and its `libraries` array as `{prior_libraries}` for the S11 re-composition rule above. If the group dir is absent — or exists but has no resolvable `active` stack metadata — treat this as a new stack and leave `{prior_stack_version}` unset.
 
@@ -92,7 +94,11 @@ mkdir -p {forge_version}
 python3 {atomicWriteHelper} commit-dir --rollback --target {skill_package}
 ```
 
-Then abort with a structured error contract (see B7): purge any `{forge_version}/*-tmp` staging artifacts, emit `{"status":"error","skill":"skf-create-stack-skill","stage":"step 7","reason":"<message>"}` on stderr, and halt the workflow.
+Then abort (see B7): purge any `{forge_version}/*-tmp` staging artifacts, emit the result envelope on stderr per the Result Contract in SKILL.md, and halt the workflow. This is the single rollback exit shared by §7 (workspace-write failure) and §9 (commit-dir failure):
+
+```
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","exit_code":4,"halt_reason":"write-failure"}
+```
 
 ### 2. Stage SKILL.md
 
@@ -102,20 +108,20 @@ Write the approved `skill_content` from step 06 to `{skill_staging}/SKILL.md` (r
 
 For each confirmed library, write `{skill_staging}/references/{library_name}.md`:
 
-Load structure from `{stackSkillTemplate}` references section:
+Load structure from `{stackSkillTemplatePath}` references section:
 - Library name, version from manifest (**in compose-mode**: version from source skill `metadata.json`)
 - Import count and file count (**in compose-mode**: export count from source skill metadata)
 - Key exports with signatures
 - Usage patterns with file:line citations (**in compose-mode**: usage patterns from source skill SKILL.md)
 - Confidence tier label
 
-**If the catalog was extracted** (large stack — step 06 §4 placed the `Library Reference Index` + `Per-Library Summaries` out of SKILL.md), also write `{skill_staging}/references/stack-catalog.md` using the structure in `{stackSkillTemplate}`, and confirm SKILL.md carries the inline pointer instead of the two sections. Small stacks keep the catalog inline and write no `stack-catalog.md`.
+**If the catalog was extracted** (large stack — step 06 §4 placed the `Library Reference Index` + `Per-Library Summaries` out of SKILL.md), also write `{skill_staging}/references/stack-catalog.md` using the structure in `{stackSkillTemplatePath}`, and confirm SKILL.md carries the inline pointer instead of the two sections. Small stacks keep the catalog inline and write no `stack-catalog.md`.
 
 ### 4. Stage Integration Pair Reference Files
 
 For each detected integration pair, write `{skill_staging}/references/integrations/{libraryA}-{libraryB}.md`:
 
-Load structure from `{stackSkillTemplate}` integrations section:
+Load structure from `{stackSkillTemplatePath}` integrations section:
 - Library pair and integration type
 - Co-import file count
 - Integration pattern description with file:line citations
@@ -131,7 +137,7 @@ Write `{skill_staging}/context-snippet.md`:
 Use the Vercel-aligned indexed format targeting **~80-120 tokens** (M2). Token estimation is heuristic — use `ceil(char_count / 4)` as the working approximation (the standard rule-of-thumb for English text in BPE-style tokenizers; precise counts differ per model). Compute against the rendered snippet body (excluding trailing newline).
 
 ```
-[{project_name}-stack v{version — per S11: code-mode primary_library_version or 1.0.0; compose-mode stack-local scheme — 1.0.0 for a new stack, or the bumped {prior_stack_version} on re-composition}]|root: skills/{project_name}-stack/
+[{project_name}-stack v{version — resolved in §1}]|root: skills/{project_name}-stack/
 |IMPORTANT: {project_name}-stack — read SKILL.md before writing integration code. Do NOT rely on training data.
 |stack: {dep-1}@{v1}, {dep-2}@{v2}, {dep-3}@{v3}
 |integrations: {pattern-1}, {pattern-2}
@@ -151,52 +157,12 @@ If the snippet is still over budget after step 4, log a warning to workflow_warn
 
 ### 6. Stage metadata.json
 
-Write `{skill_staging}/metadata.json`:
+Write `{skill_staging}/metadata.json`, populating every field from the metadata.json schema in `{stackSkillTemplatePath}` (loaded in §3) — that template is the single schema source; do not re-transcribe it here. Resolve the field values whose template placeholders don't spell out the rule:
 
-Populate all fields from the metadata.json schema defined in `{stackSkillTemplate}`.
-
-**Tier fields:**
+- `version` — the `{version}` resolved in §1 (not the template's literal `1.0.0`, which is only the new-stack default).
 - `forge_tier` — the run tier (Quick/Forge/Forge+/Deep) resolved in step 1.
 - `confidence_tier` — the dominant T-code from `confidence_distribution`. Pick the tier with the highest count; resolve ties toward the weaker tier (T1-low > T1, T2 > T1-low, T3 > T2) so the reported value never overstates confidence. When `confidence_distribution` is empty (no libraries extracted), emit `"T1-low"` as the conservative default.
-
-```json
-{
-  "skill_type": "stack",
-  "name": "{project_name}-stack",
-  "version": "{version — resolved per S11: code-mode primary_library_version or 1.0.0; compose-mode 1.0.0 (new stack) or bumped {prior_stack_version} (re-composition)}",
-  "generation_date": "{current_date}",
-  "forge_tier": "{Quick|Forge|Forge+|Deep — the tier under which this run executed}",
-  "confidence_tier": "{T1|T1-low|T2|T3 — dominant T-code from confidence_distribution below}",
-  "spec_version": "1.3",
-  "source_authority": "{official|community|internal — use the lowest authority among constituent skills}",
-  "generated_by": "create-stack-skill",
-  "exports": [],
-  "library_count": N,
-  "integration_count": N,
-  "libraries": ["lib1", "lib2"],
-  "integration_pairs": [["lib1", "lib2"]],
-  "language": "{primary language or list of languages from constituent skills}",
-  "ast_node_count": "{number or omit if no AST extraction performed}",
-  "confidence_distribution": {"t1": N, "t1_low": N, "t2": N, "t3": N},
-  "tool_versions": {
-    "ast_grep": "{version or null}",
-    "qmd": "{version or null}",
-    "skf": "{skf_version}"
-  },
-  "stats": {
-    "exports_documented": N,
-    "exports_public_api": N,
-    "exports_internal": N,
-    "exports_total": N,
-    "public_api_coverage": 0.0,
-    "total_coverage": 0.0,
-    "scripts_count": N,
-    "assets_count": N
-  },
-  "dependencies": [],
-  "compatibility": "{semver-range}"
-}
-```
+- `source_authority` — the lowest authority among constituent skills (official > community > internal).
 
 ### 7. Write Forge Data Artifacts (Workspace)
 
@@ -216,7 +182,7 @@ Use the schema from `{provenanceMapSchemaPath}` — see that asset for the canon
 - **In code-mode:** use the code-mode variant (`source_repo` / `source_commit` populated; `extraction_method` ∈ `ast_bridge|source_reading|qmd_bridge`; `detection_method = "co-import grep"`).
 - **In compose-mode:** use the compose-mode variant (source-anchor fields `null`; `extraction_method = "compose-from-skill"`; `detection_method ∈ "architecture_co_mention|constituent_documented_contract|inferred_from_shared_domain"`; includes the additional `constituents[]` array for drift detection).
 
-**Use the `metadata_hash` value already stored in workflow state during step 2 (S13) — do NOT re-read and re-hash at step 7 time. The stored hash captures the state as it was at manifest-detection time, which is the correct provenance anchor.**
+Populate compose-mode `constituents[].metadata_hash` from the value stored in workflow state at step 2 (S13), not a fresh re-hash at step-7 time — `{provenanceMapSchemaPath}` carries the rationale for why the manifest-detection-time hash is the correct provenance anchor.
 
 **evidence-report.md:**
 - Extraction summary per library
@@ -269,24 +235,7 @@ If `flip-link` fails, emit a warning (the committed package is still valid), not
 
 ### 11. Display Write Summary
 
-"**Output files written.**
-
-**Deliverables** ({skill_package}):
-- SKILL.md ({line_count} lines)
-- context-snippet.md ({token_estimate} tokens)
-- metadata.json
-- references/ -- {lib_count} library files
-- references/integrations/ -- {pair_count} integration files
-
-**Workspace** ({forge_version}):
-- provenance-map.json
-- evidence-report.md
-
-**Symlink:** {skill_group}/active -> {version}
-
-**Total files written:** {total_count}
-
-**Proceeding to validation...**"
+Report the files written: the `{skill_package}` deliverables (SKILL.md with `{line_count}` lines, context-snippet.md with `{token_estimate}` tokens, metadata.json, `references/` `{lib_count}` library files, `references/integrations/` `{pair_count}` integration files), the `{forge_version}` workspace (provenance-map.json, evidence-report.md), the `{skill_group}/active -> {version}` symlink, and the `{total_count}` total.
 
 ### 12. Auto-Proceed to Next Step
 

@@ -1,10 +1,13 @@
 ---
 nextStepFile: 'map-and-detect.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-heuristicsFile: 'references/unit-detection-heuristics.md'
+heuristicsFile: '{unitDetectionHeuristicsPath}'
 disqualifyCandidatesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-disqualify-candidates.py'
   - '{project-root}/src/shared/scripts/skf-disqualify-candidates.py'
+detectLanguageProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-language.py'
+  - '{project-root}/src/shared/scripts/skf-detect-language.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -36,24 +39,13 @@ Load {heuristicsFile} for classification rules.
 
 **Resolve `{disqualifyCandidatesHelper}`** from `{disqualifyCandidatesProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
-For EACH detected boundary from the scan:
+For each detected boundary from the scan, apply the classification rules from {heuristicsFile} (loaded in §1):
 
-**Step A — Count detection signals:**
-- Check strong signals (independent manifest, separate entry point, Docker config, distinct export surface, workspace member)
-- Check moderate signals (directory depth, naming convention, separate tests, README, CI/CD reference)
-- Check weak signals (large directory, comment boundaries, import clustering)
+**Step A — Count detection signals:** tally the Strong / Moderate / Weak signals per its Detection Signals tables.
 
-**Step B — Classify boundary type:**
-- Service Boundary — independent deployable unit
-- Package Boundary — workspace member or independently versioned
-- Module Boundary — logical grouping within a package
-- Library Boundary — third-party with significant project-specific usage
-- Composite Boundary — ≥2 boundaries that only deliver value together (detected in §3b below; not assigned during initial per-boundary classification)
+**Step B — Classify boundary type** per its Boundary Classification section. (Composite is detected separately in §3b below — not during this initial per-boundary pass.)
 
-**Step C — Assign scope type:**
-- `full-library` — entire codebase of the unit
-- `specific-modules` — selected components or packages
-- `public-api` — only exported interfaces
+**Step C — Assign scope type** from that same section for the boundary's type.
 
 **Step D — Run deterministic disqualification filter (script):**
 
@@ -87,9 +79,9 @@ Run the shared disqualification helper to apply the deterministic subset of the 
 - **Test-only** — test utilities with no production code
 - **Already skilled** — exists in `existing_skills` list (recommend `update-skill` instead)
 
-Remove any boundary that fails one of these LLM-judged rules from the working `kept` set and append it to `dropped[]` with the appropriate reason. Reasons recorded by the script (`too-few-files`, `too-low-loc`, `generated-code`, `auto-generated-tag`) are authoritative; do NOT re-evaluate those rules manually.
+Remove any boundary that fails one of these LLM-judged rules from the working `kept` set and append it to `dropped[]` with the appropriate reason. Reasons recorded by the script (`too-few-files`, `too-low-loc`, `generated-code`, `auto-generated-tag`) are authoritative — do not re-evaluate those rules manually.
 
-**Qualification CONFIRMATION:** Visually skim the script's `kept`/`dropped` decisions for sanity (e.g., a boundary you expected to qualify that landed in `dropped` — surface the script's `reason` and `context.first_match` to the user in §5 so they can override if the heuristic was wrong for this project).
+**Qualification check:** Visually skim the script's `kept`/`dropped` decisions for sanity (e.g., a boundary you expected to qualify that landed in `dropped` — surface the script's `reason` and `context.first_match` to the user in §5 so they can override if the heuristic was wrong for this project).
 
 ### 3. Build Unit Classification Table
 
@@ -110,9 +102,7 @@ For disqualified candidates, note reason:
 
 After building the classification table, apply the Composite Boundary detection heuristic from {heuristicsFile} against the qualifying units:
 
-1. **Scan for merge candidates:** Among the qualifying units (from `kept[]`), find groups of ≥2 Package or Module boundaries that meet EITHER trigger:
-   - **Mutual hard dependency:** Every constituent imports from at least one other constituent in the group, AND no constituent's public API is self-contained
-   - **Shared integration surface:** Constituents share types/traits defined in one constituent but consumed by all others, AND the consuming constituents have no independent barrel
+1. **Scan for merge candidates:** Among the qualifying units (from `kept[]`), find groups of ≥2 Package or Module boundaries that meet either Composite trigger — **Mutual hard dependency** or **Shared integration surface** — as defined in {heuristicsFile}'s Composite Boundary heuristic.
 
 2. **If candidate groups are found**, propose each merge:
    - Derive a composite name from the common namespace prefix or repo name
@@ -121,16 +111,23 @@ After building the classification table, apply the Composite Boundary detection 
 
 3. **If no candidate groups are found**, skip to §4.
 
-**Merge does NOT fire for:** Units already flagged as Stack Skill Candidates in step 4 (map-and-detect §5) — those are multi-unit groupings that deliver value *separately* but are *also* useful together. Composite merges are for units that are *only* useful together (the key distinction). If a group of units is independently useful but commonly combined, it remains as separate units and is flagged as a stack skill candidate later.
+**Merge does not fire for:** Units already flagged as Stack Skill Candidates in step 4 (map-and-detect §5) — those are multi-unit groupings that deliver value *separately* but are *also* useful together. Composite merges are for units that are *only* useful together (the key distinction). If a group of units is independently useful but commonly combined, it remains as separate units and is flagged as a stack skill candidate later.
 
 **This step is a recommendation — not automatic.** Merges are presented to the user in §5 for confirmation (see "Composite Merge Proposals" below). If the user rejects a merge, the constituents remain as separate units in the classification table.
 
 ### 4. Detect Primary Language Per Unit
 
-For each qualifying unit (including any approved composites from §3b), determine the primary programming language based on:
-- File extensions in the unit directory
-- Manifest file type (package.json → JS/TS, Cargo.toml → Rust, go.mod → Go, etc.)
-- Entry point file extension
+For each qualifying unit (including any approved composites from §3b), detect the primary language deterministically via the shared helper — the single source of truth for the manifest→language rule table (no in-prose restatement, which drifts from the script's tsconfig JS-vs-TS and `build.gradle` Java-vs-Kotlin disambiguation).
+
+**Resolve `{detectLanguageHelper}`** from `{detectLanguageProbeOrder}`; first existing path wins.
+
+For each unit, pipe its file list — the `files` array built for that boundary in the §2 boundaries JSON — as the tree:
+
+```bash
+echo '{"tree": [<unit files — forward-slash, repo-relative>]}' | uv run {detectLanguageHelper}
+```
+
+Read `.language` and `.confidence` for the unit. When confidence is low (the extension-frequency fallback fired — no manifest matched), surface it in §5 so the user can override the guess.
 
 ### 5. Present Classifications
 
@@ -195,16 +192,8 @@ Display: "**Select:** [C] Continue to Export Mapping and Integration Detection |
 #### Menu Handling Logic:
 
 - IF C: Save classifications to {outputFile}, update frontmatter, then load, read entire file, then execute {nextStepFile}
-- IF X: HARD HALT with exit code 6 (`user-cancelled`). Emit the `SKF_ANALYZE_RESULT_JSON` envelope on stderr with `status: "error"`, `halt_reason: "user-cancelled"`, and counts/paths reflecting state at cancellation
+- IF X: HARD HALT with exit code 6 (`user-cancelled`). Emit the error envelope on stderr with `halt_reason: "user-cancelled"` and counts/paths reflecting state at cancellation (shape in `references/headless-contract.md`)
 - IF Any other: help user, then [Redisplay Menu Options](#7-present-menu-options)
 
-#### EXECUTION RULES:
-
-- ALWAYS halt and wait for user input after presenting menu
-- **GATE [default: C]** — If `{headless_mode}`: accept all classifications and auto-proceed, log: "headless: auto-accept unit classifications"
-- ONLY proceed to next step when user selects 'C'
-
-## CRITICAL STEP COMPLETION NOTE
-
-ONLY WHEN the Identified Units section has been appended to {outputFile} with complete classification tables, disqualification records, and language detection results, and frontmatter stepsCompleted has been updated, will you load and read fully {nextStepFile} to begin export mapping and integration detection.
+**GATE [default: C]** — present the menu and wait for the user's choice. If `{headless_mode}`: accept all classifications and auto-proceed, log: "headless: auto-accept unit classifications".
 
