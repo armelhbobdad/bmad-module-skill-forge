@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [2.0.1](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v2.0.0...v2.0.1) (2026-07-13)
+
+### Bug Fixes
+
+* **brief:** stop "lifecycle" keyword from overriding structural scope rules ([e70f5e7](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/e70f5e7b37528d308421b4beda08816a4f585d51))
+* **create-skill:** skip already-surfaced migration warnings in doc-rot scan ([1ea6b2c](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/1ea6b2c8bc8c0c87fa4a0e638e9599dc920c9b59))
+* **create-stack:** treat body-token overflow as advisory, matching skill-check ([72041d6](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/72041d6e786cf1cede527f90ca1f47743a39e2d3))
+* **export:** support first-ever --all export and flat-layout snippets ([299564d](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/299564d6220ab0953a5b41387ac6d8bfb443a652))
+* **refine-architecture:** name refined output after the doc's own project ([bdcea60](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/bdcea60f504ba6b3f28559247ab39c1b5aac0366))
+* **setup:** announce initial detection on first run ([faa754d](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/faa754d4a095946598008118f72621659439cf1f))
+* **setup:** show ccc daemon health instead of a misparsed version string ([1974139](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/1974139134ce13a30a4d69ce666647705d70bc11))
+* **shared:** allow dotted repo names in GitHub pin validation ([75c4197](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/75c4197a1a6af878e966b40eb8a742b47e9279cb))
 ## [2.0.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v1.9.0...v2.0.0) (2026-06-04)
 
 ### Features
