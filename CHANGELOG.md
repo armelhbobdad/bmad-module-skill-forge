@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [2.0.2](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v2.0.1...v2.0.2) (2026-07-19)
+
+### Bug Fixes
+
+* **health-check:** a fixed finding no longer suppresses its own regression ([3ddc8c3](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/3ddc8c3457bceae6e7d312d080930da435ca0700))
 ## [2.0.1](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v2.0.0...v2.0.1) (2026-07-13)
 
 ### Bug Fixes
