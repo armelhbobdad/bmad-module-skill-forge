@@ -151,7 +151,36 @@ The `section-slug` is a kebab-case normalized section heading (e.g. `missing-sta
 
 **2. Check the local seen-cache** at `{seenCachePath}`:
 
-If the cache exists and already contains this fingerprint for this user, skip submission silently and log: `"fp-{hash}: already submitted from this machine on {date}, issue {url} — skipping"`. This prevents the same user from re-reporting the same defect across sessions.
+Read `{seenCachePath}`. A missing file, an empty file, or one that does not parse as JSON is an empty cache — never an error, never a reason to halt.
+
+**Presence in the cache is not the verdict.** A fingerprint whose defect was already fixed must NOT suppress: a fresh sighting of a fixed defect is a *regression*, and it is the single most valuable report this loop can produce. Look up the fingerprint and work these branches in order, stopping at the first that matches:
+
+1. **No record for this fingerprint** → `unseen`. Go to sub-step 3.
+2. **Record with `"action": "resolved"`** → `regression`. Recorded by hand when the defect was fixed. Go to sub-step 3 and apply the regression treatment below.
+3. **Record with `"action"` of `created`, `reacted`, or `commented`, and a non-empty `issue_url`** → you must decide whether that issue is still live before you may suppress. The cache is machine-local and records only what *this* user did; the issue's own state is shared, so it is the better authority. Run exactly this, and give it a hard time bound so a hung network can never strand the run:
+
+   ```
+   timeout 10 gh issue view {issue_url} --json state,stateReason --jq '.state + "/" + (.stateReason // "")'
+   ```
+
+   - `CLOSED/COMPLETED`, or `MERGED` (the record points at a resolving PR) → `regression`. It was fixed and closed out.
+   - `CLOSED/NOT_PLANNED` → `handled`. **Not** a fix: this is how the dedup Action closes a duplicate, and how a maintainer closes a wontfix. Treating it as a regression would file a REGRESSION issue against a defect nobody ever fixed, every session, forever.
+   - `OPEN` → `handled`. Already filed and still being tracked.
+   - Any failure at all (offline, timeout, no auth, deleted issue, unparseable output) → `handled`. This refinement never blocks a run and never halts on error.
+4. **Record with one of those actions but an empty `issue_url`** → `handled`. There is no issue to consult, so the local record stands.
+5. **Record with no `action`, or any other value** → `unrecognized`. Hand-edited, or written by a newer version of this file, so it cannot be confirmed handled. Go to sub-step 3 as an ordinary submission.
+
+**`handled` is the only verdict that suppresses.** Skip submission silently and log: `"fp-{hash}: already handled on {date}, issue {url} — skipping"`. Every other verdict proceeds to sub-step 3.
+
+**Why anything uncertain reports instead of suppressing.** A duplicate report is self-healing: the dedup Action closes it and moves the upvote to the canonical issue. A silenced regression is caught by nothing at all. When the verdict is in doubt, report.
+
+**Regression treatment** (verdicts `regression` only). Carry the prior record forward so the recurrence can never be filed as a first sighting:
+
+- Append ` — REGRESSION` to the issue title, after `{short description}`.
+- Add a `## Regression` section immediately above `## Finding`, containing one line: `Regression of {issue_url}, resolved {date}.` If the prior record has no `issue_url`, write `Regression of a previously resolved local finding, resolved {date}.` The `{fp}` label still ties the two together server-side.
+- Leave `## Finding` and the other one-sentence sections exactly as specified below. The backlink lives in its own section precisely so those budgets are untouched.
+
+**What this does and does not catch.** The fingerprint is `sha1` over the section slug, so a fix that renames or relocates the section it touches changes the fingerprint. Such a regression arrives as `unseen` and is reported as a first sighting, which is safe but unlinked. These branches catch the regressions that recur under the same heading in the same step file, which is the case where the old behaviour was silent.
 
 **3. Check GitHub CLI availability** with `gh auth status`. If `gh` is unavailable, fall through to step 5c (local fallback).
 
@@ -205,9 +234,11 @@ gh issue create \
   --body "{formatted body using issue template structure}"
 ```
 
+When sub-step 2 returned `regression`, append ` — REGRESSION` to that `--title` value, after `{short description}`, and include the `## Regression` backlink section in the body. The command above is the literal one you run, so the marker has to be in it: an instruction that the title should say REGRESSION loses to a copied command that does not.
+
 The fingerprint `{fp}` appears in both title (human-readable) and label (server-side filterable). Maintainers can query all reports for a defect via the `fp-*` label without relying on title text.
 
-After the issue is created, write the fingerprint → issue-url mapping to the seen-cache at `{seenCachePath}` so this user never re-reports the same fingerprint.
+After the issue is created, write the fingerprint → issue-url mapping to the seen-cache at `{seenCachePath}` so this user does not re-report it while that issue stays open.
 
 **Writing rules — non-negotiable:**
 
@@ -300,7 +331,13 @@ After each successful `gh issue create`, append to `{seenCachePath}`:
 }
 ```
 
-Ensure the parent directory exists. This file is global across the user's machine — not per-project — so the same defect is never re-reported across different repos the user works in.
+Ensure the parent directory exists. This file is global across the user's machine — not per-project — so the same defect is not re-reported across different repos the user works in while its issue stays open.
+
+**Merge, never replace.** Read the existing file, set this one key, write the whole object back. A write that emits only the new key silently discards every other fingerprint the user has ever recorded.
+
+**Read before you write, and never downgrade a `resolved` record.** Before setting the key, check whether one already exists with `"action": "resolved"`. If it does, and you are here because that resolved defect just recurred, you are recording the regression's new issue: overwrite it with `created` and the new URL, which is correct because a live issue now tracks the recurrence. In every other case leave a `resolved` record alone. The record must never move from `resolved` back to a suppressing action without a new open issue to justify it, or the next run silently re-arms the suppression the fix removed.
+
+**The `action` vocabulary is `created`, `reacted`, `commented`, `resolved`.** The first three are written by this workflow. `resolved` is written by hand when the defect is fixed, and it is the only one that does not suppress. See the health-check section of `CONTRIBUTING.md` for when to record it.
 
 ### 5c. Local-Queue Path (gh unavailable OR friction/gap default)
 
