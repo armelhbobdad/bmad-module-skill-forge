@@ -639,4 +639,6 @@ Cross-platform install verification for any cut is performed by the [`install-sm
 gh workflow run install-smoke.yaml -f version=latest --ref main
 ```
 
-The workflow fans a `workflow_dispatch` input over `ubuntu-latest`, `windows-latest`, and `macos-latest`, running `npx --yes bmad-module-skill-forge@<version> --version` on each runner. A clean three-leg run is the canonical post-publish evidence — its run URL + matrix table belong in the release audit artifact's `## Story <N> Post-Publish Verification` section. Any failing leg routes through the `Rollback Playbook § Scenario B` (deprecate + ship `vX.Y.Z+1`).
+The workflow fans a `workflow_dispatch` input over `ubuntu-latest`, `windows-latest`, and `macos-latest`, running `npx --yes bmad-module-skill-forge@<version> --version` on each runner. A clean three-leg run is the canonical post-publish evidence. Any failing leg routes through the `Rollback Playbook § Scenario B` (deprecate + ship `vX.Y.Z+1`).
+
+**Where the evidence lives.** For a routine release the workflow run **is** the record — the dispatch satisfies NFR9 on its own and no audit artifact is written. Launch cuts additionally transcribe the run URL and matrix table into a per-launch audit artifact under `release-audits/`; `v1.0.0-launch-audit.md § Story 5.4 Post-Publish Verification` is the worked example and remains the only such artifact. Do not append routine releases to it — each audit file is a forensic record scoped to the launch that produced it.
