@@ -1,0 +1,290 @@
+/**
+ * Tests for tools/validate-docs-links.js
+ *
+ * This tool is a REQUIRED status check, so a bug in it either blocks a
+ * legitimate PR or waves a broken link through. Every behaviour below was
+ * verified by hand once during development and pinned by nothing, which is the
+ * gap these tests close.
+ *
+ * The tool is driven against throwaway fixture trees via its `--docs-dir` /
+ * `--build-dir` overrides, so nothing here depends on the repo's own docs.
+ */
+
+const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const { resolveConfig, run, blankCode, assetUrls } = require('../tools/validate-docs-links.js');
+
+let passed = 0;
+let failed = 0;
+const tmpRoots = [];
+
+function test(name, fn) {
+  try {
+    fn();
+    passed += 1;
+    console.log(`[32m✓[0m ${name}`);
+  } catch (error) {
+    failed += 1;
+    console.log(`[31m✗[0m ${name}`);
+    console.log(`  ${error.message}`);
+  }
+}
+
+async function testAsync(name, fn) {
+  try {
+    await fn();
+    passed += 1;
+    console.log(`[32m✓[0m ${name}`);
+  } catch (error) {
+    failed += 1;
+    console.log(`[31m✗[0m ${name}`);
+    console.log(`  ${error.message}`);
+  }
+}
+
+/**
+ * Build a fixture tree.
+ *
+ * @param {{docs?: Record<string,string>, build?: Record<string,string>, root?: Record<string,string>}} spec - Files by relative path
+ * @returns {{cfg: object, root: string}} Config pointed at the fixture
+ */
+function fixture(spec, flags = []) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vdl-'));
+  tmpRoots.push(root);
+
+  for (const [group, base] of [
+    ['root', ''],
+    ['docs', 'docs'],
+    ['build', path.join('build', 'site')],
+  ]) {
+    for (const [rel, body] of Object.entries(spec[group] ?? {})) {
+      const full = path.join(root, base, rel);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, body);
+    }
+  }
+
+  return { root, cfg: resolveConfig(['--project-root', root, ...flags]) };
+}
+
+/** Run the tool silently and return its result. */
+function runQuiet(cfg) {
+  return run(cfg, () => {});
+}
+
+/** A minimal built page. */
+function page(body, canonical = 'https://example.com/base/') {
+  return `<html><head><link rel="canonical" href="${canonical}"/></head><body>${body}</body></html>`;
+}
+
+async function main() {
+  // --- source pass ------------------------------------------------------
+
+  await testAsync('a relative .md target that does not exist is reported', async () => {
+    const { cfg } = fixture({ docs: { 'a.md': '[x](./missing.md)' } });
+    const r = await runQuiet(cfg);
+    assert.strictEqual(r.issues.length, 1, JSON.stringify(r.issues));
+    assert.match(r.issues[0].detail, /link target does not exist/);
+  });
+
+  await testAsync('a relative .md target that exists is clean', async () => {
+    const { cfg } = fixture({ docs: { 'a.md': '[x](./b.md)', 'b.md': 'hi' } });
+    assert.deepStrictEqual((await runQuiet(cfg)).issues, []);
+  });
+
+  await testAsync('a root-absolute target resolves against the REPO root, not docs/', async () => {
+    // /docs/b.md is correct on both surfaces; /b.md is dead on GitHub.
+    const good = fixture({ docs: { 'a.md': '[x](/docs/b.md)', 'b.md': 'hi' } });
+    assert.deepStrictEqual((await runQuiet(good.cfg)).issues, [], 'valid /docs/ target should pass');
+
+    const bad = fixture({ docs: { 'a.md': '[x](/b.md)', 'b.md': 'hi' } });
+    const r = await runQuiet(bad.cfg);
+    assert.strictEqual(r.issues.length, 1);
+    assert.match(r.issues[0].detail, /repository root, so it is dead on GitHub/);
+  });
+
+  await testAsync('external, anchor-only, and non-.md targets are ignored', async () => {
+    const { cfg } = fixture({
+      docs: { 'a.md': '[a](https://x.test/y.md) [b](#frag) [c](./img.png) [d](mailto:a@b.c)' },
+    });
+    assert.deepStrictEqual((await runQuiet(cfg)).issues, []);
+  });
+
+  // --- fenced / inline code --------------------------------------------
+
+  await testAsync('a link shown inside a fence is not treated as real', async () => {
+    const { cfg } = fixture({ docs: { 'a.md': '```markdown\n[x](./nope.md)\n```\n' } });
+    assert.deepStrictEqual((await runQuiet(cfg)).issues, []);
+  });
+
+  await testAsync('a link inside inline code is not treated as real', async () => {
+    const { cfg } = fixture({ docs: { 'a.md': 'see `[x](./nope.md)` for the form' } });
+    assert.deepStrictEqual((await runQuiet(cfg)).issues, []);
+  });
+
+  await testAsync('a real link on a line after a closed fence is still checked', async () => {
+    const { cfg } = fixture({ docs: { 'a.md': '```\n[a](./ok.md)\n```\n\n[b](./nope.md)\n' } });
+    const r = await runQuiet(cfg);
+    assert.strictEqual(r.issues.length, 1);
+    assert.match(r.issues[0].detail, /nope\.md/);
+  });
+
+  test('an unterminated fence blanks to end of file, never reverts to prose', () => {
+    const out = blankCode('```\n[x](./nope.md)\n');
+    assert.ok(!out.includes('nope.md'), `leaked past an unterminated fence: ${JSON.stringify(out)}`);
+  });
+
+  test('blankCode preserves line count so offsets stay usable', () => {
+    const input = 'a\n```\nb\n```\nc';
+    assert.strictEqual(blankCode(input).split('\n').length, input.split('\n').length);
+  });
+
+  test('a tilde fence closes only on tildes', () => {
+    const out = blankCode('~~~\n[x](./nope.md)\n```\n[y](./also.md)\n~~~\n');
+    assert.ok(!out.includes('nope.md'), 'tilde fence should blank its body');
+    assert.ok(!out.includes('also.md'), 'a backtick fence must not close a tilde fence');
+  });
+
+  // --- built pass -------------------------------------------------------
+
+  await testAsync('an href that resolves to nothing is reported', async () => {
+    const { cfg } = fixture({
+      docs: { 'a.md': 'x' },
+      build: { 'index.html': page('<a href="/base/gone/">g</a>') },
+    });
+    const r = await runQuiet(cfg);
+    assert.strictEqual(r.issues.length, 1, JSON.stringify(r.issues));
+    assert.match(r.issues[0].detail, /href resolves to nothing/);
+  });
+
+  await testAsync('the page-relative route regression is caught', async () => {
+    // The defect that shipped: from /sub/, "./other/" means /sub/other/.
+    const { cfg } = fixture({
+      docs: { 'a.md': 'x' },
+      build: {
+        'index.html': page(''),
+        'sub/index.html': page('<a href="./other/">o</a>'),
+        'other/index.html': page(''),
+      },
+    });
+    const r = await runQuiet(cfg);
+    assert.strictEqual(r.issues.length, 1, JSON.stringify(r.issues));
+    assert.match(r.issues[0].detail, /sub[/\\]other/);
+  });
+
+  await testAsync('src and srcset are resolved, not just href', async () => {
+    const { cfg } = fixture({
+      docs: { 'a.md': 'x' },
+      build: {
+        'index.html': page('<img src="/base/no.png"><img srcset="/base/no2.png 1x, /base/no3.png 2x">'),
+      },
+    });
+    const r = await runQuiet(cfg);
+    assert.strictEqual(r.issues.length, 3, JSON.stringify(r.issues));
+    assert.ok(r.issues.every((i) => /^(src|srcset) resolves to nothing/.test(i.detail)));
+  });
+
+  test('assetUrls splits srcset candidates and ignores descriptors', () => {
+    const refs = assetUrls('<img srcset="/a.png 1x, /b.png 2x">');
+    assert.deepStrictEqual(
+      refs.map((r) => r.url),
+      ['/a.png', '/b.png'],
+    );
+  });
+
+  test('assetUrls does not mistake srcset= for src=', () => {
+    const refs = assetUrls('<img srcset="/a.png 1x">');
+    assert.ok(!refs.some((r) => r.attr === 'src'), 'srcset must not match the src pattern');
+  });
+
+  await testAsync('base is read from the build artifact, not the environment', async () => {
+    // Canonical says /base/; hrefs carry it. An env-derived base would differ.
+    const { cfg } = fixture({
+      docs: { 'a.md': 'x' },
+      build: { 'index.html': page('<a href="/base/ok/">o</a>'), 'ok/index.html': page('') },
+    });
+    assert.deepStrictEqual((await runQuiet(cfg)).issues, [], 'base inference should make this clean');
+  });
+
+  await testAsync('an absolute href missing the base is reported', async () => {
+    const { cfg } = fixture({
+      docs: { 'a.md': 'x' },
+      build: { 'index.html': page('<a href="/ok/">o</a>'), 'ok/index.html': page('') },
+    });
+    const r = await runQuiet(cfg);
+    assert.strictEqual(r.issues.length, 1);
+    assert.match(r.issues[0].detail, /missing the base path/);
+  });
+
+  await testAsync('an href escaping the site root is reported, not resolved', async () => {
+    const { cfg } = fixture({
+      docs: { 'a.md': 'x' },
+      build: { 'index.html': page('<a href="../../etc/passwd">p</a>') },
+    });
+    const r = await runQuiet(cfg);
+    assert.strictEqual(r.issues.length, 1);
+    assert.match(r.issues[0].detail, /escapes the site root/);
+  });
+
+  // --- flags and reporting ---------------------------------------------
+
+  await testAsync('--require-build fails on a missing build, without --strict', async () => {
+    const { cfg } = fixture({ docs: { 'a.md': 'x' } }, ['--require-build']);
+    const r = await runQuiet(cfg);
+    assert.strictEqual(r.missingRequiredBuild, true);
+    assert.strictEqual(r.ok, false, 'must fail independently of --strict');
+  });
+
+  await testAsync('without --require-build a missing build is advisory, and says so', async () => {
+    const { cfg } = fixture({ docs: { 'a.md': 'x' } });
+    const lines = [];
+    const r = await run(cfg, (m) => lines.push(m));
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.haveBuild, false);
+    const out = lines.join('\n');
+    assert.ok(/DID NOT RUN/.test(out), 'a skipped built pass must not read as a full pass');
+    assert.ok(!/All documentation links valid/.test(out));
+  });
+
+  await testAsync('--strict decides the exit only for real issues', async () => {
+    const broken = { docs: { 'a.md': '[x](./missing.md)' } };
+    assert.strictEqual((await runQuiet(fixture(broken).cfg)).ok, true, 'advisory by default');
+    assert.strictEqual((await runQuiet(fixture(broken, ['--strict']).cfg)).ok, false, 'strict fails');
+  });
+
+  await testAsync('a clean tree with a build reports an unqualified pass', async () => {
+    const { cfg } = fixture({
+      docs: { 'a.md': '[x](./b.md)', 'b.md': 'hi' },
+      build: { 'index.html': page('') },
+    });
+    const lines = [];
+    const r = await run(cfg, (m) => lines.push(m));
+    assert.strictEqual(r.ok, true);
+    assert.ok(/All documentation links valid/.test(lines.join('\n')));
+  });
+
+  await testAsync('a missing docs dir raises rather than exiting the process', async () => {
+    const cfg = resolveConfig(['--project-root', path.join(os.tmpdir(), 'vdl-does-not-exist')]);
+    await assert.rejects(() => runQuiet(cfg), /docs\/ not found/);
+  });
+
+  for (const root of tmpRoots) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  console.log(`\n  Passed: [32m${passed}[0m`);
+  console.log(`  Failed: [31m${failed}[0m`);
+
+  if (failed > 0) {
+    process.exit(1);
+  }
+  console.log('[32mAll validate-docs-links tests passed![0m');
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

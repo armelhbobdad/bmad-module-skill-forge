@@ -36,33 +36,43 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const PROJECT_ROOT = path.resolve(__dirname, '..');
-const DOCS_DIR = path.join(PROJECT_ROOT, 'docs');
-const BUILD_DIR = path.join(PROJECT_ROOT, 'build', 'site');
-
-const STRICT = process.argv.includes('--strict');
-const VERBOSE = process.argv.includes('--verbose');
-const REQUIRE_BUILD = process.argv.includes('--require-build');
-
-/**
- * Whether to print the stale-cache hint. Suppressed under --require-build,
- * which is the CI path: CI installs cold, so its build is never stale.
- */
-const STALE_HINT = !REQUIRE_BUILD;
-
 /** Hosts/schemes that are never local links. */
 const EXTERNAL = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
 
-const issues = [];
+/**
+ * Read a `--flag value` pair out of an argv array.
+ *
+ * @param {string[]} argv - Arguments to search
+ * @param {string} name - Flag name, including leading dashes
+ * @returns {string|undefined} The value, or undefined when absent
+ */
+function flagValue(argv, name) {
+  const at = argv.indexOf(name);
+  return at === -1 ? undefined : argv[at + 1];
+}
 
 /**
- * Record a problem.
+ * Resolve where to look, from argv, defaulting to this repository.
  *
- * @param {string} file - Repo-relative file the problem is in
- * @param {string} detail - What is wrong
+ * The directory overrides exist so the checks can be pointed at a fixture
+ * tree. Without them every path derives from `__dirname` and the tool can
+ * only ever inspect its own repo, which makes it untestable: the logic that
+ * decides whether a merge is blocked would itself be unverified.
+ *
+ * @param {string[]} [argv] - Defaults to the real process arguments
+ * @returns {{projectRoot: string, docsDir: string, buildDir: string, strict: boolean, verbose: boolean, requireBuild: boolean}} Config
  */
-function report(file, detail) {
-  issues.push({ file, detail });
+function resolveConfig(argv = process.argv.slice(2)) {
+  const projectRoot = flagValue(argv, '--project-root') ?? path.resolve(__dirname, '..');
+
+  return {
+    projectRoot,
+    docsDir: flagValue(argv, '--docs-dir') ?? path.join(projectRoot, 'docs'),
+    buildDir: flagValue(argv, '--build-dir') ?? path.join(projectRoot, 'build', 'site'),
+    strict: argv.includes('--strict'),
+    verbose: argv.includes('--verbose'),
+    requireBuild: argv.includes('--require-build'),
+  };
 }
 
 /**
@@ -163,11 +173,11 @@ function blankCode(text) {
  * and GitHub renders them correctly, so requiring the prefix would be style,
  * not correctness. What matters is that the target exists.
  */
-function checkSource() {
-  const files = walk(DOCS_DIR, new Set(['.md']));
+function checkSource({ projectRoot, docsDir }, report) {
+  const files = walk(docsDir, new Set(['.md']));
 
   for (const file of files) {
-    const rel = path.relative(PROJECT_ROOT, file);
+    const rel = path.relative(projectRoot, file);
     const dir = path.dirname(file);
     const text = blankCode(fs.readFileSync(file, 'utf8'));
 
@@ -183,16 +193,16 @@ function checkSource() {
       // Root-absolute targets mean different things on the two surfaces, and
       // this pass owns the GitHub one. GitHub resolves `/x.md` against the
       // REPOSITORY root (it rewrites the href to /<owner>/<repo>/blob/<ref>/x.md),
-      // whereas the rewriter treats docs/ as the site root, so `/agents.md`
-      // becomes the valid route /agents/ while pointing at a repo-root file
-      // that does not exist. The built pass only ever sees the route, so it
-      // cannot notice. Resolve against the repo root, which is the surface
+      // whereas the rewriter treats docs/ as the site root, so `/architecture.md`
+      // becomes the valid route /architecture/ while pointing at a repo-root
+      // file that does not exist. The built pass only ever sees the route, so
+      // it cannot notice. Resolve against the repo root, which is the surface
       // this pass is responsible for.
       //
-      // Note `/docs/agents.md` is CORRECT on both: repo-root docs/agents.md
-      // exists, and the rewriter strips the `/docs` prefix. Existence is the
-      // test, not the prefix.
-      const resolved = target.startsWith('/') ? path.join(PROJECT_ROOT, target) : path.resolve(dir, target);
+      // Note `/docs/architecture.md` is CORRECT on both: repo-root
+      // docs/architecture.md exists, and the rewriter strips the `/docs`
+      // prefix. Existence is the test, not the prefix.
+      const resolved = target.startsWith('/') ? path.join(projectRoot, target) : path.resolve(dir, target);
 
       if (!fs.existsSync(resolved)) {
         report(
@@ -233,8 +243,8 @@ function asBase(pathname) {
  *
  * @returns {Promise<string>} The base path, e.g. '/repo/' or '/'
  */
-async function resolveBase() {
-  const rootIndex = path.join(BUILD_DIR, 'index.html');
+async function resolveBase({ projectRoot, buildDir }) {
+  const rootIndex = path.join(buildDir, 'index.html');
 
   if (fs.existsSync(rootIndex)) {
     const html = fs.readFileSync(rootIndex, 'utf8');
@@ -251,7 +261,7 @@ async function resolveBase() {
   }
 
   try {
-    const mod = await import(`file://${path.join(PROJECT_ROOT, 'website', 'src', 'lib', 'site-url.js')}`);
+    const mod = await import(`file://${path.join(projectRoot, 'website', 'src', 'lib', 'site-url.js')}`);
     return asBase(new URL(mod.getSiteUrl()).pathname);
   } catch {
     return '/';
@@ -310,11 +320,11 @@ function assetUrls(html) {
  * @param {string} base - Deployment base path
  * @returns {number} Number of HTML pages checked
  */
-function checkBuilt(base) {
-  const pages = walk(BUILD_DIR, new Set(['.html']));
+function checkBuilt({ projectRoot, buildDir }, base, report) {
+  const pages = walk(buildDir, new Set(['.html']));
 
   for (const page of pages) {
-    const rel = path.relative(PROJECT_ROOT, page);
+    const rel = path.relative(projectRoot, page);
     const html = fs.readFileSync(page, 'utf8');
     // The page's URL directory, e.g. build/site/troubleshooting/index.html
     // is served at /troubleshooting/, so relative links resolve from there.
@@ -343,13 +353,13 @@ function checkBuilt(base) {
           report(rel, `absolute ${attr} is missing the base path ${base}: ${href}`);
           continue;
         }
-        resolved = path.join(BUILD_DIR, withoutBase);
+        resolved = path.join(buildDir, withoutBase);
       } else {
         resolved = path.resolve(pageDir, target);
       }
 
       // Never let a link escape the build root.
-      if (!resolved.startsWith(BUILD_DIR)) {
+      if (!resolved.startsWith(buildDir + path.sep)) {
         report(rel, `${attr} escapes the site root: ${href}`);
         continue;
       }
@@ -357,7 +367,7 @@ function checkBuilt(base) {
       const candidate = target.endsWith('/') || !path.extname(resolved) ? path.join(resolved, 'index.html') : resolved;
 
       if (!fs.existsSync(candidate)) {
-        report(rel, `${attr} resolves to nothing: ${href} (looked for ${path.relative(BUILD_DIR, candidate)})`);
+        report(rel, `${attr} resolves to nothing: ${href} (looked for ${path.relative(buildDir, candidate)})`);
       }
     }
   }
@@ -367,104 +377,128 @@ function checkBuilt(base) {
 
 // ---------------------------------------------------------------------------
 
-async function main() {
-  console.log(`\nValidating documentation links in: ${PROJECT_ROOT}`);
-  console.log(`Mode: ${STRICT ? 'STRICT (exit 1 on issues)' : 'ADVISORY'}`);
-  console.log();
+/**
+ * Run both passes and return what happened, without touching the process.
+ *
+ * Separated from the CLI so tests can drive it against a fixture tree and
+ * assert on the result rather than on stdout or an exit code.
+ *
+ * @param {object} cfg - From resolveConfig()
+ * @param {(msg: string) => void} [log] - Output sink; defaults to console.log
+ * @returns {Promise<{issues: Array<{file: string, detail: string}>, sourceCount: number, builtCount: number, haveBuild: boolean, missingRequiredBuild: boolean, ok: boolean}>} Outcome
+ */
+async function run(cfg, log = console.log) {
+  const issues = [];
+  const report = (file, detail) => issues.push({ file, detail });
 
-  if (!fs.existsSync(DOCS_DIR)) {
-    console.error(`docs/ not found at ${DOCS_DIR}`);
-    process.exit(1);
+  log(`\nValidating documentation links in: ${cfg.projectRoot}`);
+  log(`Mode: ${cfg.strict ? 'STRICT (exit 1 on issues)' : 'ADVISORY'}`);
+  log('');
+
+  if (!fs.existsSync(cfg.docsDir)) {
+    throw new Error(`docs/ not found at ${cfg.docsDir}`);
   }
 
-  const sourceCount = checkSource();
-  console.log(`Source pass:  ${sourceCount} markdown file(s) in docs/`);
+  const sourceCount = checkSource(cfg, report);
+  log(`Source pass:  ${sourceCount} markdown file(s) in docs/`);
 
   let builtCount = 0;
-  const haveBuild = fs.existsSync(BUILD_DIR);
+  const haveBuild = fs.existsSync(cfg.buildDir);
   let missingRequiredBuild = false;
 
   if (haveBuild) {
-    const base = await resolveBase();
-    builtCount = checkBuilt(base);
-    console.log(`Built pass:   ${builtCount} page(s) in build/site (base ${base})`);
+    const base = await resolveBase(cfg);
+    builtCount = checkBuilt(cfg, base, report);
+    log(`Built pass:   ${builtCount} page(s) in build/site (base ${base})`);
 
     // This pass is only as honest as the build it reads. Astro caches rendered
     // content in website/node_modules/.astro, and that cache survives both
     // `rm -rf website/.astro` and a rebuild, so a stale render can report a
     // clean pass against source that is actually broken (this bit the author
     // while writing this tool). CI is immune because `npm ci` starts cold.
-    if (STALE_HINT) {
-      console.log();
-      console.log('   Reading an existing build. If results look impossible, the render');
-      console.log('   may be cached. Clear it and rebuild:');
-      console.log('     rm -rf website/node_modules/.astro website/node_modules/.vite website/.astro build/site');
-      console.log('     npm run docs:build');
+    // Suppressed under --require-build, which is the CI path.
+    if (!cfg.requireBuild) {
+      log('');
+      log('   Reading an existing build. If results look impossible, the render');
+      log('   may be cached. Clear it and rebuild:');
+      log('     rm -rf website/node_modules/.astro website/node_modules/.vite website/.astro build/site');
+      log('     npm run docs:build');
     }
-  } else if (REQUIRE_BUILD) {
+  } else if (cfg.requireBuild) {
     missingRequiredBuild = true;
     report('build/site', 'no build found, and --require-build was given. Run `npm run docs:build` first.');
   } else {
-    console.log('Built pass:   SKIPPED (no build/site). This pass is what catches route bugs.');
-    console.log('              Run `npm run docs:build` first, or pass --require-build to enforce it.');
+    log('Built pass:   SKIPPED (no build/site). This pass is what catches route bugs.');
+    log('              Run `npm run docs:build` first, or pass --require-build to enforce it.');
   }
 
-  console.log();
-  console.log('─'.repeat(60));
-  console.log();
+  log('');
+  log('\u2500'.repeat(60));
+  log('');
 
   if (issues.length === 0) {
-    console.log('Summary:');
-    console.log(`   Markdown files: ${sourceCount}`);
-    console.log(`   Built pages:    ${builtCount}${haveBuild ? '' : ' (skipped)'}`);
-    console.log();
+    log('Summary:');
+    log(`   Markdown files: ${sourceCount}`);
+    log(`   Built pages:    ${builtCount}${haveBuild ? '' : ' (skipped)'}`);
+    log('');
 
     // Never report an unqualified pass when the load-bearing pass did not run.
     // A green line that means "half the checks were skipped" is the exact
     // failure mode this tool exists to prevent, and reading one as a full pass
     // is how the broken links reached production in the first place.
     if (haveBuild) {
-      console.log('   All documentation links valid!');
+      log('   All documentation links valid!');
     } else {
-      console.log('   Source links valid. THE BUILT-OUTPUT PASS DID NOT RUN, so');
-      console.log('   route bugs (the class that shipped 404s) are unchecked here.');
-      console.log('   Run `npm run docs:build` first for the full check. CI always does.');
+      log('   Source links valid. THE BUILT-OUTPUT PASS DID NOT RUN, so');
+      log('   route bugs (the class that shipped 404s) are unchecked here.');
+      log('   Run `npm run docs:build` first for the full check. CI always does.');
     }
-    console.log();
-    return;
-  }
-
-  const byFile = new Map();
-  for (const issue of issues) {
-    if (!byFile.has(issue.file)) {
-      byFile.set(issue.file, []);
+    log('');
+  } else {
+    const byFile = new Map();
+    for (const issue of issues) {
+      if (!byFile.has(issue.file)) {
+        byFile.set(issue.file, []);
+      }
+      byFile.get(issue.file).push(issue.detail);
     }
-    byFile.get(issue.file).push(issue.detail);
-  }
 
-  console.log(`Broken documentation links: ${issues.length}\n`);
-  for (const [file, details] of byFile) {
-    console.log(`  ${file}`);
-    for (const detail of details) {
-      console.log(`    - ${detail}`);
+    log(`Broken documentation links: ${issues.length}\n`);
+    for (const [file, details] of byFile) {
+      log(`  ${file}`);
+      for (const detail of details) {
+        log(`    - ${detail}`);
+      }
     }
-  }
-  console.log();
+    log('');
 
-  if (VERBOSE) {
-    console.log('A route that resolves to nothing is still valid HTML, so neither');
-    console.log('Astro nor markdownlint will fail on it. That is why this check exists.\n');
+    if (cfg.verbose) {
+      log('A route that resolves to nothing is still valid HTML, so neither');
+      log('Astro nor markdownlint will fail on it. That is why this check exists.\n');
+    }
   }
 
   // --require-build is a fail-closed contract in its own right: the flag exists
   // to turn the skipped built pass into an error, so honouring it must not
   // depend on --strict also being passed. Everything else stays advisory.
-  if (STRICT || missingRequiredBuild) {
-    process.exit(1);
-  }
+  const ok = !(issues.length > 0 && (cfg.strict || missingRequiredBuild));
+
+  return { issues, sourceCount, builtCount, haveBuild, missingRequiredBuild, ok };
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+module.exports = { resolveConfig, run, checkSource, checkBuilt, resolveBase, blankCode, assetUrls, walk };
+
+/* c8 ignore start -- CLI entry point */
+if (require.main === module) {
+  run(resolveConfig())
+    .then((result) => {
+      if (!result.ok) {
+        process.exit(1);
+      }
+    })
+    .catch((error) => {
+      console.error(error.message);
+      process.exit(1);
+    });
+}
+/* c8 ignore stop */
