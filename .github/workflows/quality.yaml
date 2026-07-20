@@ -126,6 +126,12 @@ jobs:
       - name: Test docs link rewriting
         run: npm run test:rehype
 
+      # The link guard is a required check, so it gets its own tests. Runs in
+      # `validate` rather than `docs-links` on purpose: it drives fixture trees
+      # and needs no site build, so it should not wait on one.
+      - name: Test the docs link guard
+        run: npm run test:docs-links-tool
+
   # Builds the real site and resolves every emitted href, src, and srcset
   # against the file tree. `docs/` is read both on GitHub and as the published
   # site, and a link can be valid in one and dead in the other while every
