@@ -3,7 +3,7 @@ title: Architecture
 description: How Skill Forge runs — the BMAD-backed agent and workflow engine, tool ecosystem, workspace artifacts, security, and the design decisions behind them.
 ---
 
-Skill Forge runs entirely inside the LLM context window through structured instructions. There is no external orchestrator — just an agent persona (Ferris), a set of workflows, and a curated knowledge base. This page covers the machinery. For an end-to-end walkthrough, see [How It Works](../how-it-works/). For what a skill contains, see [Skill Model](../skill-model/).
+Skill Forge runs entirely inside the LLM context window through structured instructions. There is no external orchestrator — just an agent persona (Ferris), a set of workflows, and a curated knowledge base. This page covers the machinery. For an end-to-end walkthrough, see [How It Works](/docs/how-it-works.md). For what a skill contains, see [Skill Model](/docs/skill-model.md).
 
 ---
 

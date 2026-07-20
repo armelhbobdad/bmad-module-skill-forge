@@ -3,7 +3,7 @@ title: How It Works
 description: A plain-English walkthrough of Skill Forge compiling one skill from a real library, end to end.
 ---
 
-Skill Forge reads your code, extracts what your AI agents actually need, and compiles it into instructions with citations. This page walks through what that looks like end-to-end. For the machinery behind it, see [Architecture](../architecture/). For what ships inside a skill, see [Skill Model](../skill-model/).
+Skill Forge reads your code, extracts what your AI agents actually need, and compiles it into instructions with citations. This page walks through what that looks like end-to-end. For the machinery behind it, see [Architecture](/docs/architecture.md). For what ships inside a skill, see [Skill Model](/docs/skill-model.md).
 
 ---
 
@@ -43,7 +43,7 @@ That tag means: *this came from AST extraction of this exact file at this exact 
 
 ### 5. You get a skill package
 
-Ferris writes a `SKILL.md` (the full instruction manual your agent loads on demand) and a `context-snippet.md` (an 80–120 token index) alongside it. The snippet is the always-on reminder — *"This skill exists; read it before writing cognee code."* — but it isn't wired in automatically: when you run `export-skill`, the snippet gets injected into your platform context file (`CLAUDE.md`, `AGENTS.md`, or `.cursorrules`). Both halves are load-bearing — see the [Dual-Output Strategy](../skill-model/#dual-output-strategy) for why.
+Ferris writes a `SKILL.md` (the full instruction manual your agent loads on demand) and a `context-snippet.md` (an 80–120 token index) alongside it. The snippet is the always-on reminder — *"This skill exists; read it before writing cognee code."* — but it isn't wired in automatically: when you run `export-skill`, the snippet gets injected into your platform context file (`CLAUDE.md`, `AGENTS.md`, or `.cursorrules`). Both halves are load-bearing — see the [Dual-Output Strategy](/docs/skill-model.md#dual-output-strategy) for why.
 
 ### 6. The audit trail stays on disk
 
@@ -51,13 +51,13 @@ Alongside the skill, Ferris leaves a `metadata.json` (the pinned source, commit 
 
 That's the whole pipeline. One trigger in, one verifiable skill out, every claim traceable back to a file and a commit.
 
-Quick Skill is the fastest path, not the most thorough one. When you want a full audit trail — a `provenance-map.json` of every receipt and an `evidence-report.md` build log, both produced from a `skill-brief.yaml` — run the brief-driven [`create-skill`](../workflows/#create-skill-cs) path instead.
+Quick Skill is the fastest path, not the most thorough one. When you want a full audit trail — a `provenance-map.json` of every receipt and an `evidence-report.md` build log, both produced from a `skill-brief.yaml` — run the brief-driven [`create-skill`](/docs/workflows.md#create-skill-cs) path instead.
 
 ---
 
 ## Next
 
-- **[Architecture](../architecture/)** — how Ferris loads workflows, how sub-agents handle large extractions, how the 7 tools resolve conflicts, where artifacts land on disk
-- **[Skill Model](../skill-model/)** — what a skill contains, confidence tiers (T1 / T2 / T3), capability tiers (Quick / Forge / Forge+ / Deep), and the dual-output strategy
-- **[Verifying a Skill](../verifying-a-skill/)** — the 60-second audit recipe and how completeness scoring works
-- **[BMAD Synergy](../bmad-synergy/)** — how SKF fits alongside BMAD Method, TEA, BMB, and other modules
+- **[Architecture](/docs/architecture.md)** — how Ferris loads workflows, how sub-agents handle large extractions, how the 7 tools resolve conflicts, where artifacts land on disk
+- **[Skill Model](/docs/skill-model.md)** — what a skill contains, confidence tiers (T1 / T2 / T3), capability tiers (Quick / Forge / Forge+ / Deep), and the dual-output strategy
+- **[Verifying a Skill](/docs/verifying-a-skill.md)** — the 60-second audit recipe and how completeness scoring works
+- **[BMAD Synergy](/docs/bmad-synergy.md)** — how SKF fits alongside BMAD Method, TEA, BMB, and other modules

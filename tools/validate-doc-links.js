@@ -66,23 +66,40 @@ function stripCodeBlocks(content) {
 }
 
 /**
- * Convert a heading to its anchor slug
+ * Convert a heading to its anchor slug.
+ *
+ * Must match `github-slugger`, which is what both GitHub and Starlight use to
+ * generate heading ids. The distinction that matters: it replaces each space
+ * INDIVIDUALLY and never collapses runs, so punctuation between words leaves a
+ * doubled hyphen. `## Scenario A: Greenfield + BMM Integration` becomes
+ * `scenario-a-greenfield--bmm-integration`, with two hyphens where the `+`
+ * was. Collapsing them here produced a slug no page ever has, so a correct
+ * anchor was reported broken. Verified against the ids in the built site.
+ *
+ * github-slugger itself is ESM-only and this tool is CommonJS in a synchronous
+ * flow, hence the faithful reimplementation rather than a dependency.
  */
 function headingToAnchor(heading) {
   return heading
     .toLowerCase()
     .replaceAll(/[\u{1F300}-\u{1F9FF}]/gu, '')
     .replaceAll(/[^\w\s-]/g, '')
-    .replaceAll(/\s+/g, '-')
-    .replaceAll(/-+/g, '-')
-    .replaceAll(/^-+|-+$/g, '');
+    .replaceAll(/\s/g, '-');
 }
 
 /**
- * Extract anchor slugs from a markdown file
+ * Extract anchor slugs from a markdown file.
+ *
+ * Repeated headings are disambiguated exactly as github-slugger does: the
+ * first occurrence keeps the bare slug and each later one gets `-N` appended,
+ * counting from 1. `docs/examples.md` has five `— clear session —` headings,
+ * whose real ids are `-clear-session-`, `-clear-session--1`, and so on, so a
+ * stateless slug function would collect only the first and report a link to
+ * any of the others as broken.
  */
 function extractAnchors(content) {
   const anchors = new Set();
+  const seen = new Map();
   let match;
 
   HEADING_PATTERN.lastIndex = 0;
@@ -94,7 +111,10 @@ function extractAnchors(content) {
       .replaceAll(/\*([^*]+)\*/g, '$1')
       .replaceAll(/\[([^\]]+)\]\([^)]+\)/g, '$1')
       .trim();
-    anchors.add(headingToAnchor(headingText));
+    const base = headingToAnchor(headingText);
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    anchors.add(count === 0 ? base : `${base}-${count}`);
   }
 
   return anchors;

@@ -167,6 +167,6 @@ Plan a campaign as multi-session work rather than a single sitting — the resum
 
 ## Related
 
-- [Workflows](../workflows/) — pipeline mode mechanics, headless mode, circuit breakers
-- [forge-auto](../forge-auto/) — zero-ceremony single-skill creation (campaign orchestrates many of these)
-- [BMAD Synergy](../bmad-synergy/) — how campaign fits into BMAD Phase 3 as an orchestration layer
+- [Workflows](/docs/workflows.md) — pipeline mode mechanics, headless mode, circuit breakers
+- [forge-auto](/docs/forge-auto.md) — zero-ceremony single-skill creation (campaign orchestrates many of these)
+- [BMAD Synergy](/docs/bmad-synergy.md) — how campaign fits into BMAD Phase 3 as an orchestration layer

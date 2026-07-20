@@ -86,9 +86,9 @@ PIPELINE ALIASES:
 
 **Pipeline Aliases:**
 
-Ferris chains multiple workflows in one command via named aliases (`forge-auto`, `forge`, `forge-quick`, `maintain`). The full alias table, expansion rules, and target-resolution contract live in [Workflows → Pipeline Mode](../workflows/#pipeline-mode) — the canonical source. Example: `@Ferris forge-quick cognee` chains Quick → Test → Export with automatic data forwarding.
+Ferris chains multiple workflows in one command via named aliases (`forge-auto`, `forge`, `forge-quick`, `maintain`). The full alias table, expansion rules, and target-resolution contract live in [Workflows → Pipeline Mode](/docs/workflows.md#pipeline-mode) — the canonical source. Example: `@Ferris forge-quick cognee` chains Quick → Test → Export with automatic data forwarding.
 
-`campaign` is not a chaining alias — it is a standalone orchestrator workflow (`@Ferris campaign`) that runs its own multi-stage pipeline internally, with dependency tracking and resume. See the [Campaign](../campaign/) page.
+`campaign` is not a chaining alias — it is a standalone orchestrator workflow (`@Ferris campaign`) that runs its own multi-stage pipeline internally, with dependency tracking and resume. See the [Campaign](/docs/campaign.md) page.
 
 **Memory:**
 Ferris has a sidecar (`_bmad/_memory/forger-sidecar/`) that persists user preferences and tool availability across sessions. Set `headless_mode: true` in preferences to make headless the default.

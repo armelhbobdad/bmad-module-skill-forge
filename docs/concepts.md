@@ -3,7 +3,7 @@ title: Concepts
 description: Seven load-bearing terms for using and understanding Skill Forge — agent skills, provenance, confidence tiers, capability tiers, drift, version pinning, and the BMAD module.
 ---
 
-These are the seven terms you'll meet in every other page of this site. Each one names something SKF does differently from generic docs tooling. For the full mechanism behind them, see [Architecture](../architecture/) and [Skill Model](../skill-model/).
+These are the seven terms you'll meet in every other page of this site. Each one names something SKF does differently from generic docs tooling. For the full mechanism behind them, see [Architecture](/docs/architecture.md) and [Skill Model](/docs/skill-model.md).
 
 ---
 
@@ -55,7 +55,7 @@ Your capability tier depends on which tools you have installed. Each tier builds
 - **Forge+** — Adds [cocoindex-code](https://github.com/cocoindex-io/cocoindex-code). SKF uses semantic code search to discover relevant source regions before AST extraction, improving coverage on large codebases.
 - **Deep** — Full pipeline: requires [ast-grep](https://ast-grep.github.io) + [GitHub CLI](https://cli.github.com) + [QMD](https://github.com/tobi/qmd) (all three). SKF indexes knowledge for semantic search and performs GitHub repository exploration. Skills get enriched with historical context, deprecation warnings, and cross-reference intelligence. CCC (cocoindex-code) enhances Deep tier when installed — ast-grep + gh + qmd + ccc gives maximum capability.
 
-You don't need all tools to start. SKF detects what you have and sets your tier automatically. See [Skill Model → Progressive Capability Model](../skill-model/#progressive-capability-model) for the full technical treatment.
+You don't need all tools to start. SKF detects what you have and sets your tier automatically. See [Skill Model → Progressive Capability Model](/docs/skill-model.md#progressive-capability-model) for the full technical treatment.
 
 ---
 
@@ -83,4 +83,4 @@ When the source updates, you can re-run `@Ferris US` (update-skill) to regenerat
 
 SKF is a plugin (called a "module") for [BMAD Method](https://docs.bmad-method.org/), a framework for running structured AI workflows. You don't need to know BMAD to use SKF — the standalone installer sets everything up.
 
-If you already use BMAD, see [BMAD Synergy](../bmad-synergy/) for how SKF workflows pair with BMM phases and optional modules like TEA, BMB, and GDS.
+If you already use BMAD, see [BMAD Synergy](/docs/bmad-synergy.md) for how SKF workflows pair with BMM phases and optional modules like TEA, BMB, and GDS.

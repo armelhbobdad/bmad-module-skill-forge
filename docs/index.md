@@ -32,6 +32,12 @@ Skill Forge reads the source and hands your agent the truth — with receipts. E
 
 If SKF can't cite a source, it doesn't include the instruction.
 
+<!-- Raw HTML bypasses rehype-markdown-links, so this href ships verbatim and
+     cannot take the `/docs/*.md` form the Markdown links use: nothing would
+     rewrite it into a route and the site would 404. It stays site-relative,
+     which is correct here because this page is the site root. That makes it
+     the one link in docs/ that does not also resolve on GitHub. -->
+
 <p class="cta-pill"><a href="./verifying-a-skill/">Verify any claim in 60 seconds →</a></p>
 
 ## How SKF compares
@@ -65,4 +71,4 @@ Then generate your first skill:
 @Ferris QS <package>             # Or a fast skill from a package name in under a minute
 ```
 
-[forge-auto](./forge-auto/) is the recommended starting point — one command, no configuration. See [Getting Started](./getting-started/) for platform support, tier selection, and troubleshooting.
+[forge-auto](/docs/forge-auto.md) is the recommended starting point — one command, no configuration. See [Getting Started](/docs/getting-started.md) for platform support, tier selection, and troubleshooting.

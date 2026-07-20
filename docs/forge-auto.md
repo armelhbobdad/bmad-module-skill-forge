@@ -3,7 +3,7 @@ title: Forge-Auto
 description: Zero-ceremony skill creation — one command turns a GitHub repo, doc URL, or pinned version into a verified skill
 ---
 
-Forge-Auto is a [pipeline alias](../workflows/#pipeline-aliases) that chains five workflows into a single command. Give it a repo URL, a documentation URL, or a pinned version, and it produces a verified skill in 3–5 minutes with zero configuration.
+Forge-Auto is a [pipeline alias](/docs/workflows.md#pipeline-aliases) that chains five workflows into a single command. Give it a repo URL, a documentation URL, or a pinned version, and it produces a verified skill in 3–5 minutes with zero configuration.
 
 If you're new to SKF and want to try it without reading anything else, start here.
 
@@ -27,7 +27,7 @@ Three input types, one command pattern:
 
 ## Pipeline Stages
 
-forge-auto expands to `AN[auto] BS[auto] CS TS[min:90] EX`. The two analysis stages (AN, BS) run in [headless mode](../workflows/#headless-mode) via their `[auto]` flags — no confirmation gates, no interactive prompts. The compile, test, and export stages then proceed with their standard behaviors once the analysis context is ready.
+forge-auto expands to `AN[auto] BS[auto] CS TS[min:90] EX`. The two analysis stages (AN, BS) run in [headless mode](/docs/workflows.md#headless-mode) via their `[auto]` flags — no confirmation gates, no interactive prompts. The compile, test, and export stages then proceed with their standard behaviors once the analysis context is ready.
 
 | Stage | Workflow | Mode | What Happens |
 |-------|----------|------|-------------|
@@ -37,7 +37,7 @@ forge-auto expands to `AN[auto] BS[auto] CS TS[min:90] EX`. The two analysis sta
 | 4 | **Test Skill** (TS) | `[min:90]` | Verifies completeness with a **90% quality threshold** (stricter than the default 80%). Fail halts the pipeline. |
 | 5 | **Export Skill** (EX) | standard | Validates the package, generates context snippets, and injects into your IDE's context file. |
 
-Data flows automatically between stages — the brief path from AN feeds BS, the skill name from CS feeds TS, and so on. See [Pipeline Mode](../workflows/#pipeline-mode) for the general mechanics.
+Data flows automatically between stages — the brief path from AN feeds BS, the skill name from CS feeds TS, and so on. See [Pipeline Mode](/docs/workflows.md#pipeline-mode) for the general mechanics.
 
 ---
 
@@ -85,6 +85,6 @@ Before that, the auto pipeline replaced the older `onboard` alias. `onboard` has
 
 ## Related
 
-- [Workflows](../workflows/) — pipeline mode mechanics, headless mode, circuit breakers
-- [Concepts](../concepts/) — provenance, confidence tiers, drift, version pinning
-- [BMAD Synergy](../bmad-synergy/) — how forge-auto fits into BMAD phases, and standalone SKF usage
+- [Workflows](/docs/workflows.md) — pipeline mode mechanics, headless mode, circuit breakers
+- [Concepts](/docs/concepts.md) — provenance, confidence tiers, drift, version pinning
+- [BMAD Synergy](/docs/bmad-synergy.md) — how forge-auto fits into BMAD phases, and standalone SKF usage

@@ -3,9 +3,9 @@ title: Workflows
 description: All 15 SKF workflows with commands, steps, and connection diagram
 ---
 
-Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../concepts/) for definitions.
+Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts](/docs/concepts.md) for definitions.
 
-> Already using BMAD? See [BMAD Synergy](../bmad-synergy/) for when to invoke each SKF workflow during BMM phases and alongside TEA, BMB, and GDS.
+> Already using BMAD? See [BMAD Synergy](/docs/bmad-synergy.md) for when to invoke each SKF workflow during BMM phases and alongside TEA, BMB, and GDS.
 
 ---
 
@@ -83,7 +83,7 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 
 **Purpose:** Brief-less fast skill with package-to-repo resolution.
 
-**Note:** QS is **tier-unaware** — it always runs at community tier and does not use ast-grep, CCC, or QMD even when your forge is configured at Forge+/Deep. For tier-aware compilation, use `BS → CS`, `forge`, or `forge-auto`. See [Skill Model](../skill-model/).
+**Note:** QS is **tier-unaware** — it always runs at community tier and does not use ast-grep, CCC, or QMD even when your forge is configured at Forge+/Deep. For tier-aware compilation, use `BS → CS`, `forge`, or `forge-auto`. See [Skill Model](/docs/skill-model.md).
 
 **When to Use:** When you need a skill quickly — no brief needed. Accepts package names or GitHub URLs. Append `@version` to target a specific version (e.g., `@Ferris QS cognee@1.0.0`).
 
@@ -164,7 +164,7 @@ Trigger workflows by typing commands to [Ferris](../agents/). See [Concepts](../
 
 **Key Steps:** Load skill → Detect mode → Coverage check → Coherence check → External validation (skill-check, tessl) → Hard gate → Score → Gap report
 
-**Scored Categories:** Export Coverage (36%), Signature Accuracy (22%), Type Coverage (14%), Coherence (18%), External Validation (10%). Default pass threshold: **80%** (per-pipeline defaults: forge-auto 90%, forge 80%). Pass routes to Export Skill; fail routes to Update Skill with a gap report. See [Completeness Scoring](../verifying-a-skill/#how-the-score-is-computed) for the full formula and tier adjustments.
+**Scored Categories:** Export Coverage (36%), Signature Accuracy (22%), Type Coverage (14%), Coherence (18%), External Validation (10%). Default pass threshold: **80%** (per-pipeline defaults: forge-auto 90%, forge 80%). Pass routes to Export Skill; fail routes to Update Skill with a gap report. See [Completeness Scoring](/docs/verifying-a-skill.md#how-the-score-is-computed) for the full formula and tier adjustments.
 
 **Agent:** Ferris (Audit mode)
 
@@ -315,7 +315,7 @@ flowchart TD
     EXPORT --> MAINT[Maintenance + Campaign Report]
 ```
 
-> **One workflow per session** (unless using pipeline mode or campaign). Each arrow in the standard and compose-mode diagrams represents a new conversation session. Campaign manages its own multi-session orchestration internally — see [Campaign Orchestration](../campaign/). Clear your context between workflows for best results — or use pipeline mode to chain them automatically. See [Pipeline Mode](#pipeline-mode) below.
+> **One workflow per session** (unless using pipeline mode or campaign). Each arrow in the standard and compose-mode diagrams represents a new conversation session. Campaign manages its own multi-session orchestration internally — see [Campaign Orchestration](/docs/campaign.md). Clear your context between workflows for best results — or use pipeline mode to chain them automatically. See [Pipeline Mode](#pipeline-mode) below.
 
 ---
 

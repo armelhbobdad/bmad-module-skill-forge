@@ -49,7 +49,7 @@ Provenance tags trace each instruction to its source:
 - `[EXT:url]` — sourced from external documentation
 - `[QMD:collection:doc]` — surfaced from indexed developer discourse (issues, PRs, changelogs)
 
-See [Skill Model → Output Architecture](../skill-model/#output-architecture) for the full output structure.
+See [Skill Model → Output Architecture](/docs/skill-model.md#output-architecture) for the full output structure.
 
 **Full skill directory structure** (real layout from [`oh-my-skills/skills/oms-cognee/`](https://github.com/armelhbobdad/oh-my-skills/tree/main/skills/oms-cognee)):
 
@@ -74,7 +74,7 @@ skills/oms-cognee/
             └── pipelines-and-datapoints.md
 ```
 
-This is the real directory listing from [`oh-my-skills/skills/oms-cognee/`](https://github.com/armelhbobdad/oh-my-skills/tree/main/skills/oms-cognee) after cognee shipped v1.0.0 upstream. SKF recompiled the skill from the v1.0.0 commit and wrote it next to the existing 0.5.8 tree — the older version stays pinned to its original commit (`b51dcce1`) and is still installable by any project that hasn't bumped its `CLAUDE.md` pin yet. The `active` symlink and the [`.export-manifest.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/.export-manifest.json) both point at the current version. Some skills also include `scripts/` and `assets/` directories when the source repository contains executable scripts or static assets — oms-cognee doesn't have either, but see [Skill Model → Per-Skill Output](../skill-model/#per-skill-output) for the full schema.
+This is the real directory listing from [`oh-my-skills/skills/oms-cognee/`](https://github.com/armelhbobdad/oh-my-skills/tree/main/skills/oms-cognee) after cognee shipped v1.0.0 upstream. SKF recompiled the skill from the v1.0.0 commit and wrote it next to the existing 0.5.8 tree — the older version stays pinned to its original commit (`b51dcce1`) and is still installable by any project that hasn't bumped its `CLAUDE.md` pin yet. The `active` symlink and the [`.export-manifest.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/.export-manifest.json) both point at the current version. Some skills also include `scripts/` and `assets/` directories when the source repository contains executable scripts or static assets — oms-cognee doesn't have either, but see [Skill Model → Per-Skill Output](/docs/skill-model.md#per-skill-output) for the full schema.
 
 ---
 
@@ -115,7 +115,7 @@ Or one workflow per session:
 @Ferris CS --batch  # Create — batch generation
 ```
 
-10 individual skills + 1 platform stack skill. The [BMM](../bmad-synergy/#skf-and-bmm-phase-by-phase-playbook) architect then navigates cross-service flows using verified knowledge.
+10 individual skills + 1 platform stack skill. The [BMM](/docs/bmad-synergy.md#skf-and-bmm-phase-by-phase-playbook) architect then navigates cross-service flows using verified knowledge.
 
 ### Release Prep — Trust Builder
 
@@ -146,7 +146,7 @@ Armel, building a full-stack side project on Next.js + Serwist + SpacetimeDB + b
 @Ferris SS
 ```
 
-Ferris detects 8 significant dependencies, finds 5 co-import integration points. Generates a consolidated stack skill. The agent now knows: "When you modify the auth flow, update the Serwist cache exclusion at `src/sw.ts:L23`." That integration detail isn't available from any other tool in the [comparison table](/#how-skf-compares).
+Ferris detects 8 significant dependencies, finds 5 co-import integration points. Generates a consolidated stack skill. The agent now knows: "When you modify the auth flow, update the Serwist cache exclusion at `src/sw.ts:L23`." That integration detail isn't available from any other tool in the [comparison table](/docs/index.md#how-skf-compares).
 
 ### Pre-Code Architecture Verification — Greenfield Confidence
 
@@ -169,7 +169,7 @@ VS flags the Drizzle↔SpacetimeDB integration as incompatible (query-model mism
 
 ### Scenario A: Greenfield + BMM Integration
 
-BMAD user starts a new project. [BMM](../bmad-synergy/#skf-and-bmm-phase-by-phase-playbook) architect suggests skill generation after retrospective.
+BMAD user starts a new project. [BMM](/docs/bmad-synergy.md#skf-and-bmm-phase-by-phase-playbook) architect suggests skill generation after retrospective.
 
 ```
 @Ferris BS    # Brief — scope the skill
@@ -188,7 +188,7 @@ Blondin, a platform lead, needs cross-service knowledge for 10 microservices so 
 @Ferris campaign    # Orchestrate all 10 skills across sessions, in dependency order
 ```
 
-Campaign reads the dependency graph, sorts the skills topologically, and drives each one through the full pipeline (brief, generate, compile, test) with quality gates enforced. State is written to disk, so Blondin can walk away and `@Ferris campaign resume` after a context death or a session break — picking up exactly where the last session stopped. One forge project, multiple QMD collections, hub-and-spoke skills with integration patterns. See [Campaign Orchestration](../campaign/) for the full stage-by-stage flow.
+Campaign reads the dependency graph, sorts the skills topologically, and drives each one through the full pipeline (brief, generate, compile, test) with quality gates enforced. State is written to disk, so Blondin can walk away and `@Ferris campaign resume` after a context death or a session break — picking up exactly where the last session stopped. One forge project, multiple QMD collections, hub-and-spoke skills with integration patterns. See [Campaign Orchestration](/docs/campaign.md) for the full stage-by-stage flow.
 
 ### Scenario C: External Dependency
 
@@ -268,7 +268,7 @@ You're building skills for a production payments library and need maximum citati
 @Ferris TS    # Completeness score — 80%+ threshold
 ```
 
-**What you get:** Every signature carries `[AST:file:Lnn]` at T1. Deprecation warnings and design rationale carry `[QMD:collection:doc]` at T2. Install tooling once, every downstream skill benefits. See [Capability Tiers](../concepts/#capability-tiers-quickforgeforgedeep).
+**What you get:** Every signature carries `[AST:file:Lnn]` at T1. Deprecation warnings and design rationale carry `[QMD:collection:doc]` at T2. Install tooling once, every downstream skill benefits. See [Capability Tiers](/docs/concepts.md#capability-tiers-quickforgeforgedeep).
 
 ### Scenario H: OSS Maintainer Publishing Official Skills
 
@@ -327,10 +327,10 @@ If your source repo includes executable scripts (`scripts/`, `bin/`) or static a
 
 ### Let the Health Check Run
 
-Every SKF workflow ends with a shared **health check** step where Ferris reflects on the session and offers to file friction, bugs, or gaps as GitHub issues (with your approval). Clean runs exit in one line — zero overhead. When something breaks, it's SKF's primary feedback channel, so **please let workflows run to completion**. If you had to cancel before the health check fired, ask Ferris to run it (`@Ferris please run the workflow health check for this session`) or [open an issue directly](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose). See [Workflow Health Check](../workflows/#terminal-step-health-check) for details.
+Every SKF workflow ends with a shared **health check** step where Ferris reflects on the session and offers to file friction, bugs, or gaps as GitHub issues (with your approval). Clean runs exit in one line — zero overhead. When something breaks, it's SKF's primary feedback channel, so **please let workflows run to completion**. If you had to cancel before the health check fired, ask Ferris to run it (`@Ferris please run the workflow health check for this session`) or [open an issue directly](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose). See [Workflow Health Check](/docs/workflows.md#terminal-step-health-check) for details.
 
 ---
 
 ## Something not working?
 
-See [Troubleshooting](../troubleshooting/) for common errors (ast-grep unavailable, "no brief found", ecosystem check messages) and how to resolve them. For general setup help, see [Getting Started → Need help?](../getting-started/#need-help).
+See [Troubleshooting](/docs/troubleshooting.md) for common errors (ast-grep unavailable, "no brief found", ecosystem check messages) and how to resolve them. For general setup help, see [Getting Started → Need help?](/docs/getting-started.md#need-help).
