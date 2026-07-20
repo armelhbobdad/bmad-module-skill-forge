@@ -123,6 +123,52 @@ jobs:
       - name: Validate file references
         run: npm run validate:refs
 
+      - name: Test docs link rewriting
+        run: npm run test:rehype
+
+  # Builds the real site and resolves every emitted href, src, and srcset
+  # against the file tree. `docs/` is read both on GitHub and as the published
+  # site, and a link can be valid in one and dead in the other while every
+  # other check stays green, because an href that resolves nowhere is still
+  # valid HTML. Source-level validation cannot see that; only the built output
+  # can, which is why this job exists separately from `validate`.
+  #
+  # Separate job rather than a step in `validate`: it needs a full Astro build,
+  # which the Windows half of that matrix would only duplicate at twice the
+  # cost, and route rewriting is platform-independent.
+  docs-links:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 mirrors the deploy workflow. Starlight's `lastUpdated`
+      # reads git history, so a shallow clone builds a different site than the
+      # one that ships, and validating a different artifact defeats the point.
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install website dependencies
+        run: npm ci --prefix website
+
+      - name: Build documentation
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: npm run docs:build
+
+      - name: Validate documentation links
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: node tools/validate-docs-links.js --strict --require-build
+
   python:
     strategy:
       fail-fast: false

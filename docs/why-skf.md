@@ -44,7 +44,7 @@ For docs-only skills, the audit shape is the same — `provenance-map.json` stil
 
 If it doesn't, **that's a bug.** [Open an issue](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose) and SKF republishes the skill with a new commit SHA and a new provenance map. No other AI-skills tool treats disagreement between claim and source as a defect. SKF does.
 
-See the [Verifying a Skill](../verifying-a-skill/) page for the full three-step audit on real skills, the test reports that log *exactly* where coverage falls short, and the scoring formula behind the 80% pass threshold.
+See the [Verifying a Skill](/docs/verifying-a-skill.md) page for the full three-step audit on real skills, the test reports that log *exactly* where coverage falls short, and the scoring formula behind the 80% pass threshold.
 
 ---
 
@@ -53,27 +53,27 @@ See the [Verifying a Skill](../verifying-a-skill/) page for the full three-step 
 ### The curious developer
 
 Your agent just hallucinated a method that doesn't exist, again. You want this to stop, and you don't want to read a long architecture reference before running your first command.
-→ Start with [Getting Started](../getting-started/).
+→ Start with [Getting Started](/docs/getting-started.md).
 
 ### The BMAD user
 
 You already use BMAD Method, BMM phases, TEA, or BMB, and you want to know where SKF fits.
-→ Read [BMAD Synergy](../bmad-synergy/) for the phase-by-phase integration playbook.
+→ Read [BMAD Synergy](/docs/bmad-synergy.md) for the phase-by-phase integration playbook.
 
 ### The skeptic
 
 "AI docs for AI" sounds like the problem pretending to be the solution. You want receipts before you install anything.
-→ Start with [Verifying a Skill](../verifying-a-skill/) — the three-step audit on real skills, including the 1% that fails.
+→ Start with [Verifying a Skill](/docs/verifying-a-skill.md) — the three-step audit on real skills, including the 1% that fails.
 
 ### The OSS maintainer
 
 You want to ship verified skills alongside your library releases — `npx skills publish`-ready, drift-detectable, version-pinned.
-→ See [Examples → OSS Maintainer Publishing Official Skills](../examples/#scenario-h-oss-maintainer-publishing-official-skills).
+→ See [Examples → OSS Maintainer Publishing Official Skills](/docs/examples.md#scenario-h-oss-maintainer-publishing-official-skills).
 
 ### The team lead evaluating adoption
 
 You're considering running SKF across a brownfield platform. You need to know about rollback safety, `[MANUAL]` section preservation, and the health-check feedback loop before committing.
-→ Start with [Architecture](../architecture/), then [Workflows → Workflow Health Check](../workflows/#terminal-step-health-check).
+→ Start with [Architecture](/docs/architecture.md), then [Workflows → Workflow Health Check](/docs/workflows.md#terminal-step-health-check).
 
 ---
 
@@ -89,6 +89,6 @@ Everything else is downstream of one question: *are the instructions your AI rea
 
 ## Next
 
-- **[Install SKF](../getting-started/#install)** — Node ≥ 22, Python ≥ 3.10, `uv`, one `npx` command
-- **[Audit a skill in 60 seconds](../verifying-a-skill/)** — see the receipts before you install
+- **[Install SKF](/docs/getting-started.md#install)** — Node ≥ 22, Python ≥ 3.10, `uv`, one `npx` command
+- **[Audit a skill in 60 seconds](/docs/verifying-a-skill.md)** — see the receipts before you install
 - **[Browse real skills](https://github.com/armelhbobdad/oh-my-skills)** — four Deep-tier skills, all shipping their audit trails

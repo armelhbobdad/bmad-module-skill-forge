@@ -3,7 +3,7 @@ title: Skill Model
 description: What a Skill Forge skill contains — progressive capability tiers, confidence model, output architecture, the dual-output strategy, and the ownership model.
 ---
 
-A Skill Forge skill is more than a single markdown file. This page explains what ships when you compile and export a skill: the capability tier your forge runs at, the confidence level of every claim, the files in the output directory, and why every skill is shipped as both an active instruction manual and a passive context index. For a walkthrough of compilation, see [How It Works](../how-it-works/). For the audit recipe that ties this all together, see [Verifying a Skill](../verifying-a-skill/).
+A Skill Forge skill is more than a single markdown file. This page explains what ships when you compile and export a skill: the capability tier your forge runs at, the confidence level of every claim, the files in the output directory, and why every skill is shipped as both an active instruction manual and a passive context index. For a walkthrough of compilation, see [How It Works](/docs/how-it-works.md). For the audit recipe that ties this all together, see [Verifying a Skill](/docs/verifying-a-skill.md).
 
 ---
 
@@ -140,7 +140,7 @@ Your forge tier limits what authority claims a skill can make:
 
 ## Completeness Scoring
 
-Skills are graded on a 0–100 completeness scale. See [how the score is computed](../verifying-a-skill/#how-the-score-is-computed) in Verifying a Skill for the formula and tier adjustments.
+Skills are graded on a 0–100 completeness scale. See [how the score is computed](/docs/verifying-a-skill.md#how-the-score-is-computed) in Verifying a Skill for the formula and tier adjustments.
 
 ---
 

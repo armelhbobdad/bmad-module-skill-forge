@@ -3,7 +3,7 @@ title: BMAD Synergy
 description: How SKF workflows pair with BMAD CORE phases and optional modules (BMM, TEA, BMB, GDS, CIS) — integration patterns, entry points, and artifact flow
 ---
 
-This page builds on BMAD concepts (BMM phases, TEA, modules). New to BMAD? Start with the [BMAD docs](https://docs.bmad-method.org/) first. New to SKF? Read [Getting Started](../getting-started/) instead.
+This page builds on BMAD concepts (BMM phases, TEA, modules). New to BMAD? Start with the [BMAD docs](https://docs.bmad-method.org/) first. New to SKF? Read [Getting Started](/docs/getting-started.md) instead.
 
 ---
 
@@ -29,13 +29,13 @@ When a BMAD agent runs a workflow, that workflow can consult SKF content skills 
 
 SKF works standalone — no BMAD installation required. If you found this page from a search and don't use the BMAD Method, this section is for you.
 
-The fastest way to start is [`forge-auto`](../forge-auto/). One command produces a verified skill in 3–5 minutes with zero configuration:
+The fastest way to start is [`forge-auto`](/docs/forge-auto.md). One command produces a verified skill in 3–5 minutes with zero configuration:
 
 ```
 @Ferris forge-auto https://github.com/honojs/hono
 ```
 
-That's it. No brief file, no scope decisions, no multi-step pipeline to learn. forge-auto handles analysis, scoping, compilation, testing (with a 90% quality gate), and export automatically. See the [forge-auto guide](../forge-auto/) for the full syntax and input types.
+That's it. No brief file, no scope decisions, no multi-step pipeline to learn. forge-auto handles analysis, scoping, compilation, testing (with a 90% quality gate), and export automatically. See the [forge-auto guide](/docs/forge-auto.md) for the full syntax and input types.
 
 If you later adopt the BMAD Method, the skills you created via forge-auto integrate seamlessly into BMM phases — they become the verified content skills that BMAD workflows consult during planning and implementation. The [phase-by-phase playbook](#skf-and-bmm-phase-by-phase-playbook) below shows exactly where each SKF workflow fits.
 
@@ -45,7 +45,7 @@ If you later adopt the BMAD Method, the skills you created via forge-auto integr
 
 BMM is BMAD's core [4-phase workflow](https://docs.bmad-method.org/) (Analysis → Planning → Solutioning → Implementation). SKF has five concrete entry points across those phases. The diagram below shows the end-to-end picture; the subsections that follow give the trigger, command, and artifact flow for each phase.
 
-> **Atomic workflows vs pipeline aliases.** The playbook below maps each phase to an *atomic* SKF workflow (`AN`, `BS`, `QS`, `VS`, `CS`…) on purpose — in BMM you often want only part of the chain (a brief to feed a risk register, a quick reference for acceptance criteria). When you instead want the *finished, exported skill* in one command, reach for a pipeline alias: [`forge-auto`](../forge-auto/) collapses `AN → BS → CS → TS → EX` for a single library, and [`campaign`](../campaign/) orchestrates that whole chain across many dependencies. Rule of thumb: **atomic when you want a stage's artifact; alias when you want the verified skill.**
+> **Atomic workflows vs pipeline aliases.** The playbook below maps each phase to an *atomic* SKF workflow (`AN`, `BS`, `QS`, `VS`, `CS`…) on purpose — in BMM you often want only part of the chain (a brief to feed a risk register, a quick reference for acceptance criteria). When you instead want the *finished, exported skill* in one command, reach for a pipeline alias: [`forge-auto`](/docs/forge-auto.md) collapses `AN → BS → CS → TS → EX` for a single library, and [`campaign`](/docs/campaign.md) orchestrates that whole chain across many dependencies. Rule of thumb: **atomic when you want a stage's artifact; alias when you want the verified skill.**
 
 ```mermaid
 flowchart TD
@@ -96,7 +96,7 @@ flowchart TD
 
 **Why now, not later:** Quick Skill is cheap insurance. It takes under a minute and prevents a whole class of "actually that function doesn't exist" moments during story writing.
 
-**Want more than a quick reference?** When the PRD leans heavily on one library and you'd rather have a thorough, doc-enriched skill behind a 90% quality gate than a fast QS pass, run [`@Ferris forge-auto <repo>`](../forge-auto/) instead — one command produces the finished, exported skill (auto-scope, auto-brief, test, export) ready for BMM workflows to consult.
+**Want more than a quick reference?** When the PRD leans heavily on one library and you'd rather have a thorough, doc-enriched skill behind a 90% quality gate than a fast QS pass, run [`@Ferris forge-auto <repo>`](/docs/forge-auto.md) instead — one command produces the finished, exported skill (auto-scope, auto-brief, test, export) ready for BMM workflows to consult.
 
 ### Phase 3 — Solutioning
 
@@ -123,7 +123,7 @@ flowchart TD
     CAMPAIGN -->|"automates the full pipeline<br/>for all dependencies"| READY
 ```
 
-The "Pre-Code Architecture Verification — Greenfield Confidence" scenario in [Examples](../examples/) walks through a concrete case of this loop.
+The "Pre-Code Architecture Verification — Greenfield Confidence" scenario in [Examples](/docs/examples.md) walks through a concrete case of this loop.
 
 #### Campaign Orchestration
 
@@ -141,7 +141,7 @@ Two distinct triggers fire during Implementation, one at the start of each story
 
 **Trigger A (before `create-story`):** The story touches a library whose API isn't already in a content skill.
 
-**SKF command:** `@Ferris CS` for a single library, or `@Ferris SS` when the story spans several dependencies. If there's no brief yet and you want the skill in one shot, [`@Ferris forge-auto <repo>`](../forge-auto/) runs the full analyze → brief → compile → test → export chain from just the repo URL.
+**SKF command:** `@Ferris CS` for a single library, or `@Ferris SS` when the story spans several dependencies. If there's no brief yet and you want the skill in one shot, [`@Ferris forge-auto <repo>`](/docs/forge-auto.md) runs the full analyze → brief → compile → test → export chain from just the repo URL.
 
 **What flows back:** A verified content skill the `dev-story` workflow can consult during implementation — no training-data guessing about function signatures.
 
@@ -151,7 +151,7 @@ Two distinct triggers fire during Implementation, one at the start of each story
 
 **What flows back:** A patched skill with the newly-discovered edge cases captured — `[MANUAL]` sections preserved so human annotations aren't overwritten. Next sprint's stories consume the updated skill automatically.
 
-This retrospective → update loop is the pattern that [Scenario A in Examples](../examples/#scenario-a-greenfield--bmm-integration) sketches for one project; it generalizes to any BMM project that runs more than a few sprints.
+This retrospective → update loop is the pattern that [Scenario A in Examples](/docs/examples.md#scenario-a-greenfield--bmm-integration) sketches for one project; it generalizes to any BMM project that runs more than a few sprints.
 
 ---
 
@@ -203,7 +203,7 @@ Beyond briefing, CIS and SKF don't overlap — CIS covers ideation, storytelling
 
 ## Delivery and Lifecycle in a BMAD Project
 
-`@Ferris EX` is the **only workflow that introduces new skill context** into the three context files that serve all 23 IDEs: `CLAUDE.md` (Claude Code), `.cursorrules` (Cursor), and `AGENTS.md` (the remaining 21 IDEs — GitHub Copilot, Windsurf, Cline, Roo Code, Gemini CLI, and others). Each IDE also has its own skill root directory where skill files are installed (e.g., `.windsurf/skills/`, `.roo/skills/`, `.gemini/skills/`). Create-skill and update-skill produce draft artifacts that never touch those files directly — nothing reaches an agent's passive context until it has been through the EX gate. See [Skill Model → Dual-Output Strategy](../skill-model/#dual-output-strategy) for the architectural rationale.
+`@Ferris EX` is the **only workflow that introduces new skill context** into the three context files that serve all 23 IDEs: `CLAUDE.md` (Claude Code), `.cursorrules` (Cursor), and `AGENTS.md` (the remaining 21 IDEs — GitHub Copilot, Windsurf, Cline, Roo Code, Gemini CLI, and others). Each IDE also has its own skill root directory where skill files are installed (e.g., `.windsurf/skills/`, `.roo/skills/`, `.gemini/skills/`). Create-skill and update-skill produce draft artifacts that never touch those files directly — nothing reaches an agent's passive context until it has been through the EX gate. See [Skill Model → Dual-Output Strategy](/docs/skill-model.md#dual-output-strategy) for the architectural rationale.
 
 This matters specifically in a BMAD project: you may have multiple BMAD modules, each with its own launcher skills, plus SKF content skills, all trying to contribute context. The write-guard means only verified, tested SKF skills ever reach an agent's passive context — nothing half-baked sneaks in. `@Ferris EX` injects managed sections that coexist cleanly with whatever BMAD's installer wrote in the same files.
 
@@ -214,7 +214,7 @@ For long-running BMAD projects, `@Ferris RS` (rename) and `@Ferris DS` (drop) ke
 ## Where to Go Next
 
 - [BMAD docs](https://docs.bmad-method.org/) — canonical reference for BMM phases, TEA workflows, BMB / GDS / CIS details, and the full module list
-- [Forge-Auto](../forge-auto/) — the one-command alias that collapses analyze → brief → compile → test → export for a single library
-- [Campaign](../campaign/) — orchestrate the full pipeline across many declared dependencies with dependency ordering and resume
-- [Workflows](../workflows/) — complete SKF workflow reference with commands and connection diagrams
-- [Examples](../examples/) — concrete scenarios including the BMM retrospective loop and greenfield architecture verification
+- [Forge-Auto](/docs/forge-auto.md) — the one-command alias that collapses analyze → brief → compile → test → export for a single library
+- [Campaign](/docs/campaign.md) — orchestrate the full pipeline across many declared dependencies with dependency ordering and resume
+- [Workflows](/docs/workflows.md) — complete SKF workflow reference with commands and connection diagrams
+- [Examples](/docs/examples.md) — concrete scenarios including the BMM retrospective loop and greenfield architecture verification

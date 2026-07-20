@@ -15,7 +15,7 @@ await cognee.search(  # [AST:cognee/api/v1/search/search.py:L26]
 
 Every instruction carries a receipt — a file, a line, and a commit SHA from the upstream repo. Your AI reads these instead of guessing from training data, and you can open the source at the pinned commit to confirm the function exists. Nothing is made up; everything is falsifiable.
 
-Want to see the full audit on a real shipped skill before you install anything? → [Verifying a Skill](../verifying-a-skill/).
+Want to see the full audit on a real shipped skill before you install anything? → [Verifying a Skill](/docs/verifying-a-skill.md).
 
 ---
 
@@ -51,7 +51,7 @@ Or, if you've already cloned the repo locally, provide the path to the repo root
 /path/to/bmad-module-skill-forge
 ```
 
-This installs BMAD core + SKF together with full IDE integration, manifests, and help catalog. Best when you want the complete BMAD development workflow. See [BMAD Synergy](../bmad-synergy/) for how SKF workflows pair with BMM phases and other BMAD modules.
+This installs BMAD core + SKF together with full IDE integration, manifests, and help catalog. Best when you want the complete BMAD development workflow. See [BMAD Synergy](/docs/bmad-synergy.md) for how SKF workflows pair with BMM phases and other BMAD modules.
 
 ### Add SKF to an existing BMAD project
 
@@ -61,7 +61,7 @@ If you already have BMAD installed, you can add SKF afterward by running the sta
 npx bmad-module-skill-forge install
 ```
 
-The installer detects the existing `_bmad/` directory and installs SKF alongside your current modules. See [BMAD Synergy](../bmad-synergy/) for integration patterns with your existing BMM workflows.
+The installer detects the existing `_bmad/` directory and installs SKF alongside your current modules. See [BMAD Synergy](/docs/bmad-synergy.md) for integration patterns with your existing BMM workflows.
 
 ### Updating an existing SKF installation
 
@@ -94,7 +94,7 @@ This detects your tools, sets your capability tier, and initializes the forge en
 @Ferris forge-auto https://github.com/honojs/hono
 ```
 
-One command turns a repo URL (or a doc URL) into a verified skill — auto-scope, auto-brief, a 90% quality gate, and export, with no configuration. If you only read one thing, [start with forge-auto](../forge-auto/).
+One command turns a repo URL (or a doc URL) into a verified skill — auto-scope, auto-brief, a 90% quality gate, and export, with no configuration. If you only read one thing, [start with forge-auto](/docs/forge-auto.md).
 
 **Fastest path (Quick Skill):**
 ```
@@ -136,13 +136,13 @@ Or one workflow per session:
 
 Analyzes your project's dependencies and generates a consolidated stack skill with integration patterns.
 
-> **After every workflow:** Ferris runs a **health check** — a reflection step that captures any friction, bugs, or gaps from the session. Clean runs exit in one line; when something breaks, Ferris offers to file structured findings as GitHub issues (with your approval). **Please let workflows run to completion** so the health check can fire. If it was skipped, ask Ferris to run it (`@Ferris please run the workflow health check for this session`) or [open an issue directly](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose). See [Workflow Health Check](../workflows/#terminal-step-health-check).
+> **After every workflow:** Ferris runs a **health check** — a reflection step that captures any friction, bugs, or gaps from the session. Clean runs exit in one line; when something breaks, Ferris offers to file structured findings as GitHub issues (with your approval). **Please let workflows run to completion** so the health check can fire. If it was skipped, ask Ferris to run it (`@Ferris please run the workflow health check for this session`) or [open an issue directly](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose). See [Workflow Health Check](/docs/workflows.md#terminal-step-health-check).
 
 ---
 
 ## Common use cases
 
-> **Looking for end-to-end examples?** See [Examples](../examples/) for thirteen real-world scenarios with full command transcripts — from Quick Skill under a minute, to brownfield onboarding, stack verification, release-prep drift remediation, and SaaS docs-only skills.
+> **Looking for end-to-end examples?** See [Examples](/docs/examples.md) for thirteen real-world scenarios with full command transcripts — from Quick Skill under a minute, to brownfield onboarding, stack verification, release-prep drift remediation, and SaaS docs-only skills.
 
 ---
 
@@ -190,11 +190,11 @@ Runtime configuration (tool detection, tier, and collection state) is managed by
 
 ## What's next?
 
-- [Forge-Auto](../forge-auto/) — the zero-ceremony path: one command from repo or doc URL to a verified skill
-- [Campaign](../campaign/) — orchestrate many coordinated skills across sessions with dependency tracking and resume
-- [Agents](../agents/) — learn about Ferris
-- [Workflows](../workflows/) — the full command reference
-- [Examples](../examples/) — real-world scenarios with transcripts
+- [Forge-Auto](/docs/forge-auto.md) — the zero-ceremony path: one command from repo or doc URL to a verified skill
+- [Campaign](/docs/campaign.md) — orchestrate many coordinated skills across sessions with dependency tracking and resume
+- [Agents](/docs/agents.md) — learn about Ferris
+- [Workflows](/docs/workflows.md) — the full command reference
+- [Examples](/docs/examples.md) — real-world scenarios with transcripts
 
 ---
 
@@ -206,4 +206,4 @@ If you run into issues:
    *Provided by the [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD) — not available in standalone SKF installations.*
 2. Run `@Ferris SF` to check your tool availability and tier
 3. Check `forge-tier.yaml` in your forger sidecar for your current configuration
-4. If a workflow gave you friction, ask Ferris to run the health check for that session, or [open an issue](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose) — see [Workflow Health Check](../workflows/#terminal-step-health-check)
+4. If a workflow gave you friction, ask Ferris to run the health check for that session, or [open an issue](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose) — see [Workflow Health Check](/docs/workflows.md#terminal-step-health-check)
