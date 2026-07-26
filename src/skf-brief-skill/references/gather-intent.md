@@ -352,7 +352,9 @@ The schema's `description` field is 1-3 sentences and surfaces in skill registri
 
 Compose a candidate 1-3 sentence description from the gathered material. **Write like a human library maintainer would** — what does an agent get from this skill, and when should it route here? Two facts must come through (what the skill is, when to use it); everything else is voice. Resist filling in the same skeleton every time.
 
-Load `{descriptionVoiceExamplesPath}` for the five voice examples (range of acceptable leads, structures, and trigger phrasings) and the "do not template-stamp" guidance, then compose in that spirit. The asset documents what "in that spirit" means; the gathered material to draw on is the target repo, the user's intent, the version if set, and any scope hints.
+Load `{descriptionVoiceExamplesPath}` for the five voice examples (range of acceptable leads and structures) and the "do not template-stamp" guidance, then compose in that spirit. The asset documents what "in that spirit" means; the gathered material to draw on is the target repo, the user's intent, the version if set, and any scope hints.
+
+**Whatever lead you choose, the description must contain a literal `Use when` clause somewhere** — validators test for that exact phrase, so alternatives like "Triggers on…" or "Reach for this when…" do not satisfy it on their own. The clause need not lead: a descriptive opener followed by `Use when …` is both good voice and validator-clean.
 
 Present:
 
@@ -360,7 +362,7 @@ Present:
 
 > {synthesized description}
 
-This is the text agents read when deciding whether to route to your skill — it sits in the registry row alongside dozens of other skills. Specific triggers ('use when…', 'reach for this when…') help agents match real user requests; generic descriptions blend in and get skipped. Edit, replace, or accept as-is."
+This is the text agents read when deciding whether to route to your skill — it sits in the registry row alongside dozens of other skills. A specific 'use when…' trigger helps agents match real user requests; generic descriptions blend in and get skipped. Edit, replace, or accept as-is."
 
 Wait for user confirmation or alternative.
 
