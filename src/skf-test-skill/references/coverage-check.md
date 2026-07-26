@@ -216,9 +216,9 @@ On a split-body skill the §1 inventory (documented surface) and the §2 AST out
 
 1. **Enumerated path (`denominatorSource: "barrel"`)** — the common split-body case. `barrel_set` is the union of `exports_found[]` across every §2 per-file result. **When a stratified-scope or State-2 denominator applies (see §4) and it resolves to an enumerated name set** — the priority-2/3 re-derivation from `scope.tier_a_include` / `scope.include` globs — pass that resolved name set as `barrelSet` so the script intersects against it instead of the raw per-file union. The script computes `Documented := |documented_set ∩ barrel_set|`, `Missing := barrel_set − documented_set` (in source, not documented), `Stale := documented_set − barrel_set` (documented, not in source), and `Export Coverage = |Documented| / |barrel_set| * 100`.
 
-2. **Scalar-denominator branch (`denominatorSource: "scalar"`)** — §4 priority 1, when the resolved denominator is the scalar `metadata.json.stats.effective_denominator` (a count with **no enumerated name set**). There is no `barrel_set` to intersect, so the script instead greps each `documented_set` name across `SKILL.md ∪ references/*.md` and counts appearances. Pass `denominatorValue: effective_denominator` and `skillPackagePath: {resolved_skill_package}`; the script sets `Missing := effective_denominator − Documented` and returns an empty `Stale` (not enumerable without a barrel name set). If §4b's numerator-ground-truth arm fires (it triggers only when `exports_documented == effective_denominator`), its verified count is authoritative and **overrides** this numerator — do not apply both.
+2. **Scalar-denominator branch (`denominatorSource: "scalar"`)** — §4 priority 1, when the resolved denominator is the scalar `metadata.json.stats.effective_denominator` (a count with **no enumerated name set**). There is no `barrel_set` to intersect, so the script instead greps each `documented_set` name across `SKILL.md ∪ references/*.md` and counts appearances. Pass `denominatorValue: effective_denominator` and `skillPackagePath: {resolved_skill_package}`; the script sets `Missing := max(0, effective_denominator − Documented)` and returns an empty `Stale` (not enumerable without a barrel name set). When the grep count overshoots the denominator the script reports the surplus instead of a negative residual — see the surplus note under the returns list. If §4b's numerator-ground-truth arm fires (it triggers only when `exports_documented == effective_denominator`), its verified count is authoritative and **overrides** this numerator — do not apply both.
 
-3. **Stack-skill branch (`denominatorSource: "stack"`, `metadata.json.skill_type == "stack"`)** — a stack's source barrel is empty by design, so intersecting against it would divide by zero. Pass `denominatorValue: stack_denominator` (the §2b composition-surface denominator) and `compositionNames`: the provenance-map cited-contract names (`::`-excluded) when the map exists and is non-empty, else the `libraries` and `integration_pairs` names. The script greps each composition name across `SKILL.md ∪ references/*.md` for the numerator, sets `Missing := stack_denominator − Documented`, and omits `Stale` (no source barrel to enumerate against).
+3. **Stack-skill branch (`denominatorSource: "stack"`, `metadata.json.skill_type == "stack"`)** — a stack's source barrel is empty by design, so intersecting against it would divide by zero. Pass `denominatorValue: stack_denominator` (the §2b composition-surface denominator) and `compositionNames`: the provenance-map cited-contract names (`::`-excluded) when the map exists and is non-empty, else the `libraries` and `integration_pairs` names. The script greps each composition name across `SKILL.md ∪ references/*.md` for the numerator, sets `Missing := max(0, stack_denominator − Documented)`, and omits `Stale` (no source barrel to enumerate against). The same surplus reporting as the scalar branch applies.
 
 **Build the reconciliation input and run the script:**
 
@@ -242,11 +242,14 @@ Input JSON (one object — supply only the fields the chosen branch needs; `{rec
 
 The script returns (read these — **do not re-derive them by hand**):
 
-- `documented` — the numerator (`|documented_set ∩ barrel_set|` for barrel; grep-verified count for scalar/stack)
-- `missing` / `missingCount` — source names not documented (barrel enumerates the names; scalar/stack give only the residual count)
+- `documented` — the numerator (`|documented_set ∩ barrel_set|` for barrel; grep-verified count for scalar/stack). This is always the true count, never capped.
+- `missing` / `missingCount` — source names not documented (barrel enumerates the names; scalar/stack give only the residual count). Never negative.
 - `stale` / `staleCount` — documented names not in source (barrel only; empty with `staleApplicable: false` for scalar/stack)
 - `denominator` — `|barrel_set|` (barrel) or the resolved scalar/stack denominator
-- `exportCoverage` — `documented / denominator * 100`, already rounded
+- `exportCoverage` — `documented / denominator * 100`, already rounded; capped at 100 on the scalar/stack branches
+- `numeratorSurplus` / `coverageUncapped` / `coverageCapped` — scalar/stack only; see the surplus note below
+
+**Surplus on the grep branches.** The scalar and stack branches grep a name set against the skill body, so their numerator and denominator measure independent sets and `documented` can exceed `denominator` — a consumer-surface denominator counts one surface while the documented body may also name migration aliases or re-exported sibling symbols. When that happens the script reports `numeratorSurplus > 0` and `coverageCapped: true`, holds `exportCoverage` at 100, floors `missingCount` at 0, and preserves the raw ratio in `coverageUncapped`. **A surplus is a signal, not a pass:** it means the two sets disagree, so state it in the Coverage Analysis section (§5) alongside both counts. A large surplus on a skill whose brief carries no `scope.tier_a_include` is the deflated-denominator signature the `source-access-protocol.md` deflation guard describes — check that guard before accepting the 100.
 
 Carry these into §3's table/summary and §4's Export Coverage, and record the counts in the Coverage Analysis section (§5) so the numerator is auditable. The `exportCoverage` recorded here is the value step 5 feeds to `compute-score.py` — it is the script's value, not a parent estimate.
 
@@ -266,6 +269,8 @@ Aggregate findings across all source files:
 - Missing documentation: `missingCount`
 - Signature mismatches: {N}
 - Undocumented in SKILL.md but not in source (stale docs): `staleCount`
+
+When the script reports `coverageCapped: true`, add the surplus to the summary — `Documented (surplus over denominator): {numeratorSurplus}` and `Uncapped coverage: {coverageUncapped}%` — so the reader can see that `Missing documentation: 0` is a floored residual rather than a verified-complete surface.
 
 ### 4. Load Scoring Rules
 
@@ -390,6 +395,7 @@ Append the **Coverage Analysis** section to `{outputFile}`:
 - **Missing Documentation:** {N}
 - **Signature Mismatches:** {N}
 - **Stale Documentation:** {N}
+- **Numerator Surplus:** {N} — omit this row unless `coverageCapped: true`; when present, also give the uncapped percentage
 
 ### Category Scores
 

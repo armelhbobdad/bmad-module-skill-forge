@@ -22,15 +22,24 @@ It covers the three branches §2c enumerates:
   * "scalar"  (§4 priority-1 effective_denominator, no enumerated name set) —
     grep each documented name across SKILL.md ∪ references/*.md;
     Documented = count present, denominator = effective_denominator,
-    Missing = denominator − Documented, Stale not enumerable (empty),
-    Export Coverage = Documented / denominator * 100.
+    Missing = max(0, denominator − Documented), Stale not enumerable (empty),
+    Export Coverage = min(100, Documented / denominator * 100).
 
   * "stack"   (skill_type == "stack", empty source barrel) — grep each
     composition-surface name (provenance-map cited contracts, ::-excluded, or
     libraries + integration_pairs — resolved upstream) across
     SKILL.md ∪ references/*.md; denominator = stack_denominator,
-    Missing = denominator − Documented, Stale not enumerable,
-    Export Coverage = Documented / stack_denominator * 100.
+    Missing = max(0, denominator − Documented), Stale not enumerable,
+    Export Coverage = min(100, Documented / stack_denominator * 100).
+
+The two grep branches bound their outputs because the numerator and the
+denominator are independent measures of different sets — the grep count can
+exceed a consumer-surface denominator without either being wrong. Unbounded,
+that produced a negative Missing and a >100% coverage that compute-score.py
+rejects as out of range. `documented` is left as the true count (it is reported
+verbatim as "Documented in SKILL.md"); the derived ratio is what gets bounded,
+and `numeratorSurplus` / `coverageUncapped` / `coverageCapped` report the
+overshoot so a deflated denominator stays visible instead of being swallowed.
 
 CLI usage:
   uv run reconcile-coverage.py '<JSON>'                  # JSON literal positional
@@ -55,11 +64,14 @@ Output (stdout, one object):
     "denominator": <int>,
     "documented": <int>,
     "missing": [names],          # enumerated: source names not documented; scalar/stack: []
-    "missingCount": <int>,       # always present
+    "missingCount": <int>,       # always present; never negative
     "stale": [names],            # enumerated: documented names not in source; scalar/stack: []
     "staleCount": <int>,         # always present
     "staleApplicable": <bool>,   # false for scalar/stack (no barrel to enumerate)
-    "exportCoverage": <float>
+    "exportCoverage": <float>,   # scalar/stack: capped at 100
+    "numeratorSurplus": <int>,   # scalar/stack only: max(0, documented − denominator)
+    "coverageUncapped": <float>, # scalar/stack only: the ratio before the cap
+    "coverageCapped": <bool>     # scalar/stack only: true when the cap bound the ratio
   }
 
 Exit codes:
@@ -232,18 +244,33 @@ def reconcile(inp, doc_text=None):
             "upstream §2b guard should HALT before reconciliation"
         )
 
-    missing_count = denominator - documented
+    # The grep numerator and the resolved denominator are independent measures,
+    # so `documented` can legitimately exceed `denominator` — a consumer-surface
+    # denominator counts one surface while the documented body may also name
+    # migration aliases, re-exported sibling symbols, and other extras. Left
+    # unbounded that yields a negative Missing and >100% coverage (which
+    # compute-score.py then rejects outright as out of range).
+    #
+    # `documented` stays the true grep count: it is reported as "Documented in
+    # SKILL.md", so capping it would print a number that was never measured.
+    # The derived ratio is what gets bounded, and the surplus is surfaced rather
+    # than swallowed so a deflated denominator stays visible.
+    surplus = max(0, documented - denominator)
+    coverage_uncapped = round2(documented / denominator * 100)
     return {
         "branch": source,
         "denominatorSource": source,
         "denominator": denominator,
         "documented": documented,
         "missing": [],
-        "missingCount": missing_count,
+        "missingCount": max(0, denominator - documented),
+        "numeratorSurplus": surplus,
         "stale": [],
         "staleCount": 0,
         "staleApplicable": False,
-        "exportCoverage": round2(documented / denominator * 100),
+        "exportCoverage": min(100.0, coverage_uncapped),
+        "coverageUncapped": coverage_uncapped,
+        "coverageCapped": surplus > 0,
     }
 
 

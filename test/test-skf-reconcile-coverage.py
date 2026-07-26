@@ -228,6 +228,62 @@ def test_scalar_uses_injected_doc_text():
     assert out["exportCoverage"] == 25.0
 
 
+def test_scalar_within_denominator_reports_no_surplus():
+    out = reconcile(
+        {
+            "denominatorSource": "scalar",
+            "exports": [{"name": n, "kind": "function"} for n in ("a", "b")],
+            "denominatorValue": 4,
+            "skillPackagePath": "/does/not/exist",
+        },
+        doc_text="a and b both appear",
+    )
+    assert out["numeratorSurplus"] == 0
+    assert out["coverageCapped"] is False
+    assert out["coverageUncapped"] == out["exportCoverage"] == 50.0
+
+
+def test_scalar_surplus_is_bounded_and_reported():
+    """A consumer-scoped denominator can be smaller than the documented mention
+    count. The ratio is capped and the residual floored, but `documented` stays
+    the true count and the overshoot is reported rather than swallowed."""
+    names = [f"exp{i}" for i in range(90)]
+    out = reconcile(
+        {
+            "denominatorSource": "scalar",
+            "exports": [{"name": n, "kind": "function"} for n in names],
+            "denominatorValue": 72,
+            "skillPackagePath": "/does/not/exist",
+        },
+        doc_text=" ".join(names),
+    )
+    assert out["documented"] == 90  # raw, truthful — never capped
+    assert out["denominator"] == 72
+    assert out["missingCount"] == 0  # floored, not -18
+    assert out["numeratorSurplus"] == 18
+    assert out["exportCoverage"] == 100.0  # capped, not 125.0
+    assert out["coverageUncapped"] == 125.0
+    assert out["coverageCapped"] is True
+
+
+def test_scalar_exact_match_is_not_treated_as_surplus():
+    names = ["a", "b", "c"]
+    out = reconcile(
+        {
+            "denominatorSource": "scalar",
+            "exports": [{"name": n, "kind": "function"} for n in names],
+            "denominatorValue": 3,
+            "skillPackagePath": "/does/not/exist",
+        },
+        doc_text="a b c",
+    )
+    assert out["documented"] == 3
+    assert out["missingCount"] == 0
+    assert out["numeratorSurplus"] == 0
+    assert out["coverageCapped"] is False
+    assert out["exportCoverage"] == 100.0
+
+
 # --------------------------------------------------------------------------
 # Stack branch (composition-surface grep, empty barrel)
 # --------------------------------------------------------------------------
@@ -273,6 +329,57 @@ def test_stack_ignores_exports_uses_composition_names():
     )
     assert out["documented"] == 2
     assert out["exportCoverage"] == 100.0
+
+
+def test_stack_surplus_is_bounded_too():
+    """The stack branch shares the grep code path, so it gets the same bounds."""
+    out = reconcile(
+        {
+            "denominatorSource": "stack",
+            "compositionNames": ["libX", "libY", "libZ"],
+            "denominatorValue": 2,
+            "skillPackagePath": "/unused",
+        },
+        doc_text="libX libY libZ all appear",
+    )
+    assert out["documented"] == 3
+    assert out["missingCount"] == 0
+    assert out["numeratorSurplus"] == 1
+    assert out["exportCoverage"] == 100.0
+    assert out["coverageUncapped"] == 150.0
+    assert out["coverageCapped"] is True
+
+
+@pytest.mark.parametrize(
+    "payload,doc_text",
+    [
+        (
+            {
+                "denominatorSource": "scalar",
+                "exports": [{"name": f"n{i}", "kind": "function"} for i in range(9)],
+                "denominatorValue": 3,
+                "skillPackagePath": "/unused",
+            },
+            " ".join(f"n{i}" for i in range(9)),
+        ),
+        (
+            {
+                "denominatorSource": "stack",
+                "compositionNames": [f"n{i}" for i in range(9)],
+                "denominatorValue": 3,
+                "skillPackagePath": "/unused",
+            },
+            " ".join(f"n{i}" for i in range(9)),
+        ),
+    ],
+    ids=["scalar", "stack"],
+)
+def test_grep_branches_stay_in_compute_score_range(payload, doc_text):
+    """compute-score.py rejects any category score outside 0-100, so the
+    reconciler must never hand it an out-of-range exportCoverage."""
+    out = reconcile(payload, doc_text=doc_text)
+    assert 0 <= out["exportCoverage"] <= 100
+    assert out["missingCount"] >= 0
 
 
 # --------------------------------------------------------------------------
