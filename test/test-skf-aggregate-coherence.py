@@ -91,3 +91,44 @@ def test_cli_stdin():
     proc = _cli(["--stdin"], stdin=payload)
     assert proc.returncode == 0
     assert json.loads(proc.stdout)["referenceValidity"] == 90.0
+
+
+# --------------------------------------------------------------------------
+# CLI exit codes — a refused input must not look like an aggregated result
+# --------------------------------------------------------------------------
+
+
+AGG_SCRIPT_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "src"
+    / "skf-test-skill"
+    / "scripts"
+    / "aggregate-coherence.py"
+)
+
+
+def _run_agg_cli(payload_text):
+    return subprocess.run(
+        [sys.executable, str(AGG_SCRIPT_PATH), "--stdin"],
+        input=payload_text,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_cli_rejected_input_exits_2():
+    """Matches compute-score.py / reconcile-coverage.py.
+
+    This script produces the coherence percentage score.md feeds to
+    compute-score.py, so a silently-rejected run would hand a bogus number to
+    the gate one layer downstream.
+    """
+    proc = _run_agg_cli(json.dumps({"unexpected": "payload"}))
+    assert proc.returncode == 2
+    assert json.loads(proc.stdout)["code"] == "INVALID_INPUT"
+
+
+def test_cli_unparseable_json_exits_1():
+    proc = _run_agg_cli("{not json")
+    assert proc.returncode == 1
+    assert json.loads(proc.stdout)["code"] == "INVALID_INPUT"

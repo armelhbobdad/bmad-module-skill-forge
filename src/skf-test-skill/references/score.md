@@ -123,7 +123,13 @@ Use these values for Section 4 (pass/fail/inconclusive) and Section 6 (output fo
 
 #### 3c. Fallback (if script execution fails)
 
-If the script is unavailable or errors, redistribute each skipped category's weight (the `null`-scored categories in the §3a JSON — naive mode already zeroes coherence, and Quick-tier/docsOnly/state2/stackSkill/referenceApp already null out Signature Accuracy + Type Coverage) proportionally across the active categories, then report `total = Σ(weight/100 × category_score)` using the detected mode's weight table in `{scoringRulesFile}`. Report: "**Note:** Scoring script unavailable — calculated manually per scoring-rules.md."
+**First distinguish "the script could not run" from "the script rejected the input" — they take opposite paths.**
+
+A `{"error": ..., "code": "INVALID_INPUT"}` envelope on stdout means the script ran fine and refused what it was given: a field is missing, mistyped, or out of range (exit 2), or the payload was not parseable JSON at all (exit 1). Either way the *input* is wrong, not the script. **Correct the §3a input and re-run.** Do not fall through to the manual redistribution below — it would hand-compute a total from the very numbers the script just refused, so an out-of-range `exportCoverage` would silently become a score. If the input cannot be corrected, report `score: scoring input rejected — {error}` and leave the score unset rather than emitting a computed total.
+
+The fallback below applies only when the script genuinely could not run — missing file, no `uv`, unreadable interpreter — that is, **no envelope on stdout at all**.
+
+If the script is unavailable, redistribute each skipped category's weight (the `null`-scored categories in the §3a JSON — naive mode already zeroes coherence, and Quick-tier/docsOnly/state2/stackSkill/referenceApp already null out Signature Accuracy + Type Coverage) proportionally across the active categories, then report `total = Σ(weight/100 × category_score)` using the detected mode's weight table in `{scoringRulesFile}`. Report: "**Note:** Scoring script unavailable — calculated manually per scoring-rules.md."
 
 ### 3d. Read Post-Score Caps (applied by the script)
 

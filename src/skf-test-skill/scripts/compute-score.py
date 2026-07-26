@@ -39,11 +39,17 @@ Verdict override (post-score caps + threshold fallback — see compute_score):
   and `result` is the final verdict. `result` itself is never mutated — it is
   always the pre-cap/pre-fallback score-vs-threshold (or evidence-floor) verdict.
 
-Exit codes:
-  0  — input was parsed; either a score was computed (verdict may be
-       PASS/FAIL/INCONCLUSIVE) or a schema/validation error object
-       ({"error": ..., "code": "INVALID_INPUT"}) was emitted as JSON
+Exit codes (same convention as reconcile-coverage.py):
+  0  — a score was computed; the verdict may be PASS/FAIL/INCONCLUSIVE
   1  — input could not be parsed at all (no input provided, or malformed JSON)
+  2  — input parsed but schema/semantics invalid
+
+Both 1 and 2 emit an {"error": ..., "code": "INVALID_INPUT"} envelope on stdout,
+so the presence of that envelope — not the specific code — is what tells a caller
+the input was refused. A refused input is distinct from an unavailable script:
+the numbers handed in are wrong and must be fixed, NOT hand-computed into a total
+from the values this script declined to score. score.md §3c keys its
+manual-redistribution fallback on that distinction (no envelope at all).
 """
 
 from __future__ import annotations
@@ -508,6 +514,13 @@ def main(argv: list[str] | None = None) -> int:
 
     result = compute_score(data)
     print(json.dumps(result, indent=2))
+    # A rejected input exits 2, matching reconcile-coverage.py. Exiting 0 here
+    # made a malformed scoring input indistinguishable from a scored run, so the
+    # error envelope could be skimmed past and the score hand-computed from the
+    # very numbers the script refused. score.md §3c keys the manual-redistribution
+    # fallback on this distinction.
+    if isinstance(result, dict) and result.get("code") == "INVALID_INPUT":
+        return 2
     return 0
 
 

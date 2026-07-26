@@ -62,10 +62,14 @@ CLI usage (mirrors compute-score.py):
   uv run aggregate-coherence.py --json-input '<JSON>'     # explicit flag form
   cat input.json | uv run aggregate-coherence.py --stdin  # piped input
 
-Exit codes:
-  0  — input was parsed; either a result object or a schema-validation error
-       object ({"error": ..., "code": "INVALID_INPUT"}) was emitted as JSON
+Exit codes (same convention as compute-score.py / reconcile-coverage.py):
+  0  — a result object was emitted
   1  — input could not be parsed at all (no input provided, or malformed JSON)
+  2  — input parsed but schema/semantics invalid
+
+Both 1 and 2 emit an {"error": ..., "code": "INVALID_INPUT"} envelope on stdout,
+so the envelope's presence — not the specific code — tells a caller the input was
+refused rather than scored.
 """
 
 from __future__ import annotations
@@ -269,6 +273,12 @@ def main(argv: list[str] | None = None) -> int:
 
     result = aggregate_coherence(data)
     print(json.dumps(result, indent=2))
+    # Same convention as compute-score.py / reconcile-coverage.py. This script
+    # produces the coherence percentage that score.md §3a feeds to
+    # compute-score.py, so a silently-rejected run here would hand a bogus or
+    # absent number to the gate one layer downstream.
+    if isinstance(result, dict) and result.get("code") == "INVALID_INPUT":
+        return 2
     return 0
 
 

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import importlib.util
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -317,3 +319,77 @@ class TestPostScoreCapsAndFallback:
         })
         assert out.get("code") == "INVALID_INPUT"
         assert "toolingStatus" in out.get("error", "")
+
+
+# --------------------------------------------------------------------------
+# CLI exit codes — a rejected input must be distinguishable from a scored run
+# --------------------------------------------------------------------------
+
+
+SCRIPT_PATH = (
+    Path(__file__).parent.parent
+    / "src"
+    / "skf-test-skill"
+    / "scripts"
+    / "compute-score.py"
+)
+
+VALID_INPUT = {
+    "mode": "contextual",
+    "tier": "Deep",
+    "scores": {
+        "exportCoverage": 90,
+        "signatureAccuracy": 85,
+        "typeCoverage": 100,
+        "coherence": 80,
+        "externalValidation": 78,
+    },
+}
+
+
+def _run_cli(payload_text):
+    return subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "--stdin"],
+        input=payload_text,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_cli_valid_input_exits_0():
+    proc = _run_cli(json.dumps(VALID_INPUT))
+    assert proc.returncode == 0
+    assert json.loads(proc.stdout)["result"] in ("PASS", "FAIL", "INCONCLUSIVE")
+
+
+def test_cli_unparseable_json_exits_1():
+    proc = _run_cli("{not json")
+    assert proc.returncode == 1
+
+
+@pytest.mark.parametrize(
+    "mutation,description",
+    [
+        ({"scores": {"exportCoverage": 125}}, "out-of-range score"),
+        ({"scores": {"exportCoverage": None}}, "null required score"),
+        ({"mode": "nonsense"}, "invalid mode"),
+        ({"toolingStatus": 123}, "non-string field"),
+    ],
+    ids=["out-of-range", "null-score", "bad-mode", "bad-type"],
+)
+def test_cli_rejected_input_exits_2(mutation, description):
+    """A rejected input exits 2, matching reconcile-coverage.py.
+
+    Exiting 0 made a refused input look like a scored run, so score.md §3c's
+    manual-redistribution fallback could be entered with the very numbers the
+    script declined to score.
+    """
+    payload = json.loads(json.dumps(VALID_INPUT))
+    for key, value in mutation.items():
+        if key == "scores":
+            payload["scores"].update(value)
+        else:
+            payload[key] = value
+    proc = _run_cli(json.dumps(payload))
+    assert proc.returncode == 2, f"{description}: expected exit 2"
+    assert json.loads(proc.stdout)["code"] == "INVALID_INPUT"
