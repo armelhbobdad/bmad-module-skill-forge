@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "6e129dbdba46",
+  "strategy": "manual-commit",
+  "branch": "fix/workflow-health-findings",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-skill/assets/compile-assembly-rules.md",
+    "src/skf-create-skill/references/compile.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/6e/129dbdba46/0/metadata.json",
+      "transcript": "/6e/129dbdba46/0/full.jsonl",
+      "context": "/6e/129dbdba46/0/context.md",
+      "content_hash": "/6e/129dbdba46/0/content_hash.txt",
+      "prompt": "/6e/129dbdba46/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 214,
+    "cache_creation_tokens": 253649,
+    "cache_read_tokens": 20622874,
+    "output_tokens": 85167,
+    "api_call_count": 108
+  }
+}
