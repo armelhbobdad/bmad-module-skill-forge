@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "95b68e395090",
+  "strategy": "manual-commit",
+  "branch": "fix/scoring-exit-codes-and-campaign-docrot",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-test-skill/references/score.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/95/b68e395090/0/metadata.json",
+      "transcript": "/95/b68e395090/0/full.jsonl",
+      "context": "/95/b68e395090/0/context.md",
+      "content_hash": "/95/b68e395090/0/content_hash.txt",
+      "prompt": "/95/b68e395090/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 564,
+    "cache_creation_tokens": 2456457,
+    "cache_read_tokens": 134834428,
+    "output_tokens": 453635,
+    "api_call_count": 284
+  }
+}
