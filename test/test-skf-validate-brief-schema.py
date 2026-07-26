@@ -579,3 +579,56 @@ class TestDateScalarGuard:
         assert payload["valid"] is False
         assert payload["halt_reason"] == "brief-invalid"
         assert any(e["field"] == "created" for e in payload["errors"])
+
+
+class TestScopeTierAIncludeSchema:
+    """skill-brief.v1.json: tier_a_include is optional but constrained when present.
+
+    It is not merely a narrowing hint — its presence exempts the brief from the
+    denominator deflation guard in `skf-test-skill`
+    `references/source-access-protocol.md`. An empty or blank-item list would
+    therefore silence that guard while narrowing nothing, so the schema refuses
+    it rather than leaving the field unvalidated.
+    """
+
+    def test_legacy_brief_without_tier_a_include_validates(self) -> None:
+        brief = _valid_brief()
+        assert "tier_a_include" not in brief["scope"]
+        result = mod.validate_brief(brief)
+        assert result["valid"] is True
+        assert result["errors"] == []
+
+    def test_brief_with_tier_a_include_validates(self) -> None:
+        brief = _valid_brief()
+        brief["scope"]["tier_a_include"] = ["src/index.ts", "src/client.ts"]
+        result = mod.validate_brief(brief)
+        assert result["valid"] is True, result["errors"]
+        assert result["errors"] == []
+
+    def test_empty_tier_a_include_fails(self) -> None:
+        brief = _valid_brief()
+        brief["scope"]["tier_a_include"] = []
+        result = mod.validate_brief(brief)
+        assert result["valid"] is False
+        assert any(e["field"].startswith("scope.tier_a_include") for e in result["errors"]), result["errors"]
+
+    def test_blank_glob_fails(self) -> None:
+        brief = _valid_brief()
+        brief["scope"]["tier_a_include"] = ["src/index.ts", ""]
+        result = mod.validate_brief(brief)
+        assert result["valid"] is False
+        assert any(e["field"].startswith("scope.tier_a_include") for e in result["errors"]), result["errors"]
+
+    def test_non_string_glob_fails(self) -> None:
+        brief = _valid_brief()
+        brief["scope"]["tier_a_include"] = ["src/index.ts", 42]
+        result = mod.validate_brief(brief)
+        assert result["valid"] is False
+        assert any(e["field"].startswith("scope.tier_a_include") for e in result["errors"]), result["errors"]
+
+    def test_non_array_fails(self) -> None:
+        brief = _valid_brief()
+        brief["scope"]["tier_a_include"] = "src/index.ts"
+        result = mod.validate_brief(brief)
+        assert result["valid"] is False
+        assert any(e["field"].startswith("scope.tier_a_include") for e in result["errors"]), result["errors"]

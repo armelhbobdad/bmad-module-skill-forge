@@ -84,6 +84,12 @@
           "enum": ["full-library", "specific-modules", "public-api", "component-library", "reference-app", "docs-only"]
         },
         "include": { "type": "array", "items": { "type": "string" } },
+        "tier_a_include": {
+          "type": "array",
+          "description": "Optional narrower tier-A include list. When present it becomes the coverage-denominator basis instead of the coarse scope.include, and it exempts the brief from the denominator deflation guard in skf-test-skill references/source-access-protocol.md — so an empty or blank-item list must not be accepted: it would silence that guard while narrowing nothing.",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
         "exclude": { "type": "array", "items": { "type": "string" } },
         "notes": { "type": "string" },
         "rationale": {
