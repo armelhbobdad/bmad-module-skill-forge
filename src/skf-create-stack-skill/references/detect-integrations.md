@@ -145,7 +145,7 @@ For each library pair with **0 or 1 co-import files** (below the 2-file threshol
 
 **CCC precision guard for 1-file pairs (H3):** When a CCC hit would elevate a 1-file pair to qualifying status, run a post-hoc verification on that file: re-grep the file and confirm it contains explicit import statements for **both** libraries (per the ecosystem import patterns from `{manifestPatternsPath}`). If either import is missing (e.g., one library is only name-dropped in a comment or string), drop the CCC-added file from the candidate list. Only pairs with ≥2 files that each contain explicit imports for both libraries qualify. Log rejected CCC candidates in workflow state for the evidence report.
 
-**Tool resolution for ccc_bridge.search:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `ccc search "{libA} {libB}" --path {source_root} --top 10` (CLI). See `knowledge/tool-resolution.md`.
+**Tool resolution for ccc_bridge.search:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `cd {source_root} && ccc search --limit 10 "{libA} {libB}"` (CLI). `ccc search` reads the index in the current working directory and has no project-selector flag (`--path` is a file-path glob filter *within* the index, and the result cap is `--limit`, not `--top`). See `knowledge/tool-resolution.md`.
 
 For pairs that already qualify (2+ files), CCC is not needed for detection — but the CCC results may surface additional integration files for richer classification in section 3.
 

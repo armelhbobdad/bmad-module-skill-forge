@@ -206,9 +206,9 @@ Fall back to ad-hoc inspection — `Gemfile` / `*.csproj` / `*.sln` / `Package.s
 If `tools.ccc` is true in forge-tier.yaml, supplement the module listing with a semantic discovery pass:
 
 **CCC Semantic Discovery:**
-- **Claude Code:** Use `/ccc search "{repo_name} public API exports modules" {source_path}`
+- **Claude Code:** Use `/ccc search "{repo_name} public API exports modules"` from `{source_path}` — the query is variadic, so a trailing path is swallowed into the search string rather than selecting a project
 - **Cursor:** Use `ccc` MCP server `search` tool with query `"{repo_name} public API exports modules"` and path `{source_path}`
-- **CLI fallback:** `ccc search "{repo_name} public API exports modules" --path {source_path} --limit 10`
+- **CLI fallback:** `cd {source_path} && ccc search --limit 10 "{repo_name} public API exports modules"` — `ccc search` reads the index in the current working directory and has no project-selector flag (`--path` is a file-path glob filter *within* the index)
 
 See `knowledge/tool-resolution.md` for full bridge-to-tool mapping.
 

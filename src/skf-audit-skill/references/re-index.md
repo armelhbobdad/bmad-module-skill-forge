@@ -143,7 +143,7 @@ Skip this section. Temporal context requires Deep tier.
 
 For each export in the skill baseline that was NOT found at its recorded file path during re-extraction (potential "deleted" export):
 
-1. Run `ccc_bridge.search("{export_name}", source_root, top_k=5)` — **Tool resolution:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `ccc search "{export_name}" --path {source_root} --top 5` (CLI) — to find candidate current locations
+1. Run `ccc_bridge.search("{export_name}", source_root, top_k=5)` — **Tool resolution:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `cd {source_root} && ccc search --limit 5 "{export_name}"` (CLI) — to find candidate current locations. `ccc search` reads the index in the current working directory and has no project-selector flag (`--path` is a file-path glob filter *within* the index, and the result cap is `--limit`, not `--top`) — see `knowledge/ccc-bridge.md`.
 2. If CCC returns files containing the export name:
    - Run ast-grep verification on each candidate file
    - If verified at a new location: reclassify from "deleted" to "moved" with the new file:line reference
