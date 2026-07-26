@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "967258783f57",
+  "strategy": "manual-commit",
+  "branch": "fix/workflow-health-findings",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-test-skill/references/coverage-check.md",
+    "src/skf-test-skill/scripts/reconcile-coverage.py",
+    "test/test-skf-reconcile-coverage.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/96/7258783f57/0/metadata.json",
+      "transcript": "/96/7258783f57/0/full.jsonl",
+      "context": "/96/7258783f57/0/context.md",
+      "content_hash": "/96/7258783f57/0/content_hash.txt",
+      "prompt": "/96/7258783f57/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 216,
+    "cache_creation_tokens": 254654,
+    "cache_read_tokens": 20897324,
+    "output_tokens": 85844,
+    "api_call_count": 109
+  }
+}
