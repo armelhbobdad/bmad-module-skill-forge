@@ -64,7 +64,7 @@ Judgment payload (stdin JSON, compute mode)::
     {
       "exports_public_api":  40,          # int  — public-entry-point export count (judgment)
       "exports_internal":    19,          # int  — non-underscore internal export count (judgment)
-      "effective_denominator": 12,        # int|null — optional, stratified-scope monorepo only
+      "effective_denominator": 12,        # int|null — optional, curated-subset scopes only
       "pattern_surfaces_documented": 8,   # int  — reference-app only (exports_documented proxy)
       "exports_documented":  0,           # int  — stack only (own-barrel count, usually 0)
       "scripts": [ ... ],                 # list — scripts[] array (or "scripts_count": int)
