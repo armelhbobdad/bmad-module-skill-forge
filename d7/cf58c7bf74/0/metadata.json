@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "d7cf58c7bf74",
+  "session_id": "a5830fda-65ac-47cb-9c75-582ed61e6e9d",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-26T04:24:47.898208958Z",
+  "branch": "fix/workflow-health-findings",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-skill/scripts/scan-doc-rot.py",
+    "src/skf-create-skill/references/step-doc-rot.md",
+    "test/test-skf-scan-doc-rot.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "3df7d3725515",
+  "token_usage": {
+    "input_tokens": 208,
+    "cache_creation_tokens": 251359,
+    "cache_read_tokens": 19804049,
+    "output_tokens": 83044,
+    "api_call_count": 105
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-26T04:24:46.378748714Z",
+    "agent_lines": 460,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 460,
+    "agent_percentage": 100
+  }
+}
