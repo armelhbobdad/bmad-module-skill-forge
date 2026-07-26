@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "aab3facb9e1c",
+  "strategy": "manual-commit",
+  "branch": "fix/workflow-health-findings",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-audit-skill/references/re-index.md",
+    "src/skf-brief-skill/references/analyze-target.md",
+    "src/skf-create-skill/references/extract.md",
+    "src/skf-create-skill/references/generate-artifacts.md",
+    "src/skf-create-stack-skill/references/detect-integrations.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/aa/b3facb9e1c/0/metadata.json",
+      "transcript": "/aa/b3facb9e1c/0/full.jsonl",
+      "context": "/aa/b3facb9e1c/0/context.md",
+      "content_hash": "/aa/b3facb9e1c/0/content_hash.txt",
+      "prompt": "/aa/b3facb9e1c/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 206,
+    "cache_creation_tokens": 248902,
+    "cache_read_tokens": 19534346,
+    "output_tokens": 82295,
+    "api_call_count": 104
+  }
+}

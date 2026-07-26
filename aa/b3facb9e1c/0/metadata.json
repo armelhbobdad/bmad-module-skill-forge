@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "aab3facb9e1c",
+  "session_id": "a5830fda-65ac-47cb-9c75-582ed61e6e9d",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-26T04:24:30.184976633Z",
+  "branch": "fix/workflow-health-findings",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "src/skf-create-skill/references/generate-artifacts.md",
+    "src/skf-audit-skill/references/re-index.md",
+    "src/skf-create-stack-skill/references/detect-integrations.md",
+    "src/skf-brief-skill/references/analyze-target.md",
+    "src/skf-create-skill/references/extract.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "3df7d3725515",
+  "token_usage": {
+    "input_tokens": 206,
+    "cache_creation_tokens": 248902,
+    "cache_read_tokens": 19534346,
+    "output_tokens": 82295,
+    "api_call_count": 104
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-26T04:24:28.361886744Z",
+    "agent_lines": 10,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 10,
+    "agent_percentage": 100
+  }
+}
