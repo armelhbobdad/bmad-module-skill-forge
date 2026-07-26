@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "b8e15f72bd43",
+  "session_id": "a5830fda-65ac-47cb-9c75-582ed61e6e9d",
+  "strategy": "manual-commit",
+  "created_at": "2026-07-26T04:25:16.88405098Z",
+  "branch": "fix/workflow-health-findings",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "src/skf-create-skill/assets/compile-assembly-rules.md",
+    "src/skf-brief-skill/assets/description-voice-examples.md",
+    "src/skf-brief-skill/references/gather-intent.md",
+    "src/skf-analyze-source/references/recommend.md"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "3df7d3725515",
+  "token_usage": {
+    "input_tokens": 212,
+    "cache_creation_tokens": 252920,
+    "cache_read_tokens": 20349153,
+    "output_tokens": 84215,
+    "api_call_count": 107
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-07-26T04:25:15.072926398Z",
+    "agent_lines": 12,
+    "human_added": 2,
+    "human_modified": 1,
+    "human_removed": 0,
+    "total_committed": 15,
+    "agent_percentage": 80
+  }
+}
