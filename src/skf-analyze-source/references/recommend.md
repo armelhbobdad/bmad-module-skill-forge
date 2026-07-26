@@ -59,7 +59,7 @@ For each qualifying unit, prepare a recommendation card:
 - name: {suggested kebab-case name}
 - scope.type: {full-library / specific-modules / public-api / component-library / reference-app / docs-only}
 - scope.include: {suggested glob patterns}
-- description: {suggested 1-3 sentence description}
+- description: {suggested 1-3 sentence description, containing a literal `Use when` clause}
 ```
 
 ### 3. Present Recommendations
