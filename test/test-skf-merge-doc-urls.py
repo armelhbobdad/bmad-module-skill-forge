@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -181,3 +182,44 @@ class TestCli:
             input="not json", capture_output=True, text=True, timeout=15,
         )
         assert proc.returncode == 2
+
+    def test_cli_non_ascii_survives_cp1252_stdio(self):
+        # Issue #465: a default Windows console decodes stdout as cp1252, which
+        # crashed ensure_ascii=False output carrying non-ASCII (e.g. emoji).
+        # PYTHONIOENCODING=cp1252 simulates that console on any platform; the
+        # stdin payload stays ASCII-safe (json.dumps escapes the emoji) so only
+        # the output path is under test.
+        payload = {
+            "scope_type": "full-library",
+            "existing": [_reg("https://doc.rust-lang.org/book/", label="The Book \U0001F4CA")],
+            "detected": [],
+        }
+        env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH)],
+            input=json.dumps(payload),
+            capture_output=True, encoding="utf-8", timeout=15, env=env,
+        )
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["doc_urls"][0]["label"] == "The Book \U0001F4CA"
+
+    def test_cli_raw_utf8_stdin_survives_cp1252_stdio(self):
+        # Issue #465, stdin half: raw UTF-8 bytes (emoji NOT ASCII-escaped)
+        # piped in under a cp1252 console. Without the sys.stdin reconfigure
+        # the emoji's UTF-8 bytes decode as cp1252 mojibake, which the
+        # round-trip assert below catches.
+        payload = {
+            "scope_type": "full-library",
+            "existing": [_reg("https://doc.rust-lang.org/book/", label="The Book \U0001F4CA")],
+            "detected": [],
+        }
+        env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH)],
+            input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            capture_output=True, timeout=15, env=env,
+        )
+        assert proc.returncode == 0, proc.stderr.decode("utf-8", "replace")
+        out = json.loads(proc.stdout.decode("utf-8"))
+        assert out["doc_urls"][0]["label"] == "The Book \U0001F4CA"

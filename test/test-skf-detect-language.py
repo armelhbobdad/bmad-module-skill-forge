@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -338,6 +339,25 @@ def test_cli_invalid_json_dies_with_2():
     )
     assert proc.returncode == 2
     assert "invalid JSON" in proc.stderr
+
+
+def test_cli_raw_utf8_stdin_survives_cp1252_stdio():
+    # Issue #465, stdin half: raw UTF-8 bytes (emoji NOT ASCII-escaped) piped
+    # in under a cp1252 console (PYTHONIOENCODING simulates it on any
+    # platform). \U0001F60D encodes to a byte (0x8D) undefined in cp1252, so
+    # without the sys.stdin reconfigure the read raises UnicodeDecodeError
+    # and the process exits non-zero.
+    payload = {"tree": ["Cargo.toml", "src/\U0001F60D.rs"]}
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH)],
+        input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        capture_output=True,
+        timeout=10,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+    )
+    assert proc.returncode == 0, proc.stderr.decode("utf-8", "replace")
+    out = json.loads(proc.stdout.decode("utf-8"))
+    assert out["language"] == "rust"
 
 
 # --------------------------------------------------------------------------
