@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "db7d8ae47992",
+  "session_id": "584465ae-178b-4e7a-b64d-d95d873bfa24",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-06T07:17:33.534183139Z",
+  "branch": "feat/docs-build-inputs-llms-check",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "tools/validate-docs-links.js",
+    "tools/build-docs.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "fc65e99022f7",
+  "token_usage": {
+    "input_tokens": 83,
+    "cache_creation_tokens": 101690,
+    "cache_read_tokens": 3570904,
+    "output_tokens": 22234,
+    "api_call_count": 45
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-06T07:17:32.981537106Z",
+    "agent_lines": 191,
+    "human_added": 149,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 340,
+    "agent_percentage": 56.1764705882353
+  }
+}

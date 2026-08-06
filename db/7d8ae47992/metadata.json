@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "db7d8ae47992",
+  "strategy": "manual-commit",
+  "branch": "feat/docs-build-inputs-llms-check",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "tools/build-docs.js",
+    "tools/validate-docs-links.js"
+  ],
+  "sessions": [
+    {
+      "metadata": "/db/7d8ae47992/0/metadata.json",
+      "transcript": "/db/7d8ae47992/0/full.jsonl",
+      "context": "/db/7d8ae47992/0/context.md",
+      "content_hash": "/db/7d8ae47992/0/content_hash.txt",
+      "prompt": "/db/7d8ae47992/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 83,
+    "cache_creation_tokens": 101690,
+    "cache_read_tokens": 3570904,
+    "output_tokens": 22234,
+    "api_call_count": 45
+  }
+}
