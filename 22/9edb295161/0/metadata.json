@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "229edb295161",
+  "session_id": "584465ae-178b-4e7a-b64d-d95d873bfa24",
+  "strategy": "manual-commit",
+  "created_at": "2026-08-06T08:36:20.021790395Z",
+  "branch": "fix/freshness-comment-scope",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "tools/validate-docs-links.js"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "ee9e873e7936",
+  "token_usage": {
+    "input_tokens": 156,
+    "cache_creation_tokens": 219851,
+    "cache_read_tokens": 7978378,
+    "output_tokens": 36189,
+    "api_call_count": 84
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-08-06T08:36:19.674754344Z",
+    "agent_lines": 3,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 3,
+    "agent_percentage": 100
+  }
+}
