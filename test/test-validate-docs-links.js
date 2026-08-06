@@ -15,7 +15,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { resolveConfig, run, blankCode, assetUrls } = require('../tools/validate-docs-links.js');
+const { resolveConfig, run, blankCode, assetUrls, buildInputsStatus, checkLlmsIndex } = require('../tools/validate-docs-links.js');
 
 let passed = 0;
 let failed = 0;
@@ -264,6 +264,154 @@ async function main() {
     const r = await run(cfg, (m) => lines.push(m));
     assert.strictEqual(r.ok, true);
     assert.ok(/All documentation links valid/.test(lines.join('\n')));
+  });
+
+  // --- build-inputs freshness -------------------------------------------------
+
+  test('a matching manifest reads match, and never claims freshness', () => {
+    const { root, cfg } = fixture({ docs: { 'a.md': '# A\n' } });
+    const crypto = require('node:crypto');
+    const sha = crypto
+      .createHash('sha1')
+      .update(fs.readFileSync(path.join(root, 'docs', 'a.md')))
+      .digest('hex');
+    fs.mkdirSync(path.join(root, 'build'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'build', '.build-inputs.json'), JSON.stringify({ inputs: { 'docs/a.md': sha } }));
+    assert.deepStrictEqual(buildInputsStatus(cfg), { state: 'match', changed: [] });
+  });
+
+  test('a changed or added input reads stale and names the files', () => {
+    const { root, cfg } = fixture({ docs: { 'a.md': '# A\n', 'b.md': '# B\n' } });
+    const crypto = require('node:crypto');
+    const sha = crypto
+      .createHash('sha1')
+      .update(fs.readFileSync(path.join(root, 'docs', 'a.md')))
+      .digest('hex');
+    fs.mkdirSync(path.join(root, 'build'), { recursive: true });
+    // Manifest knows a.md (stale hash lies about nothing) but predates b.md.
+    fs.writeFileSync(
+      path.join(root, 'build', '.build-inputs.json'),
+      JSON.stringify({ inputs: { 'docs/a.md': sha, 'docs/gone.md': 'deadbeef' } }),
+    );
+    const status = buildInputsStatus(cfg);
+    assert.strictEqual(status.state, 'stale');
+    assert.deepStrictEqual(status.changed, ['docs/b.md', 'docs/gone.md']);
+  });
+
+  test('a missing or corrupt manifest reads missing, never stale', () => {
+    const { cfg } = fixture({ docs: { 'a.md': '# A\n' } });
+    assert.strictEqual(buildInputsStatus(cfg).state, 'missing');
+    fs.mkdirSync(path.join(cfg.projectRoot, 'build'), { recursive: true });
+    fs.writeFileSync(path.join(cfg.projectRoot, 'build', '.build-inputs.json'), 'not json');
+    assert.strictEqual(buildInputsStatus(cfg).state, 'missing');
+  });
+
+  await testAsync('run() prints the definite STALE block when inputs changed', async () => {
+    const lines = [];
+    const { root, cfg } = fixture({
+      docs: { 'a.md': '# A\n' },
+      build: { 'index.html': page('<p>hi</p>') },
+    });
+    fs.mkdirSync(path.join(root, 'build'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'build', '.build-inputs.json'), JSON.stringify({ inputs: { 'docs/a.md': 'deadbeef' } }));
+    await run(cfg, (m) => lines.push(m));
+    const text = lines.join('\n');
+    assert.match(text, /STALE BUILD: 1 input\(s\) changed/);
+    assert.match(text, /docs\/a\.md/);
+    assert.doesNotMatch(text, /may be cached/, 'the hedge yields to the definite block');
+  });
+
+  await testAsync('run() keeps the hedged note on a matching manifest', async () => {
+    const crypto = require('node:crypto');
+    const lines = [];
+    const { root, cfg } = fixture({
+      docs: { 'a.md': '# A\n' },
+      build: { 'index.html': page('<p>hi</p>') },
+    });
+    const sha = crypto
+      .createHash('sha1')
+      .update(fs.readFileSync(path.join(root, 'docs', 'a.md')))
+      .digest('hex');
+    fs.mkdirSync(path.join(root, 'build'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'build', '.build-inputs.json'), JSON.stringify({ inputs: { 'docs/a.md': sha } }));
+    await run(cfg, (m) => lines.push(m));
+    const text = lines.join('\n');
+    assert.doesNotMatch(text, /STALE BUILD/);
+    assert.match(text, /may be cached/, 'a match never claims freshness');
+  });
+
+  // --- llms.txt route coverage -----------------------------------------------
+  // This link class is not HTML, so the built pass never sees it; a deleted
+  // page's index entry survived every check exactly this way.
+
+  test('a live llms.txt route passes and an external link is skipped', () => {
+    const { cfg } = fixture({
+      build: {
+        'llms.txt': 'Documentation: https://x.io/base\n\n- [Ok](https://x.io/base/ok/)\n- [Ext](https://github.com/o/r)\n',
+        'ok/index.html': page('<p>ok</p>'),
+      },
+    });
+    const issues = [];
+    const checked = checkLlmsIndex(cfg, (file, detail) => issues.push({ file, detail }));
+    assert.strictEqual(checked, 1, 'one site link checked; the external one skipped');
+    assert.deepStrictEqual(issues, []);
+  });
+
+  test('a dead llms.txt route is a reported issue', () => {
+    const { cfg } = fixture({
+      build: {
+        'llms.txt': 'Documentation: https://x.io/base\n\n- [Gone](https://x.io/base/gone/)\n',
+      },
+    });
+    const issues = [];
+    checkLlmsIndex(cfg, (file, detail) => issues.push({ file, detail }));
+    assert.strictEqual(issues.length, 1);
+    assert.ok(issues[0].detail.includes('https://x.io/base/gone/'), issues[0].detail);
+  });
+
+  test('a file target like llms-full.txt resolves as a file, not a route', () => {
+    const { cfg } = fixture({
+      build: {
+        'llms.txt': 'Documentation: https://x.io/base\n\n- [Full](https://x.io/base/llms-full.txt)\n',
+        'llms-full.txt': 'bundle\n',
+      },
+    });
+    const issues = [];
+    checkLlmsIndex(cfg, (file, detail) => issues.push({ file, detail }));
+    assert.deepStrictEqual(issues, []);
+  });
+
+  test('no llms.txt or no Documentation header checks nothing and reports nothing', () => {
+    const bare = fixture({ build: { 'index.html': page('<p>hi</p>') } });
+    assert.strictEqual(
+      checkLlmsIndex(bare.cfg, () => {
+        throw new Error('no');
+      }),
+      0,
+    );
+    const headerless = fixture({ build: { 'llms.txt': '- [X](https://x.io/base/x/)\n' } });
+    assert.strictEqual(
+      checkLlmsIndex(headerless.cfg, () => {
+        throw new Error('no');
+      }),
+      0,
+    );
+  });
+
+  await testAsync('a dead llms.txt route fails a strict run end to end', async () => {
+    const { cfg } = fixture(
+      {
+        docs: { 'a.md': '# A\n' },
+        build: {
+          'index.html': page('<p>hi</p>'),
+          'llms.txt': 'Documentation: https://x.io/base\n\n- [Gone](https://x.io/base/gone/)\n',
+        },
+      },
+      ['--strict'],
+    );
+    const result = await runQuiet(cfg);
+    assert.strictEqual(result.ok, false);
+    assert.ok(result.issues.some((issue) => issue.file === 'build/site/llms.txt'));
   });
 
   await testAsync('a missing docs dir raises rather than exiting the process', async () => {

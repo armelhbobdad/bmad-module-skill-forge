@@ -377,6 +377,136 @@ function checkBuilt({ projectRoot, buildDir }, base, report) {
 
 // ---------------------------------------------------------------------------
 
+const BUILD_INFRA_INPUTS = [
+  'website/src/rehype-markdown-links.js',
+  'website/src/rehype-base-paths.js',
+  'website/src/lib/site-url.js',
+  'website/astro.config.mjs',
+  'tools/build-docs.js',
+];
+
+/**
+ * One sha1 per build input: the flat docs/*.md set plus BUILD_INFRA_INPUTS,
+ * the route-shaping infrastructure (BOTH rehype rewriters, the base/site
+ * resolver, the Astro config, and the builder itself). Canonical for both the
+ * manifest writer in tools/build-docs.js and the freshness check below - the
+ * first cut duplicated the list in both tools and both copies missed the
+ * second rehype rewriter, which is exactly the drift a single owner prevents.
+ */
+function collectBuildInputs(projectRoot) {
+  const crypto = require('node:crypto');
+  const sha1 = (file) => crypto.createHash('sha1').update(fs.readFileSync(file)).digest('hex');
+  const inputs = {};
+  const docsDir = path.join(projectRoot, 'docs');
+  if (fs.existsSync(docsDir)) {
+    for (const name of fs.readdirSync(docsDir).sort()) {
+      if (name.endsWith('.md')) {
+        inputs[`docs/${name}`] = sha1(path.join(docsDir, name));
+      }
+    }
+  }
+  for (const rel of BUILD_INFRA_INPUTS) {
+    const file = path.join(projectRoot, rel);
+    if (fs.existsSync(file)) {
+      inputs[rel] = sha1(file);
+    }
+  }
+  return inputs;
+}
+
+/**
+ * Compare the build-inputs manifest against the tree as it is NOW.
+ *
+ * Returns {state, changed}: state is 'missing' (no manifest - an older build,
+ * nothing to compare), 'match', or 'stale' with the changed inputs listed.
+ * A 'match' is deliberately NOT a freshness certificate: Astro's content cache
+ * can replay a stale render against unchanged inputs, so a matching manifest
+ * proves nothing - only a MISmatch proves staleness. That asymmetry is why the
+ * stale branch speaks definitely and the match branch stays hedged.
+ */
+function buildInputsStatus({ projectRoot, buildDir }) {
+  const manifestPath = path.join(path.dirname(buildDir), '.build-inputs.json');
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+  } catch {
+    return { state: 'missing', changed: [] };
+  }
+  if (!manifest || typeof manifest.inputs !== 'object' || manifest.inputs === null) {
+    return { state: 'missing', changed: [] };
+  }
+  const current = collectBuildInputs(projectRoot);
+  const changed = [];
+  for (const key of new Set([...Object.keys(manifest.inputs), ...Object.keys(current)])) {
+    if (manifest.inputs[key] !== current[key]) {
+      changed.push(key);
+    }
+  }
+  changed.sort();
+  return { state: changed.length > 0 ? 'stale' : 'match', changed };
+}
+
+/**
+ * Resolve every site-internal link in the built llms.txt against the built
+ * tree. This link class is invisible to the HTML pass (llms.txt is not HTML),
+ * which is exactly how a deleted page's index entry survived every check.
+ *
+ * The site root is read off the file's own `Documentation: <url>` header line
+ * rather than off the build base, so the check is independent of what base the
+ * local render happened to use. No header, or no file: nothing to check -
+ * reported as a count of 0, never as a pass over content that was not read.
+ */
+function checkLlmsIndex({ buildDir }, report) {
+  const llmsPath = path.join(buildDir, 'llms.txt');
+  let text;
+  try {
+    text = fs.readFileSync(llmsPath, 'utf-8');
+  } catch {
+    return 0;
+  }
+  const rootMatch = text.match(/^Documentation:\s+(\S+)$/m);
+  if (!rootMatch) {
+    return 0;
+  }
+  let rootPath;
+  try {
+    rootPath = new URL(rootMatch[1]).pathname;
+  } catch {
+    return 0;
+  }
+  if (!rootPath.endsWith('/')) {
+    rootPath += '/';
+  }
+  let checked = 0;
+  for (const match of text.matchAll(/\]\((\S+?)\)/g)) {
+    const target = match[1];
+    let url;
+    try {
+      url = new URL(target);
+    } catch {
+      continue; // relative or malformed: llms.txt only carries absolute links
+    }
+    if (!url.pathname.startsWith(rootPath)) {
+      continue; // external link, not a site route
+    }
+    checked += 1;
+    const route = url.pathname.slice(rootPath.length);
+    const candidates =
+      route === ''
+        ? [path.join(buildDir, 'index.html')]
+        : [path.join(buildDir, route.replace(/\/$/, ''), 'index.html'), path.join(buildDir, route)];
+    if (!candidates.some((candidate) => fs.existsSync(candidate))) {
+      report(
+        'build/site/llms.txt',
+        `links a route that resolves to nothing: ${target} (looked for ${candidates
+          .map((candidate) => path.relative(buildDir, candidate))
+          .join(' or ')})`,
+      );
+    }
+  }
+  return checked;
+}
+
 /**
  * Run both passes and return what happened, without touching the process.
  *
@@ -411,13 +541,30 @@ async function run(cfg, log = console.log) {
     builtCount = checkBuilt(cfg, base, report);
     log(`Built pass:   ${builtCount} page(s) in build/site (base ${base})`);
 
-    // This pass is only as honest as the build it reads. Astro caches rendered
-    // content in website/node_modules/.astro, and that cache survives both
-    // `rm -rf website/.astro` and a rebuild, so a stale render can report a
-    // clean pass against source that is actually broken (this bit the author
-    // while writing this tool). CI is immune because `npm ci` starts cold.
+    const llmsCount = checkLlmsIndex(cfg, report);
+    log(`llms.txt:     ${llmsCount} site link(s) checked`);
+
+    // This pass is only as honest as the build it reads. The manifest turns
+    // "may be stale" into a definite STALE where inputs provably changed; a
+    // matching manifest is still no freshness certificate, because Astro
+    // caches rendered content in website/node_modules/.astro and that cache
+    // survives both `rm -rf website/.astro` and a rebuild - a stale render can
+    // report a clean pass against unchanged inputs (this bit the author while
+    // writing this tool). CI is immune because `npm ci` starts cold.
     // Suppressed under --require-build, which is the CI path.
-    if (!cfg.requireBuild) {
+    const freshness = buildInputsStatus(cfg);
+    if (freshness.state === 'stale') {
+      log('');
+      log(`   STALE BUILD: ${freshness.changed.length} input(s) changed since this render:`);
+      for (const name of freshness.changed.slice(0, 5)) {
+        log(`     - ${name}`);
+      }
+      if (freshness.changed.length > 5) {
+        log(`     - (and ${freshness.changed.length - 5} more)`);
+      }
+      log('   This pass validated the OLD render. Rebuild before trusting it:');
+      log('     npm run docs:build');
+    } else if (!cfg.requireBuild) {
       log('');
       log('   Reading an existing build. If results look impossible, the render');
       log('   may be cached. Clear it and rebuild:');
@@ -486,7 +633,19 @@ async function run(cfg, log = console.log) {
   return { issues, sourceCount, builtCount, haveBuild, missingRequiredBuild, ok };
 }
 
-module.exports = { resolveConfig, run, checkSource, checkBuilt, resolveBase, blankCode, assetUrls, walk };
+module.exports = {
+  resolveConfig,
+  run,
+  checkSource,
+  checkBuilt,
+  resolveBase,
+  blankCode,
+  assetUrls,
+  walk,
+  buildInputsStatus,
+  collectBuildInputs,
+  checkLlmsIndex,
+};
 
 /* c8 ignore start -- CLI entry point */
 if (require.main === module) {
