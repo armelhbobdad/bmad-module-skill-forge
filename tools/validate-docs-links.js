@@ -551,7 +551,9 @@ async function run(cfg, log = console.log) {
     // survives both `rm -rf website/.astro` and a rebuild - a stale render can
     // report a clean pass against unchanged inputs (this bit the author while
     // writing this tool). CI is immune because `npm ci` starts cold.
-    // Suppressed under --require-build, which is the CI path.
+    // Only the hedged branch is suppressed under --require-build (the CI
+    // path); a provable STALE always speaks, since a cold CI build that
+    // still mismatches its inputs is worth saying out loud.
     const freshness = buildInputsStatus(cfg);
     if (freshness.state === 'stale') {
       log('');
