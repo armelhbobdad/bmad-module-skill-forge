@@ -142,12 +142,42 @@ def _ok(payload: dict) -> None:
     print(json.dumps(payload))
 
 
+def _resolve_outside_cwd(command: str) -> str | None:
+    """shutil.which with a CWD-shim guard. Returns the resolved path or None.
+
+    shutil.which on Windows searches the current directory ahead of PATH,
+    and CWD here is the repo under analysis — a bare-name lookup resolving
+    into CWD would execute a repo-planted shim (e.g. ast-grep.cmd). Such a
+    resolution is treated as not-found. Explicit paths supplied by callers
+    (containing a separator) are honored as-is. Keep identical to the
+    sibling guard in skf-qmd-classify-collections.py.
+    """
+    resolved = shutil.which(command)
+    if resolved is None:
+        return None
+    if os.sep in command or (os.altsep and os.altsep in command):
+        return resolved
+    resolved_dir = os.path.dirname(resolved)
+    if resolved_dir:
+        cwd = os.path.normcase(os.path.abspath(os.getcwd()))
+        if os.path.normcase(os.path.abspath(resolved_dir)) == cwd:
+            return None
+    return resolved
+
+
 def _run(cmd: list[str], timeout: int = PROBE_TIMEOUT_SEC) -> tuple[int, str, str]:
     """Run a subprocess. Return (returncode, stdout, stderr). Never raises.
 
     Treats every failure mode (FileNotFoundError, TimeoutExpired, OSError,
     CalledProcessError) as a failed probe — returns rc=127 and an empty
     stdout/stderr. Tool detection should never crash the workflow.
+
+    cmd[0] is resolved through shutil.which() before spawning (with the
+    CWD-shim guard in _resolve_outside_cwd): Windows CreateProcess only
+    ever appends .exe to a bare name, so npm-installed shims
+    (ast-grep.CMD, qmd.CMD) would raise FileNotFoundError and read as
+    "tool absent". An unresolvable command returns rc=127 without
+    spawning anything.
 
     The child is wrapped in the OS `timeout(1)` utility (when available) so a
     daemon-backed probe blocked in an uninterruptible syscall (e.g.
@@ -158,6 +188,10 @@ def _run(cmd: list[str], timeout: int = PROBE_TIMEOUT_SEC) -> tuple[int, str, st
     `start_new_session=True` isolates the child's process group; the
     Python-level timeout is a secondary net set slightly above the OS one.
     """
+    resolved = _resolve_outside_cwd(cmd[0])
+    if resolved is None:
+        return 127, "", ""
+    cmd = [resolved, *cmd[1:]]
     if _TIMEOUT_BIN:
         run_cmd = [_TIMEOUT_BIN, "--kill-after=2", str(timeout), *cmd]
         py_timeout = timeout + 5
