@@ -1075,7 +1075,27 @@ def path_to_manifest_name(ecosystem: str) -> str:
 # CLI wiring
 # ---------------------------------------------------------------------------
 
+def _force_utf8(*streams) -> None:
+    """Reconfigure JSON-carrying streams to UTF-8 (issue #465).
+
+    A default Windows console decodes stdio as cp1252, which cannot carry
+    non-ASCII JSON (ensure_ascii=False output, raw UTF-8 input). Preserves
+    each stream's existing error handler — reconfigure(encoding=...) alone
+    would reset it to 'strict', downgrading e.g. an already-UTF-8 stderr on
+    Linux. For stdin this must run before the first read. Skips in-process
+    test doubles without reconfigure().
+    """
+    for stream in streams:
+        if hasattr(stream, "reconfigure"):
+            errors = getattr(stream, "errors", None)
+            if errors is None:
+                stream.reconfigure(encoding="utf-8")
+            else:
+                stream.reconfigure(encoding="utf-8", errors=errors)
+
+
 def main(argv: list[str]) -> int:
+    _force_utf8(sys.stdout, sys.stderr)
     parser = argparse.ArgumentParser(
         description="Classify a repo into a known skill shape from its manifest files.",
     )

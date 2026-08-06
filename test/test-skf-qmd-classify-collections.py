@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -121,6 +123,12 @@ def test_parse_collection_list_empty():
     assert mod.parse_collection_list_output("Collections (0):\n\n") == []
 
 
+def test_parse_collection_list_empty_state_message():
+    """The empty-state message must not be parsed as a collection named 'No'."""
+    raw = "No collections found. Run 'qmd collection add .' to create one.\n"
+    assert mod.parse_collection_list_output(raw) == []
+
+
 def test_parse_collection_list_name_resembling_header_not_skipped():
     """A collection named `Collections-*` must not be mistaken for the header."""
     raw = (
@@ -149,6 +157,113 @@ def test_parse_collection_list_feeds_classify_correctly():
     assert out["healthy"] == ["foo-brief"]
     assert out["orphaned"] == ["lost-extraction"]
     assert out["foreign_filtered_count"] == 0
+
+
+# ─── fetch_live_names_from_qmd (executable resolution) ──────────────────────
+
+
+def test_fetch_qmd_missing_from_path_errors_without_spawning(monkeypatch):
+    """shutil.which → None must short-circuit with an accurate message —
+    no subprocess spawn, no misattribution to a daemon error."""
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+
+    def forbid_spawn(*args, **kwargs):
+        raise AssertionError("subprocess.run must not be called when qmd is absent")
+
+    monkeypatch.setattr(subprocess, "run", forbid_spawn)
+    names, error = mod.fetch_live_names_from_qmd()
+    assert names == []
+    assert "qmd" in error and "PATH" in error
+
+
+def test_fetch_passes_resolved_path_to_subprocess(monkeypatch):
+    """Regression for WinError 2: qmd ships from npm as a .CMD shim on
+    Windows, so subprocess.run must receive the shutil.which-resolved path."""
+    resolved = str(Path("fake-bin") / "qmd.CMD")
+    monkeypatch.setattr(shutil, "which", lambda name: resolved)
+
+    captured = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+
+        class Result:
+            returncode = 0
+            stdout = "foo-brief\nbar-extraction\n"
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    names, error = mod.fetch_live_names_from_qmd()
+    assert error is None
+    assert names == ["foo-brief", "bar-extraction"]
+    assert captured["argv"] == [resolved, "collection", "list"]
+
+
+def test_fetch_passes_utf8_decode_to_subprocess(monkeypatch):
+    """qmd emits UTF-8; without encoding= Windows decodes stdout as cp1252 —
+    non-ASCII names mojibake and unmapped bytes raise UnicodeDecodeError."""
+    resolved = str(Path("fake-bin") / "qmd.CMD")
+    monkeypatch.setattr(shutil, "which", lambda name: resolved)
+
+    captured = {}
+
+    def fake_run(argv, **kwargs):
+        captured["kwargs"] = kwargs
+
+        class Result:
+            returncode = 0
+            stdout = "café-brief\n"
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    names, error = mod.fetch_live_names_from_qmd()
+    assert error is None
+    assert names == ["café-brief"]
+    assert captured["kwargs"].get("encoding") == "utf-8"
+    assert captured["kwargs"].get("errors") == "replace"
+
+
+def test_fetch_rejects_cwd_planted_shim_without_spawning(monkeypatch):
+    """shutil.which on Windows searches CWD ahead of PATH — a repo-planted
+    qmd.CMD must read as absent and never spawn."""
+    planted = os.path.join(os.getcwd(), "qmd.CMD")
+    monkeypatch.setattr(shutil, "which", lambda name: planted)
+
+    def forbid_spawn(*args, **kwargs):
+        raise AssertionError("subprocess.run must not execute a CWD-planted shim")
+
+    monkeypatch.setattr(subprocess, "run", forbid_spawn)
+    names, error = mod.fetch_live_names_from_qmd()
+    assert names == []
+    assert error is not None
+
+
+def test_fetch_accepts_which_result_outside_cwd(tmp_path, monkeypatch):
+    """A which() hit in a real (non-CWD) PATH directory is still executed."""
+    resolved = str(tmp_path / "qmd.CMD")
+    monkeypatch.setattr(shutil, "which", lambda name: resolved)
+
+    captured = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+
+        class Result:
+            returncode = 0
+            stdout = "foo-brief\n"
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    names, error = mod.fetch_live_names_from_qmd()
+    assert error is None
+    assert names == ["foo-brief"]
+    assert captured["argv"][0] == resolved
 
 
 # ─── load_registry_names ─────────────────────────────────────────────────────

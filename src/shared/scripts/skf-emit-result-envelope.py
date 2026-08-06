@@ -496,7 +496,27 @@ def cmd_emit_blocked() -> None:
     print(emit_envelope_line(envelope))
 
 
+def _force_utf8(*streams) -> None:
+    """Reconfigure JSON-carrying streams to UTF-8 (issue #465).
+
+    A default Windows console decodes stdio as cp1252, which cannot carry
+    non-ASCII JSON (ensure_ascii=False output, raw UTF-8 input). Preserves
+    each stream's existing error handler — reconfigure(encoding=...) alone
+    would reset it to 'strict', downgrading e.g. an already-UTF-8 stderr on
+    Linux. For stdin this must run before the first read. Skips in-process
+    test doubles without reconfigure().
+    """
+    for stream in streams:
+        if hasattr(stream, "reconfigure"):
+            errors = getattr(stream, "errors", None)
+            if errors is None:
+                stream.reconfigure(encoding="utf-8")
+            else:
+                stream.reconfigure(encoding="utf-8", errors=errors)
+
+
 def main() -> None:
+    _force_utf8(sys.stdin, sys.stdout)
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,

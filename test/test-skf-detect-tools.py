@@ -5,9 +5,10 @@ Strategy:
 - Tier truth table is enumerated exhaustively (16 rows over the 4-tool boolean
   product). Each row asserts the calculated tier and the satisfied/missing
   result for every possible --require-tier value.
-- Tool probes are tested with mocked subprocess.run to cover normal,
-  alias-shadowed, daemon-stopped, and timeout paths without hitting real
-  binaries.
+- Tool probes are tested with mocked subprocess.run (plus a mocked
+  shutil.which, since _run() resolves cmd[0] through PATH before spawning)
+  to cover normal, alias-shadowed, daemon-stopped, and timeout paths
+  without hitting real binaries.
 - CLI integration test invokes the script as a subprocess and validates the
   emitted JSON shape end-to-end.
 """
@@ -21,7 +22,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -135,6 +136,14 @@ def _fake_run(rc: int = 0, stdout: str = "", stderr: str = ""):
     return _Result()
 
 
+def _which_identity(name):
+    """PATH-independent shutil.which stand-in: every probe binary "resolves"
+    to its bare name, so mocked-subprocess tests reach subprocess.run
+    regardless of what is actually installed on the host.
+    """
+    return name
+
+
 def _logical(cmd):
     """Strip the OS `timeout(1)` wrapper `_run()` prepends, returning the
     underlying tool argv so probe `side_effect`s can match on the logical
@@ -149,13 +158,21 @@ def _logical(cmd):
 
 
 def test_probe_ast_grep_success():
-    with patch.object(mod.subprocess, "run", return_value=_fake_run(0, "ast-grep 0.39.5\n")):
+    with (
+        patch.object(mod.shutil, "which", _which_identity),
+        patch.object(mod.subprocess, "run", return_value=_fake_run(0, "ast-grep 0.39.5\n")),
+    ):
         result = mod.probe_ast_grep()
     assert result == {"available": True, "version": "ast-grep 0.39.5"}
 
 
 def test_probe_ast_grep_not_installed():
-    with patch.object(mod.subprocess, "run", side_effect=FileNotFoundError):
+    # which resolves but the spawn itself fails (e.g. binary removed between
+    # resolution and exec) — the FileNotFoundError guard must still hold.
+    with (
+        patch.object(mod.shutil, "which", _which_identity),
+        patch.object(mod.subprocess, "run", side_effect=FileNotFoundError),
+    ):
         result = mod.probe_ast_grep()
     assert result == {"available": False, "version": None}
 
@@ -176,7 +193,10 @@ def test_probe_ccc_identity_marker_present():
             return _fake_run(0, doctor_output)
         raise AssertionError(f"unexpected probe call: {cmd}")
 
-    with patch.object(mod.subprocess, "run", side_effect=_side_effect):
+    with (
+        patch.object(mod.shutil, "which", _which_identity),
+        patch.object(mod.subprocess, "run", side_effect=_side_effect),
+    ):
         result = mod.probe_ccc()
     assert result["available"] is True
     assert result["daemon"] == "healthy"
@@ -203,7 +223,10 @@ def test_probe_ccc_version_is_none_not_misparsed_header():
             return _fake_run(0, doctor_output)
         raise AssertionError(f"unexpected probe call: {cmd}")
 
-    with patch.object(mod.subprocess, "run", side_effect=_side_effect):
+    with (
+        patch.object(mod.shutil, "which", _which_identity),
+        patch.object(mod.subprocess, "run", side_effect=_side_effect),
+    ):
         result = mod.probe_ccc()
     assert result["available"] is True
     assert result["daemon"] == "healthy"
@@ -224,7 +247,10 @@ def test_probe_ccc_identity_marker_absent_rejects_alias():
             f"called with {cmd}"
         )
 
-    with patch.object(mod.subprocess, "run", side_effect=_side_effect):
+    with (
+        patch.object(mod.shutil, "which", _which_identity),
+        patch.object(mod.subprocess, "run", side_effect=_side_effect),
+    ):
         result = mod.probe_ccc()
     assert result == {"available": False, "daemon": None, "version": None}
 
@@ -238,7 +264,10 @@ def test_probe_qmd_binary_present_daemon_stopped():
             return _fake_run(1, "", "qmd: daemon not running\n")
         raise AssertionError(f"unexpected: {cmd}")
 
-    with patch.object(mod.subprocess, "run", side_effect=_side_effect):
+    with (
+        patch.object(mod.shutil, "which", _which_identity),
+        patch.object(mod.subprocess, "run", side_effect=_side_effect),
+    ):
         result = mod.probe_qmd()
     assert result == {"available": False, "status": "daemon_stopped", "version": "qmd 1.2.3"}
 
@@ -255,14 +284,17 @@ def test_probe_qmd_falls_back_to_help_when_version_unsupported():
             return _fake_run(0, "Operational\n")
         raise AssertionError(f"unexpected: {cmd}")
 
-    with patch.object(mod.subprocess, "run", side_effect=_side_effect):
+    with (
+        patch.object(mod.shutil, "which", _which_identity),
+        patch.object(mod.subprocess, "run", side_effect=_side_effect),
+    ):
         result = mod.probe_qmd()
     assert result["available"] is True
     assert result["status"] == "healthy"
 
 
 def test_probe_qmd_absent():
-    with patch.object(mod.subprocess, "run", side_effect=FileNotFoundError):
+    with patch.object(mod.shutil, "which", return_value=None):
         result = mod.probe_qmd()
     assert result == {"available": False, "status": "absent", "version": None}
 
@@ -281,13 +313,83 @@ def test_probe_security_scan_set_and_unset():
 
 def test_run_swallows_timeout():
     """Probe wrapper must never raise — timeouts become rc=127."""
-    with patch.object(
-        mod.subprocess,
-        "run",
-        side_effect=subprocess.TimeoutExpired(cmd=["x"], timeout=1),
+    with (
+        patch.object(mod.shutil, "which", _which_identity),
+        patch.object(
+            mod.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired(cmd=["x"], timeout=1),
+        ),
     ):
         rc, stdout, stderr = mod._run(["x"])
     assert rc == 127 and stdout == "" and stderr == ""
+
+
+def test_run_unresolvable_command_returns_127_without_spawning():
+    """which() → None means the tool is absent: rc=127 and no process is
+    ever spawned (previously a bare-name spawn raised FileNotFoundError)."""
+    run_mock = MagicMock()
+    with (
+        patch.object(mod.shutil, "which", return_value=None),
+        patch.object(mod.subprocess, "run", run_mock),
+    ):
+        rc, stdout, stderr = mod._run(["ast-grep", "--version"])
+    assert rc == 127 and stdout == "" and stderr == ""
+    run_mock.assert_not_called()
+
+
+def test_run_invokes_which_resolved_path_not_bare_name():
+    """subprocess.run must receive the which()-resolved path — a bare name
+    misses npm .CMD shims on Windows, where CreateProcess only appends .exe
+    (issue #460)."""
+    resolved = os.path.join("npm-shims", "ast-grep.CMD")
+    calls: list[list[str]] = []
+
+    def _side_effect(cmd, **kwargs):
+        calls.append(list(cmd))
+        return _fake_run(0, "ast-grep 0.45.0\n")
+
+    with (
+        patch.object(mod.shutil, "which", return_value=resolved),
+        patch.object(mod.subprocess, "run", side_effect=_side_effect),
+    ):
+        rc, stdout, _ = mod._run(["ast-grep", "--version"])
+    assert rc == 0 and stdout == "ast-grep 0.45.0\n"
+    assert len(calls) == 1
+    assert _logical(calls[0]) == [resolved, "--version"]
+
+
+def test_run_rejects_cwd_planted_shim_without_spawning():
+    """shutil.which on Windows searches CWD ahead of PATH — a repo-planted
+    ast-grep.CMD must read as rc=127 (absent) and never spawn."""
+    planted = os.path.join(os.getcwd(), "ast-grep.CMD")
+    run_mock = MagicMock()
+    with (
+        patch.object(mod.shutil, "which", return_value=planted),
+        patch.object(mod.subprocess, "run", run_mock),
+    ):
+        rc, stdout, stderr = mod._run(["ast-grep", "--version"])
+    assert rc == 127 and stdout == "" and stderr == ""
+    run_mock.assert_not_called()
+
+
+def test_run_accepts_which_result_outside_cwd(tmp_path):
+    """A which() hit in a real (non-CWD) PATH directory is still executed."""
+    resolved = str(tmp_path / "ast-grep.CMD")
+    calls: list[list[str]] = []
+
+    def _side_effect(cmd, **kwargs):
+        calls.append(list(cmd))
+        return _fake_run(0, "ast-grep 0.45.0\n")
+
+    with (
+        patch.object(mod.shutil, "which", return_value=resolved),
+        patch.object(mod.subprocess, "run", side_effect=_side_effect),
+    ):
+        rc, stdout, _ = mod._run(["ast-grep", "--version"])
+    assert rc == 0 and stdout == "ast-grep 0.45.0\n"
+    assert len(calls) == 1
+    assert _logical(calls[0]) == [resolved, "--version"]
 
 
 # ─── Override + require-tier integration via detect() ────────────────────────

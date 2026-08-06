@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -567,3 +568,25 @@ def test_cli_validate_rejects_malformed_envelope():
     assert rc == 1
     err = json.loads(stderr)
     assert "tier" in err["message"]
+
+
+def test_cli_emit_raw_utf8_stdin_survives_cp1252_stdio():
+    # Issue #465: raw UTF-8 bytes (emoji NOT ASCII-escaped) on stdin plus
+    # non-ASCII envelope output, under a cp1252 console (PYTHONIOENCODING
+    # simulates it on any platform). Without the sys.stdin reconfigure the
+    # emoji mojibakes and the round-trip assert fails; without the sys.stdout
+    # reconfigure the ensure_ascii=False emit crashes with UnicodeEncodeError.
+    payload = _baseline_payload()
+    payload["config_path"] = "/abs/path \U0001F4CA/forge-tier.yaml"
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "emit"],
+        input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        capture_output=True,
+        timeout=10,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+    )
+    assert proc.returncode == 0, proc.stderr.decode("utf-8", "replace")
+    line = proc.stdout.decode("utf-8").strip()
+    assert line.startswith(mod.ENVELOPE_PREFIX)
+    body = json.loads(line[len(mod.ENVELOPE_PREFIX):])
+    assert body["skf_setup"]["config_path"] == "/abs/path \U0001F4CA/forge-tier.yaml"

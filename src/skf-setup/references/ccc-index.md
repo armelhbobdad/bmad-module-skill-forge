@@ -32,9 +32,9 @@ For Quick and Forge tiers, or when ccc is unavailable, skip silently and proceed
 
 Read `{ccc}` and `{ccc_skip_index}` from context.
 
-**If `{ccc}` is false:** Set `{ccc_index_result: "none", ccc_indexed_path: null, ccc_last_indexed: null, ccc_exclude_patterns: [], ccc_exclusion_warnings: [], settings_yml_written: false, settings_yml_patterns_added: 0}`. Proceed directly to section 4 (Auto-Proceed) — no output, no messaging.
+**If `{ccc}` is false:** Set `{ccc_index_result: "none", ccc_indexed_path: null, ccc_last_indexed: null, ccc_exclude_patterns: [], ccc_exclusion_warnings: [], settings_yml_written: false, settings_yml_patterns_added: 0}`. Proceed directly to section 5 (Auto-Proceed) — no output, no messaging.
 
-**If `{ccc}` is true AND `{ccc_skip_index}` is true:** Run the exclusion-merge (section 3) so settings.yml stays current, then set `{ccc_index_result: "skipped", ccc_indexed_path: null, ccc_last_indexed: null}` and proceed to section 4 — do not run `ccc init` or `ccc index`. The envelope's `ccc_index.status` will be `"skipped"` so pipelines that plan an out-of-band re-index can distinguish "the operator opted out" from "indexing failed".
+**If `{ccc}` is true AND `{ccc_skip_index}` is true:** Run the exclusion-merge (section 3) so settings.yml stays current, then set `{ccc_index_result: "skipped", ccc_indexed_path: null, ccc_last_indexed: null}` and proceed to section 5 (Auto-Proceed) — do not run `ccc init` or `ccc index`. The envelope's `ccc_index.status` will be `"skipped"` so pipelines that plan an out-of-band re-index can distinguish "the operator opted out" from "indexing failed".
 
 **If `{ccc}` is true AND `{ccc_skip_index}` is false:** Continue to section 2.
 
