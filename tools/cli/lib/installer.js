@@ -205,10 +205,39 @@ class Installer {
     }
   }
 
+  /**
+   * Read the health_check_repo default from src/module.yaml (single source of truth).
+   */
+  async readHealthCheckRepoDefault() {
+    try {
+      const moduleData = yaml.load(await fs.readFile(path.join(this.srcDir, 'module.yaml'), 'utf8'));
+      const value = moduleData && moduleData.health_check_repo && moduleData.health_check_repo.default;
+      if (typeof value === 'string' && value.length > 0) return value;
+    } catch {
+      /* fall through to literal fallback */
+    }
+    return 'armelhbobdad/bmad-module-skill-forge';
+  }
+
   async writeConfig(skfDir, config) {
     // On update, restore the user's existing config
     if (config._savedConfigYaml) {
-      await fs.writeFile(path.join(skfDir, 'config.yaml'), config._savedConfigYaml, 'utf8');
+      let savedYaml = config._savedConfigYaml;
+      try {
+        // Inject health_check_repo into configs generated before it existed.
+        // Append one line instead of re-dumping so user comments/ordering survive.
+        // Only mapping-shaped (or empty/comments-only) docs are appendable —
+        // appending a key to an array or scalar doc would corrupt the YAML.
+        const savedData = yaml.load(savedYaml);
+        const isPlainObject = typeof savedData === 'object' && savedData !== null && !Array.isArray(savedData);
+        if (savedData == null || (isPlainObject && !('health_check_repo' in savedData))) {
+          const suffix = savedYaml.endsWith('\n') ? '' : '\n';
+          savedYaml = `${savedYaml}${suffix}health_check_repo: ${await this.readHealthCheckRepoDefault()}\n`;
+        }
+      } catch {
+        /* unparseable saved config — restore verbatim */
+      }
+      await fs.writeFile(path.join(skfDir, 'config.yaml'), savedYaml, 'utf8');
       return;
     }
 
@@ -232,6 +261,7 @@ class Installer {
       forge_data_folder: config.forge_data_folder || 'forge-data',
       sidecar_path: '_bmad/_memory/forger-sidecar',
       skf_folder: config.skfFolder,
+      health_check_repo: await this.readHealthCheckRepoDefault(),
       ides: config.ides || [],
       install_learning: config.install_learning !== false,
     };
