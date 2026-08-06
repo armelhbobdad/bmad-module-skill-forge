@@ -84,7 +84,10 @@ def test_dir_bytes_symlink_not_followed(tmp_path: Path):
     target.mkdir()
     (target / "big.bin").write_bytes(b"z" * 10_000)
     link = tmp_path / "active"
-    link.symlink_to(target, target_is_directory=True)
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not supported on this platform")
     # measuring the link measures the link node, never the 10 KB behind it
     assert mod.dir_bytes(str(link)) < 10_000
 
