@@ -79,7 +79,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -91,6 +93,10 @@ FOREIGN_SAMPLE_CAP = 5
 
 # Header line emitted by newer qmd builds, e.g. "Collections (56):".
 _QMD_HEADER_RE = re.compile(r"^Collections \(\d+\):\s*$")
+
+# Empty-state message from `qmd collection list`, e.g.
+# "No collections found. Run 'qmd collection add .' to create one."
+_QMD_EMPTY_STATE_PREFIX = "No collections found"
 
 
 def _die(code: int, message: str) -> None:
@@ -199,7 +205,12 @@ def parse_collection_list_output(raw: str) -> list[str]:
     the trailing ` (qmd://name/)` URI and is a no-op for the bare-name form.
     Without this, suffixed entries fail the `is_forge_owned` suffix check and
     every forge collection is mis-classified as foreign.
+
+    The empty-state message ("No collections found. …") is recognized before
+    per-line tokenizing — it would otherwise parse as a collection named "No".
     """
+    if raw.lstrip().startswith(_QMD_EMPTY_STATE_PREFIX):
+        return []
     names: list[str] = []
     for line in raw.splitlines():
         if not line.strip():
@@ -212,6 +223,29 @@ def parse_collection_list_output(raw: str) -> list[str]:
     return names
 
 
+def _resolve_outside_cwd(command: str) -> str | None:
+    """shutil.which with a CWD-shim guard. Returns the resolved path or None.
+
+    shutil.which on Windows searches the current directory ahead of PATH,
+    and CWD here is the repo under analysis — a bare-name lookup resolving
+    into CWD would execute a repo-planted shim (e.g. qmd.cmd). Such a
+    resolution is treated as not-found. Explicit paths supplied by callers
+    (containing a separator) are honored as-is. Keep identical to the
+    sibling guard in skf-detect-tools.py.
+    """
+    resolved = shutil.which(command)
+    if resolved is None:
+        return None
+    if os.sep in command or (os.altsep and os.altsep in command):
+        return resolved
+    resolved_dir = os.path.dirname(resolved)
+    if resolved_dir:
+        cwd = os.path.normcase(os.path.abspath(os.getcwd()))
+        if os.path.normcase(os.path.abspath(resolved_dir)) == cwd:
+            return None
+    return resolved
+
+
 def fetch_live_names_from_qmd() -> tuple[list[str], str | None]:
     """Invoke `qmd collection list` and return (names, error).
 
@@ -221,11 +255,19 @@ def fetch_live_names_from_qmd() -> tuple[list[str], str | None]:
     counts as a "live collection name".
     """
     import subprocess
+    # Resolve before spawning: on Windows qmd ships from npm as a .CMD
+    # shim, which a bare-name subprocess.run cannot launch (WinError 2).
+    qmd = _resolve_outside_cwd("qmd")
+    if qmd is None:
+        return [], "qmd not found on PATH"
     try:
+        # qmd emits UTF-8; a locale-default decode (cp1252 on Windows)
+        # mojibakes names or raises UnicodeDecodeError on unmapped bytes.
         result = subprocess.run(
-            ["qmd", "collection", "list"],
+            [qmd, "collection", "list"],
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
             check=False,
         )

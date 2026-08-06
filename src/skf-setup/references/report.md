@@ -77,7 +77,7 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
   {end if}
 
   {if hygiene_result is "qmd_unavailable":}
-  QMD Registry: skipped (daemon error — retry after `qmd start`).
+  QMD Registry: skipped (qmd unavailable — if the daemon is stopped, `qmd start` restores it).
   {end if}
 
   {if tools.ccc is true:}
