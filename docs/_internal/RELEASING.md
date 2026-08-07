@@ -189,6 +189,40 @@ The future `release.yaml` workflow (Story 3.1) publishes to npm via **OIDC trust
 
 **Fixing a bad registration.** The npm UI exposes both **Edit** and **Delete** on an existing Trusted Publisher entry (observed 2026-04-20). Prefer edit for a single-field typo; prefer delete-and-re-add if multiple fields are wrong or the edit form ever feels ambiguous. **Pre-Story 3.2**: there is no destructive side effect because no publish is attempted yet, and delete-and-re-add keeps the audit trail cleaner. **Post-Story 3.2**: a publish that fires during the delete-and-re-add window will 404 — gate any delete-and-re-add behind a manual publish freeze (pause any active `release.yaml` runs, confirm no tags are in-flight) before touching the entry.
 
+## Cutting a Release
+
+The dispatch mechanics are worked end-to-end in [§ Cutting v1.0.0 under --tag latest](#cutting-v100-under---tag-latest). That section is a launch-specific record, but its dispatch command, two-gate sequence, and verification block are the same for every cut. The two steps below are general, apply to every cut, and have no other home — both are invisible until they bite, because the default state of each is the harmless one.
+
+### Pre-dispatch — reconcile a non-empty `## [Unreleased]`
+
+The `Restore CHANGELOG preamble` step splits `CHANGELOG.md` at the **first** `## [X.Y.Z]` header and treats everything above it as preamble. The generated block for the new version is therefore inserted _below_ any prose sitting under `## [Unreleased]`, and the workflow neither empties that section nor warns about it. Check before dispatching:
+
+```bash
+sed -n '/^## \[Unreleased\]/,/^## \[[0-9]/p' CHANGELOG.md
+```
+
+If the `## [Unreleased]` header is immediately followed by the first released header, there is nothing to do — that was the state at every cut through v2.0.2, which is why the interaction went unexercised for so long. If it carries prose, those entries describe work that is about to ship, and after the cut they read as unreleased directly above the release containing them.
+
+**Do not hand-edit it before dispatch.** The `## [X.Y.Z]` header the prose belongs under does not exist until the workflow generates it. Reconcile after publish in a normal PR: move the prose under the generated version header and leave the `## [Unreleased]` header in place with an empty body — deleting the header itself breaks the section split the preamble-restore step depends on.
+
+Prefer moving the prose over dropping it in favour of the generated list. Under `conventionalcommits`, `test:` and `chore:` subjects produce no generated entry at all, and one `fix:` subject often stands in for several distinct fixes, so the hand-written text is frequently the only record of both. v2.1.0 is the worked example: five bullets stranded, moved under `## [2.1.0]` in a follow-up PR.
+
+### Post-publish — delete the bot temp branch after an admin-bypass merge
+
+`Auto-merge bot PR` runs `gh pr merge --auto --merge --delete-branch`, so on the auto-merge path the temp branch `release/bot/vX.Y.Z-<run_id>` is removed when the queued merge fires. Clearing gate 2 with the PR merge button instead — admin bypass, the observed pattern for most cuts — merges the PR directly, and the queued `--delete-branch` never runs. The branch stays on origin.
+
+```bash
+# Expect zero once a cut is fully closed out.
+git ls-remote --heads origin 'release/bot/*'
+
+# Delete a leftover only after confirming its commit is reachable from main.
+git fetch origin --quiet
+git merge-base --is-ancestor <temp-branch-sha> origin/main \
+  && git push origin --delete release/bot/vX.Y.Z-<run_id>
+```
+
+The tag anchors on the bot PR's merge commit on `main`, not on the temp branch (see the `Create and push tag` step's main-dispatch path), so deleting the branch after the merge orphans nothing. The reachability check is what distinguishes this from the tag-orphan case in [§ Scenario D](#scenario-d--tag-exists-but-npm-publish-failed); if the commit is _not_ reachable, the merge did not land and the branch is still load-bearing.
+
 <!-- Rollback Playbook — added in Story 4.1 -->
 
 ## Rollback Playbook
