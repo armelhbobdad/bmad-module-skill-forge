@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.4.7",
+  "checkpoint_id": "1bc532383f0d",
+  "strategy": "manual-commit",
+  "branch": "docs/releasing-pre-dispatch-post-publish",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "docs/_internal/RELEASING.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/1b/c532383f0d/0/metadata.json",
+      "transcript": "/1b/c532383f0d/0/full.jsonl",
+      "context": "/1b/c532383f0d/0/context.md",
+      "content_hash": "/1b/c532383f0d/0/content_hash.txt",
+      "prompt": "/1b/c532383f0d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 28,
+    "cache_creation_tokens": 17036,
+    "cache_read_tokens": 1919057,
+    "output_tokens": 13084,
+    "api_call_count": 15
+  }
+}

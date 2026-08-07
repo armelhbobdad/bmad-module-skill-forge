@@ -1,0 +1,9 @@
+we should ship the next @docs/_internal/RELEASING.md
+
+---
+
+merged
+
+---
+
+yes
