@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [2.1.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v2.0.2...v2.1.0) (2026-08-07)
+
 ### Fixed
 
 - **The docs link guard is now tested.** `validate-docs-links.js` is a required status check, so a bug in it either blocks a legitimate PR or waves a broken link through, and nothing would have said which. It was also untestable by construction: its paths came from `__dirname`, so it could only ever inspect this repo. `--project-root`, `--docs-dir`, and `--build-dir` now override that, `run()` returns its outcome instead of calling `process.exit`, and 23 tests drive it against throwaway fixture trees. They pin the behaviour that was hand-verified once and checked by nothing since: fence and inline-code blanking (including an unterminated fence, which must blank to end of file rather than revert to prose), base inference from the built artifact rather than the environment, `src` and `srcset` resolution, absolute hrefs missing the base, site-root escapes, `--require-build` failing independently of `--strict`, and a skipped built pass never reporting an unqualified pass.
@@ -13,7 +15,6 @@ All notable changes to this project will be documented in this file. The format 
 - **Docs site: the link rewriter emitted routes that could not resolve.** `rehype-markdown-links.js` only rewrote hrefs beginning `./`, `../`, or `/`, so a bare `[x](page.md)` shipped verbatim; and for relative targets it emitted a page-relative route. Since Astro builds `format: 'directory'`, a page lives at `/getting-started/`, so `./agents/` resolved to `/getting-started/agents/` rather than `/agents/`. It now accepts bare links and emits root-absolute routes, the form the sidebar already used, which is correct at any nesting depth. A separate bug in the same path: the index collapse matched a suffix, so a page named `myindex.md` would have been truncated to `/my`.
 - **Docs links are now checked against the built site, not just the source.** `validate-doc-links.js` reads Markdown, so it cannot see a link that is correct in source and wrong as a route; that class ships silently, because an href resolving nowhere is still valid HTML and neither Astro nor markdownlint fails on it. `tools/validate-docs-links.js` resolves every `href`, `src`, and `srcset` in `build/site` against the file tree, and `test:rehype` pins the rewriter's contract. Both are wired into `npm run quality`, plus a `docs-links` CI job that builds the way the deploy workflow does. The two checkers now complement each other rather than overlap: `docs:validate-links` reads `](/...)` targets and their anchors in the source, which since the link conversion above means every in-body link, while the new tool is the only thing that sees what those links become once built.
 
-## [2.1.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v2.0.2...v2.1.0) (2026-08-07)
 
 ### Features
 
