@@ -13,6 +13,29 @@ All notable changes to this project will be documented in this file. The format 
 - **Docs site: the link rewriter emitted routes that could not resolve.** `rehype-markdown-links.js` only rewrote hrefs beginning `./`, `../`, or `/`, so a bare `[x](page.md)` shipped verbatim; and for relative targets it emitted a page-relative route. Since Astro builds `format: 'directory'`, a page lives at `/getting-started/`, so `./agents/` resolved to `/getting-started/agents/` rather than `/agents/`. It now accepts bare links and emits root-absolute routes, the form the sidebar already used, which is correct at any nesting depth. A separate bug in the same path: the index collapse matched a suffix, so a page named `myindex.md` would have been truncated to `/my`.
 - **Docs links are now checked against the built site, not just the source.** `validate-doc-links.js` reads Markdown, so it cannot see a link that is correct in source and wrong as a route; that class ships silently, because an href resolving nowhere is still valid HTML and neither Astro nor markdownlint fails on it. `tools/validate-docs-links.js` resolves every `href`, `src`, and `srcset` in `build/site` against the file tree, and `test:rehype` pins the rewriter's contract. Both are wired into `npm run quality`, plus a `docs-links` CI job that builds the way the deploy workflow does. The two checkers now complement each other rather than overlap: `docs:validate-links` reads `](/...)` targets and their anchors in the source, which since the link conversion above means every in-body link, while the new tool is the only thing that sees what those links become once built.
 
+## [2.1.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v2.0.2...v2.1.0) (2026-08-07)
+
+### Features
+
+* **docs-links:** detect stale renders and check llms.txt routes ([bbb4efc](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/bbb4efc36dfefdc587cd5dd32c8816309af16ebf))
+
+### Bug Fixes
+
+* **brief:** constrain scope.tier_a_include and document what it exempts ([0dd356a](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/0dd356aff0f9e0d30065c00f8779f697c6b2b056))
+* **campaign:** record the doc-rot outcome instead of re-deriving it ([31f11e2](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/31f11e2fe06ffc506f5c99573e4d728da070bb20))
+* **create-skill:** bound doc-rot output and skip self-authored regions ([37190d6](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/37190d623514e1e777a5a0f9e0b9d3e84b90f2f9))
+* **create-skill:** correct the remedy for an unsupported public-api denominator ([26fdedb](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/26fdedbba92e5469449044a4e10fc2e91065a463))
+* **create-skill:** let non-monorepo curated scopes lock the coverage denominator ([fc1b3a5](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/fc1b3a50734367ce45e9190b1bcb13536feda191))
+* **detect-tools:** resolve tools via shutil.which so Windows .CMD shims are detected ([80ed1c7](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/80ed1c7cbee38e433047c640b19dca3a0cc837f2)), closes [#460](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/460)
+* **docs-links:** scope the suppression note to the branch it describes ([0d53ae5](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/0d53ae5bd4624489f37bfdb5528864d82ccc84e3))
+* **docs:** make in-body links resolve on GitHub, and check the built site ([8f00bd9](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/8f00bd920d0566bfbce8b5e100a7784dfed19320))
+* **installer:** write the health_check_repo default into generated config ([1efcfcb](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/1efcfcb421bec4e0fff98ae616e687368a1c56cb)), closes [#464](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/464)
+* **qmd-classify:** launch qmd via shutil.which and guard the empty collection list ([a528ef1](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/a528ef11b5cce2c5024e5f37463ebe2fdd8d4735)), closes [#461](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/461) [#462](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/462)
+* **scripts:** force UTF-8 stdio in JSON-carrying shared scripts ([95039ca](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/95039cacc23da9f000c9554c37e904409be19b2f)), closes [#465](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/465) [#465](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/465)
+* **skf-setup:** point ccc-index section 1 branches at the Auto-Proceed section ([6c704ab](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/6c704ab4aed770f2ef54c2c8659c6879e93ef0b7)), closes [#463](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/463)
+* **skf:** correct ccc CLI invocation forms in step files ([a394c46](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/a394c46d05ead3ef760de9e5a9fc49ad7b4056d6))
+* **test-skill:** bound grep-branch coverage when documented exceeds denominator ([98df7d6](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/98df7d69b04eb9e17f994738236fee684f4f7798))
+* **test-skill:** exit non-zero when a scoring script refuses its input ([fd73818](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/fd73818fac596ecdf458a739559cb15dbc82ba13))
 ## [2.0.2](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v2.0.1...v2.0.2) (2026-07-19)
 
 ### Bug Fixes
