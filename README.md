@@ -1,3 +1,5 @@
+
+
 <div align="center">
 
 <img src="website/public/img/skf-logo-animated.svg" alt="Skill Forge Logo" width="120" />
@@ -75,7 +77,7 @@ You'll be prompted for project name, output folders, and IDE configuration. When
 1. **Set up your environment:** `@Ferris SF` _(Setup Forge)_ — detects your tools and sets your capability tier
 2. **Zero-ceremony path:** `@Ferris forge-auto <repo-or-doc-url>` _(Forge-Auto)_ — one command turns a repo or doc URL into a verified skill (auto-scope, auto-brief, 90% quality gate, export)
 3. **Fast path:** `@Ferris QS <package-name>` _(Quick Skill)_ — creates a verified skill in under a minute
-4. **Full quality path:** `@Ferris forge <your-library>` chains Brief → Create → Test → Export automatically — or run manually: `@Ferris BS` → clear session → `@Ferris CS` for maximum control
+4. **Full quality path:** `@Ferris forge <your-library>` chains Brief → Create → Test → Export automatically — or run manually: `@Ferris BS` _(Brief Skill)_ → clear session → `@Ferris CS` _(Create Skill)_ for maximum control
 
 For producing **many coordinated skills** across sessions, `@Ferris campaign` _(Campaign)_ orchestrates the whole set with dependency tracking and resume.
 
