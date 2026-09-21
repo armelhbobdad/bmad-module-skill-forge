@@ -16,7 +16,6 @@ _bmad/
 _bmad-output/
 .claude/
 .cursor/
-.entire/
 
 # Development tools and config
 test/

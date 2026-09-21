@@ -1,3 +1,0 @@
-#!/usr/bin/env sh
-
-entire hooks git pre-push "$1" || true
