@@ -67,3 +67,6 @@ skills
 **/.analysis
 **/.decision-log.md
 .claude/.story-automator-active
+
+# IWE memory: per-machine session state (the policy, schema and notes are tracked)
+.iwe/claude/
