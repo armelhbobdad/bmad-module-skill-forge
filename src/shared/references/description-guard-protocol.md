@@ -63,6 +63,8 @@ Output JSON:
 
 If `restored == true`, also update the in-context copy of `description` to match `guarded_description` so subsequent stages do not work from a stale tool-mutated version. Record `description_guard_restored: true` (with the tool name) in workflow context for the evidence report.
 
+**Empty snapshot refusal.** The helper exits 1 and leaves the file untouched when `--captured-description` is empty or whitespace-only. There is nothing to restore from: either `guarded_description` was lost from context between capture and verify, or the field was already empty before the tool ran. Never retry with the empty value — writing it back would blank the field the guard exists to protect. If the compiled description is still available in context (the in-context SKILL.md copy), re-run `verify-restore` with that value. Otherwise record `description_guard_restored: false` and `description_guard_refused: empty-capture` (with the tool name) in workflow context; the calling stage's evidence-report populator renders that as a fired guard (`Restored: false`, the triggering tool, `Original description preserved: false`, `Notes: guard refused — empty captured snapshot (empty-capture)`) rather than as the all-`—` clean-run state, and the frontmatter validator surfaces the empty field through the normal artifact path.
+
 ## Why Token-Stream Comparison
 
 Token-stream comparison is the documented sweet spot between two failure modes:

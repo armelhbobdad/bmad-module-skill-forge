@@ -65,7 +65,7 @@ Verify the merged SKILL.md that step 4 section 6b wrote to disk, then write the 
 
 **Used by:** §7 (`skill-check check --fix` and `skill-check split-body --write`), and any future tool invocation that may modify SKILL.md's frontmatter on disk.
 
-Load `{descriptionGuardProtocol}` for the full prose explanation of the four-phase guard (why it exists, what counts as divergence, why token-stream comparison is the right shape). The deterministic phases are executed via `{descriptionGuardHelper}` — §7 invokes the helper at the capture and verify-restore points around every `skill-check` call.
+Load `{descriptionGuardProtocol}` for the full prose explanation of the four-phase guard (why it exists, what counts as divergence, why token-stream comparison is the right shape). The deterministic phases are executed via `{descriptionGuardHelper}` — §7 invokes the helper at the capture and verify-restore points around every `skill-check` call. `verify-restore` refuses an empty `--captured-description` (exit 1, file untouched); when that happens, follow the protocol's empty-snapshot rule instead of re-running with the empty value.
 
 Update-skill does not run the optional post-restore frontmatter re-validation today — the post-write checks in §1 catch downstream issues, and a `restored: true` outcome is already surfaced through the evidence report (§4).
 
@@ -203,7 +203,7 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 - Notes: {one-sentence detail or —}
 ```
 
-**Description Guard population** (used by §7 Post-Write Validation when the §0 protocol fires): fill all four fields from context when `description_guard_restored == true` (triggering tool, whether restore succeeded, what changed). When `Restored: false`, the other three fields are `—` — this is the clean-run expected state. Same field semantics and populator logic as create-skill step 6 §8.
+**Description Guard population** (used by §7 Post-Write Validation when the §0 protocol fires): fill all four fields from context when `description_guard_restored == true` (triggering tool, whether restore succeeded, what changed). When `Restored: false`, the other three fields are `—` — this is the clean-run expected state — except when `description_guard_refused == "empty-capture"` (the §0 protocol's empty-snapshot rule): then set `Triggering tool` to the recorded tool name, `Original description preserved: false`, and `Notes: guard refused — empty captured snapshot (empty-capture)`, so a refused restore is distinguishable from a run where the guard never fired. Same field semantics and populator logic as create-skill step 6 §8.
 
 **Context Snippet population** (used by §5 after the staleness check runs): §4 writes the sub-block with placeholders; §5 updates the on-disk evidence report in place after deciding whether to regenerate. Set `Regenerated: true` and populate `Triggers fired` with any combination of `headline-exports`, `version`, `gotchas` when at least one trigger fired. Set `Regenerated: false` and `Triggers fired: —` when none fired (the gap-driven / internals-only outcome). Always fill `Notes` with a one-sentence reason (e.g., `"Gap-driven repair — no snippet surface changed"`, `"Version bumped 0.1.0 → 0.2.0; headline exports re-ranked"`).
 

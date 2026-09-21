@@ -710,6 +710,87 @@ def test_detect_ccc_index_fresh_false_on_first_run():
     assert out["prior"]["ccc_index_fresh"] is False
 
 
+# ─── Prior CCC file_count (issue #473) ───────────────────────────────────────
+# ccc-index.md's fresh-index branch binds `{ccc_file_count}` from
+# `prior.previous_ccc_file_count`; before this key existed the flag was left
+# unbound on every path that did not re-index, and write-config.md interpolated
+# the literal placeholder into its JSON payload.
+
+
+def test_read_prior_state_surfaces_ccc_file_count(tmp_path):
+    yaml_file = tmp_path / "forge-tier.yaml"
+    yaml_file.write_text(
+        "tier: Deep\n"
+        "ccc_index:\n"
+        "  status: created\n"
+        f"  indexed_path: {tmp_path}\n"
+        "  last_indexed: '2026-07-13T11:00:00+00:00'\n"
+        "  file_count: 1234\n",
+        encoding="utf-8",
+    )
+    prior = mod.read_prior_state(str(yaml_file))
+    assert prior["previous_ccc_file_count"] == 1234
+
+
+def test_read_prior_state_ccc_file_count_null_when_absent(tmp_path):
+    """A forge-tier.yaml without file_count (older writer, or a null value)
+    yields None rather than a KeyError — same shape as the other prior keys."""
+    yaml_file = tmp_path / "forge-tier.yaml"
+    yaml_file.write_text("tier: Forge\nccc_index:\n  status: none\n", encoding="utf-8")
+    prior = mod.read_prior_state(str(yaml_file))
+    assert "previous_ccc_file_count" in prior
+    assert prior["previous_ccc_file_count"] is None
+
+
+def test_read_prior_state_first_run_shape_includes_ccc_file_count():
+    """No prior file at all → the first-run shape still carries the key."""
+    assert mod.read_prior_state(None)["previous_ccc_file_count"] is None
+    absent = mod.read_prior_state("/definitely/not/here/forge-tier.yaml")
+    assert absent["previous_ccc_file_count"] is None
+
+
+_CCC_INDEX_STEP = Path(__file__).resolve().parent.parent / "src" / "skf-setup" / "references" / "ccc-index.md"
+_DETECT_TIER_STEP = Path(__file__).resolve().parent.parent / "src" / "skf-setup" / "references" / "detect-and-tier.md"
+
+
+def test_ccc_index_step_binds_ccc_file_count_on_every_branch():
+    """Every branch of ccc-index.md that binds ccc_index_result must bind
+    ccc_file_count in the same flag set — write-config.md interpolates it bare."""
+    text = _CCC_INDEX_STEP.read_text(encoding="utf-8")
+    binding_lines = [line for line in text.splitlines() if "ccc_index_result:" in line]
+    assert len(binding_lines) >= 5, "expected the none/skipped/fresh/created/failed bindings"
+    unbound = [line for line in binding_lines if "ccc_file_count:" not in line]
+    assert unbound == [], f"branches that leave ccc_file_count unbound: {unbound}"
+
+
+def test_fresh_branch_carries_previous_ccc_file_count_from_step_1():
+    """The fresh-index path re-counts nothing, so it must carry the detector's
+    prior value, and step 1 must map that value out of the detector output."""
+    ccc_index = _CCC_INDEX_STEP.read_text(encoding="utf-8")
+    fresh = [line for line in ccc_index.splitlines() if 'ccc_index_result: "fresh"' in line]
+    assert fresh and all("ccc_file_count: {previous_ccc_file_count}" in line for line in fresh)
+    detect_tier = _DETECT_TIER_STEP.read_text(encoding="utf-8")
+    assert "`{previous_ccc_file_count}` ← `prior.previous_ccc_file_count`" in detect_tier
+
+
+def test_detect_surfaces_previous_ccc_file_count_from_prior_state(tmp_path):
+    """End-to-end through detect(): the count reaches the `prior` block that
+    detect-and-tier.md maps into `{previous_ccc_file_count}`."""
+    yaml_file = tmp_path / "forge-tier.yaml"
+    yaml_file.write_text(
+        "tier: Forge+\n"
+        "ccc_index:\n"
+        "  status: fresh\n"
+        f"  indexed_path: {tmp_path}\n"
+        "  file_count: 42\n",
+        encoding="utf-8",
+    )
+    args = _detect_args_full(prior_state_from=str(yaml_file), project_root=str(tmp_path))
+    with _patch_all_probes(ag=True, cc=True):
+        out = mod.detect(args)
+    assert out["prior"]["previous_ccc_file_count"] == 42
+
+
 # ─── End-to-end CLI integration ──────────────────────────────────────────────
 
 

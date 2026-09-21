@@ -74,6 +74,42 @@ Each list is stably sorted by url.  Stored hashes are normalized (leading
 `algo:` prefix stripped) before comparison so a bare-hex writer form still
 matches.  Exit 0 on any well-formed input (never blocks the informational
 audit); exit 2 on malformed args or JSON.
+
+---------------------------------------------------------------------------
+Subcommand: hash-urls
+---------------------------------------------------------------------------
+
+Compile-time `doc_sources[]` for docs-only skills (create-skill step 5a).
+The detect path above needs a GitHub repository; a docs-only brief has none
+— its `source_repo` is the documentation site and its corpus is the brief's
+`doc_urls`.  This subcommand fetches each URL and hashes the raw response
+bytes with the SAME primitive `compare-hashes` uses, so a hash recorded here
+compares byte-for-byte at audit time.  (Hashing the markdown a web-fetch tool
+rendered would not: the audit re-fetches the raw bytes.)
+
+  uv run src/shared/scripts/skf-detect-docs.py hash-urls <source>
+
+Input `<source>`:
+  - a path to a JSON file that is EITHER an array whose items are URL
+    strings or `{url, ...}` objects (the brief's `doc_urls[]` entry shape)
+    OR an object with a `doc_urls` array (the brief block itself), OR
+  - `-` to read that JSON from stdin.
+
+Output (JSON object on stdout):
+  {
+    "doc_sources":  [{"url", "detected_via": "brief_doc_urls",
+                      "content_hash": "sha256:..."|null, "recorded_at"}],
+    "fetch_failed": [{"url", "reason"}],
+    "stats": {"total", "hashed", "fetch_failed", "invalid"}
+  }
+
+URLs keep their input order and are deduplicated on first occurrence; an
+entry without a usable url string is dropped and counted under
+`stats.invalid`.  A URL that cannot be fetched still gets an entry with
+`content_hash: null` — the audit side files it under `skipped_null_hash`
+instead of reporting drift.  `doc_sources` is already in the metadata.json
+schema, and the whole object is valid `compare-hashes` input.  Exit 0 on any
+well-formed input; exit 2 on malformed args or JSON.
 """
 
 from __future__ import annotations
@@ -88,6 +124,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -252,8 +289,10 @@ def _fetch_and_hash(url: str) -> Optional[str]:
             return "sha256:" + hashlib.sha256(content).hexdigest()
         except (OSError, IOError):
             return None
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
+        # Request() itself raises ValueError on a scheme-less or relative URL;
+        # it must sit inside the guard so a bad entry degrades to None.
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(req, timeout=_FETCH_TIMEOUT) as resp:
             content = resp.read()
         return "sha256:" + hashlib.sha256(content).hexdigest()
@@ -294,7 +333,14 @@ def _fetch_and_hash_reason(url: str) -> Tuple[Optional[str], Optional[str]]:
         except OSError as exc:
             return None, f"local read failed: {exc}"
         return "sha256:" + hashlib.sha256(content).hexdigest(), None
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        # Request() raises ValueError ("unknown url type") on a scheme-less or
+        # relative URL — a legal brief entry, since the brief schema only
+        # requires a non-empty string. Keep it inside the guard so one bad
+        # entry lands in fetch_failed instead of aborting the whole run.
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    except ValueError as exc:
+        return None, f"invalid URL: {exc}"
     try:
         with urllib.request.urlopen(req, timeout=_FETCH_TIMEOUT) as resp:
             content = resp.read()
@@ -602,15 +648,165 @@ def _cmd_compare_hashes(argv: List[str]) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: hash-urls — docs-only doc_sources from the brief's doc_urls
+# ---------------------------------------------------------------------------
+
+# `doc_sources[].detected_via` value for entries that come from the brief's
+# `doc_urls` (and the subpages step 3c fetched from them) rather than from
+# repository detection. Listed in skf-create-skill/assets/skill-sections.md.
+BRIEF_DOC_URLS_DETECTED_VIA = "brief_doc_urls"
+
+
+def _load_url_list(raw_text: str, source_label: str) -> List[Any]:
+    """Parse a hash-urls input blob into a list of URL entries.
+
+    Accepts a top-level JSON array whose items are URL strings or objects
+    with a `url` key (the brief's `doc_urls[]` entry shape), or a top-level
+    object with a `doc_urls` array (the brief block itself). An object without
+    `doc_urls` yields an empty list (nothing to hash).
+
+    Raises ValueError on malformed JSON or an unexpected top-level shape.
+    """
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"malformed JSON in {source_label}: {exc}") from exc
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        entries = data.get("doc_urls")
+        if entries is None:
+            return []
+        if not isinstance(entries, list):
+            raise ValueError(f"`doc_urls` in {source_label} is not an array")
+        return entries
+    raise ValueError(
+        f"{source_label} must be a JSON array or an object with a "
+        f"`doc_urls` array; got {type(data).__name__}"
+    )
+
+
+def hash_urls(entries: List[Any], recorded_at: Optional[str] = None) -> Dict[str, Any]:
+    """Fetch and hash each URL into a compile-time `doc_sources[]` entry.
+
+    Byte-symmetric with `compare_doc_hashes`: both go through
+    `_fetch_and_hash_reason`, so a hash recorded here reads as `unchanged` at
+    audit time for unchanged bytes. URLs keep their input order (brief order,
+    then discovered subpages) and are deduplicated on first occurrence. A URL
+    that cannot be fetched still gets an entry with `content_hash: None`, which
+    the audit side skips rather than reporting as drift.
+    """
+    stamp = recorded_at or datetime.now(timezone.utc).isoformat()
+    doc_sources: List[Dict[str, Any]] = []
+    fetch_failed: List[Dict[str, Any]] = []
+    seen: set = set()
+    invalid = 0
+    for entry in entries:
+        url = entry.get("url") if isinstance(entry, dict) else entry
+        if not isinstance(url, str) or not url.strip():
+            invalid += 1
+            continue
+        if url in seen:
+            continue
+        seen.add(url)
+        content_hash, reason = _fetch_and_hash_reason(url)
+        doc_sources.append({
+            "url": url,
+            "detected_via": BRIEF_DOC_URLS_DETECTED_VIA,
+            "content_hash": content_hash,
+            "recorded_at": stamp,
+        })
+        if content_hash is None:
+            fetch_failed.append({"url": url, "reason": reason})
+    return {
+        "doc_sources": doc_sources,
+        "fetch_failed": fetch_failed,
+        "stats": {
+            "total": len(doc_sources),
+            "hashed": len(doc_sources) - len(fetch_failed),
+            "fetch_failed": len(fetch_failed),
+            "invalid": invalid,
+        },
+    }
+
+
+def _cmd_hash_urls(argv: List[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="skf-detect-docs.py hash-urls",
+        description=(
+            "Fetch each documentation URL, hash the response bytes, and emit "
+            "compile-time doc_sources entries (detected_via: brief_doc_urls) "
+            "for a docs-only skill."
+        ),
+    )
+    parser.add_argument(
+        "source",
+        help=(
+            "path to a JSON file (array of URL strings or {url, ...} objects, "
+            "or an object with a doc_urls array such as the brief's block), "
+            "or - to read that JSON from stdin"
+        ),
+    )
+    args = parser.parse_args(argv)
+
+    if args.source == "-":
+        raw = sys.stdin.read()
+        label = "<stdin>"
+    else:
+        path = Path(args.source)
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            json.dump({"error": f"cannot read {path}: {exc}", "code": "READ_ERROR"}, sys.stderr)
+            sys.stderr.write("\n")
+            return 2
+        label = str(path)
+
+    try:
+        entries = _load_url_list(raw, label)
+    except ValueError as exc:
+        json.dump({"error": str(exc), "code": "INVALID_JSON"}, sys.stderr)
+        sys.stderr.write("\n")
+        return 2
+
+    result = hash_urls(entries)
+    json.dump(result, sys.stdout, separators=(",", ":"))
+    sys.stdout.write("\n")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
+def _force_utf8(*streams) -> None:
+    """Reconfigure JSON-carrying streams to UTF-8 (issue #465).
+
+    A default Windows console decodes stdio as cp1252, which cannot carry
+    non-ASCII JSON (raw UTF-8 input on stdin for `compare-hashes -` and
+    `hash-urls -`). Preserves each stream's existing error handler —
+    reconfigure(encoding=...) alone would reset it to 'strict', downgrading
+    e.g. an already-UTF-8 stderr on Linux. For stdin this must run before the
+    first read. Skips in-process test doubles without reconfigure().
+    """
+    for stream in streams:
+        if hasattr(stream, "reconfigure"):
+            errors = getattr(stream, "errors", None)
+            if errors is None:
+                stream.reconfigure(encoding="utf-8")
+            else:
+                stream.reconfigure(encoding="utf-8", errors=errors)
+
+
 def main() -> int:
+    _force_utf8(sys.stdin, sys.stdout)
     # Additive subcommand: route `compare-hashes ...` to the doc-drift path
     # before the existing detect parser runs. The default (no subcommand)
     # invocation `--repo-url <url> ...` is unchanged.
     if len(sys.argv) > 1 and sys.argv[1] == "compare-hashes":
         return _cmd_compare_hashes(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "hash-urls":
+        return _cmd_hash_urls(sys.argv[2:])
 
     parser = argparse.ArgumentParser(
         description="Detect documentation URLs for a GitHub repository.",
