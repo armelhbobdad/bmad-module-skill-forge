@@ -1,3 +1,0 @@
-#!/usr/bin/env sh
-
-entire hooks git commit-msg "$1" || exit 1

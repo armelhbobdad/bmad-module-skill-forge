@@ -42,9 +42,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     env:
-      # Husky's documented opt-out (.husky/_/h checks this explicitly). Needed
-      # because .husky/commit-msg invokes `entire` (local dev session tool) and
-      # hard-exits if it's not on PATH — breaks CI's `Commit version bump`.
+      # Husky's documented opt-out (.husky/_/h checks this explicitly). The
+      # pre-commit hook runs lint-staged and the full `npm test` suite, which
+      # CI has already run as a required check — skip it for `Commit version bump`.
       HUSKY: "0"
       # `gh` CLI auth for every gh call in the Story 3.4 PR-auto-merge flow
       # (AC #1–#7) + the tag/merge poll steps. Job-level so every step inherits
