@@ -25,6 +25,7 @@ For Quick and Forge tiers, or when ccc is unavailable, skip silently and proceed
 - Do not display skip messages for Quick/Forge tiers
 - Do not fail the workflow if ccc indexing fails
 - The script owns exclusion-pattern validation — do not reimplement it in prose
+- Every branch that leaves this step binds all four of `ccc_index_result`, `ccc_indexed_path`, `ccc_last_indexed`, and `ccc_file_count` — step 2 interpolates each bare into the `write-tools` JSON payload, so an unbound flag would emit its literal placeholder and fail the forge-tier.yaml write
 
 ## MANDATORY SEQUENCE
 
@@ -32,9 +33,9 @@ For Quick and Forge tiers, or when ccc is unavailable, skip silently and proceed
 
 Read `{ccc}` and `{ccc_skip_index}` from context.
 
-**If `{ccc}` is false:** Set `{ccc_index_result: "none", ccc_indexed_path: null, ccc_last_indexed: null, ccc_exclude_patterns: [], ccc_exclusion_warnings: [], settings_yml_written: false, settings_yml_patterns_added: 0}`. Proceed directly to section 5 (Auto-Proceed) — no output, no messaging.
+**If `{ccc}` is false:** Set `{ccc_index_result: "none", ccc_indexed_path: null, ccc_last_indexed: null, ccc_file_count: null, ccc_exclude_patterns: [], ccc_exclusion_warnings: [], settings_yml_written: false, settings_yml_patterns_added: 0}`. Proceed directly to section 5 (Auto-Proceed) — no output, no messaging.
 
-**If `{ccc}` is true AND `{ccc_skip_index}` is true:** Run the exclusion-merge (section 3) so settings.yml stays current, then set `{ccc_index_result: "skipped", ccc_indexed_path: null, ccc_last_indexed: null}` and proceed to section 5 (Auto-Proceed) — do not run `ccc init` or `ccc index`. The envelope's `ccc_index.status` will be `"skipped"` so pipelines that plan an out-of-band re-index can distinguish "the operator opted out" from "indexing failed".
+**If `{ccc}` is true AND `{ccc_skip_index}` is true:** Run the exclusion-merge (section 3) so settings.yml stays current, then set `{ccc_index_result: "skipped", ccc_indexed_path: null, ccc_last_indexed: null, ccc_file_count: null}` and proceed to section 5 (Auto-Proceed) — do not run `ccc init` or `ccc index`. The envelope's `ccc_index.status` will be `"skipped"` so pipelines that plan an out-of-band re-index can distinguish "the operator opted out" from "indexing failed".
 
 **If `{ccc}` is true AND `{ccc_skip_index}` is false:** Continue to section 2.
 
@@ -44,7 +45,7 @@ Consume prior CCC state from stage 1's detector output (`prior.*` context flags)
 
 Decide `{needs_reindex}` and `{ccc_index_result}` from `{ccc_index_fresh}`:
 
-- If `{ccc_index_fresh}` is true → index is fresh. Set `{needs_reindex: false}`, `{ccc_index_result: "fresh", ccc_indexed_path: {project-root}, ccc_last_indexed: {previous_ccc_last_indexed}}`. Exclusions still merge in section 3 (which may force a re-index).
+- If `{ccc_index_fresh}` is true → index is fresh. Set `{needs_reindex: false}`, `{ccc_index_result: "fresh", ccc_indexed_path: {project-root}, ccc_last_indexed: {previous_ccc_last_indexed}, ccc_file_count: {previous_ccc_file_count}}` (the count carried over from the prior forge-tier.yaml by step 1 — nothing re-counts on this path). Exclusions still merge in section 3 (which may force a re-index).
 - If `{ccc_index_fresh}` is false (path mismatch, non-fresh status, stale timestamp, or any required prior CCC field null) → `{needs_reindex: true}`.
 
 ### 3. Merge SKF Exclusion Patterns
@@ -111,7 +112,7 @@ ccc index
 
 **If fails:**
 
-- Store `{ccc_index_result: "failed", ccc_indexed_path: null, ccc_last_indexed: null, ccc_indexing_failed_reason: {error}}` (the failed-reason flag flows into step 4's envelope warnings)
+- Store `{ccc_index_result: "failed", ccc_indexed_path: null, ccc_last_indexed: null, ccc_file_count: null, ccc_indexing_failed_reason: {error}}` (the failed-reason flag flows into step 4's envelope warnings)
 - Display: "CCC indexing failed: {error}. Extraction will use direct AST scanning — semantic pre-ranking unavailable this session."
 - Continue — this is not a workflow error
 

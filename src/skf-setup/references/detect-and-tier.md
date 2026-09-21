@@ -100,6 +100,7 @@ From `prior` (populated by `--prior-state-from`; all fields null/empty on first 
 - `{previous_ccc_indexed_path}` ← `prior.previous_ccc_indexed_path`
 - `{previous_ccc_last_indexed}` ← `prior.previous_ccc_last_indexed`
 - `{previous_ccc_staleness_threshold_hours}` ← `prior.previous_ccc_staleness_threshold_hours`
+- `{previous_ccc_file_count}` ← `prior.previous_ccc_file_count` (integer or null; step 1b carries it forward on the fresh-index path so `forge-tier.yaml` keeps its `file_count` across re-runs that do not re-index)
 - `{ccc_index_fresh}` ← `prior.ccc_index_fresh` (boolean; the script's deterministic freshness verdict — prior index covers this project AND status was fresh/created AND `last_indexed` is within the staleness threshold of now. Step 1b branches on this directly instead of doing timestamp math.)
 
 From `deltas` (computed by the script from current tools + prior; eliminates LLM-side set arithmetic in the report banner):

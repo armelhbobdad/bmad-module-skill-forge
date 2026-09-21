@@ -89,6 +89,7 @@ DETECT_OUTPUT_SCHEMA (v1):
       "previous_ccc_indexed_path":              str|null,
       "previous_ccc_last_indexed":              str|null,
       "previous_ccc_staleness_threshold_hours": int|null,
+      "previous_ccc_file_count":                 int|null,
       # Deterministic CCC-index freshness verdict — computed against
       # --project-root and datetime.now(UTC) captured at detect time, so the
       # ccc-index.md step branches on a boolean instead of doing timestamp math.
@@ -369,6 +370,7 @@ def read_prior_state(prior_state_path) -> dict:
         "previous_ccc_indexed_path": None,
         "previous_ccc_last_indexed": None,
         "previous_ccc_staleness_threshold_hours": None,
+        "previous_ccc_file_count": None,
     }
     if not prior_state_path:
         return empty
@@ -393,6 +395,10 @@ def read_prior_state(prior_state_path) -> dict:
         "previous_ccc_indexed_path": ccc_index.get("indexed_path"),
         "previous_ccc_last_indexed": ccc_index.get("last_indexed"),
         "previous_ccc_staleness_threshold_hours": ccc_index.get("staleness_threshold_hours"),
+        # Surfaced so ccc-index.md's fresh-index branch can carry the count
+        # forward instead of leaving `{ccc_file_count}` unbound (or nulling a
+        # value the index still has) when nothing re-indexes this run.
+        "previous_ccc_file_count": ccc_index.get("file_count"),
     }
 
 
