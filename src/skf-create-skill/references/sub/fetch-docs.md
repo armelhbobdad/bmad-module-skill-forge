@@ -28,6 +28,7 @@ Fetch remote documentation from brief-specified URLs using whatever web fetching
 - Tool-agnostic — use whatever web fetching capability is available
 - Do not halt the workflow if web fetching is unavailable or fails
 - Do not override existing T1, T1-low, or T2 extraction data with T3 content
+- Never delete the staging directory of a `docs-only` skill — the fetched pages are its only source corpus
 
 ## MANDATORY SEQUENCE
 
@@ -173,7 +174,7 @@ This artifact is a **distinct** carrier — it is not merged into the extraction
 
 **If tier is Deep and at least one URL was fetched successfully:**
 
-1. Write fetched markdown files to a staging directory: `_bmad-output/{skill-name}-docs/`
+1. Write fetched markdown files to a staging directory: `_bmad-output/{skill-name}-docs/` — clear any previous contents first, so a corpus retained from an earlier docs-only run (step 5 below) does not mix with this run's pages.
 2. Index into QMD with atomic replace + rollback: if a `{skill-name}-docs` collection already exists, run `qmd collection remove {skill-name}-docs` first, then `qmd collection add {project-root}/_bmad-output/{skill-name}-docs/ --name {skill-name}-docs --mask "*.md"`. **If `qmd collection add` fails after a successful `remove`:** remove any matching `{skill-name}-docs` entry from `forge-tier.yaml` → `qmd_collections[]` to keep the registry consistent with QMD's actual state, warn in evidence-report, and skip the embed — docs enrichment degrades gracefully.
 3. Generate embeddings scoped to this collection (only if step 2 `add` succeeded): `qmd embed --collection {skill-name}-docs` (required for semantic `type:'vec'` and HyDE `type:'hyde'` sub-queries within the QMD `query` tool). If the installed `qmd` CLI does not accept `--collection`, gate the embed behind a freshness check: skip re-embedding if the existing `{skill-name}-docs` registry entry is within 24 hours, and log the skip in the evidence report to prevent unbounded batch-mode re-embedding.
 4. Register in forge-tier.yaml `qmd_collections` array — **acquire an exclusive `flock` on `{sidecar_path}/forge-tier.yaml.lock` for the read-modify-write** (see the locking pattern documented in step 3b §4). Write via `python3 {atomicWriteHelper} write --target {sidecar_path}/forge-tier.yaml`. If `flock` is unavailable, fall back to read-CAS-by-mtime (capture `st_mtime` before, re-check after; refuse to clobber if a concurrent run wrote in between).
@@ -186,7 +187,7 @@ This artifact is a **distinct** carrier — it is not merged into the extraction
   created_at: "{current ISO date}"
 ```
 
-5. Clean up staging directory after indexing: `rm -rf {project-root}/_bmad-output/{skill-name}-docs/`
+5. Clean up the staging directory after indexing — **only when `source_type` is `"source"`**: `rm -rf {project-root}/_bmad-output/{skill-name}-docs/`. Note that this directory is the source path of the `{skill-name}-docs` collection registered in step 4; removing it is accepted for supplemental docs, whose T3 items already live in the extraction inventory. **When `source_type` is `"docs-only"`, keep the directory.** The fetched pages are the skill's only source corpus — there is no code tree — so deleting them would leave the just-registered collection with nothing to refresh from and nothing to verify citations against. Record the retained path in the evidence report.
 
 **If QMD indexing fails:** Warn: "QMD indexing of fetched docs failed. T3 items are still in the extraction inventory — enrichment will proceed without QMD-indexed docs." Continue.
 
@@ -199,6 +200,7 @@ Display:
 **T3 items extracted:** {count}
 **Confidence:** All doc-fetched items are T3 — `[EXT:{url}]` citations applied.
 {If docs-only mode: '**Mode:** Docs-only — all skill content is T3. source_authority: community'}
+{If docs-only mode AND tier is Deep: '**Docs corpus retained:** `_bmad-output/{skill-name}-docs/`{if the `{skill-name}-docs` collection was registered in §5b: ' — source path of QMD collection `{skill-name}-docs`'}'}
 
 Proceeding to enrichment..."
 

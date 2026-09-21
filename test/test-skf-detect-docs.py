@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -1005,6 +1006,14 @@ class TestFetchAndHashReasonByteSymmetry:
         assert h is None
         assert reason and "timeout" in reason.lower()
 
+    def test_scheme_less_url_never_raises(self):
+        """Both primitives promise never to raise; Request() itself raises
+        ValueError on a scheme-less URL, so it must sit inside the guard."""
+        h, reason = mod._fetch_and_hash_reason("docs.example.com/guide")
+        assert h is None
+        assert reason == "invalid URL: unknown url type: 'docs.example.com/guide'"
+        assert mod._fetch_and_hash("docs.example.com/guide") is None
+
 
 class TestLoadDocSources:
     def test_array_shape(self):
@@ -1202,3 +1211,245 @@ class TestCompareHashesCli:
             capture_output=True, text=True,
         )
         assert result.returncode == 2  # argparse usage error
+
+
+# --------------------------------------------------------------------------
+# hash-urls subcommand — docs-only doc_sources from the brief's doc_urls (#475)
+# --------------------------------------------------------------------------
+
+from datetime import datetime as _datetime
+
+
+def _file_url(path: Path) -> str:
+    return "file://" + path.as_posix()
+
+
+class TestLoadUrlList:
+    def test_array_of_strings(self):
+        assert mod._load_url_list('["https://a", "https://b"]', "x") == ["https://a", "https://b"]
+
+    def test_array_of_objects(self):
+        entries = mod._load_url_list('[{"url": "https://a", "label": "A"}]', "x")
+        assert entries == [{"url": "https://a", "label": "A"}]
+
+    def test_object_with_doc_urls(self):
+        entries = mod._load_url_list('{"doc_urls": [{"url": "https://a"}]}', "x")
+        assert entries == [{"url": "https://a"}]
+
+    def test_object_without_doc_urls_is_empty(self):
+        assert mod._load_url_list('{"name": "skill"}', "x") == []
+
+    def test_malformed_json_raises(self):
+        with pytest.raises(ValueError, match="malformed JSON"):
+            mod._load_url_list("not json{", "x")
+
+    def test_wrong_shape_raises(self):
+        with pytest.raises(ValueError, match="must be a JSON array"):
+            mod._load_url_list('"https://a"', "x")
+        with pytest.raises(ValueError, match="not an array"):
+            mod._load_url_list('{"doc_urls": "https://a"}', "x")
+
+
+class TestHashUrls:
+    def test_entries_are_doc_sources_shaped(self, tmp_path):
+        f = tmp_path / "page.md"
+        f.write_bytes(b"# Page\n")
+        result = mod.hash_urls([_file_url(f)])
+        [entry] = result["doc_sources"]
+        assert set(entry) == {"url", "detected_via", "content_hash", "recorded_at"}
+        assert entry["url"] == _file_url(f)
+        assert entry["detected_via"] == "brief_doc_urls"
+        assert entry["content_hash"] == _hash_bytes(b"# Page\n")
+        assert _datetime.fromisoformat(entry["recorded_at"]).tzinfo is not None
+        assert result["fetch_failed"] == []
+        assert result["stats"] == {"total": 1, "hashed": 1, "fetch_failed": 0, "invalid": 0}
+
+    def test_hash_matches_writer_primitive(self, tmp_path):
+        f = tmp_path / "page.md"
+        f.write_bytes(b"documentation body")
+        [entry] = mod.hash_urls([_file_url(f)])["doc_sources"]
+        assert entry["content_hash"] == mod._fetch_and_hash(_file_url(f))
+
+    def test_accepts_brief_doc_urls_entry_objects(self, tmp_path):
+        f = tmp_path / "page.md"
+        f.write_bytes(b"x")
+        [entry] = mod.hash_urls(
+            [{"url": _file_url(f), "label": "Page", "source": "homepage"}]
+        )["doc_sources"]
+        assert entry["url"] == _file_url(f)
+        assert entry["content_hash"] == _hash_bytes(b"x")
+
+    def test_unfetchable_url_gets_null_hash_and_reason(self, tmp_path):
+        missing = _file_url(tmp_path / "missing.md")
+        result = mod.hash_urls([missing])
+        [entry] = result["doc_sources"]
+        assert entry["content_hash"] is None
+        assert result["fetch_failed"][0]["url"] == missing
+        assert "local read failed" in result["fetch_failed"][0]["reason"]
+        assert result["stats"] == {"total": 1, "hashed": 0, "fetch_failed": 1, "invalid": 0}
+
+    def test_http_error_yields_null_hash(self):
+        err = _urlerror.HTTPError("http://x/y", 404, "Not Found", {}, None)
+        with patch.object(mod.urllib.request, "urlopen", side_effect=err):
+            result = mod.hash_urls(["http://x/y"])
+        assert result["doc_sources"][0]["content_hash"] is None
+        assert result["fetch_failed"] == [{"url": "http://x/y", "reason": "HTTP 404"}]
+
+    @pytest.mark.parametrize(
+        "bad_url",
+        ["learn.microsoft.com/en-us/dax/dax-overview", "www.example.com/docs", "/relative/path"],
+    )
+    def test_scheme_less_url_degrades_instead_of_raising(self, tmp_path, bad_url):
+        """A scheme-less or relative entry is legal per the brief schema (any
+        non-empty string). It must land in fetch_failed with a null hash — not
+        abort the whole run and discard every good hash alongside it."""
+        good = tmp_path / "good.md"
+        good.write_bytes(b"good")
+        result = mod.hash_urls([_file_url(good), bad_url])
+        by_url = {e["url"]: e for e in result["doc_sources"]}
+        assert by_url[_file_url(good)]["content_hash"] == _hash_bytes(b"good")
+        assert by_url[bad_url]["content_hash"] is None
+        assert result["fetch_failed"] == [{"url": bad_url, "reason": f"invalid URL: unknown url type: {bad_url!r}"}]
+        assert result["stats"] == {"total": 2, "hashed": 1, "fetch_failed": 1, "invalid": 0}
+
+    def test_dedup_keeps_first_occurrence_order(self, tmp_path):
+        a = tmp_path / "a.md"
+        b = tmp_path / "b.md"
+        a.write_bytes(b"a")
+        b.write_bytes(b"b")
+        result = mod.hash_urls([_file_url(b), _file_url(a), {"url": _file_url(b)}])
+        assert [e["url"] for e in result["doc_sources"]] == [_file_url(b), _file_url(a)]
+        assert result["stats"]["total"] == 2
+
+    def test_invalid_entries_are_counted_and_dropped(self, tmp_path):
+        f = tmp_path / "a.md"
+        f.write_bytes(b"a")
+        result = mod.hash_urls(
+            [None, "", "   ", 42, {"label": "no url"}, {"url": 7}, _file_url(f)]
+        )
+        assert [e["url"] for e in result["doc_sources"]] == [_file_url(f)]
+        assert result["stats"]["invalid"] == 6
+
+    def test_empty_input(self):
+        assert mod.hash_urls([]) == {
+            "doc_sources": [],
+            "fetch_failed": [],
+            "stats": {"total": 0, "hashed": 0, "fetch_failed": 0, "invalid": 0},
+        }
+
+    def test_explicit_recorded_at_is_used_verbatim(self, tmp_path):
+        f = tmp_path / "a.md"
+        f.write_bytes(b"a")
+        [entry] = mod.hash_urls(
+            [_file_url(f)], recorded_at="2026-09-10T12:00:00+00:00"
+        )["doc_sources"]
+        assert entry["recorded_at"] == "2026-09-10T12:00:00+00:00"
+
+    def test_round_trips_through_compare_hashes(self, tmp_path):
+        """The contract that matters: a hash written here must read as
+        `unchanged` at audit time while the bytes are unchanged, flip to
+        `changed` when they change, and a null-hash entry must land in
+        skipped_null_hash rather than being reported as drift."""
+        a = tmp_path / "a.md"
+        b = tmp_path / "b.md"
+        a.write_bytes(b"alpha")
+        b.write_bytes(b"beta")
+        missing = _file_url(tmp_path / "gone.md")
+        written = mod.hash_urls([_file_url(a), _file_url(b), missing])["doc_sources"]
+        audit = mod.compare_doc_hashes(written)
+        assert audit["stats"] == {
+            "total_tracked": 3, "changed": 0, "unchanged": 2,
+            "fetch_failed": 0, "skipped_null_hash": 1,
+        }
+        b.write_bytes(b"beta v2")
+        audit_after = mod.compare_doc_hashes(written)
+        assert [e["url"] for e in audit_after["changed"]] == [_file_url(b)]
+
+
+class TestHashUrlsCli:
+    def test_stdin_array_exit_0(self, tmp_path):
+        f = tmp_path / "a.md"
+        f.write_bytes(b"a")
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "hash-urls", "-"],
+            input=json.dumps([_file_url(f)]), capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        parsed = json.loads(result.stdout.strip())
+        assert parsed["doc_sources"][0]["content_hash"] == _hash_bytes(b"a")
+        assert parsed["doc_sources"][0]["detected_via"] == "brief_doc_urls"
+
+    def test_brief_doc_urls_block_file_exit_0(self, tmp_path):
+        f = tmp_path / "a.md"
+        f.write_bytes(b"a")
+        src = tmp_path / "doc_urls.json"
+        src.write_text(
+            json.dumps({"doc_urls": [{"url": _file_url(f), "label": "A"}]}),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "hash-urls", str(src)],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout.strip())["stats"]["hashed"] == 1
+
+    def test_raw_utf8_stdin_survives_cp1252_stdio(self, tmp_path):
+        # Issue #465, stdin half: the brief's doc_urls are piped in as raw
+        # UTF-8 (ensure_ascii=False, as a `printf '%s' '[...]'` from the step
+        # file would). PYTHONIOENCODING=cp1252 simulates a default Windows
+        # console on any platform; without the sys.stdin reconfigure the
+        # non-ASCII path decodes as mojibake, the fetch misses the file, and
+        # the hash comes back null instead of matching.
+        f = tmp_path / "café.md"
+        f.write_bytes(b"accent")
+        env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "hash-urls", "-"],
+            input=json.dumps([_file_url(f)], ensure_ascii=False).encode("utf-8"),
+            capture_output=True, timeout=15, env=env,
+        )
+        assert proc.returncode == 0, proc.stderr.decode("utf-8", "replace")
+        out = json.loads(proc.stdout.decode("utf-8"))
+        assert out["doc_sources"][0]["url"] == _file_url(f)
+        assert out["doc_sources"][0]["content_hash"] == _hash_bytes(b"accent")
+
+    def test_output_is_valid_compare_hashes_input(self, tmp_path):
+        f = tmp_path / "a.md"
+        f.write_bytes(b"a")
+        written = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "hash-urls", "-"],
+            input=json.dumps([_file_url(f)]), capture_output=True, text=True,
+        )
+        assert written.returncode == 0, written.stderr
+        audit = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "compare-hashes", "-"],
+            input=written.stdout, capture_output=True, text=True,
+        )
+        assert audit.returncode == 0, audit.stderr
+        assert json.loads(audit.stdout.strip())["stats"]["unchanged"] == 1
+
+    def test_malformed_json_exit_2(self):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "hash-urls", "-"],
+            input="not json{", capture_output=True, text=True,
+        )
+        assert result.returncode == 2
+        assert json.loads(result.stderr.strip())["code"] == "INVALID_JSON"
+
+    def test_unreadable_file_exit_2(self, tmp_path):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "hash-urls", str(tmp_path / "nope.json")],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 2
+        assert json.loads(result.stderr.strip())["code"] == "READ_ERROR"
+
+    def test_missing_source_arg_exit_2(self):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "hash-urls"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 2  # argparse usage error
+        # the hash-urls parser answered, not the legacy --repo-url parser
+        assert "hash-urls" in result.stderr and "source" in result.stderr

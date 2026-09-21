@@ -19,6 +19,7 @@ STEP_FILE = CS_DIR / "references" / "step-doc-sources.md"
 COMPILE_FILE = CS_DIR / "references" / "compile.md"
 SKILL_MD = CS_DIR / "SKILL.md"
 SECTIONS_FILE = CS_DIR / "assets" / "skill-sections.md"
+FETCH_DOCS_FILE = CS_DIR / "references" / "sub" / "fetch-docs.md"
 DETECT_DOCS_SCRIPT = REPO_ROOT / "src" / "shared" / "scripts" / "skf-detect-docs.py"
 
 
@@ -43,6 +44,17 @@ def _next_step_value(path: pathlib.Path) -> str | None:
         return None
     m = re.search(r"^nextStepFile:\s*['\"]?([^'\"\n]+?)['\"]?\s*$", fm, re.MULTILINE)
     return m.group(1).strip() if m else None
+
+
+def _section(text: str, heading_regex: str) -> str:
+    """Body of the `### <heading>` section whose heading matches heading_regex."""
+    m = re.search(
+        rf"^###\s+{heading_regex}[^\n]*\n(.*?)(?=^###\s|\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert m, f"section not found: {heading_regex}"
+    return m.group(1)
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +193,7 @@ class TestDocSourcesSchema:
         "pages_api",
         "docs_folder",
         "readme_always",
+        "brief_doc_urls",
     ]
 
     @pytest.mark.parametrize("value", _EXPECTED_DETECTED_VIA)
@@ -194,6 +207,76 @@ class TestDocSourcesSchema:
         gen_idx = schema_text.find('"generated_by"')
         assert doc_idx < gen_idx, (
             "doc_sources must appear before generated_by in schema ordering"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Docs-only branch (#475): doc_sources for a brief with no repository
+# ---------------------------------------------------------------------------
+
+
+class TestDocsOnlyBranch:
+    @pytest.fixture(scope="class")
+    def text(self) -> str:
+        return _read(STEP_FILE)
+
+    def test_detection_is_gated_on_source_type(self, text: str) -> None:
+        body = _section(text, r"2\.\s+Run Doc Detection")
+        assert "docs-only" in body, (
+            "§2 must branch on source_type docs-only before invoking detect-docs "
+            "(its --repo-url path rejects a documentation-site URL as INVALID_URL)"
+        )
+
+    def test_docs_only_branch_hashes_via_hash_urls(self, text: str) -> None:
+        body = _section(text, r"2a\.")
+        assert "hash-urls" in body, (
+            "the docs-only branch must hash the brief's doc_urls through "
+            "skf-detect-docs.py hash-urls (byte-symmetric with the audit's compare-hashes)"
+        )
+
+    def test_docs_only_branch_records_brief_doc_urls_provenance(self, text: str) -> None:
+        assert "brief_doc_urls" in _section(text, r"2a\.")
+
+    def test_docs_only_branch_documents_exit_codes(self, text: str) -> None:
+        body = _section(text, r"2a\.")
+        for code in ("Exit 0", "Exit 2"):
+            assert code in body, f"§2a must document {code} handling"
+
+    def test_readme_entry_is_skipped_for_docs_only(self, text: str) -> None:
+        body = _section(text, r"3\.\s+Ensure README Entry")
+        assert "docs-only" in body, (
+            "§3 must skip the README entry for docs-only briefs — there is no "
+            "repository README, and {source_repo}/blob/main/README.md would be fabricated"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Docs-only corpus retention (#476): fetch-docs must not delete the only source
+# ---------------------------------------------------------------------------
+
+
+class TestDocsOnlyCorpusRetention:
+    @pytest.fixture(scope="class")
+    def text(self) -> str:
+        return _read(FETCH_DOCS_FILE)
+
+    def test_cleanup_is_gated_on_source_type(self, text: str) -> None:
+        cleanup_lines = [
+            line
+            for line in text.splitlines()
+            if "rm -rf" in line and "{skill-name}-docs" in line
+        ]
+        assert len(cleanup_lines) == 1, (
+            "expected exactly one staging-directory cleanup instruction in fetch-docs.md"
+        )
+        assert "docs-only" in cleanup_lines[0], (
+            "the cleanup must be gated on source_type so a docs-only corpus is retained"
+        )
+
+    def test_rules_forbid_deleting_docs_only_corpus(self, text: str) -> None:
+        rules = re.search(r"^## Rules\n(.*?)(?=^## )", text, re.MULTILINE | re.DOTALL)
+        assert rules and "docs-only" in rules.group(1), (
+            "fetch-docs.md Rules must state that a docs-only staging directory is never deleted"
         )
 
 
