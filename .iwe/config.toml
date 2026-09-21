@@ -1,0 +1,186 @@
+format = "markdown"
+version = 3
+
+[library]
+date_format = "%Y-%m-%d"
+time_format = "%Y-%m-%d %H:%M"
+path = ""
+
+[markdown]
+date_format = "%Y-%m-%d"
+time_format = "%Y-%m-%d %H:%M"
+# detected by `iwe init --dry-run`: 74 links end in .md, 0 have no extension
+refs_extension = ".md"
+refs_path = "relative"
+refs_text = "preserve"
+wiki_link_path = "preserve"
+
+[markdown.formatting]
+
+[djot]
+date_format = "%b %d, %Y"
+refs_extension = ""
+refs_path = "relative"
+refs_text = "preserve"
+
+[djot.formatting]
+
+[completion]
+link_format = "markdown"
+
+[search]
+language = "english"
+
+[templates.default]
+document_template = """
+# {{title}}
+
+{{content}}"""
+key_template = "{{slug}}"
+
+[commands.default]
+run = "claude -p"
+timeout_seconds = 120
+
+[actions.emoji]
+command = "default"
+input_template = """
+Here's a text that I'm going to ask you to edit. The text is marked with {{context_start}} {{context_end}} tags.
+
+- The part you'll need to update is marked with {{update_start}} {{update_end}} tags.
+- You can't replace entire text, your answer will be inserted in between {{update_start}} {{update_end}} tags.
+- Add a relevant emoji one per list item (prior to list item text), header (prior to header text) or paragraph. Keep the text otherwise unchanged.
+- Don't include the {{update_start}} {{update_end}} tags in your answer.
+
+{{context_start}}
+
+{{context}}
+
+{{context_end}}
+"""
+title = "Emojify"
+type = "transform"
+
+[actions.expand]
+command = "default"
+input_template = """
+Here's a text that I'm going to ask you to edit. The text is marked with {{context_start}}{{context_end}} tag.
+
+The part you'll need to update is marked with {{update_start}}{{update_end}}.
+
+{{context_start}}
+
+{{context}}
+
+{{context_end}}
+
+- You can't replace entire text, your answer will be inserted in place of the {{update_start}}{{update_end}}. Don't include the {{context_start}}{{context_end}} and {{context_start}}{{context_end}} tags in your output.
+- Preserve the links in the text. Do not return list item "-" or header "#" prefix
+
+Expand the text you need to update, generate a couple paragraphs.
+"""
+title = "Expand"
+type = "transform"
+
+[actions.extract]
+key_template = "{{id}}"
+link_type = "markdown"
+title = "Extract"
+type = "extract"
+
+[actions.extract_all]
+key_template = "{{id}}"
+link_type = "markdown"
+title = "Extract all subsections"
+type = "extract_all"
+
+[actions.inline_quote]
+inline_type = "quote"
+keep_target = false
+title = "Inline quote"
+type = "inline"
+
+[actions.inline_section]
+inline_type = "section"
+keep_target = false
+title = "Inline section"
+type = "inline"
+
+[actions.keywords]
+command = "default"
+input_template = """
+Here's a text that I'm going to ask you to edit. The text is marked with {{context_start}}{{context_end}} tag.
+
+The part you'll need to update is marked with {{update_start}}{{update_end}}.
+
+{{context_start}}
+
+{{context}}
+
+{{context_end}}
+
+- You can't replace entire text, your answer will be inserted in place of the {{update_start}}{{update_end}}. Don't include the {{context_start}}{{context_end}} and {{context_start}}{{context_end}} tags in your output.
+
+Mark most important keywords with bold using ** markdown syntax. Keep the text unchanged!
+"""
+title = "Keywords"
+type = "transform"
+
+[actions.link]
+key_template = "{{id}}"
+link_type = "markdown"
+title = "Link"
+type = "link"
+
+[actions.rewrite]
+command = "default"
+input_template = """
+Here's a text that I'm going to ask you to edit. The text is marked with {{context_start}}{{context_end}} tag.
+
+The part you'll need to update is marked with {{update_start}}{{update_end}}.
+
+{{context_start}}
+
+{{context}}
+
+{{context_end}}
+
+- You can't replace entire text, your answer will be inserted in place of the {{update_start}}{{update_end}}. Don't include the {{context_start}}{{context_end}} and {{context_start}}{{context_end}} tags in your output.
+- Preserve the links in the text. Do not return list item "-" or header "#" prefix
+
+Your goal is to rewrite a given text to improve its clarity and readability. Ensure the language remains personable and not overly formal. Focus on simplifying language, organizing sentences logically, and removing ambiguity while maintaining a conversational tone.
+"""
+title = "Rewrite"
+type = "transform"
+
+[actions.sort]
+reverse = false
+title = "Sort A-Z"
+type = "sort"
+
+[actions.sort_desc]
+reverse = true
+title = "Sort Z-A"
+type = "sort"
+
+[actions.today]
+document_template = """
+# {{today}}
+
+{{content}}
+"""
+key_template = "{{today}}"
+title = "Add Date"
+type = "attach"
+
+[schemas]
+
+# --- IWE memory: starter schema -------------------------------------------
+# Installed by `iwe internal claude enable` alongside the starter policy. It
+# binds every document in the library, and bites only on the ones that carry
+# the `created` stamp the policy's dedup filter treats as memory: the stamp
+# must be `YYYY-MM-DD HH:MM`, and `session` a non-empty string. Bodies are
+# unconstrained; tighten `.iwe/schemas/memory.yaml` in a reflect session.
+
+[schemas.memory]
+match = "**"
