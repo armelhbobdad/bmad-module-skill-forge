@@ -62,7 +62,7 @@ To validate the compiled SKILL.md content against the agentskills.io specificati
 
 **Used by:** §2 (`skill-check check --fix`), §4 (`split-body`), and any future tool invocation that may modify SKILL.md.
 
-Load `{descriptionGuardProtocol}` for the full prose explanation of the four-phase guard (why it exists, what counts as divergence, why token-stream comparison is the right shape). The deterministic phases are executed via `{descriptionGuardHelper}` — the calling sections (§2 and §4) invoke the helper at the capture and verify-restore points.
+Load `{descriptionGuardProtocol}` for the full prose explanation of the four-phase guard (why it exists, what counts as divergence, why token-stream comparison is the right shape). The deterministic phases are executed via `{descriptionGuardHelper}` — the calling sections (§2 and §4) invoke the helper at the capture and verify-restore points. `verify-restore` refuses an empty `--captured-description` (exit 1, file untouched); when that happens, follow the protocol's empty-snapshot rule instead of re-running with the empty value.
 
 **This skill's post-restore re-validation hook:** after `{descriptionGuardHelper}` reports `restored: true`, resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}` (first existing path wins), run `uv run {frontmatterValidator} <staging-skill-dir>/SKILL.md` and capture `schema_revalidation_result` in context. If the validator exits non-zero OR reports failure for the `description` field, flip the Schema result back to `FAIL` in the evidence report (overriding any prior PASS/WARN from §2), record `description_guard_revalidation: FAIL` with the validator's diagnostic message, and continue — do not halt (step 9 health-check and result contract still need to run so the failure is surfaced through the normal artifact path).
 
@@ -320,7 +320,7 @@ If the sink, the on-disk rows, and `headless_decisions[]` are all empty, keep th
 - `Original description preserved`: `true` if the restore succeeded (on-disk now matches the pre-tool snapshot), `false` if restoration itself failed (rare — treat as a halt condition in a future version).
 - `Notes`: a one-sentence description of what the tool had changed. Typical values: `"replaced with generic summary"`, `"truncated at N chars"`, `"angle-bracket tokens re-introduced"`, `"field deleted entirely"`. If `Restored: false`, use `—`.
 
-When `Restored: false`, the three follow-up fields are all `—` — this is the clean-run expected state.
+When `Restored: false`, the three follow-up fields are all `—` — this is the clean-run expected state — with one exception: when `description_guard_refused == "empty-capture"` (the protocol's empty-snapshot rule — `verify-restore` exited 1 and no in-context copy allowed a re-run), the guard did fire and must not render as a clean run. Set `Restored: false`, `Triggering tool` to the recorded tool name, `Original description preserved: false`, and `Notes: guard refused — empty captured snapshot (empty-capture)`.
 
 ### 9. Auto-Proceed
 

@@ -5,6 +5,7 @@ Covers:
   - capture: happy path, missing file, no frontmatter, missing description
   - classify_divergence: identical, whitespace-only, replaced, truncated, deleted
   - restore_description: inline/quoted/block-scalar shapes; key order preserved
+  - empty/whitespace-only captured value is refused, never written (#474)
   - CLI integration via subprocess for capture and verify-restore
 """
 
@@ -324,6 +325,18 @@ related:
         with pytest.raises(ValueError, match="no `description`"):
             mod.restore_description(skill, "should not be written anywhere")
 
+    @pytest.mark.parametrize("captured", ["", "   ", "\n\t "])
+    def test_restore_refuses_empty_captured(self, tmp_path: Path, captured: str) -> None:
+        """Regression (#474): no code path may write an empty description —
+        library callers are refused at the same boundary as the CLI."""
+        skill = _write_skill(tmp_path, SAMPLE_DESC, shape="inline")
+        before = skill.read_bytes()
+        with pytest.raises(ValueError, match="empty"):
+            mod.restore_description(skill, captured)
+        assert skill.read_bytes() == before
+        leftover = [p for p in tmp_path.iterdir() if ".skf-guard.tmp" in p.name]
+        assert leftover == []
+
 
 # --------------------------------------------------------------------------
 # CLI integration
@@ -407,3 +420,34 @@ class TestCli:
         result = _run_cli("verify-restore", str(skill))
         assert result.returncode == 2
         assert "captured-description" in result.stderr
+
+    @pytest.mark.parametrize("captured", ["", "   \t "])
+    def test_verify_restore_empty_captured_exits_1_and_leaves_file(
+        self, tmp_path: Path, captured: str
+    ) -> None:
+        """Regression (#474): `verify-restore --captured-description ""` used to
+        report {"diverged": true, "restored": true, "diff_kind": "replaced"} and
+        write `description: ''`, destroying the field the guard exists to protect.
+        """
+        skill = _write_skill(tmp_path, SAMPLE_DESC, shape="inline")
+        before = skill.read_bytes()
+        result = _run_cli(
+            "verify-restore", str(skill), "--captured-description", captured
+        )
+        assert result.returncode == 1
+        assert result.stdout == ""
+        assert "empty or whitespace-only" in result.stderr
+        assert skill.read_bytes() == before
+        desc, _ = mod.read_description(skill)
+        assert desc == SAMPLE_DESC
+
+    def test_verify_restore_empty_captured_refused_before_file_checks(
+        self, tmp_path: Path
+    ) -> None:
+        # the argument is validated before any file I/O, so the empty-capture
+        # refusal is what a caller sees even when the path is wrong
+        result = _run_cli(
+            "verify-restore", str(tmp_path / "missing.md"), "--captured-description", ""
+        )
+        assert result.returncode == 1
+        assert "empty or whitespace-only" in result.stderr

@@ -32,6 +32,9 @@ Subcommands:
          "current_description": "..."}
       If not diverged (including whitespace-only differences), emit
         {"diverged": false, "restored": false, "diff_kind": "none"|"whitespace-only"}
+      An empty or whitespace-only --captured-description is refused with
+      exit 1 before the file is read: there is nothing to restore from, and
+      writing it back would blank the very field this guard protects.
 
 Token-stream comparison is the documented sweet spot — catches replaced
 words, truncation, and reintroduced angle-brackets while ignoring cosmetic
@@ -47,7 +50,8 @@ is auto-resolved:
 
 Exit codes:
   0  — operation succeeded (including no-divergence verify)
-  1  — user error (bad args, file missing, frontmatter unparseable)
+  1  — user error (bad args, empty captured description, file missing,
+       frontmatter unparseable)
   2  — operation failure (restore write failed)
 """
 
@@ -173,6 +177,11 @@ def restore_description(skill_md: Path, captured: str) -> None:
     chooses for each scalar — downstream readers parse YAML, so any valid
     YAML emission is acceptable.
     """
+    if not captured.strip():
+        # Defence in depth for library callers: the CLI refuses this earlier,
+        # but no code path may ever write an empty description.
+        raise ValueError("cannot restore: captured description is empty or whitespace-only")
+
     text = skill_md.read_text(encoding="utf-8")
     leading, fm_yaml, body = _split_frontmatter(text)
     if not fm_yaml:
@@ -238,6 +247,18 @@ def _cmd_capture(args: argparse.Namespace) -> int:
 
 
 def _cmd_verify_restore(args: argparse.Namespace) -> int:
+    captured = args.captured_description
+    if not captured.strip():
+        # Restoring an empty snapshot would blank the field the guard exists
+        # to protect. The snapshot was lost from context, or the description
+        # was already empty before the tool ran; either way there is nothing
+        # to restore, so refuse before touching the file.
+        _fail(
+            "--captured-description is empty or whitespace-only; refusing to "
+            "overwrite the on-disk description with an empty value (the capture "
+            "was lost, or the field was already empty before the tool ran)"
+        )
+
     skill_md = Path(args.skill_md)
     if not skill_md.is_file():
         _fail(f"file not found: {skill_md}")
@@ -246,7 +267,6 @@ def _cmd_verify_restore(args: argparse.Namespace) -> int:
     except ValueError as exc:
         _fail(str(exc))
 
-    captured = args.captured_description
     diff_kind = classify_divergence(captured, current)
     diverged = is_diverged(diff_kind)
 
