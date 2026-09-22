@@ -17,6 +17,10 @@ _bmad-output/
 .claude/
 .cursor/
 
+# Maintainer session memory (IWE store) — not part of the module
+memory/
+.iwe/
+
 # Development tools and config
 test/
 tools/build-docs.js
