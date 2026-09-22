@@ -261,7 +261,7 @@ jobs:
       # -----------------------------------------------------------------
       # Story 3.4 PR-auto-merge flow (main-dispatch only) — issue #198.
       # -----------------------------------------------------------------
-      # Why this exists: ruleset 13855503 rejects `github-actions[bot]`'s direct
+      # Why this exists: the `Default` ruleset rejects `github-actions[bot]`'s direct
       # push to `main` (`GH013: Repository rule violations`). The `bypass_actors`
       # list admits only the Admin RepositoryRole with `bypass_mode: pull_request`,
       # and the repo is user-owned (not org-owned) so a global "GitHub Actions"
@@ -407,7 +407,7 @@ jobs:
         # level dispatch — invisible to the rollup. Poll the commit's check-
         # runs API directly to see all check-runs on the SHA regardless of
         # which check suite created them. Required-context list is fetched
-        # from ruleset 13855503 so the Wait step has a single source of truth
+        # from the `Default` ruleset so the Wait step has a single source of truth
         # with branch protection.
         run: |
           PR_NUMBER="${{ steps.open_pr.outputs.pr_number }}"
@@ -415,11 +415,22 @@ jobs:
           echo "Polling check-runs on $HEAD_SHA (PR #$PR_NUMBER)"
 
           # AC #2: required contexts fetched from the ruleset (not hard-coded)
-          # so the Wait step can never drift from branch protection.
-          REQUIRED_JSON=$(gh api "/repos/${{ github.repository }}/rulesets/13855503" \
+          # so the Wait step can never drift from branch protection. Issue #486:
+          # resolve the ruleset BY NAME, never by id — ids are not stable across
+          # a delete+recreate (RELEASING.md "Baseline snapshots"), and that
+          # recreate is exactly the moment a pinned id would 404 and hard-exit
+          # the release, i.e. while recovering from some earlier incident.
+          RULESET_ID=$(gh api "/repos/${{ github.repository }}/rulesets" \
+            --jq 'map(select(.name=="Default")) | .[0].id // empty' 2>/dev/null || echo "")
+          if [ -z "$RULESET_ID" ]; then
+            echo "::error::No ruleset named \"Default\" on ${{ github.repository }}. Verify: gh api /repos/${{ github.repository }}/rulesets --jq '.[].name'"
+            exit 1
+          fi
+          echo "Resolved ruleset \"Default\" to id $RULESET_ID"
+          REQUIRED_JSON=$(gh api "/repos/${{ github.repository }}/rulesets/$RULESET_ID" \
             --jq '[.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context]' 2>/dev/null || echo "")
           if [ -z "$REQUIRED_JSON" ] || [ "$REQUIRED_JSON" = "[]" ]; then
-            echo "::error::Failed to fetch required-context list from ruleset 13855503. Retry the workflow, or verify: gh api /repos/${{ github.repository }}/rulesets/13855503"
+            echo "::error::Ruleset \"Default\" (id $RULESET_ID) returned no required_status_checks contexts. Retry the workflow, or verify: gh api /repos/${{ github.repository }}/rulesets/$RULESET_ID"
             exit 1
           fi
           REQUIRED_COUNT=$(echo "$REQUIRED_JSON" | jq 'length')
@@ -440,7 +451,7 @@ jobs:
             POLL=$((POLL + 1))
           done
           if [ "${REGISTERED:-0}" -lt 1 ]; then
-            echo "::error::No check-runs registered on $HEAD_SHA within 2m. Likely causes: (a) workflow_dispatch of quality.yaml failed silently at the Force-trigger step (see prior step logs); (b) ruleset required-context list is empty (verify: gh api /repos/.../rulesets/13855503)."
+            echo "::error::No check-runs registered on $HEAD_SHA within 2m. Likely causes: (a) workflow_dispatch of quality.yaml failed silently at the Force-trigger step (see prior step logs); (b) ruleset required-context list is empty (verify: gh api /repos/.../rulesets --jq '.[] | select(.name=="Default") | .id')."
             exit 1
           fi
 
@@ -514,7 +525,7 @@ jobs:
         # The merged-true branch handles the scenario where the maintainer
         # chooses to bypass-merge via admin instead of approving via UI (same
         # pattern used on PRs #195/#196/#197 in this repo, where ruleset
-        # 13855503's bypass_mode: pull_request admits admin merges without a
+        # The `Default` ruleset's bypass_mode: pull_request admits admin merges without a
         # formal review). In that case, `reviewDecision` stays REVIEW_REQUIRED
         # forever and a pure APPROVED-only poll would hang for 30m.
         #
