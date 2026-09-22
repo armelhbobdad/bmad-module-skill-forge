@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [2.2.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v2.1.0...v2.2.0) (2026-09-22)
+
+### Features
+
+* **memory:** enable IWE memory and migrate 291 notes from claude-mem ([1c0aac9](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/1c0aac991a96c65bf0c9764c59859826d2fe6d6a))
+
+### Bug Fixes
+
+* **create-skill:** record and retain the docs-only corpus ([155a01e](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/155a01ece546eec5799ce0783413267bff63aa5f)), closes [#468](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/468) [#475](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/475) [#476](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/476)
+* **description-guard:** refuse to restore an empty captured description ([1e36c31](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/1e36c3143ac92be83931c037301becfe0ef15e24)), closes [#474](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/474)
+* **packaging:** keep the IWE memory store out of the npm tarball ([e456ce0](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/e456ce044555717936f7182b9e54c72190639eea))
+* **skf-setup:** bind ccc_file_count on every ccc-index branch ([b40b94a](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/b40b94a6cb4b1d65d11b5da3479541ae9c65c031)), closes [#473](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/473)
 ## [2.1.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v2.0.2...v2.1.0) (2026-08-07)
 
 ### Fixed
