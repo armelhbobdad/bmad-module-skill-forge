@@ -291,7 +291,10 @@ jobs:
         if: github.ref == 'refs/heads/main'
         id: open_pr
         # AC #2: open a PR from the temp branch to main so branch protection's
-        # 7 required checks gate the release commit. `--body-file` (not --body)
+        # required checks gate the release commit. The count is deliberately not
+        # written here or in the PR body (issue #484): it was stated as 7 long
+        # after `docs-links` made it 8, and the Wait step below enforces the
+        # live list from the ruleset anyway. `--body-file` (not --body)
         # avoids shell-escape hazards on multi-line release notes that may
         # contain backticks / dollar signs / nested code fences.
         run: |
@@ -306,7 +309,7 @@ jobs:
           fi
 
           {
-            echo "Automated release PR opened by \`release.yaml\` run \`${{ github.run_id }}\`. Auto-merges once the 7 required status checks pass and a maintainer approves."
+            echo "Automated release PR opened by \`release.yaml\` run \`${{ github.run_id }}\`. Auto-merges once the required status checks pass and a maintainer approves."
             echo
             echo "## Release notes"
             echo

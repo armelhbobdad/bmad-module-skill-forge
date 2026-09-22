@@ -21,7 +21,7 @@ For background on GitHub rulesets vs legacy branch protection, see the [GitHub r
 | `non_fast_forward`       | Force-push blocked.                                                                                                        |
 | `pull_request`           | Requires ≥ 1 approving review; `require_code_owner_review: true` (see CODEOWNERS note below); merge/squash/rebase allowed. |
 | `code_quality`           | Blocks merge on `severity: errors` from GitHub code-quality checks.                                                        |
-| `required_status_checks` | Merge blocked until all seven `quality.yaml` checks pass (names below).                                                    |
+| `required_status_checks` | Merge blocked until every `quality.yaml` check passes (names below).                                                    |
 
 **Required status checks (8):** sourced from `.github/workflows/quality.yaml` job keys. Matrix jobs expand to `jobname (matrix-value)`:
 
@@ -664,7 +664,7 @@ For the `release` environment, a deletion+restore similarly uses the two-call pa
 
   **NFR6 immutability activation** is the `npm publish --tag latest` success timestamp for `1.0.0`, recorded verbatim in `release-audits/v1.0.0-launch-audit.md § Story 5.3 v1.0.0 Final Cut § NFR6 v1.0.0 immutability activation`. For Story 5.3's dispatch, that instant was **2026-04-23T18:56:39Z**. From that moment, `v1.0.0` is forever-burned — `npm deprecate` + ship-forward is the only rollback path.
 
-  The `release` environment + bot PR approval-or-admin-bypass-merge pattern is the canonical flow for all main-dispatched cuts since Story 3.4 ([GitHub issue #198](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/198), [PR #199](https://github.com/armelhbobdad/bmad-module-skill-forge/pull/199)): the release commit is pushed to a temp branch `release/bot/vX.Y.Z-<run_id>`, a bot PR is opened against `main`, the 7 required status checks are force-triggered against the temp branch via `workflow_dispatch`, and the merge is gated behind maintainer approval at both the `release` environment gate and the PR review-decision gate. Non-main dispatches (feature-branch alpha cuts) skip the PR dance entirely and keep the legacy tag-only behavior.
+  The `release` environment + bot PR approval-or-admin-bypass-merge pattern is the canonical flow for all main-dispatched cuts since Story 3.4 ([GitHub issue #198](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/198), [PR #199](https://github.com/armelhbobdad/bmad-module-skill-forge/pull/199)): the release commit is pushed to a temp branch `release/bot/vX.Y.Z-<run_id>`, a bot PR is opened against `main`, the required status checks are force-triggered against the temp branch via `workflow_dispatch`, and the merge is gated behind maintainer approval at both the `release` environment gate and the PR review-decision gate. Non-main dispatches (feature-branch alpha cuts) skip the PR dance entirely and keep the legacy tag-only behavior.
 
 #### Post-publish verification (NFR9)
 
