@@ -483,6 +483,8 @@ Placeholder substitutions used throughout:
 
   If `state` is not `active` (the GitHub Actions API reports `disabled_manually` when disabled via the UI or `gh workflow disable`), or no matching workflow is returned at all (file renamed, moved, or deleted), Scenario G applies.
 
+  **Known-benign row.** A full listing (without the `select(.name=="Release")` filter) also returns `.github/workflows/env-gate-test.yaml`, a Story 1.2 throwaway whose file exists on no branch and which has no commit in `git log --all`. It was registered through the API rather than a merged file, so deleting the file never pruned it. It read `active` until it was set to `disabled_manually` (issue #485); either way it cannot fire, because a workflow with no file on any ref has nothing to run. Ignore it — it is not a dispatch hole, and it is not evidence that Scenario G applies.
+
 - **Recovery CLI.**
 
   ```bash
