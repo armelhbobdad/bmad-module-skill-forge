@@ -342,13 +342,13 @@ jobs:
         # `pull_request`-triggered workflows (GitHub docs: "events triggered
         # by the GITHUB_TOKEN ... will not create a new workflow run",
         # excepting workflow_dispatch and repository_dispatch). Without this
-        # step, the 7 required contexts would stay in "expected" state forever
+        # step, the required contexts would stay in "expected" state forever
         # and branch protection would block merge indefinitely.
         #
         # Workaround: `workflow_dispatch` is an allowed exception — dispatch
         # quality.yaml against the temp branch so it runs there and posts its
         # check-runs on the PR's head commit. If the posted check-run names do
-        # NOT match the ruleset's 7 required contexts (e.g., namespaced to
+        # NOT match the ruleset's required contexts (e.g., namespaced to
         # `Quality & Validation / prettier`), fall back to path 3.ii (close-
         # reopen) or 3.iii (PAT) in a follow-up patch; issue #198 enumerates
         # all three options.
@@ -423,15 +423,22 @@ jobs:
           # a delete+recreate (RELEASING.md "Baseline snapshots"), and that
           # recreate is exactly the moment a pinned id would 404 and hard-exit
           # the release, i.e. while recovering from some earlier incident.
-          RULESET_ID=$(gh api "/repos/${{ github.repository }}/rulesets" \
-            --jq 'map(select(.name=="Default")) | .[0].id // empty' 2>/dev/null || echo "")
+          # `gh api --jq` SKIPS the filter on a non-2xx and copies the error body to
+          # stdout, so `--jq ... || echo ""` yields `{"message":"Not Found",...}`, not
+          # "" — which would sail straight past the -z guard below. Pipe to jq instead
+          # and require the shape we expect, so any error body becomes empty.
+          RULESET_ID=$(gh api "/repos/${{ github.repository }}/rulesets" 2>/dev/null \
+            | jq -r 'if type=="array" then (map(select(.name=="Default")) | .[0].id // empty) else empty end')
           if [ -z "$RULESET_ID" ]; then
             echo "::error::No ruleset named \"Default\" on ${{ github.repository }}. Verify: gh api /repos/${{ github.repository }}/rulesets --jq '.[].name'"
             exit 1
           fi
           echo "Resolved ruleset \"Default\" to id $RULESET_ID"
-          REQUIRED_JSON=$(gh api "/repos/${{ github.repository }}/rulesets/$RULESET_ID" \
-            --jq '[.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context]' 2>/dev/null || echo "")
+          # Same guard: an error body is an object WITHOUT `rules`, which is neither
+          # empty nor `[]`, so it would pass the check below and the wait loop would
+          # poll for contexts named after the error's own keys until the 20m timeout.
+          REQUIRED_JSON=$(gh api "/repos/${{ github.repository }}/rulesets/$RULESET_ID" 2>/dev/null \
+            | jq -c 'if type=="object" and has("rules") then [.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context] else empty end')
           if [ -z "$REQUIRED_JSON" ] || [ "$REQUIRED_JSON" = "[]" ]; then
             echo "::error::Ruleset \"Default\" (id $RULESET_ID) returned no required_status_checks contexts. Retry the workflow, or verify: gh api /repos/${{ github.repository }}/rulesets/$RULESET_ID"
             exit 1
