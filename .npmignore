@@ -43,9 +43,19 @@ skills/
 __pycache__/
 *.pyc
 
-# Dev-only validation tools (not needed at runtime)
+# Dev-only validation tools (not needed at runtime).
+# NOTE: validate-doc-links.js (singular) and validate-docs-links.js (plural)
+# are two different files that both exist — name both, or the plural one ships.
 tools/validate-skills.js
 tools/validate-file-refs.js
+tools/validate-docs-links.js
+tools/validate-docs-drift.js
+
+# Maintainer-only release material. STABILITY.md is deliberately NOT excluded:
+# it is the public API contract a consumer pinning ^2.0.0 may want to read from
+# the installed package.
+release-audits/
+docs/_internal/RELEASING.md
 
 # Output and temp
 temp/
