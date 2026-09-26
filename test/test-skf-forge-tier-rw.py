@@ -4,7 +4,9 @@
 Highest-value test: round-trip preservation of `qmd_collections`,
 `ccc_index_registry`, and `ccc_index.staleness_threshold_hours` across
 a write-tools call. Losing those arrays would silently break every
-downstream skill that reads them.
+downstream skill that reads them. `ccc_index.exclude_patterns` (the SKF
+exclusion record) is kept when the payload sends null, so a setup run
+that did not reconcile ccc exclusions cannot wipe it.
 """
 
 from __future__ import annotations
@@ -175,8 +177,8 @@ def test_merge_no_existing_file_returns_payload_unchanged():
     assert merged is new_payload
 
 
-def test_merge_does_not_preserve_exclude_patterns():
-    """exclude_patterns is rewritten fresh every run, NOT preserved."""
+def test_merge_replaces_exclude_patterns_when_payload_lists_them():
+    """A payload list replaces the recorded exclude_patterns outright (no union)."""
     new_payload = _baseline_payload()  # has exclude_patterns: ["**/_bmad", ...]
     existing = {
         "ccc_index": {
@@ -187,6 +189,43 @@ def test_merge_does_not_preserve_exclude_patterns():
     merged = mod._merge_preserved_fields(new_payload, existing)
     assert "**/old-stale-pattern" not in merged["ccc_index"]["exclude_patterns"]
     assert merged["ccc_index"]["exclude_patterns"] == ["**/_bmad", "**/_bmad-output"]
+
+
+def test_merge_keeps_recorded_exclude_patterns_when_payload_null():
+    """A null payload value means step 1b did not reconcile — keep the record."""
+    new_payload = _baseline_payload()
+    new_payload["ccc_index"]["exclude_patterns"] = None
+    existing = {"ccc_index": {"exclude_patterns": ["**/_bmad", "skills"]}}
+    merged = mod._merge_preserved_fields(new_payload, existing)
+    assert merged["ccc_index"]["exclude_patterns"] == ["**/_bmad", "skills"]
+
+
+def test_merge_keeps_recorded_exclude_patterns_when_key_absent():
+    new_payload = _baseline_payload()
+    new_payload["ccc_index"].pop("exclude_patterns")
+    existing = {"ccc_index": {"exclude_patterns": ["**/_bmad", "skills"]}}
+    merged = mod._merge_preserved_fields(new_payload, existing)
+    assert merged["ccc_index"]["exclude_patterns"] == ["**/_bmad", "skills"]
+
+
+@pytest.mark.parametrize("recorded", ["skills", {"a": 1}, 7, None])
+def test_merge_null_with_non_list_existing_gives_empty_list(recorded):
+    """A corrupt (non-list) record is not carried forward; null never survives."""
+    new_payload = _baseline_payload()
+    new_payload["ccc_index"]["exclude_patterns"] = None
+    existing = {"ccc_index": {"exclude_patterns": recorded}}
+    merged = mod._merge_preserved_fields(new_payload, existing)
+    assert merged["ccc_index"]["exclude_patterns"] == []
+
+
+def test_render_null_exclude_patterns_first_run_renders_empty_list():
+    """First run with no existing file: a null payload value renders as []."""
+    new_payload = _baseline_payload()
+    new_payload["ccc_index"]["exclude_patterns"] = None
+    merged = mod._merge_preserved_fields(new_payload, None)
+    rendered = mod.render_forge_tier_yaml(merged)
+    assert "exclude_patterns: null" not in rendered
+    assert yaml.safe_load(rendered)["ccc_index"]["exclude_patterns"] == []
 
 
 # ─── End-to-end: write-tools subcommand via subprocess ──────────────────────
@@ -262,6 +301,31 @@ def test_write_tools_default_staleness_does_not_overwrite_user_value(tmp_target)
 
     parsed = _read_yaml_file(tmp_target)
     assert parsed["ccc_index"]["staleness_threshold_hours"] == 48
+
+
+def test_cli_write_tools_null_exclude_patterns_preserves_record(tmp_target):
+    """A run that did not reconcile ccc exclusions (payload null) keeps the record."""
+    # First run without ccc: null on a missing file is accepted and renders [].
+    first = _baseline_payload()
+    first["ccc_index"]["exclude_patterns"] = None
+    assert _write_tools(tmp_target, first)["status"] == "ok"
+    assert _read_yaml_file(tmp_target)["ccc_index"]["exclude_patterns"] == []
+
+    # A reconciling run records the SKF-owned patterns.
+    recorded = ["**/_bmad", "**/_bmad-output", "skills", "_bmad-output/forge-data"]
+    second = _baseline_payload()
+    second["ccc_index"]["exclude_patterns"] = recorded
+    _write_tools(tmp_target, second)
+    assert _read_yaml_file(tmp_target)["ccc_index"]["exclude_patterns"] == recorded
+
+    # A later non-reconciling run sends null: the record survives verbatim.
+    third = _baseline_payload()
+    third["ccc_index"]["exclude_patterns"] = None
+    third["ccc_index"]["status"] = "none"
+    assert _write_tools(tmp_target, third)["status"] == "ok"
+    parsed = _read_yaml_file(tmp_target)
+    assert parsed["ccc_index"]["exclude_patterns"] == recorded
+    assert parsed["ccc_index"]["status"] == "none"
 
 
 def test_write_tools_rejects_payload_missing_required_keys(tmp_target):

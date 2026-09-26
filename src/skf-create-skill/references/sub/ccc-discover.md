@@ -44,7 +44,7 @@ Read `ccc_index` from forge-tier.yaml:
 - If `ccc_index.status` is `"stale"`: display brief note — "CCC index is stale — discovery results may miss recent changes." Continue to section 3.
 - If `ccc_index.status` is `"none"` or `"failed"`: attempt lazy indexing via `ccc_bridge.ensure_index(source_root)`. If indexing succeeds, continue to section 3. If indexing fails, set `{ccc_discovery: []}` and auto-proceed to section 5.
 
-**Tool resolution for ccc_bridge.ensure_index:** Use `/ccc` skill indexing (Claude Code), ccc MCP server (Cursor), or `cd {source_root} && ccc init` + `ccc index` (CLI). Note: `ccc init` takes no positional arguments — it initializes the index for the current working directory. See `knowledge/tool-resolution.md`.
+**Tool resolution for ccc_bridge.ensure_index:** Use `/ccc` skill indexing (Claude Code), ccc MCP server (Cursor), or `cd {source_root} && ccc init` + `ccc index` (CLI). Note: `ccc init` takes no positional arguments — it initializes the index for the current working directory. See `knowledge/tool-resolution.md`. Exception: when `{source_root}` is `{project-root}` and `{project-root}/.cocoindex_code/settings.yml` does not exist, do not run `ccc init` or `ccc index` — `/skf-setup` initializes the project index with the SKF exclusions. Set `{ccc_discovery: []}`, note that re-running `/skf-setup` enables semantic discovery, and auto-proceed to section 5.
 
 ### 3. Construct Semantic Query
 

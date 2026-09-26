@@ -41,9 +41,9 @@ Returns: list of `{file, score, snippet}` entries ranked by semantic relevance t
 
 ### `ccc_bridge.ensure_index(path)`
 
-**Resolves to:** Check `ccc_index.status` in forge-tier.yaml. If `"none"` or the indexed_path does not match, run `cd {path} && ccc init` then `ccc index` and update forge-tier.yaml. Note: `ccc init` takes no positional arguments — it initializes the index for the current working directory.
+**Resolves to:** Check `ccc_index.status` in forge-tier.yaml. If `"none"` or the indexed_path does not match, run `cd {path} && ccc init` then `ccc index` and update forge-tier.yaml. Note: `ccc init` takes no positional arguments — it initializes the index for the current working directory. Exception: when `{path}` is `{project-root}` and `{project-root}/.cocoindex_code/settings.yml` does not exist, do not run `ccc init` or `ccc index` — setup's `skf-merge-ccc-exclusions.py` owns initializing the project root with the SKF exclusions, and in a project nested inside another git checkout `ccc index` would index the enclosing repository instead. Treat the index as unavailable and suggest re-running `/skf-setup`.
 
-**Usage context:** Called by setup step 1b to ensure the project root is indexed. Called lazily by extraction steps when `ccc_index.status` is `"none"` but ccc is available.
+**Usage context:** Called lazily by extraction steps when `ccc_index.status` is `"none"` or `"failed"` but ccc is available. Setup step 1b does not call it: its helper runs `ccc init` and decides whether to index.
 
 ### `ccc_bridge.status()`
 
@@ -79,9 +79,9 @@ The ccc search is invisible in the output artifact. A Forge+ skill's citations a
 
 ### Exclusion Patterns
 
-CCC stores its configuration at `{project-root}/.cocoindex_code/settings.yml`. This file contains `exclude_patterns` and `include_patterns` arrays in glob format. `ccc init` creates the file with sensible defaults (excludes `node_modules`, `__pycache__`, hidden dirs, etc.).
+CCC stores its configuration at `{project-root}/.cocoindex_code/settings.yml`. `ccc init` creates it with `exclude_patterns` and `include_patterns` holding ccc's defaults (hidden directories, `node_modules`, `__pycache__`, its own `.cocoindex_code`, and more) and, at the top of a git checkout, adds `/.cocoindex_code/` to `.gitignore`. An `exclude_patterns` list in the file replaces ccc's default exclusions, so SKF only ever extends a list that `ccc init` wrote.
 
-**SKF infrastructure exclusions:** setup step 1b appends SKF-specific exclusion patterns after `ccc init` creates the default config. These patterns prevent indexing of framework and output directories that have zero value for source extraction:
+**SKF infrastructure exclusions:** setup step 1b runs `skf-merge-ccc-exclusions.py`, which runs `ccc init` when the file is missing, rebuilds a file that lacks the ccc defaults (keeping user entries), and keeps these patterns in it:
 
 | Pattern | Purpose |
 |---------|---------|
@@ -89,12 +89,12 @@ CCC stores its configuration at `{project-root}/.cocoindex_code/settings.yml`. T
 | `**/_bmad-output` | Build output artifacts (TODO files, reports) |
 | `**/.claude` | Claude Code configuration |
 | `**/_skf-learn` | SKF learning materials |
-| `**/{skills_output_folder}` | Generated skill files (from manifest, default: `skills`) |
-| `**/{forge_data_folder}` | Compilation workspace (from manifest, default: `forge-data`) |
+| `{skills_output_folder}` | Generated skill files (default `skills`), anchored to the project root — a nested folder with the same name stays indexed |
+| `{forge_data_folder}` | Compilation workspace (default `forge-data`), anchored to the project root |
 
-The `skills_output_folder` and `forge_data_folder` values are resolved from the workflow activation context (sourced from `_bmad/skf/config.yaml`), falling back to the defaults `skills` and `forge-data`. Patterns are appended only if not already present — user customizations to `settings.yml` are preserved.
+The folder values come from `_bmad/skf/config.yaml` and are used relative to the project root. When git tracks or sees files in one of these folders that SKF did not generate (for example a module whose own source lives under `skills/`), setup leaves that folder out and warns, naming the setting to change.
 
-The configured exclusion patterns are stored in `ccc_index.exclude_patterns` in forge-tier.yaml for reference.
+`ccc_index.exclude_patterns` in forge-tier.yaml records the patterns SKF owns. Each setup run removes a recorded pattern the current config no longer produces (for example after `skills_output_folder` changes), never removes entries it did not add, and keeps the record unchanged on a run without ccc.
 
 ### Deferred Discovery (Remote Sources)
 

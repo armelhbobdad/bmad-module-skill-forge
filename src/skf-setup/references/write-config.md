@@ -36,7 +36,7 @@ Write the detected tool availability and calculated tier to `forge-tier.yaml` (p
 
 ### 1. Write forge-tier.yaml
 
-Build the JSON payload from context flags set by step 1 and step 1b. The payload must include `tools`, `tier`, and `ccc_index`; the script handles `tier_detected_at` defaulting to "now" if absent and preserves `qmd_collections`, `ccc_index_registry`, and a user-customized `ccc_index.staleness_threshold_hours` from any existing file.
+Build the JSON payload from context flags set by step 1 and step 1b. The payload must include `tools`, `tier`, and `ccc_index`; the script handles `tier_detected_at` defaulting to "now" if absent and preserves `qmd_collections`, `ccc_index_registry`, and a user-customized `ccc_index.staleness_threshold_hours` from any existing file, and keeps the existing `ccc_index.exclude_patterns` (the record of SKF-owned ccc exclusions) when `{ccc_exclude_patterns}` is `null`.
 
 Invoke via `uv run`.
 

@@ -25,7 +25,7 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 
 - `--require-tier=<Quick|Forge|Forge+|Deep>` — fail-fast for CI: if the calculated tier does not satisfy the requested tier (tool-prerequisite check, not a name comparison — Deep does NOT subsume Forge+ because Deep does not require ccc), the workflow halts with a "REQUIRED TIER NOT MET" block and exits without chaining to the health check. Pipelines branch on the JSON envelope's `require_tier_satisfied` field.
 - `--orphan-action=<keep|remove>` — resolve the orphan QMD-collection removal gate non-interactively, even outside `--headless`.
-- `--ccc-skip-index` — skip CCC indexing (envelope `ccc_index.status` becomes `"skipped"`) — the fast re-probe lane to refresh the detected tier without paying the full re-index cost.
+- `--ccc-skip-index` — skip building the CCC index (envelope `ccc_index.status` becomes `"skipped"`); ccc settings are still prepared and SKF exclusions kept current — the fast re-probe lane to refresh the detected tier without paying the full re-index cost.
 - `--quiet` — suppress the human-readable FORGE STATUS banner and emit the envelope only.
 - `--headless` / `-H` — see [Headless Mode](#headless-mode) below. For `/skf-setup` specifically, headless mode emits a single-line `SKF_SETUP_RESULT_JSON: {…}` envelope to stdout (schema-locked, includes `status` — the primary branch field — plus `tier`, `previous_tier`, `tier_changed`, `tools`, `tools_added`/`removed`, `files_written`, `warnings`, `error`) and SUPPRESSES the human-readable banner — the entire payload pipelines need is on one parseable line.
 

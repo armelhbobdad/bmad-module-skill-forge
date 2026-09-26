@@ -41,7 +41,7 @@ Prior state lives in two files; the detector helper (§2) reads forge-tier.yaml 
 - Write `{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml` (capability tier + tool state)
 - Write `{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml` (first-run defaults)
 - Create `{forge_data_folder}/` if missing
-- When ccc is available: augment `{project-root}/.cocoindex_code/settings.yml` with SKF exclusion patterns, then create or refresh the project ccc index
+- When ccc is available: prepare `{project-root}/.cocoindex_code/settings.yml` — run `ccc init` if it is missing (in a git checkout this also adds `/.cocoindex_code/` to `.gitignore`), merge the SKF exclusion patterns and remove ones a previous folder config left behind — then create or refresh the project ccc index
 
 **About tiers:** SKF picks one of four tiers (Quick / Forge / Forge+ / Deep) based on which tools are installed. **All four are fully usable** — higher tiers add power, they don't fix gaps. If you're new and only have a base Python install, Quick tier is the right starting point and the report at the end will show you exactly which tools to install if you want to climb later.
 
@@ -53,7 +53,7 @@ Press Esc or Ctrl+C now if this isn't the right project — no files have been w
 
 ### 2. Run Detection Helper
 
-Build the Bash invocation: `uv run {detectToolsHelper} --project-root "{project-root}" --prior-state-from "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"`. If `{tier_override}` is non-null, append `--tier-override "{tier_override}"`. If `{require_tier}` is non-null, append `--require-tier "{require_tier}"`. Then execute. (`--project-root` lets the script compute the CCC-index freshness verdict — `prior.ccc_index_fresh` — so step 1b branches on a boolean instead of doing timestamp math.)
+Build the Bash invocation: `uv run {detectToolsHelper} --project-root "{project-root}" --prior-state-from "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"`. If `{tier_override}` is non-null, append `--tier-override "{tier_override}"`. If `{require_tier}` is non-null, append `--require-tier "{require_tier}"`. Then execute. (`--project-root` lets the script compute the CCC-index freshness verdict — `prior.ccc_index_fresh` — so step 1b works from a boolean instead of doing timestamp math.)
 
 The script (see `src/shared/scripts/skf-detect-tools.py` docstring for the full `DETECT_OUTPUT_SCHEMA`) probes ast-grep / gh / qmd / ccc concurrently with two-step verification for qmd and ccc (binary-identity check + daemon-health check, including the `CocoIndex Code` identity-marker substring check that rejects PATH-shadowing aliases). It applies the 4-rule tier table, performs the tier-override sanity check (override is honored but flagged unsafe when underlying tools are missing), and evaluates `--require-tier` using a tool-prerequisite check (Deep does not subsume Forge+ — Deep does not require ccc). Output is one JSON document on stdout.
 
@@ -101,7 +101,7 @@ From `prior` (populated by `--prior-state-from`; all fields null/empty on first 
 - `{previous_ccc_last_indexed}` ← `prior.previous_ccc_last_indexed`
 - `{previous_ccc_staleness_threshold_hours}` ← `prior.previous_ccc_staleness_threshold_hours`
 - `{previous_ccc_file_count}` ← `prior.previous_ccc_file_count` (integer or null; step 1b carries it forward on the fresh-index path so `forge-tier.yaml` keeps its `file_count` across re-runs that do not re-index)
-- `{ccc_index_fresh}` ← `prior.ccc_index_fresh` (boolean; the script's deterministic freshness verdict — prior index covers this project AND status was fresh/created AND `last_indexed` is within the staleness threshold of now. Step 1b branches on this directly instead of doing timestamp math.)
+- `{ccc_index_fresh}` ← `prior.ccc_index_fresh` (boolean; the script's deterministic freshness verdict — prior index covers this project AND status was fresh/created AND `last_indexed` is within the staleness threshold of now. Step 1b forwards it to its exclusion helper as `--index-fresh`, which folds it into the index decision, instead of doing timestamp math.)
 
 From `deltas` (computed by the script from current tools + prior; eliminates LLM-side set arithmetic in the report banner):
 

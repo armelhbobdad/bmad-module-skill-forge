@@ -24,7 +24,10 @@ Subcommands:
                 on stdin. Preserves `qmd_collections`,
                 `ccc_index_registry`, and the user-customizable
                 `ccc_index.staleness_threshold_hours` from the existing
-                file (if any) by reading it first, then merging.
+                file (if any) by reading it first, then merging, and
+                `ccc_index.exclude_patterns` when the payload sends null
+                (the SKF exclusion record kept across runs that did not
+                reconcile it).
 
   init-prefs    Create preferences.yaml with first-run defaults IF it
                 does not exist. Idempotent — refuses to overwrite an
@@ -219,7 +222,7 @@ def render_forge_tier_yaml(payload: dict) -> str:
         "status": ccc_index.get("status"),
         "staleness_threshold_hours": ccc_index.get("staleness_threshold_hours", DEFAULT_STALENESS_HOURS),
         "file_count": ccc_index.get("file_count"),
-        "exclude_patterns": ccc_index.get("exclude_patterns", []),
+        "exclude_patterns": ccc_index.get("exclude_patterns") or [],
     }
 
     parts = [
@@ -257,13 +260,14 @@ def _yaml_scalar(value) -> str:
 def _merge_preserved_fields(payload: dict, existing: dict | None) -> dict:
     """Inject preserved fields from the existing file into the new payload.
 
-    Three preservation rules (per step 2 §1 "Note on re-runs"):
+    Four preservation rules (per step 2 §1 "Note on re-runs"):
     - `qmd_collections` array — preserved entirely from existing.
     - `ccc_index_registry` array — preserved entirely from existing.
     - `ccc_index.staleness_threshold_hours` scalar — preserved if user set
       a non-default value; else uses payload value or DEFAULT.
-    Note: `ccc_index.exclude_patterns` is NOT preserved (rewritten fresh
-    by step 1b on every run, per the explicit step 2 contract).
+    - `ccc_index.exclude_patterns` array — replaced when the payload
+      carries a list; kept from the existing file when the payload sends
+      null or omits it (an existing value that is not a list becomes []).
     """
     if existing is None:
         return payload
@@ -277,6 +281,9 @@ def _merge_preserved_fields(payload: dict, existing: dict | None) -> dict:
         payload["ccc_index"]["staleness_threshold_hours"] = existing_ccc.get(
             "staleness_threshold_hours", DEFAULT_STALENESS_HOURS
         )
+    if payload["ccc_index"].get("exclude_patterns") is None:
+        prior = existing_ccc.get("exclude_patterns")
+        payload["ccc_index"]["exclude_patterns"] = prior if isinstance(prior, list) else []
     return payload
 
 
