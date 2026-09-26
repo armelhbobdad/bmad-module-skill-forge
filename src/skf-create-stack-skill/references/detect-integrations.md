@@ -139,13 +139,15 @@ For each library pair (A, B):
 
 **CCC Semantic Augmentation (Forge+ and Deep with ccc):**
 
-If `tools.ccc` is true AND `ccc_index.status` is `"fresh"` or `"stale"` in forge-tier.yaml, augment co-import detection with semantic search (max 1 query per library pair):
+If `tools.ccc` is true in forge-tier.yaml, augment co-import detection with semantic search (max 1 query per library pair), with one exception: when `ccc_index.status` is `"none"` or `"failed"`, setup built no project index and this step builds none, so skip augmentation. Every other status augments: `"fresh"`, `"created"`, `"skipped"` (setup's `--ccc-skip-index` lane still wrote `settings.yml` with the SKF exclusions, so the first refresh search builds the index safely), or a status this SKF does not know, such as a `"stale"` an older SKF recorded.
 
 For each library pair with **0 or 1 co-import files** (below the 2-file threshold — S9, symmetric to give the 0-hit case the same chance as the 1-hit case), run `ccc_bridge.search("{libA} {libB}", source_root, top_k=10)` to find files where the two libraries interact semantically — even without explicit import co-location. If CCC returns additional files where both libraries appear, add them to the pair's co-import candidate list and re-evaluate against the 2-file threshold.
 
 **CCC precision guard for 1-file pairs (H3):** When a CCC hit would elevate a 1-file pair to qualifying status, run a post-hoc verification on that file: re-grep the file and confirm it contains explicit import statements for **both** libraries (per the ecosystem import patterns from `{manifestPatternsPath}`). If either import is missing (e.g., one library is only name-dropped in a comment or string), drop the CCC-added file from the candidate list. Only pairs with ≥2 files that each contain explicit imports for both libraries qualify. Log rejected CCC candidates in workflow state for the evidence report.
 
 **Tool resolution for ccc_bridge.search:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `cd {source_root} && ccc search --limit 10 "{libA} {libB}"` (CLI). `ccc search` reads the index in the current working directory and has no project-selector flag (`--path` is a file-path glob filter *within* the index, and the result cap is `--limit`, not `--top`). See `knowledge/tool-resolution.md`.
+
+**Refresh first:** run this step's first search as `cd {source_root} && ccc search --refresh --limit 10 "{libA} {libB}"`, with an extended timeout, because the refresh pass brings the index up to date before searching; later searches in this step can drop `--refresh`. The ccc MCP search tool refreshes by default: leave its `refresh_index` set to true. If the refresh search fails or times out, run the plain search once, with the same timeout, before treating it as a CCC failure.
 
 For pairs that already qualify (2+ files), CCC is not needed for detection — but the CCC results may surface additional integration files for richer classification in section 3.
 

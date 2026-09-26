@@ -38,11 +38,11 @@ If `source_root` is a local path, continue to section 2.
 
 ### 2. Check CCC Index State
 
-Read `ccc_index` from forge-tier.yaml:
+Read `ccc_index` from forge-tier.yaml and branch on `ccc_index.status`:
 
-- If `ccc_index.status` is `"fresh"` or `"created"`: continue to section 3.
-- If `ccc_index.status` is `"stale"`: display brief note — "CCC index is stale — discovery results may miss recent changes." Continue to section 3.
-- If `ccc_index.status` is `"none"` or `"failed"`: attempt lazy indexing via `ccc_bridge.ensure_index(source_root)`. If indexing succeeds, continue to section 3. If indexing fails, set `{ccc_discovery: []}` and auto-proceed to section 5.
+- `"fresh"`, `"created"` or `"skipped"`: continue to section 3. Section 4 searches with `--refresh`, which brings the index up to date first, so its age never needs checking here. `"skipped"` belongs here because setup's `--ccc-skip-index` lane still writes `settings.yml` with the SKF exclusions and only defers the indexing cost: the first refresh search builds the index safely, and takes longer.
+- `"none"` or `"failed"`: attempt lazy indexing via `ccc_bridge.ensure_index(source_root)`. If indexing succeeds, continue to section 3. If indexing fails, set `{ccc_discovery: []}` and auto-proceed to section 5.
+- Any other status, for example a `"stale"` an older SKF recorded: treat it like `"fresh"`.
 
 **Tool resolution for ccc_bridge.ensure_index:** Use `/ccc` skill indexing (Claude Code), ccc MCP server (Cursor), or `cd {source_root} && ccc init` + `ccc index` (CLI). Note: `ccc init` takes no positional arguments — it initializes the index for the current working directory. See `knowledge/tool-resolution.md`. Exception: when `{source_root}` is `{project-root}` and `{project-root}/.cocoindex_code/settings.yml` does not exist, do not run `ccc init` or `ccc index` — `/skf-setup` initializes the project index with the SKF exclusions. Set `{ccc_discovery: []}`, note that re-running `/skf-setup` enables semantic discovery, and auto-proceed to section 5.
 
@@ -63,6 +63,8 @@ Where:
 Run `ccc_bridge.search(query, source_root, top_k=20)`:
 
 **Tool resolution for ccc_bridge.search:** Use `/ccc` skill search (Claude Code), ccc MCP server (Cursor), or `cd {source_root} && ccc search --limit 20 "{query}"` (CLI). Note: `ccc search` operates on the index in the current working directory — there is no flag to specify a project directory. See `knowledge/tool-resolution.md`.
+
+**Setup's index (every section 2 status except `"none"` and `"failed"`):** search with `cd "{source_root}" && ccc search --refresh --limit 20 "{query}"` (the `/ccc` skill or the CLI), with an extended timeout, because the refresh pass runs before the search. The ccc MCP search tool refreshes by default: leave its `refresh_index` set to true. No status says that the index still matches the source (after `"skipped"` there may be no index yet), and a plain `ccc search` does not re-index a project the daemon already has loaded. The pass is incremental: it re-reads `settings.yml`, indexes new and changed files, and drops deleted files and the ones a pattern now leaves out, so on an unchanged project it returns almost as fast as a plain search. If the refresh search fails or times out, run the plain `cd "{source_root}" && ccc search --limit 20 "{query}"` once, with the same timeout, before treating the search as failed: the daemon finishes the pass on its own, and the plain search reads the index as it stands. After lazy indexing in section 2, the plain search is enough.
 
 **If search succeeds:**
 

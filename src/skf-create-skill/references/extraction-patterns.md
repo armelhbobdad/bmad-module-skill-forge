@@ -67,7 +67,7 @@ Identical extraction to Forge tier. CCC adds an upstream semantic discovery step
 CCC pre-discovery runs in ccc-discover (before this extraction step) when ALL of the following are true:
 - Tier is Forge+ or Deep
 - `tools.ccc: true` in forge-tier.yaml
-- `ccc_index.status` is `"fresh"`, `"stale"`, `"created"`, or `"none"`/`"failed"` (step 2b attempts lazy indexing for the latter two)
+- The source index is available: step 2b searches with `--refresh` when `ccc_index.status` is `"fresh"`, `"created"`, `"skipped"` or a status it does not know (such as a `"stale"` an older SKF recorded), and first attempts lazy indexing when it is `"none"` or `"failed"`
 
 The discovery step stores `{ccc_discovery: [{file, score, snippet}]}` in context. This extraction step consumes those results to pre-rank the file list.
 
