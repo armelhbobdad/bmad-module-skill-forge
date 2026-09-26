@@ -7,6 +7,10 @@ Covers the four-state guard from re-extract.md §0.a:
   - ok: HEAD matches pinned (full SHA or short-SHA prefix)
   - mismatch: HEAD differs from pinned (with and without --allow-drift)
 
+Also covers an inherited git environment: GIT_DIR / GIT_INDEX_FILE exported
+by a git hook must not redirect the check (in-process or through the CLI)
+or let a fixture write into another repository's index.
+
 Uses real `git init` in tmp_path so we exercise the actual git invocation
 the script uses.
 """
@@ -38,12 +42,19 @@ spec.loader.exec_module(mod)
 
 
 def _git(cwd: Path, *args: str) -> str:
-    """Run a git command in cwd, return stdout. Fails the test on non-zero."""
+    """Run a git command in cwd, return stdout. Fails the test on non-zero.
+
+    Drops the git location variables, as the helper does, so a fixture never
+    reads or writes the index or repository a git hook exported, including
+    in the tests that set them on purpose.
+    """
+    env = {k: v for k, v in os.environ.items() if k not in mod.GIT_LOCATION_VARS}
     proc = subprocess.run(
         ["git", "-C", str(cwd), *args],
         capture_output=True,
         text=True,
         check=True,
+        env=env,
     )
     return proc.stdout.strip()
 
@@ -232,6 +243,8 @@ class TestMismatch:
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess:
+    """Run the CLI with the environment inherited unchanged, so a test that
+    exports git variables proves the script removes them itself."""
     return subprocess.run(
         [sys.executable, str(SCRIPT_PATH), *args],
         capture_output=True,
@@ -297,3 +310,90 @@ class TestCli:
         result = _run_cli(str(tmp_path))
         assert result.returncode == 2  # argparse convention
         assert "pinned-commit" in result.stderr
+
+
+# --------------------------------------------------------------------------
+# Inherited git environment (git hook, rebase --exec, linked worktree)
+# --------------------------------------------------------------------------
+
+
+def _export_hook_env(monkeypatch, repo: Path) -> None:
+    """Export what a pre-commit hook in a linked worktree receives."""
+    monkeypatch.setenv("GIT_DIR", str(repo / ".git"))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(repo / ".git" / "index"))
+
+
+class TestInheritedGitEnv:
+    def test_git_child_env_drops_location_vars(self, monkeypatch, tmp_path: Path) -> None:
+        captured: dict = {}
+
+        def _fake_run(argv, **kwargs):
+            captured["argv"] = argv
+            captured.update(kwargs)
+            return subprocess.CompletedProcess(argv, 0, stdout="true\n", stderr="")
+
+        for var in mod.GIT_LOCATION_VARS:
+            monkeypatch.setenv(var, str(tmp_path / "leaked"))
+        monkeypatch.setenv("SKF_UNRELATED_VAR", "kept")
+        monkeypatch.setattr(mod.subprocess, "run", _fake_run)
+
+        assert mod._git(["rev-parse", "HEAD"], cwd=tmp_path) == (0, "true", "")
+        assert captured["argv"] == ["git", "-C", str(tmp_path), "rev-parse", "HEAD"]
+        assert set(mod.GIT_LOCATION_VARS).isdisjoint(captured["env"])
+        assert captured["env"]["SKF_UNRELATED_VAR"] == "kept"
+
+    def test_check_reads_source_head_not_the_exported_repo(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        decoy = tmp_path / "decoy"
+        decoy_sha = _init_repo(decoy, initial_content="decoy\n")
+        decoy_index = _git(decoy, "ls-files", "--stage")
+        source_sha = _init_repo(tmp_path / "source")
+        _export_hook_env(monkeypatch, decoy)
+
+        result = mod.check(
+            tmp_path / "source", pinned_commit=source_sha, source_ref=None, allow_drift=False
+        )
+        assert result["status"] == "ok"
+        assert result["head_sha"] == source_sha
+        assert _git(decoy, "rev-parse", "HEAD") == decoy_sha
+        assert _git(decoy, "ls-files", "--stage") == decoy_index
+
+    def test_non_git_folder_still_skips(self, monkeypatch, tmp_path: Path) -> None:
+        decoy = tmp_path / "decoy"
+        _init_repo(decoy, initial_content="decoy\n")
+        plain = tmp_path / "plain"
+        plain.mkdir()
+        _export_hook_env(monkeypatch, decoy)
+
+        result = mod.check(plain, pinned_commit="abc1234567", source_ref=None, allow_drift=False)
+        assert result["status"] == "skipped"
+        assert result["skip_reason"] == "not-a-git-tree"
+
+    def test_cli_reads_source_head_not_the_exported_repo(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        decoy = tmp_path / "decoy"
+        _init_repo(decoy, initial_content="decoy\n")
+        source_sha = _init_repo(tmp_path / "source")
+        _export_hook_env(monkeypatch, decoy)
+
+        result = _run_cli(str(tmp_path / "source"), "--pinned-commit", source_sha)
+        assert result.returncode == 0, result.stdout + result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["status"] == "ok"
+        assert payload["head_sha"] == source_sha
+
+    def test_fixture_never_writes_an_exported_index(
+        self, monkeypatch, tmp_path: Path
+    ) -> None:
+        # `git commit -a` exports an absolute GIT_INDEX_FILE and no GIT_DIR.
+        decoy = tmp_path / "decoy"
+        _init_repo(decoy, initial_content="decoy\n")
+        decoy_index = _git(decoy, "ls-files", "--stage")
+        monkeypatch.setenv("GIT_INDEX_FILE", str(decoy / ".git" / "index"))
+
+        _init_repo(tmp_path / "source")
+        _add_commit(tmp_path / "source")
+        assert _git(decoy, "ls-files", "--stage") == decoy_index
+        assert _git(tmp_path / "source", "ls-files") == "file.txt"

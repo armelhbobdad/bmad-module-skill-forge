@@ -255,6 +255,7 @@ CCC_INIT_TIMEOUT_SEC = 75
 GIT_TIMEOUT_SEC = 10
 SAMPLE_SIZE = 3
 INDEX_ACTIONS = ("index", "keep", "skip", "fail")
+# Keep identical to GIT_LOCATION_VARS in skf-check-workspace-drift.py.
 GIT_LOCATION_VARS = (
     "GIT_DIR",
     "GIT_WORK_TREE",

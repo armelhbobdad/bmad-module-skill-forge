@@ -57,7 +57,10 @@ If `npm run quality` passes locally, CI should too. The same steps run in [`.git
    `git log --oneline -20` is the authoritative style guide. Match what you see.
 
 3. **Reference issues with `Fixes #NNN`** in the PR body (and optionally in the commit trailer). Use **same-repo GitHub issue numbers only** — do not reference internal IDs under `_bmad-output/todo/` or elsewhere; those are author notes, not public contracts.
-4. **Pre-commit hooks run automatically** via husky + lint-staged: `eslint --fix`, `prettier --write`, and `markdownlint-cli2` on `.md` files. They run on staged files only.
+4. **The pre-commit hook runs automatically** via husky, in this order:
+   - lint-staged. Staged JS runs `npm run lint:fix` and `npm run format:fix`, staged YAML runs `eslint --fix` on those files and `format:fix`, and staged JSON runs `format:fix`. Those two scripts cover the whole repository, not only what you staged. Staged `.md` files are linted with markdownlint, and staged `.astro` files are formatted with Prettier.
+   - It clears git's repository variables (such as `GIT_DIR` and `GIT_INDEX_FILE`), so the git repositories the tests create never touch the commit being made.
+   - The full `npm test` suite, so a commit takes as long as a test run.
 5. **PR description:** explain _why_. What was broken, what does this change, and how did you verify it? Keep it honest and short. The template in [.github/](.github/) is a starting point; ignore the sections that don't apply.
 6. **If you used Claude (or any AI assistant)** to help write a non-trivial chunk of the change, add a `Co-Authored-By:` trailer to the commit — SKF's recent history uses the format:
 

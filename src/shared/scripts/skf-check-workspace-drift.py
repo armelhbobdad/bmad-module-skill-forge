@@ -16,6 +16,12 @@ but the prose form asked the LLM to chain them per run, with subtle short-
 SHA prefix matching and skip-paths for non-git workspaces. This script bakes
 the dispatch in.
 
+git runs with the git location variables (GIT_DIR, GIT_INDEX_FILE, ...)
+removed from its environment. A git hook or `git rebase --exec` exports
+them (GIT_DIR too when run in a linked worktree); inherited by
+`git -C <source-root>`, they would make the check read another
+repository's HEAD.
+
 CLI:
   uv run skf-check-workspace-drift.py <source-root> \\
       --pinned-commit <SHA or empty> \\
@@ -59,6 +65,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -67,6 +74,17 @@ from pathlib import Path
 
 SKIP_NO_PINNED = "no-pinned-commit"
 SKIP_NOT_GIT = "not-a-git-tree"
+# Keep identical to GIT_LOCATION_VARS in skf-merge-ccc-exclusions.py.
+GIT_LOCATION_VARS = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_PREFIX",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_NAMESPACE",
+)
 
 
 # --------------------------------------------------------------------------
@@ -75,12 +93,18 @@ SKIP_NOT_GIT = "not-a-git-tree"
 
 
 def _git(args: list[str], *, cwd: Path) -> tuple[int, str, str]:
-    """Run a git command; return (rc, stdout, stderr). Stdout/stderr stripped."""
+    """Run a git command; return (rc, stdout, stderr). Stdout/stderr stripped.
+
+    The git location variables are dropped from the child's environment
+    (see the module docstring).
+    """
+    env = {k: v for k, v in os.environ.items() if k not in GIT_LOCATION_VARS}
     proc = subprocess.run(
         ["git", "-C", str(cwd), *args],
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
     return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
 
