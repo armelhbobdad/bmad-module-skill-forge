@@ -17,7 +17,7 @@ emitEnvelopeProbeOrder:
 
 ## STEP GOAL:
 
-Display the forge status report with positive capability framing, surface tier changes and tool-set deltas on re-runs, prominently flag a required-tier miss, and (when headless) emit the schema-locked `SKF_SETUP_RESULT_JSON` envelope via `{emitEnvelopeHelper}`.
+Display the forge status report with positive capability framing, surface tier changes and tool-set deltas on re-runs, prominently flag a required-tier miss, and (when headless or quiet) emit the schema-locked `SKF_SETUP_RESULT_JSON` envelope via `{emitEnvelopeHelper}`.
 
 ## Rules
 
@@ -27,6 +27,9 @@ Display the forge status report with positive capability framing, surface tier c
 - Use tier capability descriptions from tier-rules.md
 - Never inline-render the envelope JSON — the script owns the schema; drift breaks pipelines
 - Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing status report is not the terminal step
+- Display messages only when `{headless_mode}` and `{quiet_mode}` are both false; the one exception is the envelope line section 4 builds, which section 5 displays on a tier miss and the shared health check displays last otherwise
+- When `{headless_mode}` or `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
+- If section 4 finds no existing path in `emitEnvelopeProbeOrder`, halt with phase `step 4:helper-missing`, `path` set to its first entry, and reason `Setup cannot proceed: skf-emit-result-envelope.py was not found. Reinstall SKF, then re-run /skf-setup.` With no envelope helper to call, display that reason alone as the run's one line (the SKILL.md halt contract)
 
 ## MANDATORY SEQUENCE
 
@@ -169,7 +172,7 @@ When the block does fire (interactive run with require-tier failure):
 
 ### 4. Emit Headless JSON Envelope
 
-When `{headless_mode}` is `true` OR `{quiet_mode}` is `true`, build the context payload from this step's accumulated flags and forward it to `{emitEnvelopeHelper}` on stdin. Invoke via `uv run`. The script computes derived fields (`tools_added`, `tools_removed`, `tier_changed`, `warnings`), validates the assembled envelope against the JSON Schema at `src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`, and emits the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` on stdout.
+When `{headless_mode}` is `true` OR `{quiet_mode}` is `true`, build the context payload from this step's accumulated flags and forward it to `{emitEnvelopeHelper}` on stdin. Invoke via `uv run`. The script computes derived fields (`tools_added`, `tools_removed`, `tier_changed`, `warnings`), validates the assembled envelope against the JSON Schema at `src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`, and emits the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` on stdout. Bind `{setup_envelope_line}` ← that stdout line, and do not display it here. It is the only line a headless or quiet run displays, and in a standalone run it must be the run's final message: `claude -p` prints only the final message, and the health check still runs after this step. Section 5 displays it on a tier miss; otherwise the shared health check displays it when it stops (its §0). Either way it is displayed verbatim as its own line — no code fence, no preface, no commentary — with nothing of setup's after it. When `{pipeline_mode}` is true, control then returns to the forger, which keeps chaining.
 
 ```bash
 echo '{
@@ -207,13 +210,13 @@ echo '{
 
 The script's documented context-payload shape (see `src/shared/scripts/skf-emit-result-envelope.py` docstring) tolerates two `tools` shapes — bare booleans OR `skf-detect-tools.py`'s `{key: {available: bool, ...}}` output — so either step 1's normalized booleans OR the raw detect-tools output forwarded as-is will produce the correct envelope.
 
-**If the script exits non-zero:** the assembled envelope failed schema validation, which means a context flag from an earlier step is malformed. Surface the error to stderr and continue (missing JSON envelope on a headless run is a degraded but non-fatal state — the pipeline observer will see no envelope and treat that as "agent did not complete cleanly").
+**If the script exits non-zero:** the assembled envelope failed schema validation, which means a context flag from an earlier step is malformed. Set `{setup_envelope_line}` to the empty string. Display nothing and continue (a missing JSON envelope on a headless or quiet run is a degraded but non-fatal state — the pipeline observer will see no envelope and treat that as "agent did not complete cleanly").
 
 ### 5. Chain to Health Check
 
-After the forge status report (and any failure block + JSON envelope) has been displayed:
+After the forge status report and any failure block have been displayed (under headless or quiet, once `{setup_envelope_line}` is bound):
 
-- If `{require_tier_satisfied}` is `false`, halt the workflow here without chaining to step 5. The tier miss is terminal; `{onCompleteCommand}` does not fire on a failed run.
-- Otherwise the forge is fully configured. If `{onCompleteCommand}` (resolved from `workflow.on_complete` at activation) is non-empty, execute it now — this is the workflow's terminal skill-specific action (e.g. trigger the first index build or notify an onboarding channel); in headless, log the action. Then load `{nextStepFile}`, read it fully, and execute it.
+- If `{require_tier_satisfied}` is `false`, halt the workflow here without chaining to step 5. When `{headless_mode}` or `{quiet_mode}` is true, display `{setup_envelope_line}` verbatim as the run's final message in a standalone run (nothing when it is empty); when `{pipeline_mode}` is true, control then returns to the forger, which reads the envelope's `tier_failure` status. This halt emits no blocked envelope: the `tier_failure` envelope is its one line. The tier miss is terminal; `{onCompleteCommand}` does not fire on a failed run.
+- Otherwise the forge is fully configured. If `{onCompleteCommand}` (resolved from `workflow.on_complete` at activation) is non-empty, execute it now — this is the workflow's terminal skill-specific action (e.g. trigger the first index build or notify an onboarding channel); when `{headless_mode}` or `{quiet_mode}` is true, display nothing about it. Then load `{nextStepFile}`, read it fully, and execute it; under headless or quiet, the shared health check it chains to ends setup's output with `{setup_envelope_line}`.
 
 The health-check step is the true terminal step on success — do not stop after the report on a passing run even though it reads as final. Step 5 in turn delegates to `shared/health-check.md`; after that returns, the setup workflow is fully done.

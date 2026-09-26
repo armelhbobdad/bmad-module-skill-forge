@@ -8,6 +8,11 @@ nextStepFile: 'write-config.md'
 mergeCccExclusionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-merge-ccc-exclusions.py'
   - '{project-root}/src/shared/scripts/skf-merge-ccc-exclusions.py'
+# `{emitEnvelopeHelper}` = first existing path in `{emitEnvelopeProbeOrder}`,
+# for the blocked envelope a halt in this step emits under headless or quiet.
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 ---
 
 <!-- Config: communicate in {communication_language}. User-visible status messages (indexing progress message) render in the user's language. -->
@@ -25,7 +30,10 @@ For Quick and Forge tiers, or when ccc is unavailable, skip silently and proceed
 - The script owns `ccc init`, every `settings.yml` edit and the index decision — do not run `ccc init` or edit `settings.yml` yourself, and run `ccc index` only when `{ccc_index_action}` is `"index"`
 - Do not fail the workflow if settings preparation or ccc indexing fails
 - Every branch that leaves this step binds all four of `ccc_index_result`, `ccc_indexed_path`, `ccc_last_indexed`, and `ccc_file_count` — step 2 interpolates each bare into the `write-tools` JSON payload, so an unbound flag would emit its literal placeholder and fail the forge-tier.yaml write
-- Display progress messages only when `{headless_mode}` and `{quiet_mode}` are both false
+- Display messages only when `{headless_mode}` and `{quiet_mode}` are both false; the one exception is the envelope line a halt displays
+- When `{headless_mode}` or `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
+- If no path in `mergeCccExclusionsProbeOrder` exists when section 2 runs (an install fault, not a settings failure), halt with phase `step 1b:helper-missing`, `path` set to its first entry, and reason `Setup cannot proceed: skf-merge-ccc-exclusions.py was not found. Reinstall SKF, then re-run /skf-setup.`
+- Every halt follows the SKILL.md halt contract: when `{headless_mode}` or `{quiet_mode}` is true, pipe `{phase, reason, path}` to `uv run {emitEnvelopeHelper} emit-blocked` and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
 
 ## MANDATORY SEQUENCE
 

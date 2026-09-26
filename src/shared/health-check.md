@@ -16,7 +16,7 @@ liveSubmitSeverities: ['bug']  # friction/gap go local-queue-default with explic
 
 Reflect on the workflow that just completed. If real friction, bugs, or gaps were encountered in the SKF workflow instructions, capture them as structured findings for the user to review and optionally submit as GitHub issues.
 
-**Zero overhead for clean runs.** If nothing went wrong, say so and exit immediately.
+**Zero overhead for clean runs.** If nothing went wrong, say so (or, on an envelope-only run, display only the setup envelope — see §0) and exit immediately.
 
 ## MANDATORY EXECUTION RULES:
 
@@ -42,11 +42,13 @@ Reflect on the workflow that just completed. If real friction, bugs, or gaps wer
 
 ### 0. Announce Arrival
 
+**Envelope-only runs.** Treat `{quiet_mode}` as true only when the workflow that loaded this step is skf-setup and it set `{quiet_mode}` to true. In every other case (unset, another workflow ran, or the user asked for this health check directly) treat it as false. skf-setup sets it under `--quiet` or in headless mode because its result envelope must be the only line setup displays. When it is true, this whole step displays nothing of its own and writes no text between tool calls: skip this announcement and its headless log, and queue any findings locally through **[Q]** without presenting them (§3, §4). Wherever it stops (the clean-run stop in §2, or the end of §5c), it displays skf-setup's `{setup_envelope_line}` verbatim after every tool call, with no code fence and nothing of this step's own before or after it (nothing at all if that line is empty). In a standalone setup run that line is the final message, because `claude -p` prints only the final message. When `{pipeline_mode}` is true, skf-setup is one step of a forger pipeline: control then returns to the forger, which keeps chaining.
+
 **Display in `{communication_language}`:**
 
 "**Running a quick self-improvement check on this workflow.** If nothing rough came up, I'll close out immediately."
 
-**GATE [default: skip]** — If `{headless_mode}`: skip the display entirely, log: "headless: skipped health-check arrival announcement".
+**GATE [default: skip]** — If `{quiet_mode}` is true: skip the display and log nothing. Otherwise, if `{headless_mode}`: skip the display entirely, log: "headless: skipped health-check arrival announcement".
 
 **If interactive:** display the line above, then proceed to step 1 (Read Workflow Context) without waiting. The line is informational, not a commitment gate — the user's commitment to continuing was already captured upstream (either via an explicit menu in the calling step or by auto-chain). This announcement just tells them what is about to happen.
 
@@ -68,7 +70,7 @@ Silently review the workflow execution. Ask yourself:
 
 **If the answer to ALL of these is "no":**
 
-Display:
+If `{quiet_mode}` is true, display only `{setup_envelope_line}` (§0). Otherwise display:
 
 "**Health Check: Clean run.** No workflow issues to report.
 
@@ -77,6 +79,8 @@ Workflow complete."
 **STOP HERE. Do not proceed further. The workflow is done.**
 
 ### 3. Present Findings (Only If Issues Exist)
+
+**If `{quiet_mode}` is true:** do not present the findings. Go to §4, which chooses **[Q]** without displaying anything, so every finding, whatever its severity, is written to the local queue per §5c and nothing is submitted to GitHub.
 
 For each genuine finding, present it in this format:
 
@@ -112,13 +116,16 @@ For each genuine finding, present it in this format:
 
 ### 4. User Review Gate
 
-After presenting all findings, ask:
+**GATE [default: Q]** — If `{quiet_mode}` is true, choose **[Q]** without displaying anything. Otherwise, if `{headless_mode}` is true, choose **[Q]** and log: "headless: queued {N} finding(s) locally". In both cases skip the question below and go to Menu Handling: live submission always needs an interactive **[Y]**.
+
+**If interactive:** after presenting all findings, ask:
 
 "**Submit these findings?**
 
 - **[Y]** Yes — submit all findings
 - **[N]** No — discard all findings
 - **[E]** Edit — let me revise before submitting
+- **[Q]** Queue locally — save every finding to {localFallbackFolder}/, submit nothing
 
 _You are the final filter. Reject any finding that doesn't reflect a real issue you observed._"
 
@@ -129,6 +136,7 @@ _You are the final filter. Reject any finding that doesn't reflect a real issue 
 - **IF Y:** Proceed to step 5
 - **IF N:** Display "Findings discarded. Workflow complete." — STOP
 - **IF E:** Let user specify which findings to keep, modify, or remove. Then re-present the revised list and ask again.
+- **IF Q:** Compute each finding's fingerprint as §5a sub-step 1 describes, then write every finding, whatever its severity, to the local queue per §5c — STOP after §5c
 
 ### 5. Route Each Finding by Severity
 
@@ -148,6 +156,12 @@ fp="fp-$(printf '%s|%s|%s|%s' "{severity}" "{workflow}" "{step_file}" "{section-
 ```
 
 The `section-slug` is a kebab-case normalized section heading (e.g. `missing-staging-path`). Never include line numbers — they drift when files are edited.
+
+`sha1sum` is not on stock macOS or Windows. On macOS, use `shasum -a 1` in its place. Anywhere neither exists, this prints the same 7 hex characters, to prefix the same way:
+
+```
+uv run python -c "import hashlib,sys; print(hashlib.sha1(sys.argv[1].encode()).hexdigest()[:7])" "{severity}|{workflow}|{step_file}|{section-slug}"
+```
 
 **2. Check the local seen-cache** at `{seenCachePath}`:
 
@@ -339,11 +353,11 @@ Ensure the parent directory exists. This file is global across the user's machin
 
 **The `action` vocabulary is `created`, `reacted`, `commented`, `resolved`.** The first three are written by this workflow. `resolved` is written by hand when the defect is fixed, and it is the only one that does not suppress. See the health-check section of `CONTRIBUTING.md` for when to record it.
 
-### 5c. Local-Queue Path (gh unavailable OR friction/gap default)
+### 5c. Local-Queue Path (gh unavailable, friction/gap default, or Queue locally)
 
-For findings that didn't go live (gh unavailable, user declined the friction/gap opt-in, or user chose **\[S]** at the dedup gate), write a local file to `{localFallbackFolder}/`:
+For findings that didn't go live (gh unavailable, user declined the friction/gap opt-in, user chose **\[S]** at the dedup gate, or the §4 review gate resolved to **\[Q]**), write a local file to `{localFallbackFolder}/`:
 
-**Filename:** `hc-{workflow}-{timestamp}.md` (one file per finding, timestamp as YYYYMMDD-HHmmss)
+**Filename:** `hc-{workflow}-{timestamp}.md` (one file per finding, timestamp as YYYYMMDD-HHmmss; when findings share a timestamp, append `-2`, `-3`, … to the later names so no file is overwritten)
 
 **File content:** Same structured format as the issue body above, with YAML frontmatter:
 
@@ -358,12 +372,12 @@ date: {ISO date}
 ---
 ```
 
-After writing all files, display:
+After writing all files, if `{quiet_mode}` is true, display only `{setup_envelope_line}` (§0) and stop. Otherwise display the block below. `{reason}` is the sentence that says why the findings stayed local: "GitHub CLI is not available.", "Friction and gap findings stay local unless you opt in.", "You skipped these at the dedup gate." or "The review gate queued these locally."
 
 "**{N} finding(s) saved locally:**
 {list each file path}
 
-GitHub CLI is not available. To submit these as issues, run:
+{reason} To submit these as issues, run:
 `gh issue create --repo {healthCheckRepo} --title \"[title]\" --body-file {file-path}`
 
 Or open them manually at: <https://github.com/{healthCheckRepo}/issues/new/choose>
@@ -374,7 +388,7 @@ Workflow complete."
 
 ## CRITICAL STEP COMPLETION NOTE
 
-This is the TERMINAL step — shared across all SKF workflows. After the health check completes (clean run or findings submitted/discarded), the workflow is fully done. No further steps to load.
+This is the TERMINAL step — shared across all SKF workflows. After the health check completes (clean run, or findings submitted, queued or discarded), the workflow is fully done. No further steps to load.
 
 ---
 
@@ -397,7 +411,7 @@ This is the TERMINAL step — shared across all SKF workflows. After the health 
 
 - Fabricating issues that were not actually encountered during the session
 - Reporting vague issues without step file citations ("the workflow was confusing")
-- Skipping the user review gate
+- Skipping the user review gate (resolving it to its listed headless default **\[Q]** is not skipping it: nothing is submitted)
 - Creating issues without user confirmation
 - Creating a new issue when a matching `fp-*` open issue already exists (without explicit user \[N] override)
 - Submitting `friction` or `gap` findings live without the explicit severity-gate opt-in

@@ -95,6 +95,7 @@ pipeline:
     - {code: AN, status: ok, output: {units: 3, briefs: [...]}}
   pending: [CS, TS, EX]
   data:
+    pipeline_mode: true     # forwarded to each workflow; marks pipeline context even when the alias is null
     pipeline_alias: "forge" # forwarded to each workflow's data context (consumed by TS init.md §1b for per-pipeline threshold lookup)
     skill_name: "cocoindex"
     brief_path: "/path/to/skill-brief.yaml"

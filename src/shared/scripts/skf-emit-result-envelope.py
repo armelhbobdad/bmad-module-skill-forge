@@ -54,12 +54,12 @@ Context payload shape (consumed by `emit`):
     "ccc_exclusion_warnings":        ["string", ...],
     "ccc_registry_stale_removed":    ["/path", ...],
     "ccc_indexing_failed_reason":    "string|null",
-    "orphan_auto_resolution":        null|{"action": "keep|remove", "count": int, "source": "headless-default|orphan-action-flag"},
+    "orphan_auto_resolution":        null|{"action": "keep|remove", "count": int, "source": "headless-default|quiet-default|orphan-action-flag"},
     "error":                         null|{"phase","path","reason"}
   }
 
   When the step-3 orphan-removal gate is resolved non-interactively
-  (headless default Keep, or an explicit --orphan-action), pass
+  (headless or quiet default Keep, or an explicit --orphan-action), pass
   `orphan_auto_resolution` so the audit trail lands in `warnings` —
   most importantly when the destructive `remove` ran headlessly, which a
   pipeline otherwise could not distinguish from a no-op by reading the

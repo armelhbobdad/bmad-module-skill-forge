@@ -30,6 +30,8 @@ Read `campaign.health_findings_queue` from `{stateFile}` and carry it into the s
 
 If the state file is unreadable, default to `"local"` (never submit without consent).
 
+The consent covers only the shared step's friction/gap opt-in, which follows an interactive **[Y]** at its review gate. Under `{headless_mode}` that gate takes its listed default **[Q]**, so every finding is queued locally whatever this setting says.
+
 ### 2. Delegate
 
 Load `{nextStepFile}`, read it fully, then execute it — applying the routing consent from step 1.

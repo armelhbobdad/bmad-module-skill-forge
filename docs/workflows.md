@@ -23,11 +23,11 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 
 **Flags:**
 
-- `--require-tier=<Quick|Forge|Forge+|Deep>` — fail-fast for CI: if the calculated tier does not satisfy the requested tier (tool-prerequisite check, not a name comparison — Deep does NOT subsume Forge+ because Deep does not require ccc), the workflow halts with a "REQUIRED TIER NOT MET" block and exits without chaining to the health check. Pipelines branch on the JSON envelope's `require_tier_satisfied` field.
-- `--orphan-action=<keep|remove>` — resolve the orphan QMD-collection removal gate non-interactively, even outside `--headless`.
+- `--require-tier=<Quick|Forge|Forge+|Deep>` — fail-fast for CI: if the calculated tier does not satisfy the requested tier (tool-prerequisite check, not a name comparison — Deep does NOT subsume Forge+ because Deep does not require ccc), the workflow halts without chaining to the health check. Interactive runs show a "REQUIRED TIER NOT MET" block; `--headless` and `--quiet` runs show only the envelope, with `status: "tier_failure"`. Pipelines branch on the JSON envelope's `require_tier_satisfied` field.
+- `--orphan-action=<keep|remove>` — resolve the orphan QMD-collection removal gate non-interactively, even outside `--headless`. Without it, `--headless` and `--quiet` keep the orphaned collections.
 - `--ccc-skip-index` — skip building the CCC index (envelope `ccc_index.status` becomes `"skipped"`); ccc settings are still prepared and SKF exclusions kept current — the fast re-probe lane to refresh the detected tier without paying the full re-index cost.
-- `--quiet` — suppress the human-readable FORGE STATUS banner and emit the envelope only.
-- `--headless` / `-H` — see [Headless Mode](#headless-mode) below. For `/skf-setup` specifically, headless mode emits a single-line `SKF_SETUP_RESULT_JSON: {…}` envelope to stdout (schema-locked, includes `status` — the primary branch field — plus `tier`, `previous_tier`, `tier_changed`, `tools`, `tools_added`/`removed`, `files_written`, `warnings`, `error`) and SUPPRESSES the human-readable banner — the entire payload pipelines need is on one parseable line.
+- `--quiet` — the same envelope-only output as `--headless`, for pipelines and expert re-runs: the `SKF_SETUP_RESULT_JSON` envelope takes the place of the FORGE STATUS banner and the health-check output, and the orphan gate keeps orphaned collections instead of asking.
+- `--headless` / `-H` — see [Headless Mode](#headless-mode) below. For `/skf-setup` specifically, headless mode emits a single-line `SKF_SETUP_RESULT_JSON: {…}` envelope to stdout (schema-locked, includes `status` — the primary branch field — plus `tier`, `previous_tier`, `tier_changed`, `tools`, `tools_added`/`removed`, `files_written`, `warnings`, `error`) in place of the status banner and the health-check output. The entire payload pipelines need is on one parseable line, and that line is the run's final message, so it is all `claude -p` prints.
 
 **Agent:** Ferris (Architect mode)
 
@@ -395,7 +395,7 @@ Add `--headless` or `-H` to any workflow command to skip all confirmation gates.
 
 You can also set `headless_mode: true` in your forge preferences (`_bmad/_memory/forger-sidecar/preferences.yaml`) to make headless the default for all workflows.
 
-**Exception — `/skf-setup` headless emits a single-line JSON envelope.** Unlike other workflows, headless `/skf-setup` SUPPRESSES the human-readable status banner entirely and emits exactly one prefixed line on stdout:
+**Exception — `/skf-setup` headless emits a single-line JSON envelope.** Unlike other workflows, headless (or `--quiet`) `/skf-setup` skips its status banner, progress lines and health-check output and ends on one prefixed envelope line. What setup guarantees is that this line is the run's final message, so it is exactly what `claude -p` prints; an interactive session or a `stream-json` reader may still see brief agent notes between tool calls. On success the health check runs first and the envelope follows it. On a tier miss or a halt the health check does not run, and the `status: "tier_failure"` envelope, or a `status: "blocked"` envelope whose `error.reason` carries the diagnostic, is the final message. One case has no envelope: when SKF's scripts are not installed in the project (a directory that is not an SKF project, or a helper-missing halt because they are gone), there is no helper to build one, so the run's one line is the bare halt reason. Pipelines should treat a missing envelope as a failure. When the forger runs `SF` as one step of a pipeline, setup displays the same line and hands control back to the forger, which keeps chaining. The success envelope looks like this:
 
 ```
 SKF_SETUP_RESULT_JSON: {"skf_setup":{"status":"success","tier":"Deep","previous_tier":"Forge","tier_changed":true,"tools":{...},"tools_added":[...],"tools_removed":[],"config_path":"...","ccc_index":{...},"files_written":[...],"tier_override_active":false,"tier_override_invalid":false,"require_tier_satisfied":null,"warnings":[],"error":null}}
@@ -459,7 +459,7 @@ Parent skills and CI pipelines `grep` one line out of the workflow log to learn 
 
 ## Terminal Step: Health Check
 
-All 15 workflows above share the same final step — a **health check** defined in [`src/shared/health-check.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/shared/health-check.md). This isn't a workflow you invoke directly; there's no command code and no menu entry. Each workflow ends with a dedicated local `step-NN-health-check.md` whose `nextStepFile` points at the shared file, so the health check fires automatically once the main work is done. After the main work is done, Ferris reflects internally on the execution:
+All 15 workflows above share the same final step — a **health check** defined in [`src/shared/health-check.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/shared/health-check.md). This isn't a workflow you invoke directly; there's no command code and no menu entry. Each workflow ends with a local relay step, `references/health-check.md`, whose `nextStepFile` points at the shared file, so the health check fires automatically once the main work is done. After the main work is done, Ferris reflects internally on the execution:
 
 - Did any step instruction lead the agent astray or cause unnecessary back-and-forth?
 - Was any step ambiguous, forcing the agent to guess?
@@ -467,6 +467,8 @@ All 15 workflows above share the same final step — a **health check** defined 
 - Were any instructions wrong or contradictory?
 
 If the answer to all of these is "no", the health check exits in one line (`Clean run. No workflow issues to report.`). If real friction was observed, Ferris presents structured findings, waits for your review, and — on your approval — routes them to this repo.
+
+In headless mode the review gate takes its listed default, **[Q] Queue locally**: every finding is saved to `{forge_data_folder}/improvement-queue/` and nothing is submitted. Under `/skf-setup --headless` or `--quiet` the health check displays nothing of its own: it closes setup with the setup envelope, and any findings go to the local queue for you to review later.
 
 **Zero overhead for clean runs. High leverage when something breaks.** The health check is honest-by-default: zero findings is the expected outcome. Fabricated issues would hurt the signal, so Ferris only reports what the agent actually experienced.
 
