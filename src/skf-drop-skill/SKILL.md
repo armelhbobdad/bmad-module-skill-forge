@@ -29,8 +29,9 @@ These rules apply to every step in this workflow:
 
 - Never delete files in purge mode without clearing the §10 confirmation gate (auto-resolved with its default in headless)
 - Never drop an active version when other non-deprecated versions exist — enforce the active version guard
+- Never purge content SKF did not generate — select.md §3, §4 and §8b check each folder's `ownership`, and a purge SKF cannot check is refused
 - Only load one step file at a time — never preload future steps
-- If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread
+- If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread — except the ownership check: never decide by hand whether SKF generated a folder; without the inventory helper, select.md offers manifest skills only and refuses every purge
 - Always communicate in `{communication_language}`
 - At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision
@@ -52,7 +53,7 @@ These rules apply to every step in this workflow:
 | **Flags** | `--headless` / `-H` (auto-resolve all gates); `--dry-run` (run selection + display the §10 confirmation block, then exit with `status="dry-run"` — no manifest mutation, no file deletion). Useful for "show me what this would touch before I commit." |
 | **Gates** | step 1: Input Gate [use args], Confirm Gate [Y] |
 | **Outputs** | Updated manifest, rebuilt context files, (purge: deleted directories), `drop-skill-result-{timestamp}.json` and `drop-skill-result-latest.json` |
-| **Headless** | Gates auto-resolve with their default action (see Workflow Rules). When `forbid_purge_in_headless` is `"true"` in `customize.toml` AND the effective drop mode is `"purge"` (defined in On-Activation §4 — explicit `mode=purge` or `default_mode` purge), §4 HALTs with exit code 6 (`halt_reason: "headless-purge-forbidden"`) before any work begins. |
+| **Headless** | Gates auto-resolve with their default action (see Workflow Rules). When `forbid_purge_in_headless` is `"true"` in `customize.toml` AND the effective drop mode is `"purge"` (defined in On-Activation §4 — explicit `mode=purge` or `default_mode` purge), §4 HALTs with exit code 6 (`halt_reason: "headless-purge-forbidden"`) before any work begins. A draft skill (no manifest entry) has nothing to deprecate: headless, select.md §8 purges it only on that same effective purge, so this guard covers it too, and refuses `mode=deprecate` or a `default_mode` of `deprecate` (`input-invalid`) and a run with neither (`input-missing`). |
 | **Exit codes** | See "Exit Codes" below |
 
 ## Exit Codes
@@ -62,10 +63,10 @@ Every hard HALT exits with a stable code so headless automators branch on the fa
 | Code | Meaning              | Raised by (class) |
 | ---- | -------------------- | ----------------- |
 | 0    | success              | step 4 (terminal) |
-| 2    | input-missing / input-invalid | step 1 headless input gates — missing or unmatched `skill_name`, `version`, or `--mode` value (§4 / §6 / §8) |
+| 2    | input-missing / input-invalid | step 1 headless input gates — missing or unmatched `skill_name`, `version`, or `--mode` value (§4 / §6 / §8); §8 a draft skill with no manifest entry: `mode=deprecate`, or headless with a `default_mode` of `deprecate` → `input-invalid` |
 | 3    | resolution-failure   | step 1 manifest/skill-list resolution (§2 corrupt manifest, §3 nothing to drop) |
 | 4    | write-failure        | On-Activation write probe; step 2 manifest write / context rebuild / full-purge failure |
-| 5    | state-conflict       | step 1 active-version guard (§7) |
+| 5    | state-conflict       | step 1 active-version guard (§7); step 1 ownership guard — §3/§4 a named folder SKF did not generate (§3 when the roster is empty), §8b a purge of content SKF did not generate or cannot check → `not-skf-output` |
 | 6    | user-cancelled       | any interactive cancel or confirm-gate `[N]`; On-Activation headless-purge guard |
 
 ## Result Contract (Headless)
@@ -121,6 +122,6 @@ When `{headless_mode}` is true, step 3 emits a single-line `SKF_DROP_SKILL_RESUL
 
    On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`). In headless mode, emit the error envelope per **Result Contract (Headless)** with `skill: null` and `drop_mode: null` (neither is resolved yet at activation time).
 
-   Second, enforce the headless-purge guard. First compute the **effective drop mode**: it is `"purge"` when the parsed `mode` arg is `"purge"`, OR when no `mode` arg was passed AND `{defaultMode}` (resolved in §3) is `"purge"` — a purge reached via `default_mode` is still an unattended irreversible purge and must be caught here, not only an explicit `--mode purge`. If `{headless_mode}` is true AND `{forbidPurgeInHeadless}` is `"true"` AND the effective drop mode is `"purge"`: HALT with exit code 6 and `halt_reason: "headless-purge-forbidden"`, emit the error envelope, and exit immediately. The operator must re-run with an explicit `mode=deprecate` (an explicit arg overrides `default_mode`) or set `forbid_purge_in_headless = ""` (or omit the override entirely) to proceed.
+   Second, enforce the headless-purge guard. First compute the **effective drop mode**: it is `"purge"` when the parsed `mode` arg is `"purge"`, OR when no `mode` arg was passed AND `{defaultMode}` (resolved in §3) is `"purge"` — a purge reached via `default_mode` is still an unattended irreversible purge and must be caught here, not only an explicit `--mode purge`. If `{headless_mode}` is true AND `{forbidPurgeInHeadless}` is `"true"` AND the effective drop mode is `"purge"`: HALT with exit code 6 and `halt_reason: "headless-purge-forbidden"`, emit the error envelope, and exit immediately. The operator must re-run with an explicit `mode=deprecate` (an explicit arg overrides `default_mode`) or set `forbid_purge_in_headless = ""` (or omit the override entirely) to proceed. A draft skill (no manifest entry) cannot be deprecated, so it needs an interactive run or the guard unset. select.md §8 purges a draft headless only on this same effective drop mode, so this guard is the only check it needs.
 
 5. Load, read the full file, and then execute `references/select.md` to begin the workflow.

@@ -11,6 +11,12 @@ managedSectionData: '{managedSectionFormatPath}'
 validateOutputProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-output.py'
   - '{project-root}/src/shared/scripts/skf-validate-output.py'
+# Resolve `{skillInventoryHelper}` to the first existing path. §2 step 5 runs
+# it with `--skill` before a flat skill moves: only a flat skill whose
+# metadata.json carries an SKF marker (`flat_skf`) is migrated.
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -23,7 +29,7 @@ To load the target skill's artifacts, validate they meet agentskills.io spec com
 
 ## Rules
 
-- Focus only on loading, validating, and confirming the skill — this is read-only
+- Focus only on loading, validating, and confirming the skill — this is read-only, except the flat-to-versioned migration in §2
 - Do not write any output files yet (packaging starts in Step 02)
 
 ## MANDATORY SEQUENCE
@@ -36,13 +42,13 @@ Determine the skill(s) to export and any flags:
 
 **Skill Path Discovery (version-aware — see `knowledge/version-paths.md`):**
 - If user provided one or more skill names or paths as arguments, use that list directly
-- If `--all` was passed, build the list from every skill in `{skills_output_folder}/.export-manifest.json.exports` whose `active_version` entry is not `status: "deprecated"` (deprecated skills are excluded from all exports — see step 4 §4b). **First-export fallback:** if the manifest is absent or its `exports` object is empty (a fresh repo with skills on disk but no prior export), do not resolve to an empty set — enumerate skills on disk instead, using the same discovery ladder as the no-argument branch below (`active` symlinks at `{skills_output_folder}/{skill-name}/active/{skill-name}/SKILL.md`, then flat `{skills_output_folder}/{skill-name}/SKILL.md`). Every disk-discovered skill is non-deprecated by definition — deprecation status lives only in the manifest.
+- If `--all` was passed, build the list from every skill in `{skills_output_folder}/.export-manifest.json.exports` whose `active_version` entry is not `status: "deprecated"` (deprecated skills are excluded from all exports — see step 4 §4b). **First-export fallback:** if the manifest is absent or its `exports` object is empty (a fresh repo with skills on disk but no prior export), do not resolve to an empty set — enumerate skills on disk instead, with the same inventory scan as the no-argument branch below (steps 2-3), which keeps only skills SKF generated. Every disk-discovered skill is non-deprecated by definition — deprecation status lives only in the manifest.
 - If no explicit skill and no `--all`, then:
   - **Headless guard:** if `{headless_mode}` is true, HALT (exit code 2, `halt_reason: "input-missing"`) — a non-interactive run cannot answer the skill-selection menu; the operator must pass an explicit `skill_name` or `--all`. Emit the error envelope per `references/result-envelope.md` with `skills: []`, `context_files_updated: []`, `manifest_path: null`.
   - **Interactive:** discover available skills using the export manifest:
     1. Read `{skills_output_folder}/.export-manifest.json` — list skill names from `exports`
-    2. For each skill group directory in `{skills_output_folder}/`, check for `{skill_group}/active/{skill-name}/SKILL.md`
-    3. If neither manifest nor `active` symlink yields results, fall back to flat path: `{skills_output_folder}/{skill-name}/SKILL.md`
+    2. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run `uv run {skillInventoryHelper} {skills_output_folder}` once. Add every `skills[]` entry whose `skf_skill` is true and whose `flat_skf` is true or `active_version` is not null (a flat SKF skill that §2 migrates, or a versioned skill with an SKF marker and an `active` link). Leave out every other folder. Bind `{not_skf_output}` ← `not_skf_output`; when it is non-empty, display it once: "Skipped (not SKF output): {not_skf_output}".
+    3. If no helper candidate resolves, add only the groups that have `{skills_output_folder}/{skill-name}/active/{skill-name}/SKILL.md`, and skip the flat path: without the helper SKF cannot check that a flat folder is its own.
 - If multiple skills are found, present the list and accept either a single selection or a comma-/space-separated multi-selection (e.g. `1, 2, 3` or `all`)
 - If no skills found, HALT (exit code 3, `halt_reason: "resolution-failure"`): "No skills found in {skills_output_folder}/. Run create-skill first." In headless, emit the error envelope per `references/result-envelope.md` with `skills: []`, `context_files_updated: []`, `manifest_path: null`.
 
@@ -88,7 +94,10 @@ Resolve the skill's versioned path before loading artifacts:
 2. **Manifest-lag guard.** If the skill is in the manifest, also read the `active` symlink target at `{skills_output_folder}/{skill-name}/active`. If that symlink resolves to a *different* version than `active_version`, prefer the **symlink target** as `{resolved_version}` and emit an Info note: "manifest active_version {M} lags the active symlink {N} — exporting the symlink target (the just-forged version); the manifest active_version advances to {N} on this export." This is the canonical SS→TS→EX case: create-stack-skill flipped `active` to the new version, but the manifest only advances when *this* export runs. A bare manifest-first resolution would re-export the *previously exported* version, and step 4 §4b/step-5 (`update-context.md`) — which derives the published version from `{resolved_skill_package}/metadata.json` — would then write that stale version straight back as `active_version`, so the forged version could never be published. Resolving to the symlink target here makes this export publish {N} and reconcile the manifest. When the symlink matches `active_version` (or no `active` symlink exists), use `active_version`. See `knowledge/version-paths.md` "Reading Workflows".
 3. If found: resolve to `{skill_package}` = `{skills_output_folder}/{skill-name}/{resolved_version}/{skill-name}/`
 4. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill-name}/active` — resolve to `{skill_group}/active/{skill-name}/`
-5. If neither: fall back to flat path `{skills_output_folder}/{skill-name}/`. If SKILL.md exists at the flat path, auto-migrate per `knowledge/version-paths.md` migration rules
+5. If neither: fall back to the flat path `{skills_output_folder}/{skill-name}/`. If `SKILL.md` exists there, check that SKF generated it before anything moves:
+   - Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`, run `uv run {skillInventoryHelper} {skills_output_folder} --skill {skill-name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
+   - **`{group_flat_skf}` is true:** if `--dry-run` is set, do not migrate: use the flat folder as the resolved path and note "would migrate {skill-name} to the versioned layout". Otherwise auto-migrate per `knowledge/version-paths.md` migration rules.
+   - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves, with `halt_reason: "not-skf-output"` and this message: "**`{skill-name}` is not SKF output — nothing was moved.** `{skills_output_folder}/{skill-name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or export it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill-name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF. HALT with exit code 3. In headless, emit the error envelope per `references/result-envelope.md` with the resolved `skills`, `context_files_updated: []`, `manifest_path: null`, `halt_reason: "not-skf-output"`.
 6. Store the resolved path as `{resolved_skill_package}` for all subsequent artifact loading
 
 Load all files from `{resolved_skill_package}`:

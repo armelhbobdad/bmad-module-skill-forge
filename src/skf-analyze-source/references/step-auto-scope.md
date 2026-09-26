@@ -112,8 +112,10 @@ Parse the JSON output. If the exit code is non-zero or the `skills` array is emp
 The helper already performed the match deterministically — scheme / trailing-`.git` / trailing-slash normalization, kebab expected-name derivation (§6 repo/package name, doc hostname per `references/auto-docs-only.md`), and case-insensitive comparison of both the normalized `source_repo` (URL match) and the derived name (name match). Read the top-level **`matches[]`** array from the JSON; do not normalize, derive, or compare anything in the prompt. Each entry is:
 
 ```json
-{ "name": "...", "active_version": "...", "source_repo": "...", "active_path": "...", "match_reason": "url" | "name" | "both" }
+{ "name": "...", "active_version": "...", "source_repo": "...", "active_path": "...", "match_reason": "url" | "name" | "both", "skf_skill": true | false }
 ```
+
+`skf_skill` is true when SKF generated the matched skill (its `metadata.json` carries an SKF marker). Only those are offered for a merge: a merge hands the skill to update-skill, which rewrites its files, and SKF changes only the skills it generated.
 
 **3. If `matches[]` is empty:**
 
@@ -121,7 +123,7 @@ Complete silently. Continue: execute `references/auto-docs-only.md` for document
 
 **4. If `matches[]` has one or more entries — coexistence gate:**
 
-Present the user with the coexistence decision, one bullet per `matches[]` entry (`{skill_name}` = `matches[].name`, `{version}` = `matches[].active_version`, `{source_repo}` = `matches[].source_repo`):
+Present the user with the coexistence decision, one bullet per `matches[]` entry (`{skill_name}` = `matches[].name`, `{version}` = `matches[].active_version`, `{source_repo}` = `matches[].source_repo`). Append " — not SKF output, merge not offered" to the bullet of every entry whose `matches[].skf_skill` is false, and leave the `[M]erge` line out when no entry has `matches[].skf_skill` true:
 
 ```
 ⚠️ Existing skill(s) found for {target_name}:
@@ -131,7 +133,7 @@ Present the user with the coexistence decision, one bullet per `matches[]` entry
 
 Actions:
   [A]longside — Create a new wiki skill with "-wiki" suffix (existing skill untouched)
-  [M]erge     — Update the existing skill via US workflow (wiki data enriches it)
+  [M]erge     — Update the existing skill via US workflow (wiki data enriches it; SKF-generated skills only)
   [S]kip      — Do not create or modify any skill for this library
 
 Choose [A/M/S]:
@@ -143,7 +145,7 @@ In headless mode (`{headless_mode}` is true): auto-select `[A]longside` and log:
 
 - **[A]longside:** Set `{coexistence_suffix}` to `-wiki`. Continue: execute `references/auto-docs-only.md` for documentation URLs; §1 for all other input types. The existing skill is untouched.
 
-- **[M]erge:** If `matches[]` has more than one entry, prompt the user to select which one to merge into before proceeding. Read `{matched_skill_name}` = the selected entry's `matches[].name` and `{matched_active_path}` = its `matches[].active_path`. Emit a redirect envelope signaling the forger to route to the US workflow for the selected skill:
+- **[M]erge:** Offered only for entries whose `matches[].skf_skill` is true. If more than one such entry exists, prompt the user to select which one to merge into before proceeding. Read `{matched_skill_name}` = the selected entry's `matches[].name` and `{matched_active_path}` = its `matches[].active_path`. Emit a redirect envelope signaling the forger to route to the US workflow for the selected skill:
   ```
   SKF_ANALYZE_RESULT_JSON: {"status":"redirect","redirect_to":"US","skill_name":"{matched_skill_name}","skill_path":"{matched_active_path}","exit_code":0,"halt_reason":null,"mode":"auto","coexistence":"merge"}
   ```

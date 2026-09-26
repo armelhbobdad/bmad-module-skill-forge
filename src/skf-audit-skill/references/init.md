@@ -11,6 +11,12 @@ compareFileHashesProbeOrder:
 compareConstituentHashesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
+# Resolve `{skillInventoryHelper}` to the first existing path. §1 step 4 runs
+# it with `--skill` before a flat skill moves: only a flat skill whose
+# metadata.json carries an SKF marker (`flat_skf`) is migrated.
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -63,7 +69,10 @@ Which skill would you like to audit? Please provide the skill name or path."
    - When only one of the two versions has a provenance map, resolve to the version that has one (the other is inert — auditing it would degrade to text-diff). Log the choice.
 
 3. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill_name}/active` — resolve to `{skill_group}/active/{skill_name}/`
-4. If neither: fall back to flat path `{skills_output_folder}/{skill_name}/`. If SKILL.md exists at the flat path, auto-migrate per `knowledge/version-paths.md` migration rules
+4. If neither: fall back to the flat path `{skills_output_folder}/{skill_name}/`. If `SKILL.md` exists there, check that SKF generated it before anything moves:
+   - Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`, run `uv run {skillInventoryHelper} {skills_output_folder} --skill {skill_name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
+   - **`{group_flat_skf}` is true:** auto-migrate per `knowledge/version-paths.md` migration rules.
+   - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves, with `halt_reason: "not-skf-output"` and this message: "**`{skill_name}` is not SKF output — nothing was moved.** `{skills_output_folder}/{skill_name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or audit it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill_name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF. HALT with **exit 3** (the headless envelope is in the block below).
 5. Store the resolved path as `{resolved_skill_package}`. Also store `audit_target_version` = the version that was actually selected (manifest, symlink, or flat) for step 6 Provenance to surface. When the gate above fired, also record the rejected version under `manifest_symlink_drift = {manifest: {active_version}, symlink: {symlink_target}, audited: {audit_target_version}, reason: {fresher-provenance|operator-choice|headless-default}}` so reviewers can audit the choice.
 
 **If user provides full path:**
@@ -76,6 +85,7 @@ Which skill would you like to audit? Please provide the skill name or path."
 **Headless default** (when `{headless_mode}`): the interactive prompt and its "check the path and try again" re-prompt cannot be answered under automation, so §1 halts deterministically instead of looping. This is the origin site for the exit-2 / exit-3 rows the Exit Codes table attributes to step 1 §1 — emit the `SKF_AUDIT_RESULT_JSON` error envelope on **stderr** (shape per SKILL.md → Result Contract; `status: "error"`, `drift_score: null`, `report_path: null`, `next_workflow: null`, `audit_ref: null`) at each halt:
 - **No `skill_name` supplied** (neither name nor path given): HALT with **exit 2**, `halt_reason: "input-missing"`, `skill_name: null`. Log: `"headless: no skill_name supplied; cannot resolve interactively. Re-run with skill_name set."`
 - **`SKILL.md` missing at `{resolved_skill_package}`**: HALT with **exit 3**, `halt_reason: "skill-not-found"`, `skill_name: {skill_name}`. Log: `"headless: skill not found at {resolved_skill_package}; no interactive retry. Check the exported skill name/path."`
+- **Flat `SKILL.md` that SKF did not generate** (the step 4 ownership gate): HALT with **exit 3**, `halt_reason: "not-skf-output"`, `skill_name: {skill_name}`. Log: `"headless: {skill_name} is not SKF output; nothing was moved. SKF leaves the skills it did not generate alone, so manage it yourself; relocate skills_output_folder only if it holds a module's own source."`
 
 ### 2. Load Forge Tier
 

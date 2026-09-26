@@ -51,7 +51,7 @@ uv run {mergeCccExclusionsHelper} \
     --skip-index "{ccc_skip_index}"
 ```
 
-The script (see `src/shared/scripts/skf-merge-ccc-exclusions.py` docstring for the full schema) runs `ccc init` when settings.yml is missing, rebuilds a settings.yml that lacks the ccc default exclusions (keeping user entries), leaves out a configured folder that already holds files SKF did not generate, merges the SKF patterns, removes SKF patterns recorded in forge-tier.yaml that the current config no longer produces, never removes entries it did not add, and returns one `index_action`.
+The script (see `src/shared/scripts/skf-merge-ccc-exclusions.py` docstring for the full schema) runs `ccc init` when settings.yml is missing, rebuilds a settings.yml that lacks the ccc default exclusions (keeping user entries), excludes a configured folder that also holds content SKF did not generate entry by entry (one pattern per SKF entry, so that content stays indexed), leaves out a folder that holds no SKF output, leaves alone a folder the user already excluded, merges the SKF patterns, removes SKF patterns recorded in forge-tier.yaml that the current config no longer produces, never removes entries it did not add, and returns one `index_action`.
 
 **If the script exits non-zero:** parse the stderr JSON `{"status":"error","message":...}` and set `{ccc_index_result: "failed", ccc_indexed_path: null, ccc_last_indexed: null, ccc_file_count: null, ccc_indexing_failed_reason: <message>, ccc_exclude_patterns: null, ccc_exclusion_warnings: [], settings_yml_written: false, settings_yml_patterns_added: 0, settings_yml_patterns_removed: 0, gitignore_updated: false}`, then proceed to section 4. Do not run `ccc index`.
 
@@ -62,7 +62,7 @@ The script (see `src/shared/scripts/skf-merge-ccc-exclusions.py` docstring for t
 - `{settings_yml_patterns_added}` ← `patterns_added`
 - `{settings_yml_patterns_removed}` ← `patterns_removed`
 - `{gitignore_updated}` ← `gitignore_updated`
-- `{ccc_exclude_patterns}` ← `effective_patterns` (a list or null — consume verbatim; null tells step 2 to keep the record already in forge-tier.yaml)
+- `{ccc_exclude_patterns}` ← `effective_patterns` (a list or null — consume verbatim; null tells step 2 to keep the record already in forge-tier.yaml). Copy every entry exactly: the list can hold one pattern per SKF entry, and an entry can hold `[`…`]` character classes such as `skills/[[]x[]]`
 - `{ccc_exclusion_warnings}` ← `warnings` (a list — step 4 shows it in the report and folds it into the envelope's warnings)
 - `{ccc_settings_error}` ← `not_ready_reason`
 

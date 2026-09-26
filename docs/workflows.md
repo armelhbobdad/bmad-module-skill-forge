@@ -244,7 +244,7 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 
 **Key Steps:** Select skill + new name → Transactional copy → Update all references → Rebuild context files → Delete old name (point of no return)
 
-**Safety:** Transactional — if any step fails before the final delete, the old skill remains intact. Warns if `source_authority: "official"` (rename is local-only; published registry skill won't change).
+**Safety:** Transactional — if any step fails before the final delete, the old skill remains intact. Warns if `source_authority: "official"` (rename is local-only; published registry skill won't change). Renames only skills SKF generated in the versioned layout: a folder whose `metadata.json` carries no SKF marker, or one that also holds files SKF did not generate, is refused, and a skill still in the old flat layout must first be moved into the versioned layout by running `@Ferris TS` (or `US`, `AS`, `EX`) on it.
 
 **Agent:** Ferris (Management mode)
 
@@ -260,7 +260,7 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 
 **Key Steps:** Select skill → Select version(s) + mode → Update manifest → Rebuild context files → Delete files (if purge)
 
-**Safety:** Active version guard — cannot drop the currently active version when other non-deprecated versions exist (switch active first, or drop all). Soft drop is reversible by editing the manifest.
+**Safety:** Active version guard — cannot drop the currently active version when other non-deprecated versions exist (switch active first, or drop all). Soft drop is reversible by editing the manifest. Drop offers a skill folder SKF did not generate only when the manifest lists it, and then only for deprecate. A purge deletes only SKF output: a whole-skill purge of a folder that also holds other files is refused, and so is a purge through a link. A headless drop of a skill with no manifest entry needs `--mode purge`.
 
 **Agent:** Ferris (Management mode)
 
@@ -451,8 +451,8 @@ Parent skills and CI pipelines `grep` one line out of the workflow log to learn 
 
 **Exception — the management and verification workflows emit structured result envelopes too.** Beyond per-gate auto-proceed, Drop Skill, Rename Skill, and Refine Architecture each emit a single-line `SKF_*_RESULT_JSON: {…}` envelope on every terminal exit (`status: "success"` on the happy path, `status: "error"` with a typed `halt_reason` on any HARD HALT) and exit with a stable code so automators branch on the failure class without grepping message text. All three honour the universal `cancel`/`exit`/`:q` affordance at any prompt (exit `6`, `halt_reason: "user-cancelled"`).
 
-- **`/skf-drop-skill` (DS)** — exit `2` `input-missing`/`input-invalid`, `4` `write-failure` (covers manifest-write, context-rebuild, and full-purge `delete-failed`), `5` state-conflict (active-version guard). Schema and `halt_reason` list in [`src/skf-drop-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-drop-skill/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
-- **`/skf-rename-skill` (RS)** — exit `2` `input-missing`/`input-invalid`, `4` `write-failure` (`copy-failed`, `write-failed`, `manifest-write-failed`; the §7 context rebuild is best-effort and never halts), `5` state-conflict (name-collision, source-authority, concurrent-run lock). Schema in [`src/skf-rename-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-rename-skill/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
+- **`/skf-drop-skill` (DS)** — exit `2` `input-missing`/`input-invalid` (including `--mode deprecate` on a skill with no manifest entry), `4` `write-failure` (covers manifest-write, context-rebuild, and full-purge `delete-failed`), `5` state-conflict (active-version guard; `not-skf-output` for a folder SKF did not generate or a purge it cannot confirm), `6` `user-cancelled` or `headless-purge-forbidden`. Schema and `halt_reason` list in [`src/skf-drop-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-drop-skill/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
+- **`/skf-rename-skill` (RS)** — exit `2` `input-missing`/`input-invalid`, `4` `write-failure` (`copy-failed`, `write-failed`, `manifest-write-failed`; the §7 context rebuild is best-effort and never halts), `5` state-conflict (name-collision, source-authority, concurrent-run lock, `not-skf-output` for a folder SKF did not generate, `flat-layout` for a skill not yet migrated). Schema in [`src/skf-rename-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-rename-skill/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
 - **`/skf-refine-architecture` (RA)** — exit `2` `input-missing`/`input-invalid`, `4` `write-failure`, `7` `inventory-unreliable`, `8` `recovery-failed` (durability state insufficient to reconstruct findings, or the compiled doc is missing its `## Refinement Summary`). Schema in [`src/skf-refine-architecture/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-refine-architecture/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
 
 ---

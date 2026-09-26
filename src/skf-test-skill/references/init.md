@@ -10,6 +10,12 @@ skillsOutputFolder: '{skills_output_folder}'
 frontmatterScriptProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py'
   - '{project-root}/src/shared/scripts/skf-validate-frontmatter.py'
+# Resolve `{skillInventoryHelper}` to the first existing path. §2 step 5 runs
+# it with `--skill` before a flat skill moves: only a flat skill whose
+# metadata.json carries an SKF marker (`flat_skf`) is migrated.
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 versionPathsKnowledge: 'knowledge/version-paths.md'
 ---
 
@@ -63,7 +69,10 @@ Resolve the skill path using version-aware resolution (see `{versionPathsKnowled
 2. **Manifest-lag guard.** If the skill is in the manifest, also read the `active` symlink target at `{skillsOutputFolder}/{skill_name}/active`. If that symlink resolves to a *different* version than `active_version`, prefer the **symlink target** as `{resolved_version}` and emit an Info note: "manifest active_version {M} lags the active symlink {N} — testing the symlink target (the just-forged version); run export-skill to reconcile the manifest." This is the canonical SS→TS→EX case: create-stack-skill flipped `active` to the new version, but the manifest only advances when export-skill runs — so a bare manifest-first resolution would test the *previously exported* version and report a PASS for the wrong version (silent false confidence). When the symlink matches `active_version` (or no `active` symlink exists), use `active_version`. See `{versionPathsKnowledge}` "Reading Workflows".
 3. If found: resolve to `{skill_package}` = `{skillsOutputFolder}/{skill_name}/{resolved_version}/{skill_name}/`
 4. If not in manifest: check for `active` symlink at `{skillsOutputFolder}/{skill_name}/active` — resolve to `{skill_group}/active/{skill_name}/`
-5. If neither: fall back to flat path `{skillsOutputFolder}/{skill_name}/`. If SKILL.md exists at the flat path, auto-migrate per `{versionPathsKnowledge}` migration rules
+5. If neither: fall back to the flat path `{skillsOutputFolder}/{skill_name}/`. If `SKILL.md` exists there, check that SKF generated it before anything moves:
+   - Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`, run `uv run {skillInventoryHelper} {skillsOutputFolder} --skill {skill_name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
+   - **`{group_flat_skf}` is true:** auto-migrate per `{versionPathsKnowledge}` migration rules.
+   - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves, with `halt_reason: "not-skf-output"` and this message: "**`{skill_name}` is not SKF output — nothing was moved.** `{skillsOutputFolder}/{skill_name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or test it. A shared `{skillsOutputFolder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill_name}` yourself. Only if `{skillsOutputFolder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF. In `{headless_mode}`, emit to **stderr** `SKF_TEST_RESULT_JSON: {"status":"error","skill_name":"{skill_name}","verdict":null,"score":null,"threshold":null,"report_path":null,"next_workflow":null,"exit_code":1,"halt_reason":"not-skf-output"}`. HALT — do not proceed.
 6. Store the resolved path as `{resolved_skill_package}`
 
 Check that the skill package contains required files:

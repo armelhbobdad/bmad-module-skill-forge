@@ -37,13 +37,13 @@ Emit the gate:
 >
 > - **(a) Drop** — remove these rows from the rebuilt managed section across **all** target context files (strict ADR-K behavior). The skills' on-disk files are not touched, but they will no longer appear in any context file's managed index.
 > - **(b) Preserve verbatim** — copy each orphan's existing snippet line(s) into the rebuilt managed section across **all** target context files unchanged (one canonical row per `(skill, version)` written everywhere — orphans become symmetric across IDEs as a side effect, which is the correct outcome since the user's intent is "these external skills should appear in my managed index"). Records `deviations[].kind = "preserve_external_skills"` with the affected skill names, versions, and `source_files` in the result contract for audit.
-> - **(c) Cancel** — abort export. Run export-skill against each external skill (or remove the orphan rows from the context files manually) before re-running.
+> - **(c) Cancel** — abort export. Before re-running, run export-skill on each of these skills that SKF generated (its `metadata.json` carries an SKF marker) to add it to the manifest, and remove the rows of the other skills from the context files yourself.
 
 Wait for user choice.
 
 **Headless default** (when `{headless_mode}`): auto-select **(b) Preserve verbatim**, with the same `deviations[]` entry. Emit a loud log line:
 
-> `headless: {N} managed-section rows had no manifest entry; preserving verbatim with deviations[].kind = preserve_external_skills. Run export-skill against each to migrate them into the manifest.`
+> `headless: {N} managed-section rows had no manifest entry; preserving verbatim with deviations[].kind = preserve_external_skills. Run export-skill on each skill SKF generated to add it to the manifest; remove the rows of other skills from the context files yourself.`
 
 Silent drop under automation would regress the user's managed section without consent; cancel under automation would block the whole export over an externally-installed skill the user did not author. Preservation matches the prior-attentive-operator convention.
 

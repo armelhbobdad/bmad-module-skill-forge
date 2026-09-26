@@ -15,8 +15,10 @@ manifestOpsProbeOrder:
 # (installed SKF module path first, src/ dev-checkout fallback). §3 uses it to
 # enumerate the rename candidates: the union of manifest `exports` and on-disk
 # skill directories, each with its version list and active version — computing
-# that union/count in the prompt has one correct answer per input. §3 falls
-# back to an in-prompt scan if neither path resolves.
+# that union/count in the prompt has one correct answer per input — plus each
+# folder's `ownership`, `skf_skill`, `flat_skf` and `foreign_entries`, which
+# §4a checks so a rename never moves a folder SKF did not generate. If neither
+# path resolves, §3 lists manifest skills only and §4a refuses the rename.
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
@@ -83,11 +85,14 @@ Enumerate every skill available for rename deterministically. Resolve `{skillInv
 python3 {skillInventoryHelper} {skills_output_folder}
 ```
 
-Read the JSON. Each entry in `skills[]` carries `name`, its `versions` array, and `active_version` (the helper unions the manifest `exports` with the on-disk directories and dedupes, so manifest-tracked and orphaned skills both appear). A skill whose `name` is absent from `manifest.exports` is a draft/orphan the rename workflow can still handle — annotate it "(not in manifest)".
+Read the JSON. Each entry in `skills[]` carries `name`, its `versions` array, and `active_version` (the helper unions the manifest `exports` with the on-disk directories and dedupes, so manifest-tracked and orphaned skills both appear), plus `ownership` (`"skf"`, `"mixed"` or `"foreign"`), `skf_skill`, `flat_skf` and `foreign_entries`. List only the entries whose `skf_skill` is true: rename copies and then deletes the whole folder, so a folder SKF did not generate is never offered. A listed skill whose `name` is absent from `manifest.exports` is a draft/orphan the rename workflow can still handle — annotate it "(not in manifest)". Annotate an entry whose `ownership` is `"mixed"` with "(holds files SKF did not generate — cannot rename)" and one whose `flat_skf` is true with "(flat layout — migrate first)"; §4a refuses both. Bind `{not_skf_output}` ← `not_skf_output` (folders holding a skill SKF did not generate); when it is non-empty, show one line under the list: "Not offered — not SKF output: {not_skf_output}".
 
-**If `{skillInventoryHelper}` has no existing candidate** (neither probe path resolves — e.g. Python/`uv` unavailable): build the list in the prompt instead — read `exports` from the manifest (if `manifest_exists`), scan `{skills_output_folder}/` for top-level directories, union the two, and read each one's `active_version` and version count. Directories absent from `exports` are the "(not in manifest)" entries.
+**If `{skillInventoryHelper}` has no existing candidate** (neither probe path resolves — e.g. Python/`uv` unavailable): build the list from the manifest `exports` only (if `manifest_exists`), reading each one's `active_version` and version count. Folders on disk that are absent from `exports` are not offered: without the helper SKF cannot check that it generated them, and §4a refuses the rename in this mode.
 
-**If the list is empty** (no manifest entries AND no on-disk skill directories): halt with "**Rename Skill — nothing to rename.** No skills found in `{skills_output_folder}/`. Run `[CS] Create Skill` first." HALT (exit code 3, `halt_reason: "nothing-to-rename"`). In headless mode, emit the error envelope with `old_name: null`, `new_name: null`.
+**If the list to display is empty** (no `skills[]` entry whose `skf_skill` is true, or, without `{skillInventoryHelper}`, no manifest `exports` entry):
+
+- When `old_name` was supplied as an argument and it is in `{not_skf_output}` (empty without `{skillInventoryHelper}`), take the §4a refusal for a folder SKF did not generate first, in either mode (exit code 5, `halt_reason: "not-skf-output"`, with `old_name: "{old_name}"`, `new_name: null` in the headless envelope).
+- Otherwise halt with "**Rename Skill — nothing to rename.** No skill SKF generated was found in `{skills_output_folder}/`. Run `[CS] Create Skill` first." When `{not_skf_output}` is non-empty, append: "Left untouched (not SKF output): {not_skf_output}." HALT (exit code 3, `halt_reason: "nothing-to-rename"`). In headless mode, emit the error envelope with `old_name: null`, `new_name: null`.
 
 Display the list, one line per skill as `{name} ({n} versions, active: {active_version})` (append "(not in manifest)" for orphans):
 
@@ -98,6 +103,8 @@ Available skills:
 1. cognee (3 versions, active: 0.6.0)
 2. express (1 version, active: 4.18.0)
 3. legacy-helper (not in manifest)
+
+Not offered — not SKF output: my-module-skill
 ```
 
 ### 4. Ask Which Skill
@@ -108,9 +115,23 @@ Enter the skill name or its number from the list above, or `cancel` / `exit` / `
 Wait for user input. Accept either the numeric index or the skill name (exact match). **GATE [default: use args]** — If `{headless_mode}` and old skill name was provided as argument: select that skill and auto-proceed. If not provided, HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode requires old_name argument." In headless, emit the error envelope.
 
 - If the user enters `cancel`, `exit`, `[X]`, `q`, or `:q`: Display "Cancelled — no changes were made." and HALT (exit code 6, `halt_reason: "user-cancelled"`).
-- **If the user's input does not match any listed skill:** Re-display the list and ask again.
+- **If the input names a folder in `{not_skf_output}`:** take the §4a refusal for a folder SKF did not generate.
+- **If the user's input does not match any listed skill:**
+  - **Interactive:** Re-display the list and ask again.
+  - **Headless (`{headless_mode}` is true):** the supplied `old_name` argument matches no listed skill and there is no further input to re-prompt for. HALT (exit code 2, `halt_reason: "input-invalid"`): "headless mode: old_name argument `{supplied value}` does not match any listed skill." Emit the error envelope with `old_name: null`, `new_name: null`.
 
 Store the selection as `old_name`.
+
+### 4a. Ownership Check
+
+Rename copies the whole `{skills_output_folder}/{old_name}/` folder and then deletes it, so it only renames a skill SKF generated in the versioned layout. From the §3 `skills[]` entry named `{old_name}`, bind `{target_ownership}` ← `ownership`, `{target_flat_skf}` ← `flat_skf`, `{target_foreign_entries}` ← `foreign_entries` and `{target_errors}` ← `errors`. Take the first refusal that applies; each one displays its message and HALTs (exit code 5) with the named `halt_reason`, and in headless mode emits the error envelope with `old_name: "{old_name}"`, `new_name: null`. No lock is held yet (§4b acquires it), so there is nothing to release.
+
+1. §3 ran without `{skillInventoryHelper}` → `not-skf-output`: "**SKF cannot check that it generated `{old_name}`** because `skf-skill-inventory.py` is missing. Nothing was changed. Re-install SKF and re-run the rename."
+2. `{target_ownership}` is `"foreign"`, or `{old_name}` is in `{not_skf_output}` → `not-skf-output`: "**`{old_name}` is not SKF output — nothing was changed.** `{skills_output_folder}/{old_name}/` has no SKF marker in its `metadata.json`, so SKF will not rename it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{old_name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When `{target_errors}` is non-empty (for example, the folder is a link), show it in place of the marker sentence.
+3. `{target_ownership}` is `"mixed"` → `not-skf-output`: "**`{skills_output_folder}/{old_name}/` also holds entries SKF did not generate:** {target_foreign_entries}. Nothing was changed. Rename moves and then deletes the whole folder, so SKF will not rename it. Move those entries out of the folder and re-run. A version folder with no `metadata.json` can also be one that an interrupted update-skill run left behind; delete it yourself in that case."
+4. `{target_flat_skf}` is true → `flat-layout`: "**`{old_name}` still uses the flat layout.** Nothing was changed. Rename works on the versioned layout only: run `@Ferris TS {old_name}` (or US, AS or EX) once to move it into that layout, then re-run the rename."
+
+Otherwise continue to §4b.
 
 ### 4b. Concurrency Guard
 

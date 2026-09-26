@@ -11,7 +11,7 @@ SKF_DROP_SKILL_RESULT_JSON: {"status":"success|error|dry-run","skill":"…|null"
 Field rules:
 
 - `status` — `"success"` on the terminal happy path, `"dry-run"` when `--dry-run` was set and the workflow exited at the confirmation gate before any mutation, `"error"` on any HALT.
-- `halt_reason` — `null` on success/dry-run; otherwise one of `"input-missing"`, `"input-invalid"`, `"manifest-corrupt"`, `"nothing-to-drop"`, `"active-version-guard-refused"`, `"headless-purge-forbidden"`, `"manifest-write-failed"`, `"context-rebuild-failed"`, `"delete-failed"`, `"write-failed"`, `"user-cancelled"`.
+- `halt_reason` — `null` on success/dry-run; otherwise one of `"input-missing"`, `"input-invalid"`, `"manifest-corrupt"`, `"nothing-to-drop"`, `"active-version-guard-refused"`, `"not-skf-output"`, `"headless-purge-forbidden"`, `"manifest-write-failed"`, `"context-rebuild-failed"`, `"delete-failed"`, `"write-failed"`, `"user-cancelled"`.
 - `exit_code` — the stable numeric code the emitting HALT specifies (`0` on success/dry-run).
 - `skill` / `drop_mode` / `versions_affected` / `files_deleted` / `manifest_updated` — the discriminating values the emit site supplies; any key not yet resolved at that point takes the default shown in the template (`null`, `[]`, or `false`).
 
