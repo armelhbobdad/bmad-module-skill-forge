@@ -92,7 +92,8 @@ DETECT_OUTPUT_SCHEMA (v1):
       "previous_ccc_file_count":                 int|null,
       # Deterministic CCC-index freshness verdict — computed against
       # --project-root and datetime.now(UTC) captured at detect time, so the
-      # ccc-index.md step branches on a boolean instead of doing timestamp math.
+      # ccc-index.md step forwards a boolean (as --index-fresh) to
+      # skf-merge-ccc-exclusions.py instead of doing timestamp math.
       "ccc_index_fresh":                        bool
     },
     "deltas": {
@@ -151,7 +152,8 @@ def _resolve_outside_cwd(command: str) -> str | None:
     into CWD would execute a repo-planted shim (e.g. ast-grep.cmd). Such a
     resolution is treated as not-found. Explicit paths supplied by callers
     (containing a separator) are honored as-is. Keep identical to the
-    sibling guard in skf-qmd-classify-collections.py.
+    sibling guards in skf-qmd-classify-collections.py and
+    skf-merge-ccc-exclusions.py.
     """
     resolved = shutil.which(command)
     if resolved is None:
@@ -440,7 +442,7 @@ def compute_ccc_index_fresh(prior: dict, project_root, now: datetime) -> bool:
       - last_indexed parses AND (now - last_indexed) <= staleness threshold
 
     The staleness threshold defaults to 24 hours when the prior field is null
-    (matching the ccc-index.md §2 default). Any null/unparseable required field
+    (the staleness default in knowledge/ccc-bridge.md). Any null/unparseable required field
     (indexed_path, status, last_indexed), path mismatch, non-fresh status,
     unparseable threshold, or over-threshold delta yields False.
     """

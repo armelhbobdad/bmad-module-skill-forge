@@ -50,6 +50,7 @@ Setup detects your installed tools and sets your tier automatically:
   Files written this run:
   - forge-tier.yaml — {project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml
   - .cocoindex_code/settings.yml — {project-root}/.cocoindex_code/settings.yml (6 SKF exclusion patterns merged)
+  - .gitignore — {project-root}/.gitignore (`/.cocoindex_code/` added by `ccc init`)
   - .cocoindex_code/ ccc index — 1 file indexed
 
 ═══════════════════════════════════════

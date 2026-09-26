@@ -628,7 +628,7 @@ def test_ccc_fresh_required_field_null_is_false(null_field):
 
 
 def test_ccc_fresh_threshold_null_defaults_to_24h():
-    """Null threshold → 24h default (matches ccc-index.md §2's prior default)."""
+    """Null threshold → 24h default (the staleness default in knowledge/ccc-bridge.md)."""
     # 23h-old index with no threshold set → fresh under the 24h default.
     prior = _fresh_prior(
         previous_ccc_last_indexed=(_NOW - timedelta(hours=23)).isoformat(),

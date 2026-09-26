@@ -85,7 +85,11 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
   {if ccc_index_result is "fresh": up to date — semantic discovery ready}
   {if ccc_index_result is "created": indexed this run — semantic discovery ready}
   {if ccc_index_result is "skipped": skipped (--ccc-skip-index) — run `/skf-setup` without --ccc-skip-index to build the index when you're ready}
-  {if ccc_index_result is "failed": indexing failed — semantic discovery unavailable this session}
+  {if ccc_index_result is "failed": indexing failed — semantic discovery unavailable this session ({ccc_indexing_failed_reason})}
+  {if ccc_exclusion_warnings is non-empty:}
+  CCC exclusion notes:
+  {for each entry in ccc_exclusion_warnings: - {entry}}
+  {end if}
   {end if}
 
   Files written this run:
@@ -95,7 +99,10 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
   {end if}
   - {forge_data_folder}/ (directory ensured)
   {if settings_yml_written is true:}
-  - .cocoindex_code/settings.yml — {project-root}/.cocoindex_code/settings.yml ({settings_yml_patterns_added} SKF exclusion pattern(s) merged)
+  - .cocoindex_code/settings.yml — {project-root}/.cocoindex_code/settings.yml ({settings_yml_patterns_added} SKF exclusion pattern(s) merged{if settings_yml_patterns_removed > 0:}, {settings_yml_patterns_removed} stale SKF pattern(s) removed{end if})
+  {end if}
+  {if gitignore_updated is true:}
+  - .gitignore — {project-root}/.gitignore (`/.cocoindex_code/` added by `ccc init`)
   {end if}
   {if ccc_index_result is "created":}
   - .cocoindex_code/ ccc index — {ccc_file_count} files indexed
@@ -123,7 +130,7 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 
 {if {tier_changed} is false and {tools_added} is empty and {tools_removed} is empty and {previous_tier} is non-null:}
   {same-tier message from tier-rules.md}
-  {if preferences_yaml_created is false and (ccc_index_result is "fresh" or ccc_index_result is "none" or ccc_index_result is "skipped"): Nothing changed — your preferences were left untouched and the index was already current. You're good.}
+  {if preferences_yaml_created is false and settings_yml_written is false and (ccc_index_result is "fresh" or ccc_index_result is "none" or ccc_index_result is "skipped"): Nothing changed — your preferences were left untouched and the index was already current. You're good.}
 
 {if {tier_changed} is false and ({tools_added} or {tools_removed} is non-empty) and {previous_tier} is non-null:}
   Tier unchanged: {calculated_tier}.

@@ -231,7 +231,8 @@ def _resolve_outside_cwd(command: str) -> str | None:
     into CWD would execute a repo-planted shim (e.g. qmd.cmd). Such a
     resolution is treated as not-found. Explicit paths supplied by callers
     (containing a separator) are honored as-is. Keep identical to the
-    sibling guard in skf-detect-tools.py.
+    sibling guards in skf-detect-tools.py and
+    skf-merge-ccc-exclusions.py.
     """
     resolved = shutil.which(command)
     if resolved is None:

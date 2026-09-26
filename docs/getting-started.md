@@ -184,6 +184,8 @@ SKF has two install-time variables (defined in `src/module.yaml`), one Core Conf
 | `tier_override`        | Force a specific tier for comparison or testing (in `_bmad/_memory/forger-sidecar/preferences.yaml`)     | `~` (auto-detect)           |
 | `headless_mode`        | Skip confirmation gates in all workflows (in `_bmad/_memory/forger-sidecar/preferences.yaml`)            | `false`                     |
 
+Choose a `skills_output_folder` and `forge_data_folder` that hold nothing of your own: setup excludes both from the ccc index, and when a folder already holds files SKF did not generate it leaves that folder indexed and warns instead.
+
 Runtime configuration (tool detection, tier, and collection state) is managed by the `setup` workflow and persisted in `forge-tier.yaml`.
 
 ---
