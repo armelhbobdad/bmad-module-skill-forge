@@ -13,12 +13,12 @@ run-to-run (an odd-sum average such as (80 + 73) / 2 = 76.5 is exactly where an
 in-prompt round swings).
 
 Rule (external-validators.md §4):
-  * both tools ran  -> mean of skill-check + tessl review scores
+  * both tools ran  -> mean of the skill-check and Tessl Review scores
   * one tool ran    -> that tool's score
   * neither ran     -> null (scoring step redistributes the external weight)
 
-Both scores are on the same 0-100 scale (skill-check quality score; tessl review
-percentage). Rounding matches compute-score.py (JS-compatible half-up) so the
+Both scores are on the same 0-100 scale (skill-check's quality score; the Tessl
+Review score, `review_score` from skf-tessl-review.py, when the user opted in). Rounding matches compute-score.py (JS-compatible half-up) so the
 number this script emits and the one compute-score.py weights agree to the digit.
 
 Input schema (one JSON object; a tool that did not run is null or omitted):
@@ -121,8 +121,8 @@ def _build_parser():
         prog="combine-external-scores",
         description=(
             "Deterministic combined external-validation score "
-            "(external-validators.md §4). Averages the skill-check and tessl "
-            "review scores (or passes a single available score through) into the "
+            "(external-validators.md §4). Averages the skill-check and Tessl "
+            "Review scores (or passes a single available score through) into the "
             "`externalValidation` scoring input."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,

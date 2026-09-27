@@ -11,7 +11,7 @@
  * - Step metadata (thisStepFile, nextStepFile) references are valid
  * - Workflow-data frontmatter keys (<name>Data: 'assets/...' or 'references/...')
  *   resolved relative to the workflow root (parent of references/) — e.g.
- *   assemblyRulesData, skillSectionsData, tesslDismissalData, extractionPatternsData
+ *   assemblyRulesData, skillSectionsData, extractionPatternsData
  * - Load directives (Load: `file.md`) target existing files
  * - No absolute paths (/Users/, /home/, C:\) leak into source files
  * - Every {project-root}/src/<path> is preceded by its installed twin

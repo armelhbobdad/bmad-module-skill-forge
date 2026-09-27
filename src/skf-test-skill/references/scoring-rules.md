@@ -15,7 +15,7 @@
 | Type Coverage          | 14%    | Types and interfaces referenced are complete                                              |
 | Coherence (contextual) | 18%    | Cross-references valid, integration patterns complete                                     |
 | Coherence (naive)      | 0%     | Not applicable — weight redistributed to other categories                                 |
-| External Validation    | 10%    | Average of skill-check quality score + tessl average score (redistributed if unavailable) |
+| External Validation    | 10%    | skill-check score, averaged with the opt-in Tessl Review score (redistributed if absent)   |
 
 ## Naive Mode Weight Redistribution
 
@@ -29,11 +29,7 @@ When running in naive mode (no coherence category):
 
 ## External Validation Unavailable
 
-When neither skill-check nor tessl is available, redistribute the 10% external validation weight proportionally to the other active categories. When only one tool is available, use that tool's score as the external validation score.
-
-## tessl and Split-Body Interaction
-
-tessl evaluates SKILL.md body content only — it does not read `references/*.md` files. After split-body extraction, the tessl content score will drop significantly (e.g., 65% to 38%) because Tier 2 content is no longer inline. This is expected behavior and does not reflect actual content quality. When reporting scores for a split-body skill, note: "tessl content score reflects post-split inline content only. Use the pre-split tessl score as the content quality baseline."
+When neither skill-check nor Tessl Review produced a score (Tessl Review runs only when the user set `tessl_review_workspace` in preferences.yaml), redistribute the 10% external validation weight proportionally to the other active categories. When only one produced a score, use that score as the external validation score.
 
 ## Tier-Dependent Scoring
 

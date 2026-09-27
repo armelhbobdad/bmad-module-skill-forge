@@ -105,7 +105,7 @@ The score is the weighted sum of five categories:
 | **Signature Accuracy** | 22% | Documented function signatures match actual source signatures (parameter names, types, order, return types) |
 | **Type Coverage** | 14% | Types and interfaces referenced in exports are fully documented |
 | **Coherence** | 18% | Cross-references resolve, integration patterns are complete (contextual mode only) |
-| **External Validation** | 10% | Average of skill-check quality score (0–100) and tessl content score (0–100%) |
+| **External Validation** | 10% | skill-check quality score (0–100), averaged with the Tessl Review score (0–100) when you opt in to Tessl Review |
 
 ### Formula
 
@@ -123,7 +123,9 @@ coherence = (reference_validity × 0.6) + (integration_completeness × 0.4)
 
 If no integration patterns exist, coherence equals reference validity alone.
 
-**External validation** averages the two tools when both are available. When only one tool is available, that tool's score is used. When neither is available, the 10% weight is redistributed proportionally to the other active categories.
+**External validation** averages skill-check and Tessl Review when both produce a score. When only one does, that score is used. When neither does, the 10% weight is redistributed proportionally to the other active categories.
+
+**Tessl Review is optional.** It runs only after you set `tessl_review_workspace` in `_bmad/_memory/forger-sidecar/preferences.yaml` to the name of one of your Tessl workspaces (after `tessl login`, or with `TESSL_TOKEN` set). Create Skill and Test Skill then send the skill's `SKILL.md`, `references/`, `scripts/` and `assets/` to Tessl, where each review stays in that workspace's history, and each fresh review spends Tessl credits; each workflow run can spend one. A review takes Tessl about two minutes: the workflow checks on it in calls of under two minutes each, for up to about ten minutes, and records `timeout` if it has not finished by then. SKF never applies Tessl's suggestions: it lists them in the evidence and test reports, and you act on a description suggestion by editing the brief.
 
 ### Deterministic scoring
 

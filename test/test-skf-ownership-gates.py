@@ -71,7 +71,7 @@ CONTRACT_FILES = {
     "src/skf-test-skill/SKILL.md": ("not-skf-output",),
     QS_HALT_CONTRACT: ("not-skf-output", "flat-layout"),
     SS_SKILL: ("not-skf-output", "flat-layout"),
-    CS_REPORT: ("not-skf-output", "flat-layout"),
+    CS_REPORT: ("not-skf-output", "flat-layout", "description-angle-brackets"),
 }
 PROBE_ORDER = (
     "skillInventoryProbeOrder:\n"

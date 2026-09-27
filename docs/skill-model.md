@@ -13,7 +13,7 @@ SKF uses an additive tier model. You never lose capability by adding a tool.
 
 | Tier | Required Tools | What You Get |
 |------|---------------|-------------|
-| **Quick** | None (`gh_bridge`, `skill-check`, `tessl` used when available) | Source reading + spec validation + content quality review. Best-effort skills in under a minute. **Note:** Quick Skill (QS) is tier-unaware by design — it always runs at community tier regardless of installed tools. |
+| **Quick** | None (`gh_bridge` and `skill-check` used when available; `tessl` when you opt in to Tessl Review) | Source reading + spec validation. Best-effort skills in under a minute. **Note:** Quick Skill (QS) is tier-unaware by design — it always runs at community tier regardless of installed tools, and it never runs Tessl Review. |
 | **Forge** | + `ast_bridge` (ast-grep) | Structural truth. AST-verified signatures. Co-import detection. T1 confidence. |
 | **Forge+** | + `ccc_bridge` (cocoindex-code) | Semantic discovery. CCC pre-ranks files by meaning before AST extraction. Better coverage on large codebases. |
 | **Deep** | `ast_bridge` + `gh_bridge` (gh) + `qmd_bridge` (QMD). CCC optional — enhances when installed. | Knowledge search. Temporal provenance. Drift detection. Full intelligence. |

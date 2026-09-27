@@ -105,7 +105,7 @@ src/skf-<name>/
 - **Frontmatter matters.** `validate:skills` enforces SKILL-01 through STEP-07 (see [`tools/validate-skills.js`](tools/validate-skills.js)): SKILL.md must have `name` + `description` with a "Use when" / "Use if" trigger; step files must not have `name`/`description`; step count must be 2–10; step filenames must match `step-NN-<slug>.md`.
 - **Manifest.** Agent-facing skills (e.g. `skf-forger`) require a `bmad-skill-manifest.yaml`. Copy the one from `src/skf-forger/` and adapt.
 - **Knowledge JiT.** If your workflow shares a principle with others, factor it into `src/knowledge/` and load it from the step rather than inlining the rule.
-- **Quality review.** Before shipping, run a [tessl](https://tessl.io) skill review pass on the SKILL.md content — SKF uses tessl for actionability scoring and AI-judge evaluation (see the references under `src/skf-create-skill/assets/`).
+- **Quality review.** Before shipping, run the [BMad Builder](https://github.com/bmad-code-org/bmad-builder/) `quality-analysis` workflow on the changed skill; SKF validates its own workflows with it. With a [Tessl](https://tessl.io) account, `tessl review run <skill-folder>` adds an AI-judge review of the whole skill folder (each fresh review spends Tessl credits); `src/shared/references/tessl-review.md` lists the suggestions SKF does not follow.
 - **Register the workflow** in `src/module-help.csv` (ordering / preceded-by / followed-by fields) and in the `docs/workflows.md` reference table.
 
 ## Adding Knowledge Fragments

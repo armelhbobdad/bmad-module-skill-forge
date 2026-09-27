@@ -20,7 +20,8 @@
   file behind.
 - CLI: one ASCII JSON line on exit 0, usage errors exit 2, and an inherited
   GIT_DIR / GIT_INDEX_FILE never reaches another repository.
-- The link check and the CWD-shim guard stay identical to their siblings.
+- The link check and the CWD-shim guard stay identical to their siblings,
+  and each copy of the guard names every other copy in its docstring.
 
 Fixture repositories are real git repositories under tmp_path; the helper
 runs as a child process for the CLI-level tests and is imported for the
@@ -34,6 +35,7 @@ import copy
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -47,6 +49,7 @@ SCRIPTS = REPO_ROOT / "src" / "shared" / "scripts"
 HELPER = SCRIPTS / "skf-ccc-git-hygiene.py"
 ATOMIC_WRITE = SCRIPTS / "skf-atomic-write.py"
 MERGE_HELPER = SCRIPTS / "skf-merge-ccc-exclusions.py"
+TESSL_REVIEW = SCRIPTS / "skf-tessl-review.py"
 
 BLOCK = b"# CocoIndex Code (ccc)\n/.cocoindex_code/\n"
 SELF_IGNORE = b"# Created by SKF so git ignores this ccc index folder.\n*\n"
@@ -989,6 +992,32 @@ class TestPinnedCopies:
         ours = _function(HELPER, "_resolve_outside_cwd")
         theirs = _function(MERGE_HELPER, "_resolve_outside_cwd")
         assert _without_docstring(ours) == _without_docstring(theirs)
+
+    def test_tessl_review_cwd_guard_matches_merge_helper(self) -> None:
+        ours = _function(TESSL_REVIEW, "_resolve_outside_cwd")
+        theirs = _function(MERGE_HELPER, "_resolve_outside_cwd")
+        assert _without_docstring(ours) == _without_docstring(theirs)
+        assert "test/test-skf-ccc-git-hygiene.py pins" in TESSL_REVIEW.read_text(encoding="utf-8")
+
+    def test_cwd_guard_copies_name_every_sibling(self) -> None:
+        """Each copy's "sibling guards in ..." list names every other copy.
+
+        A maintainer who changes one copy updates the copies its list names;
+        a copy the list leaves out keeps the old guard.
+        """
+        copies = {}
+        for path in sorted((REPO_ROOT / "src").rglob("*.py")):
+            if "def _resolve_outside_cwd(" in path.read_text(encoding="utf-8"):
+                copies[path.name] = ast.get_docstring(_function(path, "_resolve_outside_cwd")) or ""
+        assert {HELPER.name, MERGE_HELPER.name, TESSL_REVIEW.name, "skf-source-tree.py",
+                "skf-detect-tools.py", "skf-qmd-classify-collections.py"} <= set(copies)
+        for name, doc in copies.items():
+            # The list ends at the pin note in brackets or at the closing full stop.
+            listed = re.search(r"sibling guards in (.+?)(?: \(|\.$)", " ".join(doc.split()))
+            assert listed, f"{name}: no 'sibling guards in' list"
+            named = set(re.findall(r"skf-[\w-]+\.py", listed.group(1)))
+            assert named == set(copies) - {name}, (
+                f"{name}: missing {sorted(set(copies) - {name} - named)}, extra {sorted(named - set(copies))}")
 
     def test_copies_carry_keep_identical_notes(self) -> None:
         text = HELPER.read_text(encoding="utf-8")

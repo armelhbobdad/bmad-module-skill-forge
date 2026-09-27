@@ -47,7 +47,7 @@ Read `{outputFile}` and extract the category scores calculated in previous steps
 - Or: not scored (naive mode — weight redistributed)
 
 **From External Validation (step 04b):**
-- External Validation Score: {percentage}% (combined skill-check + tessl average)
+- External Validation Score: {external_score}% (skill-check and Tessl Review, combined by step 04b §4)
 - Or: N/A (if neither tool was available — weight redistributed to other categories)
 
 ### 3. Apply Weight Distribution
@@ -83,7 +83,7 @@ Build a JSON object from the data gathered in steps 1-2:
     "signatureAccuracy": "{signature_accuracy_percentage or null if N/A}",
     "typeCoverage": "{type_coverage_percentage or null if N/A}",
     "coherence": "{combined_coherence_percentage or null if naive mode}",
-    "externalValidation": "{external_validation_score or null if N/A}"
+    "externalValidation": "{external_score, or null when step 04b §4 bound it null}"
   },
   "threshold": "{effective_threshold from §1 — CLI --threshold wins, then pipeline default, then workflow.default_threshold scalar, then 80}",
   "analysisConfidence": "{resolved analysis confidence — 'degraded' when python3/frontmatter validator missing; else full/provenance-map/metadata-only/remote-only/docs-only; omit if unknown}",
@@ -277,7 +277,7 @@ Append the **Completeness Score** section to `{outputFile}`:
 **Threshold Fallback:** scored {totalScore}% against {original_threshold}% target — accepted at 80% floor. Evidence report: {evidence_report_path}
 **Weight Distribution:** {naive (redistributed) | contextual (full)}
 **Tier Adjustment:** {none | Quick tier — signature and type coverage not scored}
-**External Validators:** {both available | skill-check only | tessl only | none — weight redistributed}
+**External Validators:** {skill-check and Tessl Review | skill-check only | Tessl Review only | none — weight redistributed} (from `{external_tools_used}`; `tessl` is Tessl Review)
 **Analysis Confidence:** {full | provenance-map | metadata-only | remote-only | docs-only}
 ```
 

@@ -284,7 +284,8 @@ t2_future_count: {N}
 - Frontmatter: {pass/fail}
 - Body: {pass/fail} {split-body applied if applicable}
 - Security: {pass/warn/skipped}
-- Content Quality (tessl): {pass/warn/skipped} (score: {score}%)
+- Description angle brackets: {none | re-sanitized ({count} substitutions) | not checked — no description}
+- Tessl Review: {tessl_summary}
 - Metadata: {pass/fail}
 
 ## Quality Score Breakdown
@@ -301,6 +302,13 @@ t2_future_count: {N}
 
 ## Remaining Warnings
 - {any warnings from extraction or validation}
+
+## Tessl Review
+- Result: {tessl_summary}
+- Workspace: {tessl_workspace or —} · tessl {tessl_version or —} · Run: {tessl_run_id or —}
+- Validation findings: {each {tessl_validation} finding as `name (status): message`, or "none"}
+- Description suggestions (to act on one, edit the description in the brief and re-run create-skill): {each of {tessl_description_suggestions}, or "none"}
+- Content suggestions (advisory, not applied): {each of {tessl_content_suggestions} with its `(not applicable: <rule-id>)` mark, or "none"}
 ```
 
 **Frontmatter — pinned detection contract:** the `t2_future_count` field is the authoritative forward-looking-annotation count for downstream gate checks (e.g. skf-test-skill §2b migration-section rule). Emit **always**, even when 0 — omission is indistinguishable from "no T2-future data" and silently flips the gate into Case 2/3 for a Case-1 skill. `generated` and `forge_tier` mirror the narrative header for consumers that read only the frontmatter. Downstream gate rules parse `t2_future_count` from frontmatter, not prose — prose drift (heading renames, alternate phrasings like "forward-looking annotations") silently breaks grep-based detection.

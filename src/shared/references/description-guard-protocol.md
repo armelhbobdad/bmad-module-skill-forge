@@ -4,7 +4,7 @@
 
 External validators (`skill-check check --fix`, `skill-check split-body`, and any future tool that may rewrite SKILL.md frontmatter) occasionally replace, truncate, or otherwise mutate the `description` field — sometimes substituting a generic version, sometimes re-introducing angle-bracket tokens that earlier sanitization removed.
 
-The on-disk description is **authoritative**: it has been compiled (in `skf-create-skill`) or merged (in `skf-update-skill`) with deliberate trigger-optimization. Losing it to a tool's well-meaning rewrite breaks agent discovery quality and can re-introduce the angle-bracket failure mode that breaks tessl on the next run.
+The on-disk description is **authoritative**: it has been compiled (in `skf-create-skill`) or merged (in `skf-update-skill`) with deliberate trigger-optimization. Losing it to a tool's well-meaning rewrite breaks agent discovery quality and can re-introduce angle brackets that create-skill removed, which the Claude platform does not accept in a skill description (it cannot contain XML tags).
 
 Any tool invocation that may touch SKILL.md must run inside the four-phase guard below. Workflows invoke the deterministic phases (1, 3, 4) via `skf-description-guard.py`, which each calling step resolves as `{descriptionGuardHelper}` from its `descriptionGuardProbeOrder` (installed SKF module path first, src/ dev-checkout fallback); the LLM only performs phase 2 (the tool call itself).
 
@@ -84,7 +84,7 @@ Splitting on whitespace and comparing token lists catches replaced words, trunca
 
 ## Post-Restore Re-Validation (Optional)
 
-Skills that run frontmatter compliance checks (e.g. `skf-create-skill validate.md`) should additionally re-validate the restored description against the frontmatter contract after restore — a restored value must still satisfy length limits, forbidden-token rules, and required-field shape. Run the frontmatter validator the calling step resolves (create-skill resolves `{frontmatterValidator}` from its `frontmatterValidatorProbeOrder`):
+Skills that run frontmatter compliance checks (e.g. `skf-create-skill validate.md`) should additionally re-validate the restored description against the frontmatter contract after restore — a restored value must still satisfy the length limit and required-field shape. (create-skill also checks the final description for angle brackets, in its validate §6, after every tool has run.) Run the frontmatter validator the calling step resolves (create-skill resolves `{frontmatterValidator}` from its `frontmatterValidatorProbeOrder`):
 
 ```bash
 uv run {frontmatterValidator} <skill-md-path>

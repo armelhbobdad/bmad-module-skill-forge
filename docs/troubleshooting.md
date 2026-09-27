@@ -97,6 +97,31 @@ Surfaced by `@Ferris US` (under `--headless`, `error.phase` is `merge:new-versio
 
 **Fix:** if an earlier update stopped after creating that version, delete both folders (whichever exist) by hand, then re-run. If you keep that version on purpose, move both folders out of the way by hand before updating. Never remove the version the `active` link names. Drop Skill removes a single version only when the export manifest lists it (`@Ferris DS <name>`, choosing that version, with `--purge`); for a skill that was never exported it can only drop every version, and a soft drop keeps the files on disk.
 
+### A report says `Tessl Review: off`, `not run`, `no result` or `failed`
+
+Create Skill and Test Skill record one `Tessl Review:` line in the evidence report and the test report. Tessl Review is optional and never stops a run, so the line says why it produced no score:
+
+| Status | What it means and what to do |
+|---|---|
+| `off` | The default. Set `tessl_review_workspace` in `_bmad/_memory/forger-sidecar/preferences.yaml` to the name of one of your Tessl workspaces (`tessl workspace list` shows them) to enable it. The review uploads the skill's `SKILL.md`, `references/`, `scripts/` and `assets/` to Tessl, where it stays in that workspace's history, and each fresh review spends Tessl credits. |
+| `invalid-config` | `tessl_review_workspace` is set to something that is not a workspace name, such as `true`, a value with spaces or one with characters other than letters, digits, `.`, `_` and `-`. Set it to the workspace name, or to `~` to turn the review off. |
+| `not-installed` | Neither `tessl` nor a cached npm copy of it was found. Install the Tessl CLI (see [tessl.io](https://tessl.io)); SKF never installs it. |
+| `signed-out` | Run `tessl login`, or set `TESSL_TOKEN` for an unattended run. |
+| `command-unavailable` | The installed tessl has no working `tessl review run`. Update tessl. |
+| `pending` | The workflow stopped checking before Tessl finished. The review may still complete on Tessl's side: `tessl review view <run id>` shows it (the line names the run id); re-run the workflow later. |
+| `unknown-run` | Tessl has no review with the run id the workflow checked, or the workflow passed something that is not a run id. Re-run the workflow; `tessl review list` shows your reviews. |
+| `timeout` | The workflow did not see Tessl finish while it waited (about ten minutes): Tessl was still working, or the last checks failed or did not answer. The review may still complete on Tessl's side: `tessl review view <run id>` shows it (the line names the run id); re-run the workflow later. |
+| `failed` | The line carries tessl's own message, a skill file SKF could not read, or a tessl call that did not answer in time. When it is about the workspace, check the name against `tessl workspace list`. `did not answer within` means tessl was slow, for example while its npm launcher downloads tessl on a first run: re-run the workflow. `stopped before skf-tessl-review.py reported a result` means your agent's shell tool stopped a helper call; when Tessl had accepted the review, the report names its run id for `tessl review view <run id>`. |
+| `parse-failure` | tessl printed no review SKF can read. Update tessl, or run `tessl review run <skill-folder> --json` yourself to see its output. |
+
+When Tessl Review produces no score, Test Skill's External Validation uses skill-check's score alone.
+
+### "Description sanitization failed"
+
+Create Skill checks the staged skill's frontmatter `description` for `<` and `>` before it writes the skill, because the Claude platform does not accept XML tags there. When it finds them, it replaces them with `{` and `}` and checks again; this message means they were still there after that, so nothing was written to `skills_output_folder`. Under `--headless` the stderr envelope carries `halt_reason: "description-angle-brackets"`.
+
+**Fix:** check that `_bmad-output/.skf-stage/<name>/SKILL.md` can be written (its permissions, and no other program holding it open), then re-run `@Ferris CS`. To keep angle brackets out of the description from the start, write placeholders in the brief as `{name}` or `NAME` rather than `<name>`.
+
 ### My campaign stopped partway — how do I resume?
 
 Campaign is designed for exactly this. State lives in `_campaign-state.yaml` on disk, so context death, a session timeout, or a machine restart loses nothing. Run `@Ferris campaign resume` — Ferris validates the state file, skips completed skills, and picks up from the next incomplete skill in dependency order. If the state file is corrupted, Ferris falls back to the `.bak` copy automatically. To re-process one specific skill, use `@Ferris campaign resume --from=<skill>`.

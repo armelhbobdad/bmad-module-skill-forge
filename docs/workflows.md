@@ -55,7 +55,7 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 
 **When to Use:** After Brief Skill, or with an existing skill-brief.yaml.
 
-**Key Steps:** Load brief → Ecosystem check → Extract (AST + scripts/assets) → QMD enrich (Deep) → Compile → Doc sources → Auto-shard → Doc-rot → Validate → Generate
+**Key Steps:** Load brief → Ecosystem check → Extract (AST + scripts/assets) → QMD enrich (Deep) → Compile → Doc sources → Auto-shard → Doc-rot → Validate (skill-check; Tessl Review when you opt in) → Generate
 
 **Safety:** Writes a version only into a skill folder SKF generated, or a new one. When `skills_output_folder` already holds a folder with the skill's name that SKF did not generate, or a version folder SKF did not generate, it stops before writing anything (`not-skf-output`); an SKF skill still in the old flat layout stops with `flat-layout` until `@Ferris TS` moves it. Set a different `name` in the brief to create the skill beside a folder SKF did not generate.
 
@@ -172,7 +172,7 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 
 **When to Use:** After creating or updating a skill, before exporting.
 
-**Key Steps:** Load skill → Detect mode → Coverage check → Coherence check → External validation (skill-check, tessl) → Hard gate → Score → Gap report
+**Key Steps:** Load skill → Detect mode → Coverage check → Coherence check → External validation (skill-check; Tessl Review when you opt in) → Hard gate → Score → Gap report
 
 **Scored Categories:** Export Coverage (36%), Signature Accuracy (22%), Type Coverage (14%), Coherence (18%), External Validation (10%). Default pass threshold: **80%** (per-pipeline defaults: forge-auto 90%, forge 80%). Pass routes to Export Skill; fail routes to Update Skill with a gap report. See [Completeness Scoring](/docs/verifying-a-skill.md#how-the-score-is-computed) for the full formula and tier adjustments.
 
@@ -407,7 +407,7 @@ Add `--headless` or `-H` to any workflow command to skip all confirmation gates.
 @Ferris EX -H                    — export with auto-approved context update
 ```
 
-You can also set `headless_mode: true` in your forge preferences (`_bmad/_memory/forger-sidecar/preferences.yaml`) to make headless the default for all workflows.
+You can also set `headless_mode: true` in your forge preferences (`_bmad/_memory/forger-sidecar/preferences.yaml`) to make headless the default for all workflows. Headless never turns Tessl Review on: create-skill and test-skill send a skill to Tessl only when `tessl_review_workspace` is set in the same file, and then they do so in headless runs too.
 
 **Exception — `/skf-setup` headless emits a single-line JSON envelope.** Unlike other workflows, headless (or `--quiet`) `/skf-setup` skips its status banner, progress lines and health-check output and ends on one prefixed envelope line. What setup guarantees is that this line is the run's final message, so it is exactly what `claude -p` prints; an interactive session or a `stream-json` reader may still see brief agent notes between tool calls. On success the health check runs first and the envelope follows it. On a tier miss or a halt the health check does not run, and the `status: "tier_failure"` envelope, or a `status: "blocked"` envelope whose `error.reason` carries the diagnostic, is the final message. Two cases have no envelope: when SKF's scripts are not installed in the project (a directory that is not an SKF project, or a helper-missing halt because they are gone), there is no helper to build one, and when an early halt (config missing or malformed, or `uv` missing) finds neither `uv` nor a Python interpreter (`python3`, `python` or `py -3`) to run the helper. Either way the run's one line is the bare halt reason. Pipelines should treat a missing envelope as a failure. When the forger runs `SF` as one step of a pipeline, setup displays the same line and hands control back to the forger, which keeps chaining. The success envelope looks like this:
 

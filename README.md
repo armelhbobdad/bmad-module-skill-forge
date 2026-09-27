@@ -177,7 +177,7 @@ SKF builds on these excellent open-source tools:
 | [QMD](https://github.com/tobi/qmd)                               | Local hybrid search engine for knowledge indexing (Deep tier)          |
 | [skill-check](https://github.com/thedaviddias/skill-check)       | Skill validation, auto-fix, quality scoring, and security scanning     |
 | [Snyk Agent Scan](https://github.com/snyk/agent-scan)            | Security scanning for prompt injection and data exposure (optional)    |
-| [tessl](https://tessl.io)                                        | Content quality review, actionability scoring, and AI judge evaluation |
+| [tessl](https://tessl.io)                                        | Opt-in Tessl Review: AI-judge scoring of description and content       |
 | [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD)      | Agent-workflow framework that SKF extends as a module                  |
 
 ## Contributing

@@ -618,3 +618,57 @@ def test_protocol_keeps_the_rules_the_steps_repeat() -> None:
     assert "Never retry with the empty value" in rule
     centralized = _slice(text, "## Why This Protocol Is Centralized", "## Calling Workflows")
     assert "also stated in the stage's §0" in centralized
+
+# --------------------------------------------------------------------------
+# sanitize (create-skill step 6 §6)
+# --------------------------------------------------------------------------
+
+
+class TestSanitize:
+    def test_substitution_matches_compile_2a(self) -> None:
+        assert mod.sanitize_angle_brackets("Meta<typeof X> and <b>x</b>") == ("Meta{typeof X} and {b}x{/b}", 6)
+        assert mod.sanitize_angle_brackets("clean") == ("clean", 0)
+
+    def test_cli_rewrites_only_the_description(self, tmp_path: Path) -> None:
+        skill = tmp_path / "SKILL.md"
+        skill.write_bytes(
+            b'---\nname: my-skill\ndescription: "Maps `Array<T>` for $HOME. Use when mapping."\nlicense: MIT\n'
+            b"---\n\n# My Skill\n\nBody keeps <T> as is.\n"
+        )
+        result = _run_cli("sanitize", str(skill))
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload == {"substitutions": 2, "sanitized": True,
+                           "description": "Maps `Array{T}` for $HOME. Use when mapping."}
+        raw = skill.read_bytes()
+        assert b"\r\n" not in raw
+        text = raw.decode("utf-8")
+        fm = _parse_frontmatter(text)
+        assert fm == {"name": "my-skill", "description": payload["description"], "license": "MIT"}
+        assert text.endswith("# My Skill\n\nBody keeps <T> as is.\n")
+
+    def test_cli_leaves_a_clean_file_untouched(self, tmp_path: Path) -> None:
+        skill = _write_skill(tmp_path, SAMPLE_DESC, shape="quoted")
+        before = skill.read_bytes()
+        result = _run_cli("sanitize", str(skill))
+        assert result.returncode == 0
+        assert json.loads(result.stdout) == {"substitutions": 0, "sanitized": False, "description": SAMPLE_DESC}
+        assert skill.read_bytes() == before
+
+    def test_cli_missing_file_is_a_user_error(self, tmp_path: Path) -> None:
+        result = _run_cli("sanitize", str(tmp_path / "SKILL.md"))
+        assert result.returncode == 1 and result.stdout == ""
+
+    def test_restore_writes_lf_line_endings(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Text mode would write CRLF on Windows; the writer must pass newline=""."""
+        seen = {}
+        real_fdopen = mod.os.fdopen
+
+        def fdopen(fd, *args, **kwargs):
+            seen.update(kwargs)
+            return real_fdopen(fd, *args, **kwargs)
+
+        monkeypatch.setattr(mod.os, "fdopen", fdopen)
+        skill = _write_skill(tmp_path, "old value", shape="inline")
+        mod.restore_description(skill, "new value")
+        assert seen.get("newline") == ""

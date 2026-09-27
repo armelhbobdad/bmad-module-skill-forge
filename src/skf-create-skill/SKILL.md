@@ -7,7 +7,7 @@ description: Compile a skill from a brief. Supports --batch for multiple briefs.
 
 ## Overview
 
-Compiles a verified agent skill from a skill-brief.yaml and source code, producing an agentskills.io-compliant SKILL.md with provenance map, evidence report, and progressive disclosure references. The workflow is mostly autonomous with three interaction points — after ecosystem check (if match found), after source extraction (to confirm findings), and after content quality review (when tessl produces suggestions). Steps adapt behavior based on forge tier (Quick/Forge/Forge+/Deep). Zero hallucination tolerance: every instruction in the output must trace to source code with a confidence tier citation. A single run is not resumable — if it is interrupted mid-compile, re-run from the brief (only `--batch` checkpoints progress across briefs).
+Compiles a verified agent skill from a skill-brief.yaml and source code, producing an agentskills.io-compliant SKILL.md with provenance map, evidence report, and progressive disclosure references. The workflow is mostly autonomous: it stops for the user after the ecosystem check (if a match is found), after source extraction (to confirm findings) and, for a component library, at step 3d's demo-exclusion and registry prompts. When the user has opted in to Tessl Review, step 6 also records Tessl's review of the skill as advice; it never stops the run. Steps adapt behavior based on forge tier (Quick/Forge/Forge+/Deep). Zero hallucination tolerance: every instruction in the output must trace to source code with a confidence tier citation. A single run is not resumable — if it is interrupted mid-compile, re-run from the brief (only `--batch` checkpoints progress across briefs).
 
 ## Conventions
 
@@ -47,7 +47,7 @@ These rules apply to every step in this workflow:
 | 5a | Doc Sources | references/step-doc-sources.md | Yes |
 | 5b | Auto-Shard | references/step-auto-shard.md | Yes |
 | 5c | Doc-Rot | references/step-doc-rot.md | Yes |
-| 6 | Validate | references/validate.md | Conditional |
+| 6 | Validate | references/validate.md | Yes |
 | 7 | Generate Artifacts | references/generate-artifacts.md | Yes |
 | 8 | Report | references/report.md | Yes |
 | 9 | Workflow Health Check | references/health-check.md | Yes |
@@ -59,7 +59,7 @@ These rules apply to every step in this workflow:
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | brief_path (path to skill-brief.yaml) [required], --batch [optional] |
-| **Gates** | step 2: Choice Gate [P] (if match) | step 3: Review Gate [C] | step 6: Content-Quality Gate [C] (if novel tessl suggestions) |
+| **Gates** | step 2: Choice Gate [P] (if match) | step 3: Review Gate [C] | step 3d: Demo-Exclusion Gate [Y], then Registry Gate [Y] (candidate found) or [S] (none found), component-library scope only |
 | **Outputs** | SKILL.md, context-snippet.md, metadata.json, provenance-map.json, evidence-report.md, references/ |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 

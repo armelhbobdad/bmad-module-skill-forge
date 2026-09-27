@@ -420,6 +420,17 @@ def test_init_prefs_creates_when_missing(tmp_target):
     parsed = _read_yaml_file(target)
     assert parsed["tier_override"] is None
     assert parsed["headless_mode"] is False
+    assert "tessl_review_workspace" in parsed and parsed["tessl_review_workspace"] is None
+
+
+def test_preferences_template_matches_the_installer_copy():
+    """The installer copies src/forger/preferences.yaml; setup's init-prefs writes PREFERENCES_TEMPLATE."""
+    import importlib.util
+    spec_ = importlib.util.spec_from_file_location("skf_forge_tier_rw_template", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec_)
+    spec_.loader.exec_module(module)
+    installer_copy = SCRIPT_PATH.parents[2] / "forger" / "preferences.yaml"
+    assert module.PREFERENCES_TEMPLATE == installer_copy.read_text(encoding="utf-8")
 
 
 def test_init_prefs_preserves_existing(tmp_target):

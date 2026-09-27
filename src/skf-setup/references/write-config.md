@@ -84,7 +84,7 @@ uv run {forgeTierRwHelper} init-prefs \
     --target "{project-root}/_bmad/_memory/forger-sidecar/preferences.yaml"
 ```
 
-The script creates the file with first-run defaults (`tier_override: ~`, `passive_context: true`, `headless_mode: false`, `compact_greeting: false`) if the file does not exist. When the file already exists, the script refuses to overwrite (preserves user customization) and reports `wrote: false`.
+The script creates the file with first-run defaults (`tier_override: ~`, `passive_context: true`, `headless_mode: false`, `compact_greeting: false`, `tessl_review_workspace: ~`) if the file does not exist. When the file already exists, the script refuses to overwrite (preserves user customization) and reports `wrote: false`.
 
 **Parse the response and set context flags for step 4:**
 

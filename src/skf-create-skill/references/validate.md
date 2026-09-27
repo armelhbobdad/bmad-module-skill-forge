@@ -1,6 +1,5 @@
 ---
 nextStepFile: 'generate-artifacts.md'
-tesslDismissalData: 'assets/tessl-dismissal-rules.md'
 # Resolve `{descriptionGuardProtocol}` (the guard's prose protocol, not its
 # helper script) by probing `{descriptionGuardProtocolProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first
@@ -27,8 +26,9 @@ descriptionGuardProbeOrder:
   - '{project-root}/src/shared/scripts/skf-description-guard.py'
 # Resolve `{frontmatterValidator}` by probing `{frontmatterValidatorProbeOrder}`
 # in order (installed SKF module path first, src/ dev-checkout fallback); first
-# existing path wins. §0's post-restore re-validation hook uses it; an installed
-# module has no src/ tree, so a bare src/ path would silently fail the hook.
+# existing path wins. HALT if neither resolves — §6's description check has no
+# fallback, and §0's post-restore re-validation hook uses it too; an installed
+# module has no src/ tree, so a bare src/ path would silently skip both.
 frontmatterValidatorProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py'
   - '{project-root}/src/shared/scripts/skf-validate-frontmatter.py'
@@ -46,6 +46,20 @@ shardBodyProbeOrder:
 renderMetadataStatsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
   - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
+# Resolve `{tesslReviewHelper}` by probing `{tesslReviewProbeOrder}` in order
+# (installed SKF module path first, src/ dev-checkout fallback); first existing
+# path wins. If neither path exists, §6b records that Tessl Review did not run
+# and continues: the review is optional and never gates the workflow.
+tesslReviewProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-tessl-review.py'
+  - '{project-root}/src/shared/scripts/skf-tessl-review.py'
+# Resolve `{tesslReviewRules}` the same way. §6b loads it after a completed
+# review to mark the suggestions SKF does not follow; without it the
+# suggestions are listed unmarked.
+tesslReviewRulesProbeOrder:
+  - '{project-root}/_bmad/skf/shared/references/tessl-review.md'
+  - '{project-root}/src/shared/references/tessl-review.md'
+preferencesFile: '{sidecar_path}/preferences.yaml'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -54,7 +68,7 @@ renderMetadataStatsProbeOrder:
 
 ## STEP GOAL:
 
-To validate the compiled SKILL.md content against the agentskills.io specification using skill-check, auto-fix any validation failures, and confirm spec compliance before artifact generation.
+To validate the compiled SKILL.md content against the agentskills.io specification using skill-check, auto-fix any validation failures, confirm that the frontmatter description holds no angle brackets, and confirm spec compliance before artifact generation. When the user has opted in to Tessl Review, also record Tessl's review of the skill as advice; it never gates the step.
 
 ## Rules
 
@@ -63,6 +77,7 @@ To validate the compiled SKILL.md content against the agentskills.io specificati
 - `<staging-skill-dir>` resolves to `_bmad-output/.skf-stage/{skill-name}/` as created by step 5. Its last folder name must match the skill's frontmatter `name` field exactly — `skill-check`'s `frontmatter.name_matches_directory` rule rejects any suffix.
 - If skill-check unavailable: skip validation, add warning to evidence report
 - Ignore non-zero exit codes from skill-check if JSON output shows 0 errors
+- Tessl Review (§6b) is optional and advisory: it never halts, never asks the user anything and never changes the staged files, and SKF applies none of its suggestions
 
 ## MANDATORY SEQUENCE
 
@@ -83,7 +98,7 @@ Resolve `{descriptionGuardProtocol}` ← first existing path in `{descriptionGua
 Run: `timeout 30s npx skill-check -h` — the short timeout protects against a cold `npx` download blocking the workflow indefinitely on a slow network.
 
 - If succeeds: Continue to automated validation (section 2)
-- If fails or times out: Perform manual fallback (section 3); add note to evidence-report: "Spec validation performed manually — skill-check tool unavailable". Also set `metadata.validation_status: 'manual-only'` in `metadata.json` (write via `python3 {atomicWriteHelper} write --target <staging-skill-dir>/metadata.json`), and in the evidence-report's `Validation Results` section mark Security, Body, and Content Quality (tessl) rows explicitly as `skipped — skill-check unavailable`. Downstream consumers (pipeline, forger, test-skill) check `validation_status` to decide how much weight to put on the artifact; leaving it unset would make a manual-only run look equivalent to a fully automated PASS.
+- If fails or times out: Perform manual fallback (section 3); add note to evidence-report: "Spec validation performed manually — skill-check tool unavailable". Also set `metadata.validation_status: 'manual-only'` in `metadata.json` (write via `python3 {atomicWriteHelper} write --target <staging-skill-dir>/metadata.json`), and in the evidence-report's `Validation Results` section mark the Security and Body rows explicitly as `skipped — skill-check unavailable` (§6 and §6b do not depend on skill-check). Downstream consumers (pipeline, forger, test-skill) check `validation_status` to decide how much weight to put on the artifact; leaving it unset would make a manual-only run look equivalent to a fully automated PASS.
 
 **Important:** Do not assume availability — empirical check required.
 
@@ -212,59 +227,62 @@ Record: "Security scan skipped — SNYK_TOKEN not configured"
 
 **If skill-check unavailable:** Skip with note: "Security scan skipped — skill-check tool unavailable"
 
-### 6. Content Quality Review (tessl)
+### 6. Description Angle-Bracket Check
 
-**If tessl available**, run: `timeout 120s npx -y tessl skill review <staging-skill-dir>` — the 120s cap matches skf-test-skill's tessl invocation guard and prevents a stalled LLM call in tessl from blocking compilation. On timeout, treat the step as unavailable and record `tessl: timeout — content quality review skipped` in the evidence report.
+The Claude platform does not accept a skill whose frontmatter `description` contains XML tags, and none of the validators this step runs checks for them: skill-check has no such rule and Tessl Review accepts them. Step 5 §2a replaces every `<` with `{` and every `>` with `}` before SKILL.md is written, and the §0 guard puts that description back whenever a tool rewrites it; this section checks the staged result after every tool in this step has run, whether or not skill-check was available.
 
-Parse output for: `description_score`, `content_score`, `review_score`, `validation_result`, `judge_suggestions[]`.
+Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}`; first existing path wins. If neither path resolves, or the command below prints no JSON object, HALT with: "Cannot check the staged description — skf-validate-frontmatter.py is missing or did not run. Re-install SKF, then re-run create-skill." Run:
 
-**Load dismissal rules:** Before interpreting any findings, load `{tesslDismissalData}` completely. This file is the single source of truth for tessl findings that SKF expects and must dismiss. It defines score thresholds, suggestion dismissal patterns, and the action to take when each rule matches.
+```bash
+uv run {frontmatterValidator} "<staging-skill-dir>/SKILL.md" --forbid-angle-brackets
+```
 
-**Apply dismissal rules** in this order:
+Rely on the parsed JSON, not the exit code: the validator also exits 1 for the frontmatter issues §2 and §3 already recorded. Bind `{description_angle_brackets}` ← `description_angle_brackets`.
 
-1. **Check score thresholds** against the "Score Thresholds" table in `{tesslDismissalData}`. Most importantly:
-   - If tessl's output contains a `findings[]` entry with rule ID `description_field` (the deterministic angle-bracket / XML-tag validator): follow the **recover-then-halt** path defined by the `description-xml-tags-guarded-upstream` rule in `{tesslDismissalData}`. Re-apply step 5 §2a's `<`/`>` → `{`/`}` substitution in place on the staging SKILL.md frontmatter `description`, re-sync the in-context copy, and re-run `npx -y tessl skill review <staging-skill-dir>` once. **Re-run gate:** treat the `description_field` finding being **absent** from the re-run as the only successful recovery outcome. If the finding persists on the re-run — whether the re-substitution improved the description or not — that counts as recovery failure: halt with the original `description-xml-tags-guarded-upstream` failure message from `{tesslDismissalData}`, do not proceed to §6b, and do not downgrade the recovery to a warning. On successful recovery (finding cleared), log `description-recovery: applied ({count} substitutions)` in the evidence report under "Dismissed tessl suggestions" and continue suggestion iteration against the rerun's `judge_suggestions[]`.
-   - If the LLM-judge `description_score` is below 100 **but no `description_field` finding is present** (the deterministic validator PASSED): this is a soft discoverability signal (jargon density, trigger-term phrasing) from the judge's sub-scores, not a sanitizer bypass. Record `description_judge_score: {n}% (deterministic description_field validator PASSED)` as a warning in the evidence report and continue — do not trigger the recover-then-halt path and do not halt.
-   - If `review_score < 60` or `content_score < 60`: record warnings in the evidence report, continue.
-2. **Iterate `judge_suggestions[]`.** For each suggestion:
-   - Cross-reference against the rules in `{tesslDismissalData}` in order.
-   - If a rule matches: record `{rule_id, rationale, suggestion_text}` under "Dismissed tessl suggestions" in the evidence report. Do not apply.
-   - If no rule matches: add to the "Novel tessl suggestions" list for §6b to surface to the user.
-3. **Short-circuit when empty.** If every suggestion was dismissed (no novel suggestions), §6b has nothing to show — auto-proceed to §7.
+- **`{description_angle_brackets}` is `0`:** record `Description angle brackets: none` and continue to §6b.
+- **`{description_angle_brackets}` is null** (the description is missing, blank or not a string, which §2 or §3 already recorded): record `Description angle brackets: not checked — no description` and continue to §6b.
+- **`{description_angle_brackets}` is above `0`:** apply step 5 §2a's substitution again, in place. The guard helper rewrites only the `description` field and takes no description on the command line, so backticks and `$` in it are safe:
 
-- **Unavailable:** Skip with note: "Content quality review skipped — tessl tool unavailable"
+  ```bash
+  uv run {descriptionGuardHelper} sanitize "<staging-skill-dir>/SKILL.md"
+  ```
 
-tessl installs automatically via `npx`. A missing tool is not an error — graceful skip.
+  Bind `{angle_bracket_substitutions}` ← `substitutions`, `{angle_brackets_sanitized}` ← `sanitized` and `{sanitized_description}` ← `description`. Then run the validator command above once more and bind `{description_angle_brackets}` ← `description_angle_brackets` again.
+  - **Recovered** (the guard helper exited 0, `{angle_brackets_sanitized}` is true and `{description_angle_brackets}` is now `0`): set the in-context SKILL.md copy's `description` to `{sanitized_description}` (step 7 writes from the in-context copies), record `Description angle brackets: re-sanitized ({angle_bracket_substitutions} substitutions)` and continue to §6b.
+  - **Otherwise HALT** with: "Description sanitization failed — the staged SKILL.md description still holds angle brackets after step 5 §2a's substitution was applied again. The Claude platform does not accept XML tags in a skill description. Check that `<staging-skill-dir>/SKILL.md` can be written, then re-run create-skill." Nothing has been promoted yet, so under `{headless_mode}` emit the stderr envelope per `references/report.md` "Result Contract on HARD HALT" with `status: "failed"`, `phase: "validate"`, `summary.halt_reason: "description-angle-brackets"`, `summary.evidence_report: null` and `skill_package: null`.
 
-#### 6b. User Decision Gate (conditional)
+### 6b. Tessl Review (optional)
 
-**If §6 produced no novel suggestions (all dismissed via `{tesslDismissalData}`) OR tessl was unavailable:** Skip this gate — auto-proceed.
+Tessl Review (`tessl review run`, which the helper below runs on a copy of `<staging-skill-dir>`) scores the skill on Tessl's servers with validation checks and two AI judges, one for the description and one for the content. It runs only when the user opted in by setting `tessl_review_workspace` in `{preferencesFile}` to a Tessl workspace name, because it needs a Tessl account, uploads the skill's files to that workspace's review history and spends Tessl credits. The helper applies that setting and every other condition, so run it on every pass and let it decide; `{tesslReviewRules}` explains what is uploaded and what each result means. Nothing in this section halts, asks the user anything, changes the staged files or adds an auto-decision, in interactive and headless runs alike.
 
-**GATE [default: S]** — If `{headless_mode}` is true AND §6 produced novel suggestions: auto-select [S] Skip (a headless run has no human to triage novel suggestions), record `"tessl suggestions: {N} novel suggestion(s) auto-skipped (headless)"` in the evidence report under "Dismissed tessl suggestions", log `"headless: auto-skip {N} novel tessl suggestion(s)"`, and append `{step: "validate", gate: "tessl-suggestions", decision: "S", value: "{N} novel auto-skipped", rationale: "headless mode — no human to triage novel tessl suggestions", timestamp: {ISO}}` to the in-context `headless_decisions[]` list and, the moment it lands, append the same object as a JSON line to the durable audit sink `{sidecar_path}/auto-decisions.jsonl` (the on-landing append established at step 1 §3). §8 below reconciles the sink into the evidence-report `## Auto-Decisions` table — this is the last gate to fire; the earlier gates' rows are already in the sink and were rendered into the staged report at step 5 §7. This is the one consequential auto-decision that drops human-relevant feedback, so it must leave an audit row rather than vanishing. Then auto-proceed to §7 — do not present the menu below.
+Resolve `{tesslReviewHelper}` ← first existing path in `{tesslReviewProbeOrder}`. If neither path exists, set `{tessl_summary}` to `not run — skf-tessl-review.py is missing` and `{tessl_warnings}` to the one line `Tessl Review: {tessl_summary}`, add that line to the evidence report's Remaining Warnings and continue to §7. Otherwise submit the review:
 
-**If §6 produced novel suggestions** (ones not matched by any dismissal rule) AND `{headless_mode}` is false, present them to the user:
+```bash
+uv run {tesslReviewHelper} submit "<staging-skill-dir>" --preferences "{preferencesFile}"
+```
 
-"**Content quality review: {score}%**
+A review takes Tessl about two minutes, so no call waits for all of it. When the review is on, `submit` sends a copy of the skill to Tessl and returns `pending` with Tessl's run id as soon as Tessl accepts it; when it is off or cannot run, `submit` returns that result instead. While `{tessl_status}` is `pending`, collect the review, at most six times, and add `--final` to the sixth call, which turns a review still running into `timeout`:
 
-tessl suggestions (novel — not matched by `{tesslDismissalData}`):
-{numbered list of novel suggestions}
+```bash
+uv run {tesslReviewHelper} collect "{tessl_run_id}" --workspace "{tessl_workspace}" --tessl-version "{tessl_version}"
+```
 
-**Select an option:**
-- **[S] Skip** — proceed with current content as-is (default)
-- **[A] Apply structural fixes** — apply only structural suggestions (split sections, consolidate duplicates). No new content generated.
-- **[R] Review all** — show each suggestion with proposed changes before applying"
+Each call ends within two minutes (a `collect` checks the review for up to 90 seconds, then returns `pending` again or the result), so run each one with your shell tool's default time limit. If the shell tool stops a call before it prints its JSON, or it prints none, make that the last call: set `{tessl_status}` to `failed`, `{tessl_summary}` to `failed — stopped before skf-tessl-review.py reported a result` and `{tessl_warnings}` to the one line `Tessl Review: {tessl_summary}`, keep `{tessl_run_id}` and the other values the calls before it bound, add that line to the Remaining Warnings and continue to §7. Otherwise rely on the JSON, not the exit code, and bind these from the `submit` JSON and again from each `collect` JSON, whose values replace the earlier ones:
 
-#### Gate Rules:
+- `{tessl_status}` ← `status`
+- `{tessl_summary}` ← `summary`
+- `{tessl_warnings}` ← `warnings`
+- `{tessl_workspace}` ← `workspace`
+- `{tessl_version}` ← `tessl_version`
+- `{tessl_run_id}` ← `run_id`
+- `{tessl_review_score}` ← `review_score`
+- `{tessl_description_score}` ← `description_score`
+- `{tessl_content_score}` ← `content_score`
+- `{tessl_validation}` ← `validation`
+- `{tessl_description_suggestions}` ← `description_suggestions`
+- `{tessl_content_suggestions}` ← `content_suggestions`
 
-- **Structural suggestions** (split reference section, consolidate duplicates, reorder sections) can be applied without zero-hallucination risk — they restructure existing content
-- **Semantic suggestions** (add examples, add error handling, add validation checkpoints) introduce content not verified from source code. If the user chooses to apply these:
-  - Warn: "This adds content not verified from source code."
-  - Mark applied content with `<!-- [TESSL:auto-fix] -->` markers
-  - Cite as `[TESSL:suggestion]` in the provenance map with `confidence: "TESSL"` (below T3)
-  - Record in evidence report: "TESSL-suggested content applied: {count} items (unverified)"
-- **If user selects [S]:** Record "tessl suggestions: skipped by user" in evidence report. Proceed to section 7.
-- **If user selects [A]:** Apply structural fixes only, re-run tessl to capture updated score, record results. Proceed to section 7.
-- **If user selects [R]:** Show each suggestion with the proposed change. For each, user confirms or skips. Apply confirmed changes, record results. Proceed to section 7.
+Every key is always present: the scores and `{tessl_validation}` are null and the suggestion lists are empty unless `{tessl_status}` is `reviewed`, and `{tessl_run_id}` is null until Tessl has accepted the review. After the last call, add each entry of `{tessl_warnings}` to the evidence report's Remaining Warnings: a score below 60%, validation errors or, for any status other than `reviewed` and `off`, why the review produced no score. When `{tessl_status}` is `reviewed`, resolve `{tesslReviewRules}` ← first existing path in `{tesslReviewRulesProbeOrder}`, load it, and mark each entry of `{tessl_content_suggestions}` that one of its rules matches with `(not applicable: <rule-id>)`; if neither path exists, list the suggestions unmarked. Apply no suggestion: content suggestions would add text SKF cannot cite to source, and the description comes from the brief. The staged skill holds no `scripts/` or `assets/` until step 7 copies them, so for a brief with scripts or assets, validation findings about missing `scripts/` or `assets/` paths are expected here; test-skill reviews the finished package. §8 records the result.
 
 ### 7. Validate metadata.json
 
@@ -294,7 +312,8 @@ Add validation results to evidence-report content in context:
 - Frontmatter: {pass/fail}
 - Body: {pass/fail} {split-body applied if applicable}
 - Security: {pass/warn/skipped}
-- Content Quality (tessl): {pass/warn/skipped} (score: {score}%)
+- Description angle brackets: {none | re-sanitized ({count} substitutions) | not checked — no description}
+- Tessl Review: {tessl_summary}
 - Metadata: {pass/fail}
 
 ## Quality Score Breakdown
@@ -309,11 +328,20 @@ Add validation results to evidence-report content in context:
 ## Auto-Fixed Issues
 - {list of issues automatically corrected by --fix}
 
-## Remaining Warnings / Security Findings / Content Quality (tessl)
-- {warnings, security results, tessl scores and suggestions — or "skipped"}
+## Remaining Warnings
+- {warnings and security results, then each entry of {tessl_warnings} — or "none"}
+
+## Tessl Review
+- Result: {tessl_summary}
+- Workspace: {tessl_workspace or —} · tessl {tessl_version or —} · Run: {tessl_run_id or —}
+- Validation findings: {each {tessl_validation} finding as `name (status): message`, or "none"}
+- Description suggestions (to act on one, edit the description in the brief and re-run create-skill): {each of {tessl_description_suggestions}, or "none"}
+- Content suggestions (advisory, not applied): {each of {tessl_content_suggestions} with its `(not applicable: <rule-id>)` mark, or "none"}
 ```
 
-**Auto-Decisions table (reconcile from the durable sink — idempotent):** all gates have now fired — every one appended its row to the on-disk sink `{sidecar_path}/auto-decisions.jsonl` as it landed (including §6b's tessl-suggestions row), step 5 §7 rendered the step 1–3d rows into the staged `<staging-skill-dir>/evidence-report.md`, and steps 7–9 add none. Reconcile: read the sink's JSON lines (the authoritative durable record — it survives any compaction of the in-context buffer), union them with both the `## Auto-Decisions` rows already in `<staging-skill-dir>/evidence-report.md` and the in-context `headless_decisions[]` buffer, keyed on `step`+`gate` so no decision is duplicated or dropped, and re-render the section from that union. Because the rows are recovered from the sink rather than from the possibly-compacted buffer, the audit table stays complete on a long headless run. Emit one row per entry:
+When `{tessl_status}` is not `reviewed`, the `## Tessl Review` section holds only its Result line and, when `{tessl_run_id}` is set, its Workspace line, so the report names the run of a review that may still finish.
+
+**Auto-Decisions table (reconcile from the durable sink — idempotent):** all gates have now fired — each fired before step 5 and appended its row to the on-disk sink `{sidecar_path}/auto-decisions.jsonl` as it landed, step 5 §7 rendered those step 1–3d rows into the staged `<staging-skill-dir>/evidence-report.md`, and steps 6–9 add none. Reconcile: read the sink's JSON lines (the authoritative durable record — it survives any compaction of the in-context buffer), union them with both the `## Auto-Decisions` rows already in `<staging-skill-dir>/evidence-report.md` and the in-context `headless_decisions[]` buffer, keyed on `step`+`gate` so no decision is duplicated or dropped, and re-render the section from that union. Because the rows are recovered from the sink rather than from the possibly-compacted buffer, the audit table stays complete on a long headless run. Emit one row per entry:
 
 ```
 ## Auto-Decisions
@@ -336,5 +364,5 @@ When `Restored: false`, the three follow-up fields are all `—` — this is the
 
 ### 9. Auto-Proceed
 
-Conditional interaction: §6b halts for user input only when tessl produced novel suggestions; otherwise the step auto-proceeds. After validation completes (including any §6b decisions), load `{nextStepFile}`, read it fully, then execute it. Tool unavailability and validation failures are skips and warnings, never halts.
+No user interaction: this step has no gate. After validation completes, load `{nextStepFile}`, read it fully, then execute it. Tool unavailability, validation failures and every Tessl Review result are recorded as skips and warnings; the step halts only where a section above says HALT — a helper whose probe order says HALT and that no path resolves, the §4 Tier-1 preservation check, and the §6 description check.
 

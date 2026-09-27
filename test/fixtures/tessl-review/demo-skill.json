@@ -1,0 +1,182 @@
+{
+  "reviewRunId": "01a0e451-eb06-77aa-96cd-2cd02537c61a",
+  "status": "completed",
+  "review-plugin": "tessl/default-skill-review@0.2.0",
+  "validation": {
+    "overallPassed": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "checks": [
+      {
+        "name": "skill_md_line_count",
+        "status": "passed",
+        "message": "SKILL.md line count is 13 (<= 500)"
+      },
+      {
+        "name": "frontmatter_valid",
+        "status": "passed",
+        "message": "YAML frontmatter is valid"
+      },
+      {
+        "name": "name_field",
+        "status": "passed",
+        "message": "'name' field is valid: 'demo-skill'"
+      },
+      {
+        "name": "description_field",
+        "status": "passed",
+        "message": "'description' field is valid (71 chars)"
+      },
+      {
+        "name": "compatibility_field",
+        "status": "passed",
+        "message": "'compatibility' field not present (optional)"
+      },
+      {
+        "name": "allowed_tools_field",
+        "status": "passed",
+        "message": "'allowed-tools' field not present (optional)"
+      },
+      {
+        "name": "metadata_version",
+        "status": "passed",
+        "message": "'metadata' field not present (optional)"
+      },
+      {
+        "name": "metadata_field",
+        "status": "passed",
+        "message": "'metadata' field not present (optional)"
+      },
+      {
+        "name": "license_field",
+        "status": "passed",
+        "message": "'license' field not present (optional)"
+      },
+      {
+        "name": "frontmatter_unknown_keys",
+        "status": "passed",
+        "message": "No unknown frontmatter keys found"
+      },
+      {
+        "name": "body_present",
+        "status": "passed",
+        "message": "SKILL.md body is present"
+      },
+      {
+        "name": "scripts_directory",
+        "status": "passed",
+        "message": "'scripts/' directory not present in bundle (optional)"
+      },
+      {
+        "name": "references_directory",
+        "status": "passed",
+        "message": "'references/' directory not present in bundle (optional)"
+      },
+      {
+        "name": "assets_directory",
+        "status": "passed",
+        "message": "'assets/' directory not present in bundle (optional)"
+      },
+      {
+        "name": "relative_links",
+        "status": "passed",
+        "message": "No markdown links found"
+      },
+      {
+        "name": "referenced_paths_exist",
+        "status": "passed",
+        "message": "No obvious file path mentions found"
+      }
+    ]
+  },
+  "judges": {
+    "content": {
+      "scale": {
+        "max": 5,
+        "min": 1
+      },
+      "success": true,
+      "evaluation": {
+        "scores": {
+          "conciseness": {
+            "score": 5,
+            "reasoning": "The body is two terse statements ('Use `Array<T>` helpers to map values.' / 'Call `mapValues(list, fn)` to transform each item.') with zero padding and no explanation of concepts Claude already knows. Matches anchor 5 ('Lean and efficient; every token earns its place') — there is nothing to trim, so not 4."
+          },
+          "actionability": {
+            "score": 4,
+            "reasoning": "'Call `mapValues(list, fn)` to transform each item' is a concrete call signature, matching anchor 4 ('concrete code or commands with minor gaps'). Not 5 because it is not copy-paste ready — no code block, import path, or example input/output — and not 3 because the guidance is specific and executable in form, not pseudocode."
+          },
+          "workflow_clarity": {
+            "score": 5,
+            "reasoning": "This is a single-purpose skill with one unambiguous action (call mapValues(list, fn)), which the rubric's simple-skill guideline says can score 5. No destructive or batch operation is involved, so the validation-cap rule does not apply."
+          },
+          "progressive_disclosure": {
+            "score": 5,
+            "reasoning": "The skill is under 50 lines, has no need for external references, and no bundle files exist (verified: no references/, scripts/, or assets/ directories; the body references none). Per the rubric's guideline, well-organized sections alone warrant 5 for such skills — the body splits cleanly into a title and '## Usage'."
+          }
+        },
+        "suggestions": [],
+        "overall_assessment": "The body is exemplary for a minimal single-purpose skill: lean, free of padding, with a concrete function call and clean section organization. Its only gap is actionability — the call is named but no runnable code block or example makes it copy-paste ready. Progressive disclosure and workflow clarity score full marks under the rubric's simple-skill exceptions."
+      },
+      "weightedScore": 4.7,
+      "normalizedScore": 0.925
+    },
+    "description": {
+      "scale": {
+        "max": 5,
+        "min": 1
+      },
+      "success": true,
+      "evaluation": {
+        "scores": {
+          "specificity": {
+            "score": 2,
+            "reasoning": "\"Demo skill for Array<T> handling\" names the domain but offers no concrete action — \"handling\" is generic. This matches the anchor 'Names the domain but actions are minimal or generic' and falls short of anchor 3, which requires 1-2 concrete actions."
+          },
+          "completeness": {
+            "score": 3,
+            "reasoning": "A \"Use when testing <name> placeholders\" clause is explicitly present (so the missing-trigger cap is satisfied), but the \"what\" (\"Array<T> handling\") is vague and the \"when\" is unnatural and narrow. Sits between anchors 3 and 4, noticeably below their midpoint, so 3 fits best."
+          },
+          "trigger_term_quality": {
+            "score": 2,
+            "reasoning": "The only terms are technical artifacts (\"Array<T>\", \"<name> placeholders\") rather than natural phrases a user would say when needing this skill. Matches anchor 2 ('missing the natural phrases users say'); not 1 because the domain terms are at least specific rather than purely generic."
+          },
+          "distinctiveness_conflict_risk": {
+            "score": 3,
+            "reasoning": "\"Array<T>\" is a somewhat distinctive technical term, but \"Demo skill … handling\" with a placeholder-testing trigger could overlap with any generic array/map helper skill. Matches anchor 3 ('Somewhat specific but could still overlap with similar skills'), not 4 which requires a mostly distinct niche."
+          }
+        },
+        "suggestions": [
+          "Replace the generic verb 'handling' with 1-3 concrete actions, e.g. 'Maps, filters, and flattens Array<T> values using mapValues(list, fn)'.",
+          "Rewrite the 'Use when' clause around natural phrases a user would actually say — e.g. 'Use when transforming or reshaping typed arrays' — instead of the technical placeholder '<name> placeholders'.",
+          "Add a distinguishing term or file-type keyword (e.g. 'typed arrays', 'TypeScript generics') so the description does not overlap with generic array-helper skills."
+        ],
+        "overall_assessment": "The description names its domain and includes an explicit 'Use when' clause, but the capability is stated generically (\"handling\") and the trigger terms are technical placeholders rather than natural user phrases. It reads as a demo stub rather than a genuinely discoverable skill description. Score is capped by vague 'what' and unnatural triggers despite third-person voice and brevity."
+      },
+      "weightedScore": 2.5,
+      "normalizedScore": 0.375
+    }
+  },
+  "scoring": {
+    "components": [
+      {
+        "id": "validation",
+        "weight": 0.19999999999999996,
+        "normalized": 1
+      },
+      {
+        "id": "description",
+        "weight": 0.4,
+        "normalized": 0.375
+      },
+      {
+        "id": "content",
+        "weight": 0.4,
+        "normalized": 0.925
+      }
+    ]
+  },
+  "review": {
+    "reviewScore": 72
+  }
+}

@@ -83,7 +83,7 @@ Ferris operates in five workflow-driven modes (mode is determined by which workf
 |------|-------|---------|
 | **`gh_bridge`** | GitHub CLI (`gh`) | Source code access, issue mining, release tracking, PR intelligence |
 | **`skill-check`** | [thedaviddias/skill-check](https://github.com/thedaviddias/skill-check) | Validation + auto-fix (`check --fix`), quality scoring (0-100), security scan, split-body, diff comparison |
-| **`tessl`** | [tessl](https://tessl.io) | Content quality review, actionability scoring, progressive disclosure evaluation, AI judge with suggestions |
+| **`tessl`** | [tessl](https://tessl.io) (`tessl review run`) | Opt-in Tessl Review of the skill folder: validation checks and AI judges for the description and the content, with suggestions. Off unless `tessl_review_workspace` is set in preferences; needs a Tessl account |
 | **`ast_bridge`** | ast-grep CLI | Structural extraction, custom AST queries, co-import detection |
 | **`ccc_bridge`** | cocoindex-code | Semantic code search, project indexing, file discovery pre-ranking |
 | **`qmd_bridge`** | QMD (local search) | BM25 keyword search, vector semantic search, collection indexing |
@@ -195,7 +195,7 @@ src/
 - All tool wrappers use array-style subprocess execution — no shell interpolation
 - Input sanitization: allowlist characters for repo names, file paths, patterns
 - File paths validated against project root (no directory traversal)
-- **Source code never leaves the machine.** All processing is local (AST, QMD, validation).
+- **Source code never leaves the machine.** All processing is local (AST, QMD, validation). The one exception is opt-in: with `tessl_review_workspace` set in preferences, create-skill and test-skill send the compiled skill (its `SKILL.md`, `references/`, `scripts/` and `assets/`, which can hold copies of source files) to Tessl Review, and each review stays in that Tessl workspace's history.
 - `doc_fetcher` informs users which URLs will be fetched externally before processing
 
 ---

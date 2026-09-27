@@ -45,7 +45,7 @@ Create `_bmad-output/.skf-stage/{skill-name}/` (and `_bmad-output/.skf-stage/{sk
 - `provenance-map.json`
 - `evidence-report.md`
 
-This is the `<staging-skill-dir>` referenced by step 6 (`npx skill-check check`, `npx -y tessl skill review`). Step-07 reads from the in-context copies (resynced by step 6 after any `--fix` modifications) and writes to the final versioned layout.
+This is the `<staging-skill-dir>` referenced by step 6 (`npx skill-check check`, the description angle-bracket check, and Tessl Review when the user opted in, which uploads a copy holding only `SKILL.md`, `references/`, `scripts/` and `assets/`). Step-07 reads from the in-context copies (resynced by step 6 after any `--fix` modifications) and writes to the final versioned layout.
 
 ### 1b. Signature Fidelity Rule
 
@@ -68,13 +68,13 @@ Assemble each section in order using the assembly rules data file (`{assemblyRul
 
 **Before writing SKILL.md frontmatter to disk**, sanitize the assembled `description` string by replacing every `<` with `{` and every `>` with `}`. Apply this pass unconditionally to the final assembled description in context, then write the result to `SKILL.md`.
 
-**Why unconditional?** Both `skill-check`'s `description_field` validator and `tessl`'s deterministic description check parse the frontmatter `description` as a raw string — they reject any `<` or `>` regardless of whether the content is inside a backtick span or a generic expression. The previous rule exempted backticked content on the assumption that backticks protect from XML-tag parsing, but that assumption is false for these validators: a backticked TypeScript generic like `` `Meta<typeof X>` `` still fails tessl's check because tessl reads the raw string before markdown parsing. Unconditional replacement guarantees no angle brackets reach either validator.
+**Why unconditional?** The Claude platform does not accept a skill whose `description` contains XML tags, and the description is read as a raw string before any markdown parsing, so a backticked TypeScript generic like `` `Meta<typeof X>` `` still carries raw `<` and `>`. None of the validators SKF runs checks for this — skill-check has no such rule and Tessl Review accepts angle brackets — so SKF enforces it itself: replacing every `<` and `>` is simpler and safer than deciding which ones form a tag, and step 6 §6 checks the staged description with SKF's frontmatter validator.
 
 **Scope:** This rule applies **only** to the frontmatter `description` field. Body content, code examples, reference files, and assembly-rule documents retain their original angle brackets — they are parsed through the markdown AST where backticks do protect content.
 
 Record the count of substitutions in context as `description_sanitizations: {count}` for the evidence report.
 
-If a downstream tool re-introduces angle brackets into the description, step 6 §6 recovers via `description-xml-tags-guarded-upstream` in `assets/tessl-dismissal-rules.md`.
+If a later tool rewrites the description, step 6 §0's Description Guard restores this sanitized value, and step 6 §6 checks the final description and applies this substitution again before anything is promoted.
 
 ### 3. Build context-snippet.md Content
 
@@ -182,11 +182,11 @@ Each `file_entries[]` row has the same shape regardless of `file_type`: `{file_n
 
 ### 7. Build evidence-report.md Content
 
-Compilation audit trail: generation date, forge tier, source info, tool versions, extraction summary (files/exports/confidence), warnings. For validation-specific fields (Schema, Body, Security, Content Quality, tessl, Metadata), insert the placeholder text `[PENDING — populated by step 6]`. Step-06 will replace these placeholders with actual results. See `{skillSectionsData}` for full template. Use the same `{skf_version}` value resolved in section 4 when populating the Tool Versions block.
+Compilation audit trail: generation date, forge tier, source info, tool versions, extraction summary (files/exports/confidence), warnings. For validation-specific fields (Schema, Frontmatter, Body, Security, Description angle brackets, Tessl Review, Metadata), insert the placeholder text `[PENDING — populated by step 6]`. Step-06 will replace these placeholders with actual results. See `{skillSectionsData}` for full template. Use the same `{skf_version}` value resolved in section 4 when populating the Tool Versions block.
 
 **Frontmatter — pinned fields:** emit YAML frontmatter at the top of `evidence-report.md` with at minimum `skill_name`, `generated`, `forge_tier`, and `t2_future_count`. Compute `t2_future_count` as the count of forward-looking (T2-future) temporal annotations in the enrichment data produced by step 4 (`qmd query` + temporal classification). **Emit `t2_future_count: 0` when no T2-future annotations exist** — omission is indistinguishable from "no data" for downstream consumers and would silently flip the skf-test-skill §2b/§5b migration-section gate into Case 2/3 for a Case-1 skill. This frontmatter is the authoritative detection contract — `migration-section-rules.md` Case Rules parse it deterministically rather than grepping prose.
 
-**Auto-Decisions section (render from the durable sink):** render the `## Auto-Decisions` section into `evidence-report.md` from the **union of the on-disk auto-decision sink** (`{sidecar_path}/auto-decisions.jsonl`, established at step 1 §3 and appended to on every gate landing) **and the in-context `headless_decisions[]` buffer** — read the sink's JSON lines, union them with the buffer keyed on `step`+`gate` so nothing is duplicated or dropped, and emit one row per entry in the table format documented in step 6 §8. The sink is authoritative: on a long component-library run the in-context buffer may have compacted across the token-heavy step 3→5 extraction window, but the sink carries every decision written as it landed (step 1 tier-override, step 2 ecosystem gate, step 3 zero-exports, step 3d component-extraction gates). This step is the first point `evidence-report.md` is written to disk (staging dir, §8 below). Exactly one gate can still fire after this step — step 6 §6b (the tessl-suggestions gate) — and step 6 §8 re-reconciles idempotently. If the union is empty (no decision has fired), emit the section with the single line `No auto-decisions — workflow ran interactively (or all gates had no match to auto-resolve).` — step 6 §8 replaces that line if a later decision lands.
+**Auto-Decisions section (render from the durable sink):** render the `## Auto-Decisions` section into `evidence-report.md` from the **union of the on-disk auto-decision sink** (`{sidecar_path}/auto-decisions.jsonl`, established at step 1 §3 and appended to on every gate landing) **and the in-context `headless_decisions[]` buffer** — read the sink's JSON lines, union them with the buffer keyed on `step`+`gate` so nothing is duplicated or dropped, and emit one row per entry in the table format documented in step 6 §8. The sink is authoritative: on a long component-library run the in-context buffer may have compacted across the token-heavy step 3→5 extraction window, but the sink carries every decision written as it landed (step 1 tier-override, step 2 ecosystem gate, step 3 zero-exports, step 3d component-extraction gates). This step is the first point `evidence-report.md` is written to disk (staging dir, §8 below). No gate fires after this step; step 6 §8 re-reconciles idempotently. If the union is empty (no decision has fired), emit the section with the single line `No auto-decisions — workflow ran interactively (or all gates had no match to auto-resolve).`.
 
 ### 8. Auto-Proceed
 
