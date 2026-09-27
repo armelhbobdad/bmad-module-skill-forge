@@ -27,11 +27,11 @@ For each confirmed dependency, extract key exports, usage patterns, and API surf
 
 "**Extraction data already available from individual skills. Skipping extraction phase.**"
 
-For each confirmed skill, load SKILL.md from the version-aware path resolved in step 2.
+For each confirmed skill, load SKILL.md from its `skill_package_path` (step 2, refreshed below).
 
-**Re-resolve at step 4 entry (S17):** Between step 2 manifest detection and step 4 extraction, a concurrent write could have advanced a skill's `active_version`. On entering this step, re-resolve `skill_package_path` for each confirmed skill via the export-manifest (or symlink fallback) and capture the freshly-read `version` and `metadata_hash` into workflow state. If the `metadata_hash` diverges from the value stored in step 2, log a warning `"constituent '{skill_name}' changed between step 2 and step 4 — using fresh values"` and replace the workflow-state entry (so step 7 provenance records the hash active at extraction time, with the drift logged for audit).
+**Re-resolve at step 4 entry (S17):** a concurrent write could have advanced a skill's version between step 2 and step 4. Re-resolve each confirmed skill from this step's helper result below: the `skills[]` entry whose `name` is its `skill_dir` gives the fresh `skill_package_path` (`{skills_output_folder}/{path}`) and `metadata_hash`. If the `metadata_hash` diverges from the value stored in step 2, log a warning `"constituent '{skill_name}' changed between step 2 and step 4 — using fresh values"` and replace the workflow-state entry (so step 7 provenance records the hash active at extraction time, with the drift logged for audit). If a confirmed skill has no `skills[]` entry now, emit the result envelope on stderr per the Result Contract in SKILL.md and exit `3` (`resolution-failure`), naming it: "constituent `{skill_dir}` is no longer an SKF skill package — re-run [SS]." Use the same envelope as the composes-cycle halt below.
 
-Use `skill_package_path` (stored in step 2 and optionally refreshed above) directly — this already points to the resolved `{skill_package}` or `{active_skill}` directory containing the skill's artifacts. If `skill_package_path` is not available, resolve via the `{active_skill}` template: `{skills_output_folder}/{skill_dir}/active/{skill_dir}/SKILL.md` (see `knowledge/version-paths.md`).
+Use `skill_package_path` directly — it points to the package the helper resolved.
 
 **Exports resolution order (H1) — script-driven:** Do NOT walk per-skill `metadata.json` → `references/` → SKILL.md by hand. Invoke the helper once at step entry to compute the full inventory for every confirmed skill in one deterministic call:
 
@@ -52,26 +52,27 @@ The script emits JSON of the form:
       "exports": ["..."],
       "exports_source": "metadata|references|skill-md|unknown",
       "confidence": "T1|T2|T1-low",
-      "metadata_hash": "sha256:..." | null
+      "metadata_hash": "sha256:..."
     }
   ],
   "cycles": ["<skill-name>"],
-  "warnings": ["<text>"]
+  "warnings": ["<text>"],
+  "not_skf_output": ["<skill-name>"]
 }
 ```
 
-Cache this result as `stack_skill_inventory` in workflow state — the per-skill subagent fan-out at §1+ MUST read from this cache rather than re-reading each skill's `SKILL.md` / `metadata.json` / `references/` to determine exports. Append every entry in `warnings[]` to workflow state for the evidence report (the script already labels them per-skill, e.g. `"<skill-name>: no exports found via any resolution path"`). If `cycles[]` is non-empty, a composes-cycle makes the stack unbuildable — emit the result envelope on stderr per the Result Contract in SKILL.md and exit `3`:
+Cache this result as `stack_skill_inventory` in workflow state — the per-skill subagent fan-out at §1+ MUST read from this cache rather than re-reading each skill's `SKILL.md` / `metadata.json` / `references/` to determine exports. Append to workflow state the `warnings[]` entries that name a confirmed skill (each starts with `<skill_dir>: `, e.g. `"<skill-name>: no exports found via any resolution path"`) for the evidence report. If `cycles[]` names a confirmed skill, a composes-cycle makes the stack unbuildable — emit the result envelope on stderr per the Result Contract in SKILL.md and exit `3`:
 
 ```
 SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"compose","exit_code":3,"halt_reason":"resolution-failure"}
 ```
 
-Build a `per_library_extractions[]` entry for each skill by reading from the cached inventory:
+Build a `per_library_extractions[]` entry for each confirmed skill, from the `skills[]` entry whose `name` is its `skill_dir`:
 - `library`: `inventory.skills[i].name`
 - `exports`: `inventory.skills[i].exports`
 - `exports_source`: `inventory.skills[i].exports_source` (one of `metadata|references|skill-md|unknown` — capture for step 7 provenance)
 - `confidence`: `inventory.skills[i].confidence` (one of `T1|T2|T1-low`; `unknown` source ⇒ `T1-low`). Do not silently drop T3 evidence; carry whatever tier the source skill declared if §1+ subagent analysis upgrades the value.
-- `metadata_hash`: `inventory.skills[i].metadata_hash` — record for step 7 provenance (null when exports came from references/ or SKILL.md prose).
+- `metadata_hash`: that entry's `metadata_hash` — the digest of the package's `metadata.json`, recorded for step 7 provenance.
 - `usage_patterns`: populated by the §1+ per-skill subagent fan-out, NOT by this script. The script provides the inventory + exports; the subagent does the per-skill usage analysis. They're complementary.
 
 Report the loaded extractions — for each skill: export count, confidence tier, and load status. Then auto-proceed to the next step.

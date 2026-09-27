@@ -8,9 +8,10 @@ Scans the skills output folder, reads manifests and metadata, resolves active
 versions via symlinks, and outputs a JSON inventory. Read by drop-skill and
 rename-skill (roster, and the ownership of each skill folder and its forge
 folder), create-skill, quick-skill and create-stack-skill (the write check
-before a version is written), analyze-source (coexistence matches), and the
+before a version is written), analyze-source (coexistence matches), the
 flat-layout fallback of update-skill, export-skill, audit-skill and test-skill
-(the ownership gate before a flat skill is migrated).
+(the ownership gate before a flat skill is migrated), and test-skill's report
+(the discovery catalog).
 
 CLI: uv run skf-skill-inventory.py <skills-output-folder>
      uv run skf-skill-inventory.py <skills-output-folder> --skill <name>
@@ -52,7 +53,7 @@ a result file are not proof on their own. Each `skills[]` entry adds:
 
 The existing `errors` list also names a linked folder (never checked for a
 marker), a folder in the skill folder that SKF cannot list or search (listed
-as foreign) and a `metadata.json` that cannot be read. The top-level `not_skf_output` lists the scanned names whose `skf_skill` is
+as foreign) and a `metadata.json` that cannot be read. The top-level `not_skf_output` lists the scanned names (never `_batch` or a `.skf-` name) whose `skf_skill` is
 false that still look like a skill (a root `SKILL.md` or a `{v}/{name}/`
 folder). `versions`, `active_version` and `active_path` keep their structural
 meaning for every entry, except that the package folders of a flat SKF skill
@@ -106,6 +107,7 @@ def read_json_file(path):
 # (test/test-skf-skill-inventory.py pins the copies).
 RESULT_JSON_RE = re.compile(r"^([a-z0-9][a-z0-9-]*)-result(-latest|-\d[^/]*)?\.json$")
 # Keep identical to SKF_GENERATORS in skf-merge-ccc-exclusions.py
+# and skf-enumerate-stack-skills.py
 # (test/test-skf-skill-inventory.py pins the copies).
 SKF_GENERATORS = frozenset({"quick-skill", "create-skill", "create-stack-skill"})
 # The flat package a migration moves into {v}/{name}/ (knowledge/version-paths.md).
@@ -117,6 +119,7 @@ NEUTRAL_GROUP_ENTRIES = frozenset({".DS_Store", ".gitkeep", ".gitignore", ".gita
 
 
 # Keep identical to _has_skf_metadata in skf-merge-ccc-exclusions.py
+# and skf-enumerate-stack-skills.py
 # (test/test-skf-skill-inventory.py pins the copies).
 def _has_skf_metadata(path: Path) -> bool:
     """True when a flat skill's metadata.json carries an SKF marker."""
@@ -136,7 +139,7 @@ def _has_skf_metadata(path: Path) -> bool:
             and ("forge_tier" in data or "confidence_tier" in data))
 
 
-# Keep identical to _is_link_or_junction in skf-atomic-write.py
+# Keep identical to _is_link_or_junction in skf-atomic-write.py, skf-enumerate-stack-skills.py
 # and skf-validate-rename-name.py (test/test-skf-skill-inventory.py pins the copies).
 def _is_link_or_junction(p: Path) -> bool:
     """True for POSIX symlinks AND Windows junctions/symlinks.
@@ -165,6 +168,7 @@ def _is_active_pointer(name):
 
 
 # Keep identical to _is_marked_version in skf-merge-ccc-exclusions.py
+# and skf-enumerate-stack-skills.py
 # (test/test-skf-skill-inventory.py pins the copies).
 def _is_marked_version(version_dir: Path, name: str) -> bool:
     """True when `version_dir/name/metadata.json` carries an SKF marker.
@@ -549,6 +553,8 @@ def classify_ownership(skill_group_dir, skill_name, also_forge=False):
     return result
 
 
+# Keep identical to _looks_like_skill in skf-enumerate-stack-skills.py
+# (test/test-skf-skill-inventory.py pins the copies).
 def _looks_like_skill(skill_group_dir, skill_name):
     """True when a group holds a root SKILL.md or a {v}/{name}/ folder."""
     if (skill_group_dir / "SKILL.md").is_file():
@@ -939,7 +945,8 @@ def scan_inventory(skills_folder, skill_filter=None, manifest_only=False, match_
         if skill_group_dir.is_dir():
             entry = scan_skill_group(skill_group_dir, name, same_folder)
             result["skills"].append(entry)
-            if not entry["skf_skill"] and _looks_like_skill(skill_group_dir, name):
+            if (not entry["skf_skill"] and name != "_batch" and ".skf-" not in name
+                    and _looks_like_skill(skill_group_dir, name)):
                 not_skf_output.append(name)
     result["not_skf_output"] = not_skf_output
     # Forge folders (opt-in via --forge-data-folder; additive top-level keys).

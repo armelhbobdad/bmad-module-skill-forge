@@ -11,6 +11,11 @@ reasons, the docs that describe the gate, and the version-paths and
 ccc-bridge knowledge. The helper behind the gate is tested in
 test-skf-skill-inventory.py.
 
+They also pin the readers that must see only the skills SKF generated: the
+stack rosters of verify-stack, refine-architecture and compose-mode
+create-stack-skill (skf-enumerate-stack-skills.py, tested in
+test-skf-enumerate-stack-skills.py) and test-skill's discovery catalog.
+
 They also pin where create-skill stages a skill before it writes the version:
 under `_bmad-output/.skf-stage/`, never a folder a skills or forge folder
 setting can name, so the ownership rules never read SKF's staging as a
@@ -560,6 +565,102 @@ def test_version_paths_names_writers_and_forge_folders():
     tree = _section(text, "### forge_data_folder\n", "## Version Resolution")
     for name in sorted(inventory.FORGE_VERSION_FILES) + ["test-report-", "drift-report-", "-result-", ".skf-rename-"]:
         assert name in tree, f"the forge tree must name {name!r}"
+
+
+STACK_ROSTER_SITES = {
+    "src/skf-verify-stack/references/init.md": (),
+    "src/skf-refine-architecture/references/init.md": ("`{pairs}` ← `pairs`",),
+}
+
+
+@pytest.mark.parametrize("rel", sorted(STACK_ROSTER_SITES))
+def test_stack_rosters_read_only_skf_output(rel):
+    text = _read(rel)
+    assert "uv run {enumerateStackSkillsHelper}" in text
+    assert "python3 {enumerateStackSkillsHelper}" not in text
+    bindings = ("`{not_skf_output}` ← `not_skf_output`", "`{inventory_reliable}` ← `inventory_reliable`",
+                "`{warning_count}` ← `warning_count`", "`{skill_count}` ← `skill_count`",
+                "`{inventory_warnings}` ← `warnings`") + STACK_ROSTER_SITES[rel]
+    for binding in bindings:
+        assert binding in text, binding
+    assert "Skipped (not SKF output): {not_skf_output}" in text
+    # The helper never reads the manifest or emits these fields and warnings.
+    for stale in ("export-manifest →", "`skill_name`, `version`, `language`", "non-symlink `active`",
+                  "orphan-versions", "maps `confidence_tier`", "{warning_count}/{skill_count + warning_count}",
+                  "{exports_documented}", "| {skill_name} | {language}"):
+        assert stale not in text, stale
+    # The halt counts warnings as warnings; the helper-less fallback applies the marker rule
+    # and binds the counts and warnings the halt, §3 and §5 read.
+    for needle in ("warning(s) across {skill_count}", "without counting a warning", "`generated_by`",
+                   "`tool_versions`", "`individual`", "{exports_source}", "{confidence}"):
+        assert needle in text, needle
+    fallback = _section(text, "**Fallback path", "### 3.")
+    assert "bind `{skill_count}` to the number of skills found" in fallback
+    assert "`{warning_count}` to the number of warnings counted" in fallback
+    assert "`{inventory_warnings}` to those warnings" in fallback
+
+
+def test_compose_mode_reads_only_confirmed_skf_skills():
+    detect = _read("src/skf-create-stack-skill/references/detect-manifests.md")
+    assert "(`skill`, `stack`" not in detect, "SKF writes skill_type single, never skill"
+    # Explicitly named skills pass the same roster gate as discovered ones.
+    assert "Use the explicit dependency list directly" not in detect
+    assert "when `explicit_deps` was provided in step 01, each name in it is a candidate" in detect
+    assert "a name from `explicit_deps` is excluded with" in detect
+    for needle in ("`{stack_roster}` ← `skills`", "`{not_skf_output}` ← `not_skf_output`",
+                   "`single` or `individual`", "not SKF output — excluding",
+                   "`skill_package_path` ← `{skills_output_folder}/{path}`", "one resolution"):
+        assert needle in detect, needle
+    extract = _read("src/skf-create-stack-skill/references/parallel-extract.md")
+    for needle in ('"not_skf_output"', "Build a `per_library_extractions[]` entry for each confirmed skill",
+                   "that name a confirmed skill", "If `cycles[]` names a confirmed skill",
+                   "no longer an SKF skill package"):
+        assert needle in extract, needle
+    for stale in ("via the export-manifest (or symlink fallback)", "null when exports came from references/",
+                  "Append every entry in `warnings[]`"):
+        assert stale not in extract, stale
+
+
+def test_test_skill_catalog_counts_folders_that_hold_a_skill():
+    text = _read("src/skf-test-skill/references/report.md")
+    frontmatter = text.split("\n---\n", 1)[0] + "\n"
+    assert PROBE_ORDER in frontmatter, "installed path first, then the src/ path"
+    discovery = _section(text, "### 4b. Discovery Testing", "### 4c.")
+    assert "ls -1d" not in discovery and "wc -l" not in discovery, "no POSIX-only pipeline, and _batch holds no skill"
+    for needle in ("`has_skill_md`", "`{not_skf_output}` ← `not_skf_output`", "`{discovery_catalog}`"):
+        assert needle in discovery, needle
+    spawn = _section(discovery, "**4b.2 Spawn a discovery subagent:**", "**4b.3")
+    assert "`{discovery_catalog}`" in spawn and "the same set §4b.0 counted" in spawn
+
+
+def test_version_paths_names_the_roster_rule():
+    text = _read("src/knowledge/version-paths.md")
+    ownership = _section(text, "## Ownership", "## Skill Management Operations")
+    assert "VS, RA and SS compose-mode read only the skills SKF generated" in ownership
+    assert "a folder whose `metadata.json` it cannot read is named in one warning instead" in ownership
+    assert "### Reading Workflows (EX, AS, TS)" in text
+
+
+def test_workflows_docs_name_the_stack_roster_rule():
+    text = _read("docs/workflows.md")
+    assert text.count("**Skills read:** Only the skills SKF generated.") == 2, "VS and RA"
+    assert text.count("A `metadata.json` SKF cannot read still counts as one warning") == 2
+    assert "Compose-mode loads only the skills SKF generated." in text
+
+
+def test_troubleshooting_explains_inventory_unreliable():
+    text = _read("docs/troubleshooting.md")
+    heading = '### "Inventory scan unreliable"'
+    not_skf = '### "`<name>` is not SKF output"'
+    assert heading in text and text.index(heading) < text.index(not_skf)
+    entry = _section(text, not_skf, "### My campaign")
+    assert "Skipped (not SKF output)" in entry
+    unreliable = _section(text, heading, not_skf)
+    # A metadata.json SKF cannot read counts even on a skill another tool made.
+    assert "counts whoever made the skill" in unreliable
+    # Update Skill stops at "no changes" when the source is unchanged, so it
+    # cannot restore missing exports; the workflow that made the skill can.
+    assert "`@Ferris CS <name>`" in unreliable and "@Ferris US" not in unreliable
 
 
 def test_quick_skill_writes_the_error_result_only_beside_metadata():

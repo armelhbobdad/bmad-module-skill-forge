@@ -279,6 +279,7 @@ CCC_PY = SCRIPTS / "skf-merge-ccc-exclusions.py"
 ATOMIC_PY = SCRIPTS / "skf-atomic-write.py"
 VALIDATOR_PY = (Path(__file__).parent.parent / "src" / "skf-rename-skill" / "scripts"
                 / "skf-validate-rename-name.py")
+ENUMERATE_PY = SCRIPTS / "skf-enumerate-stack-skills.py"
 
 # One metadata.json shape per SKF release that wrote the flat layout.
 MARKER_HISTORY = {
@@ -402,6 +403,14 @@ class TestOwnership:
         e = result["skills"][0]
         assert (e["name"], e["ownership"], e["skf_skill"]) == ("_shared", "foreign", False)
         assert result["not_skf_output"] == []
+
+    def test_skf_names_are_never_not_skf_output(self, skills):
+        """SKF's own staging and batch names are never listed as a skill SKF did not generate."""
+        _write(skills / "foo.skf-tmp" / "SKILL.md")
+        _write(skills / "_batch" / "SKILL.md")
+        _write(skills / "_batch" / "quick-skill-batch-latest.json", "{}")
+        _make_flat(skills, "mod")
+        assert scan_inventory(str(skills))["not_skf_output"] == ["mod"]
 
     def test_batch_folder_is_skf_but_not_a_skill(self, skills):
         _write(skills / "_batch" / "quick-skill-batch-latest.json", "{}")
@@ -739,17 +748,22 @@ class TestSkfMarkerParity:
         ("FORGE_VERSION_ANCHORS", CCC_PY),
         ("FORGE_GROUP_DIRS", VALIDATOR_PY),
         ("_is_link_or_junction", VALIDATOR_PY),
+        ("SKF_GENERATORS", ENUMERATE_PY),
+        ("_has_skf_metadata", ENUMERATE_PY),
+        ("_is_link_or_junction", ENUMERATE_PY),
+        ("_is_marked_version", ENUMERATE_PY),
+        ("_looks_like_skill", ENUMERATE_PY),
     ])
     def test_copy_is_identical(self, name, source):
         assert _top_level_node(INVENTORY_PY, name) == _top_level_node(source, name), (
             f"{name} in skf-skill-inventory.py differs from {source.name}; keep the copies identical")
 
-    @pytest.mark.parametrize("path", [INVENTORY_PY, CCC_PY, ATOMIC_PY, VALIDATOR_PY])
+    @pytest.mark.parametrize("path", [INVENTORY_PY, CCC_PY, ATOMIC_PY, VALIDATOR_PY, ENUMERATE_PY])
     def test_copies_carry_keep_identical_notes(self, path):
         text = path.read_text(encoding="utf-8")
         assert "Keep identical to" in text and "test/test-skf-skill-inventory.py pins the copies" in text
 
-    @pytest.mark.parametrize("path", [INVENTORY_PY, ATOMIC_PY, CCC_PY, VALIDATOR_PY])
+    @pytest.mark.parametrize("path", [INVENTORY_PY, ATOMIC_PY, CCC_PY, ENUMERATE_PY, VALIDATOR_PY])
     def test_link_check_treats_other_reparse_points_as_not_links(self, tmp_path, monkeypatch, path):
         """On Windows, os.readlink raises ValueError for a reparse point that is
         neither a symlink nor a junction (cloud placeholder, dedup file)."""
@@ -781,12 +795,14 @@ class TestSkfMarkerParity:
 
     def test_both_copies_accept_marker_history_and_reject_non_markers(self, tmp_path):
         ccc = _load(CCC_PY, "skf_ccc_for_parity")
+        enum = _load(ENUMERATE_PY, "skf_enumerate_for_parity")
         for label, data in list(MARKER_HISTORY.items()) + list(NOT_MARKERS.items()):
             path = tmp_path / label / "metadata.json"
             _write(path, data)
             expected = label in MARKER_HISTORY
             assert mod._has_skf_metadata(path) is expected, label
             assert ccc._has_skf_metadata(path) is expected, label
+            assert enum._has_skf_metadata(path) is expected, label
 
     @staticmethod
     def _ownership_fixture(tmp_path: Path) -> tuple[Path, Path]:
@@ -832,6 +848,12 @@ class TestSkfMarkerParity:
             ext = tmp_path / "elsewhere"
             _make_flat(ext, "linked", MARKED)
             (skills / "linked").symlink_to(ext / "linked", target_is_directory=True)
+            # A linked version folder with a corrupt metadata.json behind it:
+            # never SKF output, and never read, so never a roster warning.
+            _write(ext / "lv-2.0.0" / "lv" / "SKILL.md")
+            _write(ext / "lv-2.0.0" / "lv" / "metadata.json", '{"generated_by":"create-skill", broken')
+            (skills / "lv").mkdir()
+            (skills / "lv" / "2.0.0").symlink_to(ext / "lv-2.0.0", target_is_directory=True)
         return root, skills
 
     def test_inventory_never_owns_what_ccc_calls_foreign(self, tmp_path):
@@ -860,6 +882,20 @@ class TestSkfMarkerParity:
             assert name not in scan.owned_groups, f"ccc excludes {name} but the inventory calls it foreign"
         assert sorted(scan.owned_groups) == sorted(
             e["name"] for e in result["skills"] if e["ownership"] != "foreign")
+
+    def test_enumerate_agrees_with_the_inventory(self, tmp_path):
+        """Stack rosters and the inventory name the same folders SKF did not generate."""
+        enum = _load(ENUMERATE_PY, "skf_enumerate_for_agreement")
+        _root, skills = self._ownership_fixture(tmp_path)
+        roster = enum.enumerate_stack_skills(skills)
+        inv = scan_inventory(str(skills))
+        warned = {w.split(":", 1)[0] for w in roster["warnings"]
+                  if "SKF cannot tell whether it generated this skill" in w}
+        assert warned == {"bom"}, "an unreadable metadata.json is a warning, not a silent skip"
+        assert set(roster["not_skf_output"]) | warned == set(inv["not_skf_output"])
+        assert not set(roster["not_skf_output"]) & warned
+        skf = {e["name"] for e in inv["skills"] if e["skf_skill"]}
+        assert {e["name"] for e in roster["skills"]} <= skf
 
 
 def test_match_target_reports_skf_skill(tmp_path):

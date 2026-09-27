@@ -122,7 +122,7 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 
 **Key Steps (compose-mode):** Load existing skills → Confirm scope → Detect integrations from architecture doc → Compile stack → Generate references
 
-**Safety:** Writes the stack only into a `<project>-stack` folder SKF generated, or a new one; otherwise it stops with exit `5` (`not-skf-output` or `flat-layout`) before writing anything.
+**Safety:** Writes the stack only into a `<project>-stack` folder SKF generated, or a new one; otherwise it stops with exit `5` (`not-skf-output` or `flat-layout`) before writing anything. Compose-mode loads only the skills SKF generated.
 
 **Agent:** Ferris (Architect mode)
 
@@ -188,6 +188,8 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 
 **Key Steps:** Load skills + docs → Coverage analysis → Integration verification → Requirements check → Synthesize verdict → Present report
 
+**Skills read:** Only the skills SKF generated. Other skills in `skills_output_folder`, such as a module's own, are listed once as "Skipped (not SKF output)" and count toward no inventory check or pair. A `metadata.json` SKF cannot read still counts as one warning, because SKF then cannot tell whether it generated that skill.
+
 **Agent:** Ferris (Audit mode)
 
 ---
@@ -201,6 +203,8 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 **When to Use:** After VS confirms feasibility, before running SS in compose-mode. Produces a refined architecture ready for stack skill composition.
 
 **Key Steps:** Load inputs → Gap analysis → Issue detection → Improvement detection → Compile refined doc → Present report
+
+**Skills read:** Only the skills SKF generated. Other skills in `skills_output_folder`, such as a module's own, are listed once as "Skipped (not SKF output)" and count toward no inventory check or pair. A `metadata.json` SKF cannot read still counts as one warning, because SKF then cannot tell whether it generated that skill.
 
 **Agent:** Ferris (Architect mode)
 

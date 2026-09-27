@@ -124,7 +124,7 @@ When writing artifacts, resolve `{version}` from the skill brief's `version` fie
 5. Write all workspace artifacts to `{forge_version}`
 6. Create or update the `active` symlink at `{skill_group}/active` pointing to `{version}`
 
-### Reading Workflows (EX, AS, TS, VS, RA)
+### Reading Workflows (EX, AS, TS)
 
 When reading artifacts, resolve the skill path using the export manifest:
 
@@ -135,6 +135,8 @@ When reading artifacts, resolve the skill path using the export manifest:
 5. Resolve to `{skill_package}` using the chosen version — the symlink target when it diverges per step 4, otherwise `active_version`
 6. If manifest does not contain the skill: check for `active` symlink at `{skill_group}/active`
 7. If neither manifest nor symlink: fall back to flat-path resolution, only behind the ownership gate (see Ownership and Migration below)
+
+**Stack rosters (VS, RA, SS compose-mode)** read through `skf-enumerate-stack-skills.py` instead: for each skill folder it takes the version the `active` link names, else the highest version, else a flat root `SKILL.md` — only a package whose `metadata.json` carries an SKF marker counts (see Ownership) — and it never reads the export manifest.
 
 ### Manifest-Driven Snippet Scanning (EX Step-04)
 
@@ -202,7 +204,7 @@ Every SKF writer has written at least one of them since the first release. The m
 | `flat_skf` | A root `SKILL.md` beside a marked root `metadata.json` |
 | `foreign_entries` | The entries SKF did not generate; directories end in `/`, a link is listed by its bare name, and an entry inside a marked version folder is listed as `{version}/<entry>` |
 
-SKF evidence is a marked version, a marked root `metadata.json`, the `_batch` folder, or `.skf-` in the folder name. A version folder that is a link, or that holds its package through a link, is never SKF output: SKF only creates the `active` link. A marked version folder holds only the `{skill-name}/` package and `.skf-` staging names; anything else in it is an entry SKF did not generate. The top-level `not_skf_output` names the folders that hold a skill SKF did not generate.
+SKF evidence is a marked version, a marked root `metadata.json`, the `_batch` folder, or `.skf-` in the folder name. A version folder that is a link, or that holds its package through a link, is never SKF output: SKF only creates the `active` link. A marked version folder holds only the `{skill-name}/` package and `.skf-` staging names; anything else in it is an entry SKF did not generate. The top-level `not_skf_output` names the folders that hold a skill SKF did not generate. `not_skf_output` never lists `_batch` or a `.skf-` name.
 
 A folder that holds no file (only neutral clutter, `.skf-` names or empty folders), which is what an interrupted run leaves before it writes `metadata.json`, is never an entry SKF did not generate.
 
@@ -225,6 +227,7 @@ When both settings name one folder, the result has `same_folder: true` and an em
 - CS, QS and SS write a version only after `--write-check` returns `"ok"`: nothing is at the skill folder yet, it holds only what an interrupted run leaves, or SKF generated it and the target version folder is new or SKF's own. They stop with `not-skf-output` for a folder SKF did not generate (a link included) or a version folder SKF did not generate, and with `flat-layout` for an SKF skill still only in the flat layout. The name `improvement-queue` is refused.
 - RS renames only an `"skf"` folder in the versioned layout; it refuses others with `not-skf-output` or `flat-layout`. It moves the forge folder only when it is `"skf"` or `"empty"`, refuses (`not-skf-output`) one that is `"mixed"`, or `"foreign"` with `errors` because it is a link, is not a folder, or cannot be listed, and leaves any other `"foreign"` or `"reserved"` one under the old name.
 - DS offers a folder SKF did not generate only when the manifest lists it, and then only for deprecate. It purges a whole skill folder only when its `ownership` is `"skf"` (or nothing is on disk). Its forge folder is purged when `"skf"` or `"empty"`, refused when `"mixed"`, and left in place when `"foreign"` or `"reserved"`; a single-version purge applies the same test to `{version}/` in the forge folder.
+- VS, RA and SS compose-mode read only the skills SKF generated: `skf-enumerate-stack-skills.py` applies the same marker rule, lists the other skill folders once in `not_skf_output`, and never counts them as warnings or pairs; a folder whose `metadata.json` it cannot read is named in one warning instead, because it cannot tell whether SKF generated it. TS's discovery catalog counts the folders that hold a skill.
 - Without the inventory helper, none of them moves or deletes a folder, and a writer writes only into a skill folder that does not exist yet.
 
 ## Skill Management Operations
