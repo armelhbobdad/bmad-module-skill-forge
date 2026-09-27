@@ -8,13 +8,16 @@ standalone run's final message (`claude -p` prints only that message) while a
 forger pipeline gets control back after it, the orphan gate resolves under
 quiet to a listed default, and the shared health check has a silent path plus
 a listed headless default for its review gate. The docs promise no more than
-that final message.
+that final message. The activation halts name a runner chain the stdlib-only
+envelope helper runs under, and every status list agrees with the schema.
 """
 
 from __future__ import annotations
 
 import ast
 import hashlib
+import json
+import os
 import pathlib
 import re
 import subprocess
@@ -189,17 +192,75 @@ def test_halts_display_only_the_blocked_envelope():
 def test_halt_contract_falls_back_to_the_reason_when_the_helper_fails():
     """A payload emit-blocked rejects must not leave a quiet run with no line at all."""
     halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
-    assert "or the helper exits non-zero or prints no line, display the reason alone" in halt_contract
+    assert ("If neither path exists, or no runner exits 0 and prints that line, "
+            "display the reason alone as that one line.") in halt_contract
     fallback = _section(_read(REFS / "write-config.md"), "### 1.")
     assert "If the helper exits non-zero or prints no line, display the reason alone." in fallback
 
 
-def test_halt_contract_runs_emit_blocked_under_uv_once_uv_is_proven():
-    """python3 may be absent (or a store alias) on Windows; by the time a step
-    file runs, activation has proven uv present."""
+def test_halt_contract_names_a_runner_chain_for_the_activation_halts():
+    """The activation halts can fire before uv is proven present, and Windows
+    often has `python` or `py` but only a store alias for `python3`; by the
+    time a step file runs, activation has proven uv present."""
     halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
-    assert "`python3` for the halts in this list" in halt_contract
-    assert "`uv run` in the step files" in halt_contract
+    assert "`<runner>` is `uv run` in the step files" in halt_contract
+    assert "try the runners `uv run`, `python3`, `python` and `py -3` in that order" in halt_contract
+    prefix = re.search(r'^ENVELOPE_PREFIX = "(.+)"$', _read(EMIT_HELPER), re.M).group(1)
+    assert f"stop at the first that exits 0 and prints a line starting `{prefix.strip()}`" in halt_contract
+    assert "`python3` for the halts in this list" not in halt_contract
+
+
+ACTIVATION_RUNNERS = re.compile(r"try the runners ((?:`[^`]+`(?:, | and ))+`[^`]+`) in that order")
+UV_MISSING = {"phase": "on-activation:uv-missing",
+              "reason": "Setup cannot proceed: uv is not installed."}
+# Every module the envelope helper may import. Each is in the standard library
+# of Python 3.9, the oldest `python3` a runner may be (macOS Command Line
+# Tools); add one only after checking that it is.
+PY39_STDLIB_IMPORTS = frozenset({"__future__", "argparse", "json", "os", "pathlib", "sys"})
+
+
+def _emit_blocked(payload: dict, *flags: str, env=None) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, *flags, str(EMIT_HELPER), "emit-blocked"],
+                          input=json.dumps(payload).encode("utf-8"), capture_output=True,
+                          timeout=10, env=env)
+
+
+def test_activation_halt_runners_can_run_the_envelope_helper():
+    """Every runner the halt contract names for the activation halts is a bare
+    interpreter except `uv run`, so the helper must stay stdlib-only."""
+    halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
+    chain = ACTIVATION_RUNNERS.search(halt_contract)
+    assert chain, "no runner chain for the activation halts"
+    assert re.findall(r"`([^`]+)`", chain.group(1)) == ["uv run", "python3", "python", "py -3"]
+    assert "stdlib-only" in halt_contract
+    src = _read(EMIT_HELPER)
+    header = re.search(r"^# /// script$(.*?)^# ///$", src, re.M | re.S)
+    assert header and re.search(r"^# dependencies = \[\]$", header.group(1), re.M)
+    # Syntax only: a system python3 older than the requires-python uv enforces
+    # may be the first runner that works (macOS Command Line Tools ship 3.9).
+    tree = ast.parse(src, feature_version=(3, 9))
+    roots = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    roots |= {n.module.split(".")[0] for n in ast.walk(tree)
+              if isinstance(n, ast.ImportFrom) and n.level == 0 and n.module}
+    # The test interpreter's own stdlib would let a newer module (tomllib) through.
+    assert roots <= PY39_STDLIB_IMPORTS, roots - PY39_STDLIB_IMPORTS
+    sentinel = "<unknown \u2014 halt before config_path resolved>"
+    # No uv, no environment variables, no site-packages.
+    bare = _emit_blocked(UV_MISSING, "-I", "-S")
+    assert bare.returncode == 0, bare.stderr.decode("utf-8", "replace")
+    [line] = bare.stdout.decode("utf-8").splitlines()
+    assert line.startswith("SKF_SETUP_RESULT_JSON: ")
+    envelope = json.loads(line[len("SKF_SETUP_RESULT_JSON: "):])["skf_setup"]
+    assert envelope["status"] == "blocked"
+    assert envelope["error"] == {**UV_MISSING, "path": "<n/a>"}
+    assert envelope["config_path"] == sentinel
+    # A cp1252 console (Windows `python` or `py -3`) still carries the dash.
+    cp1252 = _emit_blocked(UV_MISSING, env={**os.environ, "PYTHONIOENCODING": "cp1252"})
+    assert cp1252.returncode == 0
+    assert sentinel in cp1252.stdout.decode("utf-8")
+    # A payload the helper rejects prints no line, so the contract falls back to the reason.
+    rejected = _emit_blocked({"phase": "on-activation:uv-missing"})
+    assert rejected.returncode == 1 and rejected.stdout == b""
 
 
 @pytest.mark.parametrize("name", [n for n in STEP_FILES if n != "report.md"])
@@ -565,3 +626,69 @@ def test_docs_state_when_no_envelope_arrives():
     contract = _section(_read(SKILL_MD), "## Invocation Contract")
     failure = next(line for line in contract.splitlines() if line.startswith("| **Failure modes**"))
     assert "bare halt reason with no envelope" in failure
+    # A machine where no runner in the halt contract can run the helper.
+    assert "none of `uv`, `python3`, `python` and `py -3` can run it" in failure
+    assert "Two cases have no envelope" in exception
+    assert "neither `uv` nor a Python interpreter (`python3`, `python` or `py -3`)" in exception
+    uv_entry = _section(_read(TROUBLESHOOTING), '### "Setup cannot proceed: `uv` is not installed"')
+    assert "needs only the Python standard library" in uv_entry
+    assert "the first of `python3`, `python` or `py -3` that runs on the machine" in uv_entry
+    assert "the run's one line is this reason alone" in uv_entry
+    assert "Pipelines should treat a missing envelope as a failure" in uv_entry
+    assert "`uv` or a Python interpreter can run them" in entry
+
+
+# ---------------------------------------------------------------- envelope status contract
+
+
+def _status_enum() -> list[str]:
+    return json.loads(_read(SCHEMA))["properties"]["skf_setup"]["properties"]["status"]["enum"]
+
+
+def _statuses(text: str) -> set[str]:
+    return set(re.findall(r"`([a-z]+(?:_[a-z]+)*)`", text))
+
+
+def test_status_lists_agree_with_the_schema_enum():
+    """SKILL.md and docs/workflows.md list exactly the statuses the schema allows."""
+    enum = set(_status_enum())
+    contract = _section(_read(SKILL_MD), "## Invocation Contract")
+    headless = next(line for line in contract.splitlines() if line.startswith("| **Headless**"))
+    assert _statuses(headless.split("top-level `status` field:")[1].split(". ")[0]) == enum
+    doc = next(l for l in _read(WORKFLOWS_DOC).splitlines() if "Branch on the top-level `status` field (" in l)
+    assert _statuses(doc.split("Branch on the top-level `status` field (")[1].split(")")[0]) == enum
+    require_tier = next(l for l in _read(WORKFLOWS_DOC).splitlines() if l.startswith("- `--require-tier="))
+    assert "Pipelines branch on the envelope's `status` field" in require_tier
+    assert "branch on the JSON envelope's `require_tier_satisfied`" not in require_tier
+
+
+def test_no_surface_promises_the_retired_write_failure_status():
+    hits = sorted(
+        p.relative_to(REPO_ROOT).as_posix()
+        for base in (SRC, REPO_ROOT / "docs") for p in base.rglob("*")
+        if p.is_file() and p.suffix in {".md", ".py", ".json", ".yaml", ".csv", ".toml"}
+        and "write_failure" in p.read_text(encoding="utf-8", errors="replace")
+    )
+    assert hits == []
+
+
+def test_write_failure_phases_named_wherever_a_write_failure_is_described():
+    phases = set(re.findall(r'[`"](step 2:[a-z-]+)[`"]', _read(REFS / "write-config.md")))
+    phases.discard("step 2:helper-missing")  # an install fault, not a write failure
+    assert phases == {"step 2:write-tools", "step 2:init-prefs", "step 2:forge-data-dir"}
+    contract = _section(_read(SKILL_MD), "## Invocation Contract")
+    failure = next(line for line in contract.splitlines() if line.startswith("| **Failure modes**"))
+    doc = next(l for l in _read(WORKFLOWS_DOC).splitlines() if "Branch on the top-level `status` field (" in l)
+    schema = json.loads(_read(SCHEMA))["properties"]["skf_setup"]["properties"]["status"]["description"]
+    for phase in sorted(phases):
+        assert f"`{phase}`" in failure, phase
+        assert f"`{phase}`" in doc, phase
+        assert f"'{phase}'" in schema, phase
+
+
+def test_step_4_passes_a_null_error_and_step_2_binds_none():
+    """A halt that names a phase never reaches step 4, so its payload's error is null."""
+    report = _read(REFS / "report.md")
+    assert '"error": null' in _section(report, "### 4.")
+    assert "{error_object_or_null}" not in report
+    assert "set `{error:" not in _read(REFS / "write-config.md")

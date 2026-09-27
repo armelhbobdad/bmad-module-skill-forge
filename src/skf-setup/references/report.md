@@ -172,7 +172,7 @@ When the block does fire (interactive run with require-tier failure):
 
 ### 4. Emit Headless JSON Envelope
 
-When `{headless_mode}` is `true` OR `{quiet_mode}` is `true`, build the context payload from this step's accumulated flags and forward it to `{emitEnvelopeHelper}` on stdin. Invoke via `uv run`. The script computes derived fields (`tools_added`, `tools_removed`, `tier_changed`, `warnings`), validates the assembled envelope against the JSON Schema at `src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`, and emits the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` on stdout. Bind `{setup_envelope_line}` ← that stdout line, and do not display it here. It is the only line a headless or quiet run displays, and in a standalone run it must be the run's final message: `claude -p` prints only the final message, and the health check still runs after this step. Section 5 displays it on a tier miss; otherwise the shared health check displays it when it stops (its §0). Either way it is displayed verbatim as its own line — no code fence, no preface, no commentary — with nothing of setup's after it. When `{pipeline_mode}` is true, control then returns to the forger, which keeps chaining.
+When `{headless_mode}` is `true` OR `{quiet_mode}` is `true`, build the context payload from this step's accumulated flags and forward it to `{emitEnvelopeHelper}` on stdin. Invoke via `uv run`. The script computes derived fields (`status`, `tools_added`, `tools_removed`, `tier_changed`, `warnings`), validates the assembled envelope against the JSON Schema at `src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`, and emits the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` on stdout. Bind `{setup_envelope_line}` ← that stdout line, and do not display it here. It is the only line a headless or quiet run displays, and in a standalone run it must be the run's final message: `claude -p` prints only the final message, and the health check still runs after this step. Section 5 displays it on a tier miss; otherwise the shared health check displays it when it stops (its §0). Either way it is displayed verbatim as its own line — no code fence, no preface, no commentary — with nothing of setup's after it. When `{pipeline_mode}` is true, control then returns to the forger, which keeps chaining.
 
 ```bash
 echo '{
@@ -204,9 +204,11 @@ echo '{
   "ccc_registry_stale_removed": {ccc_registry_stale_removed_paths_list},
   "ccc_indexing_failed_reason": {ccc_indexing_failed_reason_or_null},
   "orphan_auto_resolution": {orphan_auto_resolution_or_null},
-  "error": {error_object_or_null}
+  "error": null
 }' | uv run {emitEnvelopeHelper} emit
 ```
+
+`error` stays `null`: a halt that names a phase never reaches this step, because it displays its own blocked envelope.
 
 The script's documented context-payload shape (see `src/shared/scripts/skf-emit-result-envelope.py` docstring) tolerates two `tools` shapes — bare booleans OR `skf-detect-tools.py`'s `{key: {available: bool, ...}}` output — so either step 1's normalized booleans OR the raw detect-tools output forwarded as-is will produce the correct envelope.
 

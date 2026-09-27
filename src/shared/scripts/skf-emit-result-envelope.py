@@ -4,11 +4,9 @@
 # ///
 """SKF Emit Result Envelope — Schema-locked headless output for skf-setup.
 
-Replaces the prose-driven envelope assembly in `src/skf-setup/references/
-report.md` §4 with one Python invocation. The envelope contract
-(SKF_SETUP_RESULT_JSON) was added to step 4 in PR #247, extended in
-PR #248 (header / outputs / failure modes), and extended again in this
-PR (previous_tier, tier_changed, tools_added, tools_removed, error).
+Replaces prose-driven envelope assembly in skf-setup with one Python
+invocation: step 4 (`src/skf-setup/references/report.md` §4) runs `emit`,
+and every halt that names a phase runs `emit-blocked`.
 
 LLM-rendered envelopes risk silent schema drift on every invocation —
 a pipeline that grep's `SKF_SETUP_RESULT_JSON: {…}` out of the workflow
@@ -22,9 +20,15 @@ matches the JSON Schema at
 Subcommands:
 
   emit       Read context payload as JSON on stdin, derive missing
-             fields (tools_added/removed, tier_changed), assemble the
-             envelope, emit `SKF_SETUP_RESULT_JSON: {one-line JSON}`
+             fields (tools_added/removed, tier_changed, status), assemble
+             the envelope, emit `SKF_SETUP_RESULT_JSON: {one-line JSON}`
              on stdout. Default subcommand.
+
+  emit-blocked
+             Read {"phase", "reason", "path"?} as JSON on stdin and emit a
+             status 'blocked' envelope for a halt, with placeholders for
+             the fields a halt does not know (tier 'Quick', no tools,
+             config_path set to the path, files_written []).
 
   validate   Read an envelope (without the prefix) as JSON on stdin
              and verify it against the documented schema. No stdout
@@ -68,13 +72,18 @@ Context payload shape (consumed by `emit`):
 Caller does NOT need to compute warnings, tools_added/removed, or
 tier_changed — the script derives them from the inputs above.
 
-CLI — invoke via `uv run` for invocation consistency with sibling
-scripts (PEP 723 inline metadata is honored automatically; this script
-declares dependencies = [] so technically `python3` works too, but
-prefer `uv run` so all 5 cutover scripts share one canonical invocation
-pattern documented in docs/getting-started.md):
+Setup's step 4 always passes `"error": null`: every halt that names a
+phase emits through `emit-blocked` instead. A non-null error still
+yields status 'blocked'.
+
+CLI — the step files invoke it via `uv run`, like every sibling helper.
+It imports only the standard library (dependencies = []) and must stay
+that way: the setup halt contract runs `emit-blocked` for the On
+Activation halts, which can fire before `uv` is proven present, under
+the first of `uv run`, `python3`, `python` and `py -3` that works.
 
   echo '{...context payload...}' | uv run skf-emit-result-envelope.py emit
+  echo '{"phase":"...","reason":"...","path":"..."}' | uv run skf-emit-result-envelope.py emit-blocked
   echo '{"skf_setup":{...}}' | uv run skf-emit-result-envelope.py validate
 
 Exit codes:
@@ -297,15 +306,17 @@ def assemble_envelope(payload: dict) -> dict:
 def _compute_status(error: dict | None, require_tier_satisfied) -> str:
     """Derive the single-field status from error + require_tier_satisfied.
 
-    - 'write_failure' when error.phase signals a file-write failure
-    - 'blocked'       when error is non-null but not a write failure
-    - 'tier_failure'  when require_tier_satisfied is False
-    - 'success'       otherwise
+    - 'blocked'      when error is non-null: a halt produced the envelope,
+                     and error.phase names it (a write failure is
+                     'step 2:write-tools', 'step 2:init-prefs' or
+                     'step 2:forge-data-dir')
+    - 'tier_failure' when require_tier_satisfied is False
+    - 'success'      otherwise
+
+    Both envelope builders derive status here, so every value it returns
+    is one the schema's status enum lists.
     """
     if error is not None:
-        phase = (error.get("phase") or "").lower()
-        if "write" in phase or phase.endswith("forge-tier.yaml") or phase.endswith("preferences.yaml"):
-            return "write_failure"
         return "blocked"
     if require_tier_satisfied is False:
         return "tier_failure"
@@ -438,17 +449,22 @@ def cmd_validate() -> None:
 
 
 def assemble_blocked_envelope(phase: str, reason: str, path: str | None = None) -> dict:
-    """Assemble a minimal status='blocked' envelope for early-halt paths.
+    """Assemble a minimal status='blocked' envelope for a halt.
 
-    Used when On Activation or step 2 halts before the regular envelope
-    construction has the inputs it needs (no tier, no detected tools,
-    no config_path). Every other required field gets a documented sentinel
-    so the envelope still passes schema validation and pipelines can
-    branch on `status: "blocked"` and inspect `error` for context.
+    Used by every halt that names a phase (On Activation and steps 1, 1b,
+    2 and 3), which has no complete run to report. Every other required
+    field gets a placeholder, as the schema describes, so the envelope
+    still passes schema validation and pipelines can branch on
+    `status: "blocked"` and inspect `error` for context.
     """
+    error = {
+        "phase": phase,
+        "path": path or "<n/a>",
+        "reason": reason,
+    }
     return {
         "skf_setup": {
-            "status": "blocked",
+            "status": _compute_status(error, None),
             "tier": "Quick",
             "previous_tier": None,
             "tier_changed": False,
@@ -462,11 +478,7 @@ def assemble_blocked_envelope(phase: str, reason: str, path: str | None = None) 
             "tier_override_invalid": False,
             "require_tier_satisfied": None,
             "warnings": [],
-            "error": {
-                "phase": phase,
-                "path": path or "<n/a>",
-                "reason": reason,
-            },
+            "error": error,
         }
     }
 
@@ -474,9 +486,9 @@ def assemble_blocked_envelope(phase: str, reason: str, path: str | None = None) 
 def cmd_emit_blocked() -> None:
     """Emit a blocked envelope. Reads `phase`, `reason`, optional `path` from stdin JSON.
 
-    Designed for early-halt paths (uv missing, config.yaml missing, etc.) where
-    the regular `emit` subcommand can't run because tier/tools/config_path are
-    not yet known.
+    Designed for the halts (uv missing, config.yaml missing, a failed write,
+    etc.) where the regular `emit` subcommand can't run because the run has
+    no complete tier/tools/config_path to report.
     """
     payload = _read_stdin_json("emit-blocked")
     phase = payload.get("phase")
@@ -497,7 +509,7 @@ def cmd_emit_blocked() -> None:
 
 
 def _force_utf8(*streams) -> None:
-    """Reconfigure JSON-carrying streams to UTF-8 (issue #465).
+    """Reconfigure JSON-carrying streams to UTF-8.
 
     A default Windows console decodes stdio as cp1252, which cannot carry
     non-ASCII JSON (ensure_ascii=False output, raw UTF-8 input). Preserves

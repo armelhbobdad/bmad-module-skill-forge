@@ -16,6 +16,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -87,16 +88,83 @@ def test_status_tier_failure_when_require_tier_not_satisfied():
     assert mod.assemble_envelope(p)["skf_setup"]["status"] == "tier_failure"
 
 
-def test_status_write_failure_when_error_phase_signals_write():
-    p = _baseline_payload()
-    p["error"] = {"phase": "step 2:write-tools", "path": "/x/forge-tier.yaml", "reason": "permission denied"}
-    assert mod.assemble_envelope(p)["skf_setup"]["status"] == "write_failure"
+# The three step 2 write halts (write-config.md §1-§3). A write failure has
+# no status of its own: it is `blocked`, and error.phase names it.
+STEP2_WRITE_ERRORS = [
+    {"phase": "step 2:write-tools", "path": "/p/_bmad/_memory/forger-sidecar/forge-tier.yaml",
+     "reason": "Permission denied"},
+    {"phase": "step 2:init-prefs", "path": "/p/_bmad/_memory/forger-sidecar/preferences.yaml",
+     "reason": "Permission denied"},
+    {"phase": "step 2:forge-data-dir", "path": "/p/forge-data", "reason": "Permission denied"},
+]
 
 
-def test_status_blocked_for_non_write_error():
+def _error(phase: str) -> dict:
+    return {"phase": phase, "path": "/p/x", "reason": "r"}
+
+
+@pytest.mark.parametrize("error", STEP2_WRITE_ERRORS, ids=lambda e: e["phase"])
+def test_write_failure_phase_is_blocked_through_assemble_envelope(error):
     p = _baseline_payload()
-    p["error"] = {"phase": "step 1:foreign-ccc", "path": "/usr/local/bin/ccc", "reason": "identity check failed"}
+    p["error"] = dict(error)
+    env = mod.assemble_envelope(p)
+    assert env["skf_setup"]["status"] == "blocked"
+    assert mod._validate_against_schema(env, _schema()) == []
+
+
+@pytest.mark.parametrize("phase", ["step 1:detect-tools", "on-activation:uv-missing",
+                                   "step 3:overwrite-check", "write-config:forge-tier.yaml"])
+def test_status_is_blocked_whatever_the_phase_says(phase):
+    p = _baseline_payload()
+    p["error"] = _error(phase)
     assert mod.assemble_envelope(p)["skf_setup"]["status"] == "blocked"
+
+
+def test_error_outranks_a_tier_miss():
+    p = _baseline_payload()
+    p["error"] = dict(STEP2_WRITE_ERRORS[0])
+    p["require_tier_satisfied"] = False
+    p["require_tier_failure_missing"] = ["ccc"]
+    e = mod.assemble_envelope(p)["skf_setup"]
+    assert e["status"] == "blocked"
+    assert "require_tier_failed: missing ccc" in e["warnings"]
+
+
+def test_status_enum_lists_exactly_what_the_helper_emits():
+    """Closure both ways: every status either builder can produce is in the
+    schema enum, and the enum holds nothing the helper never emits."""
+    enum = _schema()["properties"]["skf_setup"]["properties"]["status"]["enum"]
+    assert enum == ["success", "tier_failure", "blocked"]
+    errors = [None, *STEP2_WRITE_ERRORS, _error("write-config:forge-tier.yaml"),
+              _error("Step 3:overwrite-check")]
+    produced = {mod._compute_status(e, tier) for e in errors for tier in (None, True, False)}
+    produced.add(mod.assemble_blocked_envelope("step 2:init-prefs", "r")["skf_setup"]["status"])
+    assert produced == set(enum)
+
+
+def test_schema_documents_the_blocked_envelope_placeholders():
+    blocked = mod.assemble_blocked_envelope("on-activation:uv-missing", "r")["skf_setup"]
+    props = _schema()["properties"]["skf_setup"]["properties"]
+    assert f"'{blocked['tier']}'" in props["tier"]["description"]
+    assert f"'{blocked['config_path']}'" in props["config_path"]["description"]
+    error_path = props["error"]["oneOf"][1]["properties"]["path"]["description"]
+    assert f"'{blocked['error']['path']}'" in error_path
+    assert blocked["files_written"] == [] and "empty array" in props["files_written"]["description"]
+    assert "exit code" not in json.dumps(_schema())
+
+
+def test_envelope_helper_and_schema_cite_no_issue_or_pr_numbers():
+    for path in (SCRIPT_PATH, SCHEMA_PATH):
+        text = path.read_text(encoding="utf-8")
+        assert re.search(r"\b(?:PR|issue) #\d+|\bthis PR\b", text) is None, path.name
+
+
+def test_docstring_lists_every_subcommand():
+    subs = re.findall(r'sub\.add_parser\("([a-z-]+)"', SCRIPT_PATH.read_text(encoding="utf-8"))
+    assert subs == ["emit", "emit-blocked", "validate"]
+    section = mod.__doc__.split("Subcommands:")[1].split("Context payload shape")[0]
+    for name in subs:
+        assert re.search(rf"^  {re.escape(name)}\b", section, re.M), name
 
 
 # ─── assemble_blocked_envelope: early-halt envelopes ────────────────────────
@@ -378,11 +446,11 @@ def test_error_null_serializes_as_null():
 
 def test_error_object_includes_required_fields():
     p = _baseline_payload()
-    p["error"] = {"phase": "step 2:write-config", "path": "/x/forge-tier.yaml", "reason": "permission denied"}
+    p["error"] = {"phase": "step 2:write-tools", "path": "/x/forge-tier.yaml", "reason": "permission denied"}
     env = mod.assemble_envelope(p)
     err = env["skf_setup"]["error"]
     assert err == {
-        "phase": "step 2:write-config",
+        "phase": "step 2:write-tools",
         "path": "/x/forge-tier.yaml",
         "reason": "permission denied",
     }
@@ -606,3 +674,48 @@ def test_cli_emit_raw_utf8_stdin_survives_cp1252_stdio():
     assert line.startswith(mod.ENVELOPE_PREFIX)
     body = json.loads(line[len(mod.ENVELOPE_PREFIX):])
     assert body["skf_setup"]["config_path"] == "/abs/path \U0001F4CA/forge-tier.yaml"
+
+
+def _run_emit_blocked(payload: dict) -> tuple[int, str, str]:
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "emit-blocked"],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
+    )
+    return result.returncode, result.stdout, result.stderr
+
+
+def _envelope_of(stdout: str) -> dict:
+    lines = stdout.splitlines()
+    assert len(lines) == 1 and lines[0].startswith(mod.ENVELOPE_PREFIX), stdout
+    return json.loads(lines[0][len(mod.ENVELOPE_PREFIX):])
+
+
+@pytest.mark.parametrize("error", STEP2_WRITE_ERRORS, ids=lambda e: e["phase"])
+def test_cli_emit_and_emit_blocked_agree_on_step2_write_errors(error):
+    """The halt emits through emit-blocked; emit, given the same error, must
+    not report a status the halt never produces."""
+    p = _baseline_payload()
+    p["error"] = dict(error)
+    rc, stdout, stderr = _run_emit(p)
+    assert rc == 0, stderr
+    emitted = _envelope_of(stdout)["skf_setup"]
+    rc, stdout, stderr = _run_emit_blocked(error)
+    assert rc == 0, stderr
+    blocked = _envelope_of(stdout)
+    assert mod._validate_against_schema(blocked, _schema()) == []
+    blocked = blocked["skf_setup"]
+    assert emitted["status"] == blocked["status"] == "blocked"
+    assert emitted["error"] == blocked["error"] == error
+    assert blocked["files_written"] == []
+
+
+def test_cli_validate_rejects_the_retired_write_failure_status():
+    env = mod.assemble_envelope(_baseline_payload())
+    env["skf_setup"]["status"] = "write_failure"
+    rc, _, stderr = _run_validate(env)
+    assert rc == 1
+    assert "write_failure" in json.loads(stderr)["message"]
