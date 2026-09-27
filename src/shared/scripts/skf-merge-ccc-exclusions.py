@@ -299,6 +299,17 @@ an entry name carrying one gets no pattern. No pattern SKF produces, and
 so no effective_patterns entry, holds any of them. Data fields such as
 `settings_yml_path` are emitted as they are.
 
+Paths in messages: when a warning or `not_ready_reason` names the
+project root in SKF's own words, it writes the literal `{project-root}`
+placeholder, never the absolute path. Setup's step 4 banner renders a
+warning's placeholder like its own `{project-root}` paths, and the
+envelope keeps it verbatim. The unresolved-placeholder refusal writes
+`{project-root}` too, as the name of the placeholder this script
+resolves rather than a folder, and the banner shows that warning as it
+is. Output and errors quoted from `ccc init` or git can carry paths of
+their own, the project root included. Error messages on stderr name
+absolute paths.
+
 Writes to settings.yml use temp + fsync + rename (mirrors
 skf-atomic-write.py), emit ASCII-only YAML (non-ASCII escaped, as ccc
 writes it — ccc reads the file with the platform default encoding), and
