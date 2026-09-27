@@ -4,8 +4,11 @@ refinementRulesData: '{refinementRulesPath}'
 # Resolve `{enumerateStackSkillsHelper}` by probing
 # `{enumerateStackSkillsProbeOrder}` in order (installed SKF module path
 # first, src/ dev-checkout fallback); first existing path wins. §2 calls
-# it for the deterministic skill inventory (cascade-resolved exports,
-# metadata-hash, confidence-tier mapping).
+# it for the deterministic inventory of the skills SKF generated
+# (cascade-resolved exports, metadata-hash, the exports-source confidence,
+# the unique pairs, and `not_skf_output` for the rest). If neither
+# candidate exists, §2 falls through to the LLM-driven inventory as
+# graceful degradation (see §2).
 enumerateStackSkillsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
   - '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
@@ -61,26 +64,26 @@ Wait for user input. Store the validated architecture document path as `architec
 **Primary path — deterministic enumeration via shared helper:**
 
 ```bash
-python3 {enumerateStackSkillsHelper} enumerate {skills_output_folder} --pairs --reliability
+uv run {enumerateStackSkillsHelper} enumerate {skills_output_folder} --pairs --reliability
 ```
 
-The helper walks `{skills_output_folder}`, reads each `metadata.json`, applies the version-aware resolution (export-manifest → `active` symlink → flat fallback), captures the exports cascade (metadata → references → SKILL.md), maps `confidence_tier`, and emits structured JSON with one entry per skill plus a top-level `warnings[]` array. Cache the result as `skill_inventory`.
+The helper reads only the skills SKF generated. For each top-level folder (links, dot-names, `_batch` and `.skf-` names aside) it takes the version the `active` link names when that version's `{name}/metadata.json` carries an SKF marker, else the highest version whose `metadata.json` does, else a flat root `SKILL.md` beside a marked `metadata.json`; it never reads the export manifest. It resolves that package's exports from `metadata.json` `exports`, else a `references/*.md` `## API` or `## Exports` section, else a SKILL.md `## Exports` or `## API Surface` section, and follows `composes:` to find cycles. Each `skills[]` entry has `name` (the folder name), `path` (the package, relative to `{skills_output_folder}`: `x/active/x`, `x/<version>/x` or `x`), `exports`, `exports_source` (`metadata`, `references`, `skill-md` or `unknown`), `confidence` (`T1`, `T2` or `T1-low`, from the exports source — not metadata's `confidence_tier`) and `metadata_hash`. `warnings[]` names per-skill problems, each starting `<name>: `: a `metadata.json` or version folder that cannot be read (including one that keeps SKF from telling whether it generated the folder), an SKF package with no `SKILL.md`, no exports found, and `composes` cycles; a folder with no skill in it is skipped silently. Cache the result as `skill_inventory`, and bind `{not_skf_output}` ← `not_skf_output`, `{inventory_reliable}` ← `inventory_reliable`, `{warning_count}` ← `warning_count`, `{skill_count}` ← `skill_count`, `{inventory_warnings}` ← `warnings`, `{pairs}` ← `pairs` and `{pair_count}` ← `pair_count`. When `{not_skf_output}` is non-empty, display it once: "Skipped (not SKF output): {not_skf_output}". Those folders, such as a module's own skills in a shared skills folder, are not in `skills[]` and count toward neither `{skill_count}` nor `{warning_count}`.
 
-`--pairs` additionally attaches `skill_inventory.pairs` — the complete, deterministic set of unique `{library_a, library_b}` combinations over the skill names (`itertools.combinations`, sorted-name order, `pair_count == N*(N-1)/2`) — plus `skill_inventory.pair_count`. Cache both alongside the inventory. This is the exact pair set Step 02 (gap analysis) iterates; the helper owns the combinatorics, so a pair can never be silently dropped or duplicated at larger N and downstream steps read the set rather than re-deriving it.
+`--pairs` additionally attaches `skill_inventory.pairs` — the complete, deterministic set of unique `{library_a, library_b}` combinations over the skills SKF generated only (`itertools.combinations`, sorted-name order, `pair_count == N*(N-1)/2`) — plus `skill_inventory.pair_count`. Cache both alongside the inventory. This is the exact pair set Step 02 (gap analysis) iterates; the helper owns the combinatorics, so a pair can never be silently dropped or duplicated at larger N and downstream steps read the set rather than re-deriving it.
 
-Each helper-emitted entry includes: `skill_name`, `version`, `language`, `confidence_tier`, `exports_documented`, `source_repo`, `source_root`, and a `metadata_hash` for change-detection across runs. The helper's `warnings[]` carries per-skill skip reasons (missing SKILL.md/metadata.json, non-symlink `active`, orphan-versions, schema-version violations).
+`--reliability` adds `inventory_reliable` (bool), `unreliable_ratio` (float), `skill_count` and `warning_count`, over the skills SKF generated and their warnings, so the reliability threshold lives in one unit-tested place and this step reads a boolean rather than re-deriving a ratio.
 
-**Failure-budget guard:** `--reliability` attaches the helper-computed verdict — `inventory_reliable` (boolean), `unreliable_ratio`, `skill_count`, `warning_count` — so the reliability threshold lives in one unit-tested place and this step reads a boolean rather than re-deriving a ratio. If `inventory_reliable` is false, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) with: "Inventory scan unreliable — {warning_count}/{skill_count + warning_count} skills returned skip warnings. Re-run [RA] after skills stabilize." In headless, emit the error envelope.
+**Failure-budget guard:** If `{inventory_reliable}` is false, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) with: "Inventory scan unreliable — {warning_count} warning(s) across {skill_count} skill(s) SKF generated: {inventory_warnings}. Fix the skills named there (re-save an unreadable `metadata.json` as plain UTF-8 JSON or restore it from version control, and regenerate a skill whose exports are missing), then re-run [RA]." In headless, emit the error envelope.
 
-**Fallback path — graceful degradation when the helper is unavailable:** If `{enumerateStackSkillsHelper}` has no existing candidate, fall through to the LLM-driven inventory: walk `{skills_output_folder}` and for each `{skill_package}` read `metadata.json` and extract `name`, `language`, `confidence_tier`, `stats.exports_documented`, `source_repo`/`source_root`. Skip packages missing SKILL.md or metadata.json with a logged warning. On this degraded path only — with no helper to consult — treat the run as unreliable and HALT the same way if skip warnings exceed one in five of the scanned packages.
+**Fallback path — graceful degradation when the helper is unavailable:** If `{enumerateStackSkillsHelper}` has no existing candidate, fall through to the LLM-driven inventory: walk `{skills_output_folder}`, resolving each top-level folder in the helper's order and recording the helper's entry fields. Only a package whose `metadata.json` carries an SKF marker is a skill: `generated_by` is `quick-skill`, `create-skill` or `create-stack-skill`, `tool_versions` has an `skf` key, or `skill_type` is `single`, `individual` or `stack` together with `forge_tier` or `confidence_tier`. A folder whose packages have no such `metadata.json` goes into `{not_skf_output}` without counting a warning; a `metadata.json` that cannot be read counts as one warning, and so does a marked package with no `SKILL.md` or no exports found. Cache the entries as `skill_inventory`, and bind `{skill_count}` to the number of skills found, `{warning_count}` to the number of warnings counted and `{inventory_warnings}` to those warnings, each starting `<name>: `. Display the skipped line as above. On this degraded path only — with no helper to consult — treat the run as unreliable and HALT the same way if warnings exceed one in five (`{warning_count} / ({skill_count} + {warning_count}) > 0.20`).
 
 ### 3. Validate Minimum Requirements
 
 **Check skill count:**
-- At least 1 valid skill must exist
-- If no skills found: "**Cannot proceed.** No skills found in `{skills_output_folder}`. Generate skills with [CS] Create Skill or [QS] Quick Skill, then re-run [RA]."
+- At least 1 skill SKF generated must exist (`{skill_count}`)
+- If none: "**Cannot proceed.** No skill SKF generated was found in `{skills_output_folder}`. Generate skills with [CS] Create Skill or [QS] Quick Skill, then re-run [RA]." When `{not_skf_output}` is non-empty, append: "Skipped (not SKF output): {not_skf_output}."
 - HALT (exit code 5, `halt_reason: "insufficient-skills"`). In headless, emit the error envelope.
-- If exactly 1 valid skill found: "⚠️ Proceeding with 1 skill. Note: gap analysis will find no gaps — pairwise analysis requires at least 2 skills. Step 02 will still execute and issue an appropriate notice. Issue detection and improvement detection will proceed normally."
+- If exactly 1 skill SKF generated was found: "⚠️ Proceeding with 1 skill. Note: gap analysis will find no gaps — pairwise analysis requires at least 2 skills. Step 02 will still execute and issue an appropriate notice. Issue detection and improvement detection will proceed normally."
 
 **Output paths (`{outputFolderPath}`, `forge_data_folder`):** both were asserted non-empty (config-completeness → exit 3, `output-folder-unconfigured` / `forge-folder-unconfigured`) and then probed for writability (→ exit 4, `write-failed`) at On-Activation §5. If either was unconfigured or unwritable the run already halted there, so both are guaranteed present and writable here — no re-check needed.
 
@@ -127,9 +130,9 @@ Extract: gap detection rules, issue detection rules, improvement detection rules
 
 **Skill Inventory:**
 
-| Skill | Language | Tier | Exports |
-|-------|----------|------|---------|
-| {skill_name} | {language} | {confidence_tier} | {exports_documented} |
+| Skill | Exports | Exports source | Confidence |
+|-------|---------|----------------|------------|
+| {name} | {number of exports} | {exports_source} | {confidence} |
 
 **Proceeding to gap analysis...**"
 

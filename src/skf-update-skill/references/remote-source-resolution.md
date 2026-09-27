@@ -20,6 +20,14 @@ If `source_root` (from metadata.json) is a remote URL (GitHub URL or owner/repo 
 
    Fetch and checkout the requested ref. For update-skill, `changed_files_from_manifest` scoping happens at extraction time via file-level filtering — the workspace has a full checkout.
 
+   **Git hygiene check (before the fetch):** from `{project-root}`, resolve `{cccGitHygieneHelper}` from `{cccGitHygieneProbeOrder}` (declared in `re-extract.md`'s frontmatter; first existing path wins) and run:
+
+   ```
+   uv run {cccGitHygieneHelper} workspace --repo "{workspace_repo_path}"
+   ```
+
+   A create-skill run that indexed this clone with ccc may have left `# CocoIndex Code (ccc)` and `/.cocoindex_code/` appended to the clone's tracked `.gitignore`, or a new `.gitignore` holding only those two lines, and git refuses a checkout that would overwrite that change. The helper lists `.cocoindex_code/` and `/.skf-workspace.lock` in the clone's `.git/info/exclude`, then restores a tracked `.gitignore` whose only change is those two lines (or deletes an untracked one that holds only them), and leaves every other local change alone. The checkout below therefore behaves as it always has: a local change git would overwrite makes the checkout fail, and the workspace-failure fallback below applies. Read nothing from its output. If the helper does not resolve, or the command fails, continue without it: the workspace is a cache, never a gate.
+
    ```
    git -C "{workspace_repo_path}" fetch origin {source_ref}
    ```
@@ -58,7 +66,7 @@ If `source_root` (from metadata.json) is a remote URL (GitHub URL or owner/repo 
 
    Set `remote_clone_path = {workspace_repo_path}`, `remote_clone_type = "workspace"`.
 
-   **On any workspace failure:** Fall back to ephemeral clone:
+   **On any workspace failure** (the clone, fetch or checkout fails, for example on a local change in the clone that the checkout would overwrite): Fall back to ephemeral clone:
    ```
    temp_path = {system_temp}/skf-ephemeral-{skill-name}-{timestamp}/
 

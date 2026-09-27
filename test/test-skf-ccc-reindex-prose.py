@@ -28,6 +28,13 @@ step files and the ccc knowledge fragment on that contract:
   index lazily. Create-stack-skill integration detection and the
   extraction-patterns summary state the same rule, and no reader gates on a
   subset of those statuses or names "stale" as a live one;
+- every step that runs ccc outside the project root, and every workspace
+  fetch, runs `skf-ccc-git-hygiene.py`, which never gates: a workspace
+  clone gets ccc's `.gitignore` edit undone and the index and lock listed
+  in `.git/info/exclude`, a nested local index gets a self-ignoring
+  `.cocoindex_code/.gitignore`, the lazy index never initializes the
+  enclosing checkout, and audit's `[C]` checkout cleans up before its
+  dirty-worktree probe;
 - no step prose cites ccc source lines.
 
 Every section slicer asserts that its markers exist and that the slice is
@@ -36,6 +43,7 @@ not empty, so a renamed heading fails instead of passing vacuously.
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from pathlib import Path
@@ -49,6 +57,13 @@ EXTRACT = SRC / "skf-create-skill" / "references" / "extract.md"
 GENERATE = SRC / "skf-create-skill" / "references" / "generate-artifacts.md"
 CCC_DISCOVER = SRC / "skf-create-skill" / "references" / "sub" / "ccc-discover.md"
 CCC_BRIDGE = SRC / "knowledge" / "ccc-bridge.md"
+SOURCE_RESOLUTION = SRC / "skf-create-skill" / "references" / "source-resolution-protocols.md"
+TIER_DEGRADATION = SRC / "skf-create-skill" / "references" / "tier-degradation-rules.md"
+REMOTE_SOURCE = SRC / "skf-update-skill" / "references" / "remote-source-resolution.md"
+RE_EXTRACT = SRC / "skf-update-skill" / "references" / "re-extract.md"
+AUDIT_INIT = SRC / "skf-audit-skill" / "references" / "init.md"
+TROUBLESHOOTING = REPO_ROOT / "docs" / "troubleshooting.md"
+HYGIENE_HELPER = SRC / "shared" / "scripts" / "skf-ccc-git-hygiene.py"
 SETUP_REFS = SRC / "skf-setup" / "references"
 SETUP_ENVELOPE_SCHEMA = SRC / "shared" / "scripts" / "schemas" / "skf-setup-result-envelope.v1.json"
 STEP_FILES = sorted(SRC.glob("skf-*/references/**/*.md"))
@@ -469,3 +484,201 @@ def test_no_ccc_source_line_citations_in_step_prose():
     for path in [*WORKFLOW_FILES, CCC_BRIDGE]:
         match = CCC_SOURCE_CITATION_RE.search(_read(path))
         assert match is None, f"{path.relative_to(REPO_ROOT)} cites ccc source: {match.group(0)!r}"
+
+
+# --------------------------------------------------------------------------
+# ccc's index folders and SKF's workspace lock stay out of git
+# --------------------------------------------------------------------------
+
+HYGIENE_PROBE_BLOCK = (
+    "# Resolve `{cccGitHygieneHelper}` to the first existing path. It keeps ccc's\n"
+    "# index folders and SKF's workspace lock out of git, and undoes the\n"
+    "# `.gitignore` edit `ccc init` makes in a workspace clone. If neither path\n"
+    "# exists, skip the call and continue: it never gates the workflow.\n"
+    "cccGitHygieneProbeOrder:\n"
+    "  - '{project-root}/_bmad/skf/shared/scripts/skf-ccc-git-hygiene.py'\n"
+    "  - '{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py'\n"
+)
+HYGIENE_PROBE_PATHS = [
+    "{project-root}/_bmad/skf/shared/scripts/skf-ccc-git-hygiene.py",
+    "{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py",
+]
+WORKSPACE_CORE = (
+    "The helper lists `.cocoindex_code/` and `/.skf-workspace.lock` in the clone's "
+    "`.git/info/exclude`, then restores a tracked `.gitignore` whose only change is those "
+    "two lines (or deletes an untracked one that holds only them), and leaves every other "
+    "local change alone."
+)
+WS_CMD = 'uv run {cccGitHygieneHelper} workspace --repo "{workspace_repo_path}"'
+NESTED_CMD = 'uv run {cccGitHygieneHelper} nested --dir "{source_root}" --project-root "{project-root}"'
+NOTICE_BINDING = "`{ccc_ignore_notice}` ← `notice`"
+# The notice carries a quoted `git rm -r --cached -- "<dir>"` remedy: shown as printed.
+NOTICE_DISPLAY = "display `{ccc_ignore_notice}` verbatim when it is not null"
+CREATE_HIT = "**If `{workspace_repo_path}/.git/` exists (workspace hit):**"
+CREATE_MISS = "**If `{workspace_repo_path}/.git/` does not exist (workspace miss):**"
+
+
+def _frontmatter(text: str) -> str:
+    assert text.startswith("---\n"), "no frontmatter"
+    end = text.index("\n---\n", 4)
+    return text[4:end + 1]
+
+
+def _line_starting(text: str, prefix: str) -> str:
+    lines = [line.strip() for line in text.splitlines() if line.strip().startswith(prefix)]
+    assert len(lines) == 1, f"expected one line starting {prefix!r}, found {len(lines)}"
+    return lines[0]
+
+
+@pytest.mark.parametrize(
+    "loader, users",
+    [
+        (EXTRACT, [EXTRACT, SOURCE_RESOLUTION]),
+        (RE_EXTRACT, [REMOTE_SOURCE]),
+        (GENERATE, [GENERATE]),
+        (CCC_DISCOVER, [CCC_DISCOVER]),
+        (AUDIT_INIT, [AUDIT_INIT]),
+    ],
+    ids=["extract", "re-extract", "generate", "ccc-discover", "audit-init"],
+)
+def test_hygiene_probe_order_declared(loader, users):
+    frontmatter = _frontmatter(_read(loader))
+    assert HYGIENE_PROBE_BLOCK in frontmatter
+    assert yaml.safe_load(frontmatter)["cccGitHygieneProbeOrder"] == HYGIENE_PROBE_PATHS
+    assert "never gates the workflow" in HYGIENE_PROBE_BLOCK
+    assert "HALT" not in HYGIENE_PROBE_BLOCK
+    for user in users:
+        assert "{cccGitHygieneHelper}" in _read(user), user.relative_to(REPO_ROOT)
+
+
+def _create_hit() -> str:
+    return _slice(_read(SOURCE_RESOLUTION), CREATE_HIT, CREATE_MISS)
+
+
+def _update_hit() -> str:
+    return _slice(_read(REMOTE_SOURCE), "**If workspace repo exists", "**If workspace repo does NOT exist:**")
+
+
+@pytest.mark.parametrize("slicer", [_create_hit, _update_hit], ids=["create", "update"])
+def test_workspace_hit_runs_hygiene_before_fetch(slicer):
+    hit = slicer()
+    for token in (WS_CMD, WORKSPACE_CORE, "from `{project-root}`", "Read nothing from its output",
+                  "never a gate"):
+        assert token in hit, token
+    assert hit.index(WS_CMD) < hit.index("fetch origin") < hit.index("checkout FETCH_HEAD")
+    # Regression guard only: the check is ccc's exact edit, never a status gate.
+    assert "status --porcelain" not in hit
+
+
+def test_workspace_miss_clones_then_locks():
+    text = _read(SOURCE_RESOLUTION)
+    guard = _slice(text, "**Concurrency guard:**", CREATE_HIT)
+    for token in ("never create `{workspace_repo_path}` or the lock file before the clone",
+                  "Clone first, then acquire the lock", "`.git/info/exclude`"):
+        assert token in guard, token
+    assert "Acquire the lock before the workspace-hit check" not in guard
+    miss = _slice(text, CREATE_MISS, "4. **If workspace resolution succeeds:**")
+    for token in ("**After the clone succeeds:**", "clone_head", WS_CMD, "**Detect tag vs branch**"):
+        assert token in miss, token
+    assert miss.index("git clone") < miss.index(WS_CMD)
+    assert miss.index("**After the clone succeeds:**") < miss.index(WS_CMD)
+
+
+def test_fallback_trigger_names_checkout():
+    step5 = _slice(_read(SOURCE_RESOLUTION), "5. **Ephemeral fallback", "6. **If all cloning fails")
+    assert "If the workspace clone, fetch or checkout fails" in step5
+    assert "fetch or checkout fails" in _line_starting(_read(REMOTE_SOURCE), "**On any workspace failure**")
+
+
+def test_extract_leaves_workspace_clone_clean():
+    block = _deferred_block()
+    marker = "**Leave the workspace clone clean:**"
+    assert block.index("7. **On failure:**") < block.index(marker)
+    clean = block[block.index(marker):]
+    for token in ('uv run {cccGitHygieneHelper} workspace --repo "{remote_clone_path}"',
+                  '`remote_clone_type` is `"workspace"`', "after step 6 or step 7", "step 2 or step 3"):
+        assert token in clean, token
+    # The sentence reads "... and read nothing from its output".
+    assert "read nothing from its output" in clean.lower()
+    for path in sorted(SRC.rglob("*.md")):
+        assert ".forge-sources" not in _read(path), path.relative_to(REPO_ROOT)
+
+
+def test_generate_6b_keeps_index_out_of_git():
+    repair = _generate_repair()
+    marker = "**Keep the index out of git:**"
+    assert repair.index("A plain `ccc index` is enough") < repair.index(marker)
+    keep = repair[repair.index(marker):]
+    for token in ('uv run {cccGitHygieneHelper} workspace --repo "{remote_clone_path}"', NESTED_CMD,
+                  NOTICE_BINDING, NOTICE_DISPLAY, "SKF never edits a project's own `.gitignore`",
+                  "never fails the workflow", 'after "index unverified"'):
+        assert token in keep, token
+    assert "continue with **Keep the index out of git**" in repair
+    assert "continue to the registry update." not in repair
+    nested = _slice(_generate_6b(), "**Nested project marker:**", "\n")
+    assert "linked worktree or submodule" in nested
+    assert "**Keep the index out of git** below" in nested
+
+
+def test_lazy_index_keeps_to_the_source_folder():
+    lazy = _slice(_read(CCC_DISCOVER), "**Tool resolution for ccc_bridge.ensure_index:**", "### 3.")
+    for token in ('cd "{source_root}" && ccc init -f',
+                  "only once `{source_root}/.cocoindex_code/settings.yml` exists",
+                  "**Keep a lazy index out of git:**", NESTED_CMD, NOTICE_BINDING, NOTICE_DISPLAY,
+                  "discovery never blocks", "Exception: when `{source_root}` is `{project-root}`"):
+        assert token in lazy, token
+
+
+def test_audit_checkout_clears_ccc_traces_before_dirty_probe():
+    text = _read(AUDIT_INIT)
+    lock = _slice(text, "**[C]:** Acquire an exclusive lock", "**Dirty-worktree probe")
+    assert 'uv run {cccGitHygieneHelper} workspace --repo "{source_root}"' in lock
+    assert "after the clean-up above" in text
+    for gone in ("CCC daemon appending", "`setup-forge` pointed it", "pop the stash on the way out"):
+        assert gone not in text, gone
+    stash = _line_starting(text, "- **[T] Transient stash**")
+    assert "stash pop" in stash
+    assert "'skf-audit-skill: pre-checkout {chosen_ref}'" in stash
+    assert "tooling-generated" not in stash
+
+
+def test_tier_degradation_mentions_hygiene():
+    text = _read(TIER_DEGRADATION)
+    item2 = _line_starting(text, "2. If `git` is available")
+    assert "git hygiene check" in item2 and "`.gitignore`" in item2
+    assert "fetch or checkout fails" in _line_starting(text, "6. If")
+
+
+def test_ccc_bridge_keeps_indexes_out_of_git():
+    text = _read(CCC_BRIDGE)
+    exclusion = _slice(text, "### Exclusion Patterns", "### Deferred Discovery")
+    for token in ("`.cocoindex_code/.gitignore` holding `*`", "SKF never edits a project's own `.gitignore`",
+                  "`git check-ignore -q --no-index`", "`.git/info/exclude`"):
+        assert token in exclusion, token
+    deferred = _slice(text, "### Deferred Discovery", "### Relationship to QMD Registry")
+    for token in ("skf-ccc-git-hygiene.py workspace", "`/.skf-workspace.lock`", "ephemeral clone"):
+        assert token in deferred, token
+    assert "--refresh" not in deferred
+    ensure = _slice(text, "### `ccc_bridge.ensure_index(path)`", "### `ccc_bridge.status()`")
+    assert "ccc init -f" in ensure
+    assert "only once `{path}/.cocoindex_code/settings.yml` exists" in ensure
+    when = _slice(text, "### When Indexing Happens", "### Freshness")
+    assert "create-skill step 7" in when
+
+
+def _helper_constant(name: str):
+    tree = ast.parse(_read(HYGIENE_HELPER), filename=str(HYGIENE_HELPER))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == name for target in node.targets
+        ):
+            return ast.literal_eval(node.value)
+    raise AssertionError(f"{name} not found in {HYGIENE_HELPER.name}")
+
+
+def test_troubleshooting_nested_index_entry():
+    heading = "### `git status` lists a `.cocoindex_code` folder inside a source folder"
+    entry = _slice(_read(TROUBLESHOOTING), heading, "\n### ")
+    for token in ("holding `*`", "never edits your own `.gitignore`", "git rm -r --cached"):
+        assert token in entry, token
+    assert _helper_constant("SELF_IGNORE").endswith(b"\n*\n")

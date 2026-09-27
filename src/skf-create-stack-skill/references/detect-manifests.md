@@ -26,62 +26,51 @@ Scan the project root for dependency manifest files, parse each to extract depen
 
 ### 0. Check Compose Mode
 
-**If `compose_mode` is true AND `explicit_deps` was provided in step 01:**
+**If `compose_mode` is true:**
 
-Use the explicit dependency list directly. Store the explicit list as `raw_dependencies` with `source: "explicit"` and skip to [Auto-Proceed to Next Step](#4-auto-proceed-to-next-step).
-
-**If `compose_mode` is true AND `explicit_deps` was NOT provided:**
-
-Discover skills in `{skills_output_folder}` using version-aware resolution — see `knowledge/version-paths.md` for path templates.
-
-**Version-aware skill enumeration:**
-
-1. **Primary: Export manifest** — Read `{skills_output_folder}/.export-manifest.json`. For each entry in `exports`, resolve the active version path: `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/` — this directory must contain both `SKILL.md` and `metadata.json`.
-
-   **Stale manifest fallback (H6):** If a manifest entry resolves to a path that does not exist (broken `active_version`, deleted version dir, missing `SKILL.md` / `metadata.json`), do NOT HALT for that single entry. Instead:
-   a. Fall back to the symlink scan (rule 2) **for that one skill only**: probe `{skills_output_folder}/{skill-name}/active/{skill-name}/SKILL.md`.
-   b. If the symlink-based path resolves, use it and log a warning: `"export-manifest entry '{skill-name}' is stale — resolved via active symlink instead"`.
-   c. If BOTH the manifest path AND the symlink path fail, only then HALT with a manifest-corruption diagnostic naming the affected skill and pointing the user at `[SKF-update-skill]` to repair. Emit the result envelope on stderr per the Result Contract in SKILL.md, then STOP:
-
-   ```
-   SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"compose","exit_code":3,"halt_reason":"resolution-failure"}
-   ```
-
-   **Manifest JSON parse guard (B3):** Wrap the `.export-manifest.json` parse in try/except. If JSON parsing fails for any reason, fall through entirely to the `active` symlink scan (rule 2) across all skills; log a warning and validate each symlink target exists before including it.
-
-2. **Fallback: `active` symlinks** — If the manifest does not exist, is empty, JSON-parse fails, or an individual manifest entry fails to resolve, scan for `{skills_output_folder}/*/active/*/SKILL.md`. Each match resolves to a skill package at `{skills_output_folder}/{skill-name}/active/{skill-name}/` (the `{active_skill}` template). Verify the active symlink target actually exists and contains both `SKILL.md` and `metadata.json`.
-
-**Filter & cycle guard (B4):** Skip any skill where the filter below matches:
-
-- Skill name equals `{project_name}-stack`, OR
-- `metadata.json` has `"skill_type": "stack"`, OR
-- `metadata.json` is missing or unreadable (treat `skill_type: unknown` as non-loadable — exclude to avoid loading a partially-written or self-referential skill).
-
-Maintain a **visited set keyed by `skill_dir`** (the top-level dir under `{skills_output_folder}`) while resolving. If a skill would be revisited via a circular reference (e.g., a constituent that claims another stack as dependency), skip the duplicate and log a warning `"cycle detected at {skill_dir} — skipping"`. Stack skills must not be loaded as source dependencies to avoid self-referencing loops.
-
-**If zero skills remain after filtering:** HALT with: "**Cannot proceed in compose-mode.** No individual skills found in `{skills_output_folder}` (after filtering stack skills). Run [CS] Create Skill or [QS] Quick Skill to generate individual skills first, then re-run [SS]." Then emit the result envelope on stderr per the Result Contract in SKILL.md, and STOP:
-
-```
-SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"compose","exit_code":3,"halt_reason":"resolution-failure"}
-```
-
-**Deterministic metadata hashing (S13) — script-driven:** Do NOT compute `sha256` in-prompt (a model cannot reproduce a digest, so a hand-computed hash would false-diverge against step 4's script-computed hash). Invoke the same enumeration helper step 4 §0 uses to obtain every constituent's `metadata_hash` in one deterministic call:
-
-**Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins. HALT if no candidate exists.
+Discover the skills SKF generated in `{skills_output_folder}`. **Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins. HALT if no candidate exists. Run it once, first:
 
 ```bash
 uv run {enumerateStackSkillsHelper} enumerate {skills_output_folder}
 ```
 
-Key the emitted `skills[].metadata_hash` (a `sha256:`-prefixed digest of the raw `metadata.json`, or `null` when no metadata.json is present) by `skills[].name` for use in rule 5 below. The script's `name` is the top-level subdirectory under `{skills_output_folder}` — i.e. the `skill_dir` captured in rule 3, not the metadata `name` — so join on `skill_dir`.
+Bind `{stack_roster}` ← `skills`, `{not_skf_output}` ← `not_skf_output` and `{roster_warnings}` ← `warnings`. The helper keeps only packages whose `metadata.json` carries an SKF marker (`generated_by`, `tool_versions.skf`, or `skill_type` `single`, `individual` or `stack` with `forge_tier` or `confidence_tier` — see `knowledge/version-paths.md` Ownership): the version `active` names, else the highest marked version, else a marked flat root. Each entry's `name` is the top-level folder (`skill_dir`) and `path` its package relative to `{skills_output_folder}`. When `{not_skf_output}` is non-empty, display it once: "Skipped (not SKF output): {not_skf_output}".
 
-For each skill found:
-1. Read `metadata.json` from the resolved version-aware path (`{skill_package}` or `{active_skill}`). **Skill-type gate (S1):** the sibling `metadata.json` MUST be present AND parseable AND contain a `skill_type` field whose value is one of the known set (`skill`, `stack`, or any future values explicitly recognised by this workflow). Directories lacking a qualifying `metadata.json`/`skill_type` are NOT treated as skills — log `"{dir_name}: not a skill (no valid metadata.json/skill_type) — excluding"` and skip.
-2. Extract: name, language, confidence_tier, source_repo, exports count, version
-3. Store the skill group directory name as `skill_dir` (the top-level name under `{skills_output_folder}`, distinct from `name` — the directory may differ from the metadata name)
-4. Store the resolved package path as `skill_package_path` for use in later steps
-5. **Record the constituent metadata_hash (S13):** take this skill's `metadata_hash` from the enumerate-script inventory above (matched on `skill_dir`) and store it in workflow state alongside `skill_package_path`. The script is the single source of this hash — never hand-compute — so the step-4 drift check compares script-hash to script-hash and never false-positives on a model recomputation. Step-07 uses this stored hash (not a re-read) for `constituents[].metadata_hash` in `provenance-map.json`, so drift between step 2 read and step 7 write is captured.
-6. Store as `raw_dependencies` with source: "existing_skill"
+**Candidates:** when `explicit_deps` was provided in step 01, each name in it is a candidate (its `skill_dir`) and rules 1 and 2 are skipped. Otherwise:
+
+1. **Primary: Export manifest** — each key in `{skills_output_folder}/.export-manifest.json` `exports` is a candidate. This decides only which skills are candidates; the package each one is read from comes from `{stack_roster}` (see "For each kept skill" below).
+
+   **Manifest JSON parse guard (B3):** Wrap the `.export-manifest.json` parse in try/except. If JSON parsing fails for any reason, log a warning and use rule 2 instead.
+
+2. **Fallback: `active` symlinks** — when the manifest does not exist, is empty or fails to parse, each top-level folder matching `{skills_output_folder}/*/active/*/SKILL.md` is a candidate.
+
+**Skill gate (S1):** keep a candidate only when `{stack_roster}` has an entry whose `name` is its `skill_dir` and that package's `metadata.json` has `skill_type` `single` or `individual`, or no `skill_type` (an early Quick Skill package). Exclude every other candidate with one log line:
+
+- in `{not_skf_output}`: `"{skill_dir}: not SKF output — excluding"`;
+- named in a `{roster_warnings}` entry (each starts with `<skill_dir>: `): that warning;
+- no folder at `{skills_output_folder}/{skill_dir}`: a name from `explicit_deps` is excluded with `"{skill_dir}: no such skill folder — excluding"`; for a manifest key (**stale manifest, H6**: its skill is gone), HALT with a manifest-corruption diagnostic naming it and pointing the user at `[SKF-update-skill]` to repair, emit the result envelope on stderr per the Result Contract in SKILL.md, then STOP:
+
+  ```
+  SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"compose","exit_code":3,"halt_reason":"resolution-failure"}
+  ```
+
+- another `skill_type` value: `"{skill_dir}: not a skill (skill_type {value}) — excluding"`;
+- otherwise: `"{skill_dir}: no SKF skill package — excluding"`.
+
+**Filter & cycle guard (B4):** Skip a kept skill whose name is `{project_name}-stack` or whose `metadata.json` has `"skill_type": "stack"`. Maintain a **visited set keyed by `skill_dir`** (the top-level dir under `{skills_output_folder}`) while resolving. If a skill would be revisited via a circular reference (e.g., a constituent that claims another stack as dependency), skip the duplicate and log a warning `"cycle detected at {skill_dir} — skipping"`. Stack skills must not be loaded as source dependencies to avoid self-referencing loops.
+
+**If zero skills remain after the gate and the filter:** HALT with: "**Cannot proceed in compose-mode.** No individual skills found in `{skills_output_folder}` (after filtering stack skills). Run [CS] Create Skill or [QS] Quick Skill to generate individual skills first, then re-run [SS]." Then emit the result envelope on stderr per the Result Contract in SKILL.md, and STOP:
+
+```
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":[],"mode":"compose","exit_code":3,"halt_reason":"resolution-failure"}
+```
+
+For each kept skill:
+1. Store the top-level folder name as `skill_dir` (distinct from the metadata `name`).
+2. `skill_package_path` ← `{skills_output_folder}/{path}` from its `{stack_roster}` entry — the package whose exports and `metadata_hash` the helper reported, so path and hash come from one resolution (the helper follows `active`, as the manifest-lag guard in `knowledge/version-paths.md` does).
+3. Read `metadata.json` from `skill_package_path` and extract: name, language, confidence_tier, source_repo, exports count, version.
+4. **Record the constituent metadata_hash (S13):** take its `metadata_hash` (a `sha256:`-prefixed digest of the raw `metadata.json`) from the same `{stack_roster}` entry and store it in workflow state alongside `skill_package_path`. The script is the single source of this hash — never hand-compute — so the step-4 drift check compares script-hash to script-hash. Step-07 uses this stored hash for `constituents[].metadata_hash` in `provenance-map.json`, so drift between step 2 read and step 7 write is captured.
+5. Store as `raw_dependencies` with source: "existing_skill" (`"explicit"` for a name from `explicit_deps`)
 
 Report the `{N}` loaded skills — for each: name, language, confidence tier, export count, and source.
 

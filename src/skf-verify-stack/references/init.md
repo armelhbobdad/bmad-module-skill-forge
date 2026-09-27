@@ -11,8 +11,9 @@ outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.m
 # Resolve `{enumerateStackSkillsHelper}` by probing
 # `{enumerateStackSkillsProbeOrder}` in order (installed SKF module path
 # first, src/ dev-checkout fallback); first existing path wins. §2 calls
-# it for the deterministic skills inventory (cascade-resolved exports,
-# metadata-hash for change-detection, confidence-tier mapping). If neither
+# it for the deterministic inventory of the skills SKF generated
+# (cascade-resolved exports, metadata-hash for change-detection, the
+# exports-source confidence, and `not_skf_output` for the rest). If neither
 # candidate exists, §2 does NOT halt — it falls through to the LLM-driven
 # subagent fan-out as graceful degradation (see §2).
 enumerateStackSkillsProbeOrder:
@@ -83,26 +84,24 @@ Wait for user input. **GATE [default: use args]** — If `{headless_mode}` and `
 **Primary path — deterministic enumeration via shared helper:**
 
 ```bash
-python3 {enumerateStackSkillsHelper} enumerate {skills_output_folder} --reliability
+uv run {enumerateStackSkillsHelper} enumerate {skills_output_folder} --reliability
 ```
 
-The helper walks `{skills_output_folder}`, reads each `metadata.json`, applies the exports cascade (metadata → references/ → SKILL.md prose), maps `confidence_tier` (T1/T2/T1-low), captures stack-skill cycles via `composes:`, and emits structured JSON with one entry per skill plus a top-level `warnings[]` array. Cache the result as `skill_inventory` (used by §3, §4, §5, and the integrations + coverage stages).
+The helper reads only the skills SKF generated. For each top-level folder (links, dot-names, `_batch` and `.skf-` names aside) it takes the version the `active` link names when that version's `{name}/metadata.json` carries an SKF marker, else the highest version whose `metadata.json` does, else a flat root `SKILL.md` beside a marked `metadata.json`; it never reads the export manifest. It resolves that package's exports from `metadata.json` `exports`, else a `references/*.md` `## API` or `## Exports` section, else a SKILL.md `## Exports` or `## API Surface` section, and follows `composes:` to find cycles. Each `skills[]` entry has `name` (the folder name), `path` (the package, relative to `{skills_output_folder}`: `x/active/x`, `x/<version>/x` or `x`), `exports`, `exports_source` (`metadata`, `references`, `skill-md` or `unknown`), `confidence` (`T1`, `T2` or `T1-low`, from the exports source — not metadata's `confidence_tier`) and `metadata_hash`. `warnings[]` names per-skill problems, each starting `<name>: `: a `metadata.json` or version folder that cannot be read (including one that keeps SKF from telling whether it generated the folder), an SKF package with no `SKILL.md`, no exports found, and `composes` cycles; a folder with no skill in it is skipped silently. Cache the result as `skill_inventory` (used by §3, §4, §5, and the integrations + coverage stages), and bind `{not_skf_output}` ← `not_skf_output`, `{inventory_reliable}` ← `inventory_reliable`, `{warning_count}` ← `warning_count`, `{skill_count}` ← `skill_count` and `{inventory_warnings}` ← `warnings`. When `{not_skf_output}` is non-empty, display it once: "Skipped (not SKF output): {not_skf_output}". Those folders, such as a module's own skills in a shared skills folder, are not in `skills[]` and count toward neither `{skill_count}` nor `{warning_count}`.
 
-Each helper-emitted entry includes: `skill_name`, `version`, `language`, `confidence_tier`, `exports` (cascade-resolved), `source_repo`, `source_root`, plus a `metadata_hash` for change-detection across runs. The helper's `warnings[]` carries per-skill skip reasons (missing manifest, malformed JSON, non-symlink `active`, orphan-versions, schema-version violations).
+`--reliability` adds `inventory_reliable` (bool), `unreliable_ratio` (float), `skill_count` and `warning_count`, over the skills SKF generated and their warnings.
 
-`--reliability` additionally attaches the inventory reliability verdict: `inventory_reliable` (bool), `unreliable_ratio` (float), `skill_count`, and `warning_count`.
+**Failure-budget guard:** If `{inventory_reliable}` is false, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) with: "Inventory scan unreliable — {warning_count} warning(s) across {skill_count} skill(s) SKF generated: {inventory_warnings}. Fix the skills named there (re-save an unreadable `metadata.json` as plain UTF-8 JSON or restore it from version control, and regenerate a skill whose exports are missing), then re-run [VS]." In headless, emit the error envelope. The helper's threshold is chosen so a single malformed skill in a small 3-5 skill inventory does not trip the halt.
 
-**Failure-budget guard:** Read `inventory_reliable` from the helper JSON. If it is `false`, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) with: "Inventory scan unreliable — {warning_count}/{skill_count + warning_count} skills returned malformed metadata or skip warnings. Re-run [VS] after skills stabilize." (substitute `warning_count` and `skill_count + warning_count` from the helper JSON). In headless, emit the error envelope. The helper's threshold is chosen so a single malformed skill in a small 3-5 skill inventory does not trip the halt.
+**Capture mtime:** For each skill in `skill_inventory`, record the modification time of `{skills_output_folder}/{path}/metadata.json` into the entry as `metadata_mtime`. Step-03 will re-verify this to detect mid-run modifications.
 
-**Capture mtime:** For each accepted skill in `skill_inventory`, also record `metadata.json`'s mtime via `stat` into the entry as `metadata_mtime`. Step-03 will re-verify this to detect mid-run modifications.
-
-**Fallback path — graceful degradation when the helper is unavailable:** If `{enumerateStackSkillsHelper}` has no existing candidate (e.g. partial installation), fall through to the LLM-driven subagent fan-out: launch up to **8 subagents concurrently**, each reading one resolved skill package's `metadata.json` and returning the same JSON shape the helper would emit. In this branch `inventory_reliable` is unavailable, so compute the failure-budget guard inline: when `warning_count / (skill_count + warning_count) > 0.20`, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) with the same message as the primary path. In headless, emit the error envelope.
+**Fallback path — graceful degradation when the helper is unavailable:** If `{enumerateStackSkillsHelper}` has no existing candidate (e.g. partial installation), fall through to the LLM-driven subagent fan-out: launch up to **8 subagents concurrently**, each resolving one top-level folder of `{skills_output_folder}` in the helper's order and returning the helper's entry fields. Only a package whose `metadata.json` carries an SKF marker is a skill: `generated_by` is `quick-skill`, `create-skill` or `create-stack-skill`, `tool_versions` has an `skf` key, or `skill_type` is `single`, `individual` or `stack` together with `forge_tier` or `confidence_tier`. A folder whose packages have no such `metadata.json` goes into `{not_skf_output}` without counting a warning; a `metadata.json` that cannot be read counts as one warning, and so does a marked package with no `SKILL.md` or no exports found. Cache the entries as `skill_inventory`, and bind `{skill_count}` to the number of skills found, `{warning_count}` to the number of warnings counted and `{inventory_warnings}` to those warnings, each starting `<name>: `. Display the skipped line as above. In this branch `inventory_reliable` is unavailable, so compute the failure-budget guard inline: when `{warning_count} / ({skill_count} + {warning_count}) > 0.20`, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) with the same message as the primary path. In headless, emit the error envelope.
 
 ### 3. Validate Minimum Requirements
 
 **Check skill count:**
-- At least 2 valid skills must exist (a stack requires multiple libraries)
-- If fewer than 2 → "**Cannot proceed.** Only {count} skill(s) found in `{skills_output_folder}`. A stack requires at least 2 skills. Generate more skills with [CS] Create Skill or [QS] Quick Skill, then re-run [VS]."
+- At least 2 skills SKF generated must exist (`{skill_count}`; a stack requires multiple libraries)
+- If fewer than 2 → "**Cannot proceed.** Only {skill_count} skill(s) SKF generated were found in `{skills_output_folder}`. A stack requires at least 2 skills. Generate more skills with [CS] Create Skill or [QS] Quick Skill, then re-run [VS]." When `{not_skf_output}` is non-empty, append: "Skipped (not SKF output): {not_skf_output}."
 - HALT (exit code 5, `halt_reason: "insufficient-skills"`). In headless, emit the error envelope.
 
 **Check forge_data_folder:**
@@ -137,7 +136,7 @@ This skill produces the feasibility report schema defined in `{feasibilitySchema
 
 **Populate producer-local bookkeeping keys (not part of the consumer contract):**
 - `architectureDoc`, `prdDoc` (or "none"), `previousReport` (or empty string)
-- `skillsAnalyzed: {count}`
+- `skillsAnalyzed: {skill_count}`
 - `stepsCompleted: ['init']`
 
 **Atomic write:** Pipe the staged content through `python3 {atomicWriteHelper} write --target {outputFile}` and then again with `--target {outputFileLatest}`. Both writes use the same staged content through the atomic helper — a plain `rm`+rewrite risks a partial write corrupting the report, and the `-latest` file is a copy, not a symlink (per the shared schema).
@@ -150,16 +149,16 @@ On any non-zero exit from either write: HALT (exit code 4, `halt_reason: "write-
 
 | Field | Value |
 |-------|-------|
-| **Skills Loaded** | {count} |
+| **Skills Loaded** | {skill_count} |
 | **Architecture Doc** | {architecture_doc} |
 | **PRD Document** | {prd_doc or 'Not provided — requirements pass will be skipped'} |
 | **Previous Report** | {previousReport or 'Not provided — no delta comparison'} |
 
 **Skill Inventory:**
 
-| Skill | Language | Tier | Exports |
-|-------|----------|------|---------|
-| {skill_name} | {language} | {confidence_tier} | {exports_documented} |
+| Skill | Exports | Exports source | Confidence |
+|-------|---------|----------------|------------|
+| {name} | {number of exports} | {exports_source} | {confidence} |
 
 **Proceeding to coverage analysis...**"
 

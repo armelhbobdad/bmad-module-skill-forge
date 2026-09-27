@@ -99,6 +99,7 @@ batch_active: true
 brief_list: [{full list of brief paths}]
 current_index: {index of next brief to process, 0-based}
 completed: [{list of completed skill names}]
+refused: [{skill, brief, halt_reason} for each brief the generate-artifacts §1 ownership check refused — carry earlier entries over unchanged]
 last_updated: {ISO timestamp}
 ```
 
@@ -108,7 +109,7 @@ Then load and execute `references/load-brief.md` for the next brief. Step-01 det
 
 **If all batch briefs complete:**
 
-Set `batch_active: false` in `{sidecar_path}/batch-state.yaml` to prevent stale state. Display: "Batch complete. {completed_count} skills compiled."
+Set `batch_active: false` in `{sidecar_path}/batch-state.yaml` to prevent stale state. Display: "Batch complete. {completed_count} skills compiled." then, when `refused` is non-empty, " Refused before writing (not SKF output or flat layout): {the `skill` of each `refused` entry}."
 
 **If not batch mode:**
 
@@ -134,7 +135,7 @@ Log success or failure to `workflow_warnings[]` but never fail the workflow on a
 
 ### Result Contract on HARD HALT
 
-The success-variant contract above is only reached at step 8. The ~10 HARD HALT conditions in steps 1–7 (forge-config missing, no brief, brief invalid, source not found, prerequisite failure in load-brief; atomic/detect/auth helper unresolved and the Tier-1 split-count drop in extract/validate; the non-symlink active-link refusal in generate-artifacts) otherwise print a human string and exit with **no machine-readable outcome** — a pipeline polling `create-skill-result-latest.json` cannot distinguish "halted at brief-invalid" from "still running" from "crashed". Mirror skf-quick-skill: **whenever `{headless_mode}` is true, every HARD HALT must surface an error-variant result before exiting.**
+The success-variant contract above is only reached at step 8. The ~10 HARD HALT conditions in steps 1–7 (forge-config missing, no brief, brief invalid, source not found, prerequisite failure in load-brief; atomic/detect/auth helper unresolved and the Tier-1 split-count drop in extract/validate; the non-symlink active-link refusal in generate-artifacts; the ownership refusal in generate-artifacts §1 (`not-skf-output`, `flat-layout`)) otherwise print a human string and exit with **no machine-readable outcome** — a pipeline polling `create-skill-result-latest.json` cannot distinguish "halted at brief-invalid" from "still running" from "crashed". Mirror skf-quick-skill: **whenever `{headless_mode}` is true, every HARD HALT must surface an error-variant result before exiting.**
 
 **For every HARD HALT under `{headless_mode}` (regardless of phase)** — emit a single line on **stderr** (one line, no pretty-print; matches the prefix-and-envelope convention used by `skf-emit-result-envelope.py`):
 
@@ -142,9 +143,9 @@ The success-variant contract above is only reached at step 8. The ~10 HARD HALT 
 SKF_CREATE_SKILL_RESULT_JSON: {"status":"failed","phase":"<step-slug>","outputs":{},"summary":{"halt_reason":"<short class>","evidence_report":"<path-or-null>"},"skill_package":"<path-or-null>"}
 ```
 
-Use `status: "partial"` instead of `"failed"` when artifacts were already staged or promoted before the HALT (i.e. the HALT fired at step 7 generate-artifacts after some files were written); use `"failed"` for HALTs before any artifact exists on disk (steps 1–6).
+Use `status: "partial"` instead of `"failed"` when artifacts were already staged or promoted before the HALT (i.e. the HALT fired at step 7 generate-artifacts after some files were written); use `"failed"` for HALTs before any artifact exists on disk (steps 1–6, and the step 7 §1 ownership refusal, which fires before any directory is created).
 
-**Additionally, when `{forge_version}` is resolved** (HALT at step 7 onward, where the staging tree has been promoted) — write the same JSON object (without the `SKF_CREATE_SKILL_RESULT_JSON: ` prefix) to disk at `{forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` and a copy at `{forge_version}/create-skill-result-latest.json` (copy, not symlink) via `python3 {atomicWriteHelper} write`, so consumers that hardcode the `-latest.json` path see a deterministic file even on failed runs. Set `summary.evidence_report` to `{forge_version}/evidence-report.md` whenever that file exists, so the consumer can still reach the `## Auto-Decisions` audit on a failed run. HALTs before step 7 cannot write to disk because `{forge_version}` is only created at step 7 §1; for those, the stderr envelope is the contract and `summary.evidence_report` is `null`.
+**Additionally, when `{forge_version}` is resolved** (HALT at step 7 onward, where the staging tree has been promoted, except the §1 ownership refusal, which fires before `{forge_version}` is created and writes no result file) — write the same JSON object (without the `SKF_CREATE_SKILL_RESULT_JSON: ` prefix) to disk at `{forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` and a copy at `{forge_version}/create-skill-result-latest.json` (copy, not symlink) via `uv run {atomicWriteHelper} write`, so consumers that hardcode the `-latest.json` path see a deterministic file even on failed runs. Set `summary.evidence_report` to `{forge_version}/evidence-report.md` whenever that file exists, so the consumer can still reach the `## Auto-Decisions` audit on a failed run. HALTs before step 7 cannot write to disk because `{forge_version}` is only created at step 7 §1; for those, the stderr envelope is the contract and `summary.evidence_report` is `null`.
 
 When `{headless_mode}` is false, HARD HALTs display their human message only — no envelope is emitted.
 

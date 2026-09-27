@@ -71,6 +71,7 @@ Changes:
 {if drop_mode == "purge":}
 - Files deleted:         {list from files_deleted, or "(none — nothing on disk)"}
 - Disk space freed:      {disk_freed}
+{if forge_left_in_place:}- Left in place (not SKF output): {forge_left_in_place}
 
 Remaining versions for {target_skill}:
 {remaining_versions_display}
@@ -89,7 +90,7 @@ These require manual review — see the error-handling guidance in step 2.
 
 ### Result Contract
 
-Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/drop-skill-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{skills_output_folder}/drop-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all purged file paths in `outputs`; include `target_skill`, `drop_mode`, `versions_affected`, and a `headless_provenance` object in `summary`.
+Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/drop-skill-result-{YYYYMMDD-HHmmss}.json` (UTC timestamp, resolution to seconds) and a copy at `{skills_output_folder}/drop-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all purged file paths in `outputs`; include `target_skill`, `drop_mode`, `versions_affected`, `forge_left_in_place` (null when none) and a `headless_provenance` object in `summary`.
 
 `headless_provenance` persists the §8/§10 decision trail from step 1 so an unattended run's auto-decisions survive in the durable record, not only in the transient log — a consumer can tell an operator-confirmed drop from a headless auto-confirmed one without re-deriving it:
 

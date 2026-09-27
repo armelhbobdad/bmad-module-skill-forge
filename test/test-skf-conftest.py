@@ -39,6 +39,7 @@ HOOK_PATH = REPO_ROOT / ".husky" / "pre-commit"
 HELPER_COPIES = {
     "src/shared/scripts/skf-check-workspace-drift.py",
     "src/shared/scripts/skf-merge-ccc-exclusions.py",
+    "src/shared/scripts/skf-ccc-git-hygiene.py",
 }
 
 

@@ -15,6 +15,11 @@ healthCheckProbeOrder:
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# Resolve `{skillInventoryHelper}` to the first existing path. §4b.0 reads the
+# inventory to count the folders that hold a skill.
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Test report prose in {document_output_language}. -->
@@ -68,12 +73,18 @@ After gap enumeration, perform minimum-viable discovery testing. This is a **Med
 
 **4b.0 Precondition — catalog size check:**
 
-Count the skills in `{skillsOutputFolder}`: `ls -1d {skillsOutputFolder}/*/ 2>/dev/null | wc -l` (directories only — each skill package lives at `{skillsOutputFolder}/<skill-name>/`).
+Count the folders that hold a skill, not every folder: SKF's own `_batch/` holds none, and a versioned skill keeps its `SKILL.md` under `active/`. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run:
+
+```bash
+uv run {skillInventoryHelper} {skillsOutputFolder}
+```
+
+Bind `{not_skf_output}` ← `not_skf_output` and `{discovery_catalog}` ← every `skills[]` entry whose `has_skill_md` is true and whose `skf_skill` is true or whose `name` is in `{not_skf_output}`, each as its `name` plus `{active_path}/SKILL.md`. Skills SKF did not generate stay in the catalog: they compete for the same prompts. `catalog_size` ← the number of `{discovery_catalog}` entries. Without the helper (no candidate resolves, or the status is not `ok`), build the same set with your file tools, never a shell pipeline: each folder directly in `{skillsOutputFolder}` whose name does not start with `.`, is not `_batch` and holds no `.skf-`, and that holds `SKILL.md` directly or at `active/<folder>/SKILL.md`.
 
 - If `catalog_size < 2`: **skip §4b.1–§4b.3**. Record an Info-severity note in the Discovery Quality subsection: `discovery — skipped: catalog size N={catalog_size}, requires ≥2 candidates for meaningful routing`. The routing test is vacuous with one candidate (any prompt returns the sole skill); reporting `3/3 PASS` under those conditions inflates the Discovery score and masks genuinely bad description triggers. Proceed to §4b.4 (description optimization) if tessl/skill-check flagged description issues; otherwise skip to §4c.
 - If `catalog_size >= 2`: continue with §4b.1 as written.
 
-Optional escape hatch: the workflow accepts `--discovery-catalog=all` to broaden the candidate pool to `{project-root}/.claude/skills/` or `{project-root}/_bmad/agents/` for single-skill repos where the repo-local catalog is trivially too small. When the flag is set, rebuild `catalog_size` from the broader pool before the precondition check.
+Optional escape hatch: the workflow accepts `--discovery-catalog=all` to broaden the candidate pool to `{project-root}/.claude/skills/` or `{project-root}/_bmad/agents/` for single-skill repos where the repo-local catalog is trivially too small. When the flag is set, add each folder directly in `{project-root}/.claude/skills/` or `{project-root}/_bmad/agents/` that holds a `SKILL.md` directly to `{discovery_catalog}` (a name already in it counts once), then recount `catalog_size` before the precondition check.
 
 **4b.1 Extract realistic prompts from the skill under test:**
 
@@ -89,7 +100,7 @@ If SKILL.md does not contain enough organic examples, synthesize 3 from the skil
 **Subagents-unavailable guard (precedes the spawn).** If subagents cannot be spawned in this environment (e.g. a headless/CI pipeline with no subagent capability), do not fall back to answering the routing in the main thread — the main thread knows which skill is under test, so it would self-route to `3/3 PASS` and inflate the Discovery score, the exact false confidence §4b.0 warns against. Instead record an Info-severity note in the Discovery Quality subsection: `discovery — skipped: subagents unavailable, routing test requires isolated context`, exclude the discovery check from Discovery Quality scoring (do not count it PASS or FAIL), and skip to §4c.
 
 For each of the 3 prompts, spawn an isolated subagent with NO prior context about which skill is under test. Provide only:
-1. A compact list of ALL skills available in `{skillsOutputFolder}` (name + description line from each skill's SKILL.md frontmatter)
+1. A compact list of every skill in `{discovery_catalog}` (the same set §4b.0 counted): name + description line from that entry's SKILL.md frontmatter
 2. The prompt text
 
 Instruction to the subagent:

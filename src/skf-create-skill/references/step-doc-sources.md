@@ -128,7 +128,7 @@ For a docs-only skill the `hash-urls` output from §2a is already in this shape 
 
 ### 5. Update metadata.json
 
-Read the staging `_bmad-output/{skill-name}/metadata.json` that compile (step 5) wrote.
+Read the staging `_bmad-output/.skf-stage/{skill-name}/metadata.json` that compile (step 5) wrote.
 
 **If the staging metadata.json is unreadable:** HALT — this indicates compile failed (critical, not doc-detection-related).
 

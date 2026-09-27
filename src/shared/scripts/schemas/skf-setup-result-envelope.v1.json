@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-setup-result-envelope.v1.json",
   "title": "SKF_SETUP_RESULT_JSON envelope (v1)",
-  "description": "Single-line JSON document emitted by skf-setup step 4 §4 when {headless_mode} or {quiet_mode} is true, prefixed with the literal 'SKF_SETUP_RESULT_JSON: '. Pipelines grep one line out of the workflow log without parsing ASCII-art and without racing the forge-tier.yaml writer. Schema added in PR #247, extended in PR #248 (header / outputs / failure modes), extended again in this PR with previous_tier / tier_changed / tools_added / tools_removed / error.",
+  "description": "Single-line JSON document skf-setup displays when {headless_mode} or {quiet_mode} is true, prefixed with the literal 'SKF_SETUP_RESULT_JSON: '. Step 4 builds it at the end of a run (status success or tier_failure); a halt that names a phase builds a blocked one with the helper's emit-blocked subcommand. Pipelines grep one line out of the workflow log without parsing ASCII-art and without racing the forge-tier.yaml writer.",
   "type": "object",
   "additionalProperties": false,
   "required": ["skf_setup"],
@@ -30,13 +30,13 @@
       "properties": {
         "status": {
           "type": "string",
-          "enum": ["success", "tier_failure", "write_failure", "blocked"],
-          "description": "Single-field outcome for pipeline branching. 'success' when no error and tier requirement (if any) is satisfied. 'tier_failure' when require_tier was set and is not satisfied. 'write_failure' when forge-tier.yaml or preferences.yaml could not be written. 'blocked' for any other halt that still produced an envelope (e.g. foreign ccc binary rejected pre-index)."
+          "enum": ["success", "tier_failure", "blocked"],
+          "description": "Single-field outcome for pipeline branching. 'success' when the run finished with no error and any required tier is satisfied. 'tier_failure' when --require-tier was set and is not satisfied. 'blocked' for any halt that still produced an envelope; error.phase names it, for example 'step 2:write-tools', 'step 2:init-prefs' or 'step 2:forge-data-dir' when forge-tier.yaml, preferences.yaml or the forge data folder could not be written."
         },
         "tier": {
           "type": "string",
           "enum": ["Quick", "Forge", "Forge+", "Deep"],
-          "description": "Active capability tier this run."
+          "description": "Active capability tier this run. A blocked envelope carries 'Quick' as a placeholder."
         },
         "previous_tier": {
           "type": ["string", "null"],
@@ -73,7 +73,7 @@
         "config_path": {
           "type": "string",
           "minLength": 1,
-          "description": "Absolute path to the forge-tier.yaml that this run wrote (or attempted to write — see error)."
+          "description": "Absolute path to the forge-tier.yaml this run wrote. A blocked envelope carries error.path here, or '<unknown — halt before config_path resolved>' when the halt has no path."
         },
         "ccc_index": {
           "type": "object",
@@ -95,7 +95,7 @@
             "enum": ["forge-tier.yaml", "preferences.yaml", "settings.yml", "ccc_index"]
           },
           "uniqueItems": true,
-          "description": "Files actually written this run. Empty array when a write failure halted the run before any file was written."
+          "description": "Files written this run, as step 4 reports them. A blocked envelope always carries an empty array, even when an earlier step had already written a file."
         },
         "tier_override_active": {
           "type": "boolean",
@@ -125,14 +125,18 @@
                 "phase": {
                   "type": "string",
                   "minLength": 1,
-                  "description": "Step or operation that failed (e.g. 'write-config:forge-tier.yaml')."
+                  "description": "The halt that produced the envelope, as <step>:<cause> (e.g. 'step 2:write-tools', 'on-activation:uv-missing')."
                 },
-                "path": { "type": "string", "minLength": 1, "description": "Absolute path of the file the failed operation targeted." },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Absolute path of the file or folder the halt concerns, or '<n/a>' when it has none."
+                },
                 "reason": { "type": "string", "minLength": 1, "description": "Human-readable error message." }
               }
             }
           ],
-          "description": "Null on success. Object describing the failure when forge-tier.yaml or preferences.yaml could not be written. Pipelines branch on error !== null for 'exit code 2' semantics."
+          "description": "Null unless a halt produced the envelope; then the halt's phase, path and diagnostic. status is 'blocked' exactly when error is non-null, and the other fields of a blocked envelope are placeholders."
         }
       }
     }

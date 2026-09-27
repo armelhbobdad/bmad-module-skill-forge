@@ -1,6 +1,13 @@
 ---
 nextStepFile: 'report.md'
 forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
+# Resolve `{skillInventoryHelper}` by probing `{skillInventoryProbeOrder}` in
+# order (installed SKF module path first, src/ dev-checkout fallback); first
+# existing path wins. §1 runs its write check before any directory is
+# created; without it, §1 writes only into a skill folder that does not exist yet.
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 # Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
 # path wins. HALT if neither resolves — the active-symlink flip and registry
@@ -8,6 +15,13 @@ forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# Resolve `{cccGitHygieneHelper}` to the first existing path. It keeps ccc's
+# index folders and SKF's workspace lock out of git, and undoes the
+# `.gitignore` edit `ccc init` makes in a workspace clone. If neither path
+# exists, skip the call and continue: it never gates the workflow.
+cccGitHygieneProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-ccc-git-hygiene.py'
+  - '{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py'
 # Resolve `{forgeTierRwHelper}` by probing `{forgeTierRwProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
 # path wins. HALT if neither resolves — §6b's ccc-index registry round-trip is
@@ -33,9 +47,28 @@ To write all compiled content to disk — 4 deliverable files to `{skill_package
 
 ## MANDATORY SEQUENCE
 
-### 1. Create Directory Structure
+### 1. Check Ownership, Then Create Directory Structure
 
-Resolve `{version}` from the skill brief's `version` field. Create the following directories:
+`{name}` is the skill name from the brief (kebab-case). `{version}` is the working version: the brief's `version`, unless step 3's source resolution replaced it with `target_version` or the detected source version (`source-resolution-protocols.md` "Version Reconciliation"), with build metadata stripped per `knowledge/version-paths.md`.
+
+**Ownership check.** Run it before creating any directory, `{forge_version}` included. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run:
+
+```bash
+uv run {skillInventoryHelper} {skills_output_folder} --skill {name} --write-check --write-version {version} --forge-data-folder {forge_data_folder}
+```
+
+`--forge-data-folder` only tells the helper whether both settings name one folder, so the brief and forge files there count as SKF output.
+
+Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_check.folder` and `{write_detail}` ← `write_check.detail`. Continue only when the status is `ok` and `{write_verdict}` is `"ok"`: nothing is at the skill folder yet, it holds only what an interrupted run leaves, or SKF generated it and the version is new or SKF's own. Otherwise create nothing and refuse with the first case that applies:
+
+- `{write_verdict}` is `"flat-layout"` → `halt_reason: "flat-layout"`: "**`{name}` still uses the flat layout — nothing was written.** A version written beside its root `SKILL.md` would leave a skill SKF can no longer migrate or rename. Run `@Ferris TS {name}` (or US, AS or EX) once to move it into the versioned layout, then re-run."
+- `{write_verdict}` is `"not-skf-output"` → `halt_reason: "not-skf-output"`: "**`{name}` is not SKF output — nothing was written.** `{write_folder}` {write_detail}, so SKF will not write a version there. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{name}` yourself, and set a different `name` in the brief to create this skill beside it. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`. A version folder with no `metadata.json` can also be one that an interrupted create-skill run left behind; delete it yourself in that case."
+- The status is not `ok`, or the output has no `write_check` (an older helper: it has no `--write-check` and reports a new skill as `SKILL_NOT_FOUND`) → `halt_reason: "not-skf-output"`: the same message with "SKF could not check it ({the helper's `error`, if any}; re-install SKF if the installed `skf-skill-inventory.py` is out of date)" in place of "`{write_folder}` {write_detail}".
+- When no helper candidate resolves, continue only when nothing exists at `{skill_group}` (no folder, no file, not even a broken link). Otherwise refuse with `halt_reason: "not-skf-output"` and the same message, giving "SKF cannot check who generated `{skill_group}`: `skf-skill-inventory.py` is missing; re-install SKF" in place of "`{write_folder}` {write_detail}".
+
+Each refusal is a HARD HALT. Nothing was written, so under `{headless_mode}` emit the stderr envelope per `references/report.md` "Result Contract on HARD HALT" with `status: "failed"`, `phase: "generate-artifacts"`, `summary.halt_reason` as shown, `summary.evidence_report: null` and `skill_package: null`, and write no result file: `{forge_version}` does not exist yet. In `--batch` mode, before halting, update `{sidecar_path}/batch-state.yaml` as `references/report.md` §5 describes, with `current_index` set to the next brief and `{skill: "{name}", brief: "<brief path>", halt_reason: "<reason>"}` appended to `refused`; when this was the last brief, set `batch_active: false` instead. The next `--batch` run then resumes with the next brief instead of refusing this one again.
+
+Then create the following directories:
 
 ```
 {skill_group}                          # {skills_output_folder}/{name}/
@@ -47,11 +80,11 @@ Resolve `{version}` from the skill brief's `version` field. Create the following
 If `scripts_inventory` is non-empty, also create: `{skill_package}/scripts/`
 If `assets_inventory` is non-empty, also create: `{skill_package}/assets/`
 
-Where `{name}` is the skill name from the brief (kebab-case) and `{version}` is the semver version from the brief (with build metadata stripped per `knowledge/version-paths.md`).
-
-If directories already exist, do not error — proceed with file writing (overwrites existing files).
+Existing directories are fine: the ownership check accepted them, so the files below overwrite same-named files in them.
 
 ### 2. Write Deliverables to {skill_package}
+
+Write File 3 (`metadata.json`) first, so a run interrupted mid-write leaves a package that carries the SKF marker, which the next run's ownership check accepts.
 
 Write these 4 files from the compiled content:
 
@@ -200,9 +233,9 @@ Ensure the source path used for extraction is indexed by ccc and registered in t
 
 Otherwise, `ccc index` requires the directory to be initialized first. Run `cd "{source_root}" && ccc init` (idempotent — a no-op once initialized) before `cd "{source_root}" && ccc index`, or use the ccc MCP tool. `ccc_bridge.ensure_index` is a conceptual interface, not a callable function. Indexing is a no-op if the source was already indexed during setup or step 2b.
 
-**Nested project marker:** when `{source_root}` is a subtree of a repo that already carries a project marker (e.g. a cloned source tree under `.forge-sources/`, or a `.cocoindex_code` / VCS marker in a parent), `ccc init` exits non-zero with `A parent directory has a project marker`. This is expected — re-run as `cd {source_root} && ccc init -f` to initialize at the subtree anyway, then `ccc index`. Do not treat the parent-marker warning as fatal.
+**Nested project marker:** when `{source_root}` is a folder inside a git checkout whose `.git` is a folder, or inside a folder that holds `.cocoindex_code/settings.yml` — a local source such as `./packages/lib`, or a linked worktree or submodule inside such a checkout, whose `.git` file ccc does not count as a marker — `ccc init` exits non-zero with `A parent directory has a project marker`. This is expected — re-run as `cd {source_root} && ccc init -f` to initialize at the subtree anyway, then `ccc index`. Do not treat the parent-marker warning as fatal. ccc writes no `.gitignore` entry for such a project; **Keep the index out of git** below covers it.
 
-**Verify the index is not degraded:** after `ccc index`, run `cd "{source_root}" && ccc status`. If it prints an `Indexing in progress:` line, a pass is still running and the counts below it are not final: run `cd "{source_root}" && ccc index` again, which waits for the running pass to finish and then makes a quick incremental pass, then run `ccc status` again. If the line is still there after 3 such runs, log "index unverified", skip the language check and the repairs below, and continue to the registry update. Once the line is gone, read the `Languages:` breakdown — a non-zero `Chunks`/`Files` total is not sufficient. Confirm the source's primary language (`{brief.language}`) reports a non-trivial chunk count. An index dominated by `markdown`/config chunks with the source language absent or near-zero means the source code was never indexed, which silently cripples later `skf-audit-skill` / `skf-update-skill` searches with no error surfaced. When the source language is absent, apply these repairs in order, stopping at the first one after which `Languages:` shows the source language:
+**Verify the index is not degraded:** after `ccc index`, run `cd "{source_root}" && ccc status`. If it prints an `Indexing in progress:` line, a pass is still running and the counts below it are not final: run `cd "{source_root}" && ccc index` again, which waits for the running pass to finish and then makes a quick incremental pass, then run `ccc status` again. If the line is still there after 3 such runs, log "index unverified", skip the language check and the repairs below, and continue with **Keep the index out of git**. Once the line is gone, read the `Languages:` breakdown — a non-zero `Chunks`/`Files` total is not sufficient. Confirm the source's primary language (`{brief.language}`) reports a non-trivial chunk count. An index dominated by `markdown`/config chunks with the source language absent or near-zero means the source code was never indexed, which silently cripples later `skf-audit-skill` / `skf-update-skill` searches with no error surfaced. When the source language is absent, apply these repairs in order, stopping at the first one after which `Languages:` shows the source language:
 
 1. **No project of its own:** `{source_root}/.cocoindex_code/settings.yml` is missing and the `Project:` line of `ccc status` names another folder, so ccc indexed an enclosing project. Run `cd "{source_root}" && ccc init -f`, then `ccc index`, then run `ccc status` and check `Languages:` again.
 2. **Language not included:** ccc indexes only the file types listed in `include_patterns`, and its default list leaves some languages out (Elixir's `.ex`, for example). Take the extensions of the `{brief.language}` files in the step 3 filtered file list that no `include_patterns` entry matches, at most 3. If there are none, the files are excluded rather than left out of `include_patterns`: skip this repair and log which `exclude_patterns` entry covers the `{brief.language}` source files. For the extensions found:
@@ -210,6 +243,13 @@ Otherwise, `ccc index` requires the directory to be initialized first. Run `cd "
    - Otherwise the settings belong to the user's project, so do not edit them. Display that ccc did not index `{brief.language}` files, and the exact lines to add under `include_patterns` in `{source_root}/.cocoindex_code/settings.yml` (one `- '**/*.{ext}'` line per extension), followed by a plain `ccc index`.
 
 A plain `ccc index` is enough after any `settings.yml` edit; nothing needs deleting first. Do not run `ccc reset`: it deletes only the index databases and keeps `settings.yml`, so it cannot repair the settings, a `ccc index` right after it can fail and leave the project with no index, and run from a folder without its own `settings.yml` it deletes the enclosing project's index. If the source language is still missing after these repairs, log it and continue per the error handling below — a degraded index is not workflow-fatal, but it must be recorded so the gap is visible.
+
+**Keep the index out of git:** once the ccc commands above are done — after the repairs, after "index unverified", or after a ccc command failed — return to `{project-root}` and resolve `{cccGitHygieneHelper}` from `{cccGitHygieneProbeOrder}`; first existing path wins. If no candidate exists, or the helper exits non-zero or prints no JSON, log "ccc git hygiene skipped" and continue to the registry update: this check never fails the workflow.
+
+- **Workspace clone** (`remote_clone_type` is `"workspace"`, so `{source_root}` is `{remote_clone_path}`): run `uv run {cccGitHygieneHelper} workspace --repo "{remote_clone_path}"`. It undoes the edit a `ccc init` or `ccc index` made to the clone's tracked `.gitignore` and keeps the index folder out of git through the clone's `.git/info/exclude`, so a later checkout of another ref is not blocked. Read nothing from its output.
+- **Local source** (`{remote_clone_path}` is not set): run `uv run {cccGitHygieneHelper} nested --dir "{source_root}" --project-root "{project-root}"`. ccc gitignores its index only at the top of a git checkout whose `.git` is a folder, so for a project in a subfolder of a checkout (the `ccc init -f` case above), a linked worktree or a submodule, `git status` lists the index database and a `git add -A` would commit it. When git does not ignore `{source_root}/.cocoindex_code/`, the helper writes a `.gitignore` holding `*` inside that folder so the folder ignores itself; SKF never edits a project's own `.gitignore`. It also repairs a nested index an earlier run left, and does nothing for `{project-root}` itself, for a folder without `.cocoindex_code/settings.yml`, or outside a git work tree. Bind `{ccc_ignore_notice}` ← `notice` and display `{ccc_ignore_notice}` verbatim when it is not null: its remedy command is quoted for paths with spaces.
+
+An ephemeral clone matches neither case: it is deleted after extraction.
 
 **Registry update:**
 

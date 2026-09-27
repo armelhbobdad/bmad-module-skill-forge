@@ -26,6 +26,7 @@ You are a rapid skill compiler collaborating with a developer. You bring source 
 These rules apply to every step in this workflow:
 
 - Never fabricate content — all data must come from source extraction or user input
+- Never write into a skill folder SKF did not generate — write-and-validate §1 runs the inventory's write check before creating any directory; without the helper it writes only into a skill folder that does not exist yet
 - Only load one step file at a time — never preload future steps
 - Always communicate in `{communication_language}`
 - **Universal cancel-line affordance** — at any interactive prompt the user may type `cancel`, `exit`, `:q`, or select the `[X] Cancel and exit` menu option (where surfaced) to leave cleanly. HARD HALT with **exit code 6 (user-cancelled)** and emit the error result contract per `references/halt-contract.md` with `error.code: "user-cancelled"`. In step 4 §6 the equivalent affordance is `[Q] Quit without writing` — same exit code, same envelope contract.
@@ -62,7 +63,7 @@ These rules apply to every step in this workflow:
 
 ## Exit Codes & HARD HALT Contract
 
-See `references/halt-contract.md` for the exit-code map and the error-result envelope every HARD HALT emits (the `SKF_QUICK_SKILL_RESULT_JSON:` stderr line, the on-disk `-latest.json` write once `{skill_package}` is known, and the schema). Steps load it on their failure path so the wire format survives compaction.
+See `references/halt-contract.md` for the exit-code map and the error-result envelope every HARD HALT emits (the `SKF_QUICK_SKILL_RESULT_JSON:` stderr line, the on-disk `-latest.json` write once `{skill_package}` holds `metadata.json` (never at the step 5 §1 ownership halt), and the schema). Steps load it on their failure path so the wire format survives compaction.
 
 ## On Activation
 

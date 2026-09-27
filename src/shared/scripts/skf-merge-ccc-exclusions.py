@@ -116,6 +116,27 @@ ever `{folder}/*` or a `!` negation: ccc applies a negation against every
 pattern, its own defaults included, and a `!{folder}/...` also cancels a
 bare `{folder}` pattern.
 
+A `!` entry of the user's cancels an SKF pattern the same way. ccc walks
+into an excluded folder when a `!` entry matches the folder, matches the
+one child name ccc probes it with (in practice a wildcard child: `!*/*`
+and `!**/skills/*` re-open `skills`, `!*/x` does not), or starts with
+`{folder}/`, and then indexes everything below it that no other pattern
+excludes. So once the patterns are merged, each folder with the bare
+value or per-entry patterns gets one warning naming the entries that
+re-open one of its patterns, when ccc, reading the exclude_patterns this
+run writes, walks down to a file of SKF output git lists below that
+pattern (or, with none there yet, into the child it probes). Result and
+report families are not checked. Inside a hidden folder ccc's own `**/.*`
+still excludes that output, so an entry there warns only when it
+re-opens every level down to it, and the bare value's warning says all
+SKF output is back only when every SKF entry there is reached. A folder
+inside an always-excluded one never switches to per-entry patterns, so
+its warning offers no folder of the user's own there. A backslash in an
+entry is read as ccc's glob library reads it on the machine the helper
+runs on: `/` on Windows, an escape elsewhere. The warning repeats on
+every run while the entry stays, including after a folder that held
+other content goes back to the bare value; SKF never removes the entry.
+
 Folder values are normalized first: surrounding whitespace is stripped,
 `\\` becomes `/`, a leading `{project-root}/` is dropped, and `./`, `//`
 and a trailing `/` collapse. A normalized value is then refused, with a
@@ -140,8 +161,8 @@ untracked files no `.gitignore` excludes, the only ignore files ccc reads
 (`.git/info/exclude` and a global excludes file hide nothing from ccc, so
 they hide nothing here either). A tracked file deleted from the worktree
 is dropped. The paths are grouped by first-level entry. A group is SKF
-output by the same rule the workflows use before they move or delete a
-skill (skf-skill-inventory.py):
+output by the same rule the workflows use before they write into, move or
+delete a skill's folders (skf-skill-inventory.py):
 
   skills  it is `_batch` or its name contains `.skf-`, or its
           `metadata.json` or a `<v>/<n>/metadata.json` carries an SKF
@@ -151,10 +172,12 @@ skill (skf-skill-inventory.py):
           `*-result*.json` alone do not count, so a module's skills that an
           earlier SKF moved into the versioned layout stay indexed
   forge   its name contains `.skf-`, it is `_campaign` or
-          `improvement-queue`, holds a
-          `skill-brief.yaml*` or `.brief-draft.json`, any `*-result*.json`,
-          or a versioned provenance map, evidence report or extraction
-          rules file
+          `improvement-queue`, or it holds a `skill-brief.yaml*`,
+          `.brief-draft.json` or `*-result*.json` file directly, or a
+          provenance map, evidence report, extraction rules or
+          `*-result*.json` file directly in a folder of it; a linked group,
+          folder or file never counts. Like the skills rule it reads the
+          group on disk, so a file `.gitignore` hides still counts
 
 Root files named `*-result*.json`, `.export-manifest.json` (skills) or
 with an SKF report prefix (forge) are SKF output. Neutral entries never
@@ -262,7 +285,9 @@ Output (single JSON document on stdout, ASCII only):
                                          SKF edit)
     "gitignore_updated":         bool,
     "index_action":              "index" | "keep" | "skip" | "fail",
-    "warnings":                  [str]
+    "warnings":                  [str]   refused values and other notes for
+                                         the report, a user `!` entry that
+                                         cancels an SKF pattern included
   }
 
 Payload safety: the setup steps embed these strings in single-quoted
@@ -295,6 +320,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import re
@@ -354,7 +380,11 @@ FORGE_ROOT_PREFIXES = (
     "refine-architecture-result-",
     "refined-architecture-",
 )
+# Keep identical to FORGE_GROUP_DIRS in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
 FORGE_GROUP_DIRS = frozenset({"_campaign", "improvement-queue"})
+# Keep identical to FORGE_VERSION_ANCHORS in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
 FORGE_VERSION_ANCHORS = frozenset({"provenance-map.json", "evidence-report.md", "extraction-rules.yaml"})
 FOLDER_KEYS = (("skills_output_folder", "skills"), ("forge_data_folder", "forge"))
 # Glob characters written as one-character classes in per-entry patterns,
@@ -774,22 +804,56 @@ def _has_skf_evidence(group_dir: Path, name: str) -> bool:
                for child in children)
 
 
-def _skf_group(base: Path, kind: str, group: str, members: list[tuple[str, ...]]) -> bool:
+# Keep identical to _has_forge_evidence in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
+def _has_forge_evidence(group_dir: Path, name: str) -> bool:
+    """True when forge group `group_dir` holds evidence that SKF generated it.
+
+    Evidence is `.skf-` in the name, SKF's own `_campaign` or
+    `improvement-queue` folder, a skill brief (`skill-brief.yaml*` or
+    `.brief-draft.json`) or a `*-result*.json` file directly in the group, or
+    a provenance map, evidence report, extraction rules or `*-result*.json`
+    file directly in a folder of the group (`.skf-` staging folders aside).
+    A linked group, folder or file is never evidence.
+    """
+    if _is_link_or_junction(group_dir):
+        return False
+    if ".skf-" in name or name in FORGE_GROUP_DIRS:
+        return True
+    try:
+        children = list(group_dir.iterdir())
+    except OSError:
+        return False
+    for child in children:
+        entry = child.name
+        if _is_link_or_junction(child):
+            continue
+        if child.is_file():
+            if (entry.startswith("skill-brief.yaml") or entry == ".brief-draft.json"
+                    or RESULT_JSON_RE.match(entry)):
+                return True
+        elif child.is_dir() and ".skf-" not in entry:
+            try:
+                inner = list(child.iterdir())
+            except OSError:
+                continue
+            if any((f.name in FORGE_VERSION_ANCHORS or RESULT_JSON_RE.match(f.name))
+                   and not _is_link_or_junction(f) and f.is_file() for f in inner):
+                return True
+    return False
+
+
+def _skf_group(base: Path, kind: str, group: str) -> bool:
     """True when first-level entry `group` under the folder is SKF output of `kind`.
 
-    A skills group follows the inventory's ownership rule (skf-skill-inventory.py),
-    so ccc excludes exactly the groups the workflows treat as SKF output.
+    Both kinds follow the rule the workflows use before they write into,
+    move or delete a skill's folders (skf-skill-inventory.py), read from the
+    group on disk, so ccc excludes exactly the groups the workflows treat as
+    SKF output.
     """
     if kind == "skills":
         return _has_skf_evidence(base / group, group)
-    return (
-        ".skf-" in group
-        or group in FORGE_GROUP_DIRS
-        or any(len(m) == 2 and (m[1].startswith("skill-brief.yaml") or m[1] == ".brief-draft.json")
-               for m in members)
-        or any(RESULT_JSON_RE.match(m[-1]) for m in members)
-        or any(len(m) >= 3 and m[-1] in FORGE_VERSION_ANCHORS for m in members)
-    )
+    return _has_forge_evidence(base / group, group)
 
 
 def _skf_root_file(kind: str, name: str) -> bool:
@@ -856,10 +920,10 @@ def classify_folder(root: Path, folder: str, kind, paths, other_folders=(),
     foreign_groups: list[str] = []
     owned_groups: list[str] = []
     holds_other = False
-    for group, members in sorted(groups.items()):
+    for group in sorted(groups):
         if _holds_other_folder(folder, group, other_folders):
             holds_other = True
-        elif any(_skf_group(base, k, group, members) for k in kinds):
+        elif any(_skf_group(base, k, group) for k in kinds):
             owned_groups.append(group)
         elif hidden_neutral and group.startswith("."):
             continue
@@ -1227,6 +1291,295 @@ def _unwritable_warning(key: str, value: str, skipped: list[str]) -> str:
     )
 
 
+# ─── a user `!` entry that cancels an SKF pattern ──────────────────────────
+
+# The child name ccc's matcher probes an excluded directory with when it
+# checks whether a `!` entry applies below it.
+CCC_DIR_PROBE = "__probe__"
+# Brace alternatives of one `!` entry checked at most, and `{` in one entry
+# expanded at most (guards, not limits any real entry reaches).
+MAX_BRACE_ALTERNATIVES = 256
+MAX_BRACE_GROUPS = 64
+# ccc reads settings.yml on the machine this helper runs on, and its glob
+# library reads a backslash as `/` on Windows and as an escape elsewhere.
+CCC_BACKSLASH_IS_SLASH = os.name == "nt"
+
+
+def _brace_alternatives(pattern: str) -> list[str]:
+    """Expand the `{a,b}` groups of a glob as ccc does before its prefix check.
+
+    Nested groups recurse, braces and commas inside `[...]` are literal, and
+    an unbalanced group leaves the pattern as it is. A pattern with more
+    than MAX_BRACE_GROUPS `{` is left as it is too, so the recursion stays
+    shallow whatever the entry holds.
+    """
+    if pattern.count("{") > MAX_BRACE_GROUPS:
+        return [pattern]
+    in_class = False
+    for i, ch in enumerate(pattern):
+        if ch == "[":
+            in_class = True
+        elif ch == "]":
+            in_class = False
+        elif ch == "{" and not in_class:
+            depth, inner_class, start, alternatives, j = 1, False, i + 1, [], i + 1
+            while j < len(pattern) and depth:
+                c = pattern[j]
+                if c == "[":
+                    inner_class = True
+                elif c == "]":
+                    inner_class = False
+                elif c == "{" and not inner_class:
+                    depth += 1
+                elif c == "}" and not inner_class:
+                    depth -= 1
+                    if depth == 0:
+                        alternatives.append(pattern[start:j])
+                elif c == "," and not inner_class and depth == 1:
+                    alternatives.append(pattern[start:j])
+                    start = j + 1
+                j += 1
+            if depth:
+                return [pattern]
+            out: list[str] = []
+            for alternative in alternatives:
+                out.extend(_brace_alternatives(pattern[:i] + alternative + pattern[j:]))
+                if len(out) >= MAX_BRACE_ALTERNATIVES:
+                    return out[:MAX_BRACE_ALTERNATIVES]
+            return out
+    return [pattern]
+
+
+def _ccc_glob_regex(glob: str, backslash_escape: bool):
+    """A regex for one brace-free glob as ccc's glob library reads it, or None.
+
+    `*` and `?` also match `/`; `**/` at the start, `/**/` inside and `/**`
+    at the end span whole directories; `[...]` and `[!...]` or `[^...]` are
+    classes. A backslash escapes the next character when `backslash_escape`
+    is set (POSIX); otherwise the caller has already turned it into `/`
+    (Windows).
+    """
+    collapsed = None
+    while collapsed != glob:  # `**/**` spans what one `**` spans
+        collapsed = glob
+        glob = glob.replace("/**/**", "/**")
+        if glob.startswith("**/**"):
+            glob = glob[3:]
+    if glob in ("**", "**/"):
+        return re.compile(".*", re.S)
+    out, i, n = [], 0, len(glob)
+    if glob.startswith("**/"):
+        out.append("(?:.*/)?")
+        i = 3
+    while i < n:
+        ch = glob[i]
+        if glob.startswith("/**/", i):
+            out.append("(?:/|/.*/)")
+            i += 4
+        elif glob.startswith("/**", i) and i + 3 == n:
+            out.append("/.*")
+            i += 3
+        elif ch == "*":
+            while i < n and glob[i] == "*":
+                i += 1
+            out.append(".*")
+        elif ch == "?":
+            out.append(".")
+            i += 1
+        elif ch == "[":
+            j = i + 1
+            negate = j < n and glob[j] in "!^"
+            if negate:
+                j += 1
+            k = j + 1 if j < n and glob[j] == "]" else j
+            while k < n and glob[k] != "]":
+                k += 1
+            if k >= n:
+                return None
+            body = "".join("\\" + c if c in "\\^[]" else c for c in glob[j:k])
+            out.append(f"[{'^' if negate else ''}{body}]")
+            i = k + 1
+        elif ch == "\\" and backslash_escape:
+            if i + 1 >= n:
+                return None
+            out.append(re.escape(glob[i + 1]))
+            i += 2
+        else:
+            out.append(re.escape(ch))
+            i += 1
+    try:
+        return re.compile("".join(out), re.S)
+    except re.error:
+        return None
+
+
+def _ccc_glob(glob: str, backslash_is_slash: bool):
+    """`_ccc_glob_regex` for one brace-free glob, its backslashes read as ccc
+    reads them on Windows (`/`) or elsewhere (an escape)."""
+    if backslash_is_slash:
+        return _ccc_glob_regex(glob.replace("\\", "/"), False)
+    return _ccc_glob_regex(glob, True)
+
+
+@functools.lru_cache(maxsize=512)
+def _negation_forms(body: str, backslash_is_slash: bool) -> tuple[tuple[str, ...], tuple]:
+    """The brace alternatives of a `!` entry's body, and their regexes."""
+    alternatives = tuple(_brace_alternatives(body))
+    globs = (_ccc_glob(alt, backslash_is_slash) for alt in alternatives)
+    return alternatives, tuple(rx for rx in globs if rx is not None)
+
+
+def _negation_reopens(entry: str, target: str, backslash_is_slash: bool | None = None) -> bool:
+    """True when the `!` entry makes ccc walk into or index `target` again.
+
+    ccc keeps an excluded path when a `!` entry matches it, or matches the
+    child it probes the path with (`target/__probe__`, so in practice a
+    wildcard child), or when one of the entry's brace alternatives starts
+    with `target/`: a directory on the way to a re-included path is walked.
+    The glob is read as ccc's glob library reads it on this machine
+    (CCC_BACKSLASH_IS_SLASH unless `backslash_is_slash` is given).
+    """
+    if backslash_is_slash is None:
+        backslash_is_slash = CCC_BACKSLASH_IS_SLASH
+    alternatives, regexes = _negation_forms(entry[1:], backslash_is_slash)
+    if any(alt.startswith(target + "/") for alt in alternatives):
+        return True
+    probe = f"{target}/{CCC_DIR_PROBE}"
+    return any(rx.fullmatch(target) or rx.fullmatch(probe) for rx in regexes)
+
+
+def _pattern_path(pattern: str) -> str | None:
+    """The path a pattern SKF wrote names, or None for a real glob.
+
+    Undoes ccc_literal's one-character classes; a `*` left over marks a
+    result or report family, which a `!` entry cannot re-open as a folder.
+    """
+    out, i = [], 0
+    while i < len(pattern):
+        ch = pattern[i]
+        if (ch == "[" and i + 2 < len(pattern) and pattern[i + 2] == "]"
+                and pattern[i + 1] in CCC_CLASS_ESCAPES):
+            out.append(pattern[i + 1])
+            i += 3
+            continue
+        if ch in CCC_CLASS_ESCAPES:
+            return None
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _negation_warning(key: str, value: str, entries: list[str], whole: bool, kinds,
+                      everything: bool = True) -> str:
+    shown = _sample(entries) + (
+        f" and {len(entries) - SAMPLE_SIZE} more" if len(entries) > SAMPLE_SIZE else "")
+    it = "that entry" if len(entries) == 1 else "those entries"
+    if whole:
+        twice = (", twice for each skill through its version folder and its active link"
+                 if "skills" in kinds else "")
+        always = next((part for part in PurePosixPath(value).parts
+                       if f"**/{part}" in ALWAYS_INCLUDE), None)
+        own = (
+            f"SKF always keeps {always} out of ccc, so keep content you want searchable "
+            f"outside it"
+        ) if always else (
+            f"To keep content of your own in {value} searchable, put it in a folder of its "
+            f"own there and re-run /skf-setup; SKF then excludes its entries one by one and "
+            f"leaves yours indexed"
+        )
+        amount = "all" if everything else "some"
+        return (
+            f"{key} {value} is excluded from ccc as one folder, but exclude_patterns in "
+            f".cocoindex_code/settings.yml also lists {shown}: ccc applies a ! entry against "
+            f"every exclusion, so {amount} SKF output in {value} is indexed again{twice}. "
+            f"Remove {it}; SKF output never needs one. {own}"
+        )
+    return (
+        f"{key} {value} is excluded from ccc one SKF entry at a time, but exclude_patterns "
+        f"in .cocoindex_code/settings.yml also lists {shown}: ccc applies a ! entry against "
+        f"every exclusion, so some SKF output there is indexed again. Remove {it}; your own "
+        f"content in {value} stays indexed without it"
+    )
+
+
+def _negation_warnings(root: Path, merged: list[str], by_value: dict, verdicts: dict,
+                       value_patterns: dict, listings: dict) -> list[str]:
+    """One warning per folder a user `!` entry brings SKF output back into ccc for.
+
+    Only bare and per-entry verdicts are checked, against `merged` (the
+    exclude_patterns this run writes). A pattern counts when ccc walks down
+    to a file of SKF output below it that git lists (`listings` holds the
+    verdict loop's (paths, scan) per folder; a folder inside an
+    always-excluded one is listed here), or, with no such file, into the
+    child it probes the pattern with, as output SKF writes there later
+    would be. The `!` entries that re-open a pattern that counts are named;
+    the bare value's warning says all SKF output is back only when every
+    SKF entry there is reached.
+    """
+    negations = [e for e in merged if e.startswith("!")]
+    if not negations:
+        return []
+    slash = CCC_BACKSLASH_IS_SLASH
+    # A pattern with no glob character left (SKF's own, mostly) matches one path.
+    literal = {path for path in (_pattern_path(p) for p in merged
+                                 if not p.startswith("!") and "\\" not in p) if path}
+    globs = [_ccc_glob(alt, slash) for p in merged
+             if not p.startswith("!") and ("\\" in p or _pattern_path(p) is None)
+             for alt in _brace_alternatives(p)]
+    excludes = [rx for rx in globs if rx is not None]
+    kept: dict[str, bool] = {}
+
+    def walked(path: str) -> bool:
+        """True when ccc walks every directory down to `path`, and `path` itself:
+        each is matched by no exclude pattern, or re-opened by a `!` entry."""
+        parts = PurePosixPath(path).parts
+        for depth in range(1, len(parts) + 1):
+            step = "/".join(parts[:depth])
+            if step not in kept:
+                kept[step] = ((step not in literal
+                               and not any(rx.fullmatch(step) for rx in excludes))
+                              or any(_negation_reopens(n, step, slash) for n in negations))
+            if not kept[step]:
+                return False
+        return True
+
+    out = []
+    for value, entries in by_value.items():
+        bare = verdicts[value] == "bare"
+        if not bare and verdicts[value] != "entries":
+            continue
+        kinds = {kind for _, kind in entries}
+        if value in listings:
+            paths, scan = listings[value]
+        else:
+            paths = list_folder_paths(root, value)[0]
+            others = [v for v in by_value if v != value]
+            scan = classify_folder(root, value, kinds, paths, others) if paths else None
+        owned = set(scan.owned_groups) | set(scan.owned_files) if scan else set()
+        files: dict[str, list[str]] = {}  # the listed files under each first-level entry
+        for rel in paths or []:
+            if not bare or rel[0] in owned:
+                files.setdefault(rel[0], []).append("/".join((value, *rel)))
+        reached, everything = [], True
+        for target in filter(None, map(_pattern_path, value_patterns[value])):
+            if target == value:
+                hits = [any(map(walked, below)) for below in files.values()]
+            else:  # `{value}/<entry>`
+                below = files.get(target[len(value) + 1:], [])
+                hits = [any(map(walked, below))] if below else []
+            if not hits:
+                hits = [walked(f"{target}/{CCC_DIR_PROBE}")]
+            everything = everything and all(hits)
+            if any(hits):
+                reached.append(target)
+        cancelling = [e for e in negations
+                      if any(_negation_reopens(e, t, slash) for t in reached)]
+        if cancelling:
+            out.append(_negation_warning(" and ".join(k for k, _ in entries), value,
+                                         cancelling, bare, kinds, everything))
+    return out
+
+
 def _list_dir(path: Path) -> list[str] | None:
     """The names in `path` as the OS reports them (what ccc matches), or None."""
     try:
@@ -1293,6 +1646,7 @@ def _reconcile(root: Path, target: Path, backup: Path, data: dict,
         by_value.setdefault(value, []).append((key, kind))
     verdicts: dict[str, str] = {}
     value_patterns: dict[str, list[str]] = {}
+    listings: dict[str, tuple] = {}
     for value in sorted(by_value, key=lambda v: -len(PurePosixPath(v).parts)):
         entries = by_value[value]
         keys = " and ".join(key for key, _kind in entries)
@@ -1309,6 +1663,7 @@ def _reconcile(root: Path, target: Path, backup: Path, data: dict,
         kinds = {kind for _key, kind in entries}
         scan = (classify_folder(root, value, kinds, paths, others, hidden_neutral)
                 if paths else None)
+        listings[value] = paths, scan
         deferred = any(_contains(value, v) and verdicts.get(v) in ("entries", "left_out")
                        for v in others)
         if (scan is not None and (scan.foreign or deferred)
@@ -1341,6 +1696,8 @@ def _reconcile(root: Path, target: Path, backup: Path, data: dict,
                 produced.append(p)
 
     merged, added, removed = plan_exclusions(existing, produced, owned_prior, prune_allowed)
+    warnings.extend(_negation_warnings(root, merged, by_value, verdicts, value_patterns,
+                                       listings))
     blocked = [] if prune_allowed else sorted((owned_prior - set(produced)) & set(existing))
     if blocked:
         shown = ", ".join(blocked[:SAMPLE_SIZE]) + (

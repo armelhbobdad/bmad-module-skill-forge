@@ -30,7 +30,7 @@ These rules apply to every step in this workflow:
 - Never delete the old skill directories until the new name has been fully materialized and verified
 - Never proceed past a verification failure — roll back (delete new directories) and halt
 - Never allow a rename to collide with an existing skill name
-- Never rename a folder SKF did not generate — select.md §4a checks its `ownership` and refuses a flat-layout skill
+- Never rename a folder SKF did not generate — select.md §4a checks the `ownership` of the skill folder and of its forge folder, refuses a flat-layout skill and a forge folder that also holds other files or that is a link, is not a folder, or cannot be listed, and leaves any other forge folder SKF did not generate under the old name
 - Only load one step file at a time — never preload future steps
 - If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread — **except** the atomicity and commit-gate safety helpers that execute.md §0 resolves: a missing one there is a HARD HALT (exit 4), never an LLM fall-through, because hand-driven writes/scans would silently regress the transactional guarantees that keep a failed rename recoverable. The same holds for the select.md §4a ownership check: without the inventory helper it refuses the rename (exit 5), never deciding by hand whether SKF generated a folder
 - Always communicate in `{communication_language}`
@@ -54,7 +54,7 @@ These rules apply to every step in this workflow:
 | **Flags** | `--headless` / `-H` (auto-resolve all gates); `--dry-run` (run selection + validation + display the §8 confirmation block, then exit with `status="dry-run"` — no copy, no manifest re-key, no delete). Useful for verifying the rename plan before the irreversible §8 (delete old) section. |
 | **Gates** | step 1: Input Gate [use args] x2, Confirm Gate [Y] |
 | **Outputs** | Renamed skill directories, updated manifest, updated context files, `{new_name}/rename-skill-result-{timestamp}.json` and `{new_name}/rename-skill-result-latest.json` |
-| **Concurrency** | A PID-file lock at `{forge_data_folder}/{old_name}/.skf-rename.lock` serializes concurrent runs against the same `old_name`; a live-PID collision HALTs with `halt_reason: "halted-for-concurrent-run"` (exit 5). See select.md §4b for the acquire / stale-clear / release mechanism. |
+| **Concurrency** | A PID-file lock at `{forge_data_folder}/.skf-rename-{old_name}.lock` serializes concurrent runs against the same `old_name`; a live-PID collision HALTs with `halt_reason: "halted-for-concurrent-run"` (exit 5). See select.md §4b for the acquire / stale-clear / release mechanism. |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. The §6 source-authority warning HALTs by default in headless when `source_authority="official"`; set `force_source_authority_in_headless = "true"` in `customize.toml` to auto-acknowledge and proceed (the override is recorded in `headless_decisions[]`). |
 | **Exit codes** | Stable per-failure-class codes — see `references/exit-codes.md` |
 

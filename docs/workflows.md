@@ -23,7 +23,7 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 
 **Flags:**
 
-- `--require-tier=<Quick|Forge|Forge+|Deep>` — fail-fast for CI: if the calculated tier does not satisfy the requested tier (tool-prerequisite check, not a name comparison — Deep does NOT subsume Forge+ because Deep does not require ccc), the workflow halts without chaining to the health check. Interactive runs show a "REQUIRED TIER NOT MET" block; `--headless` and `--quiet` runs show only the envelope, with `status: "tier_failure"`. Pipelines branch on the JSON envelope's `require_tier_satisfied` field.
+- `--require-tier=<Quick|Forge|Forge+|Deep>` — fail-fast for CI: if the calculated tier does not satisfy the requested tier (tool-prerequisite check, not a name comparison — Deep does NOT subsume Forge+ because Deep does not require ccc), the workflow halts without chaining to the health check. Interactive runs show a "REQUIRED TIER NOT MET" block; `--headless` and `--quiet` runs show only the envelope, with `status: "tier_failure"`. Pipelines branch on the envelope's `status` field, which is `tier_failure` for a miss.
 - `--orphan-action=<keep|remove>` — resolve the orphan QMD-collection removal gate non-interactively, even outside `--headless`. Without it, `--headless` and `--quiet` keep the orphaned collections.
 - `--ccc-skip-index` — skip building the CCC index (envelope `ccc_index.status` becomes `"skipped"`); ccc settings are still prepared and SKF exclusions kept current — the fast re-probe lane to refresh the detected tier without paying the full re-index cost.
 - `--quiet` — the same envelope-only output as `--headless`, for pipelines and expert re-runs: the `SKF_SETUP_RESULT_JSON` envelope takes the place of the FORGE STATUS banner and the health-check output, and the orphan gate keeps orphaned collections instead of asking.
@@ -56,6 +56,8 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 **When to Use:** After Brief Skill, or with an existing skill-brief.yaml.
 
 **Key Steps:** Load brief → Ecosystem check → Extract (AST + scripts/assets) → QMD enrich (Deep) → Compile → Doc sources → Auto-shard → Doc-rot → Validate → Generate
+
+**Safety:** Writes a version only into a skill folder SKF generated, or a new one. When `skills_output_folder` already holds a folder with the skill's name that SKF did not generate, or a version folder SKF did not generate, it stops before writing anything (`not-skf-output`); an SKF skill still in the old flat layout stops with `flat-layout` until `@Ferris TS` moves it. Set a different `name` in the brief to create the skill beside a folder SKF did not generate.
 
 **Agent:** Ferris (Architect mode)
 
@@ -102,6 +104,8 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 - `--skip-snippet` — skip `context-snippet.md` generation and write
 - `--no-active-pointer` — skip the active-pointer flip in finalize (deliverables still land in `{skill_package}`)
 
+**Safety:** Writes a version only into a skill folder SKF generated, or a new one; otherwise it stops with exit `9` (`not-skf-output`, or `flat-layout` for an SKF skill in the old flat layout) before writing anything. Quick Skill names a skill after its target, so use `BS` → `CS` to create it under another name.
+
 **Agent:** Ferris (Architect mode)
 
 ---
@@ -117,6 +121,8 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 **Key Steps (code-mode):** Detect manifests → Rank dependencies → Scope confirmation → Parallel extract → Detect integrations → Compile stack → Generate references
 
 **Key Steps (compose-mode):** Load existing skills → Confirm scope → Detect integrations from architecture doc → Compile stack → Generate references
+
+**Safety:** Writes the stack only into a `<project>-stack` folder SKF generated, or a new one; otherwise it stops with exit `5` (`not-skf-output` or `flat-layout`) before writing anything. Compose-mode loads only the skills SKF generated.
 
 **Agent:** Ferris (Architect mode)
 
@@ -182,6 +188,8 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 
 **Key Steps:** Load skills + docs → Coverage analysis → Integration verification → Requirements check → Synthesize verdict → Present report
 
+**Skills read:** Only the skills SKF generated. Other skills in `skills_output_folder`, such as a module's own, are listed once as "Skipped (not SKF output)" and count toward no inventory check or pair. A `metadata.json` SKF cannot read still counts as one warning, because SKF then cannot tell whether it generated that skill.
+
 **Agent:** Ferris (Audit mode)
 
 ---
@@ -195,6 +203,8 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 **When to Use:** After VS confirms feasibility, before running SS in compose-mode. Produces a refined architecture ready for stack skill composition.
 
 **Key Steps:** Load inputs → Gap analysis → Issue detection → Improvement detection → Compile refined doc → Present report
+
+**Skills read:** Only the skills SKF generated. Other skills in `skills_output_folder`, such as a module's own, are listed once as "Skipped (not SKF output)" and count toward no inventory check or pair. A `metadata.json` SKF cannot read still counts as one warning, because SKF then cannot tell whether it generated that skill.
 
 **Agent:** Ferris (Architect mode)
 
@@ -244,7 +254,7 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 
 **Key Steps:** Select skill + new name → Transactional copy → Update all references → Rebuild context files → Delete old name (point of no return)
 
-**Safety:** Transactional — if any step fails before the final delete, the old skill remains intact. Warns if `source_authority: "official"` (rename is local-only; published registry skill won't change). Renames only skills SKF generated in the versioned layout: a folder whose `metadata.json` carries no SKF marker, or one that also holds files SKF did not generate, is refused, and a skill still in the old flat layout must first be moved into the versioned layout by running `@Ferris TS` (or `US`, `AS`, `EX`) on it.
+**Safety:** Transactional — if any step fails before the final delete, the old skill remains intact. Warns if `source_authority: "official"` (rename is local-only; published registry skill won't change). Renames only skills SKF generated in the versioned layout: a folder whose `metadata.json` carries no SKF marker, or one that also holds files SKF did not generate, is refused, and a skill still in the old flat layout must first be moved into the versioned layout by running `@Ferris TS` (or `US`, `AS`, `EX`) on it. It moves the skill's folder in `forge_data_folder` only when SKF generated it: it refuses one that also holds other files or that is a link, is not a folder, or cannot be listed, and leaves another tool's folder of the same name where it is.
 
 **Agent:** Ferris (Management mode)
 
@@ -260,7 +270,7 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 
 **Key Steps:** Select skill → Select version(s) + mode → Update manifest → Rebuild context files → Delete files (if purge)
 
-**Safety:** Active version guard — cannot drop the currently active version when other non-deprecated versions exist (switch active first, or drop all). Soft drop is reversible by editing the manifest. Drop offers a skill folder SKF did not generate only when the manifest lists it, and then only for deprecate. A purge deletes only SKF output: a whole-skill purge of a folder that also holds other files is refused, and so is a purge through a link. A headless drop of a skill with no manifest entry needs `--mode purge`.
+**Safety:** Active version guard — cannot drop the currently active version when other non-deprecated versions exist (switch active first, or drop all). Soft drop is reversible by editing the manifest. Drop offers a skill folder SKF did not generate only when the manifest lists it, and then only for deprecate. A purge deletes only SKF output: a whole-skill purge of a folder that also holds other files is refused, and so is a purge through a link. The same goes for the skill's folder in `forge_data_folder`, except that a folder there SKF did not generate (another tool's folder of the same name, or a link) is left in place and named in the report. A headless drop of a skill with no manifest entry needs `--mode purge`.
 
 **Agent:** Ferris (Management mode)
 
@@ -395,13 +405,13 @@ Add `--headless` or `-H` to any workflow command to skip all confirmation gates.
 
 You can also set `headless_mode: true` in your forge preferences (`_bmad/_memory/forger-sidecar/preferences.yaml`) to make headless the default for all workflows.
 
-**Exception — `/skf-setup` headless emits a single-line JSON envelope.** Unlike other workflows, headless (or `--quiet`) `/skf-setup` skips its status banner, progress lines and health-check output and ends on one prefixed envelope line. What setup guarantees is that this line is the run's final message, so it is exactly what `claude -p` prints; an interactive session or a `stream-json` reader may still see brief agent notes between tool calls. On success the health check runs first and the envelope follows it. On a tier miss or a halt the health check does not run, and the `status: "tier_failure"` envelope, or a `status: "blocked"` envelope whose `error.reason` carries the diagnostic, is the final message. One case has no envelope: when SKF's scripts are not installed in the project (a directory that is not an SKF project, or a helper-missing halt because they are gone), there is no helper to build one, so the run's one line is the bare halt reason. Pipelines should treat a missing envelope as a failure. When the forger runs `SF` as one step of a pipeline, setup displays the same line and hands control back to the forger, which keeps chaining. The success envelope looks like this:
+**Exception — `/skf-setup` headless emits a single-line JSON envelope.** Unlike other workflows, headless (or `--quiet`) `/skf-setup` skips its status banner, progress lines and health-check output and ends on one prefixed envelope line. What setup guarantees is that this line is the run's final message, so it is exactly what `claude -p` prints; an interactive session or a `stream-json` reader may still see brief agent notes between tool calls. On success the health check runs first and the envelope follows it. On a tier miss or a halt the health check does not run, and the `status: "tier_failure"` envelope, or a `status: "blocked"` envelope whose `error.reason` carries the diagnostic, is the final message. Two cases have no envelope: when SKF's scripts are not installed in the project (a directory that is not an SKF project, or a helper-missing halt because they are gone), there is no helper to build one, and when an early halt (config missing or malformed, or `uv` missing) finds neither `uv` nor a Python interpreter (`python3`, `python` or `py -3`) to run the helper. Either way the run's one line is the bare halt reason. Pipelines should treat a missing envelope as a failure. When the forger runs `SF` as one step of a pipeline, setup displays the same line and hands control back to the forger, which keeps chaining. The success envelope looks like this:
 
 ```
 SKF_SETUP_RESULT_JSON: {"skf_setup":{"status":"success","tier":"Deep","previous_tier":"Forge","tier_changed":true,"tools":{...},"tools_added":[...],"tools_removed":[],"config_path":"...","ccc_index":{...},"files_written":[...],"tier_override_active":false,"tier_override_invalid":false,"require_tier_satisfied":null,"warnings":[],"error":null}}
 ```
 
-Parent skills and CI pipelines `grep` one line out of the workflow log to learn the outcome — no ASCII-art parsing, no race against the [`forge-tier.yaml`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-setup/references/write-config.md) writer. Branch on the top-level `status` field (`success`, `tier_failure`, `write_failure`, or `blocked`) rather than composing the outcome from `require_tier_satisfied` + `error`. The envelope schema is versioned at [`src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/shared/scripts/schemas/skf-setup-result-envelope.v1.json) and asserted against on every emit.
+Parent skills and CI pipelines `grep` one line out of the workflow log to learn the outcome — no ASCII-art parsing, no race against the [`forge-tier.yaml`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-setup/references/write-config.md) writer. Branch on the top-level `status` field (`success`, `tier_failure`, or `blocked`) rather than composing the outcome from `require_tier_satisfied` + `error`. A write failure arrives as `blocked`, with an `error.phase` of `step 2:write-tools`, `step 2:init-prefs` or `step 2:forge-data-dir`. The envelope schema is versioned at [`src/shared/scripts/schemas/skf-setup-result-envelope.v1.json`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/shared/scripts/schemas/skf-setup-result-envelope.v1.json) and asserted against on every emit.
 
 **Exception — `/skf-quick-skill` headless emits structured progress + result envelopes.** Headless `/skf-quick-skill` runs are first-class building blocks for batch automators. Three operational contracts beyond per-gate auto-proceed:
 
@@ -425,8 +435,10 @@ Parent skills and CI pipelines `grep` one line out of the workflow log to learn 
    | 5    | overwrite-cancelled |
    | 6    | user-cancelled      |
    | 7    | finalize-blocked    |
+   | 8    | ecosystem-redirect  |
+   | 9    | state-conflict      |
 
-3. **Error-variant result contract on every HARD HALT.** A `SKF_QUICK_SKILL_RESULT_JSON: {…}` envelope is emitted on `stderr` (always) and copied to `{skill_package}/quick-skill-result-latest.json` when the skill package is known (HALTs at step 5 §1 onward). The schema and full population rules live in [`src/skf-quick-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-quick-skill/SKILL.md) § "Result Contract on HARD HALT".
+3. **Error-variant result contract on every HARD HALT.** A `SKF_QUICK_SKILL_RESULT_JSON: {…}` envelope is emitted on `stderr` (always) and copied to `{skill_package}/quick-skill-result-latest.json` once the skill package holds `metadata.json` (HALTs at step 5 §1 onward, except the exit `9` ownership halt, which writes nothing on disk). The schema and full population rules live in [`src/skf-quick-skill/references/halt-contract.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-quick-skill/references/halt-contract.md) § "Result Contract on HARD HALT".
 
 **Batch mode (`--batch <file>`).** Drives N targets through the full pipeline (steps 1–7 each) in sequence. Input format: one target per line, `#` comments and blank lines ignored, optional per-line modifiers `language=<lang>` and `scope=<path>`. Per-target output lands in `{skill_package}/` as today; an aggregated summary writes to `{skills_output_folder}/_batch/quick-skill-batch-{ts}.json` (with `quick-skill-batch-latest.json` copy). Per-target boundary events (`{"batch":N,"target":"…","status":"start|done|fail",…}`) and a final `{"batch_summary":true,…}` event extend the per-step event stream above. Full input grammar, summary schema, and exit-code semantics in [`src/skf-quick-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-quick-skill/SKILL.md) § "Batch Mode".
 
@@ -451,8 +463,8 @@ Parent skills and CI pipelines `grep` one line out of the workflow log to learn 
 
 **Exception — the management and verification workflows emit structured result envelopes too.** Beyond per-gate auto-proceed, Drop Skill, Rename Skill, and Refine Architecture each emit a single-line `SKF_*_RESULT_JSON: {…}` envelope on every terminal exit (`status: "success"` on the happy path, `status: "error"` with a typed `halt_reason` on any HARD HALT) and exit with a stable code so automators branch on the failure class without grepping message text. All three honour the universal `cancel`/`exit`/`:q` affordance at any prompt (exit `6`, `halt_reason: "user-cancelled"`).
 
-- **`/skf-drop-skill` (DS)** — exit `2` `input-missing`/`input-invalid` (including `--mode deprecate` on a skill with no manifest entry), `4` `write-failure` (covers manifest-write, context-rebuild, and full-purge `delete-failed`), `5` state-conflict (active-version guard; `not-skf-output` for a folder SKF did not generate or a purge it cannot confirm), `6` `user-cancelled` or `headless-purge-forbidden`. Schema and `halt_reason` list in [`src/skf-drop-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-drop-skill/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
-- **`/skf-rename-skill` (RS)** — exit `2` `input-missing`/`input-invalid`, `4` `write-failure` (`copy-failed`, `write-failed`, `manifest-write-failed`; the §7 context rebuild is best-effort and never halts), `5` state-conflict (name-collision, source-authority, concurrent-run lock, `not-skf-output` for a folder SKF did not generate, `flat-layout` for a skill not yet migrated). Schema in [`src/skf-rename-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-rename-skill/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
+- **`/skf-drop-skill` (DS)** — exit `2` `input-missing`/`input-invalid` (including `--mode deprecate` on a skill with no manifest entry), `4` `write-failure` (covers manifest-write, context-rebuild, and full-purge `delete-failed`), `5` state-conflict (active-version guard; `not-skf-output` for a folder SKF did not generate, a purge it cannot confirm, or a skill whose folder in `forge_data_folder` also holds other files), `6` `user-cancelled` or `headless-purge-forbidden`. Schema and `halt_reason` list in [`src/skf-drop-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-drop-skill/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
+- **`/skf-rename-skill` (RS)** — exit `2` `input-missing`/`input-invalid`, `4` `write-failure` (`copy-failed`, `write-failed`, `manifest-write-failed`; the §7 context rebuild is best-effort and never halts), `5` state-conflict (name-collision, source-authority, concurrent-run lock, `not-skf-output` for a folder SKF did not generate, or a forge folder that also holds other files or that is a link, is not a folder, or cannot be listed; `flat-layout` for a skill not yet migrated). Schema in [`src/skf-rename-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-rename-skill/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
 - **`/skf-refine-architecture` (RA)** — exit `2` `input-missing`/`input-invalid`, `4` `write-failure`, `7` `inventory-unreliable`, `8` `recovery-failed` (durability state insufficient to reconstruct findings, or the compiled doc is missing its `## Refinement Summary`). Schema in [`src/skf-refine-architecture/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-refine-architecture/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
 
 ---

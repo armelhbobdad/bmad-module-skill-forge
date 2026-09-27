@@ -1,5 +1,12 @@
 ---
 nextStepFile: '../extract.md'
+# Resolve `{cccGitHygieneHelper}` to the first existing path. It keeps ccc's
+# index folders and SKF's workspace lock out of git, and undoes the
+# `.gitignore` edit `ccc init` makes in a workspace clone. If neither path
+# exists, skip the call and continue: it never gates the workflow.
+cccGitHygieneProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-ccc-git-hygiene.py'
+  - '{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -44,7 +51,9 @@ Read `ccc_index` from forge-tier.yaml and branch on `ccc_index.status`:
 - `"none"` or `"failed"`: attempt lazy indexing via `ccc_bridge.ensure_index(source_root)`. If indexing succeeds, continue to section 3. If indexing fails, set `{ccc_discovery: []}` and auto-proceed to section 5.
 - Any other status, for example a `"stale"` an older SKF recorded: treat it like `"fresh"`.
 
-**Tool resolution for ccc_bridge.ensure_index:** Use `/ccc` skill indexing (Claude Code), ccc MCP server (Cursor), or `cd {source_root} && ccc init` + `ccc index` (CLI). Note: `ccc init` takes no positional arguments — it initializes the index for the current working directory. See `knowledge/tool-resolution.md`. Exception: when `{source_root}` is `{project-root}` and `{project-root}/.cocoindex_code/settings.yml` does not exist, do not run `ccc init` or `ccc index` — `/skf-setup` initializes the project index with the SKF exclusions. Set `{ccc_discovery: []}`, note that re-running `/skf-setup` enables semantic discovery, and auto-proceed to section 5.
+**Tool resolution for ccc_bridge.ensure_index:** Use `/ccc` skill indexing (Claude Code), ccc MCP server (Cursor), or the CLI: `cd "{source_root}" && ccc init`, and when it exits non-zero with `A parent directory has a project marker` (a local source inside a git checkout or below another ccc project), `cd "{source_root}" && ccc init -f`, the same handling as step 7 §6b. Run `cd "{source_root}" && ccc index` only once `{source_root}/.cocoindex_code/settings.yml` exists: without it, `ccc index` initializes the enclosing git checkout with ccc's defaults and none of the SKF exclusions, so treat indexing as failed instead. Note: `ccc init` takes no positional arguments — it initializes the index for the current working directory. See `knowledge/tool-resolution.md`. Exception: when `{source_root}` is `{project-root}` and `{project-root}/.cocoindex_code/settings.yml` does not exist, do not run `ccc init` or `ccc index` — `/skf-setup` initializes the project index with the SKF exclusions. Set `{ccc_discovery: []}`, note that re-running `/skf-setup` enables semantic discovery, and auto-proceed to section 5.
+
+**Keep a lazy index out of git:** after lazy indexing has run any ccc command, whichever tool ran it and whether it succeeded or not, return to `{project-root}`, resolve `{cccGitHygieneHelper}` from `{cccGitHygieneProbeOrder}` and run `uv run {cccGitHygieneHelper} nested --dir "{source_root}" --project-root "{project-root}"` before continuing to section 3 or section 5. It is the same check as step 7 §6b: when git does not ignore `{source_root}/.cocoindex_code/`, it writes a `.gitignore` holding `*` inside that folder, and SKF never edits a project's own `.gitignore`. Bind `{ccc_ignore_notice}` ← `notice` and display `{ccc_ignore_notice}` verbatim when it is not null: its remedy command is quoted for paths with spaces. If no candidate exists, or the helper exits non-zero or prints no JSON, continue: discovery never blocks.
 
 ### 3. Construct Semantic Query
 

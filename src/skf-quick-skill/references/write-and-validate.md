@@ -6,6 +6,13 @@ frontmatterValidatorProbeOrder:
 outputValidatorProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-output.py'
   - '{project-root}/src/shared/scripts/skf-validate-output.py'
+# Resolve `{skillInventoryHelper}` by probing `{skillInventoryProbeOrder}` in
+# order (installed SKF module path first, src/ dev-checkout fallback); first
+# existing path wins. §1 runs its write check before any directory is
+# created; without it, §1 writes only into a skill folder that does not exist yet.
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Generated SKILL.md text in {document_output_language}. -->
@@ -23,16 +30,35 @@ To write the compiled SKILL.md, context-snippet.md, and metadata.json to the ver
 
 ## Steps
 
-### 1. Create Output Directory
+### 1. Check Ownership, Then Create Output Directory
 
-Resolve `{version}` from the extraction inventory's detected version, defaulting to `1.0.0` if not detected. Create the skill output directories:
+Resolve `{version}` from the extraction inventory's detected version, defaulting to `1.0.0` if not detected.
+
+**Ownership check.** Run it before creating any directory and before the overwrite prompt below. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run:
+
+```bash
+uv run {skillInventoryHelper} {skills_output_folder} --skill {repo_name} --write-check --write-version {version} --forge-data-folder {forge_data_folder}
+```
+
+`--forge-data-folder` only tells the helper whether both settings name one folder.
+
+Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_check.folder` and `{write_detail}` ← `write_check.detail`. Continue only when the status is `ok` and `{write_verdict}` is `"ok"`: nothing is at the skill folder yet, it holds only what an interrupted run leaves, or SKF generated it and the version is new or SKF's own. Otherwise create nothing and refuse with the first case that applies:
+
+- `{write_verdict}` is `"flat-layout"` → `halt_reason: "flat-layout"`: "**`{repo_name}` still uses the flat layout — nothing was written.** A version written beside its root `SKILL.md` would leave a skill SKF can no longer migrate or rename. Run `@Ferris TS {repo_name}` (or US, AS or EX) once to move it into the versioned layout, then re-run."
+- `{write_verdict}` is `"not-skf-output"` → `halt_reason: "not-skf-output"`: "**`{repo_name}` is not SKF output — nothing was written.** `{write_folder}` {write_detail}, so SKF will not write a version there. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{repo_name}` yourself, and Quick Skill names a skill after its target, so to create it under another name, brief it with `@Ferris BS` and compile it with `@Ferris CS`. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`. A version folder with no `metadata.json` can also be one that an interrupted quick-skill run left behind; delete it yourself in that case."
+- The status is not `ok`, or the output has no `write_check` (an older helper: it has no `--write-check` and reports a new skill as `SKILL_NOT_FOUND`) → `halt_reason: "not-skf-output"`: the same message with "SKF could not check it ({the helper's `error`, if any}; re-install SKF if the installed `skf-skill-inventory.py` is out of date)" in place of "`{write_folder}` {write_detail}".
+- When no helper candidate resolves, continue only when nothing exists at `{skill_group}` (no folder, no file, not even a broken link). Otherwise refuse with `halt_reason: "not-skf-output"` and the same message, giving "SKF cannot check who generated `{skill_group}`: `skf-skill-inventory.py` is missing; re-install SKF" in place of "`{write_folder}` {write_detail}".
+
+Each refusal is a HARD HALT with **exit code 9 (state-conflict)** per `references/halt-contract.md`: emit the stderr envelope with `phase: "write-and-validate"`, `error.code` set to the halt reason, `error.details: {"folder": "<the folder the message names>"}` and `skill_package: null`. This halt writes no result file on disk: `{skill_package}` would sit in a folder SKF did not generate. It is a HALT, not a gate, so it has no headless default. In `--batch`, the target is recorded as failed (exit 9) and the batch moves on, or stops under `--fail-fast`.
+
+Then create the skill output directories:
 
 ```
 {skill_group}                          # {skills_output_folder}/{repo_name}/
 {skill_package}                        # {skills_output_folder}/{repo_name}/{version}/{repo_name}/
 ```
 
-If `{skill_package}` already exists, confirm with user before overwriting:
+If `{skill_package}/metadata.json` exists, confirm with user before overwriting:
 
 "**Directory `{skill_package}` already exists.** Overwrite will replace the prior compiled output; validation results, result contracts, and any manual tweaks from the previous run will not be preserved. Overwrite existing files? [Y/N]"
 
@@ -41,7 +67,11 @@ If `{skill_package}` already exists, confirm with user before overwriting:
 
 **GATE [default: Y]** — If `{headless_mode}` is true, auto-proceed with Y and log: "headless: overwriting existing `{skill_package}`".
 
+A `{skill_package}` without `metadata.json` holds only what an interrupted run leaves (the ownership check refuses anything else), so it is written without asking.
+
 ### 2. Write Deliverables
+
+Write File 3 (`metadata.json`) first, so a run interrupted mid-write leaves a package that carries the SKF marker, which the next run's ownership check accepts.
 
 Write the three compiled artifacts to the skill package so that validation in sections 3–7 has files on disk to read:
 
@@ -51,7 +81,7 @@ Write the three compiled artifacts to the skill package so that validation in se
 
 Confirm after each write: "Written: SKILL.md" / "Written: context-snippet.md" / "Written: metadata.json". When `--skip-snippet` is active, log "Skipped: context-snippet.md (--skip-snippet)" instead of the snippet write confirmation.
 
-**If any write fails — HARD HALT (exit code 4, write-failure):** Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "write-and-validate"`, `error.code: "write-failure"`, `error.details: {failed_path: <path>, error: <details>}`, `skill_package` set, `outputs` listing any files that did write successfully before the failure).
+**If any write fails — HARD HALT (exit code 4, write-failure):** Before exiting, emit the error result contract per `references/halt-contract.md` (`phase: "write-and-validate"`, `error.code: "write-failure"`, `error.details: {failed_path: <path>, error: <details>}`, `skill_package` set, `outputs` listing any files that did write successfully before the failure). When `metadata.json` itself failed to write, the contract writes no result file on disk: a package holding only result files would read as not SKF output to the next run's ownership check.
 
 "**Write failed:** Could not write to `{file_path}`.
 

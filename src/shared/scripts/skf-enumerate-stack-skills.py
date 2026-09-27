@@ -23,21 +23,42 @@ benefit from LLM judgment).
 
 Subcommand:
   enumerate <skills-root> [--pairs] [--reliability]
-      Emit JSON {"skills": [...], "cycles": [...], "warnings": [...]}
-      describing every subdirectory of <skills-root> that resolves to a
-      skill package. Both layouts from knowledge/version-paths.md are
-      supported: the flat layout (<child>/SKILL.md) and the version-nested
-      layout (<child>/active/<name>/SKILL.md via the `active` symlink, or
-      <child>/<version>/<name>/SKILL.md by highest version). Each entry
-      carries:
+      Emit JSON {"skills": [...], "cycles": [...], "warnings": [...],
+      "not_skf_output": [...]} for the skill folders under <skills-root>.
 
-        name             — skill name (top-level subdirectory name)
-        path             — relative path to the resolved package under
-                           skills-root, forward-slash
-        exports          — exports list resolved via cascade
-        exports_source   — "metadata|references|skill-md|unknown"
-        confidence       — "T1|T2|T1-low" (mapped from exports_source)
-        metadata_hash    — sha256: prefix on metadata.json digest, or null
+Ownership. A stack roster reads only the skills SKF generated: a package
+counts only when its metadata.json carries an SKF marker (generated_by
+naming an SKF generator, tool_versions.skf, or skill_type with forge_tier
+or confidence_tier), the rule skf-skill-inventory.py applies (the marker
+functions are pinned copies of its own). For each top-level folder (dot
+names, `_batch` and `.skf-` names aside) the package is the first marked
+candidate of: the version the `active` link names (a real folder directly
+in the group), the version folders from highest to lowest (`active`,
+links and `.skf-` names aside), then a flat root SKILL.md beside a marked
+root metadata.json. A versioned package is always `{version}/{name}/`,
+named after the folder. The export manifest is never read.
+
+A folder with no marked candidate is left out of `skills[]`: listed in
+`not_skf_output` when it looks like a skill (a root SKILL.md or a
+`{version}/{name}/` folder), or, when a candidate's metadata.json or
+version folder cannot be read, named in one warning instead, because SKF
+cannot tell whether it generated that folder. A linked package inside a
+version is never SKF output either, and its metadata.json is never read.
+A top-level link is never SKF output: it is listed in `not_skf_output`
+when it looks like a skill, and a broken one, or one SKF cannot read
+through, is skipped. `not_skf_output` is always present, sorted, and
+never counts toward `warnings`, `--pairs` or `--reliability`.
+
+Each `skills[]` entry carries:
+  name           — the top-level folder name
+  path           — the package relative to skills-root, forward-slash:
+                   `x/active/x`, `x/{version}/x` or `x` (flat)
+  exports        — exports list resolved via cascade
+  exports_source — "metadata|references|skill-md|unknown"
+  confidence     — "T1|T2|T1-low" (mapped from exports_source)
+  metadata_hash  — "sha256:" digest of the package's metadata.json; never
+                   null for an enumerated package, whose metadata.json is
+                   always readable
 
 Exports resolution cascade (must match parallel-extract.md §0):
 
@@ -50,12 +71,12 @@ Exports resolution cascade (must match parallel-extract.md §0):
 
   2. references/*.md — scan top-level `*.md` files under references/
      for an `## API` or `## Exports` section. Bulleted list items in
-     that section become exports. Set exports_source="references",
-     metadata_hash=null.
+     that section become exports. Set exports_source="references"
+     (metadata_hash stays the digest of metadata.json when one was read).
 
   3. SKILL.md prose — look for an `## Exports` or `## API Surface`
-     section and parse its bulleted list. Set exports_source="skill-md",
-     metadata_hash=null.
+     section and parse its bulleted list. Set exports_source="skill-md"
+     (metadata_hash stays the digest of metadata.json when one was read).
 
   4. None of the above — exports=[], exports_source="unknown",
      confidence="T1-low", append a warning
@@ -75,11 +96,12 @@ Cycle detection:
   starting node to `cycles[]` and emit a warning. Cycles do not abort
   enumeration; the inventory still lists every skill.
 
-Symlink handling:
+Warnings:
 
-  A skill directory may itself be a symlink (e.g. an "active" pointer).
-  If the target is unreadable (broken symlink, permission denied, etc.),
-  emit a warning and skip the entry — do not crash the whole scan.
+  Each starts `<name>: `: a metadata.json or version folder that cannot
+  be read (on a candidate passed over, or on a folder SKF cannot tell it
+  generated), an SKF package with no SKILL.md, no exports found via any
+  resolution path, a folder that cannot be resolved, and composes cycles.
 
 Per-skill errors (malformed metadata.json, OSError, etc.) are captured
 as warnings on the top-level result; they do not exit the process.
@@ -99,7 +121,8 @@ consumers that read only skills/cycles/warnings are unaffected):
 
   --reliability
       Attach the inventory reliability verdict computed from the counts
-      the script already owns:
+      the script already owns, over the skills SKF generated and their
+      warnings; `not_skf_output` never counts:
         skill_count       — len(skills)
         warning_count     — len(warnings)
         unreliable_ratio  — warning_count / (skill_count + warning_count),
@@ -109,8 +132,8 @@ consumers that read only skills/cycles/warnings are unaffected):
                             so consuming prompts read a boolean instead of
                             re-deriving a ratio + threshold comparison).
       The raw counts are emitted alongside the boolean so a caller's halt
-      message can still render "{warning_count}/{skill_count+warning_count}
-      skills returned malformed metadata".
+      message can still render "{warning_count} warning(s) across
+      {skill_count} skill(s)".
 
 Exit codes:
   0  enumeration succeeded (including zero skills found)
@@ -126,7 +149,9 @@ import argparse
 import hashlib
 import itertools
 import json
+import os
 import re
+import stat
 import sys
 from pathlib import Path
 
@@ -456,56 +481,195 @@ def _version_sort_key(name: str) -> tuple:
     return (tuple(nums), 0 if pre == "" else -1, name)
 
 
-def _inner_package(version_dir: Path) -> Path | None:
-    """Within a version directory, return the inner package dir holding SKILL.md.
+# Keep identical to SKF_GENERATORS in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
+SKF_GENERATORS = frozenset({"quick-skill", "create-skill", "create-stack-skill"})
 
-    Matches the `{version}/{skill-name}/SKILL.md` shape from
-    knowledge/version-paths.md. Returns None if no inner dir has a SKILL.md.
-    """
+
+# Keep identical to _has_skf_metadata in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
+def _has_skf_metadata(path: Path) -> bool:
+    """True when a flat skill's metadata.json carries an SKF marker."""
     try:
-        for inner in sorted(version_dir.iterdir()):
-            if inner.is_dir() and (inner / "SKILL.md").is_file():
-                return inner
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    generated_by = data.get("generated_by")
+    if isinstance(generated_by, str) and generated_by in SKF_GENERATORS:
+        return True
+    tool_versions = data.get("tool_versions")
+    if isinstance(tool_versions, dict) and "skf" in tool_versions:
+        return True
+    return (data.get("skill_type") in ("single", "individual", "stack")
+            and ("forge_tier" in data or "confidence_tier" in data))
+
+
+# Keep identical to _is_link_or_junction in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
+def _is_link_or_junction(p: Path) -> bool:
+    """True for POSIX symlinks AND Windows junctions/symlinks.
+
+    `Path.is_symlink()` is False for Windows junctions; os.readlink succeeds
+    for both symlinks and junctions (since CPython 3.8 on Windows). A regular
+    directory raises OSError on readlink, which is the signal we want to
+    refuse replacement. On Windows, any other reparse point (a cloud-sync
+    placeholder, a deduplicated file, an app execution alias) raises
+    ValueError: it does not redirect to another path, so it is not a link.
+    """
+    if p.is_symlink():
+        return True
+    if not p.exists() and not p.is_symlink():
+        return False
+    try:
+        os.readlink(p)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+# Keep identical to _is_marked_version in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
+def _is_marked_version(version_dir: Path, name: str) -> bool:
+    """True when `version_dir/name/metadata.json` carries an SKF marker.
+
+    SKF never links a version folder or the package inside one: a linked
+    one is not its output, whatever the metadata behind the link says.
+    """
+    package = version_dir / name
+    return (not _is_link_or_junction(version_dir) and not _is_link_or_junction(package)
+            and _has_skf_metadata(package / "metadata.json"))
+
+
+# Keep identical to _looks_like_skill in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
+def _looks_like_skill(skill_group_dir, skill_name):
+    """True when a group holds a root SKILL.md or a {v}/{name}/ folder."""
+    if (skill_group_dir / "SKILL.md").is_file():
+        return True
+    try:
+        return any(child.is_dir() and (child / skill_name).is_dir()
+                   for child in skill_group_dir.iterdir())
     except OSError:
+        return False
+
+
+def _metadata_problem(package: Path) -> str | None:
+    """What keeps `package/metadata.json` from being read, or None.
+
+    None when the file is absent or holds a JSON object; otherwise the
+    reason, so a corrupt metadata.json on an SKF skill is counted as a
+    warning instead of silently reading as "not SKF output".
+    """
+    meta_path = package / "metadata.json"
+    try:
+        # os.stat, not Path.is_file: from Python 3.14 pathlib reads a file
+        # SKF cannot reach as absent instead of raising.
+        if not stat.S_ISREG(os.stat(meta_path).st_mode):
+            return None
+        data = json.loads(meta_path.read_bytes().decode("utf-8"))
+    except (FileNotFoundError, NotADirectoryError):
         return None
+    except OSError as exc:
+        return f"failed to read ({exc})"
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return f"is not valid JSON ({exc})"
+    if not isinstance(data, dict):
+        return "root is not an object"
     return None
 
 
-def _resolve_package_dir(child: Path) -> Path | None:
-    """Resolve the agentskills package dir (the one containing SKILL.md).
+def _active_version_dir(child: Path) -> Path | None:
+    """The version folder `child/active` names, when it is a folder directly in `child`.
 
-    Supports both layouts defined in knowledge/version-paths.md:
-      - flat:           {child}/SKILL.md
-      - version-nested: {child}/active/{skill-name}/SKILL.md (via the `active`
-                        symlink) or {child}/{version}/{skill-name}/SKILL.md.
-
-    For the nested layout the `active` symlink wins; otherwise the highest
-    version directory by semver precedence is used. Returns None when no
-    SKILL.md is reachable (caller skips the entry as a non-package).
+    `active` as a link counts only when it resolves to a real folder
+    directly in the group whose name holds no `.skf-`; a real `active/`
+    folder counts as itself.
     """
-    # Flat layout — direct SKILL.md.
-    if (child / "SKILL.md").is_file():
-        return child
-
-    # Nested layout — prefer the stable `active` pointer.
     active = child / "active"
-    if active.is_dir():  # is_dir() follows the symlink; False if broken
-        pkg = _inner_package(active)
-        if pkg is not None:
-            return pkg
-
-    # Fallback — highest version directory.
-    try:
-        version_dirs = [
-            d for d in child.iterdir() if d.is_dir() and d.name != "active"
-        ]
-    except OSError:
-        return None
-    for vdir in sorted(version_dirs, key=lambda d: _version_sort_key(d.name), reverse=True):
-        pkg = _inner_package(vdir)
-        if pkg is not None:
-            return pkg
+    if _is_link_or_junction(active):
+        try:
+            target = active.resolve(strict=True)
+            group = child.resolve(strict=True)
+        except (OSError, RuntimeError):
+            return None
+        version = child / target.name
+        if (target.parent != group or ".skf-" in target.name or not target.is_dir()
+                or _is_link_or_junction(version)):
+            return None
+        return version
+    if active.is_dir():
+        return active
     return None
+
+
+def _skf_package(child: Path, name: str) -> tuple[Path | None, list[str]]:
+    """The package SKF generated that a stack roster reads, and what it could not read.
+
+    Candidates, in order: the version `active` names, the version folders
+    from highest to lowest (`active`, links and `.skf-` names aside), then a
+    flat root `SKILL.md`. The first whose `metadata.json` carries an SKF
+    marker wins (`{v}/{name}/metadata.json`, or the root one for the flat
+    layout). Returns (package, problems): package is None when no candidate
+    is marked; problems names each candidate passed over because SKF could
+    not read it, its metadata.json or its version folder. A linked package
+    is never SKF output (`_is_marked_version`), so it is passed over without
+    a problem and its metadata.json is never read.
+    """
+    problems: list[str] = []
+
+    def marked(version: Path) -> bool:
+        package = version / name
+        try:
+            os.listdir(version)  # raises on every Python when SKF cannot search it
+            if _is_marked_version(version, name):
+                return True
+            if _is_link_or_junction(package):
+                return False
+        except OSError as exc:
+            problems.append(f"{name}/{version.name} cannot be read ({exc})")
+            return False
+        problem = _metadata_problem(package)
+        if problem:
+            problems.append(f"{name}/{version.name}/{name}/metadata.json {problem}")
+        return False
+
+    active = _active_version_dir(child)
+    if active is not None and marked(active):
+        return child / "active" / name, problems
+    try:
+        entries = list(child.iterdir())
+    except OSError as exc:
+        entries = []
+        problems.append(f"{name} cannot be listed ({exc})")
+    versions: list[Path] = []
+    for entry in entries:
+        if (entry.name == "active" or ".skf-" in entry.name
+                or (active is not None and entry.name == active.name)):
+            continue
+        try:
+            if _is_link_or_junction(entry) or not entry.is_dir():
+                continue
+            # os.stat raises on every Python when SKF cannot search `entry`;
+            # from 3.14, Path.is_dir would read such a folder as empty.
+            if not stat.S_ISDIR(os.stat(entry / name).st_mode):
+                continue
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        except OSError:
+            pass  # a folder SKF cannot search may hold a version: marked() names it
+        versions.append(entry)
+    for vdir in sorted(versions, key=lambda d: _version_sort_key(d.name), reverse=True):
+        if marked(vdir):
+            return vdir / name, problems
+    if (child / "SKILL.md").is_file():
+        if _has_skf_metadata(child / "metadata.json"):
+            return child, problems
+        problem = _metadata_problem(child)
+        if problem:
+            problems.append(f"{name}/metadata.json {problem}")
+    return None, problems
 
 
 # --------------------------------------------------------------------------
@@ -515,7 +679,7 @@ def _resolve_package_dir(child: Path) -> Path | None:
 
 def enumerate_stack_skills(skills_root: Path) -> dict:
     """Walk `skills_root`, build inventory, detect cycles, return result."""
-    result: dict = {"skills": [], "cycles": [], "warnings": []}
+    result: dict = {"skills": [], "cycles": [], "warnings": [], "not_skf_output": []}
     compose_graph: dict[str, list[str]] = {}
 
     try:
@@ -528,38 +692,44 @@ def enumerate_stack_skills(skills_root: Path) -> dict:
 
     for child in children:
         name = child.name
-        if name.startswith("."):
-            continue
+        if name.startswith(".") or name == "_batch" or ".skf-" in name:
+            continue  # hidden folders and SKF's own batch and staging names
 
-        # Symlink fallback — a child-level symlink (e.g. a top-level `active`
-        # pointer) must resolve to a readable directory. If it's broken, warn
-        # and skip; otherwise keep the original path so the reported `path`
-        # stays relative to skills_root.
-        if child.is_symlink():
+        # A linked top-level folder is never SKF output: SKF never links a
+        # skill folder. List it when it looks like a skill; a broken link,
+        # or one SKF cannot read through, holds nothing to list.
+        if _is_link_or_junction(child):
             try:
-                target = child.resolve(strict=True)
-            except (FileNotFoundError, RuntimeError, OSError) as exc:
-                result["warnings"].append(
-                    f"{name}: symlink target unreadable ({exc})"
-                )
-                continue
-            if not target.is_dir():
-                result["warnings"].append(
-                    f"{name}: symlink target is not a directory"
-                )
-                continue
-        elif not child.is_dir():
+                if _looks_like_skill(child, name):
+                    result["not_skf_output"].append(name)
+            except OSError:
+                pass
+            continue
+        if not child.is_dir():
             continue
 
-        # Resolve the package dir across flat and version-nested layouts
-        # (knowledge/version-paths.md). Subdirs with no reachable SKILL.md
-        # (e.g. `shared/`, `knowledge/`) are skipped silently — not packages.
         try:
-            skill_dir = _resolve_package_dir(child)
-        except OSError as exc:
+            skill_dir, problems = _skf_package(child, name)
+            foreign = skill_dir is None and not problems and _looks_like_skill(child, name)
+        except Exception as exc:  # noqa: BLE001 — per-skill failures are warnings, not fatal
+            # An unreadable folder raises OSError; a metadata.json nested
+            # too deeply for the JSON parser raises RecursionError.
             result["warnings"].append(f"{name}: failed to resolve package dir ({exc})")
             continue
         if skill_dir is None:
+            if problems:
+                result["warnings"].append(
+                    f"{name}: SKF cannot tell whether it generated this skill: "
+                    + "; ".join(problems))
+            elif foreign:
+                result["not_skf_output"].append(name)
+            continue
+        rel = skill_dir.relative_to(skills_root).as_posix()
+        if problems:
+            result["warnings"].append(
+                f"{name}: " + "; ".join(problems) + f"; read the SKF package at {rel} instead")
+        if not (skill_dir / "SKILL.md").is_file():
+            result["warnings"].append(f"{name}: the SKF package at {rel} has no SKILL.md")
             continue
 
         try:
@@ -568,14 +738,9 @@ def enumerate_stack_skills(skills_root: Path) -> dict:
             result["warnings"].append(f"{name}: enumeration failed: {exc}")
             continue
 
-        # Reflect the resolved package location (forward-slash, relative to
-        # skills_root) — for the nested layout this is the `{active_skill}`
-        # path, for the flat layout just the skill name.
-        try:
-            entry["path"] = skill_dir.relative_to(skills_root).as_posix()
-        except ValueError:
-            entry["path"] = name
-
+        # The resolved package location, forward-slash and relative to
+        # skills_root: `x/active/x`, `x/{version}/x` or `x` (flat).
+        entry["path"] = rel
         result["skills"].append(entry)
         result["warnings"].extend(skill_warnings)
         compose_graph[name] = composes
@@ -623,7 +788,7 @@ def compute_reliability(skill_count: int, warning_count: int) -> dict:
     or 0.0 for an empty inventory (no ZeroDivisionError). The inventory is
     reliable when that ratio is <= RELIABILITY_THRESHOLD (boundary
     inclusive). Emits the raw counts too so a caller's halt message can
-    render "{warning_count}/{skill_count+warning_count}".
+    render "{warning_count} warning(s) across {skill_count} skill(s)".
     """
     total = skill_count + warning_count
     unreliable_ratio = (warning_count / total) if total else 0.0
@@ -650,7 +815,7 @@ def _cmd_enumerate(args: argparse.Namespace) -> int:
         return 1
     result = enumerate_stack_skills(skills_root)
     # Additive derived output — attached only when the flag is set, so the
-    # default shape stays {skills, cycles, warnings} for existing consumers.
+    # default shape stays {skills, cycles, warnings, not_skf_output}.
     if args.pairs:
         result["pairs"] = compute_pairs(result["skills"])
         result["pair_count"] = len(result["pairs"])
@@ -680,7 +845,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_enum.add_argument(
         "skills_root",
-        help="directory containing skill packages (each subdir has SKILL.md)",
+        help="directory holding skill folders; only packages SKF generated are enumerated",
     )
     p_enum.add_argument(
         "--pairs",

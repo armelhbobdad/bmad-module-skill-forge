@@ -2045,6 +2045,33 @@ def test_mixed_forge_folder_uses_prefix_patterns(tmp_path):
     assert "twice" not in note
 
 
+def test_forge_evidence_is_read_from_disk_like_the_skills_rule(tmp_path):
+    """A brief `.gitignore` hides still proves SKF wrote the forge folder."""
+    project = _git_repo(tmp_path / "repo", {
+        ".gitignore": b"forge-data/*/skill-brief.yaml\n",
+        "forge-data/n/skill-brief.yaml": b"name: n\n",
+        "forge-data/n/NOTES.md": b"# mine\n",
+    }, add=False)
+    _seed_ccc_settings(project)
+    payload = _merge(project, forge_data="forge-data")
+    assert "forge-data" in payload["effective_patterns"]
+    assert _collisions(payload, "forge_data_folder") == []
+
+
+def test_result_file_deeper_than_a_version_folder_is_not_forge_evidence(tmp_path):
+    project = _git_repo(tmp_path / "repo", {
+        "forge-data/n/skill-brief.yaml": b"name: n\n",
+        "forge-data/pkg/a/b/x-result-latest.json": b"{}\n",
+    })
+    _seed_ccc_settings(project)
+    payload = _merge(project, forge_data="forge-data")
+    effective = payload["effective_patterns"]
+    assert "forge-data/n" in effective and "forge-data" not in effective
+    assert not [p for p in effective if p.startswith("forge-data/pkg")]
+    [note] = _mixed(payload, "forge_data_folder")
+    assert "pkg/" in note
+
+
 @pytest.mark.parametrize("inner", ["mixed", "left-out"])
 def test_nested_folder_defers_to_inner_mixed_folder(tmp_path, inner):
     files = _marked({"skf/n/1.0.0/n/SKILL.md": b"# n\n", "skf/forge-data/notes/a.md": b"# mine\n"})
@@ -2549,6 +2576,284 @@ def test_no_single_quote_in_any_warning_or_reason(tmp_path, monkeypatch):
 def test_payload_safe_rewrites_every_unsafe_character():
     assert mod._payload_safe("it's a\\b\tc\nd\x7fe\udcff") == "it`s a/b?c?d?e?"
     assert mod._payload_safe("caf\u00e9 [x]") == "caf\u00e9 [x]"
+
+
+# ─── A user `!` entry that cancels an SKF folder exclusion ──────────────────
+#
+# ccc (0.2.41) walks into an excluded directory when a `!` entry matches it,
+# matches the one child name ccc probes it with (so a wildcard child), or
+# starts with `<dir>/`; everything below that no other pattern excludes is
+# then indexed. The two lists are ccc's own verdicts for a bare `skills`
+# pattern (PatternFilePathMatcher.is_dir_included, checked when the helper
+# was written).
+
+GETTING_STARTED_DOC = REPO_ROOT / "docs" / "getting-started.md"
+CCC_BRIDGE_DOC = REPO_ROOT / "src" / "knowledge" / "ccc-bridge.md"
+ONLY_SKF_OUTPUT = _marked({"skills/mylib/1.0.0/mylib/SKILL.md": b"# mylib\n"})
+
+CANCELS_WHOLE_FOLDER = [
+    "!skills", "!skills/", "!skills/installed-tool", "!skills/installed-tool/SKILL.md",
+    "!skills/installed-tool/**", "!skills/no-such-path", "!skills/**", "!skills/*.md",
+    "!skills//x", "!skill*", "!*", "!**", "!**/", "!**/**/", "!**/skills", "!**/skills/**",
+    "!{skills,docs}/x", "!sk{ills,x}/y", "!skills/?", "![!x]kills", "!*/*", "!**/skills/*",
+    "!skills?*",
+]
+LEAVES_FOLDER_EXCLUDED = [
+    "!**/SKILL.md", "!**/skills/x", "!**/*.md", "!**/.github/**", "!/skills", "!/skills/x",
+    "!./skills/x", "!Skills/x", "!skillsfoo/x", "!skills-old", "!src/generated", "![s]kills/x",
+    "!s*/x", "!*/x", "!!skills/x", "!", "!**/kills", "!**/ills/x", "!*/SKILL.md",
+    "!**/skills/SKILL.md",
+]
+
+
+def _cancel_warnings(payload: dict, key: str = "skills_output_folder") -> list[str]:
+    """The warnings for `key` that name a user `!` entry cancelling an SKF pattern."""
+    return [w for w in payload["warnings"]
+            if w.startswith(key + " ") and "applies a ! entry against every exclusion" in w]
+
+
+@pytest.mark.parametrize("entry", CANCELS_WHOLE_FOLDER)
+def test_negation_forms_ccc_reads_as_re_opening_the_folder(entry):
+    assert mod._negation_reopens(entry, "skills")
+
+
+@pytest.mark.parametrize("entry", LEAVES_FOLDER_EXCLUDED)
+def test_negation_forms_ccc_leaves_excluded(entry):
+    assert not mod._negation_reopens(entry, "skills")
+
+
+def test_negation_backslash_is_read_as_ccc_reads_it_on_this_machine():
+    # ccc reads settings.yml where the helper runs, and its glob library takes
+    # a backslash as `/` on Windows and as an escape elsewhere: `skills\**`
+    # re-opens the folder only on Windows.
+    assert mod._negation_reopens("!skills\\**", "skills", backslash_is_slash=True)
+    assert not mod._negation_reopens("!skills\\**", "skills", backslash_is_slash=False)
+    assert not mod._negation_reopens("!skills\\*", "skills", backslash_is_slash=False)
+    assert mod._negation_reopens("!**\\skills", "skills", backslash_is_slash=False)
+    assert mod.CCC_BACKSLASH_IS_SLASH is (os.name == "nt")
+    assert mod._negation_reopens("!skills\\**", "skills") is (os.name == "nt")
+
+
+def test_negation_with_many_brace_groups_keeps_the_merge_running(tmp_path):
+    many = "!" + "{s}" * 1500 + "/x"  # ccc reads it as sss...s/x
+    assert not mod._negation_reopens(many, "skills")
+    assert mod._negation_reopens("!skills/" + "{x}" * 1500, "skills")
+    project = _git_repo(tmp_path / "repo", ONLY_SKF_OUTPUT)
+    _seed_ccc_settings(project, extra_excludes=[many, "!skills/installed-tool"])
+    rc, payload, stderr = _run(project)
+    assert rc == 0, stderr
+    [warning] = _cancel_warnings(payload)
+    assert "also lists !skills/installed-tool:" in warning
+
+
+def test_negation_checks_nested_and_per_entry_targets():
+    assert mod._negation_reopens("!out/skills/x", "out/skills")
+    assert mod._negation_reopens("!o*", "out/skills")
+    assert not mod._negation_reopens("!out/x", "out/skills")
+    assert mod._negation_reopens("!skills/mylib/references", "skills/mylib")
+    assert mod._negation_reopens("!skills/*", "skills/_batch")
+    assert not mod._negation_reopens("!skills/vendor-skill", "skills/mylib")
+
+
+def test_pattern_path_undoes_class_escapes_and_skips_families():
+    assert mod._pattern_path("skills") == "skills"
+    assert mod._pattern_path("skills/[[]x[]]") == "skills/[x]"
+    assert mod._pattern_path("skills/export-skill-result*.json") is None
+    assert mod._pattern_path("forge-data/analyze-source-*") is None
+
+
+def test_negation_under_a_whole_folder_warns_and_is_kept(tmp_path):
+    project = _git_repo(tmp_path / "repo", ONLY_SKF_OUTPUT)
+    _seed_ccc_settings(project, extra_excludes=["!skills/installed-tool", "!src/generated"])
+    payload = _merge(project)
+    assert "skills" in payload["effective_patterns"]
+    [warning] = _cancel_warnings(payload)
+    assert warning.startswith("skills_output_folder skills is excluded from ccc as one folder")
+    assert "so all SKF output in skills is indexed again" in warning
+    assert "also lists !skills/installed-tool:" in warning and "!src/generated" not in warning
+    assert "Remove that entry" in warning and "twice" in warning and "re-run /skf-setup" in warning
+    assert _mixed(payload) == [] and _collisions(payload) == []
+    excludes = _read_settings(project)["exclude_patterns"]
+    assert "!skills/installed-tool" in excludes and "!src/generated" in excludes
+    _assert_payload_safe(payload)
+
+
+def test_negation_under_the_forge_folder_warns(tmp_path):
+    project = _git_repo(tmp_path / "repo", {"forge-data/n/skill-brief.yaml": b"name: n\n"})
+    _seed_ccc_settings(project, extra_excludes=["!forge-data/n/evidence-report.md"])
+    payload = _merge(project, forge_data="forge-data")
+    [warning] = _cancel_warnings(payload, "forge_data_folder")
+    assert warning.startswith("forge_data_folder forge-data is excluded from ccc as one folder")
+    assert "twice" not in warning
+    assert _cancel_warnings(payload) == []
+
+
+def test_negation_warns_again_once_the_folder_goes_back_to_one_pattern(tmp_path):
+    project = _git_repo(tmp_path / "repo", MIXED_SKILLS)
+    _seed_ccc_settings(project, extra_excludes=["!skills/vendor-skill"])
+    prior = _record(tmp_path, [])
+
+    def run():
+        payload = _merge(project, prior=prior)
+        _record(tmp_path, payload["effective_patterns"])
+        return payload
+
+    shared = run()
+    assert "skills" not in shared["effective_patterns"]
+    assert _cancel_warnings(shared) == []  # it only re-includes the vendor skill
+
+    shutil.rmtree(project / "skills" / "vendor-skill")
+    _git(project, "rm", "-r", "-q", "--cached", "skills/vendor-skill")
+    whole = run()
+    assert whole["patterns_added_list"] == ["skills"]
+    [warning] = _cancel_warnings(whole)
+    assert "!skills/vendor-skill" in warning and "as one folder" in warning
+    assert "!skills/vendor-skill" in _read_settings(project)["exclude_patterns"]
+
+
+def test_negation_cancelling_an_skf_entry_in_a_shared_folder_warns(tmp_path):
+    project = _git_repo(tmp_path / "repo", MIXED_SKILLS)
+    _seed_ccc_settings(project, extra_excludes=["!skills/vendor-skill",
+                                                "!skills/mylib/1.0.0/mylib/references"])
+    payload = _merge(project)
+    [note] = _mixed(payload)
+    [warning] = _cancel_warnings(payload)
+    assert "one SKF entry at a time" in warning
+    assert "!skills/mylib/1.0.0/mylib/references" in warning
+    assert "!skills/vendor-skill" not in warning
+
+
+@pytest.mark.parametrize("case", ["bare", "no_negation", "left_out", "user"])
+def test_negation_warns_only_where_skf_writes_a_folder_pattern(tmp_path, case):
+    files = MODULE_SOURCE if case == "left_out" else ONLY_SKF_OUTPUT
+    project = _git_repo(tmp_path / "repo", files)
+    extra = {"bare": ["!skills/mine"], "no_negation": [], "left_out": ["!skills/my-agent"],
+             "user": ["skills", "!skills/mine"]}[case]
+    _seed_ccc_settings(project, extra_excludes=extra)
+    prior = _record(tmp_path, list(mod.ALWAYS_INCLUDE)) if case == "user" else None
+    payload = _merge(project, prior=prior)
+    if case == "bare":
+        assert len(_cancel_warnings(payload)) == 1
+    else:
+        assert _cancel_warnings(payload) == []
+    if case == "left_out":
+        assert len(_collisions(payload)) == 1
+    if case == "user":
+        assert "skills" not in payload["effective_patterns"]
+
+
+def test_negation_warning_lists_three_and_counts_the_rest(tmp_path):
+    project = _git_repo(tmp_path / "repo", ONLY_SKF_OUTPUT)
+    _seed_ccc_settings(project, extra_excludes=[f"!skills/n{i}" for i in range(5)])
+    [warning] = _cancel_warnings(_merge(project))
+    assert "also lists !skills/n0, !skills/n1, !skills/n2 and 2 more:" in warning
+    assert "Remove those entries" in warning
+
+
+def test_negation_warning_is_payload_safe(tmp_path):
+    project = _git_repo(tmp_path / "repo", ONLY_SKF_OUTPUT)
+    _seed_ccc_settings(project, extra_excludes=["!skills/don't", "!skills/a\\b"])
+    rc, payload, stderr = _run(project)
+    assert rc == 0, stderr
+    [warning] = _cancel_warnings(payload)
+    assert "also lists !skills/don`t, !skills/a?b:" in warning
+    _assert_payload_safe(payload)
+
+
+HIDDEN_SKILLS = _marked({".claude/skills/mylib/1.0.0/mylib/SKILL.md": b"# mylib\n"})
+
+
+@pytest.mark.parametrize("skills,extra,warns", [
+    ("skills", ["!skills/x"], True),
+    # The user's own `skills/*` still keeps every skill out.
+    ("skills", ["skills/*", "!skills/x"], False),
+    # ccc's `**/.*` still keeps .claude/skills/<skill> out.
+    (".claude/skills", ["!.claude/skills/x"], False),
+    # .claude itself stays excluded, so ccc never gets to .claude/skills.
+    (".claude/skills", ["!**/skills"], False),
+    (".claude/skills", ["!.claude/skills/**"], True),
+    (".claude/skills", ["!.claude/skills/mylib/**"], True),
+    # It re-opens .claude/skills/mylib, but `**/.*` keeps its version folder out.
+    (".claude/skills", ["!.claude/skills/mylib"], False),
+], ids=["bare", "user-glob-below", "hidden-parent", "parent-not-reopened", "hidden-reopened",
+        "skill-reopened", "skill-folder-only"])
+def test_negation_warns_only_when_ccc_walks_down_to_skf_output(tmp_path, skills, extra, warns):
+    project = _git_repo(tmp_path / "repo", HIDDEN_SKILLS if skills != "skills" else ONLY_SKF_OUTPUT)
+    _seed_ccc_settings(project, extra_excludes=extra)
+    payload = _merge(project, skills=skills)
+    assert skills in payload["effective_patterns"]
+    assert len(_cancel_warnings(payload)) == int(warns)
+
+
+@pytest.mark.parametrize("key,folder,dirs,extra,warns", [
+    ("skills_output_folder", "skills", [], ["!skills/x"], True),
+    ("skills_output_folder", "skills", ["skills/a/b"], ["!skills/x"], True),
+    ("forge_data_folder", "forge-data", [], ["!forge-data/x"], True),
+    # The user's own `skills/*` keeps what SKF writes there later out.
+    ("skills_output_folder", "skills", [], ["skills/*", "!skills/x"], False),
+], ids=["absent", "empty-folders", "forge-absent", "user-glob-below"])
+def test_negation_warns_before_skf_writes_any_output(tmp_path, key, folder, dirs, extra, warns):
+    # A first setup run: git lists no SKF file below the folder yet, so the
+    # check falls back to the child ccc probes an excluded folder with.
+    project = _git_repo(tmp_path / "repo")
+    for d in dirs:
+        (project / d).mkdir(parents=True)
+    _seed_ccc_settings(project, extra_excludes=extra)
+    kw = {"skills": folder} if key == "skills_output_folder" else {"forge_data": folder}
+    payload = _merge(project, **kw)
+    assert folder in payload["effective_patterns"]
+    got = _cancel_warnings(payload, key)
+    assert len(got) == int(warns)
+    if warns:
+        assert "as one folder" in got[0]
+
+
+def test_negation_warning_says_all_only_when_every_skf_entry_is_back(tmp_path):
+    project = _git_repo(tmp_path / "repo", _marked({
+        ".github/skills/mylib/1.0.0/mylib/SKILL.md": b"# mylib\n",
+        ".github/skills/other/1.0.0/other/SKILL.md": b"# other\n",
+    }))
+    _seed_ccc_settings(project, extra_excludes=["!.github/skills/mylib/**"])
+    [warning] = _cancel_warnings(_merge(project, skills=".github/skills"))
+    assert "so some SKF output in .github/skills is indexed again" in warning
+    assert "put it in a folder of its own there" in warning
+    _seed_ccc_settings(project, extra_excludes=["!.github/skills/**"])
+    [warning] = _cancel_warnings(_merge(project, skills=".github/skills"))
+    assert "so all SKF output in .github/skills is indexed again" in warning
+
+
+def test_negation_in_an_always_excluded_folder_offers_no_folder_of_its_own(tmp_path):
+    project = _git_repo(tmp_path / "repo", _marked({
+        "_bmad-output/skills/mylib/1.0.0/mylib/SKILL.md": b"# mylib\n",
+        "_bmad-output/skills/mine/notes.md": b"# mine\n",
+    }))
+    _seed_ccc_settings(project, extra_excludes=["!_bmad-output/skills/mine"])
+    for _ in range(2):  # the warning repeats on every run
+        payload = _merge(project, skills="_bmad-output/skills")
+        assert _mixed(payload) == []
+        [warning] = _cancel_warnings(payload)
+        assert "as one folder" in warning and "is indexed again" in warning
+        assert "SKF always keeps _bmad-output out of ccc" in warning
+        assert "a folder of its own" not in warning and "re-run /skf-setup" not in warning
+
+
+def test_docs_warn_against_negations_in_skf_folders():
+    text = GETTING_STARTED_DOC.read_text(encoding="utf-8")
+    para = next(p for p in text.split("\n\n") if "Do not add a `!` entry" in p)
+    for needle in ("`skills_output_folder`", "`forge_data_folder`", "a folder of its own",
+                   "re-run `/skf-setup`", "warns on every run", "a `/*` or `/**` form",
+                   "setup always excludes, such as `_bmad-output` or `.claude`"):
+        assert needle in para, needle
+    bridge = CCC_BRIDGE_DOC.read_text(encoding="utf-8")
+    line = next(l for l in bridge.splitlines() if l.startswith("SKF never writes a `!` negation"))
+    for needle in ("`{forge_data_folder}`", "matches any name one level inside it",
+                   "`*/x` is not one", "no other pattern excludes", "warns on every run",
+                   "back to the bare pattern", "`warnings`"):
+        assert needle in line, needle
+    # `!*/x` matches skills/x, a path one level inside skills, yet ccc keeps skills out.
+    assert "a path one level inside it" not in line
+    assert "A `!` entry of the user's cancels an SKF pattern the same way" in mod.__doc__
+    assert "a path one level inside it" not in " ".join(mod.__doc__.split())
 
 
 # ─── Prose pins on the step files that consume the helper output ────────────

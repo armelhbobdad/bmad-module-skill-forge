@@ -11,7 +11,9 @@ Covers the exports resolution cascade documented in
 
 Plus:
   - Cycle detection on `composes: [...]` (direct + transitive)
-  - Symlink fallback when target unreadable (warning, no crash)
+  - Ownership: only packages whose metadata.json carries an SKF marker are
+    enumerated; other skill folders and top-level links go to
+    `not_skf_output`, and unreadable metadata counts as a warning
   - CLI subprocess invocation produces valid JSON
   - Empty skills root → empty inventory, exit 0
   - Bad skills root → exit 1
@@ -26,6 +28,8 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -55,16 +59,21 @@ def _make_skill(
     skill_md: str | None = "# placeholder\n",
     metadata: dict | None = None,
     references: dict[str, str] | None = None,
+    marked: bool = True,
 ) -> Path:
     """Create a skill package under `root` with optional artifacts.
 
-    `metadata` is dumped as metadata.json verbatim (None → no file).
-    `references` maps file name → markdown content (None → no dir).
+    `metadata` is dumped as metadata.json (None → no file); with `marked`
+    (the default) it carries the SKF marker `generated_by: create-skill`, so
+    the package counts as one SKF generated. `references` maps file name →
+    markdown content (None → no dir).
     """
     skill_dir = root / name
     skill_dir.mkdir(parents=True, exist_ok=True)
     if skill_md is not None:
         (skill_dir / "SKILL.md").write_text(skill_md, encoding="utf-8")
+    if metadata is not None and marked:
+        metadata = {**metadata, "generated_by": metadata.get("generated_by", "create-skill")}
     if metadata is not None:
         (skill_dir / "metadata.json").write_text(
             json.dumps(metadata, indent=2), encoding="utf-8"
@@ -86,6 +95,7 @@ def _make_nested_skill(
     metadata: dict | None = None,
     references: dict[str, str] | None = None,
     active: bool = True,
+    marked: bool = True,
 ) -> Path:
     """Create a version-nested skill package and return the inner package dir.
 
@@ -99,6 +109,7 @@ def _make_nested_skill(
         skill_md=skill_md,
         metadata=metadata,
         references=references,
+        marked=marked,
     )
     if active:
         import pytest
@@ -113,6 +124,23 @@ def _make_nested_skill(
 
 def _expected_hash(content: bytes) -> str:
     return "sha256:" + hashlib.sha256(content).hexdigest()
+
+
+def _symlink(target: Path, link: Path) -> None:
+    """Create a directory link at `link`, skipping where links are unsupported."""
+    import pytest
+
+    link.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.symlink(target, link, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not supported on this platform")
+
+
+def _write_bytes(path: Path, content: bytes) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    return path
 
 
 # --------------------------------------------------------------------------
@@ -413,7 +441,7 @@ class TestDetectCycles:
 class TestEnumerateStackSkills:
     def test_empty_skills_root(self, tmp_path: Path) -> None:
         result = mod.enumerate_stack_skills(tmp_path)
-        assert result == {"skills": [], "cycles": [], "warnings": []}
+        assert result == {"skills": [], "cycles": [], "warnings": [], "not_skf_output": []}
 
     def test_single_skill_with_metadata(self, tmp_path: Path) -> None:
         _make_skill(
@@ -439,22 +467,30 @@ class TestEnumerateStackSkills:
             "a-meta",
             metadata={"name": "a-meta", "exports": ["m1"]},
         )
+        # Marked metadata without an `exports` key falls through the cascade.
         _make_skill(
             tmp_path,
             "b-refs",
-            metadata=None,
+            metadata={"name": "b-refs"},
             references={"x.md": "## API\n- r1\n- r2\n"},
         )
         _make_skill(
             tmp_path,
             "c-prose",
             skill_md="# c\n## API Surface\n- p1\n",
-            metadata=None,
+            metadata={"name": "c-prose"},
         )
         _make_skill(
             tmp_path,
             "d-none",
             skill_md="# d\n",
+            metadata={"name": "d-none"},
+        )
+        # A module's own skill: no metadata.json, so not SKF output.
+        _make_skill(
+            tmp_path,
+            "e-module",
+            skill_md="# e\n## API Surface\n- m1\n",
             metadata=None,
         )
         result = mod.enumerate_stack_skills(tmp_path)
@@ -465,6 +501,8 @@ class TestEnumerateStackSkills:
         assert by_name["d-none"]["exports_source"] == "unknown"
         assert by_name["d-none"]["confidence"] == "T1-low"
         assert any("d-none: no exports found" in w for w in result["warnings"])
+        assert "e-module" not in by_name
+        assert result["not_skf_output"] == ["e-module"]
 
     def test_cycle_in_composes(self, tmp_path: Path) -> None:
         _make_skill(
@@ -522,25 +560,20 @@ class TestEnumerateStackSkills:
         # No warning emitted for the non-skill subdir.
         assert all("knowledge" not in w for w in result["warnings"])
 
-    def test_broken_symlink_warns_no_crash(self, tmp_path: Path) -> None:
-        # Create a real skill, then point a symlink at a missing dir.
-        _make_skill(
-            tmp_path,
-            "real",
-            metadata={"name": "real", "exports": ["x"]},
-        )
-        missing = tmp_path / "_does_not_exist"
-        link = tmp_path / "broken-link"
-        try:
-            os.symlink(missing, link, target_is_directory=True)
-        except (OSError, NotImplementedError):
-            import pytest
-            pytest.skip("symlinks not supported on this platform")
-        result = mod.enumerate_stack_skills(tmp_path)
+    def test_top_level_links_are_never_skf_output(self, tmp_path: Path) -> None:
+        # SKF never links a skill folder: a live link to a marked skill is
+        # listed as not SKF output, and a broken link holds nothing to list.
+        root = tmp_path / "skills"
+        _make_skill(root, "real", metadata={"name": "real", "exports": ["x"]})
+        _make_skill(tmp_path / "elsewhere", "linked",
+                    metadata={"name": "linked", "exports": ["y"]})
+        _symlink(tmp_path / "elsewhere" / "linked", root / "linked")
+        _symlink(tmp_path / "_does_not_exist", root / "broken-link")
+        result = mod.enumerate_stack_skills(root)
         names = [s["name"] for s in result["skills"]]
-        assert "real" in names
-        assert "broken-link" not in names
-        assert any("broken-link" in w and "symlink" in w for w in result["warnings"])
+        assert names == ["real"]
+        assert result["not_skf_output"] == ["linked"]
+        assert result["warnings"] == []
 
     def test_skills_emitted_in_sorted_order(self, tmp_path: Path) -> None:
         for n in ("zeta", "alpha", "mu"):
@@ -724,7 +757,7 @@ class TestCli:
         result = _run_cli("enumerate", str(tmp_path))
         assert result.returncode == 0
         payload = json.loads(result.stdout)
-        assert payload == {"skills": [], "cycles": [], "warnings": []}
+        assert payload == {"skills": [], "cycles": [], "warnings": [], "not_skf_output": []}
 
     def test_enumerate_bad_root_exits_1(self, tmp_path: Path) -> None:
         result = _run_cli("enumerate", str(tmp_path / "does-not-exist"))
@@ -738,13 +771,13 @@ class TestCli:
 
     def test_default_output_has_no_derived_keys(self, tmp_path: Path) -> None:
         # The additive flags must stay off by default: no --pairs/--reliability
-        # means the top-level shape is exactly {skills, cycles, warnings}, so
-        # existing consumers (skf-create-stack-skill/parallel-extract.md) that
-        # read only those keys are unaffected.
+        # means the top-level shape is exactly {skills, cycles, warnings,
+        # not_skf_output}, the shape skf-create-stack-skill/parallel-extract.md
+        # documents.
         _make_skill(tmp_path, "alpha", metadata={"name": "alpha", "exports": ["a"]})
         result = _run_cli("enumerate", str(tmp_path))
         payload = json.loads(result.stdout)
-        assert set(payload) == {"skills", "cycles", "warnings"}
+        assert set(payload) == {"skills", "cycles", "warnings", "not_skf_output"}
 
 
 # --------------------------------------------------------------------------
@@ -869,14 +902,312 @@ class TestComputeReliability:
         assert payload["unreliable_ratio"] == 0.0
 
     def test_cli_reliability_unreliable_when_many_warnings(self, tmp_path: Path) -> None:
-        # 1 skill with exports + 2 skills that resolve to zero exports emit
-        # "no exports found" warnings => 2 warnings / 3 total = 0.667 > 0.20.
+        # 1 skill with exports + 2 SKF skills that resolve to zero exports
+        # emit "no exports found" warnings => 2 warnings / 5 total = 0.40 >
+        # 0.20. A module's own skill beside them counts on neither side.
         _make_skill(tmp_path, "good", metadata={"name": "good", "exports": ["x"]})
-        _make_skill(tmp_path, "bare1", skill_md="# bare1\n", metadata=None)
-        _make_skill(tmp_path, "bare2", skill_md="# bare2\n", metadata=None)
+        _make_skill(tmp_path, "bare1", skill_md="# bare1\n", metadata={"name": "bare1"})
+        _make_skill(tmp_path, "bare2", skill_md="# bare2\n", metadata={"name": "bare2"})
+        _make_skill(tmp_path, "module", skill_md="# module\n", metadata=None)
         payload = json.loads(
             _run_cli("enumerate", str(tmp_path), "--reliability").stdout
         )
         assert payload["skill_count"] == 3
         assert payload["warning_count"] == 2
         assert payload["inventory_reliable"] is False
+        assert payload["not_skf_output"] == ["module"]
+
+
+# --------------------------------------------------------------------------
+# Ownership — a stack roster reads only the skills SKF generated
+# --------------------------------------------------------------------------
+
+
+class TestOwnership:
+    """Only a package whose metadata.json carries an SKF marker is a skill.
+
+    The marker functions are pinned copies of skf-skill-inventory.py's
+    (test-skf-skill-inventory.py checks the copies and the parity)."""
+
+    def test_module_skills_are_listed_not_counted(self, tmp_path: Path) -> None:
+        # A module's own skills in a shared skills folder: SKILL.md only.
+        for name in ("lib-a", "lib-b", "lib-c"):
+            _make_nested_skill(tmp_path, name, "1.0.0",
+                               metadata={"name": name, "exports": [name]})
+        _make_skill(tmp_path, "skf-setup", skill_md="# setup\n")
+        _make_skill(tmp_path, "skf-drop-skill", skill_md="# drop\n")
+        result = _run_cli("enumerate", str(tmp_path), "--pairs", "--reliability")
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert [s["name"] for s in payload["skills"]] == ["lib-a", "lib-b", "lib-c"]
+        assert payload["not_skf_output"] == ["skf-drop-skill", "skf-setup"]
+        assert payload["warnings"] == []
+        assert payload["inventory_reliable"] is True
+        assert (payload["skill_count"], payload["warning_count"]) == (3, 0)
+        assert payload["pair_count"] == 3
+
+    def test_unmarked_metadata_is_not_skf_output(self, tmp_path: Path) -> None:
+        # A module skill an earlier SKF moved into the versioned layout, and a
+        # flat skill whose metadata.json carries exports but no marker.
+        _make_nested_skill(tmp_path, "vmod", "1.0.0", metadata=None)
+        _make_skill(tmp_path, "metamod", metadata={"name": "metamod", "exports": ["q"]},
+                    marked=False)
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert result["skills"] == []
+        assert result["not_skf_output"] == ["metamod", "vmod"]
+        assert result["warnings"] == []
+
+    def test_mixed_group_reads_the_marked_version(self, tmp_path: Path) -> None:
+        # A module's root SKILL.md beside a marked version: read the version.
+        _make_skill(tmp_path, "mix", skill_md="# module\n")
+        _make_nested_skill(tmp_path, "mix", "2.0.0", metadata={"name": "mix", "exports": ["m"]})
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert [(s["name"], s["path"]) for s in result["skills"]] == [("mix", "mix/active/mix")]
+        assert result["skills"][0]["exports"] == ["m"]
+        assert result["not_skf_output"] == []
+
+    def test_unmarked_active_falls_back_to_the_highest_marked_version(self, tmp_path: Path) -> None:
+        _make_nested_skill(tmp_path, "half", "1.0.0", metadata={"name": "half"}, marked=False)
+        _make_nested_skill(tmp_path, "half", "0.9.0", metadata={"name": "half", "exports": ["h"]},
+                           active=False)
+        _make_nested_skill(tmp_path, "half", "0.5.0", metadata={"name": "half", "exports": ["old"]},
+                           active=False)
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert [s["path"] for s in result["skills"]] == ["half/0.9.0/half"]
+        assert result["skills"][0]["exports"] == ["h"]
+        assert result["warnings"] == []
+
+    def test_active_outside_the_group_is_ignored(self, tmp_path: Path) -> None:
+        # The folder outside shares its name with the marked version inside,
+        # so only the check that `active` stays in the group keeps the
+        # roster from reading the package behind the link.
+        root = tmp_path / "skills"
+        _make_nested_skill(root, "out", "1.0.0", metadata={"name": "out", "exports": ["o"]},
+                           active=False)
+        _make_skill(tmp_path / "elsewhere" / "1.0.0", "out",
+                    metadata={"name": "out", "exports": ["foreign"]})
+        _symlink(tmp_path / "elsewhere" / "1.0.0", root / "out" / "active")
+        result = mod.enumerate_stack_skills(root)
+        assert [s["path"] for s in result["skills"]] == ["out/1.0.0/out"]
+        assert result["skills"][0]["exports"] == ["o"]
+
+    def test_active_naming_a_staging_version_is_ignored(self, tmp_path: Path) -> None:
+        _make_nested_skill(tmp_path, "st", "1.0.0", metadata={"name": "st", "exports": ["done"]},
+                           active=False)
+        _make_nested_skill(tmp_path, "st", "2.0.0.skf-tmp",
+                           metadata={"name": "st", "exports": ["partial"]})
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert [s["path"] for s in result["skills"]] == ["st/1.0.0/st"]
+        assert result["skills"][0]["exports"] == ["done"]
+
+    def test_real_active_folder_is_read(self, tmp_path: Path) -> None:
+        # A real `active/` folder (no link support) holding a marked package.
+        _make_skill(tmp_path / "ra" / "active", "ra", metadata={"name": "ra", "exports": ["a"]})
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert [s["path"] for s in result["skills"]] == ["ra/active/ra"]
+        assert result["not_skf_output"] == [] and result["warnings"] == []
+
+    def test_linked_package_is_not_skf_output_whatever_its_metadata(self, tmp_path: Path) -> None:
+        # SKF never links the package inside a version folder, so a corrupt
+        # metadata.json behind such a link is not a warning: the folder is
+        # listed as not SKF output, as the inventory lists it.
+        root = tmp_path / "skills"
+        ext = tmp_path / "ext"
+        _write(ext / "lnk" / "SKILL.md", "# l\n")
+        _write(ext / "lnk" / "metadata.json", '{"generated_by":"create-skill", broken')
+        _symlink(ext / "lnk", root / "lnk" / "1.0.0" / "lnk")
+        _write(ext / "act" / "SKILL.md", "# a\n")
+        _write(ext / "act" / "metadata.json", "{broken")
+        _symlink(ext / "act", root / "act" / "1.0.0" / "act")
+        _symlink(Path("1.0.0"), root / "act" / "active")
+        result = mod.enumerate_stack_skills(root)
+        assert result["skills"] == []
+        assert result["not_skf_output"] == ["act", "lnk"]
+        assert result["warnings"] == []
+
+    def test_linked_version_folder_is_passed_over_without_a_warning(self, tmp_path: Path) -> None:
+        # SKF never links a version folder, so a corrupt metadata.json behind
+        # one is never read: the marked real version beside it is read, and a
+        # group holding only the linked version is not SKF output.
+        root = tmp_path / "skills"
+        ext = tmp_path / "ext"
+        for group in ("lv", "only"):
+            _write(ext / group / group / "SKILL.md", "# linked\n")
+            _write(ext / group / group / "metadata.json", '{"generated_by":"create-skill", broken')
+            _symlink(ext / group, root / group / "2.0.0")
+        _make_nested_skill(root, "lv", "1.0.0", metadata={"name": "lv", "exports": ["lv"]},
+                           active=False)
+        result = mod.enumerate_stack_skills(root)
+        assert [s["path"] for s in result["skills"]] == ["lv/1.0.0/lv"]
+        assert result["not_skf_output"] == ["only"]
+        assert result["warnings"] == []
+
+    def test_marked_flat_root_yields_to_a_marked_version(self, tmp_path: Path) -> None:
+        # Candidates: the version `active` names, then the versions from
+        # highest to lowest, and only then a flat root.
+        _make_skill(tmp_path, "fv", metadata={"name": "fv", "exports": ["flat"]})
+        _make_nested_skill(tmp_path, "fv", "1.0.0", metadata={"name": "fv", "exports": ["ver"]},
+                           active=False)
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert [(s["path"], s["exports"]) for s in result["skills"]] == [("fv/1.0.0/fv", ["ver"])]
+
+    def test_corrupt_metadata_is_one_counted_warning(self, tmp_path: Path) -> None:
+        pkg = _make_nested_skill(tmp_path, "corrupt", "1.0.0", metadata=None)
+        _write(pkg / "metadata.json", '{"generated_by":"create-skill", broken')
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert result["skills"] == [] and result["not_skf_output"] == []
+        assert len(result["warnings"]) == 1
+        assert result["warnings"][0].startswith("corrupt: SKF cannot tell whether it generated")
+
+    def test_bom_metadata_is_one_counted_warning(self, tmp_path: Path) -> None:
+        pkg = _make_skill(tmp_path, "bom")
+        marked = json.dumps({"generated_by": "create-skill", "exports": ["b"]}).encode("utf-8")
+        _write_bytes(pkg / "metadata.json", b"\xef\xbb\xbf" + marked)
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert result["skills"] == [] and result["not_skf_output"] == []
+        assert len(result["warnings"]) == 1
+        assert result["warnings"][0].startswith("bom: SKF cannot tell whether it generated")
+        assert "bom/metadata.json" in result["warnings"][0]
+
+    def test_non_object_metadata_is_one_counted_warning(self, tmp_path: Path) -> None:
+        pkg = _make_nested_skill(tmp_path, "arr", "1.0.0", metadata=None)
+        _write(pkg / "metadata.json", '["generated_by", "create-skill"]')
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert result["skills"] == [] and result["not_skf_output"] == []
+        assert result["warnings"] == [
+            "arr: SKF cannot tell whether it generated this skill: "
+            "arr/1.0.0/arr/metadata.json root is not an object"]
+
+    def test_unreadable_active_version_warns_and_reads_the_older_one(self, tmp_path: Path) -> None:
+        # 2.0.0 is both `active` and the highest version: it is named once.
+        pkg = _make_nested_skill(tmp_path, "act", "2.0.0", metadata=None)
+        _write(pkg / "metadata.json", "{bad")
+        _make_nested_skill(tmp_path, "act", "1.0.0", metadata={"name": "act", "exports": ["a"]},
+                           active=False)
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert [s["path"] for s in result["skills"]] == ["act/1.0.0/act"]
+        assert len(result["warnings"]) == 1
+        warning = result["warnings"][0]
+        assert warning.startswith("act: act/2.0.0/act/metadata.json is not valid JSON")
+        assert warning.count("act/2.0.0/act/metadata.json") == 1
+        assert "read the SKF package at act/1.0.0/act" in warning
+
+    def test_too_deeply_nested_metadata_is_one_warning_not_a_crash(self, tmp_path: Path) -> None:
+        _make_skill(tmp_path, "good", metadata={"name": "good", "exports": ["g"]})
+        _write(tmp_path / "deep" / "SKILL.md", "# deep\n")
+        _write(tmp_path / "deep" / "metadata.json", "[" * 200000)
+        result = _run_cli("enumerate", str(tmp_path))
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert [s["name"] for s in payload["skills"]] == ["good"]
+        assert payload["not_skf_output"] == []
+        assert len(payload["warnings"]) == 1
+        assert payload["warnings"][0].startswith("deep: failed to resolve package dir")
+
+    @pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                        reason="needs POSIX permissions that deny this user")
+    def test_link_to_an_unreadable_folder_is_skipped_not_a_crash(self, tmp_path: Path) -> None:
+        root = tmp_path / "skills"
+        _make_skill(root, "good", metadata={"name": "good", "exports": ["g"]})
+        locked = tmp_path / "locked"
+        _write(locked / "mod" / "SKILL.md", "# mod\n")
+        _symlink(locked / "mod", root / "mod")
+        locked.chmod(0)
+        try:
+            result = _run_cli("enumerate", str(root))
+        finally:
+            locked.chmod(0o755)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert [s["name"] for s in payload["skills"]] == ["good"]
+        assert payload["not_skf_output"] == [] and payload["warnings"] == []
+
+    @pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                        reason="needs POSIX permissions that deny this user")
+    @pytest.mark.parametrize("locked_rel, prefix", [
+        ("zzz", None),
+        ("2.0.0", "x: x/2.0.0 cannot be read ("),
+        ("2.0.0/x", "x: x/2.0.0/x/metadata.json failed to read ("),
+    ])
+    def test_unreadable_folder_in_a_group_keeps_its_marked_version(
+            self, tmp_path: Path, locked_rel: str, prefix: str | None) -> None:
+        # One folder SKF cannot search never drops the marked version beside
+        # it; when it sorts above that version it is named in one warning.
+        _make_nested_skill(tmp_path, "x", "1.0.0", metadata={"name": "x", "exports": ["x"]},
+                           active=False)
+        _make_nested_skill(tmp_path, "y", "1.0.0", metadata={"name": "y", "exports": ["y"]},
+                           active=False)
+        (tmp_path / "x" / locked_rel.split("/")[0] / "x").mkdir(parents=True)
+        locked = tmp_path / "x" / locked_rel
+        locked.chmod(0)
+        try:
+            result = mod.enumerate_stack_skills(tmp_path)
+        finally:
+            locked.chmod(0o755)
+        assert [(s["name"], s["path"]) for s in result["skills"]] == [
+            ("x", "x/1.0.0/x"), ("y", "y/1.0.0/y")]
+        assert result["not_skf_output"] == []
+        if prefix is None:
+            assert result["warnings"] == []
+        else:
+            assert len(result["warnings"]) == 1
+            warning = result["warnings"][0]
+            assert warning.startswith(prefix), warning
+            assert warning.endswith("; read the SKF package at x/1.0.0/x instead")
+
+    @pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                        reason="needs POSIX permissions that deny this user")
+    def test_group_that_cannot_be_listed_is_one_warning(self, tmp_path: Path) -> None:
+        _make_nested_skill(tmp_path, "x", "1.0.0", metadata={"name": "x", "exports": ["x"]},
+                           active=False)
+        group = tmp_path / "x"
+        group.chmod(0o311)  # searchable, not listable
+        try:
+            result = mod.enumerate_stack_skills(tmp_path)
+        finally:
+            group.chmod(0o755)
+        assert result["skills"] == [] and result["not_skf_output"] == []
+        assert len(result["warnings"]) == 1
+        assert result["warnings"][0].startswith(
+            "x: SKF cannot tell whether it generated this skill: x cannot be listed (")
+
+    def test_marked_package_without_skill_md_warns(self, tmp_path: Path) -> None:
+        _make_nested_skill(tmp_path, "nosk", "1.0.0", skill_md=None,
+                           metadata={"name": "nosk", "exports": []})
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert result["skills"] == [] and result["not_skf_output"] == []
+        assert result["warnings"] == ["nosk: the SKF package at nosk/active/nosk has no SKILL.md"]
+
+    def test_staging_and_batch_names_are_skipped(self, tmp_path: Path) -> None:
+        _make_skill(tmp_path, "foo.skf-tmp", metadata={"name": "foo", "exports": ["f"]})
+        _make_skill(tmp_path, "_batch", skill_md="# batch\n")
+        _write(tmp_path / "_batch" / "quick-skill-batch-latest.json", "{}")
+        _make_nested_skill(tmp_path, "stage", "1.0.0", metadata={"name": "stage", "exports": ["s"]},
+                           active=False)
+        _make_nested_skill(tmp_path, "stage", "2.0.0.skf-tmp",
+                           metadata={"name": "stage", "exports": ["partial"]}, active=False)
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert [(s["name"], s["path"]) for s in result["skills"]] == [("stage", "stage/1.0.0/stage")]
+        assert result["not_skf_output"] == []
+        assert result["warnings"] == []
+
+    def test_package_must_be_named_after_its_folder(self, tmp_path: Path) -> None:
+        _make_skill(tmp_path / "pack" / "1.0.0", "other",
+                    metadata={"name": "other", "exports": ["x"]})
+        result = mod.enumerate_stack_skills(tmp_path)
+        assert result["skills"] == [] and result["not_skf_output"] == []
+        assert result["warnings"] == []
+
+    def test_enumerated_skills_always_have_a_metadata_hash(self, tmp_path: Path) -> None:
+        _make_skill(tmp_path, "flat", metadata={"name": "flat", "exports": ["f"]})
+        _make_nested_skill(tmp_path, "refs", "1.0.0", metadata={"name": "refs"},
+                           references={"api.md": "## API\n- r\n"})
+        _make_skill(tmp_path, "prose", skill_md="# p\n## Exports\n- p\n", metadata={"name": "prose"})
+        _make_skill(tmp_path, "module", skill_md="# m\n## Exports\n- m\n")
+        result = mod.enumerate_stack_skills(tmp_path)
+        by_name = {s["name"]: s for s in result["skills"]}
+        assert sorted(by_name) == ["flat", "prose", "refs"]
+        assert [by_name[n]["exports_source"] for n in ("flat", "refs", "prose")] == [
+            "metadata", "references", "skill-md"]
+        for entry in result["skills"]:
+            assert entry["metadata_hash"] and entry["metadata_hash"].startswith("sha256:"), entry

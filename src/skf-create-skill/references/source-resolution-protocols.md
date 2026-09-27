@@ -87,11 +87,19 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
 
 3. **Workspace check — resolve the source locally:**
 
-   **Concurrency guard:** all of the operations below (fetch, checkout, rev-parse, and the extraction read that follows in step 3) must be wrapped in an exclusive `flock` on `{workspace_repo_path}/.skf-workspace.lock`. Acquire the lock before the workspace-hit check, hold it across fetch + checkout + rev-parse, AND keep holding it through the extraction-time read of the working tree. Two concurrent batch runs that target the same workspace clone but different `source_ref` values would otherwise race — one would `checkout` while the other was reading files mid-extraction, corrupting the inventory. The lock makes the per-workspace-repo unit of work serial. Use `flock -x {lockfile} -c "..."` or `fcntl.flock(LOCK_EX)`. If `flock` is unavailable, log a warning ("Concurrency guard unavailable — concurrent forges against the same workspace repo may produce inconsistent extraction inventories") and proceed.
+   **Concurrency guard:** all of the operations below (the git hygiene check, fetch, checkout, rev-parse, and the extraction read that follows in step 3) must be wrapped in an exclusive `flock` on `{workspace_repo_path}/.skf-workspace.lock`. On a workspace hit, acquire the lock before the git hygiene check, hold it across fetch + checkout + rev-parse, AND keep holding it through the extraction-time read of the working tree. On a workspace miss the folder does not exist yet, and `git clone` refuses a folder that is not empty: never create `{workspace_repo_path}` or the lock file before the clone. Clone first, then acquire the lock (a run whose clone fails because another run is cloning the same repository takes the ephemeral fallback). Two concurrent batch runs that target the same workspace clone but different `source_ref` values would otherwise race — one would `checkout` while the other was reading files mid-extraction, corrupting the inventory. The lock makes the per-workspace-repo unit of work serial. Use `flock -x {lockfile} -c "..."` or `fcntl.flock(LOCK_EX)`. If `flock` is unavailable, log a warning ("Concurrency guard unavailable — concurrent forges against the same workspace repo may produce inconsistent extraction inventories") and proceed. The git hygiene check lists the lock file in the clone's `.git/info/exclude`, so `git status` never reports it and `git stash --include-untracked` never moves it.
 
    **If `{workspace_repo_path}/.git/` exists (workspace hit):**
 
    The repo was previously cloned into the workspace. Fetch updates and checkout the requested ref.
+
+   **Git hygiene check (before any fetch):** from `{project-root}`, resolve `{cccGitHygieneHelper}` from `{cccGitHygieneProbeOrder}` (declared in `extract.md`'s frontmatter; first existing path wins) and run:
+
+   ```
+   uv run {cccGitHygieneHelper} workspace --repo "{workspace_repo_path}"
+   ```
+
+   A forge that indexed this clone with ccc may have left `# CocoIndex Code (ccc)` and `/.cocoindex_code/` appended to the clone's tracked `.gitignore`, or a new `.gitignore` holding only those two lines, and git refuses a checkout that would overwrite that change. The helper lists `.cocoindex_code/` and `/.skf-workspace.lock` in the clone's `.git/info/exclude`, then restores a tracked `.gitignore` whose only change is those two lines (or deletes an untracked one that holds only them), and leaves every other local change alone. The checkout below therefore behaves as it always has: git carries over a local change it can keep and refuses one it would overwrite, which sends the run to the ephemeral fallback. Read nothing from its output. If the helper does not resolve, or the command fails, continue without it: the workspace is a cache, never a gate.
 
    **Detect tag vs branch for `source_ref`** (skipped when `source_ref` is `HEAD` — in that case fetch default branch without a ref argument):
 
@@ -149,6 +157,8 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
 
    If clone fails, proceed to the **ephemeral fallback** (step 5).
 
+   **After the clone succeeds:** record `clone_head` = `git -C "{workspace_repo_path}" rev-parse HEAD`, acquire the lock (**Concurrency guard** above), then run the **git hygiene check** above: `uv run {cccGitHygieneHelper} workspace --repo "{workspace_repo_path}"`. If `git -C "{workspace_repo_path}" rev-parse HEAD` no longer equals `clone_head`, another run took the lock first and checked out its own ref: continue with the workspace-hit steps from **Detect tag vs branch** on, so this run checks out `{source_ref}` again.
+
 4. **If workspace resolution succeeds:** Set `source_root = {workspace_repo_path}` — this updates the working source path for all subsequent operations (AST extraction, CCC indexing, artifact generation). Capture the source commit: `git -C "{workspace_repo_path}" rev-parse HEAD` — store as `source_commit` in context. Proceed with the **Forge/Deep Tier** extraction strategy below. Set context:
    - `source_root = {workspace_repo_path}`
    - `remote_clone_path = {workspace_repo_path}`
@@ -158,7 +168,7 @@ If `source_repo` is a remote URL (GitHub URL or owner/repo format) AND tier is F
 
 5. **Ephemeral fallback (on any workspace failure):**
 
-   If workspace clone or fetch fails for any reason (network error, auth failure, disk full, timeout), fall back to ephemeral cloning — the pre-workspace behavior that always works:
+   If the workspace clone, fetch or checkout fails for any reason (network error, auth failure, disk full, timeout, or a local change in the clone that the checkout would overwrite), fall back to ephemeral cloning — the pre-workspace behavior that always works:
 
    ```
    temp_path = {system_temp}/skf-ephemeral-{skill-name}-{timestamp}/

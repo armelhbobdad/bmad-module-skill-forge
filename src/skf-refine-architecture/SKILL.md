@@ -67,7 +67,7 @@ Every HARD HALT in this workflow exits with a stable code so headless automators
 | 4    | write-failure        | On-Activation §5 pre-flight write probe; step 1 §3c (RA state file write failed); step 5 §6 (refined-architecture write failed); step 6 §3 (result-contract write failed) |
 | 5    | state-conflict       | step 1 §3 (no skills found — refinement requires ≥1 skill) |
 | 6    | user-cancelled       | step 1 §1 prompt cancelled; any prompt that accepted `cancel`/`exit`/`:q`; step 5 review gate `[X]` |
-| 7    | inventory-unreliable | step 1 §2 (>20% skill-inventory warnings exceed budget) |
+| 7    | inventory-unreliable | step 1 §2 (>20% skill-inventory warnings exceed budget); skills SKF did not generate are not counted |
 | 8    | recovery-failed      | step 5 §1 (durability state insufficient to reconstruct Step 02-04 findings); step 6 §1 (`## Refinement Summary` absent from the compiled document) |
 
 ## Result Contract (Headless)

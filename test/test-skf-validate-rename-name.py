@@ -5,9 +5,13 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 SCRIPT = (
     Path(__file__).parent.parent
@@ -35,6 +39,16 @@ def write_manifest(out, exports):
     (out / ".export-manifest.json").write_text(
         json.dumps({"schema_version": "2", "exports": exports})
     )
+
+
+def symlinks_supported(tmp: Path) -> bool:
+    probe = tmp / "symlink-probe"
+    try:
+        probe.symlink_to(tmp)
+    except (OSError, NotImplementedError):
+        return False
+    probe.unlink()
+    return True
 
 
 # --- format ---
@@ -177,6 +191,164 @@ def test_disk_collision_without_old_dirs_not_interrupted(tmp_path):
     (forge / "new-name").mkdir()
     # old-name dirs absent -> not the interrupted fingerprint.
     r = validate_name("old-name", "new-name", str(out), str(forge))
+    assert r["interrupted_rename"] is False
+
+
+def test_interrupted_rename_without_forge_data(tmp_path):
+    """A skill with no forge folder (a quick skill) leaves only a skills-side copy."""
+    out, forge = make_dirs(tmp_path)
+    (out / "new-name").mkdir()
+    (out / "old-name").mkdir()
+    r = validate_name("old-name", "new-name", str(out), str(forge))
+    assert r["first_failure"] == "collision"
+    assert r["interrupted_rename"] is True
+    # A new forge folder comes only from an old one: without it, a clash.
+    (forge / "new-name").mkdir()
+    r = validate_name("old-name", "new-name", str(out), str(forge))
+    assert r["interrupted_rename"] is False
+
+
+def test_interrupted_rename_needs_a_copy_of_the_old_skill(tmp_path):
+    """Recovery advice fires only when the new skill folder could be a rename's copy."""
+    out, forge = make_dirs(tmp_path)
+    pkg = out / "a" / "1.0.0" / "a"
+    pkg.mkdir(parents=True)
+    (pkg / "SKILL.md").write_text("---\nname: a\n---\n", encoding="utf-8")
+    (pkg / "metadata.json").write_text('{"generated_by": "quick-skill"}', encoding="utf-8")
+    if symlinks_supported(tmp_path):
+        (out / "a" / "active").symlink_to("1.0.0", target_is_directory=True)
+    # A module's own skill at the new name, and an SKF skill with other versions: clashes.
+    (out / "modskill" / "references").mkdir(parents=True)
+    (out / "modskill" / "SKILL.md").write_text("---\nname: modskill\n---\n", encoding="utf-8")
+    (out / "modskill" / "references" / "guide.md").write_text("# guide\n", encoding="utf-8")
+    (out / "b" / "0.1.0" / "b").mkdir(parents=True)
+    for new in ("modskill", "b"):
+        r = validate_name("a", new, str(out), str(forge))
+        assert r["first_failure"] == "collision", new
+        assert r["interrupted_rename"] is False, new
+    # A copy of `a`, before and after its package was renamed: a stranded rename.
+    shutil.copytree(out / "a", out / "new-a", symlinks=True)
+    (out / "new-a" / ".DS_Store").write_text("", encoding="utf-8")
+    assert validate_name("a", "new-a", str(out), str(forge))["interrupted_rename"] is True
+    (out / "new-a" / "1.0.0" / "a").rename(out / "new-a" / "1.0.0" / "new-a")
+    (out / "new-a" / "1.0.0" / "new-a" / "SKILL.md.skf-tmp").write_text("x", encoding="utf-8")
+    assert validate_name("a", "new-a", str(out), str(forge))["interrupted_rename"] is True
+    # A file the copy could not hold makes it a folder to keep.
+    (out / "new-a" / "1.0.0" / "new-a" / "NOTES.md").write_text("mine\n", encoding="utf-8")
+    assert validate_name("a", "new-a", str(out), str(forge))["interrupted_rename"] is False
+
+
+def _make_old_skill(out: Path) -> Path:
+    """`a/1.0.0/a/{SKILL.md, references/guide.md}`; returns the package folder."""
+    pkg = out / "a" / "1.0.0" / "a"
+    (pkg / "references").mkdir(parents=True)
+    (pkg / "SKILL.md").write_text("---\nname: a\n---\n", encoding="utf-8")
+    (pkg / "references" / "guide.md").write_text("# guide\n", encoding="utf-8")
+    return pkg
+
+
+@pytest.mark.parametrize("shape", ["linked-new-folder", "link-on-one-side", "file-for-a-folder",
+                                   "folder-for-a-file"])
+def test_interrupted_rename_needs_entries_of_the_same_kind(tmp_path, shape):
+    """A copy keeps each entry's kind: a link, a file for a folder or a folder
+    for a file is not a copy. Each case differs from a plain copy in one way."""
+    out, forge = make_dirs(tmp_path)
+    (forge / "a").mkdir()
+    _make_old_skill(out)
+    copy = tmp_path / "copy"
+    shutil.copytree(out / "a", copy)
+    shutil.copytree(copy, out / "new-a")
+    assert validate_name("a", "new-a", str(out), str(forge))["interrupted_rename"] is True
+    shutil.rmtree(out / "new-a")
+    new_pkg = copy / "1.0.0" / "a"
+    if shape == "file-for-a-folder":
+        shutil.rmtree(new_pkg / "references")
+        (new_pkg / "references").write_text("# guide\n", encoding="utf-8")
+    elif shape == "folder-for-a-file":
+        (new_pkg / "SKILL.md").unlink()
+        (new_pkg / "SKILL.md").mkdir()
+    elif not symlinks_supported(tmp_path):
+        pytest.skip("symlinks are not available")
+    elif shape == "link-on-one-side":
+        shutil.move(str(new_pkg / "references"), str(tmp_path / "user-refs"))
+        (new_pkg / "references").symlink_to(tmp_path / "user-refs", target_is_directory=True)
+    if shape == "linked-new-folder":
+        (out / "new-a").symlink_to(copy, target_is_directory=True)
+    else:
+        copy.rename(out / "new-a")
+    r = validate_name("a", "new-a", str(out), str(forge))
+    assert (r["first_failure"], r["interrupted_rename"]) == ("collision", False)
+
+
+@pytest.mark.parametrize("where", ["new-folder", "old-folder", "new-entry", "old-entry"])
+def test_a_junction_is_a_link_to_the_copy_check(tmp_path, monkeypatch, where):
+    """A Windows junction (Path.is_symlink() False, os.readlink succeeds) is a
+    link, as a symlink is: never part of a copy of the old skill folder."""
+    if not symlinks_supported(tmp_path):
+        pytest.skip("symlinks are not available")
+    out, forge = make_dirs(tmp_path)
+    _make_old_skill(out)
+    (out / "a" / "active").symlink_to("1.0.0", target_is_directory=True)
+    shutil.copytree(out / "a", out / "new-a", symlinks=True)
+    assert validate_name("a", "new-a", str(out), str(forge))["interrupted_rename"] is True
+    side = out / ("new-a" if where.startswith("new") else "a")
+    link = side if where.endswith("folder") else side / "1.0.0" / "a" / "references"
+    shutil.move(str(link), str(tmp_path / "elsewhere"))
+    link.symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+    real_is_symlink = Path.is_symlink
+    monkeypatch.setattr(Path, "is_symlink", lambda p: p != link and real_is_symlink(p))
+    assert not link.is_symlink() and os.readlink(link)
+    r = validate_name("a", "new-a", str(out), str(forge))
+    assert (r["first_failure"], r["interrupted_rename"]) == ("collision", False)
+
+
+def test_forge_only_collision_is_not_interrupted(tmp_path):
+    """Another tool's forge folder with the new name is a genuine clash."""
+    out, forge = make_dirs(tmp_path)
+    (out / "bar").mkdir()
+    (forge / "bar").mkdir()
+    (forge / "foo").mkdir()
+    r = validate_name("bar", "foo", str(out), str(forge))
+    assert r["first_failure"] == "collision"
+    kinds = {loc["kind"] for loc in r["checks"]["collision"]["locations"]}
+    assert kinds == {"forge_data_folder"}
+    assert r["interrupted_rename"] is False
+
+
+@pytest.mark.parametrize("where", ["skills", "forge"])
+@pytest.mark.parametrize("shape", ["file", "dangling-link"])
+def test_file_or_dangling_link_at_the_new_name_collides(tmp_path, where, shape):
+    out, forge = make_dirs(tmp_path)
+    target = (out if where == "skills" else forge) / "new-name"
+    if shape == "file":
+        target.write_text("x", encoding="utf-8")
+    else:
+        if not symlinks_supported(tmp_path):
+            pytest.skip("symlinks are not available")
+        target.symlink_to(tmp_path / "nowhere", target_is_directory=True)
+    assert os.path.lexists(target) and not target.is_dir()
+    r = validate_name("old-name", "new-name", str(out), str(forge))
+    assert r["first_failure"] == "collision"
+    kind = "skills_output_folder" if where == "skills" else "forge_data_folder"
+    assert r["checks"]["collision"]["locations"] == [{"kind": kind, "path": str(target)}]
+
+
+def test_reserved_name_collides(tmp_path):
+    """improvement-queue is SKF's own forge folder, never a skill's name."""
+    out, forge = make_dirs(tmp_path)
+    (out / "cognee").mkdir()
+    r = validate_name("cognee", "improvement-queue", str(out), str(forge))
+    assert r["valid"] is False
+    assert r["first_failure"] == "collision"
+    assert r["checks"]["collision"]["locations"] == [
+        {"kind": "reserved", "path": str(forge / "improvement-queue")}]
+    assert r["interrupted_rename"] is False
+    # Folders with the name on both sides still read as a clash, never a stranded rename.
+    (out / "improvement-queue").mkdir()
+    (forge / "improvement-queue").mkdir()
+    (forge / "cognee").mkdir()
+    r = validate_name("cognee", "improvement-queue", str(out), str(forge))
+    assert "reserved" in {loc["kind"] for loc in r["checks"]["collision"]["locations"]}
     assert r["interrupted_rename"] is False
 
 

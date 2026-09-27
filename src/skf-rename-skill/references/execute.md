@@ -54,7 +54,7 @@ verifyNoTraceProbeOrder:
 
 ## STEP GOAL:
 
-Execute the rename decisions recorded in step 1 as a transaction. Copy the old `{skill_group}` and `{forge_group}` to the new name, rename inner directories, rewrite every in-file reference, verify no trace of the old name remains inside the new location, update the export manifest, rebuild platform context files, and only then delete the old directories. Any failure before the final delete rolls back by removing the new directories — the old skill remains intact.
+Execute the rename decisions recorded in step 1 as a transaction. Copy the old `{skill_group}` and, when step 1 set `{forge_move}`, `{forge_group}` to the new name, rename inner directories, rewrite every in-file reference, verify no trace of the old name remains inside the new location, update the export manifest, rebuild platform context files, and only then delete the old directories. Any failure before the final delete rolls back by removing the new directories — the old skill remains intact.
 
 ## Rules
 
@@ -74,7 +74,7 @@ Set `exit_code` and `halt_reason` to the values named at that HALT site (see `re
 
 ## MANDATORY SEQUENCE
 
-**Transactional boundary.** After section 1 (copy), the old skill is untouched; a failure in any of sections 2-7 deletes the two new directories (`{new_skill_group}`, `{new_forge_group}`), reports, and halts with the old skill intact. Section 8 (delete old) is the only irreversible point.
+**Transactional boundary.** After section 1 (copy), the old skill is untouched; a failure in any of sections 2-7 deletes the new skill folder and, when `{forge_move}` is true, the new forge folder, reports, and halts with the old skill intact. Section 8 (delete old) is the only irreversible point.
 
 ### 0. Re-read Version-Paths Knowledge + Resolve Helpers
 
@@ -91,25 +91,22 @@ Read `{versionPathsKnowledge}` again and confirm the templates (`{skill_package}
 
 If any helper has no existing candidate, release the lock and HALT (exit code 4, `halt_reason: "write-failed"`) — the rename's safety guarantees depend on these helpers, and a fall-through to LLM-driven writes/scans would silently regress atomicity (the write helpers) or the deterministic transform and commit-gate checks (`{rewriteSkillNameHelper}`, `{verifyNoTraceHelper}`).
 
-**Lock release contract:** every halt path in this step ends with `rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"` before exiting. The terminal health-check (step 4) is the success-path release.
+**Lock release contract:** every halt path in this step ends with `rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"` before exiting. The terminal health-check (step 4) is the success-path release.
 
 ### 1. Copy skill_group and forge_group
 
 **Precondition:** Both `{new_skill_group}` and `{new_forge_group}` must NOT exist (step 1 validated this in the collision check, but verify again before copying).
 
-1. If `{new_skill_group}` or `{new_forge_group}` exists on disk: release the lock (`rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`) and halt with "**Collision detected at execution time.** `{new_skill_group}` or `{new_forge_group}` now exists on disk — it did not exist during step 1 selection. Aborting before any files are touched." HALT (exit code 4, `halt_reason: "copy-failed"`). In headless, emit the error envelope.
+1. If `{new_skill_group}` or `{new_forge_group}` exists on disk (a file or link counts): release the lock (`rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`) and halt with "**Collision detected at execution time.** `{new_skill_group}` or `{new_forge_group}` now exists on disk — it did not exist during step 1 selection. Aborting before any files are touched." HALT (exit code 4, `halt_reason: "copy-failed"`). In headless, emit the error envelope.
 
-2. Copy `{old_skill_group}` to `{new_skill_group}` recursively:
-   - Preserve file permissions, timestamps, and symlinks
-   - Equivalent to `cp -a {old_skill_group} {new_skill_group}` (preserves symlinks) or `cp -r` followed by explicit symlink re-creation in section 4
-   - If the copy fails: release the lock (`rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`) and halt with "**Copy failed:** `{old_skill_group}` → `{new_skill_group}`: {error}. No files were modified. Old skill is intact." HALT (exit code 4, `halt_reason: "copy-failed"`). In headless, emit the error envelope.
+2. Copy `{old_skill_group}` to `{new_skill_group}`, naming both without a trailing `/` — equivalent to `cp -a {old_skill_group} {new_skill_group}`. §4a refused a linked skill folder and one holding a linked version, so the copy follows no link; the relative `active` link is copied as a link.
+   - If the copy fails: release the lock (`rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`) and halt with "**Copy failed:** `{old_skill_group}` → `{new_skill_group}`: {error}. No files were modified. Old skill is intact." HALT (exit code 4, `halt_reason: "copy-failed"`). In headless, emit the error envelope.
 
-3. Copy `{old_forge_group}` to `{new_forge_group}` the same way:
-   - If the copy fails: **rollback** by deleting `{new_skill_group}` (just created in step 2), release the lock (`rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`), then halt with "**Copy failed:** `{old_forge_group}` → `{new_forge_group}`: {error}. Rolled back new skill_group. Old skill is intact." HALT (exit code 4, `halt_reason: "copy-failed"`). In headless, emit the error envelope.
+3. Only when `{forge_move}` is true, copy `{old_forge_group}` to `{new_forge_group}` the same way. If the copy fails: **rollback** by deleting `{new_skill_group}` and whatever the copy created at `{new_forge_group}` (§1.1 confirmed nothing was there), release the lock (`rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`), then halt with "**Copy failed:** `{old_forge_group}` → `{new_forge_group}`: {error}. Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "copy-failed"`). In headless, emit the error envelope. When `{forge_move}` is false, skip this copy: the forge folder is absent, left in place (`{forge_left_in_place}`), or — with `{same_folder}` — already copied with the skill folder.
 
-**Rollback procedure for this section:** `rm -rf {new_skill_group}` and `rm -rf {new_forge_group}` (whichever exist). Old skill is untouched.
+**Rollback procedure for this section:** `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true (this run created it), each without a trailing `/`. Old skill is untouched.
 
-Report: "**Copied** `{old_skill_group}` → `{new_skill_group}` and `{old_forge_group}` → `{new_forge_group}`."
+Report: "**Copied** `{old_skill_group}` → `{new_skill_group}`{if forge_move: ' and `{old_forge_group}` → `{new_forge_group}`'}." Name only what was copied.
 
 ### 2. Rename Inner Version Directories
 
@@ -118,19 +115,21 @@ For each version `v` in `affected_versions`:
 1. Resolve the old inner directory: `{new_skill_group}/{v}/{old_name}/`
 2. Resolve the new inner directory: `{new_skill_group}/{v}/{new_name}/`
 3. Rename the directory (move within the same parent): `mv {new_skill_group}/{v}/{old_name} {new_skill_group}/{v}/{new_name}`
-4. If the old inner directory does not exist (orphaned version with no skill package), skip with a warning recorded in `section2_warnings`
+4. If the old inner directory does not exist (orphaned version with no skill package: a manifest version with no folder, or a version folder an interrupted run left without one), skip with a warning recorded in `section2_warnings`
+
+Record each version whose inner directory this section renamed in `renamed_versions`. §5 verifies only those: a skipped version has no package to check.
 
 **Rollback on any rename failure:**
 
-- `rm -rf {new_skill_group}` and `rm -rf {new_forge_group}`
-- Release the lock: `rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`
-- Halt with: "**Inner directory rename failed** at `{v}/{old_name}`: {error}. Rolled back both new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`). In headless, emit the error envelope.
+- `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true (this run created it), each without a trailing `/`
+- Release the lock: `rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`
+- Halt with: "**Inner directory rename failed** at `{v}/{old_name}`: {error}. Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`). In headless, emit the error envelope.
 
 Report: "**Renamed {count} inner directories** to `{new_name}/`."
 
 ### 3. Update File Contents Inside the New Location
 
-For each version `v` in `affected_versions`, operate on the files inside `{new_skill_group}/{v}/{new_name}/` (the freshly renamed inner directory) and `{new_forge_group}/{v}/`.
+For each version `v` in `affected_versions`, operate on the files inside `{new_skill_group}/{v}/{new_name}/` (the freshly renamed inner directory) and, only when `{forge_move}` or `{same_folder}` is true, `{new_forge_group}/{v}/`.
 
 **Transform semantics (apply to 3a / 3b / 3c / 3d):** `{rewriteSkillNameHelper}` performs each field-scoped substitution AND the crash-safe write (stage to `<target>.skf-tmp`, fsync, atomic rename) in one call — do NOT compute file content in the prompt. Each `--kind` edits exactly one field/region and leaves everything else byte-for-byte intact, so there is no key reorder/drop from hand-editing JSON and no wrong-region substitution when `{old_name}` is a substring (e.g. `rename` → `renamer`). Invoke it once per file:
 
@@ -148,15 +147,15 @@ Read the JSON result (`changed`, `wrote`, and per-kind fields). Exit 0 = process
 
 **3c. context-snippet.md** — `--kind context-snippet` on `{new_skill_group}/{v}/{new_name}/context-snippet.md`. Rewrites the display header `[{old_name} v...]` → `[{new_name} v...]` (version suffix preserved) and every `root:` path: it parses `root: {prefix}{old_name}/`, keeps the prefix verbatim, and swaps the trailing `{old_name}/` segment for `{new_name}/` — handling any IDE prefix (`.claude/skills/`, `.windsurf/skills/`, `.github/skills/`, the draft `skills/` prefix) generically, and flattening the legacy `root: skills/{old_name}/active/{old_name}/` form to `root: skills/{new_name}/`. If the file is missing, record it in `section3_warnings` and continue.
 
-**3d. provenance-map.json** — `--kind provenance-json` on `{new_forge_group}/{v}/provenance-map.json`. Sets `skill_name` = `{new_name}` via a JSON round-trip. If the file is missing (some versions may not have a provenance map), record it in `section3_warnings` and continue.
+**3d. provenance-map.json** — `--kind provenance-json` on `{new_forge_group}/{v}/provenance-map.json`. Sets `skill_name` = `{new_name}` via a JSON round-trip. If the file is missing (some versions may not have a provenance map), record it in `section3_warnings` and continue. Skip 3d when `{forge_move}` and `{same_folder}` are both false: there is no SKF forge folder to rewrite.
 
 **Rollback on any update failure (not just a missing file):**
 
-- `rm -rf {new_skill_group}` and `rm -rf {new_forge_group}`
-- Release the lock: `rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`
-- Halt with: "**File update failed** at `{path}`: {error}. Rolled back both new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`). In headless, emit the error envelope.
+- `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true (this run created it), each without a trailing `/`
+- Release the lock: `rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`
+- Halt with: "**File update failed** at `{path}`: {error}. Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`). In headless, emit the error envelope.
 
-Report: "**Updated file contents** across {affected_versions_count} version(s): SKILL.md, metadata.json, context-snippet.md, provenance-map.json."
+Report: "**Updated file contents** across {affected_versions_count} version(s): SKILL.md, metadata.json, context-snippet.md{if forge_move or same_folder: ', provenance-map.json'}." Name only what was rewritten.
 
 ### 4. Fix the `active` Symlink in the New Location
 
@@ -175,9 +174,9 @@ Recreate or repair the `active` symlink in `{new_skill_group}` via `{updateActiv
 
 **Rollback on helper non-zero exit:**
 
-- `rm -rf {new_skill_group}` and `rm -rf {new_forge_group}`
-- Release the lock: `rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`
-- Halt with: "**Failed to repair `active` symlink** in `{new_skill_group}`: {captured stderr}. Rolled back both new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`). In headless, emit the error envelope.
+- `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true (this run created it), each without a trailing `/`
+- Release the lock: `rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`
+- Halt with: "**Failed to repair `active` symlink** in `{new_skill_group}`: {captured stderr}. Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`). In headless, emit the error envelope.
 
 ### 5. Verify — No Trace of `{old_name}` Inside the New Location
 
@@ -187,18 +186,18 @@ This is the commit-point check. If any structural reference to `{old_name}` rema
 python3 {verifyNoTraceHelper} "{new_skill_group}" \
   --forge-group "{new_forge_group}" \
   --old-name {old_name} --new-name {new_name} \
-  --versions {comma-separated affected_versions}
+  --versions {comma-separated renamed_versions}
 ```
 
-Per version `v`, the helper scans `SKILL.md` (frontmatter matches → `hard_matches`; matches in the body below the closing `---` → `body_warnings`), `metadata.json`, `context-snippet.md`, and `provenance-map.json` (any match → `hard_matches`), plus the `{new_skill_group}/{v}/` listing (an `{old_name}/` directory present, or the `{new_name}/` directory missing → `dir_violations`). It matches `{old_name}` only as a complete skill-name token — bounded by non-name characters — so a correctly-renamed `{new_name}` that contains `{old_name}` as a substring (e.g. `rename` → `rename-skill`) is never a false leftover, and the frontmatter=hard / body=warning split is applied by region with no meaning-interpretation. A missing file is recorded under `skipped`, not treated as a match. Exit 0 = clean; exit 1 = at least one hard match or dir violation.
+Per version `v`, the helper scans `SKILL.md` (frontmatter matches → `hard_matches`; matches in the body below the closing `---` → `body_warnings`), `metadata.json`, `context-snippet.md`, and `provenance-map.json` (any match → `hard_matches`), plus the `{new_skill_group}/{v}/` listing (an `{old_name}/` directory present, or the `{new_name}/` directory missing → `dir_violations`). It matches `{old_name}` only as a complete skill-name token — bounded by non-name characters — so a correctly-renamed `{new_name}` that contains `{old_name}` as a substring (e.g. `rename` → `rename-skill`) is never a false leftover, and the frontmatter=hard / body=warning split is applied by region with no meaning-interpretation. A missing file is recorded under `skipped`, not treated as a match. When `{forge_move}` and `{same_folder}` are both false, `{new_forge_group}` does not exist and the helper records each provenance map under `skipped`. Exit 0 = clean; exit 1 = at least one hard match or dir violation.
 
 Read the JSON and decide. An exit code of 2 with no JSON on stdout (the helper refuses an empty `--versions` list) counts as `clean` false: take the rollback below.
 
 - **If `clean` is `true` (empty `hard_matches` AND empty `dir_violations`):** the rename is safe to commit. Set `verification_warnings` = the returned `body_warnings` (informational SKILL.md body mentions of `{old_name}` that are retained). Proceed.
 - **If `clean` is `false`:** this is a hard failure —
-  - `rm -rf {new_skill_group}` and `rm -rf {new_forge_group}`
-  - Release the lock: `rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`
-  - Halt with: "**Verification failed.** `{old_name}` still appears in: {the files from `hard_matches` plus any `dir_violations`}. Rolled back both new directories. Old skill is intact." HALT (exit code 5, `halt_reason: "verify-failed"`). In headless, emit the error envelope.
+  - `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true (this run created it), each without a trailing `/`
+  - Release the lock: `rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`
+  - Halt with: "**Verification failed.** `{old_name}` still appears in: {the files from `hard_matches` plus any `dir_violations`}. Rolled back the new directories. Old skill is intact." HALT (exit code 5, `halt_reason: "verify-failed"`). In headless, emit the error envelope.
 
 Report: "**Verified** — no structural references to `{old_name}` remain inside the new location across {affected_versions_count} version(s). {if verification_warnings is non-empty: 'Informational body-text mentions retained in SKILL.md: {list}.'}"
 
@@ -224,8 +223,8 @@ Report: "**Manifest update skipped** — no `.export-manifest.json` on disk. The
 **Rollback on helper non-zero exit:**
 
 - Restore the manifest from `manifest_backup` via `{atomicWriteHelper} write {skills_output_folder}/.export-manifest.json` (re-pipe the JSON-serialized backup)
-- `rm -rf {new_skill_group}` and `rm -rf {new_forge_group}`
-- Release the lock: `rm -f "{forge_data_folder}/{old_name}/.skf-rename.lock"`
+- `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true (this run created it), each without a trailing `/`
+- Release the lock: `rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`
 - Halt with: "**Manifest update failed:** {captured stderr}. Restored manifest from backup and rolled back new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "manifest-write-failed"`). In headless, emit the error envelope.
 
 Set context flag `manifest_updated = true`.
@@ -292,16 +291,16 @@ Report: `**Rebuilt managed sections in:** {list of updated files}. {if any faile
 
 ### 8. Delete Old Directories (Point of No Return)
 
-This is the only section after which rollback is impossible. Precondition: §1–7 have fully materialized and verified the new name (both new directories renamed, no `{old_name}` references remaining, manifest re-keyed, context files rebuilt best-effort) — only now is deleting the old name safe.
+This is the only section after which rollback is impossible. Precondition: §1–7 have fully materialized and verified the new name (the new directories renamed, no `{old_name}` references remaining, manifest re-keyed, context files rebuilt best-effort) — only now is deleting the old name safe.
 
 Execute the deletes:
 
-1. Verify `{old_skill_group}` is inside `{skills_output_folder}` (defense in depth)
-2. `rm -rf {old_skill_group}` — delete the old skill_group recursively
-3. Verify deletion succeeded (the path no longer exists)
-4. Verify `{old_forge_group}` is inside `{forge_data_folder}` (defense in depth)
-5. `rm -rf {old_forge_group}` — delete the old forge_group recursively
-6. Verify deletion succeeded
+1. Verify `{old_skill_group}` (no trailing `/`) is inside `{skills_output_folder}` and is not a link or junction.
+2. `rm -rf {old_skill_group}`.
+3. Verify deletion succeeded.
+4. Only when `{forge_move}` is true: verify `{old_forge_group}` is inside `{forge_data_folder}` and is not a link or junction; `rm -rf {old_forge_group}` (no trailing `/`); verify deletion succeeded. Otherwise leave it: `{forge_left_in_place}` keeps its name, and with `{same_folder}` step 2 already deleted it.
+
+A path that fails the link check is not deleted: record "a link; SKF never deletes through a link" in `deletion_errors`.
 
 **On deletion error:**
 
@@ -309,7 +308,7 @@ Execute the deletes:
 - Continue attempting the other path — partial cleanup is still better than none
 - Do NOT attempt any rollback — the new name is already committed and the old name's remnants can be removed manually
 
-Report: "**Deleted old directories:** `{old_skill_group}` and `{old_forge_group}`. {if deletion_errors is non-empty: 'Errors: {list} — remove manually with `rm -rf {path}`.'}"
+Report: "**Deleted old directories:** `{old_skill_group}`{if forge_move: ' and `{old_forge_group}`'}. {if deletion_errors is non-empty: 'Errors: {list} — remove manually with `rm -rf {path}`.'}"
 
 ### 9. Store Results in Context
 
@@ -327,6 +326,9 @@ Store the following for step 3:
 - `section3_warnings` — list of missing file warnings (empty if none)
 - `verification_warnings` — list of informational SKILL.md body mentions of `{old_name}` retained (empty if none)
 - `deletion_errors` — list of post-commit deletion errors (empty if none)
+- `forge_move` — carried from step 1 (true when the forge folder was moved)
+- `forge_left_in_place` — carried from step 1 (the forge folder left under the old name, or null)
+- `same_folder` — carried from step 1 (true when `skills_output_folder` and `forge_data_folder` name one folder)
 - `headless_decisions` — the audit trail of confirmation gates auto-resolved under `{headless_mode}`, carried forward from step 1 unchanged (empty in interactive runs). Step 3 surfaces it in the result envelope and the per-run result JSON.
 
 ### 10. Load Next Step

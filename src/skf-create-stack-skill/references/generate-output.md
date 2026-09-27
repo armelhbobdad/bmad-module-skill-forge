@@ -15,6 +15,13 @@ atomicWriteProbeOrder:
 frontmatterValidatorProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-frontmatter.py'
   - '{project-root}/src/shared/scripts/skf-validate-frontmatter.py'
+# Resolve `{skillInventoryHelper}` by probing `{skillInventoryProbeOrder}` in
+# order (installed SKF module path first, src/ dev-checkout fallback); first
+# existing path wins. §1 runs its write check before any directory is
+# created; without it, §1 writes only into a skill folder that does not exist yet.
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
@@ -56,7 +63,15 @@ Where the skill name is `{project_name}-stack` and `{version}` is the semver ver
 
 Never emit a `{version}` ≤ `{prior_stack_version}`. Narrate the resolved version and the bump rationale.
 
-**Pre-flight: group-dir type check (S3):** If `{skills_output_folder}/{project_name}-stack/` already exists, probe `{skills_output_folder}/{project_name}-stack/active/{project_name}-stack/metadata.json`. If that metadata exists and `skill_type != "stack"`, HALT with:
+**Pre-flight: ownership, phase 1 (S3).** `{stack_name}` is `{project_name}-stack`. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run, before any prior metadata is read:
+
+```bash
+uv run {skillInventoryHelper} {skills_output_folder} --skill {stack_name} --write-check --forge-data-folder {forge_data_folder}
+```
+
+Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_check.folder`, `{write_detail}` ← `write_check.detail` and `{prior_active_version}` ← `write_check.marked_active_version`, and apply the ownership refusals below.
+
+When `{prior_active_version}` is not null, read `{skills_output_folder}/{stack_name}/{prior_active_version}/{stack_name}/metadata.json`. If its `skill_type` is not `"stack"`, HALT with:
 
 "**Cannot proceed.** `{skills_output_folder}/{project_name}-stack/` exists but is not a stack skill (`skill_type={found_type}`). Rename the existing directory or choose a different `project_name` to avoid collision."
 
@@ -66,7 +81,30 @@ Do NOT proceed to staging or commit. Emit the result envelope on stderr per the 
 SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","exit_code":4,"halt_reason":"write-failure"}
 ```
 
-If that metadata exists and `skill_type == "stack"`, this run is a **re-composition**: capture its `version` as `{prior_stack_version}` and its `libraries` array as `{prior_libraries}` for the S11 re-composition rule above. If the group dir is absent — or exists but has no resolvable `active` stack metadata — treat this as a new stack and leave `{prior_stack_version}` unset.
+Otherwise this run is a **re-composition**: capture its `version` as `{prior_stack_version}` and its `libraries` array as `{prior_libraries}` for the S11 re-composition rule above. When `{prior_active_version}` is null — the group is absent, holds only what an interrupted run leaves, or its `active` link names no version SKF generated — treat this as a new stack and leave `{prior_stack_version}` unset: prior metadata is read only from a version SKF generated.
+
+**Pre-flight: ownership, phase 2.** Once `{version}` is resolved (S11), and before `stage-dir` and `mkdir -p {forge_version}` below, run the same command with `--write-version {version}`:
+
+```bash
+uv run {skillInventoryHelper} {skills_output_folder} --skill {stack_name} --write-check --write-version {version} --forge-data-folder {forge_data_folder}
+```
+
+and apply the same bindings and refusals.
+
+**Ownership refusals (both phases).** Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_check.folder` and `{write_detail}` ← `write_check.detail`. Continue only when the status is `ok` and `{write_verdict}` is `"ok"`: nothing is at the skill folder yet, it holds only what an interrupted run leaves, or SKF generated it and the version is new or SKF's own. Otherwise create nothing and refuse with the first case that applies:
+
+- `{write_verdict}` is `"flat-layout"` → `halt_reason: "flat-layout"`: "**`{stack_name}` still uses the flat layout — nothing was written.** A version written beside its root `SKILL.md` would leave a skill SKF can no longer migrate or rename. Run `@Ferris TS {stack_name}` (or US, AS or EX) once to move it into the versioned layout, then re-run."
+- `{write_verdict}` is `"not-skf-output"` → `halt_reason: "not-skf-output"`: "**`{stack_name}` is not SKF output — nothing was written.** `{write_folder}` {write_detail}, so SKF will not write a version there. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{stack_name}` yourself, and choose a different `project_name` to create this stack beside it. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`. A version folder with no `metadata.json` can also be one that an interrupted create-stack-skill run left behind; delete it yourself in that case."
+- The status is not `ok`, or the output has no `write_check` (an older helper: it has no `--write-check` and reports a new skill as `SKILL_NOT_FOUND`) → `halt_reason: "not-skf-output"`: the same message with "SKF could not check it ({the helper's `error`, if any}; re-install SKF if the installed `skf-skill-inventory.py` is out of date)" in place of "`{write_folder}` {write_detail}".
+- When no helper candidate resolves, continue only when nothing exists at `{skill_group}` (no folder, no file, not even a broken link). Otherwise refuse with `halt_reason: "not-skf-output"` and the same message, giving "SKF cannot check who generated `{skill_group}`: `skf-skill-inventory.py` is missing; re-install SKF" in place of "`{write_folder}` {write_detail}". Here `{skill_group}` is `{skills_output_folder}/{stack_name}`.
+
+Each refusal is a HARD HALT: do NOT proceed to staging; emit the result envelope on stderr and exit `5`:
+
+```
+SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{stack_name}","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","exit_code":5,"halt_reason":"not-skf-output"}
+```
+
+(`"halt_reason":"flat-layout"` for the flat-layout refusal.)
 
 **Atomic write strategy (C2 / B5):** All artifact writes for `{skill_package}` MUST stage into a temp directory first, then commit atomically via `skf-atomic-write.py commit-dir`. The active symlink flip only happens AFTER the commit succeeds.
 

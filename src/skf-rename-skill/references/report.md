@@ -35,10 +35,11 @@ References updated:
   - SKILL.md frontmatter       (×{affected_versions_count})
   - metadata.json              (×{affected_versions_count})
   - context-snippet.md         (×{affected_versions_count})
-  - provenance-map.json        (×{affected_versions_count})
+  {if forge_move or same_folder:}- provenance-map.json        (×{affected_versions_count})
 
 Manifest updated: {if manifest_rekeyed: "exports.{new_name} (re-keyed from exports.{old_name})" else: "(no manifest entry existed for {old_name})"}
 Context files rebuilt: {list from context_files_updated, or "(none)"}
+{if forge_left_in_place:}Left in place (not SKF output): {forge_left_in_place} — SKF did not generate it, so it keeps its name.
 {if context_files_failed is non-empty:}
 Context files FAILED: {list from context_files_failed}
   → Re-run `[EX] Export Skill` to retry the managed section rebuild for these files.
@@ -75,7 +76,7 @@ Headless auto-decisions:
 
 ### Result Contract
 
-Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/{new_name}/rename-skill-result-{timestamp}.json` (reuse the activation-stored `{timestamp}`, resolution to seconds) and a copy at `{skills_output_folder}/{new_name}/rename-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all updated file paths (SKILL.md, metadata.json, context-snippet.md, provenance-map.json) in `outputs`; include `old_name`, `new_name`, `versions_renamed`, and `headless_decisions` (the auto-resolved gate audit trail carried from step 1 — `[]` in interactive runs) in `summary`.
+Write the result contract per `shared/references/output-contract-schema.md`: the per-run record at `{skills_output_folder}/{new_name}/rename-skill-result-{timestamp}.json` (reuse the activation-stored `{timestamp}`, resolution to seconds) and a copy at `{skills_output_folder}/{new_name}/rename-skill-result-latest.json` (stable path for pipeline consumers — copy, not symlink). Include all updated file paths (SKILL.md, metadata.json, context-snippet.md, and provenance-map.json when `forge_move` or `same_folder`) in `outputs`; include `old_name`, `new_name`, `versions_renamed`, `forge_left_in_place` (null when none) and `headless_decisions` (the auto-resolved gate audit trail carried from step 1 — `[]` in interactive runs) in `summary`.
 
 When `{headless_mode}` is true, also emit the single-line envelope on **stdout** before chaining to step 4 (matches the SKILL.md "Result Contract (Headless)" shape):
 

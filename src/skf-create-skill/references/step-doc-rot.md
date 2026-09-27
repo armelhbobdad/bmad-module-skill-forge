@@ -26,10 +26,10 @@ Scan feeder artifacts for doc-rot correction indicators and annotate the compile
 
 Identify the feeder artifacts in the **staging directory** for the current skill. This step (5c) runs **before** step 7 promotes the staging tree to `{forge_data_folder}/{skill-name}/{version}/`, so the feeder artifacts only exist under the staging path compile (step 5 §1a) wrote — reading the not-yet-promoted `{forge_data_folder}` path would make every match a no-op:
 
-1. **Evidence report:** `_bmad-output/{skill-name}/evidence-report.md`
-2. **Provenance map:** `_bmad-output/{skill-name}/provenance-map.json` — focus on T2/T3 entries with temporal annotations
+1. **Evidence report:** `_bmad-output/.skf-stage/{skill-name}/evidence-report.md`
+2. **Provenance map:** `_bmad-output/.skf-stage/{skill-name}/provenance-map.json` — focus on T2/T3 entries with temporal annotations
 3. **Temporal context:** changelogs, migration guides, and issue/PR data fetched by step 3b and enriched by step 4 (available in workflow context)
-4. **Compiled SKILL.md:** the staged `_bmad-output/{skill-name}/SKILL.md` itself — check for `[QMD:...]` or `[DOC:...]` annotations referencing corrections. **Do not treat its own self-authored regions as correction sources:** compile already wrote the `## Migration & Deprecation Warnings` section (step 5 §4b) and the frontmatter `description` (step 5 §2) from the same T2-future annotations, so both restate already-surfaced corrections — §2 discards matches that land in either.
+4. **Compiled SKILL.md:** the staged `_bmad-output/.skf-stage/{skill-name}/SKILL.md` itself — check for `[QMD:...]` or `[DOC:...]` annotations referencing corrections. **Do not treat its own self-authored regions as correction sources:** compile already wrote the `## Migration & Deprecation Warnings` section (step 5 §4b) and the frontmatter `description` (step 5 §2) from the same T2-future annotations, so both restate already-surfaced corrections — §2 discards matches that land in either.
 
 For each artifact, attempt to load its content. If an artifact does not exist or is empty, skip it — this is not an error.
 
@@ -41,10 +41,10 @@ The scan is deterministic plumbing — a fixed-table substring grep with one cor
 
 ```bash
 uv run {scanDocRotHelper} \
-  --skill-md _bmad-output/{skill-name}/SKILL.md \
+  --skill-md _bmad-output/.skf-stage/{skill-name}/SKILL.md \
   --max-corrections 10 \
-  _bmad-output/{skill-name}/evidence-report.md \
-  _bmad-output/{skill-name}/provenance-map.json \
+  _bmad-output/.skf-stage/{skill-name}/evidence-report.md \
+  _bmad-output/.skf-stage/{skill-name}/provenance-map.json \
   _bmad-output/{skill-name}-temporal/*.md
 ```
 

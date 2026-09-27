@@ -12,9 +12,11 @@ with one correct answer for a given (name, filesystem, manifest) state:
                skf-validate-output.py / skf-validate-brief-inputs.py)
   length     — 1..64 characters (agentskills.io spec)
   identity   — differs from the current name (nothing to rename otherwise)
-  collision  — does NOT already exist as a manifest `exports` key, a top-level
-               directory under the skills output folder, or a top-level
-               directory under the forge data folder
+  collision  — does NOT already exist (a folder, a file or a link, even a
+               broken one) as a manifest `exports` key, a top-level entry
+               under the skills output folder or the forge data folder, and
+               is not `improvement-queue`, SKF's own forge folder (location
+               kind `reserved`)
 
 Doing this in the prompt is a set-membership computation across three sources
 plus a regex match — deterministic, so it lives here and the prompt keeps only
@@ -23,10 +25,18 @@ the interactive re-ask / halt decision. Checks run in the select.md §5 order an
 halt (`input-invalid`/exit 2 for format/length/identity, `name-collision`/exit 5
 for collision).
 
-`interrupted_rename` fires the select.md §5 recovery fingerprint: the new name
-collides only on disk (not in the manifest) AND both old-name directories still
-exist — the signature of a rename interrupted between copy and delete-old, which
-the caller surfaces as a named cleanup path instead of a dead-end collision.
+`interrupted_rename` fires the select.md §5 recovery fingerprint. A rename's
+copy creates the new skill folder first, and a new forge folder only from an
+old one. So the new name collides only on disk (not in the manifest, not on a
+reserved name), at least under the skills output folder, while the old skill
+folder still exists, and under the forge data folder only when the old skill
+has a forge folder too — the signature of a rename interrupted between copy
+and delete-old, which the caller surfaces as a named cleanup path instead of a
+dead-end collision. The new skill folder must also hold nothing a copy of the
+old one could not: every entry in it exists in the old folder, of the same
+kind, with only each version's package renamed. A forge-only collision
+(another tool's folder with the new name), or a module's own skill or another
+tool's folder at the new name, is a genuine clash.
 
 Output (stdout, always JSON):
   {status, valid, old_name, new_name, first_failure, checks{...},
@@ -46,13 +56,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
 NAME_REGEX = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+# Keep identical to FORGE_GROUP_DIRS in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
+FORGE_GROUP_DIRS = frozenset({"_campaign", "improvement-queue"})
 MIN_LEN = 1
 MAX_LEN = 64
+# OS clutter that a copy can gain without the rename writing it.
+CLUTTER = frozenset({".DS_Store", "Thumbs.db", "desktop.ini"})
 
 
 def load_exports(manifest_path: Path) -> tuple[set[str], str | None]:
@@ -67,6 +83,73 @@ def load_exports(manifest_path: Path) -> tuple[set[str], str | None]:
         return set(), f"{type(e).__name__}: {e}"
     exports = data.get("exports", {}) if isinstance(data, dict) else {}
     return set(exports.keys()) if isinstance(exports, dict) else set(), None
+
+
+# Keep identical to _is_link_or_junction in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
+def _is_link_or_junction(p: Path) -> bool:
+    """True for POSIX symlinks AND Windows junctions/symlinks.
+
+    `Path.is_symlink()` is False for Windows junctions; os.readlink succeeds
+    for both symlinks and junctions (since CPython 3.8 on Windows). A regular
+    directory raises OSError on readlink, which is the signal we want to
+    refuse replacement. On Windows, any other reparse point (a cloud-sync
+    placeholder, a deduplicated file, an app execution alias) raises
+    ValueError: it does not redirect to another path, so it is not a link.
+    """
+    if p.is_symlink():
+        return True
+    if not p.exists() and not p.is_symlink():
+        return False
+    try:
+        os.readlink(p)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _within(new: Path, old: Path, depth: int, old_name: str, new_name: str) -> bool:
+    """True when every entry under `new` also exists under `old`, of the same kind.
+
+    Depth 0 is the skill folder, depth 1 a version folder: there the renamed
+    package `{new_name}` stands for `{old_name}`. OS clutter and `.skf-`
+    names (the rename's own staging and link swaps) are ignored. A link or
+    junction matches only a link or junction.
+    """
+    try:
+        children = list(new.iterdir())
+    except OSError:
+        return False
+    for child in children:
+        name = child.name
+        if name in CLUTTER or ".skf-" in name:
+            continue
+        counterpart = old / (old_name if depth == 1 and name == new_name else name)
+        child_link, counterpart_link = _is_link_or_junction(child), _is_link_or_junction(counterpart)
+        if child_link or counterpart_link:
+            if not (child_link and counterpart_link):
+                return False
+        elif child.is_dir():
+            if not counterpart.is_dir() or not _within(child, counterpart, depth + 1, old_name, new_name):
+                return False
+        elif not counterpart.is_file():
+            return False
+    return True
+
+
+def _looks_like_a_copy(skills_dir: Path, old_name: str, new_name: str) -> bool:
+    """True when `{skills_dir}/{new_name}` could be a rename's copy of `{old_name}`.
+
+    The copy takes the old skill folder as it is, then renames each version's
+    `{old_name}/` package to `{new_name}/` and rewrites files in place, so it
+    never holds an entry the old folder lacks. A module's own skill (a root
+    `SKILL.md`) or another tool's folder with the new name does.
+    """
+    new, old = skills_dir / new_name, skills_dir / old_name
+    if (_is_link_or_junction(new) or not new.is_dir()
+            or _is_link_or_junction(old) or not old.is_dir()):
+        return False
+    return _within(new, old, 0, old_name, new_name)
 
 
 def validate_name(
@@ -90,23 +173,27 @@ def validate_name(
     locations: list[dict] = []
     if new_name in export_keys:
         locations.append({"kind": "manifest.exports", "path": str(manifest)})
-    if (skills_dir / new_name).is_dir():
+    if os.path.lexists(skills_dir / new_name):
         locations.append({"kind": "skills_output_folder", "path": str(skills_dir / new_name)})
-    if (forge_dir / new_name).is_dir():
+    if os.path.lexists(forge_dir / new_name):
         locations.append({"kind": "forge_data_folder", "path": str(forge_dir / new_name)})
+    if new_name in FORGE_GROUP_DIRS:
+        locations.append({"kind": "reserved", "path": str(forge_dir / new_name)})
     collision_ok = len(locations) == 0
 
-    # Recovery fingerprint: collides on disk only (not manifest) and both
-    # old-name directories still exist -> stranded partial rename, not a genuine
-    # clash.
-    collides_on_disk_only = (
-        not collision_ok
-        and all(loc["kind"] != "manifest.exports" for loc in locations)
-    )
+    # Recovery fingerprint: a rename's copy creates the new skill folder
+    # first, and a new forge folder only from an old one. So a stranded
+    # partial rename collides on disk only (not in the manifest, not on a
+    # reserved name), at least in the skills folder, where the new folder
+    # holds nothing a copy of the old skill folder could not, and at the
+    # forge folder only when the old skill has one.
+    kinds = {loc["kind"] for loc in locations}
     interrupted_rename = bool(
-        collides_on_disk_only
-        and (skills_dir / old_name).is_dir()
-        and (forge_dir / old_name).is_dir()
+        not collision_ok
+        and not kinds & {"manifest.exports", "reserved"}
+        and "skills_output_folder" in kinds
+        and _looks_like_a_copy(skills_dir, old_name, new_name)
+        and ("forge_data_folder" not in kinds or (forge_dir / old_name).is_dir())
     )
 
     checks = {
