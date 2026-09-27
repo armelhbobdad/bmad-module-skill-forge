@@ -75,6 +75,22 @@ Surfaced when create-skill, quick-skill or create-stack-skill would write a new 
 
 **`skills_output_folder` or `forge_data_folder` set to `_bmad-output`:** create-skill stages a skill in `_bmad-output/.skf-stage/<name>/` before it writes the version. An earlier SKF release staged it in `_bmad-output/<name>/`, which with this setting is also the skill's folder or its forge folder, and left `SKILL.md`, `metadata.json`, `context-snippet.md`, `references/`, `evidence-report.md` and `provenance-map.json` at the root of that folder. That leftover can make create-skill stop with `flat-layout`, and make drop and rename refuse the skill folder or its forge folder as one that holds entries SKF did not generate. Delete those leftovers yourself and keep everything else in the folder, such as the `<version>/` folders, the `active` link and `skill-brief.yaml`; when the folder holds nothing but the leftovers, delete it whole. Then re-run.
 
+### Update Skill stops with `blocked` before detecting changes
+
+Surfaced by `@Ferris US` for a skill built from a remote repository (under `--headless`, `error.phase` is `init:source-tree`). Update Skill reads the commit the skill's `source_ref` points to now — or the tag, branch or commit passed with `--target-ref` — so every step compares the skill with one known commit. It stops before comparing anything when it cannot get that commit, and `error.reason` says why:
+
+- `ref-not-found`: the ref no longer exists upstream. `invalid-ref`: the ref is not a valid tag or branch name.
+- `upstream-unreachable`: the repository cannot be reached, and either `--target-ref` was passed (it always needs the network) or the skill's pinned commit is not on this machine.
+- `fetch-failed` or `checkout-failed`: git could not fetch or check out the commit, for example after a dropped connection or on a full disk.
+- `timed-out`: reading the commit did not finish within the time limit Update Skill gives it; a first fetch of a large repository is slow.
+- `tree-folder-failed`: no folder for the checkout could be created, neither in SKF's own cache folder nor in the system temp folder.
+- `git-unavailable`: `git` is not installed. `helper-failed`: `skf-source-tree.py` is missing, or it was stopped before it printed a result.
+- `target-ref-needs-remote-source`: `--target-ref` was passed for a skill built from a local folder or from documentation only.
+
+**Fix:** for `upstream-unreachable`, `fetch-failed` or `timed-out`, check your network and your access to the repository, then re-run. For `checkout-failed` or `tree-folder-failed`, free disk space and check that you can write to those folders. Install `git` for `git-unavailable`, and re-install SKF for `helper-failed`. When the tag or branch was deleted or renamed upstream, pass the one to use with `--target-ref <tag|branch|HEAD>`; the skill then records it as its `source_ref`. When only the network is down, `--target-ref` was not passed and the pinned commit is on this machine, Update Skill does not stop: it compares that commit, and its report and `warnings[]` say that upstream changes were not checked (`source-not-fetched`).
+
+If Test Skill stops with `workspace-drift` right after an update, the update's report says why the source Test Skill reads was not brought to the commit the update recorded (`workspace-clone-not-updated`) and gives the commands that bring it there once no other skill needs it where it is. The checkout Test Skill's own message suggests does not reach a new commit of a branch or of `HEAD`.
+
 ### My campaign stopped partway — how do I resume?
 
 Campaign is designed for exactly this. State lives in `_campaign-state.yaml` on disk, so context death, a session timeout, or a machine restart loses nothing. Run `@Ferris campaign resume` — Ferris validates the state file, skips completed skills, and picks up from the next incomplete skill in dependency order. If the state file is corrupted, Ferris falls back to the `.bak` copy automatically. To re-process one specific skill, use `@Ferris campaign resume --from=<skill>`.

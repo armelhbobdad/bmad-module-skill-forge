@@ -176,8 +176,8 @@ def _resolve_outside_cwd(command: str) -> str | None:
     Such a resolution is treated as not-found. Explicit paths supplied by
     callers (containing a separator) are honored as-is. Keep the code
     identical to the sibling guards in skf-merge-ccc-exclusions.py,
-    skf-detect-tools.py and skf-qmd-classify-collections.py
-    (test/test-skf-ccc-git-hygiene.py pins it against
+    skf-detect-tools.py, skf-qmd-classify-collections.py and
+    skf-source-tree.py (test/test-skf-ccc-git-hygiene.py pins it against
     skf-merge-ccc-exclusions.py).
     """
     resolved = shutil.which(command)

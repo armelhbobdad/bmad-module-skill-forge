@@ -71,7 +71,9 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 
 **When to Use:** After source code changes when an existing skill needs updating.
 
-**Key Steps:** Load existing → Detect changes (incl. scripts/assets) → Re-extract → Merge (preserve MANUAL) → Validate → Write → Report
+**Key Steps:** Load existing → Fetch the source at the skill's ref → Detect changes (incl. scripts/assets) → Re-extract → Merge (preserve MANUAL) → Validate → Write (records the commit it read) → Report
+
+**Source:** For a skill built from a remote repository, Update Skill reads the commit the skill's `source_ref` (a tag, a branch or the default branch) points to now, in a checkout of its own, and records that commit as the skill's `source_commit` when it writes. Pass `--target-ref <tag|branch|HEAD>` to move the skill to another ref, such as a newer release. `--detect-only` and `--dry-run` read the same way and write nothing. A skill built from a local folder is read as that folder stands, and a gap-driven run (`--from-test-report`) reads the commit the skill is pinned to.
 
 **Agent:** Ferris (Surgeon mode)
 

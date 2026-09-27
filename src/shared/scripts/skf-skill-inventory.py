@@ -139,8 +139,8 @@ def _has_skf_metadata(path: Path) -> bool:
             and ("forge_tier" in data or "confidence_tier" in data))
 
 
-# Keep identical to _is_link_or_junction in skf-atomic-write.py, skf-enumerate-stack-skills.py
-# and skf-validate-rename-name.py (test/test-skf-skill-inventory.py pins the copies).
+# Keep identical to _is_link_or_junction in skf-atomic-write.py, skf-enumerate-stack-skills.py,
+# skf-validate-rename-name.py and skf-source-tree.py (test/test-skf-skill-inventory.py pins the copies).
 def _is_link_or_junction(p: Path) -> bool:
     """True for POSIX symlinks AND Windows junctions/symlinks.
 

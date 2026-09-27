@@ -280,6 +280,7 @@ ATOMIC_PY = SCRIPTS / "skf-atomic-write.py"
 VALIDATOR_PY = (Path(__file__).parent.parent / "src" / "skf-rename-skill" / "scripts"
                 / "skf-validate-rename-name.py")
 ENUMERATE_PY = SCRIPTS / "skf-enumerate-stack-skills.py"
+SOURCE_TREE_PY = SCRIPTS / "skf-source-tree.py"
 
 # One metadata.json shape per SKF release that wrote the flat layout.
 MARKER_HISTORY = {
@@ -753,17 +754,18 @@ class TestSkfMarkerParity:
         ("_is_link_or_junction", ENUMERATE_PY),
         ("_is_marked_version", ENUMERATE_PY),
         ("_looks_like_skill", ENUMERATE_PY),
+        ("_is_link_or_junction", SOURCE_TREE_PY),
     ])
     def test_copy_is_identical(self, name, source):
         assert _top_level_node(INVENTORY_PY, name) == _top_level_node(source, name), (
             f"{name} in skf-skill-inventory.py differs from {source.name}; keep the copies identical")
 
-    @pytest.mark.parametrize("path", [INVENTORY_PY, CCC_PY, ATOMIC_PY, VALIDATOR_PY, ENUMERATE_PY])
+    @pytest.mark.parametrize("path", [INVENTORY_PY, CCC_PY, ATOMIC_PY, VALIDATOR_PY, ENUMERATE_PY, SOURCE_TREE_PY])
     def test_copies_carry_keep_identical_notes(self, path):
         text = path.read_text(encoding="utf-8")
         assert "Keep identical to" in text and "test/test-skf-skill-inventory.py pins the copies" in text
 
-    @pytest.mark.parametrize("path", [INVENTORY_PY, ATOMIC_PY, CCC_PY, ENUMERATE_PY, VALIDATOR_PY])
+    @pytest.mark.parametrize("path", [INVENTORY_PY, ATOMIC_PY, CCC_PY, ENUMERATE_PY, VALIDATOR_PY, SOURCE_TREE_PY])
     def test_link_check_treats_other_reparse_points_as_not_links(self, tmp_path, monkeypatch, path):
         """On Windows, os.readlink raises ValueError for a reparse point that is
         neither a symlink nor a junction (cloud placeholder, dedup file)."""

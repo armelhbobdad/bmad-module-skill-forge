@@ -140,19 +140,22 @@ With provenance tracking:
 
 **Implementation:**
 1. Load existing provenance map
-2. Identify claims that need re-extraction (from audit drift report or source change detection)
-3. Re-extract only affected claims using current tier tools
-4. Merge fresh provenance entries into the existing map:
+2. Read the source at one commit: the commit the skill's `source_ref` points to now (or the ref `--target-ref` names), in a checkout of the update's own, so change detection and re-extraction read the same tree
+3. Identify claims that need re-extraction (from audit drift report or source change detection)
+4. Re-extract only affected claims using current tier tools
+5. Merge fresh provenance entries into the existing map:
    - Changed entries: replace with new provenance
    - Unchanged entries: preserve existing provenance (timestamp unchanged)
    - Removed exports: remove from provenance map
    - New exports: add with fresh provenance
-5. Regenerate evidence report reflecting the update
+6. Record the commit the update read as `source_commit` in `metadata.json` and `provenance-map.json` (and the ref as `source_ref` when `--target-ref` re-pinned the skill); a gap-driven update keeps both
+7. Regenerate evidence report reflecting the update
 
 **Key Points:**
 - Selective re-extraction — only changed entries are re-processed
 - Provenance timestamps show when each entry was last verified
 - The merge preserves \[MANUAL\] section provenance (author: "manual", no source location)
+- `source_commit` always names the commit the citations were read from
 
 ### File-Level Provenance (file_entries)
 

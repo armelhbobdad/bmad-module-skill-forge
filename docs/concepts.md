@@ -75,7 +75,7 @@ Every skill records the exact version (or commit) of the source code it was buil
 
 By default, the version is auto-detected from the source (package.json, pyproject.toml, etc.). You can also target a specific version — either by specifying it during `@Ferris BS` (brief-skill) or by appending `@version` to a quick skill command (`@Ferris QS cognee@1.0.0`). This is especially useful for docs-only skills where no source code is available for auto-detection. When targeting a specific version on a remote repository, SKF resolves the matching git tag and clones from it — so the extracted API signatures actually reflect the target version's code, not just the label applied to whatever happens to be on the default branch.
 
-When the source updates, you can re-run `@Ferris US` (update-skill) to regenerate the skill for the new version while preserving any manual additions you've made.
+When the source updates, you can re-run `@Ferris US` (update-skill) to regenerate the skill while preserving any manual additions you've made. Update Skill follows the ref the skill was built from — a skill built from a branch picks up its new commits — and `@Ferris US <name> --target-ref <tag>` moves a skill built from a release tag to a newer release.
 
 ---
 

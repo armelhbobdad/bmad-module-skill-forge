@@ -30,8 +30,13 @@ Source code matches provenance map exactly. The skill `{skill_name}` is current 
 
 **Provenance age:** {days} days since last extraction
 **Forge tier:** {tier}
+**Source commit:** {source_commit_line}
 
 **Recommendation:** No action required. Run audit-skill periodically to monitor for drift."
+
+When `{source_moved}` is true, add before the recommendation: "Upstream moved to `{target_commit}`, but no file this skill tracks changed, so nothing was written and the skill stays pinned at `{source_commit}`." When `{target_ref_override}` is set and `{target_ref}` differs from `{source_ref}`, also add "**The re-pin to `{target_ref}` was not recorded** — an update records a new ref only when it writes, and `{target_ref}` changes no file this skill tracks." and add `target-ref-not-recorded: {target_ref} changes no file {skill_name} tracks; the skill still records {source_ref}` to `warnings[]`.
+
+The headless envelope (`SKF_UPDATE_RESULT_JSON`, §5b shape) carries `status: "no-changes"`, `files_written: []` and `warnings[]`.
 
 → Load, read the full file, and execute `{nextStepFile}` — the health-check step is the true terminal step of this workflow.
 
@@ -42,6 +47,7 @@ Source code matches provenance map exactly. The skill `{skill_name}` is current 
 "**Update Skill Report: {skill_name} — Detect-Only Mode**
 
 **Status:** Detect-only (no writes)
+**Source commit:** {source_commit_line}
 
 The change manifest below describes what would be updated. No artifact was modified — re-run without `--detect-only` to apply.
 
@@ -60,6 +66,7 @@ The headless envelope (`SKF_UPDATE_RESULT_JSON`) carries `status: "detect-only"`
 "**Update Skill Report: {skill_name} — Dry-Run Mode**
 
 **Status:** Dry-run (no writes)
+**Source commit:** {source_commit_line}
 
 The change manifest below shows what was detected; re-extraction ran to compute the planned merge but neither merge nor write executed. No artifact was modified.
 
@@ -72,6 +79,8 @@ The change manifest below shows what was detected; re-extraction ran to compute 
 - evidence-report.md
 - context-snippet.md (only if a staleness trigger fired)
 - active-symlink flip (only if version changed)
+- metadata.json and provenance-map.json `source_commit` → `{target_commit}` (and `source_ref` → `{target_ref}` when `--target-ref` re-pins the skill)
+- the workspace clone moved to `{target_commit}` (only when it still holds `{source_commit}`)
 
 **Recommendation:** Review the manifest and re-extraction summary; if both match expectations, re-run `skf-update-skill` without `--dry-run` to perform the actual update."
 
@@ -92,6 +101,7 @@ The headless envelope carries `status: "dry-run"`, `files_written: []`, the `hea
 | **Skill** | {skill_name} |
 | **Forge Tier** | {tier} |
 | **Mode** | {update_mode}{mode_fallback_note} |
+| **Source commit** | {source_commit_line} |
 | **Duration** | {step count} steps |
 
 **`{update_mode}`** is one of `normal`, `gap-driven`, or `degraded` (mirrors the `update_mode` field of `SKF_UPDATE_RESULT_JSON`).
@@ -100,7 +110,10 @@ The headless envelope carries `status: "dry-run"`, `files_written: []`, the `hea
 
 - `--from-test-report` was passed but the test report was missing at the expected path, so step 1 fell back to `normal` mode → ` (gap-driven requested; test report missing — fell back to normal)`
 - `re-extract.md §0.a` skipped the workspace-drift guard because `source_root` is not a git working tree (or HEAD was unreadable) → ` (workspace-drift check skipped: {skip_reason})` where `{skip_reason}` is the helper's `skip_reason` field (`not-a-git-tree` or `HEAD unreadable`)
-- Both fallbacks fired: concatenate both parenthetical notes with `; ` between them
+- init.md §6b could not reach upstream and compared the pinned commit (`{source_tree_status}` is `offline`) → ` (upstream not reached: compared the pinned commit only)`
+- init.md §6b could not read `{source_commit}`, so every tracked file was re-checked (`{source_diff_status}` is `unavailable` in a source tree) → ` (file list unavailable: every tracked file re-checked)`
+- write.md §6b left the workspace clone where it was (`{advance_status}` is `skipped`) → ` (source clone not moved: {advance_skip_reason})`
+- Several fired: concatenate the parenthetical notes with `; ` between them
 
 These signals also appear in `warnings[]` on the headless envelope; the Mode row makes them visible to interactive users who scan the report without parsing the envelope.
 
@@ -183,6 +196,8 @@ Based on the update results:"
 - **export-skill** — Package the updated skill for distribution
 - **test-skill** — Run test suite against the updated skill"
 
+When `warnings[]` holds `workspace-clone-not-updated`, add: "- test-skill stops with `workspace-drift` until `{workspace_clone}` holds `{target_commit}` (the clone was not moved: {the reason that warning names}). Another skill built from this repository may need the clone where it is; when none does, move it yourself with `git -C "{workspace_clone}" fetch --depth 1 origin {target_commit}` and then `git -C "{workspace_clone}" checkout --detach {target_commit}`, which stops rather than overwrite a local change, and re-run test-skill." Leave out the sentence that names the two commands when that reason is `not-a-clone` or `clone-failed`: there is no SKF clone to move. When that reason is `checkout-interrupted`, keep the fetch and name `git -C "{workspace_clone}" checkout --force --detach {target_commit}` in place of the plain checkout: the time limit stopped the update's own checkout part way, so the clone may hold files of both commits, which stop a plain checkout, and it had no local changes when that checkout began. The fetch stays because no ref keeps that commit in the clone, so git may have pruned it by the time the commands run. test-skill's own message suggests a checkout of `{source_ref}`, which does not reach a new commit of a branch or of `HEAD`.
+
 **If validation warnings/failures exist:**
 "- **audit-skill** — Run to identify remaining issues
 - Review validation findings above before exporting"
@@ -204,6 +219,7 @@ SKF_UPDATE_RESULT_JSON: {"skf_update":{"status":"success|no-changes|detect-only|
 - `headless_decisions[]` — verbatim from the in-context array populated by gates (init.md §confirmation and §4 degraded-rebuild, detect-changes.md §1b/§1c/§2.2, merge.md §gate). Each entry `{gate, default_action, taken_action, reason, evidence?}`. Empty when no gates auto-resolved (e.g. no-changes path skipped detect-changes' gates).
 - `status` — single-field outcome for pipeline branching. `"success"` when the run wrote artifacts and produced no halts; `"no-changes"` when §1 short-circuited; `"detect-only"` / `"dry-run"` for the §1a/§1b read-only exits; one of the documented `halted-for-*` codes when a halt fired; `"blocked"` as the catch-all. The full enum lives in the schema (this step emits the value already resolved in context).
 - `error` — null on success or no-changes. Object `{phase, path?, reason}` describing the failure when a halt or write error fired. Pipelines branch on `error !== null` for non-zero exit semantics.
+- `warnings[]` — every entry the run added, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `source-version-lower`, `workspace-clone-not-updated` and `target-ref-not-recorded` entries.
 
 The headless envelope is the structured channel; the per-run JSON written above is the audit trail. Both coexist — the envelope is one line on stdout for grep-friendly consumption, the per-run JSON is the full record on disk.
 

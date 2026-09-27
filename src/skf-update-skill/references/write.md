@@ -50,6 +50,28 @@ hashContentProbeOrder:
 renderMetadataStatsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
   - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
+# Resolve `{sourceTreeHelper}` to the first existing path. §6b uses its
+# `advance` subcommand to move the workspace clone to the commit §2
+# recorded. If neither path exists, skip the call and continue: it never
+# gates the workflow.
+sourceTreeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-source-tree.py'
+  - '{project-root}/src/shared/scripts/skf-source-tree.py'
+# Resolve `{cccGitHygieneHelper}` to the first existing path. It keeps ccc's
+# index folders and SKF's workspace lock out of git, and undoes the
+# `.gitignore` edit `ccc init` makes in a workspace clone. If neither path
+# exists, skip the call and continue: it never gates the workflow.
+cccGitHygieneProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-ccc-git-hygiene.py'
+  - '{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py'
+# Resolve `{checkWorkspaceDriftHelper}` to the first existing path. §6b
+# passes it to the advance, which moves the workspace clone only when the
+# helper confirms the clone still holds the skill's previous commit. If
+# neither path exists, run the advance without `--drift-helper`: it then
+# leaves an existing clone where it is (`head-unverified`), and §6b warns.
+checkWorkspaceDriftProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-check-workspace-drift.py'
+  - '{project-root}/src/shared/scripts/skf-check-workspace-drift.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -85,7 +107,7 @@ Update-skill does not run the optional post-restore frontmatter re-validation to
 
 SKILL.md was written in step 4 section 6b. Verify the write landed intact before proceeding to any derived-artifact writes.
 
-- Verify the resolved `{skill_package}` path matches the version directory step 4 wrote to (if the version changed, step 4 updated `{skill_package}` in context to point at the new path)
+- Verify the resolved `{skill_package}` path matches the version directory step 4 wrote to (if the version changed, step 4 §6b updated `{skill_package}` in context to point at the new path)
 - Run the deterministic [MANUAL]-integrity verifier against the byte-exact inventory captured in step 1 §5:
 
   ```bash
@@ -104,8 +126,9 @@ SKILL.md was written in step 4 section 6b. Verify the write landed intact before
 Update `{skill_package}/metadata.json`:
 - **First, apply any queued `metadata_patches[]`** (staged by merge Priority 8b from gap-driven `metadata update` entries): apply each surgical patch described in the gap's remediation (reconcile a divergent count, add an explanatory stat, etc.) *before* the automatic recount below, so the recount overrides only the fields it owns and the patch survives for any field it does not. If a patch and the recount disagree on a field the recount owns (e.g., `exports_documented`), the recount wins — log the divergence so a still-stale stat surfaces in the report rather than being silently overwritten.
 - **For gap-driven rescopes** (`DELETED_EXPORT` / verification `rescoped`): the removed exports are already dropped from the `exports` array below, and `stats` recompute from that reduced surface — never set a `stats` count by hand to match the documented total. The reduction is justified by the `brief.scope.exclude` + `scope.amendments[]` (`action: "excluded"`) written in step 2; the recount simply reflects the smaller surface.
-- Update `version`: **if `update_mode == "gap-driven"`, do not bump — the skill is being repaired against the same source commit, so leave `version` unchanged and update only `generation_date` / `last_update` below.** This keeps metadata `version` consistent with the on-disk `{skill_package}` path, which step 4 §6b also leaves unchanged in gap-driven mode (see step 4 §6b's "If the source version detected during step 3 differs..." carve-out — in gap-driven mode no source version is detected, so step 4 writes into the existing version directory). Otherwise, if a source version was detected during re-extraction and differs from the current metadata version, use the source version; otherwise increment patch version
+- Update `version`: **if `update_mode == "gap-driven"`, do not bump — the skill is being repaired against the same source commit, so leave `version` unchanged and update only `generation_date` / `last_update` below.** This keeps metadata `version` consistent with the on-disk `{skill_package}` path, which step 4 §6b also leaves unchanged in gap-driven mode (see step 4 §6b — step 1 §6c records no source version in gap-driven mode, so step 4 writes into the existing version directory). Otherwise, if step 1 §6c recorded `source_version_detected`, use it; otherwise increment patch version
 - Update `generation_date` timestamp to current ISO-8601 date
+- **Record the source commit** (when `{source_tree_status}` is `ready` or `offline`): set `source_commit` to `{target_commit}`, the commit every step of this run read, and, when `{target_ref_override}` is set, `source_ref` to `{target_ref}`. Leave `source_root` as metadata.json records it — it names the clone SKF keeps for the repository; never write `{source_tree}` or any other path of this run into an artifact. For any other source (a local folder, gap-driven mode, docs-only) leave `source_commit` and `source_ref` unchanged. The in-context `{source_commit}` stays the value init.md §6 read; §6b needs it.
 - Update `exports` array to reflect current export list
 - **Compute the `stats` block and `confidence_distribution` deterministically** with `{renderMetadataStatsHelper}` (resolve from `{renderMetadataStatsProbeOrder}`; first existing path wins) — the same helper sibling create-skill compiles them with, so create and update emit byte-identical stats for identical inputs. The helper owns all the arithmetic: it bins each provenance `entries[]` row once by its `signature_source` tier into `confidence_distribution.{t1,t1_low,t2,t3}`, sets `exports_documented` = the entry count, and derives `exports_total` = `exports_public_api` + `exports_internal`, `public_api_coverage` = documented / public_api (`null` if public_api is 0), `total_coverage` = documented / total (`null` if total is 0), plus `scripts_count` / `assets_count` from the inventory arrays. Run `uv run {renderMetadataStatsHelper} --help` for the full contract. Do not hand-bin the distribution — binning T2 annotations + T3 doc items on top of the per-export tiers double-counts, which per-entry binning by `signature_source` makes structurally impossible. You supply only the judgment payload:
 
@@ -128,6 +151,8 @@ Update `{skill_package}/metadata.json`:
 Write to `{forge_version}/provenance-map.json`:
 
 **Every entry this step writes or rewrites carries a `signature_source` (`T1` / `T1-low` / `T2` / `T3`)** — the tier that contributed the structural signature, matching create-skill's entry contract. §2's stats helper bins each entry on this field, so a missing value trips its `coherence.ok: false` check. Preserve it byte-identical on untouched entries; set it from the contributing extraction tier on every re-extracted or new entry.
+
+**Record the source commit:** set the map's top-level `source_commit` and `source_ref` to the values §2 wrote to `metadata.json` — audit-skill reads its baseline commit from them.
 
 **If `no_reextraction == true` (gap-driven mode from step 3 section 0):**
 Dispatch per-entry on the verification outcome recorded by step 3 — gap-driven runs produce a mix of `verified`, `moved`, `re-extracted`, and `unknown` outcomes, and each requires a different provenance-map write strategy:
@@ -155,9 +180,9 @@ Dispatch per-entry on the verification outcome recorded by step 3 — gap-driven
 - Add new entry with full structured fields: `export_name`, `export_type`, `params[]`, `return_type`, `source_file`, `source_line`, `confidence`, `extraction_method`, `ast_node_type`
 
 **For script/asset file changes (if `file_entries` exists):**
-- MODIFIED_FILE: copy updated file to `scripts/` or `assets/`, update `content_hash` in `file_entries`
+- MODIFIED_FILE: copy the file from `{source_root}` to `scripts/` or `assets/`, update `content_hash` in `file_entries`
 - DELETED_FILE: remove file from `scripts/` or `assets/`, remove entry from `file_entries`
-- NEW_FILE: copy file to `scripts/` or `assets/`, add entry to `file_entries` with `file_name`, `file_type`, `source_file`, `confidence: "T1-low"`, `extraction_method: "file-copy"`, `content_hash`
+- NEW_FILE: copy the file from `{source_root}` to `scripts/` or `assets/`, add entry to `file_entries` with `file_name`, `file_type`, `source_file`, `confidence: "T1-low"`, `extraction_method: "file-copy"`, `content_hash`
 
 **Add update operation metadata:**
 ```json
@@ -183,6 +208,7 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 **Trigger:** {manual / audit-skill chain}
 **Forge Tier:** {tier}
 **Mode:** {normal / degraded}
+**Source commit:** {source_commit_line}
 
 ### Changes Detected
 - Files modified: {count}
@@ -301,7 +327,7 @@ uv run {verifyProvenanceCompletenessHelper} verify \
     --source-root {source_root}
 ```
 
-The helper reads its `--source-root` (falling back to the provenance map's own `source_root` field when the flag is omitted); pass the resolved `{source_root}` so citation resolution runs against the same tree re-extraction read. **Read the emitted JSON — do NOT recompute the set operations by eye; an LLM set-diff can silently pass a dropped or orphaned entry:**
+The helper reads its `--source-root` (falling back to the provenance map's own `source_root` field when the flag is omitted); pass the resolved `{source_root}` so citation resolution runs against the same tree re-extraction read. When `{source_tree_status}` is `ready` or `offline`, `{source_root}` is still the tree init.md §6b prepared (step 8 removes it), so citations resolve against the commit §2 recorded. **Read the emitted JSON — do NOT recompute the set operations by eye; an LLM set-diff can silently pass a dropped or orphaned entry:**
 
 - `missing[]` — documented exports (metadata `exports[]`) with no provenance entry: a coverage gap.
 - `orphaned[]` — provenance `entries[].export_name` whose export was removed but the entry remains.
@@ -311,6 +337,35 @@ The helper reads its `--source-root` (falling back to the provenance map's own `
 Map `status` to the `Provenance:` line of the §4 evidence report's Validation Summary: `PASS` when `status == "pass"`, `WARN` when `status == "findings"` (this is the persistent record — step 5 §5's table was rendered before the provenance map existed, so it necessarily showed this row as deferred). Provenance findings are **advisory** — they do not block the update. Surface each `missing` / `orphaned` / `stale` entry in the evidence report's Validation Summary so the user can decide, and note when `stale_check` was `skipped-no-source-root`.
 
 **Graceful degradation:** if neither probe path resolves (no `uv` / script available), fall back to the manual set comparison the script encapsulates — enumerate metadata `exports[]` and provenance `entries[].export_name` (canonicalizing internal names through `reexport_map`), diff the two sets for missing/orphaned entries, and spot-check that each `source_file:source_line` still points at a real line in the source tree. Prefer the script — it does this deterministically.
+
+### 6b. Move the Workspace Clone to the Recorded Commit
+
+Run only when `{source_tree_status}` is `ready` and `{workspace_clone}` is not null. test-skill and audit-skill read the skill's source from metadata.json `source_root`, the clone SKF keeps for this repository, and test-skill compares its HEAD with the `source_commit` §2 just wrote. From `{project-root}`, resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}`, `{cccGitHygieneHelper}` ← first existing path in `{cccGitHygieneProbeOrder}` and `{checkWorkspaceDriftHelper}` ← first existing path in `{checkWorkspaceDriftProbeOrder}`, then run:
+
+```bash
+uv run {sourceTreeHelper} advance \
+    --clone "{workspace_clone}" \
+    --source-repo "{source_repo}" \
+    --expect-commit "{source_commit}" \
+    --target "{target_commit}" \
+    --target-ref "{target_ref}" \
+    --tree "{source_tree}" \
+    --timeout "{tree_timeout}" \
+    [--hygiene-helper "{cccGitHygieneHelper}"] \
+    [--drift-helper "{checkWorkspaceDriftHelper}"]
+```
+
+Pass `--hygiene-helper` and `--drift-helper` only when they resolved. `{source_commit}` is the commit init.md §6 read from metadata.json, before §2 recorded `{target_commit}`, and `{tree_timeout}` is the time limit init.md §6b chose: the helper stops itself within it.
+
+The helper takes the clone's `.skf-workspace.lock` — the lock create-skill and audit-skill take — waiting up to a minute, and runs the git hygiene check inside it. It then does nothing when the clone already holds `{target_commit}`; otherwise it moves the clone there only when `{checkWorkspaceDriftHelper}` confirms the clone still holds `{source_commit}` and no tracked file has local changes, taking the commit from `{source_tree}` rather than the network. It never forces a checkout and never moves a clone another run moved. When the clone is missing, it clones it first, as create-skill does.
+
+Bind `{advance_status}` ← `status`, `{advance_skip_reason}` ← `skip_reason`, `{advance_head}` ← `head_sha`, `{advance_log}` ← `log_message` and `{advance_warnings}` ← `warnings`. Log `{advance_log}` in the evidence report and add each `{advance_warnings}` entry to `warnings[]` as `source-tree: <entry>`.
+
+- **`advanced` or `ok`:** continue.
+- **`skipped`:** add `workspace-clone-not-updated: {advance_skip_reason}; {workspace_clone} holds {advance_head or "no commit"}, so test-skill stops with workspace-drift until it holds {target_commit}` to `warnings[]`, and continue.
+- **`{sourceTreeHelper}` does not resolve, or the command fails or prints no JSON:** add the same warning with reason `helper-unavailable`, and continue.
+
+This section never halts: the skill is written, and only the clone test-skill reads is out of step.
 
 ### 7. Run Post-Write Validation (Deferred from Step 05)
 

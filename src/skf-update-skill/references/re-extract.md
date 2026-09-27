@@ -2,7 +2,6 @@
 nextStepFile: 'merge.md'
 extractionPatternsData: 'skf-create-skill/references/extraction-patterns.md'
 extractionPatternsTracingData: 'skf-create-skill/references/extraction-patterns-tracing.md'
-remoteSourceResolutionData: 'references/remote-source-resolution.md'
 tierDegradationRulesData: 'skf-create-skill/references/tier-degradation-rules.md'
 # Resolve `{checkWorkspaceDriftHelper}` to the first existing path; HALT if
 # neither candidate exists. §0.a relies on the helper for the deterministic
@@ -12,13 +11,6 @@ tierDegradationRulesData: 'skf-create-skill/references/tier-degradation-rules.md
 checkWorkspaceDriftProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-check-workspace-drift.py'
   - '{project-root}/src/shared/scripts/skf-check-workspace-drift.py'
-# Resolve `{cccGitHygieneHelper}` to the first existing path. It keeps ccc's
-# index folders and SKF's workspace lock out of git, and undoes the
-# `.gitignore` edit `ccc init` makes in a workspace clone. If neither path
-# exists, skip the call and continue: it never gates the workflow.
-cccGitHygieneProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-ccc-git-hygiene.py'
-  - '{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -69,7 +61,7 @@ The helper emits a result envelope:
 **Dispatch on `status`:**
 
 - **`ok` or `skipped`** (helper exit 0): log `log_message` and continue to bullet 1.
-- **`overridden`** (helper exit 0): log `log_message`, surface a visible warning in the final report ("**Workspace drift accepted via --allow-workspace-drift** — spot-checks read HEAD {head_short_sha}, not pinned {pinned_commit}"), and continue to bullet 1. The override does not automatically re-pin `metadata.source_commit`; re-pinning is explicit user work (run the normal-mode update-skill flow against the same HEAD, or re-create the skill).
+- **`overridden`** (helper exit 0): log `log_message`, surface a visible warning in the final report ("**Workspace drift accepted via --allow-workspace-drift** — spot-checks read HEAD {head_short_sha}, not pinned {pinned_commit}"), and continue to bullet 1. The override does not automatically re-pin `metadata.source_commit`; re-pinning is explicit user work (a normal-mode update records the commit it reads as `source_commit`; or re-create the skill).
 - **`mismatch`** (helper exit 2): HALT immediately with status `halted-for-workspace-drift`. Display the helper's `halt_message` verbatim — it already substitutes `{pinned_commit}`, `{source_ref or "unset"}`, `{source_root}`, `{head_sha}`, and the suggested `git checkout` command. Do not proceed to bullet 1. Step-04 merge has not run; no partial writes. In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "re-extract:workspace-drift", path: "{source_root}", reason: "..."}`).
 
 1. Use the provenance map already loaded in step 1 (at `{forge_version}/provenance-map.json`) — do not re-read
@@ -141,7 +133,7 @@ The helper emits a result envelope:
 
 **Procedure:**
 
-1. **Resolve source access** — invoke §1b's MCP-fallback chain (gh API → zread → deepwiki → workspace / ephemeral clone) once per workflow run to ensure files under `{source_root}` are readable. Cache the chosen access path; do not re-resolve per entry.
+1. **Source access** — read files under `{source_root}` (§1b **Source access**), the tree §0.a confirmed holds the pinned commit.
 2. **Expand `remediation_paths[]`** — for each path across all qualifying entries:
    - Literal source file (ends in a recognized source extension): use as-is.
    - Directory or glob: expand under `{source_root}` using the provenance map's file patterns.
@@ -201,27 +193,7 @@ The helper emits a result envelope:
 
 ### 1b. Determine Extraction Strategy by Tier
 
-**Remote Source Resolution (Forge/Deep only):**
-
-**MCP source access (ordered fallback):** When `source_repo` is set in metadata.json, try each MCP tool in order to fetch only the changed files from the change manifest. This avoids clone overhead entirely. Tools are ordered by data freshness — gh API returns live GitHub content and is preferred for update-skill where current file versions are required. zread and deepwiki depend on manual indexing and may return stale data if indexes haven't been refreshed since the changes being extracted.
-
-1. **gh API** — `gh api repos/{owner}/{repo}/contents/{path}` for raw file content
-   - If accessible: fetch file content (base64-decoded), always current
-   - If rate-limited, 404, or inaccessible: log tool and reason, continue to next tool
-2. **zread** — `get_repo_structure` + `read_file` for targeted file access
-   - If repo found: fetch changed files, proceed with extraction
-   - If "repo not found" or error: log tool and reason, continue to next tool
-   - Caveat: indexed data — may be stale if index wasn't refreshed after the target changes
-3. **deepwiki** — `ask_question` for targeted export/signature queries
-   - If repo indexed and returns usable source data: extract from response
-   - If no results or repo not indexed: log tool and reason, continue to next tool
-   - Caveat: returns synthesized content, not raw source — extraction quality varies; index may be stale
-
-**Confidence labeling:** MCP-fetched content written to a temp file and analyzed with ast-grep → T1. MCP-fetched content analyzed with pattern matching (AST unavailable) → T1-low.
-
-**If all MCP tools fail for this repo:** Fall back to workspace or ephemeral clone — load and follow `{remoteSourceResolutionData}` for clone setup, version reconciliation, and AST tool unavailability handling.
-
-**If all approaches fail (MCP + workspace/ephemeral clone):** Degrade to provenance-map-only analysis (State 2, T1 confidence from compilation-time data). Warn user: "Source access failed for {source_repo}. Analysis limited to provenance-map baseline."
+**Source access (every tier):** read every changed file from `{source_root}`. When `{source_tree_status}` is `ready` or `offline`, that is the tree init.md §6b prepared at `{target_commit}` — the commit step 2 compared — so detection, extraction, merge and write read one tree; otherwise it is the local source init.md §6 validated (in gap-driven mode, the tree §0.a confirmed holds the pinned commit). Do not fetch changed files through the gh contents API, zread or deepwiki: the gh contents API serves the default branch unless given a ref, and the zread and deepwiki indexes may sit at another commit, so a citation read there would not point into the commit this update records. If `{source_tree_status}` is `ready` or `offline` and `{source_root}` no longer exists, HALT with status `blocked` per SKILL.md's source-tree rule (`error.phase` `re-extract:source-tree-missing`). If one changed file cannot be read, limit its analysis to the provenance-map baseline (State 2, T1 confidence from compilation-time data) and warn: "Could not read {path} from {source_root}. Its analysis is limited to the provenance-map baseline."
 
 **Quick tier (text pattern matching):**
 - Extract function/class/type names via regex patterns
@@ -281,6 +253,8 @@ For each remaining file in the change manifest with status MODIFIED, ADDED, or R
 
 **IF `tools.ccc` is true in forge-tier.yaml:**
 
+**Skip this section when `{source_tree_status}` is `ready` or `offline`:** the tree init.md §6b prepared has no ccc index, and a search there could start indexing a folder step 8 deletes. Log "ccc ranking skipped: private source tree" and treat all changes equally.
+
 Before aggregating extraction results, use CCC to assess semantic significance of changes:
 
 1. Run `ccc_bridge.search("{skill_name}", source_root, top_k=15)` — **Tool resolution:** `/ccc` skill search (Claude Code), ccc MCP (Cursor), `ccc search` (CLI) — to get the skill's most semantically central files
@@ -292,7 +266,7 @@ This helps the merge step (section 4) prioritize which changes are most likely t
 
 CCC failures: skip ranking silently, all changes treated equally.
 
-**Note on remote sources:** If `source_root` is a workspace clone, the CCC index may already exist from a prior forge and can be reused via `ccc search --refresh`. If the source is an ephemeral fallback clone, the clone path is not indexed by CCC — the search returns empty results, so semantic ranking is skipped and all changes are treated equally.
+**Note:** a local source keeps using its own index; `ccc search --refresh` updates it with what changed.
 
 **IF `tools.ccc` is false:** Skip this section silently.
 

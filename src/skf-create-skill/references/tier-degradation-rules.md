@@ -11,7 +11,7 @@ When `source_repo` is a remote URL (GitHub URL or owner/repo format) and the tie
 1. Check `git` availability (`git --version`). `git` is effectively guaranteed at Deep tier (via `gh` dependency) but not guaranteed at Forge tier.
 2. If `git` is available: check for an existing workspace checkout at `{workspace_root}/repos/{host}/{owner}/{repo}/`. If found, run the git hygiene check (it undoes the `.gitignore` edit `ccc init` made there and keeps ccc's index folder and SKF's lock file out of `git status`), then `git fetch` to update. If not found, clone into the workspace path with `--depth 1 --single-branch`. See `source-resolution-protocols.md` for the full workspace resolution algorithm.
 3. The workspace uses a full checkout (no sparse-checkout). Brief `include_patterns` and `exclude_patterns` are applied as file-level filters at extraction time, not at the git level. This allows a single workspace checkout to serve multiple briefs with different scope filters.
-4. For update-skill: `changed_files_from_manifest` scoping is applied as file-level filters at extraction time on the full workspace checkout.
+4. For update-skill: a skill forged from a remote repository is read from a checkout of the skill's commit that update-skill prepares for each run (from the workspace clone's objects or the remote), never from the workspace clone as it stands, and `changed_files_from_manifest` scoping is applied as file-level filters at extraction time; a gap-driven repair reads the workspace clone after checking that it holds the skill's pinned commit.
 5. If workspace clone/fetch succeeds: use the workspace path for AST extraction. All results are T1 with `[AST:...]` citations.
 6. If the workspace clone, fetch or checkout fails: fall back to ephemeral clone (`{system_temp}/skf-ephemeral-{skill-name}-{timestamp}/`). If ephemeral succeeds, use it. Ephemeral clone is deleted after extraction.
 7. Workspace checkouts persist across forges — CCC indexes, tool outputs, and the checkout itself are reused.
@@ -20,7 +20,7 @@ When `source_repo` is a remote URL (GitHub URL or owner/repo format) and the tie
 
 - The extraction step warns the user explicitly before degrading — a silent drop from AST (T1) to source reading (T1-low) would leave them trusting a lower-confidence result without knowing it changed
 - **create-skill:** the warning includes actionable guidance — clone locally and update `source_repo` in the brief to the local path
-- **update-skill:** the warning includes actionable guidance — clone locally, re-run [CS] Create Skill with the local path to regenerate provenance data, then re-run the update
+- **update-skill:** does not degrade to source reading for a remote skill: when it cannot get the commit to read, it stops before change detection (`init:source-tree`), since reading any other tree would compare the skill with the wrong code; when only the network is down, it reads the pinned commit from the workspace clone.
 - Extraction proceeds using Quick tier strategy (source reading via gh_bridge — resolved as `gh api` commands or direct file I/O; see `knowledge/tool-resolution.md`)
 - All results labeled T1-low with `[SRC:...]` citations
 - The degradation reason is recorded in the evidence report

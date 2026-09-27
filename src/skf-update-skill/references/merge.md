@@ -70,9 +70,9 @@ Apply merge in the following priority order:
 Category D operates on every `file_entries[]` row regardless of `file_type`. Handle each entry by its type:
 
 - **`file_type: "script"` or `file_type: "asset"`:**
-  - MODIFIED_FILE: queue file for re-copy from source, update `file_entries` content_hash
+  - MODIFIED_FILE: queue file for re-copy from `{source_root}`, update `file_entries` content_hash
   - DELETED_FILE: queue file for removal from `scripts/` or `assets/`, remove from `file_entries`
-  - NEW_FILE: queue file for copy from source, add to `file_entries`
+  - NEW_FILE: queue file for copy from `{source_root}`, add to `file_entries`
   - Files in `scripts/[MANUAL]/` or `assets/[MANUAL]/` are never modified (user-authored)
   - Update Section 7b manifest table to reflect changes
   - Update `metadata.json` `scripts[]`/`assets[]` arrays and `stats.scripts_count`/`stats.assets_count`
@@ -171,7 +171,7 @@ Write the merged content produced by sections 3–4 directly to disk now. Later 
 **Write SKILL.md:**
 - Use the `Edit` or `Write` tool to write merged SKILL.md content to `{skill_package}/SKILL.md`
 - Preserve UTF-8 encoding
-- If the source version detected during step 3 differs from the previous metadata version, create the new `{skill_package}` directory (`{skill_group}/{new_version}/`) first and write there — the previous version's directory is preserved on disk. Update `{skill_package}` in context to point at the new path.
+- If step 1 §6c recorded a `source_version_detected` (a higher version than the previous metadata version), create the new `{skill_package}` directory (`{skill_group}/{new_version}/`) first and write there — the previous version's directory is preserved on disk. Update `{skill_package}` in context to point at the new path.
 
 **Do NOT write here:**
 - `metadata.json`, `provenance-map.json`, `evidence-report.md` — derived from merge + validation output, written by step 6 sections 2–4

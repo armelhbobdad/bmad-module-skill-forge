@@ -29,7 +29,7 @@ step files and the ccc knowledge fragment on that contract:
   extraction-patterns summary state the same rule, and no reader gates on a
   subset of those statuses or names "stale" as a live one;
 - every step that runs ccc outside the project root, and every workspace
-  fetch, runs `skf-ccc-git-hygiene.py`, which never gates: a workspace
+  fetch or checkout, runs `skf-ccc-git-hygiene.py`, which never gates: a workspace
   clone gets ccc's `.gitignore` edit undone and the index and lock listed
   in `.git/info/exclude`, a nested local index gets a self-ignoring
   `.cocoindex_code/.gitignore`, the lazy index never initializes the
@@ -59,8 +59,7 @@ CCC_DISCOVER = SRC / "skf-create-skill" / "references" / "sub" / "ccc-discover.m
 CCC_BRIDGE = SRC / "knowledge" / "ccc-bridge.md"
 SOURCE_RESOLUTION = SRC / "skf-create-skill" / "references" / "source-resolution-protocols.md"
 TIER_DEGRADATION = SRC / "skf-create-skill" / "references" / "tier-degradation-rules.md"
-REMOTE_SOURCE = SRC / "skf-update-skill" / "references" / "remote-source-resolution.md"
-RE_EXTRACT = SRC / "skf-update-skill" / "references" / "re-extract.md"
+UPDATE_WRITE = SRC / "skf-update-skill" / "references" / "write.md"
 AUDIT_INIT = SRC / "skf-audit-skill" / "references" / "init.md"
 TROUBLESHOOTING = REPO_ROOT / "docs" / "troubleshooting.md"
 HYGIENE_HELPER = SRC / "shared" / "scripts" / "skf-ccc-git-hygiene.py"
@@ -534,12 +533,12 @@ def _line_starting(text: str, prefix: str) -> str:
     "loader, users",
     [
         (EXTRACT, [EXTRACT, SOURCE_RESOLUTION]),
-        (RE_EXTRACT, [REMOTE_SOURCE]),
+        (UPDATE_WRITE, [UPDATE_WRITE]),
         (GENERATE, [GENERATE]),
         (CCC_DISCOVER, [CCC_DISCOVER]),
         (AUDIT_INIT, [AUDIT_INIT]),
     ],
-    ids=["extract", "re-extract", "generate", "ccc-discover", "audit-init"],
+    ids=["extract", "update-write", "generate", "ccc-discover", "audit-init"],
 )
 def test_hygiene_probe_order_declared(loader, users):
     frontmatter = _frontmatter(_read(loader))
@@ -555,11 +554,7 @@ def _create_hit() -> str:
     return _slice(_read(SOURCE_RESOLUTION), CREATE_HIT, CREATE_MISS)
 
 
-def _update_hit() -> str:
-    return _slice(_read(REMOTE_SOURCE), "**If workspace repo exists", "**If workspace repo does NOT exist:**")
-
-
-@pytest.mark.parametrize("slicer", [_create_hit, _update_hit], ids=["create", "update"])
+@pytest.mark.parametrize("slicer", [_create_hit], ids=["create"])
 def test_workspace_hit_runs_hygiene_before_fetch(slicer):
     hit = slicer()
     for token in (WS_CMD, WORKSPACE_CORE, "from `{project-root}`", "Read nothing from its output",
@@ -587,7 +582,6 @@ def test_workspace_miss_clones_then_locks():
 def test_fallback_trigger_names_checkout():
     step5 = _slice(_read(SOURCE_RESOLUTION), "5. **Ephemeral fallback", "6. **If all cloning fails")
     assert "If the workspace clone, fetch or checkout fails" in step5
-    assert "fetch or checkout fails" in _line_starting(_read(REMOTE_SOURCE), "**On any workspace failure**")
 
 
 def test_extract_leaves_workspace_clone_clean():
