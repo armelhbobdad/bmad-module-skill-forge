@@ -31,7 +31,7 @@ Loaded by `load-skill.md` §1c when `len(skill_batch) > 1`.
 
 ## Halt semantics
 
-If any single skill fails validation in step 1 §2 (required-file or metadata-field failure), halt the entire batch before step 4 §5 — do not partially export. Report which skill failed and why. The principle: a multi-skill run is a unit of work, not a per-skill best-effort sweep — partial exports leave the manifest and managed sections in an ambiguous state that's expensive for the operator to reconcile.
+If any single skill fails validation in step 1 §2 (required-file or metadata-field failure) or is refused by the §2 ownership gate (`not-skf-output`: a flat skill SKF did not generate), halt the entire batch before step 4 §5 — do not partially export. Report which skill failed and why. The principle: a multi-skill run is a unit of work, not a per-skill best-effort sweep — partial exports leave the manifest and managed sections in an ambiguous state that's expensive for the operator to reconcile.
 
 ## Single-skill mode (reference)
 

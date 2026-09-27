@@ -60,3 +60,5 @@ Example: `@Ferris QS cocoindex --headless` passes `cocoindex` as the target and 
 - Error halts (hard halts on missing files, invalid state)
 - Progress output (summaries, status updates still display)
 - Quality thresholds (if a step produces output below spec, it still reports the issue)
+
+Exception: skf-setup makes its result envelope the final message of a standalone headless run, so the envelope line is all `claude -p` prints. Under `--headless` (or its own `--quiet` flag) it skips its progress output, resolves its gates without displaying them, and the health check it chains to adds nothing of its own before that envelope. Inside a forger pipeline it displays the same line and returns control to the forger. Its SKILL.md Invocation Contract states this.

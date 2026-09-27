@@ -56,7 +56,9 @@ default_mode = ""
 # invocation with `mode=purge` HALTs at activation with exit code 6
 # (`halt_reason: "headless-purge-forbidden"`) instead of silently deleting
 # files. Operators must either re-run with `mode=deprecate` or unset this
-# flag for that run. Empty string = no guard (default).
+# flag for that run; a draft skill with no manifest entry cannot be
+# deprecated, so it needs the flag unset or an interactive run. Empty
+# string = no guard (default).
 
 forbid_purge_in_headless = ""
 

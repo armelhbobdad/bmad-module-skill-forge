@@ -15,7 +15,7 @@ Load `shared/references/pipeline-contracts.md` for the alias-expansion table, th
 4. **Execute left to right** — for each workflow:
    - a. **Report start:** "Pipeline [{current}/{total}]: Starting {code} ({description})..."
    - b. **Resolve inputs** from the previous workflow's output using the Data Flow table in pipeline-contracts.md. Pass any produced `skill_name`, `brief_path`, or other handoff data as the input argument.
-   - c. **Invoke the workflow** with `{headless_mode}` = true, `{pipeline_alias}` set to the alias name (`forge-auto`, `forge`, `forge-quick`, `maintain`, or `null` for ad-hoc sequences), and any resolved arguments.
+   - c. **Invoke the workflow** with `{headless_mode}` = true, `{pipeline_mode}` = true, `{pipeline_alias}` set to the alias name (`forge-auto`, `forge`, `forge-quick`, `maintain`, or `null` for ad-hoc sequences), and any resolved arguments. `{pipeline_mode}` is how a workflow knows it runs inside a pipeline, since `{pipeline_alias}` is null for an ad-hoc sequence. When the workflow's last step finishes, control returns here: continue with d, even when that step reads as the end of the run.
    - d. **Check the circuit breaker** after completion — load the output artifact and validate it against the threshold (default, or user-specified via `[min:N]`). On failure, halt the pipeline and report what completed and what remains.
    - e. **Report completion:** "Pipeline [{current}/{total}]: {code} complete — {brief summary of output}."
 
@@ -32,3 +32,4 @@ Load `shared/references/pipeline-contracts.md` for the alias-expansion table, th
 - **`AN` with `CS`:** if AN produces multiple recommended briefs, auto-select all and process them sequentially in batch mode. If only one unit is found, auto-select it.
 - **`AS` followed by `US`:** if `summary.severity` in `audit-skill-result-latest.json` is CLEAN, skip US and report "No drift detected — skipping update."
 - **`TS` followed by `EX`:** if the test result is FAIL and the score is below the circuit-breaker threshold, halt before EX.
+- **`SF` in a sequence:** SF writes no result file; the one `SKF_SETUP_RESULT_JSON` envelope line it displays is its output. Continue on `status` `success`. Any other status halts the pipeline, with that status and any `error.reason` as the halt reason; so does a run that displays no envelope line, with the line it did display as the reason.

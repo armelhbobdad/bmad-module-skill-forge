@@ -23,11 +23,11 @@ ccc is **required** at the Forge+ tier (it defines Forge+) and **optionally avai
 
 ## Availability
 
-ccc_bridge operations are available when:
-- `tools.ccc: true` in forge-tier.yaml (verified by `ccc --help` + `ccc doctor` in setup)
-- `ccc_index.status` is `"fresh"` or `"stale"` in forge-tier.yaml (an index exists for the project)
+ccc_bridge operations are available when `tools.ccc: true` in forge-tier.yaml (verified by `ccc --help` + `ccc doctor` in setup). When it is false, calling steps skip ccc discovery silently and proceed with direct ast-grep or source reading. This is standard Forge tier behavior — not a degradation.
 
-When either condition is false, calling steps skip ccc discovery silently and proceed with direct ast-grep or source reading. This is standard Forge tier behavior — not a degradation.
+With ccc available, `ccc_index.status` decides how a step reaches the project index:
+- `"fresh"`, `"created"`, `"skipped"`, or a status the step does not know (such as a `"stale"` an older SKF recorded): the index is usable, and the discovery steps search it with `ccc search --refresh`. After `"skipped"` there may be no index yet, but setup's `--ccc-skip-index` lane still wrote `settings.yml` with the SKF exclusions, so the first refresh search builds the index safely.
+- `"none"` or `"failed"`: setup built no index. Create-skill discovery indexes lazily with `ensure_index`; a step without a lazy path skips ccc silently.
 
 ## Operations
 
@@ -68,18 +68,20 @@ The ccc search is invisible in the output artifact. A Forge+ skill's citations a
 ### When Indexing Happens
 
 1. **setup step 1b:** Indexes the project root when setup runs. This is the primary indexing point.
-2. **Workflow discovery steps:** If `ccc_index.status` is `"stale"` or `"none"`, discovery steps trigger a re-index and warn the user. They do not block.
+2. **Workflow discovery steps:** Create-skill discovery and create-stack-skill integration detection search setup's index with `ccc search --refresh`, which first indexes what changed since (after `--ccc-skip-index`, the whole project). When `ccc_index.status` is `"none"` or `"failed"`, create-skill discovery indexes lazily and integration detection skips ccc. Discovery never blocks.
 3. **ccc daemon:** Incremental indexing means re-indexing unchanged files is a near-no-op.
 
 ### Freshness
 
-- Staleness threshold: 24 hours (configurable via `ccc_index.staleness_threshold_hours` in forge-tier.yaml)
-- A stale index still produces useful results — the workflow proceeds with the stale index and notes the staleness
-- setup is the designated refresh authority
+- setup is the designated authority for the `ccc_index` status in forge-tier.yaml. It records `"fresh"` (a re-run kept the index), `"created"`, `"failed"`, `"none"` or `"skipped"` (`--ccc-skip-index`); no status records staleness
+- Staleness threshold: 24 hours (configurable via `ccc_index.staleness_threshold_hours` in forge-tier.yaml). A setup re-run compares `last_indexed` against it to decide whether to keep the index or index again
+- A workflow step never computes staleness. Create-skill discovery and create-stack-skill integration detection search setup's index with `ccc search --refresh`, one incremental pass that indexes what changed since and costs almost nothing when nothing did; the refresh does not change the recorded status. Other steps search the index as it stands
 
 ### Exclusion Patterns
 
 CCC stores its configuration at `{project-root}/.cocoindex_code/settings.yml`. `ccc init` creates it with `exclude_patterns` and `include_patterns` holding ccc's defaults (hidden directories, `node_modules`, `__pycache__`, its own `.cocoindex_code`, and more) and, at the top of a git checkout, adds `/.cocoindex_code/` to `.gitignore`. An `exclude_patterns` list in the file replaces ccc's default exclusions, so SKF only ever extends a list that `ccc init` wrote.
+
+ccc reads `settings.yml` again on every index run. After an edit to `exclude_patterns` or `include_patterns`, a plain `ccc index` (or `ccc search --refresh`) drops the files a pattern now leaves out and indexes the ones it brings in, with the daemon already running; the index never needs deleting and the daemon never needs restarting. A plain `ccc search` does not re-index a project the daemon already has loaded, so run `ccc index` before a search that must reflect an edit.
 
 **SKF infrastructure exclusions:** setup step 1b runs `skf-merge-ccc-exclusions.py`, which runs `ccc init` when the file is missing, rebuilds a file that lacks the ccc defaults (keeping user entries), and keeps these patterns in it:
 
@@ -89,12 +91,19 @@ CCC stores its configuration at `{project-root}/.cocoindex_code/settings.yml`. `
 | `**/_bmad-output` | Build output artifacts (TODO files, reports) |
 | `**/.claude` | Claude Code configuration |
 | `**/_skf-learn` | SKF learning materials |
-| `{skills_output_folder}` | Generated skill files (default `skills`), anchored to the project root — a nested folder with the same name stays indexed |
-| `{forge_data_folder}` | Compilation workspace (default `forge-data`), anchored to the project root |
+| `{skills_output_folder}` | Generated skill files (default `skills`), anchored to the project root — a nested folder with the same name stays indexed. In a folder that also holds content SKF did not generate, one `{skills_output_folder}/<entry>` pattern per SKF entry instead |
+| `{forge_data_folder}` | Compilation workspace (default `forge-data`), anchored to the project root. Per SKF entry in a folder that also holds other content, as above |
 
-The folder values come from `_bmad/skf/config.yaml` and are used relative to the project root. When git tracks or sees files in one of these folders that SKF did not generate (for example a module whose own source lives under `skills/`), setup leaves that folder out and warns, naming the setting to change.
+The folder values come from `_bmad/skf/config.yaml` and are used relative to the project root. Setup lists each folder with git, honouring only `.gitignore` files as ccc does. A skill folder in `{skills_output_folder}` counts as SKF output by the rule the workflows use before they move or delete a skill (see `knowledge/version-paths.md` Ownership): its `metadata.json`, or a version's, carries an SKF marker, or it is `_batch`. The versioned layout, an `active` link, a manifest key or a result file do not count on their own, so a module's skills that an earlier SKF moved into that layout stay indexed. Setup handles each folder in one of four ways:
 
-`ccc_index.exclude_patterns` in forge-tier.yaml records the patterns SKF owns. Each setup run removes a recorded pattern the current config no longer produces (for example after `skills_output_folder` changes), never removes entries it did not add, and keeps the record unchanged on a run without ccc.
+- **Only SKF output** (neutral files such as `.gitkeep` or a README do not count, and loose files directly in the folder beside SKF output are excluded with it): the bare folder pattern.
+- **SKF output next to content SKF did not generate**, for example skills installed from elsewhere: one pattern per SKF entry, so the other content stays indexed. The forms are `{folder}/<entry>` for each SKF skill group or file, plus `{folder}/_batch`, `{folder}/.export-manifest.json`, `{folder}/export-skill-result*.json` and `{folder}/drop-skill-result*.json` whether or not they exist yet. The forge folder gets `{folder}/_campaign`, `{folder}/improvement-queue` and one `{folder}/<report prefix>*` per SKF report instead. Glob characters in an entry name are written as character classes, so `[x]` becomes `[[]x[]]`. A skill created there after setup stays indexed, twice through its version folder and its `active` link, until setup runs again. Setup warns and names the other entries.
+- **No SKF output, only other content**, for example a module whose own source lives under `skills/`: setup leaves the folder out and warns, naming the setting to change.
+- **Already in `exclude_patterns`**, added by the user: once a setup run with ccc has saved SKF's record (below), setup leaves it alone and adds no pattern for it. Without that record, setup treats a folder of only SKF output as its own, and keeps a folder that also holds other content with a one-time warning.
+
+SKF never writes a `!` negation. ccc applies a negation against every exclude pattern, its own defaults included, so it would re-include `node_modules`, hidden folders and the user's own excludes inside the other content, and a `!{folder}/…` entry cancels a bare `{folder}` pattern entirely.
+
+`ccc_index.exclude_patterns` in forge-tier.yaml records the patterns SKF owns, per-entry patterns included. Each setup run removes a recorded pattern the current config no longer produces (for example after `skills_output_folder` changes, after a skill in a shared folder is dropped or renamed, or when a folder starts or stops holding other content), never removes entries it did not add, and keeps the record unchanged on a run without ccc. Ownership goes by the entry's text, so an entry identical to one SKF manages counts as SKF's: a user's copy of a bare folder pattern SKF already writes goes when SKF removes that pattern, and an entry present before a run with ccc first saved the record (an earlier run without ccc leaves it empty, which setup does not trust) is adopted when the folder holds only SKF output. To exclude a folder SKF leaves indexed, the user adds the entry after setup has run with ccc. Once that record exists, a folder value the user lists in `exclude_patterns` that the record does not hold stays the user's: setup never adopts it into the record and never removes it. The one exception is a record that still names per-entry patterns for that folder when none of them is left in `exclude_patterns`: a setup run swapped them for the bare pattern and stopped before it saved its record, so the bare pattern is SKF's and setup checks the folder again.
 
 ### Deferred Discovery (Remote Sources)
 
@@ -102,7 +111,7 @@ For remote repository sources (GitHub URLs), CCC cannot operate during step 2b b
 
 1. **step 2b:** Detects remote source, sets `{ccc_discovery: []}`, displays deferred message
 2. **step 3:** After source resolution succeeds, detects the deferred scenario (`tools.ccc == true AND {ccc_discovery} is empty AND remote_clone_path is set AND tier is Forge+/Deep`)
-3. **step 3 (workspace fast path):** If `{remote_clone_path}/.cocoindex_code/` already exists (persisted workspace index), skips init/index and uses `ccc search --refresh` — CCC daemon re-indexes only if files changed since last index. This is near-instant for unchanged repos.
+3. **step 3 (workspace reuse):** If `{remote_clone_path}/.cocoindex_code/settings.yml` already exists, skips `ccc init`, appends any missing standard exclusions, and runs a plain `ccc index`. The pass is incremental, so an unchanged repository costs almost nothing, and an edited exclude or include pattern takes effect in the same pass.
 4. **step 3 (first-time path):** If no existing CCC index, runs `cd {remote_clone_path} && ccc init`, applies standard build/dependency exclusions (node_modules, dist, .git, vendor, etc.) to `settings.yml`, then runs `ccc index`. Brief-specific `include_patterns`/`exclude_patterns` are NOT written to `settings.yml` — the CCC index is general-purpose. Filtering happens at search result time.
 5. **step 3:** Executes CCC search and populates `{ccc_discovery}` before AST extraction begins
 
@@ -131,8 +140,9 @@ To prevent excessive daemon calls, workflow steps cap ccc queries:
 - Running ccc_bridge.ensure_index() without checking ccc_index.status first — unnecessary re-indexing
 - Passing ccc results directly to the extraction inventory — they are candidates, not extractions
 - Listing ccc as "unavailable" in reports for Quick/Forge tiers — ccc is a Forge+ capability, not something Quick/Forge tiers are missing
-- Indexing without configuring exclusions — for project root indexes, apply SKF exclusions (framework/output directories); for workspace repo indexes, apply standard build artifact exclusions (node_modules, dist, .git, etc.)
+- Indexing without configuring exclusions — for project root indexes, apply SKF exclusions (framework/output directories); for workspace repo indexes, apply standard build artifact exclusions in the `**/name` form (`**/node_modules`, `**/dist`, `**/build`, etc.), each written as a single-quoted YAML list item (`- '**/build'`), because ccc matches nothing with a trailing-slash form such as `build/`, and YAML reads an unquoted leading `*` as an alias, so ccc cannot load the file
 - Writing brief-specific `exclude_patterns` to a workspace repo's `settings.yml` — workspace indexes are general-purpose and serve multiple briefs. Apply brief patterns at search result time, not index time. (Exception: ephemeral fallback clones are single-use, so brief exclusions may be applied to their `settings.yml` to reduce indexing time.)
+- Running `ccc reset` to apply edited patterns or to repair an index missing the source language — a plain `ccc index` applies pattern edits, and a missing language is fixed in `include_patterns`. `ccc reset` deletes the index databases but keeps `settings.yml`; a `ccc index` right after it can fail and leave the project with no index until `ccc daemon restart`; and run from a folder without its own `settings.yml`, it deletes the enclosing project's index. Its real uses (switching the embedding model, or an index database `ccc doctor` reports as unreadable) are outside SKF.
 - Skipping CCC discovery for remote sources without deferring to step 3 — remote repos deserve the same pre-ranking as local sources
 
 ## Related Fragments

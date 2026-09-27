@@ -63,7 +63,7 @@ Every hard halt in this workflow exits with a stable code so headless automators
 | ---- | -------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | 0    | success              | step 7 (terminal health-check)                                                                                     |
 | 2    | input-missing        | step 1 §1 — no `skill_name` supplied in headless mode (interactive prompt cannot resolve)                          |
-| 3    | resolution-failure   | step 1 §1 (skill not found at resolved path: missing `SKILL.md`); step 1 §2 (`forge-tier.yaml` missing — setup-forge not run); step 1 §5 (source directory from provenance map no longer exists / inaccessible) |
+| 3    | resolution-failure   | step 1 §1 (skill not found at resolved path: missing `SKILL.md`; or a flat `SKILL.md` with no SKF marker in its `metadata.json` → `not-skf-output`); step 1 §2 (`forge-tier.yaml` missing — setup-forge not run); step 1 §5 (source directory from provenance map no longer exists / inaccessible) |
 | 4    | write-failure        | step 1 §6 / step 6 §3 (drift report write failed: read-only mount, disk full, permissions denied)                 |
 | 6    | user-cancelled       | step 1 §1 manifest-vs-symlink gate `[X]` · step 1 §4 degraded-mode gate `[X]` · step 1 §5b upstream-drift gate `[X]` · step 1 §5b dirty-worktree sub-gate `[A]` (and `[A]` headless default) |
 
@@ -75,7 +75,7 @@ When `{headless_mode}` is true, step 6 emits a single-line JSON envelope on **st
 SKF_AUDIT_RESULT_JSON: {"status":"success|error","skill_name":"…","drift_score":"CLEAN|MINOR|SIGNIFICANT|CRITICAL|null","report_path":"…|null","next_workflow":"update-skill|null","audit_ref":"…|null","exit_code":0,"halt_reason":null}
 ```
 
-`status` is `"success"` on the terminal happy path, `"error"` on any halt. `drift_score` is `null` when the workflow halted before severity classification ran. `next_workflow` is `"update-skill"` when CRITICAL or HIGH findings exist, otherwise `null`. `halt_reason` is one of: `null` (success), `"input-missing"`, `"skill-not-found"`, `"forge-tier-missing"`, `"source-dir-missing"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above.
+`status` is `"success"` on the terminal happy path, `"error"` on any halt. `drift_score` is `null` when the workflow halted before severity classification ran. `next_workflow` is `"update-skill"` when CRITICAL or HIGH findings exist, otherwise `null`. `halt_reason` is one of: `null` (success), `"input-missing"`, `"skill-not-found"`, `"not-skf-output"`, `"forge-tier-missing"`, `"source-dir-missing"`, `"write-failed"`, `"user-cancelled"`. `exit_code` matches the table above.
 
 ## On Activation
 

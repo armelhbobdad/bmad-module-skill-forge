@@ -8,6 +8,11 @@ nextStepFile: 'write-config.md'
 mergeCccExclusionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-merge-ccc-exclusions.py'
   - '{project-root}/src/shared/scripts/skf-merge-ccc-exclusions.py'
+# `{emitEnvelopeHelper}` = first existing path in `{emitEnvelopeProbeOrder}`,
+# for the blocked envelope a halt in this step emits under headless or quiet.
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 ---
 
 <!-- Config: communicate in {communication_language}. User-visible status messages (indexing progress message) render in the user's language. -->
@@ -25,7 +30,10 @@ For Quick and Forge tiers, or when ccc is unavailable, skip silently and proceed
 - The script owns `ccc init`, every `settings.yml` edit and the index decision — do not run `ccc init` or edit `settings.yml` yourself, and run `ccc index` only when `{ccc_index_action}` is `"index"`
 - Do not fail the workflow if settings preparation or ccc indexing fails
 - Every branch that leaves this step binds all four of `ccc_index_result`, `ccc_indexed_path`, `ccc_last_indexed`, and `ccc_file_count` — step 2 interpolates each bare into the `write-tools` JSON payload, so an unbound flag would emit its literal placeholder and fail the forge-tier.yaml write
-- Display progress messages only when `{headless_mode}` and `{quiet_mode}` are both false
+- Display messages only when `{headless_mode}` and `{quiet_mode}` are both false; the one exception is the envelope line a halt displays
+- When `{headless_mode}` or `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
+- If no path in `mergeCccExclusionsProbeOrder` exists when section 2 runs (an install fault, not a settings failure), halt with phase `step 1b:helper-missing`, `path` set to its first entry, and reason `Setup cannot proceed: skf-merge-ccc-exclusions.py was not found. Reinstall SKF, then re-run /skf-setup.`
+- Every halt follows the SKILL.md halt contract: when `{headless_mode}` or `{quiet_mode}` is true, pipe `{phase, reason, path}` to `uv run {emitEnvelopeHelper} emit-blocked` and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
 
 ## MANDATORY SEQUENCE
 
@@ -51,7 +59,7 @@ uv run {mergeCccExclusionsHelper} \
     --skip-index "{ccc_skip_index}"
 ```
 
-The script (see `src/shared/scripts/skf-merge-ccc-exclusions.py` docstring for the full schema) runs `ccc init` when settings.yml is missing, rebuilds a settings.yml that lacks the ccc default exclusions (keeping user entries), leaves out a configured folder that already holds files SKF did not generate, merges the SKF patterns, removes SKF patterns recorded in forge-tier.yaml that the current config no longer produces, never removes entries it did not add, and returns one `index_action`.
+The script (see `src/shared/scripts/skf-merge-ccc-exclusions.py` docstring for the full schema) runs `ccc init` when settings.yml is missing, rebuilds a settings.yml that lacks the ccc default exclusions (keeping user entries), excludes a configured folder that also holds content SKF did not generate entry by entry (one pattern per SKF entry, so that content stays indexed), leaves out a folder that holds no SKF output, leaves alone a folder the user already excluded, merges the SKF patterns, removes SKF patterns recorded in forge-tier.yaml that the current config no longer produces, never removes entries it did not add, and returns one `index_action`.
 
 **If the script exits non-zero:** parse the stderr JSON `{"status":"error","message":...}` and set `{ccc_index_result: "failed", ccc_indexed_path: null, ccc_last_indexed: null, ccc_file_count: null, ccc_indexing_failed_reason: <message>, ccc_exclude_patterns: null, ccc_exclusion_warnings: [], settings_yml_written: false, settings_yml_patterns_added: 0, settings_yml_patterns_removed: 0, gitignore_updated: false}`, then proceed to section 4. Do not run `ccc index`.
 
@@ -62,7 +70,7 @@ The script (see `src/shared/scripts/skf-merge-ccc-exclusions.py` docstring for t
 - `{settings_yml_patterns_added}` ← `patterns_added`
 - `{settings_yml_patterns_removed}` ← `patterns_removed`
 - `{gitignore_updated}` ← `gitignore_updated`
-- `{ccc_exclude_patterns}` ← `effective_patterns` (a list or null — consume verbatim; null tells step 2 to keep the record already in forge-tier.yaml)
+- `{ccc_exclude_patterns}` ← `effective_patterns` (a list or null — consume verbatim; null tells step 2 to keep the record already in forge-tier.yaml). Copy every entry exactly: the list can hold one pattern per SKF entry, and an entry can hold `[`…`]` character classes such as `skills/[[]x[]]`
 - `{ccc_exclusion_warnings}` ← `warnings` (a list — step 4 shows it in the report and folds it into the envelope's warnings)
 - `{ccc_settings_error}` ← `not_ready_reason`
 

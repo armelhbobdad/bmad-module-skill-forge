@@ -10,6 +10,12 @@ manualSectionRulesFile: 'references/manual-section-rules.md'
 hashContentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
+# Resolve `{skillInventoryHelper}` to the first existing path. §1 step 4 runs
+# it with `--skill` before a flat skill moves: only a flat skill whose
+# metadata.json carries an SKF marker (`flat_skf`) is migrated.
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -22,7 +28,7 @@ Load the existing skill and all its provenance data, detect whether this is an i
 
 ## Rules
 
-- Focus only on loading existing artifacts and establishing the baseline — read-only operations
+- Focus only on loading existing artifacts and establishing the baseline — read-only operations, except the flat-to-versioned migration in §1
 - Do not begin change detection (Step 02)
 
 ## Steps
@@ -46,7 +52,10 @@ Provide either:
 1. Read `{skills_output_folder}/.export-manifest.json` and look up the skill name in `exports` to get `active_version`
 2. If found: resolve to `{skill_package}` = `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/`
 3. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill-name}/active` — resolve to `{skill_group}/active/{skill-name}/`
-4. If neither: fall back to flat path `{skills_output_folder}/{skill-name}/`. If SKILL.md exists at the flat path, auto-migrate per `knowledge/version-paths.md` migration rules
+4. If neither: fall back to the flat path `{skills_output_folder}/{skill-name}/`. If `SKILL.md` exists there, check that SKF generated it before anything moves:
+   - Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`, run `uv run {skillInventoryHelper} {skills_output_folder} --skill {skill-name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
+   - **`{group_flat_skf}` is true:** if the invocation carries `--detect-only` or `--dry-run` (read them from the invocation here; the flag handling below comes later), do not migrate and HALT: those modes never move a skill, and every later step reads the versioned forge workspace, which a flat skill does not have yet. Display "**`{skill-name}` still uses the flat layout — nothing was moved.** `--detect-only` and `--dry-run` never migrate a skill, and they need the versioned layout. Run `@Ferris US {skill-name}` once without them, or AS, TS or EX, to move it into that layout, then re-run with the flag." This runs before the §1b lock, so there is no lock to release. In `{headless_mode}`, emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `version` and `previous_version` = `"unknown"`, `update_mode: "normal"`, `files_written: []`, `error: {phase: "init:read-only-flat-layout", path: "{skills_output_folder}/{skill-name}/", reason: "flat-layout: read-only modes never migrate a skill; run once without --detect-only or --dry-run"}`, and exit. No `headless_decisions[]` entry. Otherwise auto-migrate per `knowledge/version-paths.md` migration rules.
+   - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves, with `halt_reason: "not-skf-output"` and this message: "**`{skill-name}` is not SKF output — nothing was moved.** `{skills_output_folder}/{skill-name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or update it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill-name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF. This runs before the §1b lock, so there is no lock to release. In `{headless_mode}`, emit `SKF_UPDATE_RESULT_JSON` with `status: "blocked"`, `version` and `previous_version` = `"unknown"`, `update_mode: "normal"`, `files_written: []`, `error: {phase: "init:ownership-gate", path: "{skills_output_folder}/{skill-name}/", reason: "not-skf-output: {the reason the message shows}"}`, and exit. No `headless_decisions[]` entry — this is a hard halt, not an auto-resolved gate.
 5. Store the resolved path as `{resolved_skill_package}` for all subsequent artifact loading
 6. Bind `{baseline_version}` to the pre-update version — for an update this is the version being updated, i.e. the `{active_version}` resolved in step 1 above (the flat-path fallback in step 4 has no version, so use the package version read from metadata.json in §2). Step 2 §1c passes `{baseline_version}` to `skf-provenance-gap-dispatch.py` as a required argument; leaving it unbound makes the helper search a wrong/empty directory and silently return `no-report`, dropping the major-version off-ramp.
 

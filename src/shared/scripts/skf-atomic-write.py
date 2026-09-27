@@ -247,13 +247,17 @@ def cmd_commit_dir(target: Path, rollback: bool = False) -> None:
     _ok({"committed": str(target)})
 
 
+# Keep identical to _is_link_or_junction in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
 def _is_link_or_junction(p: Path) -> bool:
     """True for POSIX symlinks AND Windows junctions/symlinks.
 
     `Path.is_symlink()` is False for Windows junctions; os.readlink succeeds
     for both symlinks and junctions (since CPython 3.8 on Windows). A regular
     directory raises OSError on readlink, which is the signal we want to
-    refuse replacement.
+    refuse replacement. On Windows, any other reparse point (a cloud-sync
+    placeholder, a deduplicated file, an app execution alias) raises
+    ValueError: it does not redirect to another path, so it is not a link.
     """
     if p.is_symlink():
         return True
@@ -262,7 +266,7 @@ def _is_link_or_junction(p: Path) -> bool:
     try:
         os.readlink(p)
         return True
-    except OSError:
+    except (OSError, ValueError):
         return False
 
 

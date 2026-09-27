@@ -11,13 +11,13 @@ If something isn't working, start here. For general setup help see [Getting Star
 
 ### "Setup cannot proceed: `uv` is not installed"
 
-Surfaced by `/skf-setup` On Activation when `uv --version` is missing on `$PATH`. SKF helpers depend on `uv` to auto-resolve their Python dependencies via PEP 723 inline metadata; bare `python3` ignores that metadata and would fail later with `ModuleNotFoundError: No module named 'yaml'`. The probe halts the workflow up-front with one cohesive diagnostic instead of letting five steps each fail individually.
+Surfaced by `/skf-setup` On Activation when `uv --version` is missing on `$PATH`. SKF helpers depend on `uv` to auto-resolve their Python dependencies via PEP 723 inline metadata; bare `python3` ignores that metadata and would fail later with `ModuleNotFoundError: No module named 'yaml'`. The probe halts the workflow up-front with one cohesive diagnostic instead of letting five steps each fail individually. Under `--headless` or `--quiet`, the same text arrives as the `error.reason` of a `status: "blocked"` `SKF_SETUP_RESULT_JSON` envelope.
 
 **Fix:** install `uv` from <https://docs.astral.sh/uv/getting-started/installation/> and re-run `/skf-setup`. `uv` is documented as a runtime prerequisite in [Getting Started → Prerequisites](/docs/getting-started.md#prerequisites-full-reference).
 
 ### "Setup cannot proceed: `_bmad/skf/config.yaml` was not found"
 
-Surfaced by `/skf-setup` On Activation when the SKF install config is missing — typically because you invoked `/skf-setup` from a directory that is not an SKF-initialised project. The check runs before any file mutation so nothing is written.
+Surfaced by `/skf-setup` On Activation when the SKF install config is missing — typically because you invoked `/skf-setup` from a directory that is not an SKF-initialised project. The check runs before any file mutation so nothing is written. Under `--headless` or `--quiet`, the same text arrives as the `error.reason` of a `status: "blocked"` `SKF_SETUP_RESULT_JSON` envelope only when SKF's scripts are installed in the project. In the typical case they are not (a directory that is not an SKF project, or an install whose scripts are gone), so there is no helper to build an envelope: the run's one line is this reason alone. Pipelines should treat a missing envelope as a failure.
 
 **Fix:** from the project root, run `npx bmad-module-skill-forge install` (or `npx bmad-method install` and add SKF as a custom module — see [Getting Started → Install](/docs/getting-started.md#install)), then re-run `/skf-setup`. If you ARE in the right project but the file was deleted, restore it from version control or re-run the SKF installer. A separate "config.yaml is not valid YAML" diagnostic surfaces the parser error inline if the file exists but is malformed — open the file at the named path and repair the YAML.
 
@@ -52,6 +52,16 @@ The `onboard` alias was removed. Its replacement is [`forge-auto`](/docs/forge-a
 ### forge-auto halted at the Test stage
 
 forge-auto runs Test Skill with a stricter **90% quality threshold** (vs the default 80%), so a skill that scores below 90% halts at TS with a gap report rather than exporting a weak skill. Run `@Ferris US` to address the gaps it lists, then `@Ferris TS EX` to re-test and export. If 90% is stricter than you need, run the individual workflows or `forge` instead, which use the default threshold.
+
+### "`<name>` is not SKF output"
+
+Surfaced when update-skill, export-skill, audit-skill or test-skill would move a flat skill into the versioned layout, or when drop-skill would delete or rename-skill would rename a skill, and that skill in `skills_output_folder` is one SKF did not generate, such as a BMad module's own skills or skills installed from another tool. SKF only migrates, renames or purges a skill whose `metadata.json` carries the SKF marker, so the workflow stops before it changes anything. Drop and rename also refuse a skill folder that mixes SKF output with other files, and rename refuses a skill that is still in the old flat layout (`flat-layout`).
+
+**Fix:** a `skills_output_folder` shared with skills from elsewhere is supported, and SKF leaves the skills it did not generate alone, so manage `<name>` yourself (to remove it, delete its folder). Relocate only when the folder holds a module's own source rather than skills: then set `skills_output_folder` in `_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there, and re-run `/skf-setup`. If SKF did generate the skill and its `metadata.json` was edited or lost, restore that file; if the message says SKF cannot read it (for example `Unexpected UTF-8 BOM`), re-save it as plain UTF-8. For `flat-layout`, run `@Ferris TS <name>` once to move the skill into the versioned layout, then rename it. If the entries SKF names include a version folder with no `metadata.json`, an interrupted update-skill run may have left it: delete that folder, then re-run `@Ferris US <name>` if you still want the update. An entry named `<version>/<entry>` is a file or folder placed inside an SKF version folder: move it out of `<name>/<version>/`, then re-run.
+
+**`<name>` still uses the flat layout:** update-skill `--detect-only` and `--dry-run` never move a skill, but they need the versioned layout, so they stop on an SKF skill that is still flat. Run `@Ferris US <name>` once without the flag (or AS, TS or EX) to move it into the versioned layout, then re-run with the flag.
+
+**Skills an earlier SKF already moved:** an SKF release without this check could move a module's flat skill into `<name>/<version>/<name>/` and add an `active` link. Recover it from version control: `git status` shows what moved, `git restore <skills-folder>/<name>` brings back the original files, and you then delete the `<version>/` folder and `active` link that SKF added. Until then, `/skf-setup` keeps those skills in the ccc index, since they carry no SKF marker, and warns when the folder holds no SKF output at all.
 
 ### My campaign stopped partway — how do I resume?
 

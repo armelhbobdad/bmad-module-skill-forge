@@ -12,7 +12,9 @@ lives in step prose:
   1. run `ccc init -f` when settings.yml is missing, and rebuild a file that
      lacks the ccc default exclusions;
   2. validate the two folder values from `_bmad/skf/config.yaml`;
-  3. leave out a folder that already holds files SKF did not generate;
+  3. exclude each folder whole, or entry by entry when it also holds
+     content SKF did not generate; leave out a folder with no SKF output,
+     and leave alone a folder the user already excluded;
   4. merge the SKF patterns and prune the SKF-owned patterns the current
      config no longer produces;
   5. warn when `/.cocoindex_code/` is not gitignored;
@@ -92,6 +94,28 @@ the project-relative value itself, anchored to the project root: ccc reads
 `skills` as that one root folder, while `**/skills` would also drop every
 nested folder with the same name.
 
+A folder that also holds content SKF did not generate gets per-entry
+patterns instead of the bare value, each anchored the same way:
+
+  {folder}/<entry>              each SKF-owned first-level directory or
+                                root file, named as it is on disk
+  {folder}/<fixed entry>        always, present or not: `_batch` and
+                                `.export-manifest.json` (skills),
+                                `_campaign` and `improvement-queue` (forge)
+  {folder}/<stem>-result*.json  always for the `export-skill` and
+                                `drop-skill` stems (skills), and for the
+                                stem of any other SKF result at the root
+  {folder}/<prefix>*            forge only, one per SKF report prefix
+
+Glob characters in an entry name are written as one-character classes
+(`[x]` becomes `[[]x[]]`); a backslash escape is never used, because ccc's
+matcher reads a backslash as `/` on Windows. A name holding `'`, `\\`, a
+control character, U+FFFD or an undecodable byte cannot go through the
+setup payloads, so that entry stays indexed with a warning. No pattern is
+ever `{folder}/*` or a `!` negation: ccc applies a negation against every
+pattern, its own defaults included, and a `!{folder}/...` also cancels a
+bare `{folder}` pattern.
+
 Folder values are normalized first: surrounding whitespace is stripped,
 `\\` becomes `/`, a leading `{project-root}/` is dropped, and `./`, `//`
 and a trailing `/` collapse. A normalized value is then refused, with a
@@ -104,39 +128,62 @@ warning naming the key and the file to fix, when it is:
   - starting with `!`                (ccc reads it as a negation)
   - carrying `*`, `?`, `[`, `]` or `\\` (ccc reads them as glob syntax)
   - carrying `{` or `}`              (an unresolved template placeholder)
+  - carrying a control character     (does not survive the setup payloads)
   - carrying `'`                     (breaks the setup shell payloads)
 
 A refused value is left out; the four `**/` patterns still merge.
 
-Collision rule: for each accepted folder that exists, the script lists
-what ccc would see there — `git --literal-pathspecs ls-files -z --cached
---others --exclude-standard -- <folder>`, i.e. tracked files plus
-untracked files git does not ignore — and groups the paths by first-level
-entry. A group is SKF output when its name contains `.skf-`, or:
+Folder check: for each accepted folder that exists, the script lists it
+with `git --literal-pathspecs ls-files -z --cached --others
+--exclude-per-directory=.gitignore -- <folder>`: tracked files plus
+untracked files no `.gitignore` excludes, the only ignore files ccc reads
+(`.git/info/exclude` and a global excludes file hide nothing from ccc, so
+they hide nothing here either). A tracked file deleted from the worktree
+is dropped. The paths are grouped by first-level entry. A group is SKF
+output by the same rule the workflows use before they move or delete a
+skill (skf-skill-inventory.py):
 
-  skills  it is `_batch`, a key of `exports` in `.export-manifest.json`,
-          it holds the versioned `<n>/<v>/<n>/` layout, an `active`
-          pointer or a `*-result*.json`, or its `metadata.json` carries an
-          SKF marker (generated_by, tool_versions.skf, or skill_type with
-          forge_tier / confidence_tier)
-  forge   it is `_campaign` or `improvement-queue`, holds a
+  skills  it is `_batch` or its name contains `.skf-`, or its
+          `metadata.json` or a `<v>/<n>/metadata.json` carries an SKF
+          marker (generated_by, tool_versions.skf, or skill_type with
+          forge_tier / confidence_tier); a linked group never is. The
+          versioned layout, an `active` pointer, a manifest key or a
+          `*-result*.json` alone do not count, so a module's skills that an
+          earlier SKF moved into the versioned layout stay indexed
+  forge   its name contains `.skf-`, it is `_campaign` or
+          `improvement-queue`, holds a
           `skill-brief.yaml*` or `.brief-draft.json`, any `*-result*.json`,
           or a versioned provenance map, evidence report or extraction
           rules file
 
 Root files named `*-result*.json`, `.export-manifest.json` (skills) or
-with an SKF report prefix (forge) are SKF output; `.gitkeep`,
-`.gitignore`, `.gitattributes` and README files are neutral. The folder
-is a collision when any group is foreign, or when it holds other root
-files and no SKF output at all — loose notes beside real SKF output are
-tolerated. A group that is, or contains, the other configured SKF folder
-is SKF output; when both settings name the same folder, an entry either
-kind accepts is SKF output. A submodule or nested repository is
-classified too: when the folder itself is one, its own files are listed
-from inside it, and one deeper down is a group of its own. A colliding
-folder is left out of the produced patterns with a warning naming the
-setting to change. The check is skipped silently when git is missing, the
-project is not a git repository, the folder does not exist, or an
+with an SKF report prefix (forge) are SKF output. Neutral entries never
+count: `.gitkeep`, `.gitignore`, `.gitattributes`, `.DS_Store`,
+`Thumbs.db`, `desktop.ini` and README files, plus any other dot-named
+entry when `**/.*` (the ccc default) is in exclude_patterns and no entry
+there starts with `!`. Everything else is foreign. A group that is, or
+contains, the other configured SKF folder counts as SKF output but gets no
+pattern of its own: that folder is reconciled separately, deepest first.
+When both settings name the same folder, an entry either kind accepts is
+SKF output. A submodule or nested repository is classified too: when the
+folder itself is one, its own files are listed from inside it, and one
+deeper down is a group of its own.
+
+Each folder gets one verdict:
+
+  user      the folder value is already in exclude_patterns and SKF does
+            not own it (see the record below): no pattern, no warning
+  bare      no foreign group, and either SKF output or no other root file
+            (loose notes beside SKF output are tolerated): the bare value
+  entries   foreign entries next to SKF output, or a folder nested inside
+            it that is itself `entries` or `left_out`: the per-entry
+            patterns, with a note naming the foreign entries when there
+            are any
+  left_out  foreign entries and no SKF output: nothing, with a warning
+            naming the setting to change
+
+The check is skipped, giving the bare value, silently when git is missing,
+the project is not a git repository, the folder does not exist, or an
 always-included `**/` pattern already covers the folder; it is skipped
 with a warning when git times out or fails in any other way (for example
 a repository git refuses as unsafe). Every git and ccc child runs with
@@ -146,20 +193,32 @@ also runs with LC_ALL=C so its messages are recognised in any locale.
 
 Ownership record and pruning: `ccc_index.exclude_patterns` in the
 forge-tier.yaml passed through --prior-state-from is the set of patterns
-SKF owned after its last reconcile. A recorded pattern the current run
-does not produce is removed from settings.yml; entries SKF never recorded
-— user entries and the ccc defaults — are never removed, and the four
-`**/` patterns are always produced so are never pruned. When forge-tier.yaml
-exists but its record names no folder pattern (empty, or only the four
-`**/` patterns), the legacy `**/{value}` forms of the accepted folder
-values also count as owned, so installs migrate to the anchored forms; a
-`**/skills` added by the user after a folder pattern is recorded
-survives, and with no forge-tier.yaml at all SKF owns nothing yet. When a
-folder value is refused, pruning is blocked for the whole run and the
-recorded patterns that would have been removed stay (warning): a config
-typo must not silently un-exclude real output. If that run also used the
-legacy fallback, effective_patterns is null so the record stays
-folder-free and the next valid run can still migrate.
+SKF owned after its last reconcile, per-entry patterns included. A
+recorded pattern the current run does not produce is removed from
+settings.yml, so a dropped or renamed skill loses its pattern and a folder
+that changes verdict swaps its bare value for per-entry patterns or back;
+entries SKF never recorded (user entries and the ccc defaults) are never
+removed, and the four `**/` patterns are always produced so are never
+pruned. A record is legacy when forge-tier.yaml exists, the record names
+no folder pattern (it holds at most the four `**/` patterns), and it is
+empty or settings.yml still holds a `**/{value}` form of an accepted
+folder value; those `**/{value}` forms then count as owned, so installs
+migrate to the anchored forms. A `**/skills` added by the user after a
+folder pattern is recorded survives, and with no forge-tier.yaml at all
+SKF owns nothing yet. A record is trusted when forge-tier.yaml exists and
+the record is not legacy: with a trusted record, a folder value already in
+exclude_patterns that the record does not hold is the user's (verdict
+`user`), unless the record holds `{value}/...` per-entry patterns and none
+of them is still in exclude_patterns. SKF then swapped them for the bare
+value in a run that stopped before its record was saved, so the value is
+SKF's and is classified again. Without a trusted record the folder is
+still classified: an all-SKF folder adopts the bare value already there,
+and a folder with foreign entries keeps it untouched with a one-time
+warning (the next run has a trusted record). When a folder value is refused, pruning is blocked
+for the whole run and the recorded patterns that would have been removed
+stay (warning): a config typo must not silently un-exclude real output. If
+that run also used the legacy fallback, effective_patterns is null so the
+record stays folder-free and the next valid run can still migrate.
 
 Index decision: "fail" when no settings.yml exists; otherwise "skip"
 under --skip-index true (with a warning when settings.yml changed);
@@ -192,7 +251,9 @@ Output (single JSON document on stdout, ASCII only):
     "patterns_removed_list":     [str],  SKF-owned patterns pruned
     "patterns_already_present":  int,
     "effective_patterns":        [str] | null,  sorted SKF-owned set to
-                                         record; null when nothing was
+                                         record, per-entry patterns
+                                         included (copy every entry
+                                         exactly); null when nothing was
                                          reconciled, or a legacy-record run
                                          with a refused value (keep the
                                          old record)
@@ -204,11 +265,14 @@ Output (single JSON document on stdout, ASCII only):
     "warnings":                  [str]
   }
 
-No human-readable string this script emits contains a single quote:
-every warning, `not_ready_reason` and error message has `'` replaced by
-a backtick, and folder values containing `'` are refused, because the
-setup steps embed these strings in single-quoted `echo '...'` payloads.
-Data fields such as `settings_yml_path` are emitted as they are.
+Payload safety: the setup steps embed these strings in single-quoted
+`echo '...'` payloads, and dash's `echo` rewrites backslash escapes. So
+every warning, `not_ready_reason` and error message has `'` replaced by a
+backtick, `\\` by `/`, and control characters and lone surrogates by `?`;
+folder values carrying `'`, `\\` or a control character are refused, and
+an entry name carrying one gets no pattern. No pattern SKF produces, and
+so no effective_patterns entry, holds any of them. Data fields such as
+`settings_yml_path` are emitted as they are.
 
 Writes to settings.yml use temp + fsync + rename (mirrors
 skf-atomic-write.py), emit ASCII-only YAML (non-ASCII escaped, as ccc
@@ -237,7 +301,9 @@ import re
 import shutil
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path, PurePosixPath
+from typing import NamedTuple
 
 import yaml
 
@@ -255,6 +321,7 @@ CCC_INIT_TIMEOUT_SEC = 75
 GIT_TIMEOUT_SEC = 10
 SAMPLE_SIZE = 3
 INDEX_ACTIONS = ("index", "keep", "skip", "fail")
+# Keep identical to GIT_LOCATION_VARS in skf-check-workspace-drift.py.
 GIT_LOCATION_VARS = (
     "GIT_DIR",
     "GIT_WORK_TREE",
@@ -265,9 +332,19 @@ GIT_LOCATION_VARS = (
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_NAMESPACE",
 )
-RESULT_JSON_RE = re.compile(r"^[a-z0-9][a-z0-9-]*-result(-latest|-\d[^/]*)?\.json$")
+# Keep identical to RESULT_JSON_RE in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
+RESULT_JSON_RE = re.compile(r"^([a-z0-9][a-z0-9-]*)-result(-latest|-\d[^/]*)?\.json$")
 README_RE = re.compile(r"^readme(\..+)?$", re.IGNORECASE)
-NEUTRAL_ROOT_FILES = frozenset({".gitkeep", ".gitignore", ".gitattributes"})
+NEUTRAL_ROOT_FILES = frozenset({".gitkeep", ".gitignore", ".gitattributes", ".DS_Store",
+                                "Thumbs.db", "desktop.ini"})
+SKF_FIXED_ENTRIES = {
+    "skills": ("_batch", ".export-manifest.json"),
+    "forge": ("_campaign", "improvement-queue"),
+}
+SKF_ROOT_RESULT_STEMS = {"skills": ("export-skill", "drop-skill"), "forge": ()}
+# Keep identical to SKF_GENERATORS in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
 SKF_GENERATORS = frozenset({"quick-skill", "create-skill", "create-stack-skill"})
 FORGE_ROOT_PREFIXES = (
     "analyze-source-",
@@ -280,6 +357,9 @@ FORGE_ROOT_PREFIXES = (
 FORGE_GROUP_DIRS = frozenset({"_campaign", "improvement-queue"})
 FORGE_VERSION_ANCHORS = frozenset({"provenance-map.json", "evidence-report.md", "extraction-rules.yaml"})
 FOLDER_KEYS = (("skills_output_folder", "skills"), ("forge_data_folder", "forge"))
+# Glob characters written as one-character classes in per-entry patterns,
+# as ccc's glob library escapes them; its backslash escaping is off on Windows.
+CCC_CLASS_ESCAPES = frozenset("*?[]{}")
 
 SETTINGS_DIR = ".cocoindex_code"
 SETTINGS_NAME = "settings.yml"
@@ -295,13 +375,21 @@ class HelperError(Exception):
         self.code = code
 
 
-def _no_squote(text) -> str:
-    """Replace `'` with a backtick — setup embeds these strings in `echo '...'`."""
-    return str(text).replace("'", "`")
+def _payload_safe(text) -> str:
+    """Make text safe for setup's single-quoted `echo '...'` payloads.
+
+    `'` becomes a backtick, a backslash becomes `/`, and control characters
+    and lone surrogates become `?`: dash's `echo` rewrites backslash
+    escapes, and a surrogate cannot be encoded.
+    """
+    return "".join(
+        "`" if ch == "'" else "/" if ch == "\\" else
+        "?" if ord(ch) < 0x20 or ord(ch) == 0x7F or 0xD800 <= ord(ch) <= 0xDFFF else ch
+        for ch in str(text))
 
 
 def _die(code: int, message: str) -> None:
-    print(json.dumps({"status": "error", "message": _no_squote(message)}), file=sys.stderr)
+    print(json.dumps({"status": "error", "message": _payload_safe(message)}), file=sys.stderr)
     sys.exit(code)
 
 
@@ -497,6 +585,12 @@ def validate_config_value(key: str, raw_value) -> tuple[str | None, str | None]:
             f"the raw config value and let this script resolve {{project-root}}"
         )
 
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in value):
+        return None, (
+            f"{key} contains a control character; refused for ccc exclusion "
+            f"because it does not survive the setup payloads; {FIX_HINT}"
+        )
+
     if "'" in value:
         return None, (
             f"{key} contains a single quote, which breaks the setup payloads; "
@@ -529,10 +623,13 @@ def assemble_patterns(skills_output_folder: str, forge_data_folder: str
     return patterns, warnings
 
 
-# ─── Collision check ────────────────────────────────────────────────────────
+# ─── Folder check ───────────────────────────────────────────────────────────
 
 
-_LS_FILES_ARGS = ("ls-files", "-z", "--cached", "--others", "--exclude-standard")
+# Only `.gitignore` files: ccc reads no other ignore file, so an entry that
+# `.git/info/exclude` or a global excludes file hides is still indexed.
+_LS_FILES_ARGS = ("ls-files", "-z", "--cached", "--others",
+                  "--exclude-per-directory=.gitignore")
 
 
 def _ls_files(cwd: Path, *pathspec: str) -> tuple[list[str] | None, str | None]:
@@ -555,20 +652,24 @@ def _ls_files(cwd: Path, *pathspec: str) -> tuple[list[str] | None, str | None]:
         detail = next((line.strip() for line in stderr.splitlines() if line.strip()),
                       f"exit code {returncode}")
         return None, f"git ls-files failed ({detail[:200]})"
-    return [r.decode("utf-8", errors="replace") for r in stdout.split(b"\0") if r], None
+    # surrogateescape keeps an undecodable name equal to the name
+    # os.listdir returns, so the existence check and the disk match still
+    # find it; _unwritable then refuses it a pattern.
+    return [r.decode("utf-8", errors="surrogateescape") for r in stdout.split(b"\0") if r], None
 
 
 def list_folder_paths(root: Path, folder: str) -> tuple[list[tuple[str, ...]] | None, str | None]:
     """Return (paths relative to folder, problem).
 
-    Lists tracked files plus untracked files git does not ignore — what
-    ccc would index. A missing folder gives ([], None). None paths mean the
-    check is skipped; problem (see _ls_files) says whether that deserves a
-    warning. When git reports the folder itself as one entry — a submodule
-    or a nested repository, which ccc indexes like any other folder — its
-    own files are listed from inside it. A nested repository deeper down
-    comes back as a single directory entry, which the classifier treats as
-    a group.
+    Lists tracked files plus untracked files no `.gitignore` excludes (the
+    only ignore files ccc reads); a tracked file deleted from the worktree
+    is dropped, since ccc cannot see it. A missing folder gives ([], None).
+    None paths mean the check is skipped; problem (see _ls_files) says
+    whether that deserves a warning. When git reports the folder itself as
+    one entry — a submodule or a nested repository, which ccc indexes like
+    any other folder — its own files are listed from inside it. A nested
+    repository deeper down comes back as a single directory entry, which
+    the classifier treats as a group.
     """
     if not (root / folder).is_dir():
         return [], None
@@ -576,19 +677,25 @@ def list_folder_paths(root: Path, folder: str) -> tuple[list[tuple[str, ...]] | 
     if records is None:
         return None, problem
     depth = len(PurePosixPath(folder).parts)
+    cwd = root
     if any(len(PurePosixPath(r).parts) <= depth for r in records):
         records, problem = _ls_files(root / folder)
         if records is None:
             return None, problem
         depth = 0
+        cwd = root / folder
     found: set[tuple[str, ...]] = set()
     for record in records:
+        if not os.path.lexists(cwd / record):
+            continue
         parts = PurePosixPath(record).parts[depth:]
         if parts:
             found.add(parts)
     return sorted(found), None
 
 
+# Keep identical to _has_skf_metadata in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
 def _has_skf_metadata(path: Path) -> bool:
     """True when a flat skill's metadata.json carries an SKF marker."""
     try:
@@ -607,33 +714,77 @@ def _has_skf_metadata(path: Path) -> bool:
             and ("forge_tier" in data or "confidence_tier" in data))
 
 
-def _manifest_exports(base: Path) -> set[str]:
-    """Skill names under `exports` in base/.export-manifest.json (empty on any error)."""
-    try:
-        manifest = json.loads((base / ".export-manifest.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return set()
-    exports = manifest.get("exports") if isinstance(manifest, dict) else None
-    return {str(k) for k in exports} if isinstance(exports, dict) else set()
+# Keep identical to _is_link_or_junction in skf-atomic-write.py
+# (test/test-skf-skill-inventory.py pins the copies).
+def _is_link_or_junction(p: Path) -> bool:
+    """True for POSIX symlinks AND Windows junctions/symlinks.
 
-
-def _skf_group(base: Path, kind: str, group: str, members: list[tuple[str, ...]],
-               manifest: set[str]) -> bool:
-    """True when first-level entry `group` under the folder is SKF output of `kind`."""
-    if ".skf-" in group:
+    `Path.is_symlink()` is False for Windows junctions; os.readlink succeeds
+    for both symlinks and junctions (since CPython 3.8 on Windows). A regular
+    directory raises OSError on readlink, which is the signal we want to
+    refuse replacement. On Windows, any other reparse point (a cloud-sync
+    placeholder, a deduplicated file, an app execution alias) raises
+    ValueError: it does not redirect to another path, so it is not a link.
+    """
+    if p.is_symlink():
         return True
+    if not p.exists() and not p.is_symlink():
+        return False
+    try:
+        os.readlink(p)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+# Keep identical to _is_marked_version in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
+def _is_marked_version(version_dir: Path, name: str) -> bool:
+    """True when `version_dir/name/metadata.json` carries an SKF marker.
+
+    SKF never links a version folder or the package inside one: a linked
+    one is not its output, whatever the metadata behind the link says.
+    """
+    package = version_dir / name
+    return (not _is_link_or_junction(version_dir) and not _is_link_or_junction(package)
+            and _has_skf_metadata(package / "metadata.json"))
+
+
+# Keep identical to _has_skf_evidence in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
+def _has_skf_evidence(group_dir: Path, name: str) -> bool:
+    """True when skill group `group_dir` holds evidence that SKF generated it.
+
+    Evidence is the `_batch` name, `.skf-` in the name, a marked root
+    `metadata.json`, or a marked version folder (`.skf-` staging folders
+    aside). The versioned layout, an `active` link, a manifest key or a
+    result file are not evidence on their own, and a linked group holds none.
+    """
+    if _is_link_or_junction(group_dir):
+        return False
+    if name == "_batch" or ".skf-" in name:
+        return True
+    if _has_skf_metadata(group_dir / "metadata.json"):
+        return True
+    try:
+        children = list(group_dir.iterdir())
+    except OSError:
+        return False
+    return any(".skf-" not in child.name and child.is_dir() and _is_marked_version(child, name)
+               for child in children)
+
+
+def _skf_group(base: Path, kind: str, group: str, members: list[tuple[str, ...]]) -> bool:
+    """True when first-level entry `group` under the folder is SKF output of `kind`.
+
+    A skills group follows the inventory's ownership rule (skf-skill-inventory.py),
+    so ccc excludes exactly the groups the workflows treat as SKF output.
+    """
     if kind == "skills":
-        return (
-            group == "_batch"
-            or group in manifest
-            or any(len(m) >= 4 and m[2] == group for m in members)
-            or any(len(m) == 2 and (m[1] == "active" or m[1].startswith("active.skf-")
-                                    or RESULT_JSON_RE.match(m[1]))
-                   for m in members)
-            or _has_skf_metadata(base / group / "metadata.json")
-        )
+        return _has_skf_evidence(base / group, group)
     return (
-        group in FORGE_GROUP_DIRS
+        ".skf-" in group
+        or group in FORGE_GROUP_DIRS
         or any(len(m) == 2 and (m[1].startswith("skill-brief.yaml") or m[1] == ".brief-draft.json")
                for m in members)
         or any(RESULT_JSON_RE.match(m[-1]) for m in members)
@@ -658,49 +809,158 @@ def _holds_other_folder(folder: str, group: str, other_folders) -> bool:
                for other in other_folders)
 
 
-def find_foreign_entries(root: Path, folder: str, kind, paths, other_folders=()) -> list[str]:
-    """Return the entries SKF did not generate; [] means no collision.
+class FolderScan(NamedTuple):
+    """What classify_folder found in one configured folder."""
+
+    foreign: list[str]       # the entries SKF did not generate that decide the verdict
+    owned_groups: list[str]  # first-level directories SKF generated
+    owned_files: list[str]   # root files SKF generated
+    has_output: bool         # any SKF output, a group holding the other folder included
+    listed: frozenset        # every first-level name git listed
+
+
+def classify_folder(root: Path, folder: str, kind, paths, other_folders=(),
+                    hidden_neutral: bool = False) -> FolderScan:
+    """Classify the first-level entries of a configured folder.
 
     `kind` is "skills" or "forge", or a collection of both when the two
     folder values are the same folder; an entry is SKF output when any of
     the kinds accepts it. `paths` comes from list_folder_paths. A group
     that is, or contains, another configured SKF folder (`other_folders`)
-    is SKF output too. A single-segment entry that is a directory on disk
-    (a nested repository or submodule) is a group, not a root file.
-    Verdict per first-level entry: any foreign group makes a collision
-    (foreign groups, as `name/`, then the other root files); otherwise
-    other root files are a collision only when the folder holds no SKF
-    output at all. Neutral root files never count.
+    is SKF output but gets no pattern of its own: that folder is reconciled
+    separately. A single-segment entry that is a directory on disk (a
+    nested repository or submodule) is a group, not a root file.
+    `foreign`: any foreign group gives the foreign groups, as `name/`, then
+    the other root files; otherwise other root files count only when the
+    folder holds no SKF output at all. Neutral entries never count; with
+    `hidden_neutral` (ccc's `**/.*` default is active) neither does any
+    other dot-named entry that is not SKF output.
     """
     kinds = {kind} if isinstance(kind, str) else set(kind)
     base = root / folder
-    manifest = _manifest_exports(base) if "skills" in kinds else set()
     groups: dict[str, list[tuple[str, ...]]] = {}
     other_root: list[str] = []
-    owned = 0
+    owned_files: list[str] = []
     for rel in paths:
         if len(rel) == 1 and not (base / rel[0]).is_dir():
             name = rel[0]
             if any(_skf_root_file(k, name) for k in kinds):
-                owned += 1
-            elif name not in NEUTRAL_ROOT_FILES and not README_RE.match(name):
+                owned_files.append(name)
+            elif not (name in NEUTRAL_ROOT_FILES or README_RE.match(name)
+                      or (hidden_neutral and name.startswith("."))):
                 other_root.append(name)
             continue
         members = groups.setdefault(rel[0], [])
         if len(rel) > 1:
             members.append(rel)
     foreign_groups: list[str] = []
+    owned_groups: list[str] = []
+    holds_other = False
     for group, members in sorted(groups.items()):
-        if (_holds_other_folder(folder, group, other_folders)
-                or any(_skf_group(base, k, group, members, manifest) for k in kinds)):
-            owned += 1
+        if _holds_other_folder(folder, group, other_folders):
+            holds_other = True
+        elif any(_skf_group(base, k, group, members) for k in kinds):
+            owned_groups.append(group)
+        elif hidden_neutral and group.startswith("."):
+            continue
         else:
             foreign_groups.append(group + "/")
+    has_output = bool(owned_files or owned_groups or holds_other)
     if foreign_groups:
-        return foreign_groups + other_root
-    if other_root and owned == 0:
-        return other_root
-    return []
+        foreign = foreign_groups + other_root
+    elif other_root and not has_output:
+        foreign = other_root
+    else:
+        foreign = []
+    listed = frozenset(groups) | frozenset(owned_files) | frozenset(other_root) | frozenset(
+        rel[0] for rel in paths if len(rel) == 1)
+    return FolderScan(foreign, owned_groups, sorted(owned_files), has_output, listed)
+
+
+def ccc_literal(name: str) -> str:
+    """Return `name` as a ccc glob that matches only itself.
+
+    Each glob character becomes a one-character class, as the escape
+    function of ccc's glob library (globset) does. Backslash escapes are
+    never used: globset turns them off on Windows and reads a backslash
+    there as `/`.
+    """
+    return "".join(f"[{ch}]" if ch in CCC_CLASS_ESCAPES else ch for ch in name)
+
+
+def _unwritable(name: str) -> bool:
+    """True when a name cannot go into a pattern.
+
+    A `'` breaks the single-quoted setup payloads, a backslash or a control
+    character does not survive `echo` in dash, a replacement character
+    stands for a name that could not be decoded, and a surrogate (bytes on
+    disk that are not UTF-8) makes ccc fail on the whole pattern list.
+    """
+    return any(ch in "'\\\ufffd" or ord(ch) < 0x20 or ord(ch) == 0x7F
+               or 0xD800 <= ord(ch) <= 0xDFFF for ch in name)
+
+
+def _norm(name: str) -> str:
+    return unicodedata.normalize("NFC", name).casefold()
+
+
+def _on_disk(name: str, disk: list[str] | None, listed=frozenset()) -> list[str]:
+    """The names ccc sees for `name`: itself when listed on disk, else the
+    entries equal to it up to Unicode normalization and case (macOS,
+    Windows), else none (the entry is gone). No listing: `name` itself."""
+    if disk is None or name in disk:
+        return [name]
+    key = _norm(name)
+    return [d for d in disk if d not in listed and _norm(d) == key]
+
+
+def entry_patterns(folder: str, kind, owned_groups, owned_files, disk, listed=frozenset()
+                   ) -> tuple[list[str], list[str]]:
+    """Return (patterns, skipped names) that exclude the SKF entries one by one.
+
+    Each pattern is `{folder}/` plus one entry name as it is on disk (`disk`,
+    from os.listdir; None when unreadable), glob characters written as
+    classes. The fixed entries and result stems of each kind, and every
+    forge report prefix, are always included, so output SKF writes before
+    the next setup run is covered. Timestamped root results share one
+    `{folder}/{stem}-result*.json` and forge reports one `{folder}/{prefix}*`.
+    Never a `!` negation: ccc applies it to every pattern, its own defaults
+    included. Skipped names are SKF entries `_unwritable` refuses.
+    """
+    kinds = {kind} if isinstance(kind, str) else set(kind)
+    patterns: set[str] = set()
+    skipped: set[str] = set()
+    exact = list(owned_groups)
+    for kind_ in kinds:
+        exact.extend(SKF_FIXED_ENTRIES[kind_])
+        for stem in SKF_ROOT_RESULT_STEMS[kind_]:
+            patterns.add(f"{folder}/{stem}-result*.json")
+        if kind_ == "forge":
+            patterns.update(f"{folder}/{prefix}*" for prefix in FORGE_ROOT_PREFIXES)
+    for name in owned_files:
+        prefix = next((p for p in FORGE_ROOT_PREFIXES if name.startswith(p)), None)
+        if "forge" in kinds and prefix:
+            patterns.add(f"{folder}/{prefix}*")
+            continue
+        m = RESULT_JSON_RE.match(name)
+        if m:
+            patterns.add(f"{folder}/{m.group(1)}-result*.json")
+            continue
+        exact.append(name)
+    fixed = {n for k in kinds for n in SKF_FIXED_ENTRIES[k]}
+    for name in dict.fromkeys(exact):
+        if name in fixed and (disk is None or name not in disk):
+            patterns.add(f"{folder}/{ccc_literal(name)}")
+            continue
+        if _unwritable(name):
+            skipped.add(name)
+            continue
+        for real in _on_disk(name, disk, listed):
+            if _unwritable(real):
+                skipped.add(real)
+            else:
+                patterns.add(f"{folder}/{ccc_literal(real)}")
+    return sorted(patterns), sorted(skipped)
 
 
 # ─── settings.yml and the ownership record ─────────────────────────────────
@@ -904,48 +1164,189 @@ def _inside_always_excluded(value: str) -> bool:
     return any(f"**/{part}" in ALWAYS_INCLUDE for part in PurePosixPath(value).parts)
 
 
-def _collision_warning(key: str, value: str, foreign: list[str]) -> str:
-    sample = ", ".join(foreign[:SAMPLE_SIZE])
+def _printable(name: str) -> str:
+    """A name safe to show in a warning: backslashes and control characters become `?`."""
+    return "".join("?" if ch == "\\" or ord(ch) < 0x20 or ord(ch) == 0x7F
+                   or 0xD800 <= ord(ch) <= 0xDFFF else ch for ch in name)
+
+
+def _sample(names: list[str]) -> str:
+    return ", ".join(_printable(n) for n in names[:SAMPLE_SIZE])
+
+
+def _collision_warning(key: str, value: str, foreign: list[str], kinds) -> str:
+    installed = (
+        " If those are skills installed from elsewhere, keep the folder: once SKF has "
+        "written its own output there, re-run /skf-setup and SKF excludes only its own "
+        "entries."
+    ) if "skills" in kinds else ""
     return (
         f"{key} {value} already holds {_plural(len(foreign), 'entry', 'entries')} SKF did "
-        f"not generate (for example {sample}), so SKF left it out of the ccc exclusions "
-        f"and that content stays indexed. SKF also writes its output there: set {key} in "
-        f"{{project-root}}/_bmad/skf/config.yaml to a folder only SKF uses and re-run "
-        f"/skf-setup. To exclude it anyway, add {value} to exclude_patterns in "
-        f".cocoindex_code/settings.yml yourself; SKF never removes entries it did not add"
+        f"not generate and no SKF output (for example {_sample(foreign)}), so SKF left it "
+        f"out of the ccc exclusions and that content stays indexed. If that is source you "
+        f"work on, set {key} in {{project-root}}/_bmad/skf/config.yaml to a folder only SKF "
+        f"uses and re-run /skf-setup.{installed} To exclude it anyway, add {value} to "
+        f"exclude_patterns in .cocoindex_code/settings.yml yourself; SKF never removes "
+        f"entries it did not add"
     )
 
 
+def _shared_folder_note(key: str, value: str, foreign: list[str], kinds) -> str:
+    later = (
+        "A skill SKF creates there later stays indexed, twice through its version folder "
+        "and its active link, until you re-run /skf-setup."
+    ) if "skills" in kinds else (
+        "Output SKF writes there later stays indexed until you re-run /skf-setup."
+    )
+    return (
+        f"{key} {value} also holds {_plural(len(foreign), 'entry', 'entries')} SKF did not "
+        f"generate (for example {_sample(foreign)}), so SKF excluded only its own entries "
+        f"there and those stay indexed. {later} To exclude the other entries too, add each "
+        f"as {value}/<name> to exclude_patterns in .cocoindex_code/settings.yml yourself; "
+        f"SKF never removes entries it did not add"
+    )
+
+
+def _unowned_entry_warning(key: str, value: str, foreign: list[str]) -> str:
+    return (
+        f"{key} {value} is in exclude_patterns in .cocoindex_code/settings.yml but SKF has "
+        f"no record of adding it, so SKF left it in place; it also excludes "
+        f"{_plural(len(foreign), 'entry', 'entries')} SKF did not generate (for example "
+        f"{_sample(foreign)}). If those should stay searchable, remove {value} from "
+        f"exclude_patterns and re-run /skf-setup; SKF then excludes only its own output there"
+    )
+
+
+def _unwritable_warning(key: str, value: str, skipped: list[str]) -> str:
+    return (
+        f"{key} {value} holds {_plural(len(skipped), 'SKF entry', 'SKF entries')} whose "
+        f"name SKF cannot write as a ccc pattern (a quote, a backslash, a control character "
+        f"or bytes that are not UTF-8; for example {_sample(skipped)}), so they stay indexed; "
+        f"rename them, or add them to exclude_patterns in .cocoindex_code/settings.yml "
+        f"yourself"
+    )
+
+
+def _list_dir(path: Path) -> list[str] | None:
+    """The names in `path` as the OS reports them (what ccc matches), or None."""
+    try:
+        return os.listdir(path)
+    except OSError:
+        return None
+
+
+def _contains(outer: str, inner: str) -> bool:
+    """True when folder `inner` sits below folder `outer`."""
+    o, i = PurePosixPath(outer).parts, PurePosixPath(inner).parts
+    return i[:len(o)] == o and len(i) > len(o)
+
+
+def _stale_bare_values(existing: list[str], record: list[str], folders: list[str]) -> set[str]:
+    """Bare folder values SKF wrote after its record was last saved.
+
+    Setup writes settings.yml before it saves the record, so a run stopped in
+    between leaves a bare value the record does not hold. When the record
+    holds `{value}/...` per-entry patterns for a folder and none of them is
+    still in settings.yml, SKF swapped them for the bare value itself: that
+    value is SKF's, not the user's. Patterns of another configured folder
+    inside this one do not count.
+    """
+    stale: set[str] = set()
+    for value in folders:
+        if value not in existing or value in record:
+            continue
+        inner = [v for v in folders if _contains(value, v)]
+        entries = [r for r in record if r.startswith(value + "/")
+                   and not any(r == v or r.startswith(v + "/") for v in inner)]
+        if entries and not set(entries) & set(existing):
+            stale.add(value)
+    return stale
+
+
 def _reconcile(root: Path, target: Path, backup: Path, data: dict,
-               values: dict[str, tuple[str, str]], owned_prior: set[str], prune_allowed: bool,
-               state: dict, warnings: list[str]) -> None:
-    """Collision check, merge and prune; write settings.yml when it changed."""
+               values: dict[str, tuple[str, str]], record: list[str], prior_exists: bool,
+               prune_allowed: bool, state: dict, warnings: list[str]) -> None:
+    """Give each folder a verdict, merge and prune; write settings.yml when it changed.
+
+    Verdicts and record trust follow the module docstring. Folders are
+    checked deepest first, so a folder holding another configured folder
+    knows that folder's verdict: when it is `entries` or `left_out`, the
+    outer folder uses per-entry patterns so its bare value never covers
+    content left indexed on purpose.
+    """
     existing = [str(p) for p in (data.get("exclude_patterns") or [])]
-    produced = list(ALWAYS_INCLUDE)
+    # Legacy: a folder-free record (at most the always-included patterns)
+    # that is empty or sits next to a `**/<value>` form predates the
+    # anchored forms, so those forms count as owned and migrate. A
+    # folder-free record without them comes from a run whose folders were
+    # all user-excluded or left out, and is trusted like any other.
+    folder_free = prior_exists and not (set(record) - set(ALWAYS_INCLUDE))
+    legacy_forms = {f"**/{v}" for v, _k in values.values()} & set(existing)
+    legacy = folder_free and (not record or bool(legacy_forms))
+    owned_prior = set(record) | (legacy_forms if legacy else set())
+    trusted = prior_exists and not legacy
+    owned_prior |= _stale_bare_values(existing, record, [v for v, _k in values.values()])
+    state["legacy"] = legacy
+    hidden_neutral = "**/.*" in existing and not any(e.startswith("!") for e in existing)
     by_value: dict[str, list[tuple[str, str]]] = {}
     for key, (value, kind) in values.items():
         by_value.setdefault(value, []).append((key, kind))
-    for value, entries in by_value.items():
+    verdicts: dict[str, str] = {}
+    value_patterns: dict[str, list[str]] = {}
+    for value in sorted(by_value, key=lambda v: -len(PurePosixPath(v).parts)):
+        entries = by_value[value]
         keys = " and ".join(key for key, _kind in entries)
-        if not _inside_always_excluded(value):
-            paths, problem = list_folder_paths(root, value)
-            if problem:
-                warnings.append(f"{problem} for {keys}; collision check skipped")
-            others = [v for v in by_value if v != value]
-            foreign = (find_foreign_entries(root, value, {kind for _key, kind in entries},
-                                            paths, others)
-                       if paths else [])
-            if foreign:
-                warnings.append(_collision_warning(keys, value, foreign))
-                continue
-        if value not in produced:
-            produced.append(value)
+        if trusted and value in existing and value not in owned_prior:
+            verdicts[value], value_patterns[value] = "user", []
+            continue
+        if _inside_always_excluded(value):
+            verdicts[value], value_patterns[value] = "bare", [value]
+            continue
+        paths, problem = list_folder_paths(root, value)
+        if problem:
+            warnings.append(f"{problem} for {keys}; collision check skipped")
+        others = [v for v in by_value if v != value]
+        kinds = {kind for _key, kind in entries}
+        scan = (classify_folder(root, value, kinds, paths, others, hidden_neutral)
+                if paths else None)
+        deferred = any(_contains(value, v) and verdicts.get(v) in ("entries", "left_out")
+                       for v in others)
+        if (scan is not None and (scan.foreign or deferred)
+                and value in existing and value not in owned_prior):
+            # No trusted record says who added the bare value: keep it, and
+            # tell the user once (the next run has a trusted record).
+            if scan.foreign:
+                warnings.append(_unowned_entry_warning(keys, value, scan.foreign))
+            verdicts[value], value_patterns[value] = "user", []
+            continue
+        if scan is not None and scan.foreign and not scan.has_output:
+            warnings.append(_collision_warning(keys, value, scan.foreign, kinds))
+            verdicts[value], value_patterns[value] = "left_out", []
+            continue
+        if scan is not None and (scan.foreign or deferred):
+            patterns, skipped = entry_patterns(value, kinds, scan.owned_groups,
+                                               scan.owned_files, _list_dir(root / value),
+                                               scan.listed)
+            verdicts[value], value_patterns[value] = "entries", patterns
+            if scan.foreign:
+                warnings.append(_shared_folder_note(keys, value, scan.foreign, kinds))
+            if skipped:
+                warnings.append(_unwritable_warning(keys, value, skipped))
+            continue
+        verdicts[value], value_patterns[value] = "bare", [value]
+    produced = list(ALWAYS_INCLUDE)
+    for value in by_value:
+        for p in value_patterns[value]:
+            if p not in produced:
+                produced.append(p)
 
     merged, added, removed = plan_exclusions(existing, produced, owned_prior, prune_allowed)
     blocked = [] if prune_allowed else sorted((owned_prior - set(produced)) & set(existing))
     if blocked:
+        shown = ", ".join(blocked[:SAMPLE_SIZE]) + (
+            f" and {len(blocked) - SAMPLE_SIZE} more" if len(blocked) > SAMPLE_SIZE else "")
         warnings.append(
-            "kept previously recorded SKF exclusions (" + ", ".join(blocked) + ") because a "
+            "kept previously recorded SKF exclusions (" + shown + ") because a "
             "folder value was refused; fix it and re-run /skf-setup to remove patterns SKF "
             "no longer needs"
         )
@@ -1000,15 +1401,9 @@ def run_merge(project_root, skills_output_folder, forge_data_folder, prior_state
             values[key] = (value, kind)
 
     record = read_owned_record(prior_state_from, warnings)
-    # Legacy fallback: a forge-tier.yaml whose record names no folder pattern
-    # (empty, or only the always-included ones) predates the anchored forms,
-    # so the `**/<value>` forms count as owned. With no forge-tier.yaml at
-    # all, SKF never finished a setup here and owns nothing yet.
+    # With no forge-tier.yaml at all, SKF never finished a setup here and
+    # owns nothing yet; _reconcile decides whether the record is legacy.
     prior_exists = prior_state_from is not None and Path(prior_state_from).is_file()
-    legacy = prior_exists and not (set(record) - set(ALWAYS_INCLUDE))
-    owned_prior = set(record)
-    if legacy:
-        owned_prior |= {f"**/{value}" for value, _kind in values.values()}
 
     state = {
         "existed": target.is_file(),
@@ -1021,13 +1416,14 @@ def run_merge(project_root, skills_output_folder, forge_data_folder, prior_state
         "present": 0,
         "effective": None,
         "index_block": None,
+        "legacy": False,
     }
 
     data = _prepare_settings(root, target, backup, allow_ccc_init, state, warnings)
     if data is not None:
-        _reconcile(root, target, backup, data, values, owned_prior, prune_allowed,
+        _reconcile(root, target, backup, data, values, record, prior_exists, prune_allowed,
                    state, warnings)
-        if legacy and not prune_allowed:
+        if state["legacy"] and not prune_allowed:
             # Keep the folder-free record so the next valid run can still
             # migrate the legacy `**/<value>` forms of the refused value.
             state["effective"] = None
@@ -1059,7 +1455,7 @@ def run_merge(project_root, skills_output_folder, forge_data_folder, prior_state
         "settings_yml_existed": state["existed"],
         "ccc_init": state["ccc_init"],
         "settings_ready": state["ready"],
-        "not_ready_reason": _no_squote(reason) if reason else None,
+        "not_ready_reason": _payload_safe(reason) if reason else None,
         "patterns_added": len(state["added"]),
         "patterns_added_list": state["added"],
         "patterns_removed": len(state["removed"]),
@@ -1069,7 +1465,7 @@ def run_merge(project_root, skills_output_folder, forge_data_folder, prior_state
         "written": state["written"],
         "gitignore_updated": _read_bytes_or_none(gitignore) != gitignore_before,
         "index_action": action,
-        "warnings": [_no_squote(w) for w in warnings],
+        "warnings": [_payload_safe(w) for w in warnings],
     }
 
 
@@ -1107,8 +1503,9 @@ def main() -> None:
     parser.add_argument(
         "--skills-output-folder", default="",
         help="Raw value of skills_output_folder from {project-root}/_bmad/skf/config.yaml, "
-             "forwarded verbatim. Normalized, validated and collision-checked, then "
-             "excluded as a root-anchored pattern. Refused values produce a warning.",
+             "forwarded verbatim. Normalized, validated and checked, then excluded as a "
+             "root-anchored pattern, or entry by entry when the folder also holds content "
+             "SKF did not generate. Refused values produce a warning.",
     )
     parser.add_argument(
         "--forge-data-folder", default="",
@@ -1118,8 +1515,10 @@ def main() -> None:
     parser.add_argument(
         "--prior-state-from", type=Path, default=None,
         help="Path to forge-tier.yaml. Its ccc_index.exclude_patterns is the record of "
-             "the patterns SKF owns; recorded patterns the current config no longer "
-             "produces are removed. Missing file: empty record.",
+             "the patterns SKF owns, per-entry patterns included; recorded patterns the "
+             "current config no longer produces are removed, and with this record a "
+             "folder already in exclude_patterns that it does not hold is left to the "
+             "user. Missing file: empty record.",
     )
     parser.add_argument(
         "--index-fresh", type=_bool_arg, default=False, metavar="true|false",

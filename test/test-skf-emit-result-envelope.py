@@ -311,6 +311,22 @@ def test_warnings_includes_orphan_auto_resolution_headless_default_keep():
     )
 
 
+def test_warnings_includes_orphan_auto_resolution_quiet_default_keep():
+    """`--quiet` alone keeps orphans without prompting and records its own source."""
+    p = _baseline_payload()
+    p["orphan_auto_resolution"] = {
+        "action": "keep",
+        "count": 3,
+        "source": "quiet-default",
+    }
+    env = mod.assemble_envelope(p)
+    assert (
+        "orphan_auto_resolution: keep 3 orphaned collection(s) "
+        "(non-interactive, quiet-default)"
+    ) in env["skf_setup"]["warnings"]
+    assert mod._validate_against_schema(env, mod._load_schema()) == []
+
+
 def test_no_orphan_warning_when_resolution_absent_or_null():
     p = _baseline_payload()
     env = mod.assemble_envelope(p)

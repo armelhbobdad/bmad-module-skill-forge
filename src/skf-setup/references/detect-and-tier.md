@@ -6,6 +6,11 @@ nextStepFile: 'ccc-index.md'
 detectToolsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-tools.py'
   - '{project-root}/src/shared/scripts/skf-detect-tools.py'
+# `{emitEnvelopeHelper}` = first existing path in `{emitEnvelopeProbeOrder}`,
+# for the blocked envelope a halt in this step emits under headless or quiet.
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 ---
 
 <!-- Config: communicate in {communication_language}. The first-run preamble below is user-visible — render it in the user's language. -->
@@ -21,6 +26,10 @@ Verify availability of the four forge tools (ast-grep, gh, qmd, ccc), read any e
 - Focus only on tool detection and tier calculation — do not write any files (Step 02)
 - Never reimplement tool probes or the tier rules in prose — the script is authoritative
 - Tool command failures are not errors — they indicate unavailability (the script swallows them)
+- Display messages only when `{headless_mode}` and `{quiet_mode}` are both false; the one exception is the envelope line a halt displays
+- When `{headless_mode}` or `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
+- If no path in `detectToolsProbeOrder` exists, halt with phase `step 1:helper-missing`, `path` set to its first entry, and reason `Setup cannot proceed: skf-detect-tools.py was not found. Reinstall SKF, then re-run /skf-setup.`
+- Every halt follows the SKILL.md halt contract: when `{headless_mode}` or `{quiet_mode}` is true, pipe `{phase, reason, path}` to `uv run {emitEnvelopeHelper} emit-blocked` and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
 
 ## MANDATORY SEQUENCE
 
@@ -33,7 +42,7 @@ Prior state lives in two files; the detector helper (§2) reads forge-tier.yaml 
 - If exists: check for `tier_override` value
 - If not found: set `{tier_override}` to null
 
-**First-run preamble** — when the prior-state read (§2 below, `prior.previous_tier`) returns null AND `{headless_mode}` is `false`, display this preamble before continuing so the user knows what is about to happen and can abort cleanly with Esc / Ctrl+C before any writes. (When `{headless_mode}` is true, skip the preamble entirely — pipelines never need it.)
+**First-run preamble** — when the prior-state read (§2 below, `prior.previous_tier`) returns null AND `{headless_mode}` and `{quiet_mode}` are both `false`, display this preamble before continuing so the user knows what is about to happen and can abort cleanly with Esc / Ctrl+C before any writes. (When either is true, skip the preamble entirely — pipelines and `--quiet` re-runners never need it.)
 
 "**About to set up the forge.** This workflow will:
 
@@ -47,7 +56,7 @@ Prior state lives in two files; the detector helper (§2) reads forge-tier.yaml 
 
 Press Esc or Ctrl+C now if this isn't the right project — no files have been written yet."
 
-**Re-run notice** — when the prior-state read (§2 below, `prior.previous_tier`) returns a non-null value AND `{headless_mode}` is `false`, display this notice instead of the first-run preamble, before continuing, so a user who re-ran in the wrong/sibling repo can abort before any config rewrite or re-index. (When `{headless_mode}` is true, skip it — pipelines re-run intentionally.)
+**Re-run notice** — when the prior-state read (§2 below, `prior.previous_tier`) returns a non-null value AND `{headless_mode}` and `{quiet_mode}` are both `false`, display this notice instead of the first-run preamble, before continuing, so a user who re-ran in the wrong/sibling repo can abort before any config rewrite or re-index. (When either is true, skip it — pipelines and `--quiet` re-runners re-run intentionally.)
 
 "**Forge already set up here:** {previous_tier} tier, detected {previous_detection_date}. Re-running re-probes the tools and refreshes config/index in this project. To refresh the tier without paying the ccc re-index cost, re-run with `--ccc-skip-index`. Press Esc or Ctrl+C now if this isn't the project you meant — nothing has been rewritten yet."
 
@@ -56,6 +65,8 @@ Press Esc or Ctrl+C now if this isn't the right project — no files have been w
 Build the Bash invocation: `uv run {detectToolsHelper} --project-root "{project-root}" --prior-state-from "{project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"`. If `{tier_override}` is non-null, append `--tier-override "{tier_override}"`. If `{require_tier}` is non-null, append `--require-tier "{require_tier}"`. Then execute. (`--project-root` lets the script compute the CCC-index freshness verdict — `prior.ccc_index_fresh` — so step 1b works from a boolean instead of doing timestamp math.)
 
 The script (see `src/shared/scripts/skf-detect-tools.py` docstring for the full `DETECT_OUTPUT_SCHEMA`) probes ast-grep / gh / qmd / ccc concurrently with two-step verification for qmd and ccc (binary-identity check + daemon-health check, including the `CocoIndex Code` identity-marker substring check that rejects PATH-shadowing aliases). It applies the 4-rule tier table, performs the tier-override sanity check (override is honored but flagged unsafe when underlying tools are missing), and evaluates `--require-tier` using a tool-prerequisite check (Deep does not subsume Forge+ — Deep does not require ccc). Output is one JSON document on stdout.
+
+**If the script exits non-zero or prints no JSON:** halt before section 3 with phase `step 1:detect-tools`, `path` `{project-root}`, and reason `Setup cannot proceed: tool detection failed: <message>`. `<message>` is the `message` of the stderr JSON `{"status":"error","message":...}`, or the first stderr line when stderr holds no JSON, with each `'` replaced by a backtick and each `\` by `/`. Under `{headless_mode}` or `{quiet_mode}` the blocked envelope is the only line displayed.
 
 ### 3. Parse Output and Set Context Flags
 
@@ -111,4 +122,4 @@ From `deltas` (computed by the script from current tools + prior; eliminates LLM
 
 ### 4. Auto-Proceed
 
-After context flags are populated, display "**Proceeding to CCC index check...**", then load `{nextStepFile}`, read it fully, and execute it.
+After context flags are populated, unless `{headless_mode}` or `{quiet_mode}` is true, display "**Proceeding to CCC index check...**". Then load `{nextStepFile}`, read it fully, and execute it.

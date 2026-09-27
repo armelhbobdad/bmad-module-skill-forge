@@ -96,7 +96,7 @@ These menu codes resolve to a handler here, not a registered skill:
 
 When the user provides multiple workflow codes (e.g. `BS CS TS EX`, `QS TS EX`) or a pipeline alias (`forge`, `forge-auto`, `forge-quick`, `maintain`), execute them as a chained pipeline. Load `references/pipeline-mode.md` for the run procedure — parsing, sequence validation, the execute loop, circuit breakers, result contract, and special behaviors — and `shared/references/pipeline-contracts.md` for the alias, data-flow, and threshold tables.
 
-Only the alias names need recognizing here; `pipeline-mode.md` step 1 expands them against the pipeline-contracts.md table. One expansion is pinned here because its test gate is non-default: `forge-auto` → `AN[auto] BS[auto] CS TS[min:90] EX`, whose `TS[min:90]` matches init.md §1b's `forge-auto` → 90. Each chained workflow runs with `{pipeline_alias}` set to the alias name (`forge-auto`, `forge`, `forge-quick`, `maintain`) or `null` for ad-hoc code sequences.
+Only the alias names need recognizing here; `pipeline-mode.md` step 1 expands them against the pipeline-contracts.md table. One expansion is pinned here because its test gate is non-default: `forge-auto` → `AN[auto] BS[auto] CS TS[min:90] EX`, whose `TS[min:90]` matches init.md §1b's `forge-auto` → 90. Each chained workflow runs with `{pipeline_mode}` = true, which marks pipeline context even for an ad-hoc sequence, and `{pipeline_alias}` set to the alias name (`forge-auto`, `forge`, `forge-quick`, `maintain`) or `null` for ad-hoc code sequences.
 
 Two alias gotchas must be caught here, at recognition, before that procedure runs:
 

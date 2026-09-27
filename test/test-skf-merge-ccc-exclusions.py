@@ -6,8 +6,11 @@ Highest-value tests:
   malformed or over-broad ccc pattern (empty, absolute, `..`, `!`, glob
   meta, placeholders, single quotes), and values are normalized first.
 - Folder patterns are anchored to the project root (`skills`, never
-  `**/skills`), and a folder that already holds files SKF did not generate
-  is left out (real git, cleaned environment).
+  `**/skills`). A folder that also holds content SKF did not generate is
+  excluded entry by entry (class-escaped names, fixed entries, result and
+  report families, never a `!` or `{folder}/*` pattern), a folder with no
+  SKF output is left out, and a folder the user already excluded is left
+  alone (real git, cleaned environment).
 - settings.yml states: a missing file is created only by `ccc init`, a file
   lacking the ccc defaults is rebuilt with user entries kept, a failed
   rebuild restores the original bytes, and a leftover backup is recovered.
@@ -16,8 +19,9 @@ Highest-value tests:
   the legacy `**/<value>` migration needs a folder-free forge-tier.yaml.
 - The collision classifier: one fixture per rule, nested repositories and
   submodules, malformed metadata; git failures warn, non-git is silent.
-- The index decision, the .gitignore check, and the no-single-quote
-  guarantee for every human-readable string.
+- The index decision, the .gitignore check, and the payload-safety
+  guarantee (no `'`, backslash or control character) for every
+  human-readable string and every recorded pattern.
 - Prose pins on the setup step files that consume the helper output.
 
 No test runs a real `ccc`: subprocess CLI tests always pass --no-ccc-init,
@@ -252,6 +256,15 @@ def _git(cwd: Path, *args: str) -> str:
     return proc.stdout.decode("utf-8", errors="replace")
 
 
+def _config_path(path: Path) -> str:
+    """A path as a quoted git config value, as test/conftest.py writes it.
+
+    Unquoted, a `#` or `;` in the temp path starts a comment and cuts the value.
+    """
+    text = path.as_posix().replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{text}"'
+
+
 def _write_files(root: Path, files: dict[str, bytes]) -> None:
     for rel, content in files.items():
         path = root / rel
@@ -274,6 +287,24 @@ def _git_commit(root: Path, message: str = "fixture") -> None:
     """Commit what is staged in root; the identity is passed with -c (no global config)."""
     _git(root, "-c", "user.name=SKF Test", "-c", "user.email=skf-test@example.invalid",
          "-c", "commit.gpgsign=false", "commit", "-q", "-m", message)
+
+
+SKF_MARKER = {"generated_by": "create-skill"}
+
+
+def _marked(files: dict[str, bytes]) -> dict[str, bytes]:
+    """`files` plus an SKF-marked metadata.json beside each `<g>/<v>/<g>/SKILL.md`.
+
+    Only a marked metadata.json makes a skills group SKF output, as in
+    skf-skill-inventory.py: the versioned layout alone does not.
+    """
+    out = dict(files)
+    for rel in files:
+        parts = rel.split("/")
+        if len(parts) >= 4 and parts[-1] == "SKILL.md" and parts[-2] == parts[-4]:
+            meta = "/".join(parts[:-1] + ["metadata.json"])
+            out.setdefault(meta, json.dumps(dict(SKF_MARKER, name=parts[-2])).encode("utf-8"))
+    return out
 
 
 MODULE_SOURCE = {
@@ -321,6 +352,8 @@ MODULE_SOURCE = {
     ("prefix/{var}/suffix",          False),
     ("trailing}",                    False),
     ("{leading",                     False),
+    # Invalid — control character does not survive the setup payloads
+    ("tab\tin",                      False),
     # Invalid — single quote breaks the setup payloads
     ("bob's",                        False),
 ])
@@ -362,7 +395,10 @@ def test_validate_warning_messages_are_actionable():
     _, w = mod.validate_config_value("skills_output_folder", "../x")
     assert ".." in w
 
-    for value in ("", "/abs", "x*", "{stray}", "!x", "../x", "bob's", "a]", "C:/x"):
+    _, w = mod.validate_config_value("skills_output_folder", "a\x7fb")
+    assert "control character" in w
+
+    for value in ("", "/abs", "x*", "{stray}", "!x", "../x", "bob's", "a]", "C:/x", "a\tb"):
         _, w = mod.validate_config_value("skills_output_folder", value)
         assert w is not None
         assert "'" not in w, f"single quote in warning for {value!r}: {w}"
@@ -1217,7 +1253,14 @@ def test_skip_lane_warning_reports_add_and_prune_counts(tmp_path, tmp_project):
 
 
 def _collisions(payload: dict, key: str = "skills_output_folder") -> list[str]:
-    return [w for w in payload["warnings"] if w.startswith(key + " ") and "SKF did not generate" in w]
+    """The left-out warnings for `key`: a folder with no SKF output."""
+    return [w for w in payload["warnings"] if w.startswith(key + " ") and "so SKF left it out" in w]
+
+
+def _mixed(payload: dict, key: str = "skills_output_folder") -> list[str]:
+    """The notes for `key` whose folder SKF excluded entry by entry."""
+    return [w for w in payload["warnings"]
+            if w.startswith(key + " ") and "excluded only its own entries" in w]
 
 
 def test_module_source_under_skills_refuses_exclusion(tmp_path):
@@ -1248,7 +1291,7 @@ def test_collision_prunes_previously_merged_double_star(tmp_path):
 
 
 def test_versioned_skf_output_is_not_a_collision(tmp_path):
-    project = _git_repo(tmp_path / "repo", {
+    project = _git_repo(tmp_path / "repo", _marked({
         "skills/.gitkeep": b"# This file ensures the directory is tracked by git\n",
         "skills/.export-manifest.json": b'{"exports": {}}\n',
         "skills/export-skill-result-latest.json": b"{}\n",
@@ -1257,12 +1300,51 @@ def test_versioned_skf_output_is_not_a_collision(tmp_path):
         "skills/n/1.0.0/n/SKILL.md": b"# n\n",
         "skills/n/1.0.0/n/references/x.md": b"# x\n",
         "skills/_batch/quick-skill-batch-latest.json": b"{}\n",
-    })
+    }))
     _seed_ccc_settings(project)
     payload = _merge(project)
     assert _collisions(payload) == []
     assert "skills" in payload["effective_patterns"]
     assert "skills" in _read_settings(project)["exclude_patterns"]
+
+
+# A module's own skills that an earlier SKF moved into the versioned layout:
+# `active` links, version folders, a manifest key and a result file, and no
+# SKF marker anywhere. Every workflow calls them not SKF output.
+MOVED_MODULE_SKILLS = {
+    "skills/module.yaml": b"code: my-module\n",
+    "skills/agent-a/active": b"1.0.0",
+    "skills/agent-a/1.0.0/agent-a/SKILL.md": b"# agent a\n",
+    "skills/agent-a/1.0.0/agent-a/metadata.json": b'{"name": "agent-a", "version": "1.0.0"}\n',
+    "skills/agent-b/active": b"1.0.0",
+    "skills/agent-b/1.0.0/agent-b/SKILL.md": b"# agent b\n",
+    "skills/agent-b/rename-skill-result-latest.json": b"{}\n",
+}
+
+
+def test_module_skills_an_earlier_skf_moved_are_left_out_with_a_warning(tmp_path):
+    project = _git_repo(tmp_path / "repo", MOVED_MODULE_SKILLS)
+    _seed_ccc_settings(project)
+    payload = _merge(project)
+    assert "skills" not in payload["effective_patterns"]
+    assert _under(payload["effective_patterns"], "skills") == []
+    assert "skills" not in _read_settings(project)["exclude_patterns"]
+    [warning] = _collisions(payload)
+    assert "agent-a/" in warning and "agent-b/" in warning and "module.yaml" in warning
+
+
+def test_moved_module_skills_beside_skf_output_stay_indexed(tmp_path):
+    files = dict(MOVED_MODULE_SKILLS)
+    files["skills/.export-manifest.json"] = b'{"exports": {"agent-a": {}, "mylib": {}}}\n'
+    files.update(_marked({"skills/mylib/1.0.0/mylib/SKILL.md": b"# mylib\n"}))
+    project = _git_repo(tmp_path / "repo", files)
+    _seed_ccc_settings(project)
+    payload = _merge(project)
+    effective = payload["effective_patterns"]
+    assert "skills/mylib" in effective
+    assert not [p for p in effective if "agent" in p], effective
+    [note] = _mixed(payload)
+    assert "agent-a/" in note and "agent-b/" in note
 
 
 @pytest.mark.parametrize("metadata", [
@@ -1290,7 +1372,7 @@ def test_flat_group_without_marker_is_a_collision(tmp_path):
     assert "skills" not in payload["effective_patterns"]
 
 
-def test_manifest_export_key_counts_as_skf_owned(tmp_path):
+def test_manifest_export_key_alone_is_not_skf_output(tmp_path):
     project = _git_repo(tmp_path / "repo", {
         "skills/.export-manifest.json": b'{"exports": {"flat": {"version": "1.0.0"}}}\n',
         "skills/flat/SKILL.md": b"# flat\n",
@@ -1298,16 +1380,19 @@ def test_manifest_export_key_counts_as_skf_owned(tmp_path):
     })
     _seed_ccc_settings(project)
     payload = _merge(project)
-    assert _collisions(payload) == []
-    assert "skills" in payload["effective_patterns"]
+    effective = payload["effective_patterns"]
+    assert "skills" not in effective and "skills/flat" not in effective
+    assert "skills/.export-manifest.json" in effective
+    [note] = _mixed(payload)
+    assert "flat/" in note
 
 
 def test_root_notes_tolerated_beside_skf_output(tmp_path):
-    project = _git_repo(tmp_path / "repo", {
+    project = _git_repo(tmp_path / "repo", _marked({
         "skills/NOTES.md": b"# notes\n",
         "skills/scratch.py": b"print(1)\n",
         "skills/n/1.0.0/n/SKILL.md": b"# n\n",
-    })
+    }))
     _seed_ccc_settings(project)
     payload = _merge(project)
     assert _collisions(payload) == []
@@ -1402,15 +1487,51 @@ SINGLE_RULE_FIXTURES = {
     "forge-brief-draft": ("forge_data_folder", {
         "forge-data/n/.brief-draft.json": b"{}\n",
     }),
-    "skills-active-pointer": ("skills_output_folder", {
-        "skills/n/active": b"1.0.0",
-        "skills/n/1.0.0/SKILL.md": b"# n\n",
+    "skills-marked-version": ("skills_output_folder", {
+        "skills/n/1.0.0/n/metadata.json": json.dumps(SKF_MARKER).encode("utf-8"),
     }),
     "skf-staging-group": ("skills_output_folder", {
         "skills/.skf-staging/my-agent/SKILL.md": b"# agent\n",
         "skills/.skf-staging/module.yaml": b"code: x\n",
     }),
 }
+
+
+# Structure SKF also writes, which proves nothing on its own: a module skill
+# can sit in that layout.
+NOT_EVIDENCE_FIXTURES = {
+    "versioned-layout": {"skills/n/1.0.0/n/SKILL.md": b"# n\n"},
+    "active-pointer": {"skills/n/active": b"1.0.0", "skills/n/1.0.0/SKILL.md": b"# n\n"},
+    "result-file": {"skills/n/rename-skill-result-latest.json": b"{}\n",
+                    "skills/n/SKILL.md": b"# n\n"},
+    "unmarked-metadata": {"skills/n/1.0.0/n/SKILL.md": b"# n\n",
+                          "skills/n/1.0.0/n/metadata.json": b'{"name": "n"}\n'},
+}
+
+
+@pytest.mark.parametrize("name", list(NOT_EVIDENCE_FIXTURES))
+def test_layout_active_or_result_alone_is_not_skf_output(tmp_path, name):
+    project = _git_repo(tmp_path / "repo", NOT_EVIDENCE_FIXTURES[name])
+    _seed_ccc_settings(project)
+    payload = _merge(project)
+    assert "skills" not in payload["effective_patterns"]
+    [warning] = _collisions(payload)
+    assert "n/" in warning
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need a privilege on Windows")
+def test_linked_skill_group_is_not_skf_output(tmp_path):
+    project = _git_repo(tmp_path / "repo", _marked({"skills/n/1.0.0/n/SKILL.md": b"# n\n"}))
+    elsewhere = tmp_path / "elsewhere"
+    _write_files(elsewhere, {"linked/SKILL.md": b"# l\n",
+                             "linked/metadata.json": json.dumps(SKF_MARKER).encode("utf-8")})
+    (project / "skills" / "linked").symlink_to(elsewhere / "linked", target_is_directory=True)
+    _seed_ccc_settings(project)
+    payload = _merge(project)
+    effective = payload["effective_patterns"]
+    assert "skills/n" in effective and "skills/linked" not in effective
+    [note] = _mixed(payload)
+    assert "linked/" in note
 
 
 @pytest.mark.parametrize("name", list(SINGLE_RULE_FIXTURES))
@@ -1441,7 +1562,7 @@ def test_untracked_nested_repo_as_skills_folder_is_classified(tmp_path):
 
 def test_untracked_nested_repo_with_skf_layout_is_not_a_collision(tmp_path):
     project = _git_repo(tmp_path / "repo")
-    _git_repo(project / "skills", {"n/1.0.0/n/SKILL.md": b"# n\n"})
+    _git_repo(project / "skills", _marked({"n/1.0.0/n/SKILL.md": b"# n\n"}))
     _seed_ccc_settings(project)
     payload = _merge(project)
     assert _collisions(payload) == []
@@ -1449,13 +1570,17 @@ def test_untracked_nested_repo_with_skf_layout_is_not_a_collision(tmp_path):
 
 
 def test_nested_repo_below_skills_is_its_own_group(tmp_path):
-    project = _git_repo(tmp_path / "repo", {"skills/n/1.0.0/n/SKILL.md": b"# n\n"})
+    project = _git_repo(tmp_path / "repo", _marked({"skills/n/1.0.0/n/SKILL.md": b"# n\n"}))
     _git_repo(project / "skills" / "lib-src", {"src/core.py": b"x = 1\n"})
     _seed_ccc_settings(project)
     payload = _merge(project)
-    [warning] = _collisions(payload)
-    assert "lib-src/" in warning
-    assert "skills" not in payload["effective_patterns"]
+    assert _collisions(payload) == []
+    [note] = _mixed(payload)
+    assert "lib-src/" in note
+    effective = payload["effective_patterns"]
+    assert "skills" not in effective
+    assert "skills/n" in effective
+    assert not [p for p in effective if p.startswith("skills/lib-src")]
 
 
 def test_submodule_as_skills_folder_is_classified(tmp_path):
@@ -1475,10 +1600,10 @@ def test_submodule_as_skills_folder_is_classified(tmp_path):
 
 
 def test_forge_folder_inside_skills_folder_is_not_a_collision(tmp_path):
-    project = _git_repo(tmp_path / "repo", {
+    project = _git_repo(tmp_path / "repo", _marked({
         "skf/n/1.0.0/n/SKILL.md": b"# n\n",
         "skf/forge-data/n/skill-brief.yaml": b"name: n\n",
-    })
+    }))
     _seed_ccc_settings(project)
     payload = _merge(project, skills="skf", forge_data="skf/forge-data")
     assert _warnings_with(payload, "SKF did not generate") == []
@@ -1489,10 +1614,10 @@ def test_forge_folder_inside_skills_folder_is_not_a_collision(tmp_path):
 
 
 def test_same_folder_for_both_settings_accepts_either_kind(tmp_path):
-    project = _git_repo(tmp_path / "repo", {
+    project = _git_repo(tmp_path / "repo", _marked({
         "out/_campaign/state.yaml": b"a: 1\n",
         "out/n/1.0.0/n/SKILL.md": b"# n\n",
-    })
+    }))
     _seed_ccc_settings(project)
     payload = _merge(project, skills="out", forge_data="out")
     assert _warnings_with(payload, "SKF did not generate") == []
@@ -1660,6 +1785,621 @@ def test_colon_prefixed_folder_value_is_literal(tmp_path):
     assert ":odd" not in payload["effective_patterns"]
 
 
+# ─── Per-entry exclusion in a mixed folder (real git) ──────────────────────
+
+
+MIXED_SKILLS = _marked({
+    "skills/.export-manifest.json": b'{"exports": {"mylib": {"active_version": "1.0.0"}}}\n',
+    "skills/export-skill-result-20260926T120000Z.json": b"{}\n",
+    "skills/export-skill-result-latest.json": b"{}\n",
+    "skills/drop-skill-result-latest.json": b"{}\n",
+    "skills/mylib/active": b"1.0.0",
+    "skills/mylib/1.0.0/mylib/SKILL.md": b"# mylib\n",
+    "skills/_batch/quick-skill-batch-latest.json": b"{}\n",
+    "skills/vendor-skill/SKILL.md": b"# vendor\n",
+    "skills/NOTES.md": b"# notes\n",
+    "skills/README.md": b"# readme\n",
+})
+SKILLS_FIXED_PATTERNS = [
+    "skills/.export-manifest.json",
+    "skills/_batch",
+    "skills/drop-skill-result*.json",
+    "skills/export-skill-result*.json",
+]
+MIXED_SKILLS_PATTERNS = SKILLS_FIXED_PATTERNS + ["skills/mylib"]
+
+
+def _under(patterns, folder: str) -> list[str]:
+    return sorted(p for p in patterns if p.startswith(folder + "/"))
+
+
+def test_mixed_folder_excludes_only_skf_entries(tmp_path):
+    project = _git_repo(tmp_path / "repo", MIXED_SKILLS)
+    _seed_ccc_settings(project)
+    payload = _merge(project)
+    effective = payload["effective_patterns"]
+    assert _under(effective, "skills") == MIXED_SKILLS_PATTERNS
+    assert "skills" not in effective
+    assert not [p for p in effective if "vendor" in p or "NOTES" in p or "README" in p]
+    assert _read_settings(project)["exclude_patterns"] == (
+        CCC_DEFAULTS + list(mod.ALWAYS_INCLUDE) + MIXED_SKILLS_PATTERNS
+        + ["_bmad-output/forge-data"])
+    assert _collisions(payload) == []
+    [note] = _mixed(payload)
+    assert "vendor-skill/" in note and "NOTES.md" in note and "2 entries" in note
+    assert "README" not in note
+    assert "re-run /skf-setup" in note and "twice" in note
+    assert "skills/<name>" in note
+    assert "folder only SKF uses" not in note
+    assert payload["index_action"] == "index"
+
+
+def test_mixed_folder_emits_fixed_entries_before_they_exist(tmp_path):
+    project = _git_repo(tmp_path / "repo", _marked({
+        "skills/mylib/1.0.0/mylib/SKILL.md": b"# mylib\n",
+        "skills/vendor-skill/SKILL.md": b"# vendor\n",
+        "forge-data/n/skill-brief.yaml": b"name: n\n",
+        "forge-data/plans/roadmap.md": b"# mine\n",
+    }))
+    _seed_ccc_settings(project)
+    payload = _merge(project, forge_data="forge-data")
+    effective = payload["effective_patterns"]
+    assert _under(effective, "skills") == MIXED_SKILLS_PATTERNS
+    assert _under(effective, "forge-data") == sorted(
+        ["forge-data/_campaign", "forge-data/improvement-queue", "forge-data/n"]
+        + [f"forge-data/{prefix}*" for prefix in mod.FORGE_ROOT_PREFIXES])
+    assert "forge-data" not in effective
+
+
+def test_mixed_folder_record_follows_every_transition(tmp_path):
+    files = {k: v for k, v in MIXED_SKILLS.items() if "vendor" not in k}
+    project = _git_repo(tmp_path / "repo", files)
+    _seed_ccc_settings(project)
+    prior = _record(tmp_path, [])
+
+    def run():
+        payload = _merge(project, prior=prior)
+        _record(tmp_path, payload["effective_patterns"])
+        return payload
+
+    first = run()
+    assert "skills" in first["effective_patterns"]
+
+    # A vendor skill arrives: the bare value gives way to per-entry patterns.
+    _write_files(project, {"skills/vendor-skill/SKILL.md": b"# vendor\n"})
+    second = run()
+    assert second["patterns_removed_list"] == ["skills"]
+    assert sorted(second["patterns_added_list"]) == MIXED_SKILLS_PATTERNS
+
+    # A pattern the user adds by hand is never pruned.
+    data = _read_settings(project)
+    data["exclude_patterns"].append("skills/vendor-skill")
+    _write_yaml(_settings_path(project), data)
+
+    # A dropped skill loses its pattern and a new one gains one.
+    shutil.rmtree(project / "skills" / "mylib")
+    _git(project, "rm", "-r", "-q", "--cached", "skills/mylib")
+    _write_files(project, _marked({"skills/newlib/1.0.0/newlib/SKILL.md": b"# newlib\n"}))
+    third = run()
+    assert third["patterns_removed_list"] == ["skills/mylib"]
+    assert third["patterns_added_list"] == ["skills/newlib"]
+    assert "skills/vendor-skill" not in third["effective_patterns"]
+
+    # The vendor skill leaves: back to the bare value.
+    shutil.rmtree(project / "skills" / "vendor-skill")
+    fourth = run()
+    assert fourth["patterns_added_list"] == ["skills"]
+    assert sorted(fourth["patterns_removed_list"]) == _under(third["effective_patterns"], "skills")
+    assert "skills/vendor-skill" in _read_settings(project)["exclude_patterns"]
+    assert _mixed(fourth) == []
+
+
+def test_mixed_folder_re_run_with_record_is_no_op(tmp_path):
+    project = _git_repo(tmp_path / "repo", MIXED_SKILLS)
+    _seed_ccc_settings(project)
+    first = _merge(project)
+    prior = _record(tmp_path, first["effective_patterns"])
+    settings_path = _settings_path(project)
+    mtime_before = settings_path.stat().st_mtime_ns
+
+    second = _merge(project, prior=prior, index_fresh=True)
+    assert second["written"] is False
+    assert second["patterns_added"] == 0
+    assert second["patterns_removed"] == 0
+    assert second["index_action"] == "keep"
+    assert second["effective_patterns"] == first["effective_patterns"]
+    assert settings_path.stat().st_mtime_ns == mtime_before
+    assert len(_mixed(second)) == 1
+
+
+def test_ccc_literal_escapes_with_classes():
+    assert mod.ccc_literal("a*b") == "a[*]b"
+    assert mod.ccc_literal("a?b") == "a[?]b"
+    assert mod.ccc_literal("[x]") == "[[]x[]]"
+    assert mod.ccc_literal("a]b") == "a[]]b"
+    assert mod.ccc_literal("{a,b}") == "[{]a,b[}]"
+    assert mod.ccc_literal("sp ace!") == "sp ace!"
+    assert mod.ccc_literal("plain-name_1.0") == "plain-name_1.0"
+
+
+def test_entry_names_with_glob_characters_are_escaped(tmp_path):
+    names = {"[x]": "skills/[[]x[]]", "{a,b}": "skills/[{]a,b[}]"}
+    if sys.platform != "win32":
+        names["a*b"] = "skills/a[*]b"
+    files = {"skills/.export-manifest.json":
+             json.dumps({"exports": {name: {} for name in names}}).encode("utf-8"),
+             "skills/x/SKILL.md": b"# foreign x\n"}
+    for name in names:
+        files[f"skills/{name}/SKILL.md"] = b"# skf\n"
+        files[f"skills/{name}/metadata.json"] = json.dumps(SKF_MARKER).encode("utf-8")
+    project = _git_repo(tmp_path / "repo", files)
+    _seed_ccc_settings(project)
+    payload = _merge(project)
+    effective = payload["effective_patterns"]
+    for pattern in names.values():
+        assert pattern in effective, pattern
+    assert not [p for p in effective if "\\" in p]
+    # The patterns survive the settings.yml round trip exactly.
+    excludes = _read_settings(project)["exclude_patterns"]
+    for pattern in names.values():
+        assert pattern in excludes, pattern
+    [note] = _mixed(payload)
+    assert "x/" in note
+
+
+def test_entry_pattern_names_follow_the_disk():
+    disk = ["mine", "Other", "café", "Mine2"]
+    assert mod._on_disk("mine", disk) == ["mine"]
+    assert mod._on_disk("other", disk) == ["Other"]
+    assert mod._on_disk("café", disk) == ["café"]
+    assert mod._on_disk("gone", disk) == []
+    assert mod._on_disk("x", None) == ["x"]
+    assert mod._on_disk("mine", ["mine", "Mine"]) == ["mine"]
+    # A differently cased entry git lists on its own is never borrowed.
+    assert mod._on_disk("Mine", ["mine"], frozenset({"Mine", "mine"})) == []
+
+
+def test_deleted_tracked_entry_never_borrows_a_foreign_name(tmp_path):
+    project = _git_repo(tmp_path / "repo", _marked({
+        "skills/Mine/1.0.0/Mine/SKILL.md": b"# Mine\n",
+        "skills/n/1.0.0/n/SKILL.md": b"# n\n",
+    }))
+    shutil.rmtree(project / "skills" / "Mine")
+    _write_files(project, {"skills/mine/SKILL.md": b"# foreign\n"})
+    if (project / "skills" / "Mine").exists():
+        pytest.skip("case-insensitive filesystem")
+    _seed_ccc_settings(project)
+    payload = _merge(project)
+    assert _under(payload["effective_patterns"], "skills") == sorted(
+        SKILLS_FIXED_PATTERNS + ["skills/n"])
+    [note] = _mixed(payload)
+    assert "mine/" in note
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="quote, backslash and tab names are POSIX only")
+def test_unwritable_entry_names_are_skipped_with_warning(tmp_path):
+    marker = json.dumps(SKF_MARKER).encode("utf-8")
+    project = _git_repo(tmp_path / "repo", {
+        "skills/.export-manifest.json": json.dumps(
+            {"exports": {"bob's": {}, "back\\slash": {}, "t\tab": {}, "ok": {}}}).encode("utf-8"),
+        "skills/bob's/SKILL.md": b"# b\n",
+        "skills/bob's/metadata.json": marker,
+        "skills/back\\slash/SKILL.md": b"# b\n",
+        "skills/back\\slash/metadata.json": marker,
+        "skills/t\tab/SKILL.md": b"# t\n",
+        "skills/t\tab/metadata.json": marker,
+        "skills/ok/SKILL.md": b"# ok\n",
+        "skills/ok/metadata.json": marker,
+        "skills/vendor/SKILL.md": b"# v\n",
+    })
+    _seed_ccc_settings(project)
+    payload = _merge(project)
+    assert _under(payload["effective_patterns"], "skills") == sorted(
+        SKILLS_FIXED_PATTERNS + ["skills/ok"])
+    [skipped] = _warnings_with(payload, "cannot write as a ccc pattern")
+    assert "3 SKF entries" in skipped
+    assert "bob`s" in skipped and "back?slash" in skipped and "t?ab" in skipped
+    _assert_payload_safe(payload)
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"),
+                    reason="needs a filesystem that stores names as raw bytes")
+def test_undecodable_entry_name_is_skipped_not_dropped(tmp_path):
+    project = _git_repo(tmp_path / "repo", {"skills/vendor/SKILL.md": b"# v\n"})
+    raw = os.fsencode(project / "skills") + b"/bad\xff"
+    try:
+        os.makedirs(raw + b"/1.0.0/bad\xff")
+        with open(raw + b"/1.0.0/bad\xff/SKILL.md", "wb") as fh:
+            fh.write(b"# bad\n")
+        with open(raw + b"/1.0.0/bad\xff/metadata.json", "wb") as fh:
+            fh.write(json.dumps(SKF_MARKER).encode("utf-8"))
+    except OSError:
+        pytest.skip("filesystem refuses names that are not UTF-8")
+    _seed_ccc_settings(project)
+    payload = _merge(project)
+    assert _under(payload["effective_patterns"], "skills") == SKILLS_FIXED_PATTERNS
+    [skipped] = _warnings_with(payload, "cannot write as a ccc pattern")
+    assert "1 SKF entry" in skipped and "bad?" in skipped
+    _assert_payload_safe(payload)
+    json.dumps(payload).encode("ascii")
+
+
+def test_mixed_forge_folder_uses_prefix_patterns(tmp_path):
+    project = _git_repo(tmp_path / "repo", {
+        "forge-data/n/skill-brief.yaml": b"name: n\n",
+        "forge-data/_campaign/state.yaml": b"a: 1\n",
+        "forge-data/analyze-source-report-x.md": b"# r\n",
+        "forge-data/verify-stack-result-20260424T230401Z-a1b2c3.json": b"{}\n",
+        "forge-data/plans/roadmap.md": b"# mine\n",
+    })
+    _seed_ccc_settings(project)
+    payload = _merge(project, forge_data="forge-data")
+    effective = payload["effective_patterns"]
+    for p in ("forge-data/n", "forge-data/_campaign", "forge-data/analyze-source-*",
+              "forge-data/verify-stack-result-*"):
+        assert p in effective, p
+    assert not [p for p in effective if "report-x" in p or "20260424" in p or "plans" in p]
+    assert "forge-data" not in effective
+    [note] = _mixed(payload, "forge_data_folder")
+    assert "plans/" in note
+    assert "twice" not in note
+
+
+@pytest.mark.parametrize("inner", ["mixed", "left-out"])
+def test_nested_folder_defers_to_inner_mixed_folder(tmp_path, inner):
+    files = _marked({"skf/n/1.0.0/n/SKILL.md": b"# n\n", "skf/forge-data/notes/a.md": b"# mine\n"})
+    if inner == "mixed":
+        files["skf/forge-data/n/skill-brief.yaml"] = b"name: n\n"
+    project = _git_repo(tmp_path / "repo", files)
+    _seed_ccc_settings(project)
+    payload = _merge(project, skills="skf", forge_data="skf/forge-data")
+    effective = payload["effective_patterns"]
+    assert "skf" not in effective and "skf/forge-data" not in effective
+    assert "skf/n" in effective
+    assert not [p for p in effective if p.startswith("skf/forge-data/notes")]
+    # The outer folder has no foreign entry of its own: no note for it.
+    assert _mixed(payload) == [] and _collisions(payload) == []
+    if inner == "mixed":
+        assert "skf/forge-data/n" in effective
+        assert len(_mixed(payload, "forge_data_folder")) == 1
+    else:
+        assert _under(effective, "skf/forge-data") == []
+        assert len(_collisions(payload, "forge_data_folder")) == 1
+
+
+def test_group_holding_the_other_folder_gets_no_entry_pattern(tmp_path):
+    project = _git_repo(tmp_path / "repo", _marked({
+        "skf/n/1.0.0/n/SKILL.md": b"# n\n",
+        "skf/vendor/SKILL.md": b"# v\n",
+        "skf/forge-data/n/skill-brief.yaml": b"name: n\n",
+        "skf/forge-data/plans/x.md": b"# x\n",
+    }))
+    _seed_ccc_settings(project)
+    payload = _merge(project, skills="skf", forge_data="skf/forge-data")
+    effective = payload["effective_patterns"]
+    assert "skf/n" in effective and "skf/forge-data/n" in effective
+    assert "skf/forge-data" not in effective and "skf" not in effective
+    assert len(_mixed(payload)) == 1
+    assert len(_mixed(payload, "forge_data_folder")) == 1
+
+
+def test_per_entry_record_does_not_trigger_legacy_migration(tmp_path):
+    project = _git_repo(tmp_path / "repo", MIXED_SKILLS)
+    _seed_ccc_settings(project, extra_excludes=["**/skills"])
+    prior = _record(tmp_path, list(mod.ALWAYS_INCLUDE) + ["skills/mylib"])
+    payload = _merge(project, prior=prior)
+    assert "**/skills" in _read_settings(project)["exclude_patterns"]
+    assert payload["patterns_removed_list"] == []
+
+
+def test_refused_value_keeps_recorded_entry_patterns(tmp_path):
+    project = _git_repo(tmp_path / "repo", MIXED_SKILLS)
+    _seed_ccc_settings(project)
+    first = _merge(project)
+    prior = _record(tmp_path, first["effective_patterns"])
+    payload = _merge(project, skills="skills/*", prior=prior)
+    assert payload["patterns_removed_list"] == []
+    for p in MIXED_SKILLS_PATTERNS:
+        assert p in payload["effective_patterns"], p
+        assert p in _read_settings(project)["exclude_patterns"], p
+    [blocked] = _warnings_with(payload, "kept previously recorded SKF exclusions")
+    assert "skills/.export-manifest.json" in blocked
+    assert "and 2 more" in blocked
+
+
+def test_blocked_warning_samples_long_record(tmp_path, tmp_project):
+    recorded = [f"skills/s{i}" for i in range(5)]
+    _seed_ccc_settings(tmp_project, extra_excludes=recorded)
+    prior = _record(tmp_path, list(mod.ALWAYS_INCLUDE) + recorded)
+    payload = _merge(tmp_project, skills="skills/*", prior=prior)
+    [blocked] = _warnings_with(payload, "kept previously recorded SKF exclusions")
+    assert "(skills/s0, skills/s1, skills/s2 and 2 more)" in blocked
+    assert "skills/s3" not in blocked
+
+
+def test_no_skf_output_warning_keeps_relocation_advice(tmp_path):
+    project = _git_repo(tmp_path / "repo", MODULE_SOURCE)
+    _seed_ccc_settings(project)
+    [warning] = _collisions(_merge(project))
+    assert "folder only SKF uses" in warning and "installed from elsewhere" in warning
+    assert "SKF did not generate" in warning and "no SKF output" in warning
+    forge = _git_repo(tmp_path / "forge", {"src/pkg/mod.py": b"x = 1\n"})
+    _seed_ccc_settings(forge)
+    [warning] = _collisions(_merge(forge, forge_data="src"), "forge_data_folder")
+    assert "folder only SKF uses" in warning
+    assert "installed from elsewhere" not in warning
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="newline is not valid in Windows names")
+def test_foreign_names_are_printable_in_warnings(tmp_path):
+    project = _git_repo(tmp_path / "repo", _marked({"skills/a\nb/x.md": b"# x\n",
+                                                    "skills/n/1.0.0/n/SKILL.md": b"# n\n"}))
+    _seed_ccc_settings(project)
+    [note] = _mixed(_merge(project))
+    assert "a?b/" in note and "\n" not in note
+
+
+def test_info_exclude_and_global_excludes_do_not_hide_foreign_entries(tmp_path):
+    project = _git_repo(tmp_path / "repo", _marked({"skills/mylib/1.0.0/mylib/SKILL.md": b"# mylib\n"}))
+    _write_files(project, {
+        "skills/ext-a/SKILL.md": b"# a\n",
+        "skills/ext-b/SKILL.md": b"# b\n",
+        "skills/ext-c/SKILL.md": b"# c\n",
+        "skills/.gitignore": b"ext-c/\n",
+    })
+    (project / ".git" / "info" / "exclude").write_bytes(b"skills/ext-a/\n")
+    global_ignore = tmp_path / "global-ignore"
+    global_ignore.write_bytes(b"skills/ext-b/\n")
+    (tmp_path / "empty-gitconfig").write_bytes(
+        f"[core]\n\texcludesFile = {_config_path(global_ignore)}\n".encode("utf-8"))
+    ignored = _git(project, "ls-files", "--others", "--exclude-standard", "--", "skills")
+    assert "ext-a" not in ignored and "ext-b" not in ignored
+    _seed_ccc_settings(project)
+    payload = _merge(project)
+    effective = payload["effective_patterns"]
+    assert "skills" not in effective
+    assert "skills/mylib" in effective
+    [note] = _mixed(payload)
+    # ccc reads only .gitignore files: ext-a and ext-b stay visible to it.
+    assert "ext-a/" in note and "ext-b/" in note
+    assert "ext-c/" not in note
+
+
+def test_tracked_but_deleted_entries_are_ignored(tmp_path):
+    project = _git_repo(tmp_path / "repo", _marked({
+        "skills/n/1.0.0/n/SKILL.md": b"# n\n",
+        "skills/vendor2/SKILL.md": b"# v\n",
+    }))
+    _git_commit(project)
+    shutil.rmtree(project / "skills" / "vendor2")
+    _seed_ccc_settings(project)
+    payload = _merge(project)
+    assert "skills" in payload["effective_patterns"]
+    assert _mixed(payload) == [] and _collisions(payload) == []
+
+
+def _seed_without_dot_default(project: Path, extra_excludes=()) -> None:
+    _write_yaml(_settings_path(project), {
+        "exclude_patterns": [p for p in CCC_DEFAULTS if p != "**/.*"] + list(extra_excludes),
+        "include_patterns": list(CCC_INCLUDES),
+    })
+
+
+def test_hidden_entries_neutral_only_with_ccc_dot_default(tmp_path):
+    files = _marked({
+        "skills/n/1.0.0/n/SKILL.md": b"# n\n",
+        "skills/.idea/workspace.xml": b"<x/>\n",
+        "skills/.notes.md": b"# notes\n",
+    })
+    with_default = _git_repo(tmp_path / "with", files)
+    _seed_ccc_settings(with_default)
+    payload = _merge(with_default)
+    assert "skills" in payload["effective_patterns"]
+    assert _mixed(payload) == []
+
+    negated = _git_repo(tmp_path / "negated", files)
+    _seed_ccc_settings(negated, extra_excludes=["!keep/me.md"])
+    payload = _merge(negated)
+    assert "skills" not in payload["effective_patterns"]
+    [note] = _mixed(payload)
+    assert ".idea/" in note
+
+    without = _git_repo(tmp_path / "without", files)
+    _seed_without_dot_default(without)
+    payload = _merge(without)
+    assert "skills" not in payload["effective_patterns"]
+    [note] = _mixed(payload)
+    assert ".idea/" in note
+
+
+def test_os_clutter_files_are_neutral(tmp_path):
+    clutter = {"skills/.DS_Store": b"x", "skills/Thumbs.db": b"x", "skills/desktop.ini": b"x"}
+    only_clutter = _git_repo(tmp_path / "only", clutter)
+    _seed_without_dot_default(only_clutter)
+    payload = _merge(only_clutter)
+    assert "skills" in payload["effective_patterns"]
+    assert _warnings_with(payload, "SKF did not generate") == []
+
+    mixed = _git_repo(tmp_path / "mixed", {**clutter, **MIXED_SKILLS})
+    _seed_without_dot_default(mixed)
+    [note] = _mixed(_merge(mixed))
+    assert "2 entries" in note
+    for name in ("DS_Store", "Thumbs", "desktop"):
+        assert name not in note
+
+
+def test_user_folder_entry_is_left_alone_across_toggles(tmp_path):
+    project = _git_repo(tmp_path / "repo", MIXED_SKILLS)
+    _seed_ccc_settings(project)
+    prior = tmp_path / "forge-tier.yaml"
+
+    def run():
+        payload = _merge(project, prior=prior if prior.exists() else None)
+        _record(tmp_path, payload["effective_patterns"])
+        assert "skills" not in payload["patterns_removed_list"]
+        return payload
+
+    first = run()
+    assert "skills" not in first["effective_patterns"]
+
+    # The user excludes the whole folder, as the old warning advised.
+    data = _read_settings(project)
+    data["exclude_patterns"].append("skills")
+    _write_yaml(_settings_path(project), data)
+    second = run()
+    assert sorted(second["patterns_removed_list"]) == MIXED_SKILLS_PATTERNS
+    assert second["patterns_added_list"] == []
+
+    shutil.rmtree(project / "skills" / "vendor-skill")
+    third = run()
+    _write_files(project, {"skills/vendor-skill/SKILL.md": b"# vendor\n"})
+    fourth = run()
+    for payload in (second, third, fourth):
+        assert "skills" not in payload["effective_patterns"]
+        assert _under(payload["effective_patterns"], "skills") == []
+        assert _mixed(payload) == [] and _collisions(payload) == []
+        assert _warnings_with(payload, "no record of adding it") == []
+    assert third["patterns_removed_list"] == [] and fourth["patterns_removed_list"] == []
+    assert "skills" in _read_settings(project)["exclude_patterns"]
+
+
+def test_bare_value_written_after_the_last_saved_record_stays_skf_owned(tmp_path):
+    """Setup writes settings.yml before it saves the record: a run stopped in
+    between must not turn SKF's own bare value into the user's for good."""
+    project = _git_repo(tmp_path / "repo", MIXED_SKILLS)
+    _seed_ccc_settings(project)
+
+    # Run 1: a mixed folder, per-entry patterns, record saved.
+    first = _merge(project)
+    prior = _record(tmp_path, first["effective_patterns"])
+    assert _under(first["effective_patterns"], "skills") == MIXED_SKILLS_PATTERNS
+
+    # Run 2: the vendor skill leaves; SKF swaps in the bare value, then the
+    # run stops before the record is saved.
+    shutil.rmtree(project / "skills" / "vendor-skill")
+    second = _merge(project, prior=prior)
+    assert second["patterns_added_list"] == ["skills"]
+    assert sorted(second["patterns_removed_list"]) == MIXED_SKILLS_PATTERNS
+
+    # Run 3: the vendor skill is back; the stale record still names the
+    # per-entry patterns, so the bare value is SKF's and gives way again.
+    _write_files(project, {"skills/vendor-skill/SKILL.md": b"# vendor\n"})
+    third = _merge(project, prior=prior)
+    assert third["patterns_removed_list"] == ["skills"]
+    assert sorted(third["patterns_added_list"]) == MIXED_SKILLS_PATTERNS
+    [note] = _mixed(third)
+    assert "vendor-skill/" in note
+    excludes = _read_settings(project)["exclude_patterns"]
+    assert "skills" not in excludes
+    prior = _record(tmp_path, third["effective_patterns"])
+
+    # Run 4: steady state.
+    fourth = _merge(project, prior=prior)
+    assert fourth["patterns_added_list"] == [] and fourth["patterns_removed_list"] == []
+    assert fourth["effective_patterns"] == third["effective_patterns"]
+
+
+def test_bare_value_added_beside_recorded_entries_stays_the_users(tmp_path):
+    project = _git_repo(tmp_path / "repo", MIXED_SKILLS)
+    _seed_ccc_settings(project)
+    first = _merge(project)
+    prior = _record(tmp_path, first["effective_patterns"])
+    # The recorded per-entry patterns are still there: the user added `skills`.
+    data = _read_settings(project)
+    data["exclude_patterns"].append("skills")
+    _write_yaml(_settings_path(project), data)
+    second = _merge(project, prior=prior)
+    assert "skills" not in second["effective_patterns"]
+    assert "skills" not in second["patterns_removed_list"]
+    assert "skills" in _read_settings(project)["exclude_patterns"]
+    assert _mixed(second) == []
+
+
+def test_stale_check_ignores_the_patterns_of_an_inner_folder(tmp_path):
+    record = ["skf/forge-data", "skf/forge-data/n"]
+    assert mod._stale_bare_values(["skf"], record, ["skf", "skf/forge-data"]) == set()
+    assert mod._stale_bare_values(["skf"], record + ["skf/n"], ["skf", "skf/forge-data"]) == {"skf"}
+    assert mod._stale_bare_values(["skf", "skf/n"], record + ["skf/n"],
+                                  ["skf", "skf/forge-data"]) == set()
+
+
+def test_unrecorded_folder_entry_warns_once_without_record(tmp_path):
+    project = _git_repo(tmp_path / "repo", MIXED_SKILLS)
+    _seed_ccc_settings(project, extra_excludes=["skills"])
+    first = _merge(project)
+    [warning] = _warnings_with(first, "no record of adding it")
+    assert warning.startswith("skills_output_folder skills ")
+    assert "vendor-skill/" in warning
+    assert "skills" not in first["effective_patterns"]
+    assert _under(first["effective_patterns"], "skills") == []
+    assert "skills" in _read_settings(project)["exclude_patterns"]
+
+    prior = _record(tmp_path, first["effective_patterns"])
+    second = _merge(project, prior=prior)
+    assert _warnings_with(second, "no record of adding it") == []
+    assert second["patterns_removed_list"] == [] and second["patterns_added_list"] == []
+    assert "skills" in _read_settings(project)["exclude_patterns"]
+
+
+def test_folder_free_record_without_legacy_forms_is_trusted(tmp_path):
+    project = _git_repo(tmp_path / "repo", _marked({
+        "skills/n/1.0.0/n/SKILL.md": b"# n\n",
+        "forge-data/n/skill-brief.yaml": b"name: n\n",
+    }))
+    _seed_ccc_settings(project, extra_excludes=["skills", "forge-data"])
+    prior = _record(tmp_path, list(mod.ALWAYS_INCLUDE))
+    for _ in range(3):
+        payload = _merge(project, prior=prior, forge_data="forge-data")
+        assert payload["effective_patterns"] == sorted(mod.ALWAYS_INCLUDE)
+        assert payload["patterns_removed_list"] == []
+        prior = _record(tmp_path, payload["effective_patterns"])
+    excludes = _read_settings(project)["exclude_patterns"]
+    assert "skills" in excludes and "forge-data" in excludes
+
+
+def test_no_produced_pattern_negates_or_wildcards_folder_root(tmp_path):
+    cases = [
+        ("skills", "forge-data", MIXED_SKILLS),
+        ("skills", "forge-data", {"forge-data/n/skill-brief.yaml": b"name: n\n",
+                                  "forge-data/feasibility-report-x.md": b"# r\n",
+                                  "forge-data/pkg/a.py": b"x = 1\n"}),
+        ("skf", "skf/forge-data", _marked({"skf/n/1.0.0/n/SKILL.md": b"# n\n",
+                                           "skf/forge-data/n/skill-brief.yaml": b"name: n\n",
+                                           "skf/forge-data/notes/a.md": b"# a\n"})),
+    ]
+    for i, (skills, forge, files) in enumerate(cases):
+        project = _git_repo(tmp_path / f"repo{i}", files)
+        _seed_ccc_settings(project)
+        effective = _merge(project, skills=skills, forge_data=forge)["effective_patterns"]
+        assert effective
+        for p in effective:
+            assert not p.startswith("!"), p
+            for folder in (skills, forge):
+                assert not p.startswith(folder + "/*"), p
+
+
+def test_effective_patterns_json_is_echo_safe(tmp_path):
+    marker = json.dumps(SKF_MARKER).encode("utf-8")
+    project = _git_repo(tmp_path / "repo", {
+        "skills/.export-manifest.json":
+            json.dumps({"exports": {"café": {}, "[x]": {}}}).encode("utf-8"),
+        "skills/café/SKILL.md": b"# c\n",
+        "skills/café/metadata.json": marker,
+        "skills/[x]/SKILL.md": b"# x\n",
+        "skills/[x]/metadata.json": marker,
+        "skills/vendor/SKILL.md": b"# v\n",
+    })
+    _seed_ccc_settings(project)
+    rc, payload, stderr = _run(project)
+    assert rc == 0, stderr
+    effective = payload["effective_patterns"]
+    assert "skills/[[]x[]]" in effective
+    assert [p for p in effective if p.startswith("skills/caf")]
+    dumped = json.dumps(effective)
+    assert re.search(r"\\[^u]", dumped) is None, dumped
+    assert "'" not in dumped
+
+
 # ─── .gitignore coverage and pruning ────────────────────────────────────────
 
 
@@ -1732,14 +2472,20 @@ def test_refused_value_on_legacy_record_keeps_record_folder_free(tmp_path, tmp_p
     assert "forge-data" in payload["effective_patterns"]
 
 
-# ─── No single quote in any human-readable output ──────────────────────────
+# ─── Payload safety of every human-readable string ─────────────────────────
 
 
-def _assert_no_squote(payload: dict) -> None:
-    for warning in payload["warnings"]:
-        assert "'" not in warning, warning
+def _payload_unsafe(text: str) -> bool:
+    return any(ch in "'\\" or ord(ch) < 0x20 or ord(ch) == 0x7F for ch in text)
+
+
+def _assert_payload_safe(payload: dict) -> None:
+    """No `'`, backslash or control character in any string the setup payloads embed."""
+    strings = list(payload["warnings"]) + list(payload["effective_patterns"] or [])
     if payload["not_ready_reason"] is not None:
-        assert "'" not in payload["not_ready_reason"], payload["not_ready_reason"]
+        strings.append(payload["not_ready_reason"])
+    for text in strings:
+        assert not _payload_unsafe(text), text
 
 
 def test_no_single_quote_in_any_warning_or_reason(tmp_path, monkeypatch):
@@ -1749,7 +2495,7 @@ def test_no_single_quote_in_any_warning_or_reason(tmp_path, monkeypatch):
     payload = _merge(project)
     assert len(_collisions(payload)) == 1
     assert "don`t.py" in _collisions(payload)[0]
-    _assert_no_squote(payload)
+    _assert_payload_safe(payload)
 
     # R1 and W2b: ccc init output carrying a quote.
     def _failing(root):
@@ -1760,20 +2506,20 @@ def test_no_single_quote_in_any_warning_or_reason(tmp_path, monkeypatch):
     missing.mkdir()
     payload = _merge(missing, allow_ccc_init=True)
     assert "it`s broken" in payload["not_ready_reason"]
-    _assert_no_squote(payload)
+    _assert_payload_safe(payload)
 
     bare = tmp_path / "bare"
     _seed_bare_settings(bare, LEGACY_SKF)
     payload = _merge(bare, allow_ccc_init=True)
     assert len(_warnings_with(payload, "it`s broken")) == 1
-    _assert_no_squote(payload)
+    _assert_payload_safe(payload)
 
     # V7: a folder value carrying a quote.
     quoted = tmp_path / "quoted"
     _seed_ccc_settings(quoted)
     payload = _merge(quoted, skills="bob's")
     assert len(_warnings_with(payload, "single quote")) == 1
-    _assert_no_squote(payload)
+    _assert_payload_safe(payload)
 
     # Malformed YAML on the CLI error path.
     broken = tmp_path / "broken"
@@ -1784,6 +2530,25 @@ def test_no_single_quote_in_any_warning_or_reason(tmp_path, monkeypatch):
     rc, _, stderr = _run(broken)
     assert rc == 1
     assert "'" not in stderr
+
+    # A mixed folder whose foreign entries carry a quote (and, off Windows, a
+    # backslash): the note shows them sanitized.
+    files = _marked({"skills/n/1.0.0/n/SKILL.md": b"# n\n", "skills/don't/x.md": b"# x\n"})
+    if sys.platform != "win32":
+        files["skills/a\\b/x.md"] = b"# x\n"
+    mixed = _git_repo(tmp_path / "mixed", files)
+    _seed_ccc_settings(mixed)
+    payload = _merge(mixed)
+    [note] = _mixed(payload)
+    assert "don`t/" in note
+    if sys.platform != "win32":
+        assert "a?b/" in note
+    _assert_payload_safe(payload)
+
+
+def test_payload_safe_rewrites_every_unsafe_character():
+    assert mod._payload_safe("it's a\\b\tc\nd\x7fe\udcff") == "it`s a/b?c?d?e?"
+    assert mod._payload_safe("caf\u00e9 [x]") == "caf\u00e9 [x]"
 
 
 # ─── Prose pins on the step files that consume the helper output ────────────
@@ -1826,6 +2591,14 @@ def test_ccc_index_step_never_runs_ccc_init():
     assert blocks
     for block in blocks:
         assert "ccc init" not in block
+
+
+def test_ccc_index_step_record_binding_copies_every_entry():
+    text = CCC_INDEX_STEP.read_text(encoding="utf-8")
+    [line] = [line for line in text.splitlines()
+              if line.startswith("- `{ccc_exclude_patterns}` ← `effective_patterns`")]
+    assert "exactly" in line
+    assert "character class" in line
 
 
 def test_ccc_index_step_lists_every_index_action():

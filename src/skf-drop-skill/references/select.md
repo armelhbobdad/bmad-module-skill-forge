@@ -4,10 +4,14 @@ versionPathsKnowledge: 'knowledge/version-paths.md'
 # Read-side inventory helpers (reads, not atomicity-critical). §2 uses
 # `{manifestOpsHelper} read` (manifest parse + v1→v2 migration + corrupt-JSON
 # detection); §3 uses `{skillInventoryHelper}` (on-disk scan + exports∪on-disk
-# diff for orphan detection) and `{manifestOpsHelper} affected-versions <skill>`
-# (numeric semver-descending order, so 0.10.0 precedes 0.9.0 — LLM-unreliable).
+# diff for orphan detection, plus each folder's `ownership`, which §4 and §8b
+# read so a purge never deletes a folder SKF did not generate) and
+# `{manifestOpsHelper} affected-versions <skill>` (numeric semver-descending
+# order, so 0.10.0 precedes 0.9.0 — LLM-unreliable).
 # Probe each in order (installed SKF path first, src/ fallback); first hit wins.
-# If neither candidate resolves, the section computes the result in-prompt.
+# If neither candidate resolves, the section computes the result in-prompt;
+# without the inventory helper §3 offers manifest skills only and §8b allows
+# no purge.
 manifestOpsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
   - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
@@ -73,7 +77,7 @@ When `manifest_exists = false`, section 3's on-disk scan is authoritative: draft
 
 ### 3. List Available Skills
 
-Build and display a summary of every skill available to drop: every manifest-tracked skill, plus every on-disk skill not in the manifest (draft/orphaned, eligible for purge only).
+Build and display a summary of every skill available to drop: every manifest-tracked skill, plus every on-disk skill SKF generated that is not in the manifest (draft/orphaned, eligible for purge only).
 
 **Manifest-tracked skills** come from the `manifest` resolved in section 2 — for each key in `manifest.exports`, its `active_version` and its `versions` map (with each version's `status`) are already parsed. Order each skill's versions newest-first through the helper rather than by eye:
 
@@ -89,9 +93,12 @@ python3 {manifestOpsHelper} {skills_output_folder} affected-versions {skill-name
 python3 {skillInventoryHelper} {skills_output_folder}
 ```
 
-Any `result.skills[].name` that is **not** a key in `manifest.exports` is a draft or orphaned skill — record it as "(not in manifest — purge only)". When the manifest is empty, every on-disk skill lands here. The inventory lists only skills with an on-disk directory, so a manifest entry whose files were already removed still appears above via `manifest.exports`.
+Each `result.skills[]` entry carries `ownership` — `"skf"` (SKF generated everything in the folder), `"mixed"` (SKF output plus entries SKF did not generate, listed in `foreign_entries`) or `"foreign"` (no SKF marker in the folder) — and `skf_skill` (the folder holds a skill SKF generated). A `result.skills[].name` that is **not** a key in `manifest.exports` is a draft or orphaned skill — record it as "(not in manifest — purge only)" only when its `skf_skill` is true; no other folder absent from the manifest is offered. When the manifest is empty, every SKF skill on disk lands here. Bind `{not_offered}` ← the names in `result.not_skf_output` (folders holding a skill SKF did not generate) that are not keys in `manifest.exports`; when it is non-empty, show one line under the list: "Not offered — not SKF output: {not_offered}". The inventory lists only skills with an on-disk directory, so a manifest entry whose files were already removed still appears above via `manifest.exports`.
 
-**If the combined roster is empty** (no `manifest.exports` entries AND `result.skills[]` is empty): halt with "**Drop Skill — nothing to drop.** No skills found in `{skills_output_folder}/` and no entries in `.export-manifest.json`. Run `[CS] Create Skill` first." HALT (exit code 3, `halt_reason: "nothing-to-drop"`). In headless mode, emit the error envelope per `{headlessContract}` with `skill: null`, `drop_mode: null`, `versions_affected: []`.
+**If the combined roster is empty** (no `manifest.exports` entries AND no `result.skills[]` entry with `skf_skill` true):
+
+- When a skill name was supplied as an argument and it is in `{not_offered}` (empty when §3 ran without the inventory helper), take the §4 refusal for that folder first, in either mode: display its message and HALT (exit code 5, `halt_reason: "not-skf-output"`). In headless mode, emit the error envelope per `{headlessContract}` with `skill: "{name}"`, `drop_mode: null`, `versions_affected: []`.
+- Otherwise halt with "**Drop Skill — nothing to drop.** No skills found in `{skills_output_folder}/` and no entries in `.export-manifest.json`. Run `[CS] Create Skill` first." When `{not_offered}` is non-empty, append: "Left untouched (not SKF output): {not_offered}." HALT (exit code 3, `halt_reason: "nothing-to-drop"`). In headless mode, emit the error envelope per `{headlessContract}` with `skill: null`, `drop_mode: null`, `versions_affected: []`.
 
 Display the combined list (versions newest-first):
 
@@ -106,9 +113,11 @@ Available skills:
 2. express
    - 4.18.0 (active) *
 3. legacy-helper (not in manifest — purge only)
+
+Not offered — not SKF output: my-module-skill
 ```
 
-**If neither helper resolves** (Python/helper unavailable): fall back to the in-prompt computation — list each `manifest.exports` skill (versions with `status`, active marked `*`, ordered newest-first by comparing version components numerically), then scan `{skills_output_folder}/` for top-level directories absent from `manifest.exports` and record them as "(not in manifest — purge only)". If the combined list is empty, take the "nothing to drop" HALT above.
+**If a helper does not resolve** (Python/helper unavailable): fall back to the in-prompt computation. Without `{manifestOpsHelper}`, list each `manifest.exports` skill's versions with `status`, active marked `*`, ordered newest-first by comparing version components numerically. Without `{skillInventoryHelper}`, list the `manifest.exports` skills and nothing else: folders on disk that are absent from `manifest.exports` are not offered in this mode, because without the inventory helper SKF cannot check that it generated them. §4 then binds `{target_ownership}` to `"unknown"`, so §8b allows no purge. If the list is empty, take the "nothing to drop" HALT above.
 
 ### 4. Ask Which Skill
 
@@ -117,11 +126,16 @@ Enter the skill name or its number from the list above, or `cancel` / `exit` / `
 
 Wait for user input. Accept either the numeric index or the skill name (exact match). **GATE [default: use args]** — If `{headless_mode}` and skill name was provided as argument: select that skill and auto-proceed. If not provided, HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode requires skill name argument." In headless mode, emit the error envelope per `{headlessContract}` with `skill: null`, `drop_mode: null`.
 
+- **If the input names a folder in `{not_offered}`:** display "**`{name}` is not SKF output — nothing was changed.** `{skills_output_folder}/{name}/` has no SKF marker in its `metadata.json`, so SKF will not delete it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{name}` yourself (to remove it, delete that folder). Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When that folder's `result.skills[]` entry has a non-empty `errors` list (for example, the folder is a link), show those errors in place of the marker sentence.
+  - **Interactive:** Re-display the list and ask again.
+  - **Headless (`{headless_mode}` is true):** HALT (exit code 5, `halt_reason: "not-skf-output"`). Emit the error envelope per `{headlessContract}` with `skill: "{name}"`, `drop_mode: null`, `versions_affected: []`.
 - **If the user's input does not match any listed skill:**
   - **Interactive:** Re-display the list and ask again.
   - **Headless (`{headless_mode}` is true):** the supplied `skill_name` argument resolves to no skill in the combined list — there is no further input to re-prompt for. HALT (exit code 2, `halt_reason: "input-invalid"`): "headless mode: skill argument `{supplied value}` does not match any listed skill." Emit the error envelope per `{headlessContract}` with `skill: null`, `drop_mode: null`, `versions_affected: []`.
 
 Store the selection as `target_skill`. Also store `target_in_manifest = true` if the selected skill has an entry in the manifest, `false` otherwise — subsequent sections use this flag to restrict the available drop options.
+
+Bind `{target_ownership}` ← the `ownership` of the `result.skills[]` entry named `target_skill` (`"absent"` when the inventory has no entry for it, meaning nothing is on disk; `"unknown"` when §3 ran without the inventory helper), `{target_foreign_entries}` ← that entry's `foreign_entries`, and `{target_errors}` ← that entry's `errors` (both `[]` when there is no entry). §8b reads all three.
 
 ### 5. Display Version Details
 
@@ -201,7 +215,11 @@ Set `target_versions = "all"` and `is_skill_level = true`.
 
 ### 8. Ask Mode
 
-**If `target_in_manifest = false`:** Skip this prompt — soft-deprecate is meaningless without a manifest entry to mark. Force `drop_mode = "purge"` (record `mode_source = "draft-skill-forced-purge"`) and inform the user: "**Mode forced to purge** — `{target_skill}` has no manifest entry, so there is nothing to deprecate. The skill's on-disk directories will be deleted."
+**If `target_in_manifest = false`:** Skip this prompt — soft-deprecate is meaningless without a manifest entry to mark, so only a purge applies. Take the first case that matches:
+
+1. A `mode` argument other than `purge`, or, when `{headless_mode}` is true, no `mode` argument while `{defaultMode}` is `"deprecate"`: HALT (exit code 2, `halt_reason: "input-invalid"`): "`{target_skill}` has no manifest entry, so there is nothing to deprecate. Re-run with `--mode purge` to delete it." In headless mode, emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: null`.
+2. `{headless_mode}` is true and nothing asked for a purge (no `mode` argument and `{defaultMode}` is empty): HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode: `{target_skill}` has no manifest entry, so only a purge applies; re-run with `--mode purge`." Emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: null`.
+3. Otherwise force `drop_mode = "purge"` (record `mode_source = "draft-skill-forced-purge"`), inform the user: "**Mode forced to purge** — `{target_skill}` has no manifest entry, so there is nothing to deprecate. The skill's on-disk directories will be deleted.", and apply §8b. An interactive run still confirms the purge at §10. A headless run reaches this case only with `mode=purge` or a `{defaultMode}` of `"purge"`, which the On-Activation guard has already checked against `{forbidPurgeInHeadless}`.
 
 **If `target_in_manifest = true`:**
 
@@ -209,7 +227,7 @@ Set `target_versions = "all"` and `is_skill_level = true`.
 
 **Else if `{defaultMode}` is non-empty (`"deprecate"` or `"purge"`)**: skip the prompt, set `drop_mode = "{defaultMode}"`, and record the decision source `mode_source = "customize.toml.workflow.default_mode"` for the headless decision trail.
 
-**Otherwise (interactive):** If `{headless_mode}` is true at this point (no `mode` arg and no `{defaultMode}`), there is no input to prompt for — HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode requires `--mode deprecate|purge` or `default_mode` in customize.toml to set the drop mode." Emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: null`. Otherwise, prompt the user:
+**Otherwise (interactive):** If `{headless_mode}` is true at this point (no `mode` arg and no `{defaultMode}`), there is no input to prompt for — HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode requires `--mode deprecate|purge` or `default_mode` in customize.toml to set the drop mode." Emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: null`. Otherwise, prompt the user. Before showing the menu, check whether §8b would refuse a purge at the current scope; if so, leave out **[P]** and add the line "Purge is not offered: {the §8b refusal reason}."
 
 "**How should this be dropped?**
 
@@ -220,6 +238,20 @@ Set `target_versions = "all"` and `is_skill_level = true`.
 Wait for user selection.
 
 Set `drop_mode` to `"deprecate"` (on D) or `"purge"` (on P), and record `mode_source = "interactive-prompt"`.
+
+### 8b. Purge Guard
+
+A purge deletes only what SKF generated. Skip this section when `drop_mode == "deprecate"`. Otherwise decide from `{target_ownership}`:
+
+- `"skf"` or `"absent"`: the purge proceeds.
+- `"mixed"`: a skill-level purge (`is_skill_level = true`) deletes the whole folder, entries SKF did not generate included, so refuse it. A single-version purge proceeds unless `{target_foreign_entries}` lists the selected version, with or without a trailing `/`, or an entry inside it (`{version}/<entry>`). The helper lists a version folder SKF did not generate with the `/`, a linked one by its bare name, and an entry SKF did not put in a marked version folder as `{version}/<entry>`; a purge through a link would delete the files it points to, and a version purge deletes the whole `{version}/` folder.
+- `"foreign"` or `"unknown"`: refuse every purge. `"unknown"` means §3 ran without the inventory helper, so SKF cannot check what it would delete.
+
+On a refusal, HALT (exit code 5, `halt_reason: "not-skf-output"`) with the message that fits. In headless mode, emit the error envelope per `{headlessContract}` with `skill: "{target_skill}"`, `drop_mode: "purge"`, `versions_affected: []`.
+
+- Mixed, whole skill: "**Purge refused — `{skills_output_folder}/{target_skill}/` also holds entries SKF did not generate:** {target_foreign_entries}. Nothing was deleted. Move them out of the folder and re-run. For a skill in the manifest, you can also purge a single version SKF generated, or use `--mode deprecate`. A version folder with no `metadata.json` can also be one that an interrupted update-skill run left behind; delete it yourself in that case."
+- Mixed, selected version: "**Purge refused — SKF did not generate `{skills_output_folder}/{target_skill}/{version}`** (it has no SKF marker in its `metadata.json`, or it is a link). Nothing was deleted. Use `--mode deprecate` to mark the version deprecated in the manifest only, or remove it yourself." When `{target_foreign_entries}` lists entries inside the version instead, show them in place of the parenthesis: "(it also holds entries SKF did not generate: {those entries}; move them out and re-run)".
+- Foreign or unknown: "**Purge refused — SKF cannot confirm that it generated `{skills_output_folder}/{target_skill}/`:** {reason}. Nothing was deleted. Use `--mode deprecate` to remove the manifest entry only, or delete the folder yourself." `{reason}` is `{target_errors}` when it is non-empty (for example, the folder is a link), "the inventory helper is missing" for `"unknown"`, and otherwise "its `metadata.json` has no SKF marker".
 
 ### 9. Compute Affected Directories
 
@@ -323,6 +355,9 @@ Store the following decisions in workflow context for step 2:
 - `is_skill_level` — boolean (true if all versions; always true when `target_in_manifest = false`)
 - `affected_directories` — list of absolute directory paths that step 2 will delete in purge mode (or retain in deprecate mode)
 - `mode_source` — where `drop_mode` was decided, set inline at §8 (one of the four sources named there)
+- `target_ownership` — the §4 ownership verdict (`"skf"`, `"mixed"`, `"foreign"`, `"absent"` or `"unknown"`) that §8b checked
+- `target_foreign_entries` — the entries of the skill folder SKF did not generate (`[]` when none)
+- `target_errors` — the inventory's `errors` for the skill folder (`[]` when none)
 - `confirm_source` — how the §10 gate was cleared, set inline at §10 (`"headless-auto"` or `"user-explicit"`)
 
 ### 12. Load Next Step

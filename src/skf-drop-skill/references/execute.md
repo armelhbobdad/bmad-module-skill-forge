@@ -186,11 +186,12 @@ Report: "**Rebuilt managed sections in:** {list of updated files}. {if any faile
    Keep each `result.paths[].bytes` as `path_bytes[{path}]`; a path reported `exists: false` is already gone. If the helper is unavailable, fall back to `du -sb` per existing path.
 
 3. For each directory path in `affected_directories`:
-   a. Verify the path is inside either `{skills_output_folder}` or `{forge_data_folder}` (defense in depth against accidental deletion of unrelated paths)
+   a. Remove any trailing `/` from the path, then verify it is inside either `{skills_output_folder}` or `{forge_data_folder}` (defense in depth against accidental deletion of unrelated paths)
    b. If the directory does not exist, record it as "(already absent)" and continue
-   c. Delete the directory recursively
-   d. Verify deletion succeeded (the path no longer exists)
-   e. Append the path to `files_deleted`
+   c. If the path, or any folder between `{skills_output_folder}` (or `{forge_data_folder}`) and it, is a link or junction, do not delete it: append it to `delete_failures` with the error "a link; SKF never deletes through a link" and continue. A recursive delete that reaches a link through a trailing `/` or a parent folder deletes the files the link points to, outside the skills folder
+   d. Delete the directory recursively, naming it without a trailing `/`
+   e. Verify deletion succeeded (the path no longer exists)
+   f. Append the path to `files_deleted`
 
 4. **Version-level purge, single version:**
    - `{skills_output_folder}/{target_skill}/{version}/` is deleted, but `{skills_output_folder}/{target_skill}/` remains (it still contains other versions or the `active` symlink)

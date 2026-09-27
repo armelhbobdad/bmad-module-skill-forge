@@ -328,6 +328,30 @@ def test_cli_write_tools_null_exclude_patterns_preserves_record(tmp_target):
     assert parsed["ccc_index"]["status"] == "none"
 
 
+def test_write_tools_round_trips_per_entry_exclude_patterns(tmp_target):
+    """Per-entry patterns from a mixed folder (class escapes, `*` families,
+    non-ASCII names) are recorded exactly as the merge helper produced them."""
+    recorded = [
+        "**/_bmad",
+        "skills/.export-manifest.json",
+        "skills/[[]x[]]",
+        "skills/[{]a,b[}]",
+        "skills/caf\u00e9",
+        "skills/export-skill-result*.json",
+        "forge-data/analyze-source-*",
+    ]
+    payload = _baseline_payload()
+    payload["ccc_index"]["exclude_patterns"] = recorded
+    assert _write_tools(tmp_target, payload)["status"] == "ok"
+    assert _read_yaml_file(tmp_target)["ccc_index"]["exclude_patterns"] == recorded
+
+    # A later run that sends null keeps the per-entry record verbatim.
+    rerun = _baseline_payload()
+    rerun["ccc_index"]["exclude_patterns"] = None
+    _write_tools(tmp_target, rerun)
+    assert _read_yaml_file(tmp_target)["ccc_index"]["exclude_patterns"] == recorded
+
+
 def test_write_tools_rejects_payload_missing_required_keys(tmp_target):
     result = subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "write-tools", "--target", str(tmp_target)],

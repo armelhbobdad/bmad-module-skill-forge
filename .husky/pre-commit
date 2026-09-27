@@ -3,5 +3,10 @@
 # Auto-fix changed files and stage them
 npx --no-install lint-staged
 
+# git hands hooks GIT_INDEX_FILE (and GIT_DIR in a linked worktree); drop
+# them so git run by the tests never touches this commit's index. Anything
+# that must see the staged content belongs above this line.
+unset $(git rev-parse --local-env-vars) GIT_NAMESPACE
+
 # Validate everything
 npm test
