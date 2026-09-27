@@ -9,6 +9,7 @@ artifacts the workflows write through this helper.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -54,3 +55,46 @@ class TestWriteByteIdentity:
             proc = _run_write(target, data)
             assert proc.returncode == 0, proc.stderr
             assert not target.with_name(target.name + ".skf-tmp").exists()
+
+
+def _run_flip(link: Path, target: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "flip-link", "--link", str(link), "--target", target],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+def _group(root: Path) -> Path:
+    group = root / "skills" / "cognee"
+    (group / "0.6.0" / "cognee").mkdir(parents=True)
+    return group
+
+
+class TestFlipLink:
+    """flip-link leaves `active` naming the version folder beside it, or refuses without touching it.
+
+    Neither test flips over an existing link: CI's Windows runner holds
+    symlink privilege, and replacing an existing directory link is the one
+    step whose Windows behaviour is unverified.
+    """
+
+    def test_flip_creates_a_missing_link(self, tmp_path):
+        group = _group(tmp_path)
+        proc = _run_flip(group / "active", "0.6.0")
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["status"] == "ok" and out["points_to"] == "0.6.0"
+        assert out["kind"] in ("symlink", "junction")
+        assert (group / "active").resolve() == (group / "0.6.0").resolve()
+        assert sorted(p.name for p in group.iterdir()) == ["0.6.0", "active"], "no lock or temp link left"
+
+    def test_flip_refuses_a_real_folder(self, tmp_path):
+        group = _group(tmp_path)
+        (group / "active" / "cognee").mkdir(parents=True)
+        (group / "active" / "cognee" / "SKILL.md").write_bytes(b"x\n")
+        proc = _run_flip(group / "active", "0.6.0")
+        assert proc.returncode == 2
+        assert json.loads(proc.stderr)["message"].startswith("refusing to replace non-link")
+        assert (group / "active" / "cognee" / "SKILL.md").read_bytes() == b"x\n"

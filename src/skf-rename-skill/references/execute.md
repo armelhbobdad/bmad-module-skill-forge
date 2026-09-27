@@ -4,20 +4,16 @@ versionPathsKnowledge: 'knowledge/version-paths.md'
 managedSectionLogic: 'skf-export-skill/assets/managed-section-format.md'
 # Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in
 # order (installed SKF module path first, src/ dev-checkout fallback);
-# first existing path wins. §3 + §6 use it for crash-safe file rewrites
-# (stage to .skf-tmp, fsync, rename) — letting the LLM write directly
-# risks half-written artifacts on process kill or disk-full mid-write.
-# HALT if neither candidate exists.
+# first existing path wins. §4 uses its `flip-link` action to create the
+# `active` link again (under a lock, renamed into place, and a directory
+# junction on Windows without symlink rights), because `ln -s` in Git Bash
+# without symlink rights writes a copy of the folder instead. §6 uses its
+# `write` action to restore the manifest from its backup (stage to
+# .skf-tmp, fsync, rename), so a kill or a full disk mid-restore cannot
+# leave a half-written manifest. HALT if neither candidate exists.
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
-# Resolve `{updateActiveSymlinkHelper}` similarly. §4 uses it to
-# atomically repair the `active` symlink with `flock` and the Windows
-# junction fallback — `rm + ln -s` would race against concurrent readers
-# and silently break on Windows.
-updateActiveSymlinkProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-update-active-symlink.py'
-  - '{project-root}/src/shared/scripts/skf-update-active-symlink.py'
 # Resolve `{manifestOpsHelper}` similarly. §6 uses the `rename` action
 # for atomic re-key (preserves `active_version`, `versions` map, all
 # fields, then writes via temp + rename).
@@ -82,9 +78,8 @@ Read `{versionPathsKnowledge}` again and confirm the templates (`{skill_package}
 
 **Resolve helpers** in parallel — these are independent file-existence checks that batch into one tool-call message:
 
-- `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` (used in §6 for crash-safe manifest restore)
+- `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` (used in §4 to create the `active` link again and in §6 for the crash-safe manifest restore)
 - `{rewriteSkillNameHelper}` ← first existing path in `{rewriteSkillNameProbeOrder}` (used in §3 for the field-scoped in-file rename transforms + atomic write)
-- `{updateActiveSymlinkHelper}` ← first existing path in `{updateActiveSymlinkProbeOrder}` (used in §4 for atomic symlink repair)
 - `{verifyNoTraceHelper}` ← first existing path in `{verifyNoTraceProbeOrder}` (used in §5 for the deterministic no-trace commit gate)
 - `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}` (used in §6 for the manifest re-key)
 - `{rebuildManagedSectionsHelper}` ← first existing path in `{rebuildManagedSectionsProbeOrder}` (used in §7 for between-marker swap)
@@ -99,7 +94,7 @@ If any helper has no existing candidate, release the lock and HALT (exit code 4,
 
 1. If `{new_skill_group}` or `{new_forge_group}` exists on disk (a file or link counts): release the lock (`rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`) and halt with "**Collision detected at execution time.** `{new_skill_group}` or `{new_forge_group}` now exists on disk — it did not exist during step 1 selection. Aborting before any files are touched." HALT (exit code 4, `halt_reason: "copy-failed"`). In headless, emit the error envelope.
 
-2. Copy `{old_skill_group}` to `{new_skill_group}`, naming both without a trailing `/` — equivalent to `cp -a {old_skill_group} {new_skill_group}`. §4a refused a linked skill folder and one holding a linked version, so the copy follows no link; the relative `active` link is copied as a link.
+2. Copy `{old_skill_group}` to `{new_skill_group}`, naming both without a trailing `/` — equivalent to `cp -a {old_skill_group} {new_skill_group}`. §4a refused a linked skill folder and one holding a linked version, so the only link the copy can meet is `active`. The copy normally carries it as a link, but a shell that cannot create links (Git Bash on Windows without symlink rights) may copy the folder it points to instead; §4 creates `{new_skill_group}/active` again either way.
    - If the copy fails: release the lock (`rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`) and halt with "**Copy failed:** `{old_skill_group}` → `{new_skill_group}`: {error}. No files were modified. Old skill is intact." HALT (exit code 4, `halt_reason: "copy-failed"`). In headless, emit the error envelope.
 
 3. Only when `{forge_move}` is true, copy `{old_forge_group}` to `{new_forge_group}` the same way. If the copy fails: **rollback** by deleting `{new_skill_group}` and whatever the copy created at `{new_forge_group}` (§1.1 confirmed nothing was there), release the lock (`rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`), then halt with "**Copy failed:** `{old_forge_group}` → `{new_forge_group}`: {error}. Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "copy-failed"`). In headless, emit the error envelope. When `{forge_move}` is false, skip this copy: the forge folder is absent, left in place (`{forge_left_in_place}`), or — with `{same_folder}` — already copied with the skill folder.
@@ -159,24 +154,44 @@ Report: "**Updated file contents** across {affected_versions_count} version(s): 
 
 ### 4. Fix the `active` Symlink in the New Location
 
-Recreate or repair the `active` symlink in `{new_skill_group}` via `{updateActiveSymlinkHelper}` — the helper holds an `flock` on `{new_skill_group}/active.lock`, surfaces a clear error on Windows non-dev-mode (no silent fallback), and uses the `ln -sfn tmp && mv -Tf tmp link` pattern to make the flip atomic against concurrent readers.
+The §1 copy carries `{old_skill_group}/active` into `{new_skill_group}` as it found it. A relative link (`active -> 0.6.0`) still names the right version folder, but an absolute link or one through `..` still points into `{old_skill_group}`, which §8 deletes, and a shell that cannot create links may have copied the folder the link points to. So this section removes whatever the copy made at `{new_skill_group}/active` and creates the link again with the `flip-link` action of `{atomicWriteHelper}`, the call create-skill, quick-skill and create-stack-skill use to set it. The helper creates the link under a temporary name and renames it over `active` while it holds a lock on `{new_skill_group}/active.skf-lock`, and it refuses to replace an `active` that is a real folder or file. On Windows, when `os.symlink` fails for lack of privilege, it creates a directory junction (`mklink /J`) instead, which needs neither Developer Mode nor admin rights. Never create the link with `ln -s`: Git Bash on Windows without symlink rights writes a copy of the folder instead. `{new_skill_group}` is this run's own copy, which no manifest entry or context file names until §6 and §7, so removing the copied entry before the flip is safe.
 
-1. Inspect `{old_skill_group}/active` to determine the target version (the value the symlink points to — typically just the version string, not an absolute path). If `{old_skill_group}/active` does not exist, skip this section — there is no symlink to repair.
-2. Invoke:
+1. If nothing is at `{old_skill_group}/active`, not even a broken link (`[ ! -e "{old_skill_group}/active" ] && [ ! -L "{old_skill_group}/active" ]`), skip to the report at the end of this section: there is no link to carry over.
+2. If `{old_skill_group}/active` is not a link (`[ ! -L "{old_skill_group}/active" ]`), take the rollback below with the reason: "`{old_skill_group}/active` is a real folder or file, not a link. `ln -s` in Git Bash on Windows without symlink rights writes such a copy. Check that it only copies a version folder, remove it and re-run the rename, then point the renamed skill's link at a version with `uv run {atomicWriteHelper} flip-link --link "{new_skill_group}/active" --target <version>`."
+3. Read the link. Set `{old_active_link}` to what the first line prints, the link text as stored, and `{target_version}` to what the second line prints, its last path component:
 
    ```bash
-   python3 {updateActiveSymlinkHelper} flip-link \
-     --link {new_skill_group}/active \
-     --target {target_version}
+   readlink "{old_skill_group}/active"
+   basename "$(readlink "{old_skill_group}/active")"
    ```
 
-3. The helper handles all four cases (missing, present-and-correct, present-and-stale, present-and-invalid) uniformly via atomic replace.
+   For an `{old_active_link}` of `0.6.0`, `{old_skill_group}/0.6.0` or `../{old_name}/0.6.0/`, `{target_version}` is `0.6.0`.
+4. If `{target_version}` is not one of `renamed_versions` (§2), the link does not name a version folder holding the package this rename moved: it is broken, or it names a folder §2 skipped. Take the rollback below with the reason: "`{old_skill_group}/active` points at `{old_active_link}`, which is not one of the versions this rename moved ({renamed_versions}). Point it at one of them with `uv run {atomicWriteHelper} flip-link --link "{old_skill_group}/active" --target <version>`, or remove it, then re-run the rename."
+5. Remove what the copy made at `{new_skill_group}/active`. A link is removed as a link, so nothing it points to is touched; only a real folder, which the copy made from the link, is removed with its contents:
 
-**Rollback on helper non-zero exit:**
+   ```bash
+   if [ -L "{new_skill_group}/active" ]; then rm -f "{new_skill_group}/active"
+   elif [ -e "{new_skill_group}/active" ]; then rm -rf "{new_skill_group}/active"
+   fi
+   ```
+
+6. Create the link:
+
+   ```bash
+   uv run {atomicWriteHelper} flip-link \
+     --link "{new_skill_group}/active" \
+     --target "{target_version}"
+   ```
+
+   On exit 0 the helper prints `{"link": …, "points_to": …, "kind": …, "status": "ok"}` on stdout: bind `{active_link_kind}` ← `kind` (`symlink` or `junction`). On exit 2 with a `{"status": "error", "message": …}` line on stderr (something that is not a link is at `{new_skill_group}/active`, or another process holds the lock), bind `{flip_error}` ← `message`. On any other failure, an exit 2 without that line (an argument error) or exit 1 (any other error, such as Windows refusing both a symlink and a junction, reported as a Python traceback), set `{flip_error}` to the helper's stderr. Take the rollback below with `{flip_error}` as the reason.
+
+**Rollback on a failure in step 2, 4 or 6:**
 
 - `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true (this run created it), each without a trailing `/`
 - Release the lock: `rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`
-- Halt with: "**Failed to repair `active` symlink** in `{new_skill_group}`: {captured stderr}. Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`). In headless, emit the error envelope.
+- Halt with: "**Failed to repair the `active` link** in `{new_skill_group}`: {reason}. Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`). In headless, emit the error envelope.
+
+Report: "**`active` link:** `{new_skill_group}/active` → `{target_version}` ({active_link_kind}).{if `{old_active_link}` is not `{target_version}`: ' Repointed from `{old_active_link}`.'}" When step 1 skipped this section: "**`active` link:** none in `{old_skill_group}`, nothing to carry over."
 
 ### 5. Verify — No Trace of `{old_name}` Inside the New Location
 
@@ -211,21 +226,29 @@ Report: "**Manifest update skipped** — no `.export-manifest.json` on disk. The
 
 **If `manifest_exists = true`:**
 
-1. **Hold a deep copy in memory** as `manifest_backup` — required for rollback in this section and section 7 on failure. Read `{skills_output_folder}/.export-manifest.json` once and stash the parsed object.
+1. **Keep the manifest's text** as `manifest_backup` for the rollback below: read `{skills_output_folder}/.export-manifest.json` once and hold its exact text, not a parsed or re-serialized copy, so a restore writes back the same bytes.
 2. **Re-key via the helper.** If the manifest contains `exports.{old_name}`, invoke:
 
    ```bash
    python3 {manifestOpsHelper} {skills_output_folder} rename {old_name} {new_name}
    ```
 
-   The helper preserves `active_version`, `versions` map, and all fields, then writes the manifest atomically via temp + rename. If the manifest does NOT contain `exports.{old_name}` (the skill was on disk but never exported), skip the invocation — the manifest has nothing to change.
+   The helper preserves `active_version`, `versions` map, and all fields, then writes the manifest atomically via temp + rename. It prints its result as JSON on stdout, errors included, and exits 0 only when `status` is `"ok"`. On a non-zero exit, bind `{manifest_error}` ← `error` and `{manifest_status}` ← `status`. A `not_found` result carries no `error`, because `exports.{old_name}` left the manifest after the check above: when `{manifest_status}` is `not_found`, set `{manifest_error}` to "`exports.{old_name}` is no longer in the manifest". When stdout holds no JSON (a Python traceback), set `{manifest_error}` to the helper's stderr. If the manifest does NOT contain `exports.{old_name}` (the skill was on disk but never exported), skip the invocation — the manifest has nothing to change.
 
 **Rollback on helper non-zero exit:**
 
-- Restore the manifest from `manifest_backup` via `{atomicWriteHelper} write {skills_output_folder}/.export-manifest.json` (re-pipe the JSON-serialized backup)
+- Read the manifest again. The helper writes it in one rename at its very end, so the only change a failed re-key can leave is the finished re-key. Only when `exports.{new_name}` is there and `exports.{old_name}` is gone, restore the backup, pasting `manifest_backup` unchanged between the two heredoc lines:
+
+  ```bash
+  uv run {atomicWriteHelper} write --target "{skills_output_folder}/.export-manifest.json" <<'SKF_MANIFEST_BACKUP'
+  {manifest_backup}
+  SKF_MANIFEST_BACKUP
+  ```
+
+  Set `{manifest_restore}` to `restored` when it exits 0, else to `restore-failed`. In every other state (`exports.{old_name}` still there, `exports.{new_name}` absent, or a manifest that is missing or does not parse), this run did not change the manifest, and another process may have written it since step 1: set `{manifest_restore}` to `unchanged` and write nothing.
 - `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true (this run created it), each without a trailing `/`
 - Release the lock: `rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`
-- Halt with: "**Manifest update failed:** {captured stderr}. Restored manifest from backup and rolled back new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "manifest-write-failed"`). In headless, emit the error envelope.
+- Halt with: "**Manifest update failed:** {manifest_error}. {if `{manifest_restore}` is `unchanged`: 'This run did not change the manifest.'}{if `restored`: 'Restored the manifest from the backup.'}{if `restore-failed`: 'Could not restore the manifest, which may still list `{new_name}` in place of `{old_name}`: re-key it back with `uv run {manifestOpsHelper} "{skills_output_folder}" rename {new_name} {old_name}`.'} Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "manifest-write-failed"`). In headless, emit the error envelope.
 
 Set context flag `manifest_updated = true`.
 

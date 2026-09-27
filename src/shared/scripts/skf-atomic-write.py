@@ -4,7 +4,7 @@
 # ///
 """SKF Atomic Write — Crash-safe artifact writing for skill workflows.
 
-Provides three CLI subcommands skills can invoke via bash to avoid
+Provides four CLI subcommands skills can invoke via bash to avoid
 partial-write corruption and active-symlink races.
 
 Subcommands:
@@ -21,19 +21,31 @@ Subcommands:
              restore. Supports rollback via --rollback to undo the most recent
              commit by restoring the rollback dir if still present.
 
-  flip-link  Atomically update symlink <link> to point at <target> using
-             the `ln -sfn tmp && mv -Tf tmp link` pattern (or equivalent via
-             os.replace on the link path). Holds an flock on <link>.lock.
+  flip-link  Point the link <link> at <target>: create the new link as
+             <link>.skf-tmp-link, then os.replace it over <link>, holding an
+             exclusive lock on <link>.skf-lock (removed afterwards). Refuses
+             to replace a <link> that is a real directory or file.
 
 Cross-platform: locking branches between fcntl (POSIX) and msvcrt
-(Windows). Symlink semantics on Windows require dev mode or admin —
-flip-link surfaces a clear error rather than silently falling back.
-Native Windows is untested in CI; the supported path is WSL2.
+(Windows). On Windows os.symlink needs Developer Mode or admin; when it
+fails for lack of privilege, flip-link creates a directory junction
+(mklink /J) instead, which needs neither but requires <target> to be an
+existing directory. A junction cannot be renamed over an existing link,
+so on that path flip-link removes the old link first and the flip is not
+atomic. No test exercises the junction path: CI's Windows runner holds
+symlink privilege.
 
 Exit codes:
-  0 on success
-  1 on user error (bad args, missing input)
-  2 on operation failure (disk full, permission, race-detected)
+  0 on success (JSON on stdout)
+  1 when commit-dir has no staging or rollback directory to use (JSON
+    error on stderr), and on any unexpected error (a Python traceback on
+    stderr); for flip-link that includes Windows refusing both a symlink
+    and a junction
+  2 on a refused or failed operation, with {"status": "error", "message":
+    ...} on stderr: write failed, stage-dir could not clear a stale entry,
+    commit-dir found a non-directory target or could not swap, flip-link
+    found a non-link at <link> or another process holding its lock; and
+    on bad arguments (argparse usage on stderr, no JSON)
 
 CLI examples:
   cat metadata.json | python3 skf-atomic-write.py write --target /path/to/metadata.json
@@ -274,7 +286,7 @@ def cmd_flip_link(link: Path, target: str) -> None:
     """Atomically point <link> at <target> using rename-over-symlink pattern.
 
     target is the value of the symlink (may be relative, as is convention
-    for `active -> 1.0.0`). Held lock on <link>.lock prevents concurrent flips.
+    for `active -> 1.0.0`). A lock on <link>.skf-lock prevents concurrent flips.
 
     On Windows, os.symlink requires Developer Mode or admin. When that fails
     with PRIVILEGE_NOT_HELD/ACCESS_DENIED the helper falls back to a directory

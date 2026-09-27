@@ -7,6 +7,8 @@ Covers:
   - restore_description: inline/quoted/block-scalar shapes; key order preserved
   - empty/whitespace-only captured value is refused, never written (#474)
   - CLI integration via subprocess for capture and verify-restore
+  - calling-step prose: both steps resolve the protocol by probe order and
+    state the restore and empty-snapshot record rules themselves
 """
 
 from __future__ import annotations
@@ -451,3 +453,168 @@ class TestCli:
         )
         assert result.returncode == 1
         assert "empty or whitespace-only" in result.stderr
+
+
+# --------------------------------------------------------------------------
+# Calling-step prose: the protocol resolves in an installed project, and each
+# step states the guard rules its evidence-report populator depends on
+# --------------------------------------------------------------------------
+
+PROTOCOL_MD = REPO_ROOT / "src" / "shared" / "references" / "description-guard-protocol.md"
+# (step file, first heading after §0, evidence-report section, description kind)
+GUARD_STEPS = {
+    "create-skill": (
+        REPO_ROOT / "src" / "skf-create-skill" / "references" / "validate.md",
+        "### 1. Check Tool Availability",
+        "§8",
+        "compiled",
+    ),
+    "update-skill": (
+        REPO_ROOT / "src" / "skf-update-skill" / "references" / "write.md",
+        "### 1. Verify SKILL.md Write",
+        "§4",
+        "merged",
+    ),
+}
+# (start, end) of each step's Description Guard evidence-report populator
+POPULATORS = {
+    "create-skill": ("**Description Guard population:**", "### 9. Auto-Proceed"),
+    "update-skill": ("**Description Guard population**", "**Context Snippet population**"),
+}
+PROTOCOL_PROBE_BLOCK = (
+    "# Resolve `{descriptionGuardProtocol}` (the guard's prose protocol, not its\n"
+    "# helper script) by probing `{descriptionGuardProtocolProbeOrder}` in order\n"
+    "# (installed SKF module path first, src/ dev-checkout fallback); first\n"
+    "# existing path wins. Advisory: if neither path exists, skip the load and\n"
+    "# continue, because §0 states every guard rule this step acts on and the\n"
+    "# protocol only explains them.\n"
+    "descriptionGuardProtocolProbeOrder:\n"
+    "  - '{project-root}/_bmad/skf/shared/references/description-guard-protocol.md'\n"
+    "  - '{project-root}/src/shared/references/description-guard-protocol.md'\n"
+)
+PROTOCOL_PROBE_ORDER = [
+    "{project-root}/_bmad/skf/shared/references/description-guard-protocol.md",
+    "{project-root}/src/shared/references/description-guard-protocol.md",
+]
+
+
+def _read(path: Path) -> str:
+    assert path.is_file(), f"missing {path}"
+    return path.read_text(encoding="utf-8")
+
+
+def _slice(text: str, start: str, end: str) -> str:
+    assert text.count(start) == 1, f"expected exactly one {start!r}"
+    head = text.index(start)
+    assert end in text[head:], f"expected {end!r} after {start!r}"
+    body = text[head : text.index(end, head)]
+    assert body.strip(), f"empty slice after {start!r}"
+    return body
+
+
+def _step_frontmatter(text: str) -> str:
+    assert text.startswith("---\n"), "expected leading frontmatter fence"
+    return text[4 : text.index("\n---\n", 4) + 1]
+
+
+def _section0(path: Path, end: str) -> str:
+    return _slice(_read(path), "### 0. Description Guard Protocol", end)
+
+
+@pytest.mark.parametrize("step", sorted(GUARD_STEPS))
+class TestGuardStepProse:
+    def test_protocol_resolves_by_probe_order(self, step: str) -> None:
+        path, _, _, _ = GUARD_STEPS[step]
+        fm_text = _step_frontmatter(_read(path))
+        assert PROTOCOL_PROBE_BLOCK in fm_text
+        fm = yaml.safe_load(fm_text)
+        assert fm.get("descriptionGuardProtocolProbeOrder") == PROTOCOL_PROBE_ORDER
+        assert "descriptionGuardProtocol" not in fm, "the bare src/ scalar must be gone"
+        comment = _slice(
+            fm_text,
+            "# Resolve `{descriptionGuardProtocol}` (the guard's prose protocol",
+            "descriptionGuardProtocolProbeOrder:",
+        )
+        assert "Advisory" in comment and "HALT" not in comment
+
+    def test_section0_resolves_the_protocol_without_halting(self, step: str) -> None:
+        path, end, _, _ = GUARD_STEPS[step]
+        section = _section0(path, end)
+        assert (
+            "Resolve `{descriptionGuardProtocol}` ← first existing path in "
+            "`{descriptionGuardProtocolProbeOrder}` and load it" in section
+        )
+        assert "The load is advisory: if neither path exists, continue" in section
+        assert "Load `{descriptionGuardProtocol}`" not in section, "resolve before loading"
+        assert "HALT" not in section
+
+    def test_section0_binds_the_helper_outputs(self, step: str) -> None:
+        path, end, report, _ = GUARD_STEPS[step]
+        section = _section0(path, end)
+        for phrase in (
+            "Bind `{guarded_description}` ← `description` from each `capture`, run while "
+            "the in-context SKILL.md copy matches the file on disk.",
+            "Bind `{guard_restored}` ← `restored` and `{guard_diff_kind}` ← `diff_kind` "
+            "from each `verify-restore`.",
+            "When `{guard_restored}` is true, set the in-context `description` to "
+            "`{guarded_description}`",
+            "record `description_guard_restored: true` with the tool name and "
+            "`description_guard_diff_kind: {guard_diff_kind}` in workflow context for the "
+            f"evidence report ({report}).",
+            "A later `verify-restore` that exits 0 with `{guard_restored}` false leaves "
+            "those records in place.",
+        ):
+            assert phrase in section, phrase
+        # The per-call flag must not share a name with the record the
+        # populator reads, or a later clean call would overwrite a restore.
+        text = _read(path)
+        assert "`{description_guard_restored}`" not in text
+        assert "`{description_guard_diff_kind}`" not in text
+
+    def test_section0_states_the_empty_snapshot_rule(self, step: str) -> None:
+        path, end, report, kind = GUARD_STEPS[step]
+        section = _section0(path, end)
+        rule = _slice(section, "**Empty-snapshot rule.**", "\n")
+        for phrase in (
+            "`verify-restore` refuses an empty or whitespace-only `--captured-description` "
+            "(exit 1, file untouched).",
+            "Never re-run it with the empty value",
+            f"If the {kind} description is still in context (the in-context SKILL.md copy), "
+            "re-run `verify-restore` with that value.",
+            "Otherwise record `description_guard_restored: false` and "
+            "`description_guard_refused: empty-capture` with the tool name",
+            f"the evidence report ({report}) renders that as a fired guard, not as a clean run.",
+        ):
+            assert phrase in rule, phrase
+
+    def test_populator_reads_the_section0_records(self, step: str) -> None:
+        path, _, _, _ = GUARD_STEPS[step]
+        text = _read(path)
+        populator = _slice(text, *POPULATORS[step])
+        assert "(§0's empty-snapshot rule" in populator
+        assert "based on the recorded `description_guard_diff_kind`" in populator
+        assert "the protocol's empty-snapshot rule" not in text
+        assert "the §0 protocol's empty-snapshot rule" not in text
+
+
+def test_protocol_commands_use_the_caller_resolved_helpers() -> None:
+    text = _read(PROTOCOL_MD)
+    assert "{project-root}/src/" not in text
+    assert "`src/shared/scripts/skf-description-guard.py`" not in text
+    guard = _slice(text, "## The Four-Phase Guard", "## Why Token-Stream Comparison")
+    assert guard.count("uv run {descriptionGuardHelper} \\\n") == 2
+    revalidate = _slice(text, "## Post-Restore Re-Validation (Optional)", "## Why This Protocol Is Centralized")
+    assert "uv run {frontmatterValidator} <skill-md-path>" in revalidate
+
+
+def test_protocol_keeps_the_rules_the_steps_repeat() -> None:
+    # Each calling step states the restore handling and the empty-snapshot
+    # rule in its §0; the protocol must record the same keys and say so.
+    text = _read(PROTOCOL_MD)
+    verify = _slice(text, "### 3 + 4. Verify and Restore", "**Empty snapshot refusal.**")
+    assert "Record `description_guard_restored: true` (with the tool name and the `diff_kind`)" in verify
+    rule = _slice(text, "**Empty snapshot refusal.**", "## Why Token-Stream Comparison")
+    assert "`description_guard_refused: empty-capture`" in rule
+    assert "Never retry with the empty value" in rule
+    centralized = _slice(text, "## Why This Protocol Is Centralized", "## Calling Workflows")
+    assert "also stated in the stage's §0" in centralized

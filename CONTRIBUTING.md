@@ -37,8 +37,8 @@ npm run quality       # run the full local pre-flight
 The `npm run quality` script is your contract with CI. It runs:
 
 - `format:check` (Prettier), `lint` (ESLint), `lint:md` (markdownlint)
-- `test:schemas`, `test:install`, `test:cli`, `test:workflow`, `test:python`, `test:knowledge`
-- `validate:schemas`, `validate:skills`, `validate:refs`
+- `test:schemas`, `test:install`, `test:cli`, `test:workflow`, `test:python`, `test:rehype`, `test:docs-links-tool`, `test:file-refs-tool`, `test:knowledge`
+- `validate:schemas`, `validate:skills`, `validate:refs`, `validate:docs-links`
 - `docs:validate-drift` — SKF docs vs. the canonical [oh-my-skills](https://github.com/armelhbobdad/oh-my-skills) output
 
 If `npm run quality` passes locally, CI should too. The same steps run in [`.github/workflows/quality.yaml`](.github/workflows/quality.yaml) on every pull request.

@@ -22,8 +22,8 @@ rebuildManagedSectionsProbeOrder:
 # action) to atomically repoint `{skill_group}/active` after a version-level
 # purge deletes the version the symlink pointed at — the helper does a
 # temp-symlink + os.replace flip so concurrent readers never see a missing
-# link. Matches skf-update-skill/references/write.md and
-# skf-rename-skill/references/execute.md. HALT if neither candidate exists.
+# link. Matches skf-update-skill/references/write.md. If neither
+# candidate exists, §4 records the manual repair and continues.
 updateActiveSymlinkProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-update-active-symlink.py'
   - '{project-root}/src/shared/scripts/skf-update-active-symlink.py'

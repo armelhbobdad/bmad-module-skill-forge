@@ -1,7 +1,15 @@
 ---
 nextStepFile: 'generate-artifacts.md'
 tesslDismissalData: 'assets/tessl-dismissal-rules.md'
-descriptionGuardProtocol: '{project-root}/src/shared/references/description-guard-protocol.md'
+# Resolve `{descriptionGuardProtocol}` (the guard's prose protocol, not its
+# helper script) by probing `{descriptionGuardProtocolProbeOrder}` in order
+# (installed SKF module path first, src/ dev-checkout fallback); first
+# existing path wins. Advisory: if neither path exists, skip the load and
+# continue, because §0 states every guard rule this step acts on and the
+# protocol only explains them.
+descriptionGuardProtocolProbeOrder:
+  - '{project-root}/_bmad/skf/shared/references/description-guard-protocol.md'
+  - '{project-root}/src/shared/references/description-guard-protocol.md'
 # Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
 # path wins. HALT if neither resolves — losing atomic-write guarantees is not
@@ -62,7 +70,11 @@ To validate the compiled SKILL.md content against the agentskills.io specificati
 
 **Used by:** §2 (`skill-check check --fix`), §4 (`split-body`), and any future tool invocation that may modify SKILL.md.
 
-Load `{descriptionGuardProtocol}` for the full prose explanation of the four-phase guard (why it exists, what counts as divergence, why token-stream comparison is the right shape). The deterministic phases are executed via `{descriptionGuardHelper}` — the calling sections (§2 and §4) invoke the helper at the capture and verify-restore points. `verify-restore` refuses an empty `--captured-description` (exit 1, file untouched); when that happens, follow the protocol's empty-snapshot rule instead of re-running with the empty value.
+Resolve `{descriptionGuardProtocol}` ← first existing path in `{descriptionGuardProtocolProbeOrder}` and load it for the full prose explanation of the four-phase guard (why it exists, what counts as divergence, why token-stream comparison is the right shape). The load is advisory: if neither path exists, continue, because the rules below are all this step needs from it. The deterministic phases are executed via `{descriptionGuardHelper}` — the calling sections (§2 and §4) invoke the helper at the capture and verify-restore points.
+
+**Guard outputs.** Bind `{guarded_description}` ← `description` from each `capture`, run while the in-context SKILL.md copy matches the file on disk. Bind `{guard_restored}` ← `restored` and `{guard_diff_kind}` ← `diff_kind` from each `verify-restore`. When `{guard_restored}` is true, set the in-context `description` to `{guarded_description}` so later sections do not work from the tool-mutated value, and record `description_guard_restored: true` with the tool name and `description_guard_diff_kind: {guard_diff_kind}` in workflow context for the evidence report (§8). A later `verify-restore` that exits 0 with `{guard_restored}` false leaves those records in place.
+
+**Empty-snapshot rule.** `verify-restore` refuses an empty or whitespace-only `--captured-description` (exit 1, file untouched). Never re-run it with the empty value: writing it back would blank the field the guard protects. If the compiled description is still in context (the in-context SKILL.md copy), re-run `verify-restore` with that value. Otherwise record `description_guard_restored: false` and `description_guard_refused: empty-capture` with the tool name; the evidence report (§8) renders that as a fired guard, not as a clean run.
 
 **This skill's post-restore re-validation hook:** after `{descriptionGuardHelper}` reports `restored: true`, resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}` (first existing path wins), run `uv run {frontmatterValidator} <staging-skill-dir>/SKILL.md` and capture `schema_revalidation_result` in context. If the validator exits non-zero OR reports failure for the `description` field, flip the Schema result back to `FAIL` in the evidence report (overriding any prior PASS/WARN from §2), record `description_guard_revalidation: FAIL` with the validator's diagnostic message, and continue — do not halt (step 9 health-check and result contract still need to run so the failure is surfaced through the normal artifact path).
 
@@ -318,9 +330,9 @@ If the sink, the on-disk rows, and `headless_decisions[]` are all empty, keep th
 - `Restored: true` when `description_guard_restored == true`, otherwise `false`.
 - `Triggering tool`: the tool name recorded by §0 (`skill-check --fix`, `skill-check split-body`, etc.), or `—` if the guard did not fire.
 - `Original description preserved`: `true` if the restore succeeded (on-disk now matches the pre-tool snapshot), `false` if restoration itself failed (rare — treat as a halt condition in a future version).
-- `Notes`: a one-sentence description of what the tool had changed. Typical values: `"replaced with generic summary"`, `"truncated at N chars"`, `"angle-bracket tokens re-introduced"`, `"field deleted entirely"`. If `Restored: false`, use `—`.
+- `Notes`: a one-sentence description of what the tool had changed, based on the recorded `description_guard_diff_kind` (`replaced`, `truncated` or `deleted`). Typical values: `"replaced with generic summary"`, `"truncated at N chars"`, `"angle-bracket tokens re-introduced"`, `"field deleted entirely"`. If `Restored: false`, use `—`.
 
-When `Restored: false`, the three follow-up fields are all `—` — this is the clean-run expected state — with one exception: when `description_guard_refused == "empty-capture"` (the protocol's empty-snapshot rule — `verify-restore` exited 1 and no in-context copy allowed a re-run), the guard did fire and must not render as a clean run. Set `Restored: false`, `Triggering tool` to the recorded tool name, `Original description preserved: false`, and `Notes: guard refused — empty captured snapshot (empty-capture)`.
+When `Restored: false`, the three follow-up fields are all `—` — this is the clean-run expected state — with one exception: when `description_guard_refused == "empty-capture"` (§0's empty-snapshot rule — `verify-restore` exited 1 and no in-context copy allowed a re-run), the guard did fire and must not render as a clean run. Set `Restored: false`, `Triggering tool` to the recorded tool name, `Original description preserved: false`, and `Notes: guard refused — empty captured snapshot (empty-capture)`.
 
 ### 9. Auto-Proceed
 

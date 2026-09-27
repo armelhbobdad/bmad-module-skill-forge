@@ -14,16 +14,23 @@
  *   assemblyRulesData, skillSectionsData, tesslDismissalData, extractionPatternsData
  * - Load directives (Load: `file.md`) target existing files
  * - No absolute paths (/Users/, /home/, C:\) leak into source files
+ * - Every {project-root}/src/<path> is preceded by its installed twin
+ *   {project-root}/_bmad/skf/<path>, earlier on the same line or on the line
+ *   before. An installed project has no src/ tree, so a src/ path is only a
+ *   dev-checkout fallback. Fenced code is scanned too, and so are .py, .toml
+ *   and .json files.
  *
  * What it does NOT check (deferred):
  * - {installed_path} variable interpolation (self-referential, low risk)
  * - {{mustache}} template variables (runtime substitution)
  * - {config_source}:key dynamic YAML dereferences
+ * - Bare src/<path> mentions written without {project-root}
  *
  * Usage:
  *   node tools/validate-file-refs.js            # Warn on broken references (exit 0)
  *   node tools/validate-file-refs.js --strict    # Fail on broken references (exit 1)
  *   node tools/validate-file-refs.js --verbose   # Show all checked references
+ *   node tools/validate-file-refs.js --src-dir <dir>   # Scan <dir> instead of src/ (exit 2 if not a directory)
  *
  * Default mode is warning-only (exit 0) so adoption is non-disruptive.
  * Use --strict when you want CI or pre-commit to enforce valid references.
@@ -35,8 +42,12 @@ const path = require('node:path');
 const yaml = require('yaml');
 const { parse: parseCsv } = require('csv-parse/sync');
 
-const PROJECT_ROOT = path.resolve(__dirname, '..');
-const SRC_DIR = path.join(PROJECT_ROOT, 'src');
+// --src-dir points the tool at another tree (its own tests use fixture trees);
+// the parent of that directory becomes the root for displayed paths.
+const SRC_DIR_FLAG = process.argv.indexOf('--src-dir');
+const SRC_DIR_ARG = SRC_DIR_FLAG === -1 ? null : process.argv[SRC_DIR_FLAG + 1];
+const SRC_DIR = SRC_DIR_ARG ? path.resolve(SRC_DIR_ARG) : path.resolve(__dirname, '..', 'src');
+const PROJECT_ROOT = path.dirname(SRC_DIR);
 const VERBOSE = process.argv.includes('--verbose');
 const STRICT = process.argv.includes('--strict');
 
@@ -45,11 +56,20 @@ const STRICT = process.argv.includes('--strict');
 // File extensions to scan
 const SCAN_EXTENSIONS = new Set(['.yaml', '.yml', '.md', '.xml', '.csv']);
 
+// File extensions checked for unpaired {project-root}/src/ paths only
+const PAIR_SCAN_EXTENSIONS = new Set([...SCAN_EXTENSIONS, '.py', '.toml', '.json']);
+
 // Skip directories
-const SKIP_DIRS = new Set(['node_modules', '.git', '.analysis']);
+const SKIP_DIRS = new Set(['node_modules', '.git', '.analysis', '__pycache__']);
 
 // Pattern: {project-root}/_bmad/ references
 const PROJECT_ROOT_REF = /\{project-root\}\/_bmad\/([^\s'"<>})\]`]+)/g;
+
+// Patterns: {project-root}/src/ paths and their installed twins. Same path
+// character class as PROJECT_ROOT_REF; at least one path character is
+// required, so a bare mention of the root (`{project-root}/src/`) is no path.
+const SRC_PATH_REF = /\{project-root\}\/src\/([^\s'"<>})\]`]+)/g;
+const INSTALLED_PATH_REF = /\{project-root\}\/_bmad\/skf\/([^\s'"<>})\]`]+)/g;
 
 // Pattern: {_bmad}/ shorthand references
 const BMAD_SHORTHAND_REF = /\{_bmad\}\/([^\s'"<>})\]`]+)/g;
@@ -130,7 +150,7 @@ const UNRESOLVABLE_VARS = [
 
 // --- File Discovery ---
 
-function getSourceFiles(dir) {
+function getSourceFiles(dir, extensions = SCAN_EXTENSIONS) {
   const files = [];
 
   function walk(currentDir) {
@@ -143,7 +163,7 @@ function getSourceFiles(dir) {
 
       if (entry.isDirectory()) {
         walk(fullPath);
-      } else if (entry.isFile() && SCAN_EXTENSIONS.has(path.extname(entry.name))) {
+      } else if (entry.isFile() && extensions.has(path.extname(entry.name))) {
         files.push(fullPath);
       }
     }
@@ -453,21 +473,66 @@ function checkAbsolutePathLeaks(filePath, content) {
   return leaks;
 }
 
+// --- Installed-Twin Check for src/ Paths ---
+
+function pathTokens(line, regex) {
+  const tokens = [];
+  regex.lastIndex = 0;
+  let match;
+  while ((match = regex.exec(line)) !== null) {
+    // A path that ends a sentence or a list item keeps its punctuation in the
+    // capture; drop it so `foo.md.` and `foo.md,` both mean `foo.md`.
+    tokens.push({ column: match.index, token: match[0], path: match[1].replace(/[.,;:]+$/, '') });
+  }
+  return tokens;
+}
+
+/**
+ * Find every {project-root}/src/<path> in raw text and say whether it is
+ * paired: its installed twin {project-root}/_bmad/skf/<path> (the same path)
+ * appears earlier on the same line or anywhere on the line before. Runs on
+ * raw text on purpose: fenced commands are what an agent copies and runs.
+ *
+ * @param {string} content - Raw file text (LF or CRLF)
+ * @returns {{line: number, column: number, token: string, path: string, paired: boolean}[]}
+ */
+function findSrcPathRefs(content) {
+  const refs = [];
+  const lines = content.split('\n');
+  for (const [i, line] of lines.entries()) {
+    const srcTokens = pathTokens(line, SRC_PATH_REF);
+    if (srcTokens.length === 0) continue;
+    const here = pathTokens(line, INSTALLED_PATH_REF);
+    const before = new Set(i > 0 ? pathTokens(lines[i - 1], INSTALLED_PATH_REF).map((t) => t.path) : []);
+    for (const src of srcTokens) {
+      const paired = before.has(src.path) || here.some((t) => t.path === src.path && t.column < src.column);
+      refs.push({ line: i + 1, column: src.column, token: src.token, path: src.path, paired });
+    }
+  }
+  return refs;
+}
+
 // --- Exports (for testing) ---
-module.exports = { extractCsvRefs };
+module.exports = { extractCsvRefs, findSrcPathRefs, PAIR_SCAN_EXTENSIONS };
 
 // --- Main ---
 
 if (require.main === module) {
+  if (SRC_DIR_FLAG !== -1 && !(SRC_DIR_ARG && fs.existsSync(SRC_DIR) && fs.statSync(SRC_DIR).isDirectory())) {
+    console.error('--src-dir needs an existing directory');
+    process.exit(2);
+  }
+
   console.log(`\nValidating file references in: ${SRC_DIR}`);
   console.log(`Mode: ${STRICT ? 'STRICT (exit 1 on issues)' : 'WARNING (exit 0)'}${VERBOSE ? ' + VERBOSE' : ''}\n`);
 
-  const files = getSourceFiles(SRC_DIR);
+  const files = getSourceFiles(SRC_DIR, PAIR_SCAN_EXTENSIONS);
   console.log(`Found ${files.length} source files\n`);
 
   let totalRefs = 0;
   let brokenRefs = 0;
   let totalLeaks = 0;
+  let totalUnpaired = 0;
   let filesWithIssues = 0;
   const allIssues = []; // Collect for $GITHUB_STEP_SUMMARY
 
@@ -476,9 +541,13 @@ if (require.main === module) {
     const content = fs.readFileSync(filePath, 'utf-8');
     const ext = path.extname(filePath);
 
-    // Extract references
+    // Extract references (the .py, .toml and .json files are read only for
+    // the src/-path check below)
+    const refScanned = SCAN_EXTENSIONS.has(ext);
     let refs;
-    if (ext === '.yaml' || ext === '.yml') {
+    if (!refScanned) {
+      refs = [];
+    } else if (ext === '.yaml' || ext === '.yml') {
       refs = extractYamlRefs(filePath, content);
     } else if (ext === '.csv') {
       refs = extractCsvRefs(filePath, content);
@@ -516,11 +585,15 @@ if (require.main === module) {
     }
 
     // Check absolute path leaks
-    const leaks = checkAbsolutePathLeaks(filePath, content);
+    const leaks = refScanned ? checkAbsolutePathLeaks(filePath, content) : [];
     totalLeaks += leaks.length;
 
+    // Check {project-root}/src/ paths for their installed twin (raw text)
+    const unpaired = findSrcPathRefs(content).filter((ref) => !ref.paired);
+    totalUnpaired += unpaired.length;
+
     // Print results — file header appears once, in one place
-    const hasFileIssues = broken.length > 0 || leaks.length > 0;
+    const hasFileIssues = broken.length > 0 || leaks.length > 0 || unpaired.length > 0;
 
     if (hasFileIssues) {
       filesWithIssues++;
@@ -556,6 +629,18 @@ if (require.main === module) {
           console.log(`::warning file=${relativePath},line=${leak.line}::${escapeAnnotation(`Absolute path leak: ${leak.content}`)}`);
         }
       }
+
+      for (const ref of unpaired) {
+        const twin = `{project-root}/_bmad/skf/${ref.path}`;
+        console.log(`  [SRC-PATH] Line ${ref.line}: ${ref.token}`);
+        console.log(`     No installed twin before it: put ${twin} earlier on the line or on the line before`);
+        allIssues.push({ file: relativePath, line: ref.line, ref: ref.token, issue: 'src-path unpaired' });
+        if (process.env.GITHUB_ACTIONS) {
+          console.log(
+            `::warning file=${relativePath},line=${ref.line}::${escapeAnnotation(`src/ path with no installed twin before it: ${ref.token} (add ${twin})`)}`,
+          );
+        }
+      }
     } else if (VERBOSE && refs.length > 0) {
       console.log(`\n${relativePath}`);
       for (const { ref, tag, note } of ok) {
@@ -572,8 +657,9 @@ if (require.main === module) {
   console.log(`   References checked: ${totalRefs}`);
   console.log(`   Broken references: ${brokenRefs}`);
   console.log(`   Absolute path leaks: ${totalLeaks}`);
+  console.log(`   Unpaired src/ paths: ${totalUnpaired}`);
 
-  const hasIssues = brokenRefs > 0 || totalLeaks > 0;
+  const hasIssues = brokenRefs > 0 || totalLeaks > 0 || totalUnpaired > 0;
 
   if (hasIssues) {
     console.log(`\n   ${filesWithIssues} file(s) with issues`);
@@ -600,7 +686,7 @@ if (require.main === module) {
       }
       summary += '\n';
     }
-    summary += `**${files.length} files scanned, ${totalRefs} references checked, ${brokenRefs + totalLeaks} issues found**\n`;
+    summary += `**${files.length} files scanned, ${totalRefs} references checked, ${brokenRefs + totalLeaks + totalUnpaired} issues found**\n`;
     fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
   }
 
