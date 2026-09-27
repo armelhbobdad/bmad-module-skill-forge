@@ -1,6 +1,13 @@
 ---
 nextStepFile: 'report.md'
 forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
+# Resolve `{skillInventoryHelper}` by probing `{skillInventoryProbeOrder}` in
+# order (installed SKF module path first, src/ dev-checkout fallback); first
+# existing path wins. §1 runs its write check before any directory is
+# created; without it, §1 writes only into a skill folder that does not exist yet.
+skillInventoryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
+  - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 # Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
 # path wins. HALT if neither resolves — the active-symlink flip and registry
@@ -33,9 +40,28 @@ To write all compiled content to disk — 4 deliverable files to `{skill_package
 
 ## MANDATORY SEQUENCE
 
-### 1. Create Directory Structure
+### 1. Check Ownership, Then Create Directory Structure
 
-Resolve `{version}` from the skill brief's `version` field. Create the following directories:
+`{name}` is the skill name from the brief (kebab-case). `{version}` is the working version: the brief's `version`, unless step 3's source resolution replaced it with `target_version` or the detected source version (`source-resolution-protocols.md` "Version Reconciliation"), with build metadata stripped per `knowledge/version-paths.md`.
+
+**Ownership check.** Run it before creating any directory, `{forge_version}` included. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run:
+
+```bash
+uv run {skillInventoryHelper} {skills_output_folder} --skill {name} --write-check --write-version {version} --forge-data-folder {forge_data_folder}
+```
+
+`--forge-data-folder` only tells the helper whether both settings name one folder, so the brief and forge files there count as SKF output.
+
+Bind `{write_verdict}` ← `write_check.verdict`, `{write_folder}` ← `write_check.folder` and `{write_detail}` ← `write_check.detail`. Continue only when the status is `ok` and `{write_verdict}` is `"ok"`: nothing is at the skill folder yet, it holds only what an interrupted run leaves, or SKF generated it and the version is new or SKF's own. Otherwise create nothing and refuse with the first case that applies:
+
+- `{write_verdict}` is `"flat-layout"` → `halt_reason: "flat-layout"`: "**`{name}` still uses the flat layout — nothing was written.** A version written beside its root `SKILL.md` would leave a skill SKF can no longer migrate or rename. Run `@Ferris TS {name}` (or US, AS or EX) once to move it into the versioned layout, then re-run."
+- `{write_verdict}` is `"not-skf-output"` → `halt_reason: "not-skf-output"`: "**`{name}` is not SKF output — nothing was written.** `{write_folder}` {write_detail}, so SKF will not write a version there. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{name}` yourself, and set a different `name` in the brief to create this skill beside it. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`. A version folder with no `metadata.json` can also be one that an interrupted create-skill run left behind; delete it yourself in that case."
+- The status is not `ok`, or the output has no `write_check` (an older helper: it has no `--write-check` and reports a new skill as `SKILL_NOT_FOUND`) → `halt_reason: "not-skf-output"`: the same message with "SKF could not check it ({the helper's `error`, if any}; re-install SKF if the installed `skf-skill-inventory.py` is out of date)" in place of "`{write_folder}` {write_detail}".
+- When no helper candidate resolves, continue only when nothing exists at `{skill_group}` (no folder, no file, not even a broken link). Otherwise refuse with `halt_reason: "not-skf-output"` and the same message, giving "SKF cannot check who generated `{skill_group}`: `skf-skill-inventory.py` is missing; re-install SKF" in place of "`{write_folder}` {write_detail}".
+
+Each refusal is a HARD HALT. Nothing was written, so under `{headless_mode}` emit the stderr envelope per `references/report.md` "Result Contract on HARD HALT" with `status: "failed"`, `phase: "generate-artifacts"`, `summary.halt_reason` as shown, `summary.evidence_report: null` and `skill_package: null`, and write no result file: `{forge_version}` does not exist yet. In `--batch` mode, before halting, update `{sidecar_path}/batch-state.yaml` as `references/report.md` §5 describes, with `current_index` set to the next brief and `{skill: "{name}", brief: "<brief path>", halt_reason: "<reason>"}` appended to `refused`; when this was the last brief, set `batch_active: false` instead. The next `--batch` run then resumes with the next brief instead of refusing this one again.
+
+Then create the following directories:
 
 ```
 {skill_group}                          # {skills_output_folder}/{name}/
@@ -47,11 +73,11 @@ Resolve `{version}` from the skill brief's `version` field. Create the following
 If `scripts_inventory` is non-empty, also create: `{skill_package}/scripts/`
 If `assets_inventory` is non-empty, also create: `{skill_package}/assets/`
 
-Where `{name}` is the skill name from the brief (kebab-case) and `{version}` is the semver version from the brief (with build metadata stripped per `knowledge/version-paths.md`).
-
-If directories already exist, do not error — proceed with file writing (overwrites existing files).
+Existing directories are fine: the ownership check accepted them, so the files below overwrite same-named files in them.
 
 ### 2. Write Deliverables to {skill_package}
+
+Write File 3 (`metadata.json`) first, so a run interrupted mid-write leaves a package that carries the SKF marker, which the next run's ownership check accepts.
 
 Write these 4 files from the compiled content:
 

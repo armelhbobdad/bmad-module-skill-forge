@@ -43,7 +43,7 @@ Per-line modifiers shadow the global `--description` / `--exports` / `--skip-sni
 3. After step 7 completes (success or HARD HALT), record the per-target outcome (target, status, exit_code, skill_package, error.code) into the batch result list.
 4. If `--fail-fast` is set and the target failed, exit the batch loop immediately. Otherwise continue with the next target.
 
-Per-target output lands in `{skill_package}/` as today, with the per-target result contract at `{skill_package}/quick-skill-result-latest.json` (success or error variant per `references/halt-contract.md`).
+Per-target output lands in `{skill_package}/` as today, with the per-target result contract at `{skill_package}/quick-skill-result-latest.json` (success or error variant per `references/halt-contract.md`; a target refused by the step 5 §1 ownership halt, or halted before `metadata.json` was written, has none).
 
 ## Batch summary contract
 

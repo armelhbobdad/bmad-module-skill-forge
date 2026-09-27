@@ -2045,6 +2045,33 @@ def test_mixed_forge_folder_uses_prefix_patterns(tmp_path):
     assert "twice" not in note
 
 
+def test_forge_evidence_is_read_from_disk_like_the_skills_rule(tmp_path):
+    """A brief `.gitignore` hides still proves SKF wrote the forge folder."""
+    project = _git_repo(tmp_path / "repo", {
+        ".gitignore": b"forge-data/*/skill-brief.yaml\n",
+        "forge-data/n/skill-brief.yaml": b"name: n\n",
+        "forge-data/n/NOTES.md": b"# mine\n",
+    }, add=False)
+    _seed_ccc_settings(project)
+    payload = _merge(project, forge_data="forge-data")
+    assert "forge-data" in payload["effective_patterns"]
+    assert _collisions(payload, "forge_data_folder") == []
+
+
+def test_result_file_deeper_than_a_version_folder_is_not_forge_evidence(tmp_path):
+    project = _git_repo(tmp_path / "repo", {
+        "forge-data/n/skill-brief.yaml": b"name: n\n",
+        "forge-data/pkg/a/b/x-result-latest.json": b"{}\n",
+    })
+    _seed_ccc_settings(project)
+    payload = _merge(project, forge_data="forge-data")
+    effective = payload["effective_patterns"]
+    assert "forge-data/n" in effective and "forge-data" not in effective
+    assert not [p for p in effective if p.startswith("forge-data/pkg")]
+    [note] = _mixed(payload, "forge_data_folder")
+    assert "pkg/" in note
+
+
 @pytest.mark.parametrize("inner", ["mixed", "left-out"])
 def test_nested_folder_defers_to_inner_mixed_folder(tmp_path, inner):
     files = _marked({"skf/n/1.0.0/n/SKILL.md": b"# n\n", "skf/forge-data/notes/a.md": b"# mine\n"})

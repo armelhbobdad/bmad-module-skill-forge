@@ -29,7 +29,7 @@ These rules apply to every step in this workflow:
 
 - Never delete files in purge mode without clearing the §10 confirmation gate (auto-resolved with its default in headless)
 - Never drop an active version when other non-deprecated versions exist — enforce the active version guard
-- Never purge content SKF did not generate — select.md §3, §4 and §8b check each folder's `ownership`, and a purge SKF cannot check is refused
+- Never purge content SKF did not generate — select.md §3, §4 and §8b check the `ownership` of the skill folder and of its forge folder; a forge folder SKF did not generate is left in place, and a purge SKF cannot check is refused
 - Only load one step file at a time — never preload future steps
 - If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread — except the ownership check: never decide by hand whether SKF generated a folder; without the inventory helper, select.md offers manifest skills only and refuses every purge
 - Always communicate in `{communication_language}`
@@ -66,7 +66,7 @@ Every hard HALT exits with a stable code so headless automators branch on the fa
 | 2    | input-missing / input-invalid | step 1 headless input gates — missing or unmatched `skill_name`, `version`, or `--mode` value (§4 / §6 / §8); §8 a draft skill with no manifest entry: `mode=deprecate`, or headless with a `default_mode` of `deprecate` → `input-invalid` |
 | 3    | resolution-failure   | step 1 manifest/skill-list resolution (§2 corrupt manifest, §3 nothing to drop) |
 | 4    | write-failure        | On-Activation write probe; step 2 manifest write / context rebuild / full-purge failure |
-| 5    | state-conflict       | step 1 active-version guard (§7); step 1 ownership guard — §3/§4 a named folder SKF did not generate (§3 when the roster is empty), §8b a purge of content SKF did not generate or cannot check → `not-skf-output` |
+| 5    | state-conflict       | step 1 active-version guard (§7); step 1 ownership guard — §3/§4 a named folder SKF did not generate (§3 when the roster is empty), §8b a purge of content SKF did not generate or cannot check, in the skill folder or its forge folder → `not-skf-output` |
 | 6    | user-cancelled       | any interactive cancel or confirm-gate `[N]`; On-Activation headless-purge guard |
 
 ## Result Contract (Headless)

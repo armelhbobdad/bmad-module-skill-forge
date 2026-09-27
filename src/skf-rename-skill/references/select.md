@@ -16,8 +16,9 @@ manifestOpsProbeOrder:
 # enumerate the rename candidates: the union of manifest `exports` and on-disk
 # skill directories, each with its version list and active version — computing
 # that union/count in the prompt has one correct answer per input — plus each
-# folder's `ownership`, `skf_skill`, `flat_skf` and `foreign_entries`, which
-# §4a checks so a rename never moves a folder SKF did not generate. If neither
+# folder's `ownership`, `skf_skill`, `flat_skf` and `foreign_entries` and,
+# with `--forge-data-folder`, each skill's forge-folder verdict (`forge_groups`),
+# which §4a checks so a rename never moves a folder SKF did not generate. If neither
 # path resolves, §3 lists manifest skills only and §4a refuses the rename.
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
@@ -82,10 +83,10 @@ Load `{skills_output_folder}/.export-manifest.json` if it exists.
 Enumerate every skill available for rename deterministically. Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and run:
 
 ```bash
-python3 {skillInventoryHelper} {skills_output_folder}
+uv run {skillInventoryHelper} {skills_output_folder} --forge-data-folder {forge_data_folder}
 ```
 
-Read the JSON. Each entry in `skills[]` carries `name`, its `versions` array, and `active_version` (the helper unions the manifest `exports` with the on-disk directories and dedupes, so manifest-tracked and orphaned skills both appear), plus `ownership` (`"skf"`, `"mixed"` or `"foreign"`), `skf_skill`, `flat_skf` and `foreign_entries`. List only the entries whose `skf_skill` is true: rename copies and then deletes the whole folder, so a folder SKF did not generate is never offered. A listed skill whose `name` is absent from `manifest.exports` is a draft/orphan the rename workflow can still handle — annotate it "(not in manifest)". Annotate an entry whose `ownership` is `"mixed"` with "(holds files SKF did not generate — cannot rename)" and one whose `flat_skf` is true with "(flat layout — migrate first)"; §4a refuses both. Bind `{not_skf_output}` ← `not_skf_output` (folders holding a skill SKF did not generate); when it is non-empty, show one line under the list: "Not offered — not SKF output: {not_skf_output}".
+Read the JSON. Each entry in `skills[]` carries `name`, its `versions` array, and `active_version` (the helper unions the manifest `exports` with the on-disk directories and dedupes, so manifest-tracked and orphaned skills both appear), plus `ownership` (`"skf"`, `"mixed"` or `"foreign"`), `skf_skill`, `flat_skf` and `foreign_entries`. List only the entries whose `skf_skill` is true: rename copies and then deletes the whole folder, so a folder SKF did not generate is never offered. A listed skill whose `name` is absent from `manifest.exports` is a draft/orphan the rename workflow can still handle — annotate it "(not in manifest)". Annotate an entry whose `ownership` is `"mixed"` with "(holds files SKF did not generate — cannot rename)" and one whose `flat_skf` is true with "(flat layout — migrate first)"; §4a refuses both. Also annotate one whose `result.forge_groups[]` entry is `"mixed"`, or has `errors` and is not `"reserved"`, with "(its forge folder holds files SKF did not generate, or is a link or not a folder SKF can read — cannot rename)"; §4a refuses these too. Bind `{not_skf_output}` ← `not_skf_output` (folders holding a skill SKF did not generate); when it is non-empty, show one line under the list: "Not offered — not SKF output: {not_skf_output}".
 
 **If `{skillInventoryHelper}` has no existing candidate** (neither probe path resolves — e.g. Python/`uv` unavailable): build the list from the manifest `exports` only (if `manifest_exists`), reading each one's `active_version` and version count. Folders on disk that are absent from `exports` are not offered: without the helper SKF cannot check that it generated them, and §4a refuses the rename in this mode.
 
@@ -124,14 +125,17 @@ Store the selection as `old_name`.
 
 ### 4a. Ownership Check
 
-Rename copies the whole `{skills_output_folder}/{old_name}/` folder and then deletes it, so it only renames a skill SKF generated in the versioned layout. From the §3 `skills[]` entry named `{old_name}`, bind `{target_ownership}` ← `ownership`, `{target_flat_skf}` ← `flat_skf`, `{target_foreign_entries}` ← `foreign_entries` and `{target_errors}` ← `errors`. Take the first refusal that applies; each one displays its message and HALTs (exit code 5) with the named `halt_reason`, and in headless mode emits the error envelope with `old_name: "{old_name}"`, `new_name: null`. No lock is held yet (§4b acquires it), so there is nothing to release.
+Rename copies the whole `{skills_output_folder}/{old_name}/` folder and then deletes it, so it only renames a skill SKF generated in the versioned layout. From the §3 `skills[]` entry named `{old_name}`, bind `{target_ownership}` ← `ownership`, `{target_flat_skf}` ← `flat_skf`, `{target_foreign_entries}` ← `foreign_entries` and `{target_errors}` ← `errors`. Also bind `{same_folder}` ← `same_folder` (false when the result has none) and, when `{same_folder}` is false, `{target_forge_ownership}` ← `ownership`, `{target_forge_foreign_entries}` ← `foreign_entries` and `{target_forge_errors}` ← `errors` of the `result.forge_groups[]` entry named `{old_name}` (`"unknown"` when the result has no `same_folder` key or no such entry; both lists are `[]` without an entry). Take the first refusal that applies; each one displays its message and HALTs (exit code 5) with the named `halt_reason`, and in headless mode emits the error envelope with `old_name: "{old_name}"`, `new_name: null`. No lock is held yet (§4b acquires it), so there is nothing to release.
 
 1. §3 ran without `{skillInventoryHelper}` → `not-skf-output`: "**SKF cannot check that it generated `{old_name}`** because `skf-skill-inventory.py` is missing. Nothing was changed. Re-install SKF and re-run the rename."
 2. `{target_ownership}` is `"foreign"`, or `{old_name}` is in `{not_skf_output}` → `not-skf-output`: "**`{old_name}` is not SKF output — nothing was changed.** `{skills_output_folder}/{old_name}/` has no SKF marker in its `metadata.json`, so SKF will not rename it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{old_name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When `{target_errors}` is non-empty (for example, the folder is a link), show it in place of the marker sentence.
 3. `{target_ownership}` is `"mixed"` → `not-skf-output`: "**`{skills_output_folder}/{old_name}/` also holds entries SKF did not generate:** {target_foreign_entries}. Nothing was changed. Rename moves and then deletes the whole folder, so SKF will not rename it. Move those entries out of the folder and re-run. A version folder with no `metadata.json` can also be one that an interrupted update-skill run left behind; delete it yourself in that case."
 4. `{target_flat_skf}` is true → `flat-layout`: "**`{old_name}` still uses the flat layout.** Nothing was changed. Rename works on the versioned layout only: run `@Ferris TS {old_name}` (or US, AS or EX) once to move it into that layout, then re-run the rename."
+5. `{same_folder}` is false and `{target_forge_ownership}` is `"unknown"` → `not-skf-output`: "**SKF cannot check `{forge_data_folder}/{old_name}/`** because the installed `skf-skill-inventory.py` does not report `forge_groups`. Nothing was changed. Re-install SKF and re-run the rename."
+6. `{target_forge_errors}` is non-empty and `{target_forge_ownership}` is not `"reserved"` → `not-skf-output`: "**SKF will not move `{forge_data_folder}/{old_name}`:** {target_forge_errors}. Nothing was changed." When `{target_forge_errors}` names a link, add: "SKF never moves or deletes through a link: the copy would take the files from where the link points, and removing the old name or rolling back would empty that folder. Replace the link with the folder it points to, then re-run." Otherwise (the path is not a folder, or SKF cannot list it), add: "Rename moves a forge folder only when it is a folder SKF can read. Move that path out of the way or fix its permissions, then re-run."
+7. `{target_forge_ownership}` is `"mixed"` → `not-skf-output`: "**`{forge_data_folder}/{old_name}/` also holds entries SKF did not generate:** {target_forge_foreign_entries}. Nothing was changed. Rename moves and then deletes the whole forge folder, so SKF will not rename it. Move those entries out of the folder and re-run."
 
-Otherwise continue to §4b.
+When no refusal applies, set `{forge_move}` ← true when `{same_folder}` is false and `{target_forge_ownership}` is `"skf"` or `"empty"`, else false, and `{forge_left_in_place}` ← `{forge_data_folder}/{old_name}` when it is `"foreign"` or `"reserved"`, else null. A link at or above `{forge_data_folder}` itself is the user's configuration; SKF checks the forge folder and everything in it (a linked folder inside it makes it `"mixed"`). Then continue to §4b.
 
 ### 4b. Concurrency Guard
 
@@ -140,8 +144,8 @@ Two concurrent rename runs against the same `old_name` would corrupt state mid-c
 **Mirror this exactly so the guard works the same way every run:**
 
 ```bash
-LOCK={forge_data_folder}/{old_name}/.skf-rename.lock
-mkdir -p "$(dirname "$LOCK")"
+LOCK={forge_data_folder}/.skf-rename-{old_name}.lock
+mkdir -p "{forge_data_folder}"
 
 if [ -f "$LOCK" ]; then
   HELD_PID=$(head -n1 "$LOCK" 2>/dev/null | awk '{print $1}')
@@ -154,6 +158,8 @@ fi
 
 printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$LOCK"
 ```
+
+The lock sits beside the forge folders, never inside one: a skill can have no forge folder, or one SKF did not generate, and a lock inside it would be copied into the new one.
 
 **Halt protocol on live-PID collision:**
 
@@ -173,7 +179,7 @@ The new name must be kebab-case: lowercase alphanumeric with hyphens, 1-64 chara
 
 Wait for user input. Trim whitespace. **GATE [default: use args]** — If `{headless_mode}` and new_name was provided as argument: use it and auto-proceed through validation. If not provided, release the lock and HALT (exit code 2, `halt_reason: "input-missing"`): "headless mode requires new_name argument." In headless, emit the error envelope.
 
-- If the user enters `cancel`, `exit`, `[X]`, `q`, or `:q`: release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`), display "Cancelled — no changes were made.", and HALT (exit code 6, `halt_reason: "user-cancelled"`).
+- If the user enters `cancel`, `exit`, `[X]`, `q`, or `:q`: release the lock (`rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`), display "Cancelled — no changes were made.", and HALT (exit code 6, `halt_reason: "user-cancelled"`).
 
 **Validate the candidate deterministically.** Run `{renameNameValidator}` (a per-skill helper, always shipped with the skill) — it applies format, length, identity, and collision in that order and returns the verdict as JSON:
 
@@ -184,16 +190,16 @@ python3 {renameNameValidator} \
   --forge-data-folder {forge_data_folder}
 ```
 
-The checks: **format** = the kebab regex `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` (the module's canonical rule, same as `skf-validate-output.py` / `skf-validate-brief-inputs.py`, so a digit-leading name like `3d-tools` renames cleanly); **length** = 1-64 characters (agentskills.io spec); **identity** = differs from `{old_name}`; **collision** = the name is not a manifest `exports` key, a `{skills_output_folder}` directory, or a `{forge_data_folder}` directory.
+The checks: **format** = the kebab regex `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` (the module's canonical rule, same as `skf-validate-output.py` / `skf-validate-brief-inputs.py`, so a digit-leading name like `3d-tools` renames cleanly); **length** = 1-64 characters (agentskills.io spec); **identity** = differs from `{old_name}`; **collision** = the name is not a manifest `exports` key or an entry in `{skills_output_folder}` or `{forge_data_folder}` (a file or link counts), and not `improvement-queue`.
 
-Read `valid`, `first_failure`, `checks`, and `interrupted_rename`. If `valid` is true, store the input as `new_name` and proceed to §6. Otherwise branch on `first_failure` — interactive: display the message and re-ask; headless: release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`), HALT with the mapped code, and emit the error envelope:
+Read `valid`, `first_failure`, `checks`, and `interrupted_rename`. If `valid` is true, store the input as `new_name` and proceed to §6. Otherwise branch on `first_failure` — interactive: display the message and re-ask; headless: release the lock (`rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`), HALT with the mapped code, and emit the error envelope:
 
 - **`format`** → "**Invalid name format.** The new name must be lowercase alphanumeric with hyphens, starting and ending with a lowercase letter or digit. Try again." (headless HALT: exit code 2, `halt_reason: "input-invalid"`)
 - **`length`** → "**Invalid name length.** The new name must be 1-64 characters. Try again." (headless HALT: exit code 2, `halt_reason: "input-invalid"`)
 - **`identity`** → "**The new name is identical to the current name.** Nothing to rename. Try again or abort the workflow." (headless HALT: exit code 2, `halt_reason: "input-invalid"`)
-- **`collision`** → "**Name collision.** `{new-name}` already exists at: {the `path` of each entry in `checks.collision.locations`}. Pick a different name." When `interrupted_rename` is true, append: "This may be a stranded partial rename from an earlier interrupted run — `{new_name}` was staged but `{old_name}` was never removed. Confirm the `{new_name}` directories are not a skill you want to keep, then clean them up (`rm -rf {skills_output_folder}/{new_name} {forge_data_folder}/{new_name}`) and re-run this rename." — this gives headless pipelines a named recovery path instead of a dead-end collision halt. (headless HALT: exit code 5, `halt_reason: "name-collision"`)
+- **`collision`** → "**Name collision.** `{new-name}` already exists at: {the `path` of each entry in `checks.collision.locations`}. Pick a different name." When `checks.collision.locations` has a `reserved` entry, say instead: "**Reserved name.** `improvement-queue` is SKF's own folder in `{forge_data_folder}`. Pick a different name." When `interrupted_rename` is true, append: "This may be a stranded partial rename from an earlier interrupted run — `{new_name}` was staged but `{old_name}` was never removed. Confirm the `{new_name}` directories are not a skill you want to keep, then remove `{skills_output_folder}/{new_name}`, and `{forge_data_folder}/{new_name}` only when it holds a copy of `{old_name}`'s forge folder, and re-run this rename." — this gives headless pipelines a named recovery path instead of a dead-end collision halt. (headless HALT: exit code 5, `halt_reason: "name-collision"`)
 
-**If `{renameNameValidator}` cannot run** (Python/`uv` unavailable): apply the same four checks in the same order in the prompt — the kebab regex, the 1-64 length bound, inequality with `{old_name}`, and the three-source collision lookup (plus the interrupted-rename fingerprint above) — using the identical messages and halt mapping.
+**If `{renameNameValidator}` cannot run** (Python/`uv` unavailable): apply the same four checks in the same order in the prompt — the kebab regex, the 1-64 length bound, inequality with `{old_name}`, and the collision lookup (the three sources plus the reserved name), plus the interrupted-rename fingerprint: the new name collides only on disk (not in the manifest, not reserved), `{skills_output_folder}/{old_name}` is still a folder, `{skills_output_folder}/{new_name}` is a folder holding nothing a copy of it could not (every entry in it also exists in `{skills_output_folder}/{old_name}`, of the same kind, with at most a version's `{old_name}/` package renamed to `{new_name}/`), and `{forge_data_folder}/{new_name}` exists only when `{forge_data_folder}/{old_name}` does — using the identical messages and halt mapping.
 
 ### 6. Source Authority Check
 
@@ -217,7 +223,7 @@ does not rename anything at the registry.
 Ask: "**Continue anyway?** [Y/N] (or `cancel` / `exit` / `:q` to abort)"
 
 Wait for response.
-- **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`), display "**Cancelled.** No changes were made.", HALT (exit code 6, `halt_reason: "user-cancelled"`).
+- **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → release the lock (`rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`), display "**Cancelled.** No changes were made.", HALT (exit code 6, `halt_reason: "user-cancelled"`).
 - **If `Y`** → proceed. Set `source_authority_override = true`.
 
 **Headless behavior:** If `{headless_mode}` is true AND `{forceSourceAuthorityInHeadless}` is `"true"`, auto-proceed and record `{gate: "source-authority", default_action: "halt", taken_action: "proceed", reason: "force_source_authority_in_headless override"}` in `headless_decisions[]`. Otherwise, release the lock and HALT (exit code 5, `halt_reason: "source-authority-blocked"`) and emit the error envelope — the safe default protects against silent registry-divergence on `published`-tagged skills.
@@ -232,16 +238,16 @@ Resolve `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder
 python3 {manifestOpsHelper} {skills_output_folder} affected-versions {old_name}
 ```
 
-Read the JSON result. Store `affected_versions` = `result.affected_versions` and `affected_versions_count` = `result.count`. The helper unions the manifest's `exports.{old_name}.versions` keys with the on-disk version directories under `{skills_output_folder}/{old_name}/` (every entry that is not the `active` symlink), so it handles both manifest-tracked and orphaned on-disk versions, deduplicates, and applies a **numeric** semver-descending sort (so `0.10.0` correctly precedes `0.9.0`, which a lexical sort gets wrong). An incomplete union would risk leaving a version internally un-renamed in the new copy — a leftover that step 2 §5 only catches for the versions it was told about.
+Read the JSON result. Store `affected_versions` = `result.affected_versions` and `affected_versions_count` = `result.count`. The helper unions the manifest's `exports.{old_name}.versions` keys with the on-disk version directories under `{skills_output_folder}/{old_name}` (every entry that is not the `active` symlink), so it handles both manifest-tracked and orphaned on-disk versions, deduplicates, and applies a **numeric** semver-descending sort (so `0.10.0` correctly precedes `0.9.0`, which a lexical sort gets wrong). An incomplete union would risk leaving a version internally un-renamed in the new copy — a leftover that step 2 §5 only catches for the versions it was told about.
 
-**If `{manifestOpsHelper}` has no existing candidate** (neither probe path resolves — e.g. Python/`uv` unavailable): compute `affected_versions` in the prompt instead — read every key under `exports.{old_name}.versions` in the manifest, list every directory under `{skills_output_folder}/{old_name}/` that is not `active`, union the two sets, and sort descending (newest first, comparing version components numerically). Store the list as `affected_versions` and its length as `affected_versions_count`.
+**If `{manifestOpsHelper}` has no existing candidate** (neither probe path resolves — e.g. Python/`uv` unavailable): compute `affected_versions` in the prompt instead — read every key under `exports.{old_name}.versions` in the manifest, list every directory under `{skills_output_folder}/{old_name}` that is not `active`, union the two sets, and sort descending (newest first, comparing version components numerically). Store the list as `affected_versions` and its length as `affected_versions_count`.
 
-Also resolve the four outer paths using the templates from `{versionPathsKnowledge}`:
+Also resolve the four outer paths using the templates from `{versionPathsKnowledge}`, each without a trailing `/`:
 
-- `old_skill_group` = `{skills_output_folder}/{old_name}/`
-- `new_skill_group` = `{skills_output_folder}/{new_name}/`
-- `old_forge_group` = `{forge_data_folder}/{old_name}/`
-- `new_forge_group` = `{forge_data_folder}/{new_name}/`
+- `old_skill_group` = `{skills_output_folder}/{old_name}`
+- `new_skill_group` = `{skills_output_folder}/{new_name}`
+- `old_forge_group` = `{forge_data_folder}/{old_name}`
+- `new_forge_group` = `{forge_data_folder}/{new_name}`
 
 ### 8. Confirmation Gate
 
@@ -256,14 +262,15 @@ Display the full operation summary:
 
   Directories that will be copied then removed:
     {old_skill_group}  →  {new_skill_group}
-    {old_forge_group}  →  {new_forge_group}
+    {if forge_move:}{old_forge_group}  →  {new_forge_group}
+    {if forge_left_in_place:}Left in place (not SKF output): {forge_left_in_place} — SKF did not generate it, so it keeps its name.
 
   Inside each version, the inner `{old_name}/` directory will be renamed to `{new_name}/`,
   and the following files will be updated:
     - SKILL.md (frontmatter `name` field)
     - metadata.json (`name` field)
     - context-snippet.md (display name and root paths)
-    - provenance-map.json (`skill_name` field, under {old_forge_group})
+    {if forge_move or same_folder:}- provenance-map.json (`skill_name` field, under {old_forge_group})
 
   Manifest `exports.{old_name}` will be re-keyed to `exports.{new_name}`.
   Platform context files (CLAUDE.md, .cursorrules, AGENTS.md) will be rebuilt so
@@ -280,10 +287,10 @@ Proceed? [Y/N]
 
 Wait for explicit user response.
 
-**If `--dry-run` was passed**: skip the Y/N prompt entirely. Release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`), display "**[DRY RUN] No changes were made — preview above shows what would be renamed.**", and emit the success envelope per SKILL.md "Result Contract (Headless)" with `status: "dry-run"`, the resolved `old_name`, `new_name`, `versions_renamed: {affected_versions}`, and `headless_decisions: {headless_decisions}` (carries the §6 source-authority override entry if it fired, else `[]`), then HALT (exit code 0). No copy, no manifest re-key, no delete.
+**If `--dry-run` was passed**: skip the Y/N prompt entirely. Release the lock (`rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`), display "**[DRY RUN] No changes were made — preview above shows what would be renamed.**", and emit the success envelope per SKILL.md "Result Contract (Headless)" with `status: "dry-run"`, the resolved `old_name`, `new_name`, `versions_renamed: {affected_versions}`, and `headless_decisions: {headless_decisions}` (carries the §6 source-authority override entry if it fired, else `[]`), then HALT (exit code 0). No copy, no manifest re-key, no delete.
 
 - **If `Y`** → proceed to section 9
-- **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → release the lock (`rm -f {forge_data_folder}/{old_name}/.skf-rename.lock`), display "**Cancelled.** No changes were made.", HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with the resolved `old_name` and `new_name`.
+- **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → release the lock (`rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`), display "**Cancelled.** No changes were made.", HALT (exit code 6, `halt_reason: "user-cancelled"`). In headless mode, emit the error envelope per SKILL.md "Result Contract (Headless)" with the resolved `old_name` and `new_name`.
 - **Any other input** → re-display the confirmation and ask again
 
 ### 9. Store Decisions in Context
@@ -294,10 +301,13 @@ Store the following decisions in workflow context for step 2:
 - `new_name` — the validated new name
 - `affected_versions` — list of version strings for every version that must be updated
 - `affected_versions_count` — integer count of the above
-- `old_skill_group` — absolute path `{skills_output_folder}/{old_name}/`
-- `new_skill_group` — absolute path `{skills_output_folder}/{new_name}/`
-- `old_forge_group` — absolute path `{forge_data_folder}/{old_name}/`
-- `new_forge_group` — absolute path `{forge_data_folder}/{new_name}/`
+- `old_skill_group` — absolute path `{skills_output_folder}/{old_name}` (no trailing `/`, like the three below)
+- `new_skill_group` — absolute path `{skills_output_folder}/{new_name}`
+- `old_forge_group` — absolute path `{forge_data_folder}/{old_name}`
+- `new_forge_group` — absolute path `{forge_data_folder}/{new_name}`
+- `forge_move` — boolean from §4a (true when this rename moves the forge folder)
+- `forge_left_in_place` — the forge folder §4a leaves under the old name because SKF did not generate it, or null
+- `same_folder` — boolean from §4a (true when `skills_output_folder` and `forge_data_folder` name one folder)
 - `source_authority_override` — boolean (true if the user acknowledged the `"official"` warning, false/absent otherwise)
 - `headless_decisions` — the audit trail of confirmation gates auto-resolved under `{headless_mode}` (the §6 source-authority override and the §8 auto-confirm entries appended above). Initialize to `[]`; in interactive runs it stays `[]`. Step 2 carries it forward and step 3 surfaces it in the result envelope.
 

@@ -6,17 +6,24 @@
 
 Scans the skills output folder, reads manifests and metadata, resolves active
 versions via symlinks, and outputs a JSON inventory. Read by drop-skill and
-rename-skill (roster and ownership), analyze-source (coexistence matches), and
-the flat-layout fallback of update-skill, export-skill, audit-skill and
-test-skill (the ownership gate before a flat skill is migrated).
+rename-skill (roster, and the ownership of each skill folder and its forge
+folder), create-skill, quick-skill and create-stack-skill (the write check
+before a version is written), analyze-source (coexistence matches), and the
+flat-layout fallback of update-skill, export-skill, audit-skill and test-skill
+(the ownership gate before a flat skill is migrated).
 
 CLI: uv run skf-skill-inventory.py <skills-output-folder>
      uv run skf-skill-inventory.py <skills-output-folder> --skill <name>
      uv run skf-skill-inventory.py <skills-output-folder> --manifest-only
      uv run skf-skill-inventory.py <skills-output-folder> --match-target <url-or-name>
+     uv run skf-skill-inventory.py <skills-output-folder> --forge-data-folder <path>
+     uv run skf-skill-inventory.py <skills-output-folder> --skill <name> --write-check
+         [--write-version <version>] [--forge-data-folder <path>]
 
-Exit 0 when `status` is "ok"; exit 1 on an error (`DIR_NOT_FOUND`, or
-`SKILL_NOT_FOUND` for `--skill`).
+Exit 0 when `status` is "ok" (a write check exits 0 whatever its verdict);
+exit 1 on an error (`DIR_NOT_FOUND`, `SKILL_NOT_FOUND` for `--skill`, or
+`USAGE` for a write-check flag used wrongly or `--forge-data-folder` without
+a value).
 
 Ownership. The skills folder can hold skills SKF did not generate (a module's
 own skills, skills installed from elsewhere). Only a `metadata.json` carrying
@@ -39,14 +46,28 @@ a result file are not proof on their own. Each `skills[]` entry adds:
 - `foreign_entries`: the entries SKF did not generate, sorted; directories
   end in `/`, a linked entry is listed by its bare name, and an entry inside
   a marked version folder `v` is listed as `v/<entry>` (SKF puts only the
-  `{name}/` package and `.skf-` staging names there).
+  `{name}/` package and `.skf-` staging names there). A folder that holds no
+  file (only neutral clutter, `.skf-` names or folders like itself) is never
+  foreign: an interrupted SKF run leaves one before it writes metadata.json.
 
 The existing `errors` list also names a linked folder (never checked for a
-marker) and a `metadata.json` that cannot be read. The top-level `not_skf_output` lists the scanned names whose `skf_skill` is
+marker), a folder in the skill folder that SKF cannot list or search (listed
+as foreign) and a `metadata.json` that cannot be read. The top-level `not_skf_output` lists the scanned names whose `skf_skill` is
 false that still look like a skill (a root `SKILL.md` or a `{v}/{name}/`
 folder). `versions`, `active_version` and `active_path` keep their structural
 meaning for every entry, except that the package folders of a flat SKF skill
 (`references/{name}/`, for example) are never read as versions.
+
+Forge folders. With `--forge-data-folder`, the top-level `forge_groups[]`
+classifies `{forge_data_folder}/{name}` for every scanned name (`name`,
+`path`, `ownership`, `foreign_entries`, `errors`; see `classify_forge_group`),
+and `same_folder` says whether both settings name one folder. When they do,
+`forge_groups` is empty and each skill folder is classified once, accepting
+SKF's forge files too. The path given is echoed as `forge_data_folder`.
+
+Write check. `--skill <name> --write-check [--write-version <v>]` returns
+`write_check` (see `write_check`); the writers run it before creating any
+directory.
 
 The --match-target mode deterministically computes coexistence matches: it
 normalizes scheme / trailing .git / trailing slash, derives the expected kebab
@@ -116,7 +137,7 @@ def _has_skf_metadata(path: Path) -> bool:
 
 
 # Keep identical to _is_link_or_junction in skf-atomic-write.py
-# (test/test-skf-skill-inventory.py pins the copies).
+# and skf-validate-rename-name.py (test/test-skf-skill-inventory.py pins the copies).
 def _is_link_or_junction(p: Path) -> bool:
     """True for POSIX symlinks AND Windows junctions/symlinks.
 
@@ -180,12 +201,219 @@ def _has_skf_evidence(group_dir: Path, name: str) -> bool:
                for child in children)
 
 
-def _version_foreign_entries(version_dir, skill_name, errors):
+# Keep identical to FORGE_GROUP_DIRS in skf-merge-ccc-exclusions.py
+# (test/test-skf-skill-inventory.py pins the copies).
+FORGE_GROUP_DIRS = frozenset({"_campaign", "improvement-queue"})
+# Keep identical to FORGE_VERSION_ANCHORS in skf-merge-ccc-exclusions.py
+# (test/test-skf-skill-inventory.py pins the copies).
+FORGE_VERSION_ANCHORS = frozenset({"provenance-map.json", "evidence-report.md", "extraction-rules.yaml"})
+# The other names SKF writes into a forge version folder
+# (knowledge/version-paths.md, forge_data_folder tree).
+FORGE_VERSION_FILES = FORGE_VERSION_ANCHORS | frozenset({
+    "evidence-report-fallback.md", "extraction-snapshot.json", ".manual-inventory.json",
+    ".test-skill.lock"})
+FORGE_REPORT_RE = re.compile(r"^(test-report|drift-report)(-.+)?\.md$")
+
+
+# Keep identical to _has_forge_evidence in skf-merge-ccc-exclusions.py
+# (test/test-skf-skill-inventory.py pins the copies).
+def _has_forge_evidence(group_dir: Path, name: str) -> bool:
+    """True when forge group `group_dir` holds evidence that SKF generated it.
+
+    Evidence is `.skf-` in the name, SKF's own `_campaign` or
+    `improvement-queue` folder, a skill brief (`skill-brief.yaml*` or
+    `.brief-draft.json`) or a `*-result*.json` file directly in the group, or
+    a provenance map, evidence report, extraction rules or `*-result*.json`
+    file directly in a folder of the group (`.skf-` staging folders aside).
+    A linked group, folder or file is never evidence.
+    """
+    if _is_link_or_junction(group_dir):
+        return False
+    if ".skf-" in name or name in FORGE_GROUP_DIRS:
+        return True
+    try:
+        children = list(group_dir.iterdir())
+    except OSError:
+        return False
+    for child in children:
+        entry = child.name
+        if _is_link_or_junction(child):
+            continue
+        if child.is_file():
+            if (entry.startswith("skill-brief.yaml") or entry == ".brief-draft.json"
+                    or RESULT_JSON_RE.match(entry)):
+                return True
+        elif child.is_dir() and ".skf-" not in entry:
+            try:
+                inner = list(child.iterdir())
+            except OSError:
+                continue
+            if any((f.name in FORGE_VERSION_ANCHORS or RESULT_JSON_RE.match(f.name))
+                   and not _is_link_or_junction(f) and f.is_file() for f in inner):
+                return True
+    return False
+
+
+def _is_forge_version_name(entry):
+    """True for a name SKF writes into a forge version folder."""
+    return (entry in FORGE_VERSION_FILES or bool(FORGE_REPORT_RE.match(entry))
+            or bool(RESULT_JSON_RE.match(entry)) or entry.endswith("-tmp"))
+
+
+def _is_forge_root_name(entry, evidence):
+    """True for a file SKF writes directly into a forge group.
+
+    A brief or a result file always is. The legacy flat artifacts (a
+    provenance map, evidence report, extraction rules or test or drift
+    report at the group root) count only beside other evidence.
+    """
+    if (entry.startswith("skill-brief.yaml") or entry == ".brief-draft.json"
+            or RESULT_JSON_RE.match(entry)):
+        return True
+    return evidence and (entry in FORGE_VERSION_ANCHORS or bool(FORGE_REPORT_RE.match(entry)))
+
+
+def _holds_no_file(folder):
+    """True when `folder` holds no file: only neutral clutter, `.skf-` names
+    and folders that hold no file themselves (a link is content).
+
+    That is all an interrupted SKF run leaves before it writes a package's
+    metadata.json; deleting or writing into such a folder loses no file. A
+    folder SKF cannot list or search holds content too.
+    """
+    try:
+        children = list(folder.iterdir())
+    except OSError:
+        return False
+    for child in children:
+        name = child.name
+        if name in NEUTRAL_GROUP_ENTRIES or ".skf-" in name:
+            continue
+        try:
+            if _is_link_or_junction(child) or not child.is_dir() or not _holds_no_file(child):
+                return False
+        except OSError:  # a folder it cannot search: pathlib raises there before Python 3.14
+            return False
+    return True
+
+
+def _forge_folder_entries(folder, group_evidence, package=None):
+    """(verdict, entries SKF did not write as `v/<entry>`) for folder `v` of a forge group.
+
+    A folder is marked when it directly holds a provenance map, evidence
+    report, extraction rules or `*-result*.json` file. SKF's per-version
+    names count inside a marked folder or in a group with evidence, except
+    `package`: in a skills-side version folder (both settings name one
+    folder) the skill's own package is SKF output only when marked, even
+    when its name looks like a forge name such as `*-tmp`.
+    Verdicts: "skf", "mixed" (marked, plus other entries), "empty" (not
+    marked, nothing else) or "foreign".
+    """
+    v = folder.name
+    try:
+        children = sorted(folder.iterdir(), key=lambda p: p.name)
+    except OSError:
+        return "foreign", []
+    marked = any((c.name in FORGE_VERSION_ANCHORS or RESULT_JSON_RE.match(c.name))
+                 and not _is_link_or_junction(c) and c.is_file() for c in children)
+    skf_named = marked or group_evidence
+    inner = []
+    for child in children:
+        name = child.name
+        if name in NEUTRAL_GROUP_ENTRIES or ".skf-" in name:
+            continue
+        if _is_link_or_junction(child):
+            inner.append(f"{v}/{name}")
+            continue
+        if skf_named and name != package and _is_forge_version_name(name):
+            continue
+        if child.is_dir() and _holds_no_file(child):
+            continue
+        inner.append(f"{v}/{name}/" if child.is_dir() else f"{v}/{name}")
+    if marked:
+        return ("mixed" if inner else "skf"), inner
+    return ("foreign" if inner else "empty"), inner
+
+
+def classify_forge_group(group_dir, skill_name):
+    """Decide whether SKF generated forge group `group_dir` ({forge_data_folder}/{name}).
+
+    Returns {name, path, ownership, foreign_entries, errors}. `ownership`:
+    "absent" (nothing at the path), "reserved" (SKF's own `_campaign` or
+    `improvement-queue` folder, never a skill's), "skf" (SKF evidence and
+    nothing else), "mixed" (evidence plus entries SKF did not write), "empty"
+    (no evidence and nothing SKF did not write) or "foreign" (no evidence
+    and entries SKF did not write; a link or a path that is not a folder,
+    even with a reserved name, with the reason in `errors`). Whether the
+    group holds SKF output at all is `_has_forge_evidence`, the rule the ccc
+    helper shares. A folder in the group is listed as `v/` when SKF wrote
+    nothing in it, and its entries as `v/<entry>` when it is marked; a
+    linked entry is listed by its bare name.
+    """
+    result = {"name": skill_name, "path": str(group_dir), "ownership": "absent",
+              "foreign_entries": [], "errors": []}
+    if not os.path.lexists(group_dir):
+        return result
+    result["ownership"] = "foreign"
+    if _is_link_or_junction(group_dir):
+        result["errors"].append(
+            f"forge folder is a link; SKF never moves or deletes through it: {group_dir}")
+        return result
+    if not group_dir.is_dir():
+        result["errors"].append(f"forge folder is not a folder: {group_dir}")
+        return result
+    if skill_name in FORGE_GROUP_DIRS:
+        result["ownership"] = "reserved"
+        return result
+    try:
+        children = sorted(group_dir.iterdir(), key=lambda p: p.name)
+    except OSError as e:
+        result["errors"].append(f"Cannot list {group_dir}: {e}")
+        return result
+    evidence = _has_forge_evidence(group_dir, skill_name)
+    foreign = []
+    for child in children:
+        name = child.name
+        if name in NEUTRAL_GROUP_ENTRIES or ".skf-" in name:
+            continue
+        if _is_link_or_junction(child):
+            foreign.append(name)
+        elif child.is_dir():
+            verdict, inner = _forge_folder_entries(child, evidence)
+            if verdict == "mixed":
+                foreign.extend(inner)
+            elif verdict == "foreign":
+                foreign.append(name + "/")
+        elif not _is_forge_root_name(name, evidence):
+            foreign.append(name)
+    result["foreign_entries"] = sorted(foreign)
+    if evidence:
+        result["ownership"] = "mixed" if foreign else "skf"
+    else:
+        result["ownership"] = "foreign" if foreign else "empty"
+    return result
+
+
+def _same_folder(skills_dir, forge_dir):
+    """True when the skills and forge settings name one folder."""
+    if forge_dir is None:
+        return False
+    try:
+        if skills_dir.exists() and forge_dir.exists():
+            return os.path.samefile(skills_dir, forge_dir)
+    except OSError:
+        pass
+    return (os.path.normcase(os.path.abspath(skills_dir))
+            == os.path.normcase(os.path.abspath(forge_dir)))
+
+
+def _version_foreign_entries(version_dir, skill_name, errors, also_forge=False):
     """The entries of a marked version folder SKF did not put there, as `v/<entry>`.
 
     SKF writes only the `{name}/` package and `.skf-` staging names into a
-    version folder; neutral clutter is ignored. Directories end in `/`, a
-    linked entry is listed by its bare name.
+    version folder (and, with `also_forge`, its forge per-version files);
+    neutral clutter is ignored. Directories end in `/`, a linked entry is
+    listed by its bare name.
     """
     try:
         children = sorted(version_dir.iterdir(), key=lambda p: p.name)
@@ -197,6 +425,8 @@ def _version_foreign_entries(version_dir, skill_name, errors):
         name = child.name
         if name == skill_name or name in NEUTRAL_GROUP_ENTRIES or ".skf-" in name:
             continue
+        if also_forge and not _is_link_or_junction(child) and _is_forge_version_name(name):
+            continue
         if _is_link_or_junction(child) or not child.is_dir():
             found.append(f"{version_dir.name}/{name}")
         else:
@@ -204,7 +434,25 @@ def _version_foreign_entries(version_dir, skill_name, errors):
     return found
 
 
-def classify_ownership(skill_group_dir, skill_name):
+def _read_error(folder, name):
+    """The OSError that keeps SKF from listing `folder` or searching it for `name`, else None.
+
+    os.listdir needs read permission on `folder` and os.lstat of `folder/name`
+    search permission. Both raise on every Python version, where pathlib's
+    is_dir and is_symlink return False inside a folder they cannot search
+    from Python 3.14 on and raise before it.
+    """
+    try:
+        os.listdir(folder)
+        os.lstat(os.path.join(folder, name))
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as e:
+        return e
+    return None
+
+
+def classify_ownership(skill_group_dir, skill_name, also_forge=False):
     """Decide whether SKF generated the skill group `skill_group_dir`.
 
     Returns {ownership, skf_skill, flat_skf, foreign_entries, errors}.
@@ -222,7 +470,14 @@ def classify_ownership(skill_group_dir, skill_name):
     ignored; anything else is foreign. Inside a marked version folder,
     anything but the `{name}/` package, a `.skf-` name or neutral clutter is
     foreign too, listed as `v/<entry>`. Everything inside
-    `_batch` or a `.skf-` folder is SKF output.
+    `_batch` or a `.skf-` folder is SKF output. A folder that holds no file
+    (only neutral clutter, `.skf-` names or folders like itself) is never
+    foreign: an interrupted SKF run leaves one before it writes metadata.json.
+    With `also_forge` (both settings name one folder), SKF's forge files
+    count too, as ccc's kinds union does: a brief or result file at the
+    root, forge per-version files in a version folder, and forge evidence;
+    the skill's own `v/{name}/` package still counts only when marked.
+    A folder SKF cannot list or search is foreign, and `errors` names it.
     """
     result = {
         "ownership": "foreign",
@@ -243,6 +498,10 @@ def classify_ownership(skill_group_dir, skill_name):
         return result
     whole_group = skill_name == "_batch" or ".skf-" in skill_name
     root_marker = _has_skf_metadata(skill_group_dir / "metadata.json")
+    try:
+        forge_evidence = also_forge and _has_forge_evidence(skill_group_dir, skill_name)
+    except OSError:  # a folder it cannot search; the loop below names it
+        forge_evidence = False
     marked_version = False
     foreign = []
     for child in children:
@@ -253,23 +512,39 @@ def classify_ownership(skill_group_dir, skill_name):
             if not _is_active_pointer(name):
                 foreign.append(name)
             continue
+        if child.is_dir():
+            error = _read_error(child, skill_name)
+            if error is not None:  # checked first: the checks below read inside it
+                result["errors"].append(f"Cannot read {child}: {error}")
+                foreign.append(name + "/")
+                continue
         if ".skf-" in name or (child.is_file() and RESULT_JSON_RE.match(name)):
             continue
         if root_marker and name in FLAT_PACKAGE_ENTRIES:
             continue  # checked first: references/{name}/ is not a version
         is_dir = child.is_dir()
-        if is_dir and (child / skill_name).is_dir():
-            if _is_marked_version(child, skill_name):
-                marked_version = True
-                foreign.extend(_version_foreign_entries(child, skill_name, result["errors"]))
-            else:
-                foreign.append(name + "/")
+        if also_forge and not is_dir and _is_forge_root_name(name, forge_evidence or root_marker):
             continue
+        if is_dir and _is_marked_version(child, skill_name):
+            marked_version = True
+            foreign.extend(_version_foreign_entries(child, skill_name, result["errors"], also_forge))
+            continue
+        if is_dir and also_forge:
+            verdict, inner = _forge_folder_entries(child, forge_evidence, skill_name)
+            if verdict != "foreign":
+                foreign.extend(inner)
+                continue
+        if is_dir and _holds_no_file(child):
+            continue  # an interrupted run's staging or empty package folders
         foreign.append(name + "/" if is_dir else name)
     result["flat_skf"] = root_marker and (skill_group_dir / "SKILL.md").is_file()
     result["skf_skill"] = marked_version or result["flat_skf"]
     result["foreign_entries"] = sorted(foreign)
-    if _has_skf_evidence(skill_group_dir, skill_name):
+    try:
+        evidence = _has_skf_evidence(skill_group_dir, skill_name)
+    except OSError:  # a folder it cannot search, named in `errors` above
+        evidence = marked_version or root_marker
+    if evidence or forge_evidence:
         result["ownership"] = "mixed" if foreign else "skf"
     return result
 
@@ -301,7 +576,7 @@ def resolve_active_version(skill_group_dir):
     return None, None
 
 
-def scan_skill_group(skill_group_dir, skill_name):
+def scan_skill_group(skill_group_dir, skill_name, also_forge=False):
     """Scan a single skill group directory and return its inventory entry."""
     entry = {
         "name": skill_name,
@@ -316,7 +591,7 @@ def scan_skill_group(skill_group_dir, skill_name):
         "errors": [],
     }
 
-    ownership = classify_ownership(skill_group_dir, skill_name)
+    ownership = classify_ownership(skill_group_dir, skill_name, also_forge)
     entry["errors"].extend(ownership.pop("errors"))
     entry.update(ownership)
 
@@ -327,7 +602,9 @@ def scan_skill_group(skill_group_dir, skill_name):
 
     # Check for version directories (contain a skill-name subdirectory). In a
     # flat SKF skill the package's own folders are never versions, even when
-    # one holds a same-named subfolder such as references/{name}/.
+    # one holds a same-named subfolder such as references/{name}/. Inside a
+    # folder SKF cannot search, the os.path checks return False on every
+    # Python version (classify_ownership names that folder in `errors`).
     package_dirs = FLAT_PACKAGE_ENTRIES if entry["flat_skf"] else frozenset()
     for child in children:
         if child.name in package_dirs:
@@ -335,9 +612,9 @@ def scan_skill_group(skill_group_dir, skill_name):
         if child.is_dir() and child.name != "active" and not child.name.startswith("."):
             # Check if this is a version dir (contains skill-name subdir or SKILL.md)
             skill_subdir = child / skill_name
-            if skill_subdir.is_dir():
+            if os.path.isdir(skill_subdir):
                 entry["versions"].append(child.name)
-            elif (child / "SKILL.md").exists():
+            elif os.path.exists(child / "SKILL.md"):
                 # Flat version dir without skill-name nesting
                 entry["versions"].append(child.name)
 
@@ -347,9 +624,9 @@ def scan_skill_group(skill_group_dir, skill_name):
         entry["active_version"] = active_ver
         # The active path points to the version dir; skill files are in version/skill-name/
         skill_pkg = active_path / skill_name
-        if skill_pkg.is_dir():
+        if os.path.isdir(skill_pkg):
             entry["active_path"] = str(skill_pkg)
-        elif (active_path / "SKILL.md").exists():
+        elif os.path.exists(active_path / "SKILL.md"):
             entry["active_path"] = str(active_path)
         else:
             entry["active_path"] = str(active_path)
@@ -363,10 +640,10 @@ def scan_skill_group(skill_group_dir, skill_name):
 
     # Load metadata from active path
     active_dir = Path(entry["active_path"]) if entry["active_path"] else None
-    if active_dir and active_dir.is_dir():
-        entry["has_skill_md"] = (active_dir / "SKILL.md").exists()
-        entry["has_provenance_map"] = (active_dir / "provenance-map.json").exists()
-        entry["has_context_snippet"] = (active_dir / "context-snippet.md").exists()
+    if active_dir and os.path.isdir(active_dir):
+        entry["has_skill_md"] = os.path.exists(active_dir / "SKILL.md")
+        entry["has_provenance_map"] = os.path.exists(active_dir / "provenance-map.json")
+        entry["has_context_snippet"] = os.path.exists(active_dir / "context-snippet.md")
 
         metadata_path = active_dir / "metadata.json"
         meta, meta_err = read_json_file(metadata_path)
@@ -388,6 +665,96 @@ def scan_skill_group(skill_group_dir, skill_name):
             }
 
     return entry
+
+
+def _marked_active_version(skill_group_dir, skill_name):
+    """The version folder `active` names when SKF generated it, else None.
+
+    `active` counts only as a link to a folder directly in the group (not a
+    `.skf-` name, not a link) whose package is marked, or as a real `active/`
+    folder holding a marked package, reported as "active".
+    """
+    active = skill_group_dir / "active"
+    if _is_link_or_junction(active):
+        try:
+            target = active.resolve(strict=True)
+            group = skill_group_dir.resolve(strict=True)
+        except (OSError, RuntimeError):
+            return None
+        version = skill_group_dir / target.name
+        if (target.parent != group or ".skf-" in target.name or not target.is_dir()
+                or not _is_marked_version(version, skill_name)):
+            return None
+        return target.name
+    if active.is_dir() and _is_marked_version(active, skill_name):
+        return "active"
+    return None
+
+
+def write_check(skills_folder, skill_name, version=None, forge_folder=None):
+    """Decide whether a writer may add `{name}/{version}/{name}/` and flip `active`.
+
+    Returns {name, version, verdict, reason, folder, detail, foreign_entries,
+    marked_active_version}. `verdict` is "ok", "not-skf-output" or
+    "flat-layout" (the halt reason a refusal uses); `reason` names the rule
+    that decided (None for "ok"). Nothing at the skill folder is a new skill.
+    A folder that holds only what an interrupted SKF run leaves is written
+    into; a mixed folder is written into when the target version is new or
+    SKF's own. `forge_folder` only decides whether both settings name one
+    folder, so SKF's forge files there count as SKF output.
+    """
+    skills_dir = Path(skills_folder)
+    forge_dir = Path(forge_folder) if forge_folder else None
+    group = skills_dir / skill_name
+    out = {"name": skill_name, "version": version, "verdict": "ok", "reason": None,
+           "folder": str(group), "detail": None, "foreign_entries": [],
+           "marked_active_version": None}
+
+    def refuse(verdict, reason, detail, folder=None):
+        out.update(verdict=verdict, reason=reason, detail=detail)
+        if folder is not None:
+            out["folder"] = str(folder)
+        return out
+
+    if skill_name == "_batch" or ".skf-" in skill_name or skill_name in FORGE_GROUP_DIRS:
+        reserved_at = (forge_dir / skill_name) if (forge_dir and skill_name in FORGE_GROUP_DIRS) else group
+        return refuse("not-skf-output", "reserved-name",
+                      "is a name SKF keeps for its own files, never a skill's", reserved_at)
+    if not os.path.lexists(group):
+        return out
+    if _is_link_or_junction(group):
+        return refuse("not-skf-output", "link", "is a link; SKF never writes through a link")
+    if not group.is_dir():
+        return refuse("not-skf-output", "not-a-folder", "is not a folder")
+    own = classify_ownership(group, skill_name, _same_folder(skills_dir, forge_dir))
+    out["foreign_entries"] = own["foreign_entries"]
+    if own["errors"]:
+        return refuse("not-skf-output", "unreadable", "; ".join(own["errors"]))
+    if own["flat_skf"] and not _marked_version_names(group, skill_name):
+        return refuse("flat-layout", "flat-layout", "still uses the flat layout")
+    if not own["skf_skill"] and own["foreign_entries"]:
+        return refuse("not-skf-output", "not-skf-output",
+                      "has no SKF marker in any `metadata.json` and holds entries SKF did not "
+                      "generate: " + ", ".join(own["foreign_entries"]))
+    if version is not None:
+        listed = [e for e in own["foreign_entries"]
+                  if e == version or e == version + "/" or e.startswith(version + "/")]
+        if listed:
+            return refuse("not-skf-output", "version",
+                          "is not a version SKF generated, or holds entries SKF did not "
+                          "generate: " + ", ".join(listed), group / version)
+    out["marked_active_version"] = _marked_active_version(group, skill_name)
+    return out
+
+
+def _marked_version_names(skill_group_dir, skill_name):
+    """The names of the marked version folders of a group (`.skf-` names aside)."""
+    try:
+        children = list(skill_group_dir.iterdir())
+    except OSError:
+        return []
+    return sorted(c.name for c in children
+                  if ".skf-" not in c.name and c.is_dir() and _is_marked_version(c, skill_name))
 
 
 def normalize_url(value):
@@ -501,9 +868,12 @@ def compute_matches(skills, target):
     return matches
 
 
-def scan_inventory(skills_folder, skill_filter=None, manifest_only=False, match_target=None):
+def scan_inventory(skills_folder, skill_filter=None, manifest_only=False, match_target=None,
+                   forge_data_folder=None):
     """Scan the skills output folder and produce an inventory."""
     skills_dir = Path(skills_folder)
+    forge_dir = Path(forge_data_folder) if forge_data_folder else None
+    same_folder = _same_folder(skills_dir, forge_dir)
 
     if not skills_dir.is_dir():
         return {
@@ -567,11 +937,17 @@ def scan_inventory(skills_folder, skill_filter=None, manifest_only=False, match_
     for name in sorted(skill_names):
         skill_group_dir = skills_dir / name
         if skill_group_dir.is_dir():
-            entry = scan_skill_group(skill_group_dir, name)
+            entry = scan_skill_group(skill_group_dir, name, same_folder)
             result["skills"].append(entry)
             if not entry["skf_skill"] and _looks_like_skill(skill_group_dir, name):
                 not_skf_output.append(name)
     result["not_skf_output"] = not_skf_output
+    # Forge folders (opt-in via --forge-data-folder; additive top-level keys).
+    if forge_dir is not None:
+        result["forge_data_folder"] = str(forge_dir)
+        result["same_folder"] = same_folder
+        result["forge_groups"] = [] if same_folder else [
+            classify_forge_group(forge_dir / name, name) for name in sorted(skill_names)]
 
     # Compute summary
     result["summary"]["total_skills"] = len(result["skills"])
@@ -586,35 +962,83 @@ def scan_inventory(skills_folder, skill_filter=None, manifest_only=False, match_
     return result
 
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print(
-            "Usage: uv run skf-skill-inventory.py <skills-output-folder> "
-            "[--skill <name>] [--manifest-only] [--match-target <url-or-name>]",
-            file=sys.stderr,
+USAGE = ("Usage: uv run skf-skill-inventory.py <skills-output-folder> "
+         "[--skill <name>] [--manifest-only] [--match-target <url-or-name>] "
+         "[--forge-data-folder <path>]\n"
+         "       uv run skf-skill-inventory.py <skills-output-folder> --skill <name> "
+         "--write-check [--write-version <version>] [--forge-data-folder <path>]")
+
+
+def _flag_value(argv, flag, required=False):
+    """The value after `flag`, or None when the flag is absent.
+
+    A flag without a value reads as absent, as it always has, unless
+    `required`: `--forge-data-folder`, `--write-version` and, in write-check
+    mode, `--skill` raise ValueError instead (a missing value, or the next
+    flag in its place), so a caller never gets a verdict it did not ask for.
+    """
+    if flag not in argv:
+        return None
+    idx = argv.index(flag)
+    if idx + 1 < len(argv) and not (required and argv[idx + 1].startswith("--")):
+        return argv[idx + 1]
+    if required:
+        raise ValueError(f"{flag} needs a value")
+    return None
+
+
+def _safe_segment(value):
+    """True for a single path segment: not empty, `.` or `..`, and no separator."""
+    return bool(value) and value not in (".", "..") and "/" not in value and "\\" not in value
+
+
+def main(argv):
+    if len(argv) < 1:
+        print(USAGE, file=sys.stderr)
+        return 1
+    folder = argv[0]
+    write = "--write-check" in argv
+    try:
+        skill = _flag_value(argv, "--skill", required=write)
+        match_target = _flag_value(argv, "--match-target")
+        forge_data_folder = _flag_value(argv, "--forge-data-folder", required=True)
+        write_version = _flag_value(argv, "--write-version", required=True)
+        if write and folder.startswith("--"):
+            raise ValueError("--write-check needs <skills-output-folder> first")
+        if write and not skill:
+            raise ValueError("--write-check needs --skill <name>")
+        if write_version is not None and not write:
+            raise ValueError("--write-version needs --write-check")
+        if write and not _safe_segment(skill):
+            raise ValueError(f"--skill must be one folder name: {skill!r}")
+        if write_version is not None and not _safe_segment(write_version):
+            raise ValueError(f"--write-version must be one folder name: {write_version!r}")
+    except ValueError as e:
+        print(json.dumps({"status": "error", "error": str(e), "code": "USAGE"}, indent=2))
+        print(USAGE, file=sys.stderr)
+        return 1
+    if write:
+        skills_dir = Path(folder)
+        if os.path.lexists(skills_dir) and not skills_dir.is_dir():
+            result = {"status": "error", "error": f"Skills directory not found: {skills_dir}",
+                      "code": "DIR_NOT_FOUND"}
+        else:
+            forge_dir = Path(forge_data_folder) if forge_data_folder else None
+            result = {"status": "ok", "skills_folder": str(skills_dir),
+                      "forge_data_folder": forge_data_folder,
+                      "same_folder": _same_folder(skills_dir, forge_dir),
+                      "write_check": write_check(skills_dir, skill, write_version, forge_data_folder)}
+    else:
+        result = scan_inventory(
+            folder,
+            skill_filter=skill,
+            manifest_only="--manifest-only" in argv,
+            match_target=match_target,
+            forge_data_folder=forge_data_folder,
         )
-        sys.exit(1)
-
-    folder = sys.argv[1]
-    skill = None
-    manifest_only = "--manifest-only" in sys.argv
-    match_target = None
-
-    if "--skill" in sys.argv:
-        idx = sys.argv.index("--skill")
-        if idx + 1 < len(sys.argv):
-            skill = sys.argv[idx + 1]
-
-    if "--match-target" in sys.argv:
-        idx = sys.argv.index("--match-target")
-        if idx + 1 < len(sys.argv):
-            match_target = sys.argv[idx + 1]
-
-    result = scan_inventory(
-        folder,
-        skill_filter=skill,
-        manifest_only=manifest_only,
-        match_target=match_target,
-    )
     print(json.dumps(result, indent=2))
-    sys.exit(0 if result["status"] == "ok" else 1)
+    return 0 if result["status"] == "ok" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

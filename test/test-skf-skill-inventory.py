@@ -277,6 +277,8 @@ SCRIPTS = Path(__file__).parent.parent / "src" / "shared" / "scripts"
 INVENTORY_PY = SCRIPTS / "skf-skill-inventory.py"
 CCC_PY = SCRIPTS / "skf-merge-ccc-exclusions.py"
 ATOMIC_PY = SCRIPTS / "skf-atomic-write.py"
+VALIDATOR_PY = (Path(__file__).parent.parent / "src" / "skf-rename-skill" / "scripts"
+                / "skf-validate-rename-name.py")
 
 # One metadata.json shape per SKF release that wrote the flat layout.
 MARKER_HISTORY = {
@@ -732,17 +734,22 @@ class TestSkfMarkerParity:
         ("RESULT_JSON_RE", CCC_PY),
         ("_is_link_or_junction", ATOMIC_PY),
         ("_is_link_or_junction", CCC_PY),
+        ("_has_forge_evidence", CCC_PY),
+        ("FORGE_GROUP_DIRS", CCC_PY),
+        ("FORGE_VERSION_ANCHORS", CCC_PY),
+        ("FORGE_GROUP_DIRS", VALIDATOR_PY),
+        ("_is_link_or_junction", VALIDATOR_PY),
     ])
     def test_copy_is_identical(self, name, source):
         assert _top_level_node(INVENTORY_PY, name) == _top_level_node(source, name), (
             f"{name} in skf-skill-inventory.py differs from {source.name}; keep the copies identical")
 
-    @pytest.mark.parametrize("path", [INVENTORY_PY, CCC_PY, ATOMIC_PY])
+    @pytest.mark.parametrize("path", [INVENTORY_PY, CCC_PY, ATOMIC_PY, VALIDATOR_PY])
     def test_copies_carry_keep_identical_notes(self, path):
         text = path.read_text(encoding="utf-8")
         assert "Keep identical to" in text and "test/test-skf-skill-inventory.py pins the copies" in text
 
-    @pytest.mark.parametrize("path", [INVENTORY_PY, ATOMIC_PY, CCC_PY])
+    @pytest.mark.parametrize("path", [INVENTORY_PY, ATOMIC_PY, CCC_PY, VALIDATOR_PY])
     def test_link_check_treats_other_reparse_points_as_not_links(self, tmp_path, monkeypatch, path):
         """On Windows, os.readlink raises ValueError for a reparse point that is
         neither a symlink nor a junction (cloud placeholder, dedup file)."""
@@ -864,3 +871,590 @@ def test_match_target_reports_skf_skill(tmp_path):
     by_name = {m["name"]: m for m in result["matches"]}
     assert by_name["bar"]["skf_skill"] is True
     assert by_name["legacy-bar"]["skf_skill"] is False
+
+
+# ---------------------------------------------------------------------------
+# Forge folders: {forge_data_folder}/{name} is SKF output only with evidence
+# ---------------------------------------------------------------------------
+
+# (ownership, foreign_entries) for each forge folder shape of _forge_fixture.
+FORGE_EXPECTED = {
+    "cognee": ("skf", []),
+    "notes": ("mixed", ["NOTES.md", "my-source-snapshots/"]),
+    "vnotes": ("mixed", ["1.0.0/NOTES.md"]),
+    "legacybrief": ("skf", []),
+    "legacy": ("foreign", ["provenance-map.json"]),
+    "other": ("foreign", ["config.toml", "data/"]),
+    "deep": ("foreign", ["a/"]),
+    "generic": ("foreign", ["test-report.md"]),
+    "genericev": ("foreign", ["evidence-report.md"]),
+    "tmpfile": ("foreign", ["cache/"]),
+    "tslock": ("foreign", ["1.0.0/"]),
+    "tsdone": ("skf", []),
+    "renamedrep": ("skf", []),
+    "resnotes": ("mixed", ["1.0.0/NOTES.md"]),
+    "stack-stack": ("skf", []),
+    "lockonly": ("empty", []),
+    "empty": ("empty", []),
+    "clutter": ("empty", []),
+    "improvement-queue": ("reserved", []),
+    "draft": ("skf", []),
+    "filegroup": ("foreign", []),
+    "absent": ("absent", []),
+    "staged": ("foreign", ["NOTES.md"]),
+}
+# The linked shapes, added where symlinks can be created. A linked group is
+# never SKF output, whatever its name or the files behind the link.
+FORGE_EXPECTED_LINKED = {
+    "lnk": ("foreign", []),
+    "linkver": ("mixed", ["0.9.0"]),
+    "_campaign": ("foreign", []),
+    "linkbrief": ("foreign", ["NOTES.md", "skill-brief.yaml"]),
+    "linkrules": ("mixed", ["1.0.0/extraction-rules.yaml"]),
+    "linkanchor": ("foreign", ["1.0.0/", "NOTES.md"]),
+    "nestedlink": ("mixed", ["1.0.0/"]),
+}
+FORGE_FILES = (
+    "cognee/skill-brief.yaml", "cognee/0.1.0/provenance-map.json", "cognee/0.1.0/evidence-report.md",
+    "notes/skill-brief.yaml", "notes/NOTES.md", "notes/my-source-snapshots/src.tar",
+    "vnotes/skill-brief.yaml", "vnotes/1.0.0/provenance-map.json", "vnotes/1.0.0/NOTES.md",
+    "legacybrief/skill-brief.yaml", "legacybrief/provenance-map.json",
+    "legacybrief/test-report-legacybrief-1.md",
+    "legacy/provenance-map.json",
+    "other/config.toml", "other/data/x.csv",
+    "deep/a/b/c/foo-result.json",
+    "generic/test-report.md",
+    "genericev/evidence-report.md",
+    "tmpfile/cache/build-tmp",
+    "tslock/1.0.0/.test-skill.lock",
+    "tsdone/1.0.0/.test-skill.lock", "tsdone/1.0.0/test-report-tsdone-r1.md",
+    "tsdone/1.0.0/skf-test-skill-result-latest.json",
+    "renamedrep/1.0.0/test-report-oldname-r1.md",
+    "renamedrep/1.0.0/skf-test-skill-result-latest.json",
+    "resnotes/1.0.0/skf-test-skill-result-latest.json", "resnotes/1.0.0/NOTES.md",
+    "stack-stack/create-stack-skill-result-latest.json", "stack-stack/1.0.0/lib-tmp/partial.md",
+    "lockonly/.skf-update.lock",
+    "clutter/.DS_Store",
+    "improvement-queue/q.json",
+    "draft/.brief-draft.json",
+    "filegroup",
+    "staged/1.0.0.skf-tmp/provenance-map.json", "staged/NOTES.md",
+)
+
+
+def _forge_fixture(tmp_path: Path) -> tuple[Path, Path, Path, dict]:
+    """A project whose forge folder holds every forge ownership shape.
+
+    Returns (root, skills, forge, expected verdicts by name).
+    """
+    root = tmp_path / "project"
+    skills = root / "skills"
+    forge = root / "forge-data"
+    skills.mkdir(parents=True)
+    for rel in FORGE_FILES:
+        _write(forge / rel)
+    (forge / "empty").mkdir()
+    expected = dict(FORGE_EXPECTED)
+    if _symlinks_supported(tmp_path):
+        ext = tmp_path / "elsewhere"
+        _write(ext / "lnk" / "skill-brief.yaml")
+        (forge / "lnk").symlink_to(ext / "lnk", target_is_directory=True)
+        _write(forge / "linkver" / "skill-brief.yaml")
+        _write(ext / "v" / "provenance-map.json")
+        (forge / "linkver" / "0.9.0").symlink_to(ext / "v", target_is_directory=True)
+        _write(ext / "campaign" / "state.yaml")
+        (forge / "_campaign").symlink_to(ext / "campaign", target_is_directory=True)
+        _write(ext / "brief.yaml")
+        _write(forge / "linkbrief" / "NOTES.md")
+        (forge / "linkbrief" / "skill-brief.yaml").symlink_to(ext / "brief.yaml")
+        _write(ext / "rules.yaml")
+        _write(forge / "linkrules" / "skill-brief.yaml")
+        _write(forge / "linkrules" / "1.0.0" / "provenance-map.json")
+        (forge / "linkrules" / "1.0.0" / "extraction-rules.yaml").symlink_to(ext / "rules.yaml")
+        _write(ext / "pm.json")
+        _write(forge / "linkanchor" / "NOTES.md")
+        (forge / "linkanchor" / "1.0.0").mkdir()
+        (forge / "linkanchor" / "1.0.0" / "provenance-map.json").symlink_to(ext / "pm.json")
+        (ext / "nothing").mkdir()
+        _write(forge / "nestedlink" / "skill-brief.yaml")
+        (forge / "nestedlink" / "1.0.0" / "sub").mkdir(parents=True)
+        (forge / "nestedlink" / "1.0.0" / "sub" / "ref").symlink_to(ext / "nothing",
+                                                                   target_is_directory=True)
+        expected.update(FORGE_EXPECTED_LINKED)
+    return root, skills, forge, expected
+
+
+def _same_folder_skill(out: Path, name: str = "cognee") -> Path:
+    """A marked skill in a folder both settings name, with its forge files beside it."""
+    _make_version(out, name, "0.1.0", MARKED)
+    _link_active(out / name / "active", "0.1.0")
+    for rel in ("skill-brief.yaml", "0.1.0/provenance-map.json", "0.1.0/evidence-report.md"):
+        _write(out / name / rel)
+    return out / name
+
+
+class TestForgeOwnership:
+    """classify_forge_group, forge_groups[] and same_folder."""
+
+    def test_forge_verdicts(self, tmp_path):
+        _root, _skills, forge, expected = _forge_fixture(tmp_path)
+        for name, verdict in expected.items():
+            group = mod.classify_forge_group(forge / name, name)
+            assert (group["ownership"], group["foreign_entries"]) == verdict, name
+            assert (group["name"], group["path"]) == (name, str(forge / name))
+        assert mod.classify_forge_group(forge / "improvement-queue", "improvement-queue")["errors"] == []
+        assert mod.classify_forge_group(forge / "cognee", "cognee")["errors"] == []
+        assert mod.classify_forge_group(forge / "filegroup", "filegroup")["errors"]
+        for linked in ("lnk", "_campaign"):
+            if linked in expected:
+                [error] = mod.classify_forge_group(forge / linked, linked)["errors"]
+                assert "link" in error, linked
+
+    @pytest.mark.skipif(os.name == "nt" or getattr(os, "geteuid", lambda: 1)() == 0,
+                        reason="needs POSIX permissions and a non-root user")
+    def test_unreadable_forge_folder_names_the_error(self, tmp_path):
+        """A forge folder SKF cannot list is not SKF output, and `errors` says why."""
+        forge = tmp_path / "forge-data"
+        _write(forge / "locked" / "skill-brief.yaml")
+        (forge / "locked").chmod(0)
+        try:
+            group = mod.classify_forge_group(forge / "locked", "locked")
+        finally:
+            (forge / "locked").chmod(0o755)
+        assert (group["ownership"], group["foreign_entries"]) == ("foreign", [])
+        [error] = group["errors"]
+        assert "Cannot list" in error
+
+    def test_scan_reports_forge_groups(self, tmp_path):
+        _root, skills, forge, _expected = _forge_fixture(tmp_path)
+        make_skill(skills, "cognee", "0.1.0")
+        make_skill(skills, "notes", "1.0.0")
+        _write(skills / ".export-manifest.json", {"exports": {"cognee": {}, "legacy": {}}})
+        result = scan_inventory(str(skills), forge_data_folder=str(forge))
+        assert result["status"] == "ok"
+        assert (result["same_folder"], result["forge_data_folder"]) == (False, str(forge))
+        by_name = {g["name"]: g["ownership"] for g in result["forge_groups"]}
+        # The manifest keys and the skill folders, a manifest-only key included.
+        assert by_name == {"cognee": "skf", "notes": "mixed", "legacy": "foreign"}
+        missing = scan_inventory(str(skills), forge_data_folder=str(tmp_path / "no-forge"))
+        assert {g["name"]: g["ownership"] for g in missing["forge_groups"]} == {
+            "cognee": "absent", "notes": "absent", "legacy": "absent"}
+        one = scan_inventory(str(skills), skill_filter="notes", forge_data_folder=str(forge))
+        assert [g["name"] for g in one["forge_groups"]] == ["notes"]
+        plain = scan_inventory(str(skills))
+        assert "forge_groups" not in plain and "same_folder" not in plain
+
+    def test_same_folder_uses_the_union_rule(self, tmp_path):
+        out = tmp_path / "out"
+        group = _same_folder_skill(out)
+
+        def verdict(forge_folder=out):
+            result = scan_inventory(str(out), forge_data_folder=str(forge_folder))
+            assert (result["same_folder"], result["forge_groups"]) == (True, [])
+            [entry] = result["skills"]
+            return entry["ownership"], entry["foreign_entries"]
+
+        assert verdict() == ("skf", [])
+        assert verdict(tmp_path / "sub" / ".." / "out") == ("skf", [])
+        _write(group / "0.1.0" / "NOTES.md")
+        assert verdict() == ("mixed", ["0.1.0/NOTES.md"])
+        (group / "0.1.0" / "NOTES.md").unlink()
+        _write(group / "0.2.0" / "test-report-cognee-r.md")
+        assert verdict() == ("skf", [])
+        if _symlinks_supported(tmp_path):
+            # A linked forge file is never SKF output, even in a marked version folder.
+            _write(tmp_path / "pm.json")
+            linked = group / "0.1.0" / "provenance-map.json"
+            linked.unlink()
+            linked.symlink_to(tmp_path / "pm.json")
+            assert verdict() == ("mixed", ["0.1.0/provenance-map.json"])
+            linked.unlink()
+            _write(linked)
+        # Read as a skills folder alone, the forge files are not SKF output.
+        alone = _entry(out, "cognee")
+        assert alone["ownership"] == "mixed" and "skill-brief.yaml" in alone["foreign_entries"]
+
+    def test_inventory_never_owns_a_forge_folder_ccc_calls_foreign(self, tmp_path):
+        ccc = _load(CCC_PY, "skf_ccc_for_forge_owned")
+        root, _skills, forge, expected = _forge_fixture(tmp_path)
+        scan = ccc.classify_folder(root, "forge-data", "forge", _listing(forge))
+        owned = [name for name in expected if mod.classify_forge_group(forge / name, name)[
+            "ownership"] in ("skf", "mixed", "reserved")]
+        assert "cognee" in owned and "improvement-queue" in owned
+        for name in owned:
+            assert name in scan.owned_groups, f"inventory owns forge folder {name} but ccc calls it foreign"
+
+    def test_ccc_never_excludes_a_forge_folder_the_inventory_calls_foreign(self, tmp_path):
+        ccc = _load(CCC_PY, "skf_ccc_for_forge_foreign")
+        root, _skills, forge, expected = _forge_fixture(tmp_path)
+        scan = ccc.classify_folder(root, "forge-data", "forge", _listing(forge))
+        verdicts = {name: mod.classify_forge_group(forge / name, name)["ownership"] for name in expected}
+        for name, verdict in verdicts.items():
+            if verdict in ("foreign", "empty", "absent"):
+                assert name not in scan.owned_groups, (
+                    f"ccc excludes forge folder {name} but the inventory calls it {verdict}")
+        assert "deep" not in scan.owned_groups
+        assert sorted(scan.owned_groups) == sorted(
+            name for name, verdict in verdicts.items() if verdict in ("skf", "mixed", "reserved"))
+
+    def test_same_folder_parity_with_ccc(self, tmp_path):
+        ccc = _load(CCC_PY, "skf_ccc_for_same_folder")
+        out = tmp_path / "out"
+        _same_folder_skill(out)
+        _write(out / "briefonly" / "skill-brief.yaml")
+        _write(out / "briefnotes" / "skill-brief.yaml")
+        _write(out / "briefnotes" / "NOTES.md")
+        _make_flat(out, "module", subdirs=("references",))
+        _write(out / "deep" / "a" / "b" / "x-result-latest.json")
+        scan = ccc.classify_folder(tmp_path, "out", ("skills", "forge"), _listing(out))
+        result = scan_inventory(str(out), forge_data_folder=str(out))
+        verdicts = {e["name"]: e["ownership"] for e in result["skills"]}
+        assert verdicts == {"cognee": "skf", "briefonly": "skf", "briefnotes": "mixed",
+                            "module": "foreign", "deep": "foreign"}
+        for name, verdict in verdicts.items():
+            assert (name in scan.owned_groups) is (verdict in ("skf", "mixed")), name
+
+
+class TestStagingFolders:
+    """What an interrupted SKF run leaves before metadata.json is never foreign."""
+
+    def test_folder_holding_no_file_is_not_foreign(self, skills):
+        _write(skills / "x" / "1.0.0" / "x.skf-tmp" / "SKILL.md")
+        (skills / "y" / "1.0.0" / "y" / "references").mkdir(parents=True)
+        _make_version(skills, "z", "1.0.0")
+        _make_version(skills, "m", "1.0.0", MARKED)
+        (skills / "m" / "2.0.0" / "m.skf-tmp").mkdir(parents=True)
+        assert _entry(skills, "x")["foreign_entries"] == []
+        assert _entry(skills, "y")["foreign_entries"] == []
+        assert _entry(skills, "z")["foreign_entries"] == ["1.0.0/"]
+        m = _entry(skills, "m")
+        assert (m["ownership"], m["foreign_entries"]) == ("skf", [])
+        if _symlinks_supported(skills.parent):
+            (skills.parent / "nothing").mkdir()
+            (skills / "w" / "1.0.0" / "w").mkdir(parents=True)
+            (skills / "w" / "1.0.0" / "w" / "ref").symlink_to(skills.parent / "nothing",
+                                                              target_is_directory=True)
+            # A link is content, even to an empty folder.
+            assert _entry(skills, "w")["foreign_entries"] == ["1.0.0/"]
+
+    def test_create_skill_staging_folder_is_never_a_skill(self, tmp_path):
+        """create-skill stages into `_bmad-output/.skf-stage/{name}/`. When a folder setting
+        names `_bmad-output`, that staging folder is never a skill folder or a forge folder."""
+        out = tmp_path / "_bmad-output"
+        _write(out / ".skf-stage" / "mylib" / "SKILL.md", "---\nname: mylib\n---\n")
+        _write(out / ".skf-stage" / "mylib" / "metadata.json", {"generated_by": "create-skill"})
+        for forge in (None, out, tmp_path / "forge-data"):
+            result = scan_inventory(str(out), forge_data_folder=str(forge) if forge else None)
+            assert result["status"] == "ok"
+            assert (result["skills"], result["not_skf_output"]) == ([], []), forge
+            assert result.get("forge_groups", []) == [], forge
+            check = mod.write_check(out, "mylib", "0.1.0", forge)
+            assert (check["verdict"], check["reason"]) == ("ok", None), check
+        skills = tmp_path / "skills"
+        _make_version(skills, "mylib", "0.1.0", MARKED)
+        result = scan_inventory(str(skills), forge_data_folder=str(out))
+        assert [(g["name"], g["ownership"]) for g in result["forge_groups"]] == [("mylib", "absent")]
+        # Staged at `_bmad-output/{name}/`, the files would be the skill folder itself.
+        _write(out / "mylib" / "SKILL.md", "---\nname: mylib\n---\n")
+        _write(out / "mylib" / "metadata.json", {"generated_by": "create-skill"})
+        assert mod.write_check(out, "mylib", "0.1.0", None)["verdict"] == "flat-layout"
+
+
+# (name, version, verdict, reason) for the shapes of _write_check_fixture.
+WRITE_CHECK_CASES = [
+    ("absent", "1.0.0", "ok", None),
+    ("module", "1.0.0", "not-skf-output", "not-skf-output"),
+    ("moved", "1.0.0", "not-skf-output", "not-skf-output"),
+    ("empty", "1.0.0", "ok", None),
+    ("clutter", "1.0.0", "ok", None),
+    ("dangling", "1.0.0", "ok", None),
+    ("staging", "1.0.0", "ok", None),
+    ("crash", "1.0.0", "ok", None),
+    ("mixedclean", "2.0.0", "ok", None),
+    ("mixedclean", "0.9.0", "not-skf-output", "version"),
+    ("rc", "1.0.0", "ok", None),
+    ("rc", "1.0.0-rc.1", "not-skf-output", "version"),
+    ("flat", "1.0.0", "flat-layout", "flat-layout"),
+    ("flatv", "2.0.0", "ok", None),
+    ("lk", "1.0.0", "not-skf-output", "link"),
+    ("file", "1.0.0", "not-skf-output", "not-a-folder"),
+    ("danglinggroup", "1.0.0", "not-skf-output", "link"),
+    ("improvement-queue", "1.0.0", "not-skf-output", "reserved-name"),
+    ("vnotes", "1.0.0", "not-skf-output", "version"),
+    ("linkedver", "2.0.0", "not-skf-output", "version"),
+]
+LINKED_WRITE_CHECK_SHAPES = frozenset({"dangling", "lk", "danglinggroup", "linkedver"})
+
+
+def _write_check_fixture(tmp_path: Path, links: bool) -> Path:
+    """A skills folder holding one shape per write-check rule."""
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    _make_flat(skills, "module", extra=("references/guide.md",))
+    _make_version(skills, "moved", "1.0.0")
+    _link_active(skills / "moved" / "active", "1.0.0")
+    (skills / "empty").mkdir()
+    _write(skills / "clutter" / ".DS_Store")
+    _write(skills / "staging" / "1.0.0" / "staging.skf-tmp" / "SKILL.md")
+    (skills / "crash" / "1.0.0" / "crash" / "references").mkdir(parents=True)
+    _make_version(skills, "mixedclean", "1.0.0", MARKED)
+    _write(skills / "mixedclean" / "README.md")
+    _make_version(skills, "mixedclean", "0.9.0")
+    _make_version(skills, "rc", "1.0.0", MARKED)
+    _make_version(skills, "rc", "1.0.0-rc.1")
+    _make_flat(skills, "flat", MARKED)
+    _make_flat(skills, "flatv", MARKED)
+    _make_version(skills, "flatv", "1.0.0", MARKED)
+    _link_active(skills / "flatv" / "active", "1.0.0")
+    _write(skills / "file")
+    _make_version(skills, "improvement-queue", "1.0.0", MARKED)
+    _make_version(skills, "vnotes", "1.0.0", MARKED)
+    _write(skills / "vnotes" / "1.0.0" / "NOTES.md")
+    if links:
+        ext = tmp_path / "ext"
+        (skills / "dangling").mkdir()
+        (skills / "dangling" / "active").symlink_to("9.9.9", target_is_directory=True)
+        _make_flat(ext, "lk", MARKED)
+        (skills / "lk").symlink_to(ext / "lk", target_is_directory=True)
+        (skills / "danglinggroup").symlink_to(tmp_path / "nowhere", target_is_directory=True)
+        _make_version(skills, "linkedver", "1.0.0", MARKED)
+        _make_version(ext, "linkedver", "2.0.0", MARKED)
+        (skills / "linkedver" / "2.0.0").symlink_to(ext / "linkedver" / "2.0.0",
+                                                    target_is_directory=True)
+    return skills
+
+
+class TestWriteCheck:
+    """write_check: may a writer add {name}/{version}/{name}/ and flip active?"""
+
+    @pytest.mark.parametrize("name, version, verdict, reason", WRITE_CHECK_CASES)
+    def test_write_check(self, tmp_path, name, version, verdict, reason):
+        links = _symlinks_supported(tmp_path)
+        if name in LINKED_WRITE_CHECK_SHAPES and not links:
+            pytest.skip("symlinks are not available")
+        skills = _write_check_fixture(tmp_path, links)
+        out = mod.write_check(skills, name, version, tmp_path / "forge-data")
+        assert (out["verdict"], out["reason"]) == (verdict, reason), out
+        assert (out["name"], out["version"]) == (name, version)
+        if verdict == "ok":
+            assert (out["folder"], out["detail"]) == (str(skills / name), None)
+        else:
+            assert out["detail"]
+        if reason == "version":
+            assert out["folder"] == str(skills / name / version)
+            assert version in out["detail"]
+        if reason == "reserved-name":
+            assert out["folder"] == str(tmp_path / "forge-data" / name)
+        assert out["marked_active_version"] == ("1.0.0" if name == "flatv" else None)
+
+    @pytest.mark.parametrize("name", ["_batch", "cognee.skf-tmp", "_campaign", "improvement-queue"])
+    def test_reserved_names_are_refused(self, tmp_path, name):
+        out = mod.write_check(tmp_path / "skills", name, "1.0.0", tmp_path / "forge-data")
+        assert (out["verdict"], out["reason"]) == ("not-skf-output", "reserved-name")
+        side = "forge-data" if name in ("_campaign", "improvement-queue") else "skills"
+        assert out["folder"] == str(tmp_path / side / name)
+
+    def test_marked_active_version(self, skills):
+        for name, active in (("st", "1.0.0"), ("su", "2.0.0")):
+            _make_version(skills, name, "1.0.0", MARKED)
+            _make_version(skills, name, "2.0.0")
+            _link_active(skills / name / "active", active)
+        _make_version(skills, "real", "active", MARKED)
+        st = mod.write_check(skills, "st", None, None)
+        assert (st["verdict"], st["marked_active_version"]) == ("ok", "1.0.0")
+        assert mod.write_check(skills, "su", None, None)["marked_active_version"] is None
+        assert mod.write_check(skills, "real", None, None)["marked_active_version"] == "active"
+
+    def test_same_folder_write_check(self, tmp_path):
+        out = tmp_path / "out"
+        _write(out / "cg" / "skill-brief.yaml")
+        _write(out / "cg" / "0.1.0" / "provenance-map.json")
+        same = mod.write_check(out, "cg", "0.1.0", out)
+        assert (same["verdict"], same["foreign_entries"]) == ("ok", []), same
+        other = mod.write_check(out, "cg", "0.1.0", tmp_path / "forge")
+        assert (other["verdict"], other["reason"]) == ("not-skf-output", "not-skf-output")
+        assert other["foreign_entries"] == ["0.1.0/", "skill-brief.yaml"]
+
+    def test_missing_skills_folder_is_a_new_skill(self, tmp_path):
+        out = mod.write_check(tmp_path / "nope", "x", "1.0.0", None)
+        assert (out["verdict"], out["reason"], out["folder"]) == (
+            "ok", None, str(tmp_path / "nope" / "x"))
+
+    @pytest.mark.skipif(os.name == "nt" or getattr(os, "geteuid", lambda: 1)() == 0,
+                        reason="needs POSIX permissions and a non-root user")
+    def test_unreadable_skill_folder_is_refused(self, skills):
+        """A skill folder, or a marked version folder, SKF cannot list is never written into."""
+        _make_version(skills, "grp", "1.0.0", MARKED)
+        _make_version(skills, "ver", "1.0.0", MARKED)
+        locked = [(skills / "grp", 0), (skills / "ver" / "1.0.0", 0o100)]  # 0o100: traversable only
+        for path, mode in locked:
+            path.chmod(mode)
+        try:
+            for name, (path, _mode) in zip(("grp", "ver"), locked):
+                out = mod.write_check(skills, name, "2.0.0", None)
+                assert (out["verdict"], out["reason"]) == ("not-skf-output", "unreadable"), out
+                assert str(path) in out["detail"], out
+        finally:
+            for path, _mode in locked:
+                path.chmod(0o755)
+
+    @pytest.mark.skipif(os.name == "nt" or getattr(os, "geteuid", lambda: 1)() == 0,
+                        reason="needs POSIX permissions and a non-root user")
+    @pytest.mark.parametrize("locked, mode, active", [
+        ("0junk", 0, "0.1.0"),  # listed before the marked version
+        ("zjunk", 0, "0.1.0"),  # listed after it
+        ("0.2.0", 0, "0.2.0"),  # a marked version, the one `active` names
+        ("0.2.0", 0o644, "0.1.0"),  # listable but not searchable
+    ])
+    def test_unreadable_folder_in_the_skill_folder_is_refused(self, skills, locked, mode, active):
+        """A folder SKF cannot list or search is refused on every Python version.
+
+        pathlib raises inside such a folder before Python 3.14 and returns False
+        from 3.14 on: neither may crash the helper or let a writer in.
+        """
+        _make_version(skills, "a", "0.1.0", MARKED)
+        if locked == "0.2.0":
+            _make_version(skills, "a", locked, MARKED)
+        else:
+            _write(skills / "a" / locked / "notes.md")
+        _link_active(skills / "a" / "active", active)
+        path = skills / "a" / locked
+        path.chmod(mode)
+        try:
+            out = mod.write_check(skills, "a", "0.3.0", None)
+            code, cli, _err = _run_inventory(str(skills), "--skill", "a", "--write-check",
+                                             "--write-version", "0.3.0")
+            scan = scan_inventory(str(skills))
+        finally:
+            path.chmod(0o755)
+        assert (out["verdict"], out["reason"]) == ("not-skf-output", "unreadable"), out
+        assert str(path) in out["detail"], out
+        assert out["foreign_entries"] == [locked + "/"]
+        assert (code, cli["write_check"]["reason"]) == (0, "unreadable")
+        assert scan["status"] == "ok"
+        [entry] = scan["skills"]
+        assert (entry["ownership"], entry["foreign_entries"]) == ("mixed", [locked + "/"])
+        assert any(str(path) in error for error in entry["errors"]), entry["errors"]
+
+    @pytest.mark.skipif(os.name == "nt" or getattr(os, "geteuid", lambda: 1)() == 0,
+                        reason="needs POSIX permissions and a non-root user")
+    def test_unreadable_folder_in_a_same_folder_skill_is_refused(self, tmp_path):
+        """Where both settings name one folder, forge files SKF cannot reach are refused too."""
+        out = tmp_path / "out"
+        _make_version(out, "a", "0.1.0", MARKED)
+        _write(out / "a" / "0.2.0" / "provenance-map.json")
+        locked = out / "a" / "0.2.0"
+        locked.chmod(0o644)  # listable but not searchable
+        try:
+            check = mod.write_check(out, "a", "0.3.0", out)
+            [entry] = scan_inventory(str(out), forge_data_folder=str(out))["skills"]
+        finally:
+            locked.chmod(0o755)
+        assert (check["verdict"], check["reason"]) == ("not-skf-output", "unreadable"), check
+        assert str(locked) in check["detail"], check
+        assert (entry["ownership"], entry["foreign_entries"]) == ("mixed", ["0.2.0/"])
+        assert any(str(locked) in error for error in entry["errors"]), entry["errors"]
+
+    @pytest.mark.skipif(os.name == "nt" or getattr(os, "geteuid", lambda: 1)() == 0,
+                        reason="needs POSIX permissions and a non-root user")
+    def test_folder_it_cannot_search_deeper_down_is_content(self, skills):
+        """Deeper in a folder SKF did not write, a folder it cannot search is content."""
+        _make_version(skills, "a", "0.1.0", MARKED)
+        _write(skills / "a" / "junk" / "sub" / "notes.md")
+        sub = skills / "a" / "junk" / "sub"
+        sub.chmod(0o644)
+        try:
+            out = mod.write_check(skills, "a", "0.3.0", None)
+            entry = _entry(skills, "a")
+        finally:
+            sub.chmod(0o755)
+        assert (out["verdict"], out["foreign_entries"]) == ("ok", ["junk/"]), out
+        assert (entry["ownership"], entry["foreign_entries"], entry["errors"]) == (
+            "mixed", ["junk/"], [])
+
+    def test_marked_active_version_stays_in_the_group(self, skills):
+        """`active` names a version only as a link to a marked folder of its own group."""
+        _make_version(skills, "out", "1.0.0", MARKED)
+        _make_version(skills, "other", "1.0.0", MARKED)
+        _link_active(skills / "out" / "active", "../other/1.0.0")
+        assert mod.write_check(skills, "out", None, None)["marked_active_version"] is None
+        _make_version(skills, "stg", "1.0.0", MARKED)
+        _make_version(skills, "stg", "2.0.0.skf-tmp", MARKED)
+        _link_active(skills / "stg" / "active", "2.0.0.skf-tmp")
+        stg = mod.write_check(skills, "stg", None, None)
+        assert (stg["verdict"], stg["marked_active_version"]) == ("ok", None)
+
+    def test_same_folder_through_an_alias(self, tmp_path):
+        """A forge setting that reaches the skills folder through a link names the same folder."""
+        if not _symlinks_supported(tmp_path):
+            pytest.skip("symlinks are not available")
+        out = tmp_path / "out"
+        _write(out / "cg" / "skill-brief.yaml")
+        _write(out / "cg" / "0.1.0" / "provenance-map.json")
+        alias = tmp_path / "alias"
+        alias.symlink_to(out, target_is_directory=True)
+        check = mod.write_check(out, "cg", "0.1.0", alias)
+        assert (check["verdict"], check["foreign_entries"]) == ("ok", []), check
+        result = scan_inventory(str(out), forge_data_folder=str(alias))
+        assert (result["same_folder"], result["forge_groups"]) == (True, [])
+
+    def test_same_folder_package_named_like_staging(self, tmp_path):
+        """A skill named `*-tmp` keeps its own package: unmarked, it is not SKF output."""
+        out = tmp_path / "out"
+        _write(out / "data-tmp" / "skill-brief.yaml")
+        _make_version(out, "data-tmp", "1.0.0")
+        _write(out / "data-tmp" / "1.0.0" / "data-tmp" / "references" / "guide.md")
+        [entry] = scan_inventory(str(out), forge_data_folder=str(out))["skills"]
+        assert (entry["ownership"], entry["foreign_entries"]) == ("mixed", ["1.0.0/"])
+        check = mod.write_check(out, "data-tmp", "1.0.0", out)
+        assert (check["verdict"], check["reason"]) == ("not-skf-output", "not-skf-output"), check
+        # Marked, it is SKF's own, and a stack's `*-tmp` staging folder beside it still is.
+        _write(out / "data-tmp" / "1.0.0" / "data-tmp" / "metadata.json", MARKED)
+        _write(out / "data-tmp" / "1.0.0" / "lib-tmp" / "partial.md")
+        [entry] = scan_inventory(str(out), forge_data_folder=str(out))["skills"]
+        assert (entry["ownership"], entry["foreign_entries"]) == ("skf", [])
+        assert mod.write_check(out, "data-tmp", "1.0.0", out)["verdict"] == "ok"
+
+
+def _run_inventory(*args: str) -> tuple[int, dict | None, str]:
+    proc = subprocess.run([sys.executable, str(INVENTORY_PY), *args], capture_output=True, timeout=60)
+    stdout = proc.stdout.decode("utf-8")
+    return (proc.returncode, json.loads(stdout) if stdout.strip() else None,
+            proc.stderr.decode("utf-8", errors="replace"))
+
+
+def test_cli_write_check_and_forge_flags(tmp_path):
+    skills = tmp_path / "skills"
+    _make_flat(skills, "module", extra=("references/guide.md",))
+    code, out, _ = _run_inventory(str(skills), "--skill", "module", "--write-check",
+                                  "--write-version", "1.0.0")
+    assert (code, out["status"]) == (0, "ok")
+    assert (out["same_folder"], out["forge_data_folder"]) == (False, None)
+    assert (out["write_check"]["verdict"], out["write_check"]["version"]) == ("not-skf-output", "1.0.0")
+    code, out, _ = _run_inventory(str(tmp_path / "missing"), "--skill", "a", "--write-check")
+    assert (code, out["write_check"]["verdict"]) == (0, "ok")
+    code, out, _ = _run_inventory(str(skills), "--skill", "module", "--write-check",
+                                  "--forge-data-folder", str(skills))
+    assert (code, out["same_folder"]) == (0, True)
+    for argv in (
+        [str(skills), "--write-check"],
+        [str(skills), "--skill", "a", "--write-version", "1"],
+        [str(skills), "--skill", "a/b", "--write-check"],
+        [str(skills), "--skill", "a\\b", "--write-check"],
+        [str(skills), "--skill", "..", "--write-check"],
+        [str(skills), "--skill", "a", "--write-check", "--write-version", "."],
+        [str(skills), "--skill", "a", "--write-check", "--write-version"],
+        [str(skills), "--skill", "--write-check"],
+        ["--skill", "a", "--write-check"],
+        [str(skills), "--forge-data-folder"],
+        [str(skills), "--forge-data-folder", "--manifest-only"],
+    ):
+        code, out, err = _run_inventory(*argv)
+        assert (code, out["status"], out["code"]) == (1, "error", "USAGE"), argv
+        assert "Usage:" in err, argv
+    code, out, _ = _run_inventory(str(skills), "--forge-data-folder", str(tmp_path / "no-forge"))
+    assert code == 0
+    assert [(g["name"], g["ownership"]) for g in out["forge_groups"]] == [("module", "absent")]
+    _write(tmp_path / "afile")
+    code, out, _ = _run_inventory(str(tmp_path / "afile"), "--skill", "a", "--write-check")
+    assert (code, out["code"]) == (1, "DIR_NOT_FOUND")

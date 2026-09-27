@@ -140,8 +140,8 @@ untracked files no `.gitignore` excludes, the only ignore files ccc reads
 (`.git/info/exclude` and a global excludes file hide nothing from ccc, so
 they hide nothing here either). A tracked file deleted from the worktree
 is dropped. The paths are grouped by first-level entry. A group is SKF
-output by the same rule the workflows use before they move or delete a
-skill (skf-skill-inventory.py):
+output by the same rule the workflows use before they write into, move or
+delete a skill's folders (skf-skill-inventory.py):
 
   skills  it is `_batch` or its name contains `.skf-`, or its
           `metadata.json` or a `<v>/<n>/metadata.json` carries an SKF
@@ -151,10 +151,12 @@ skill (skf-skill-inventory.py):
           `*-result*.json` alone do not count, so a module's skills that an
           earlier SKF moved into the versioned layout stay indexed
   forge   its name contains `.skf-`, it is `_campaign` or
-          `improvement-queue`, holds a
-          `skill-brief.yaml*` or `.brief-draft.json`, any `*-result*.json`,
-          or a versioned provenance map, evidence report or extraction
-          rules file
+          `improvement-queue`, or it holds a `skill-brief.yaml*`,
+          `.brief-draft.json` or `*-result*.json` file directly, or a
+          provenance map, evidence report, extraction rules or
+          `*-result*.json` file directly in a folder of it; a linked group,
+          folder or file never counts. Like the skills rule it reads the
+          group on disk, so a file `.gitignore` hides still counts
 
 Root files named `*-result*.json`, `.export-manifest.json` (skills) or
 with an SKF report prefix (forge) are SKF output. Neutral entries never
@@ -354,7 +356,11 @@ FORGE_ROOT_PREFIXES = (
     "refine-architecture-result-",
     "refined-architecture-",
 )
+# Keep identical to FORGE_GROUP_DIRS in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
 FORGE_GROUP_DIRS = frozenset({"_campaign", "improvement-queue"})
+# Keep identical to FORGE_VERSION_ANCHORS in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
 FORGE_VERSION_ANCHORS = frozenset({"provenance-map.json", "evidence-report.md", "extraction-rules.yaml"})
 FOLDER_KEYS = (("skills_output_folder", "skills"), ("forge_data_folder", "forge"))
 # Glob characters written as one-character classes in per-entry patterns,
@@ -774,22 +780,56 @@ def _has_skf_evidence(group_dir: Path, name: str) -> bool:
                for child in children)
 
 
-def _skf_group(base: Path, kind: str, group: str, members: list[tuple[str, ...]]) -> bool:
+# Keep identical to _has_forge_evidence in skf-skill-inventory.py
+# (test/test-skf-skill-inventory.py pins the copies).
+def _has_forge_evidence(group_dir: Path, name: str) -> bool:
+    """True when forge group `group_dir` holds evidence that SKF generated it.
+
+    Evidence is `.skf-` in the name, SKF's own `_campaign` or
+    `improvement-queue` folder, a skill brief (`skill-brief.yaml*` or
+    `.brief-draft.json`) or a `*-result*.json` file directly in the group, or
+    a provenance map, evidence report, extraction rules or `*-result*.json`
+    file directly in a folder of the group (`.skf-` staging folders aside).
+    A linked group, folder or file is never evidence.
+    """
+    if _is_link_or_junction(group_dir):
+        return False
+    if ".skf-" in name or name in FORGE_GROUP_DIRS:
+        return True
+    try:
+        children = list(group_dir.iterdir())
+    except OSError:
+        return False
+    for child in children:
+        entry = child.name
+        if _is_link_or_junction(child):
+            continue
+        if child.is_file():
+            if (entry.startswith("skill-brief.yaml") or entry == ".brief-draft.json"
+                    or RESULT_JSON_RE.match(entry)):
+                return True
+        elif child.is_dir() and ".skf-" not in entry:
+            try:
+                inner = list(child.iterdir())
+            except OSError:
+                continue
+            if any((f.name in FORGE_VERSION_ANCHORS or RESULT_JSON_RE.match(f.name))
+                   and not _is_link_or_junction(f) and f.is_file() for f in inner):
+                return True
+    return False
+
+
+def _skf_group(base: Path, kind: str, group: str) -> bool:
     """True when first-level entry `group` under the folder is SKF output of `kind`.
 
-    A skills group follows the inventory's ownership rule (skf-skill-inventory.py),
-    so ccc excludes exactly the groups the workflows treat as SKF output.
+    Both kinds follow the rule the workflows use before they write into,
+    move or delete a skill's folders (skf-skill-inventory.py), read from the
+    group on disk, so ccc excludes exactly the groups the workflows treat as
+    SKF output.
     """
     if kind == "skills":
         return _has_skf_evidence(base / group, group)
-    return (
-        ".skf-" in group
-        or group in FORGE_GROUP_DIRS
-        or any(len(m) == 2 and (m[1].startswith("skill-brief.yaml") or m[1] == ".brief-draft.json")
-               for m in members)
-        or any(RESULT_JSON_RE.match(m[-1]) for m in members)
-        or any(len(m) >= 3 and m[-1] in FORGE_VERSION_ANCHORS for m in members)
-    )
+    return _has_forge_evidence(base / group, group)
 
 
 def _skf_root_file(kind: str, name: str) -> bool:
@@ -856,10 +896,10 @@ def classify_folder(root: Path, folder: str, kind, paths, other_folders=(),
     foreign_groups: list[str] = []
     owned_groups: list[str] = []
     holds_other = False
-    for group, members in sorted(groups.items()):
+    for group in sorted(groups):
         if _holds_other_folder(folder, group, other_folders):
             holds_other = True
-        elif any(_skf_group(base, k, group, members) for k in kinds):
+        elif any(_skf_group(base, k, group) for k in kinds):
             owned_groups.append(group)
         elif hidden_neutral and group.startswith("."):
             continue

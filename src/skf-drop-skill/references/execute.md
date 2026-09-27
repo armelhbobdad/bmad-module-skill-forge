@@ -206,7 +206,7 @@ Report: "**Rebuilt managed sections in:** {list of updated files}. {if any faile
      - **No non-deprecated versions remain** (reachable only when dropping the sole surviving version, permitted in step 1 because no other non-deprecated versions existed): remove the now-dangling `active` symlink with a single atomic unlink of the link itself — `rm {skills_output_folder}/{target_skill}/active` (unlink removes only the symlink, never its target, and is atomic). A single unlink has one correct outcome and no intermediate state, so it stays in-prompt (the helper has no removal action).
 
 5. **Skill-level purge:**
-   - `{skills_output_folder}/{target_skill}/` and `{forge_data_folder}/{target_skill}/` are deleted in full — the `active` symlink disappears with the parent directory
+   - `{skills_output_folder}/{target_skill}` and, when `affected_directories` lists it, `{forge_data_folder}/{target_skill}` are deleted in full — the `active` symlink disappears with the parent directory
 
 6. Sum the sizes of the paths in `files_deleted` and format one human-readable label through the helper — do not add or round in-prompt:
 
@@ -254,6 +254,7 @@ Store the following for step 3:
 - `context_files_updated` — list of successfully rebuilt files
 - `context_files_failed` — list of files that failed to rebuild (empty if none)
 - `verification_errors` — list of verification failures (empty if none)
+- `forge_left_in_place` — carried from step 1 (null when nothing was left in place)
 
 ### 7. Load Next Step
 

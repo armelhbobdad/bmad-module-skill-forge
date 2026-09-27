@@ -2,15 +2,24 @@
 """Prose pins for the ownership gate in the step files.
 
 Step prose is not executed by any test, so these checks pin the parts of it
-that keep SKF from moving, renaming or deleting a skill it did not generate:
-the four flat-layout migrate sites, drop and rename, export discovery,
-analyze-source's merge offer, the contract files that list halt reasons, and
-the version-paths knowledge. The helper behind the gate is tested in
+that keep SKF from writing into, moving, renaming or deleting a skill folder
+it did not generate: the write check at the three writers (create-skill,
+quick-skill and create-stack-skill), the four flat-layout migrate sites, drop
+and rename (the skill folder, its forge folder and the rename lock), export
+discovery, analyze-source's merge offer, the contract files that list halt
+reasons, the docs that describe the gate, and the version-paths and
+ccc-bridge knowledge. The helper behind the gate is tested in
 test-skf-skill-inventory.py.
+
+They also pin where create-skill stages a skill before it writes the version:
+under `_bmad-output/.skf-stage/`, never a folder a skills or forge folder
+setting can name, so the ownership rules never read SKF's staging as a
+skill folder SKF did not generate.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import re
 from pathlib import Path
 
@@ -18,6 +27,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 SRC = REPO / "src"
+INVENTORY_PY = SRC / "shared" / "scripts" / "skf-skill-inventory.py"
 
 MIGRATE_SITES = {
     "src/skf-update-skill/references/init.md": "update",
@@ -30,6 +40,21 @@ DROP_EXECUTE = "src/skf-drop-skill/references/execute.md"
 DROP_SKILL = "src/skf-drop-skill/SKILL.md"
 RENAME_SELECT = "src/skf-rename-skill/references/select.md"
 RENAME_EXECUTE = "src/skf-rename-skill/references/execute.md"
+DROP_REPORT = "src/skf-drop-skill/references/report.md"
+CS_GENERATE = "src/skf-create-skill/references/generate-artifacts.md"
+CS_REPORT = "src/skf-create-skill/references/report.md"
+QS_WRITE = "src/skf-quick-skill/references/write-and-validate.md"
+QS_HALT_CONTRACT = "src/skf-quick-skill/references/halt-contract.md"
+SS_GENERATE = "src/skf-create-stack-skill/references/generate-output.md"
+SS_SKILL = "src/skf-create-stack-skill/SKILL.md"
+# Each writer step file, with the markers of its first write: the ownership
+# check must come before every one of them.
+WRITER_SITES = {
+    CS_GENERATE: ("create the following directories",),
+    QS_WRITE: ("create the skill output directories", "`{skill_package}/metadata.json` exists, confirm with user"),
+    SS_GENERATE: ("stage-dir --target {skill_package}", "mkdir -p {forge_version}"),
+}
+WRITER_SKILLS = ("src/skf-create-skill/SKILL.md", "src/skf-quick-skill/SKILL.md", SS_SKILL)
 CONTRACT_FILES = {
     "src/skf-drop-skill/references/headless-contract.md": ("not-skf-output",),
     "src/skf-drop-skill/SKILL.md": ("not-skf-output",),
@@ -39,6 +64,9 @@ CONTRACT_FILES = {
     "src/skf-export-skill/SKILL.md": ("not-skf-output",),
     "src/skf-audit-skill/SKILL.md": ("not-skf-output",),
     "src/skf-test-skill/SKILL.md": ("not-skf-output",),
+    QS_HALT_CONTRACT: ("not-skf-output", "flat-layout"),
+    SS_SKILL: ("not-skf-output", "flat-layout"),
+    CS_REPORT: ("not-skf-output", "flat-layout"),
 }
 PROBE_ORDER = (
     "skillInventoryProbeOrder:\n"
@@ -60,6 +88,13 @@ def _section(text: str, start: str, end: str | None) -> str:
         body = body[:body.index(end)]
     assert body.strip(), f"empty section after {start!r}"
     return body
+
+
+def _row(text: str, prefix: str) -> str:
+    """The first table row that starts with `prefix`."""
+    rows = [line for line in text.splitlines() if line.startswith(prefix)]
+    assert rows, f"no table row starts with {prefix!r}"
+    return rows[0]
 
 
 def _flat_rung(text: str) -> str:
@@ -284,7 +319,7 @@ def test_version_paths_migration_names_the_gate():
     assert "only when the manifest lists it" in ownership
 
 
-REFUSAL_SITES = sorted(MIGRATE_SITES) + [DROP_SELECT, RENAME_SELECT]
+REFUSAL_SITES = sorted(MIGRATE_SITES) + [DROP_SELECT, RENAME_SELECT] + sorted(WRITER_SITES)
 
 
 @pytest.mark.parametrize("rel", REFUSAL_SITES + ["src/knowledge/version-paths.md"])
@@ -307,9 +342,13 @@ def test_troubleshooting_entry_matches_the_gate_scope():
     entry = _section(_read("docs/troubleshooting.md"), '### "`<name>` is not SKF output"', "### My campaign")
     assert "folder only SKF uses" not in entry
     assert "SKF leaves the skills it did not generate alone" in entry
-    assert "only migrates, renames or purges" in entry
+    assert "only writes into, migrates, renames or purges" in entry
     assert "updates, renames or deletes" not in entry
     assert "module's own source" in entry
+    assert "forge_data_folder" in entry, "drop and rename also check the skill's forge folder"
+    assert "Left in place (not SKF output)" in entry
+    assert "then rename it" not in entry, "the flat-layout remedy covers the writers too"
+    assert "then re-run the workflow that stopped" in entry
 
 
 def test_analyze_source_merges_only_skf_skills():
@@ -317,3 +356,322 @@ def test_analyze_source_merges_only_skf_skills():
     assert '"skf_skill": true | false' in text
     merge = _section(text, "- **[M]erge:**", "- **[S]kip:**")
     assert "`matches[].skf_skill` is true" in merge
+
+
+@pytest.mark.parametrize("rel", sorted(WRITER_SITES))
+def test_writer_sites_check_ownership_before_writing(rel):
+    text = _read(rel)
+    frontmatter = text.split("\n---\n", 1)[0] + "\n"
+    assert PROBE_ORDER in frontmatter, "installed path first, then the src/ path"
+    for needle in ("--write-check", "--forge-data-folder {forge_data_folder}", "--write-version {version}",
+                   "`{write_verdict}` ← `write_check.verdict`", "`{write_folder}` ← `write_check.folder`",
+                   "`{write_detail}` ← `write_check.detail`",
+                   "no helper candidate resolves", "not even a broken link", "no `write_check`",
+                   'halt_reason: "not-skf-output"', 'halt_reason: "flat-layout"'):
+        assert needle in text, needle
+    # An older helper has no --write-check and answers a new skill with SKILL_NOT_FOUND:
+    # its error must never reach the user without the re-install hint.
+    assert "`SKILL_NOT_FOUND`" in text
+    assert "re-install SKF if the installed `skf-skill-inventory.py` is out of date" in text
+    gate = "**Pre-flight: ownership, phase 2.**" if rel == SS_GENERATE else "**Ownership check.**"
+    for marker in WRITER_SITES[rel]:
+        assert marker in text, marker
+        assert text.index(gate) < text.index(marker), f"the write check must come before {marker!r}"
+
+
+def test_writer_ownership_halt_writes_nothing_on_disk():
+    contract = _read(QS_HALT_CONTRACT)
+    assert "except the step 5 §1 ownership halt" in contract
+    # A package holding only result files would read as foreign to the next run.
+    assert "when `{skill_package}/metadata.json` exists" in contract
+    assert "A HALT while `{skill_package}` has no `metadata.json`" in contract
+    assert "When `metadata.json` itself failed to write" in _read(QS_WRITE)
+    assert "once the skill package holds `metadata.json`" in _read("docs/workflows.md")
+    exit_codes = _section(contract, "## Exit Codes", "## Result Contract")
+    assert "state-conflict" in _row(exit_codes, "| 9 ")
+    assert "writes no result file" in _read(QS_WRITE)
+    halt = _section(_read(CS_REPORT), "### Result Contract on HARD HALT", "### 6.")
+    assert "the §1 ownership refusal" in halt and "writes no result file" in halt
+    assert "via `uv run {atomicWriteHelper} write`" in halt
+    assert "ownership halt" in _read("src/skf-quick-skill/references/batch-mode.md")
+    assert '"exit_code":5,"halt_reason":"not-skf-output"' in _read(SS_GENERATE)
+
+
+def test_create_skill_gate_uses_the_working_version():
+    text = _read(CS_GENERATE)
+    for stale in ("Resolve `{version}` from the skill brief's `version` field",
+                  "the semver version from the brief", "overwrites existing files)"):
+        assert stale not in text, stale
+    first = _section(text, "### 1. Check Ownership", "### 2. ")
+    assert "`{version}` is the working version" in first
+
+
+@pytest.mark.parametrize("rel", [CS_GENERATE, QS_WRITE])
+def test_writers_write_metadata_first(rel):
+    deliverables = _section(_read(rel), "### 2. Write Deliverables", "### 3. ")
+    assert "Write File 3 (`metadata.json`) first" in deliverables
+
+
+def test_create_skill_batch_advances_past_a_refused_brief():
+    first = _section(_read(CS_GENERATE), "### 1. Check Ownership", "### 2. ")
+    assert "`refused`" in first and "`current_index` set to the next brief" in first
+    batch = _section(_read(CS_REPORT), "### 5. Batch Mode Status", "### Result Contract")
+    assert "refused" in batch
+
+
+def test_stack_gate_runs_in_two_phases():
+    text = _read(SS_GENERATE)
+    assert "{skills_output_folder}/{project_name}-stack/active/{project_name}-stack/metadata.json" not in text, (
+        "prior stack metadata is read only from a version SKF generated")
+    assert "`{prior_active_version}` ← `write_check.marked_active_version`" in text
+    phase_1 = text.index("--skill {stack_name} --write-check --forge-data-folder")
+    assert phase_1 < text.index("{stack_name}/{prior_active_version}/{stack_name}/metadata.json")
+    assert phase_1 < text.index("capture its `version` as `{prior_stack_version}`")
+    assert text.index("**Pre-flight: ownership, phase 2.**") < text.index("stage-dir --target {skill_package}")
+    exit_codes = _section(_read(SS_SKILL), "## Exit Codes", "## Result Contract")
+    assert "state-conflict" in _row(exit_codes, "| 5 ")
+
+
+@pytest.mark.parametrize("rel", WRITER_SKILLS)
+def test_writer_skills_carry_the_ownership_rule(rel):
+    assert "Never write into a skill folder SKF did not generate" in _read(rel)
+
+
+def test_stack_skill_never_decides_ownership_by_hand():
+    assert "never decide by hand whether SKF generated a folder" in _read(SS_SKILL)
+
+
+def test_drop_checks_the_forge_folder_before_any_change():
+    text = _read(DROP_SELECT)
+    roster = _section(text, "### 3. List Available Skills", "### 4. Ask Which Skill")
+    assert "uv run {skillInventoryHelper} {skills_output_folder} --forge-data-folder {forge_data_folder}" in roster
+    assert "`{target_forge_ownership}` to `\"unknown\"`" in roster, "a missing helper must refuse the purge"
+    ask = _section(text, "### 4. Ask Which Skill", "### 5. Display Version Details")
+    assert "`{target_forge_ownership}` ← " in ask and "`{same_folder}` ← `same_folder`" in ask
+    guard = _section(text, "### 8b. Purge Guard", "### 9. Compute Affected Directories")
+    forge = _section(guard, "**Forge folder.**", None)
+    for needle in ('`"mixed"`', '`"foreign"` or `"reserved"`', "leaves the forge folder where it is",
+                   "does not report `forge_groups`", "`{version}/<entry>`", "`{forge_left_in_place}`",
+                   "When `{same_folder}` is true"):
+        assert needle in forge, needle
+    affected = _section(text, "### 9. Compute Affected Directories", "#### 9b.")
+    assert "/{target_skill}/`" not in affected and "/{version}/`" not in affected, "no trailing `/` on a path"
+    assert "without a trailing `/`" in affected
+    assert "Left in place (not SKF output)" in _section(text, "### 10. Confirmation Gate", "### 11. ")
+    assert "Left in place (not SKF output)" in _read(DROP_REPORT)
+    stored = _section(text, "### 11. Store Decisions in Context", "### 12.")
+    assert "`forge_left_in_place`" in stored and "`target_forge_ownership`" in stored
+    delete = _section(_read(DROP_EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. Verify Final State")
+    assert "when `affected_directories` lists it" in delete
+
+
+def test_rename_checks_the_forge_folder_before_the_lock():
+    text = _read(RENAME_SELECT)
+    roster = _section(text, "### 3. List Available Skills", "### 4. Ask Which Skill")
+    assert "uv run {skillInventoryHelper} {skills_output_folder} --forge-data-folder {forge_data_folder}" in roster
+    check = _section(text, "### 4a. Ownership Check", "### 4b. Concurrency Guard")
+    for needle in ("`{target_forge_ownership}` ← ", "`{same_folder}` ← `same_folder`", "`{forge_move}`",
+                   "SKF never moves or deletes through a link", "does not report `forge_groups`",
+                   "When `{target_forge_errors}` names a link", "a folder SKF can read"):
+        assert needle in check, needle
+    lock = _section(text, "### 4b. Concurrency Guard", "### 5. Ask for New Name")
+    assert "LOCK={forge_data_folder}/.skf-rename-{old_name}.lock" in lock
+    assert 'mkdir -p "{forge_data_folder}"' in lock
+
+
+def test_rename_lock_never_sits_in_a_forge_folder():
+    for path in sorted((SRC / "skf-rename-skill").rglob("*.md")):
+        assert "{old_name}/.skf-rename.lock" not in path.read_text(encoding="utf-8"), path
+    assert "$(dirname" not in _read(RENAME_SELECT)
+
+
+def test_rename_moves_only_an_skf_forge_folder():
+    text = _read(RENAME_SELECT)
+    for start, end in (("### 7. Enumerate Affected Versions", "### 8. Confirmation Gate"),
+                       ("### 9. Store Decisions in Context", "### 10. ")):
+        paths = _section(text, start, end)
+        assert "{old_name}/`" not in paths and "{new_name}/`" not in paths, start
+    execute = _read(RENAME_EXECUTE)
+    copy = _section(execute, "### 1. Copy skill_group and forge_group", "### 2. ")
+    assert "Only when `{forge_move}` is true" in copy and "without a trailing `/`" in copy
+    assert "whatever the copy created at `{new_forge_group}`" in copy
+    for line in execute.splitlines():
+        if "rm -rf {new_forge_group}" in line:
+            assert "{forge_move}" in line, line
+    delete = _section(execute, "### 8. Delete Old Directories", "### 9. ")
+    assert "SKF never deletes through a link" in delete and "Only when `{forge_move}` is true" in delete
+    update = _section(execute, "### 3. Update File Contents", "### 4. ")
+    assert "context-snippet.md, provenance-map.json.\"" not in update, "name only the files rewritten"
+    assert "{if forge_move or same_folder: ', provenance-map.json'}" in update
+    assert "`same_folder` — carried from step 1" in _section(execute, "### 9. Store Results", "### 10. ")
+    assert "provenance-map.json when `forge_move` or `same_folder`" in _read("src/skf-rename-skill/references/report.md")
+
+
+def test_rename_verifies_only_the_versions_it_renamed():
+    """A version folder with no package (an interrupted run's empty folder) never fails the commit gate."""
+    execute = _read(RENAME_EXECUTE)
+    inner = _section(execute, "### 2. Rename Inner Version Directories", "### 3. ")
+    assert "`renamed_versions`" in inner
+    verify = _section(execute, "### 5. Verify", "### 6. ")
+    assert "--versions {comma-separated renamed_versions}" in verify
+    assert "--versions {comma-separated affected_versions}" not in verify
+
+
+def test_rename_recovery_deletes_only_a_copy():
+    ask = _section(_read(RENAME_SELECT), "### 5. Ask for New Name", "### 6. Source Authority Check")
+    assert "only when it holds a copy of" in ask
+    assert "rm -rf {skills_output_folder}/{new_name} {forge_data_folder}/{new_name}" not in ask
+    assert "**Reserved name.**" in ask
+    assert "holding nothing a copy of it could not" in ask, "the fallback fingerprint needs a copy"
+
+
+def test_getting_started_ownership_sentence():
+    [line] = [line for line in _read("docs/getting-started.md").splitlines()
+              if "Workflows also write into, move, rename or delete only the skill folders SKF generated" in line]
+    assert "`forge_data_folder`" in line
+
+
+def test_ccc_bridge_names_the_forge_rule():
+    text = _read("src/knowledge/ccc-bridge.md")
+    assert "before they write into, move or delete a skill" in text
+    assert "a file `.gitignore` hides still counts" in text
+
+
+def test_workflows_doc_quick_skill_codes():
+    text = _read("docs/workflows.md")
+    assert re.search(r"\|\s*8\s*\|\s*ecosystem-redirect", text)
+    assert re.search(r"\|\s*9\s*\|\s*state-conflict", text)
+    assert "references/halt-contract.md" in text
+    assert "except the exit `9` ownership halt" in text
+
+
+def test_version_paths_names_writers_and_forge_folders():
+    text = _read("src/knowledge/version-paths.md")
+    writing = _section(text, "### Writing Workflows", "### Reading Workflows")
+    assert "Ownership check (CS, QS, SS)" in writing and "--write-check" in writing
+    assert writing.index("Ownership check (CS, QS, SS)") < writing.index("1. Create `{skill_group}` if it does not exist")
+    ownership = _section(text, "## Ownership", "## Skill Management Operations")
+    for needle in ("`forge_groups`", '`"reserved"`', '`"empty"`', "`same_folder: true`",
+                   "Setup's ccc exclusions use the same evidence rule for the forge folder"):
+        assert needle in ownership, needle
+    spec = importlib.util.spec_from_file_location("skf_skill_inventory_pins", INVENTORY_PY)
+    inventory = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(inventory)
+    tree = _section(text, "### forge_data_folder\n", "## Version Resolution")
+    for name in sorted(inventory.FORGE_VERSION_FILES) + ["test-report-", "drift-report-", "-result-", ".skf-rename-"]:
+        assert name in tree, f"the forge tree must name {name!r}"
+
+
+def test_quick_skill_writes_the_error_result_only_beside_metadata():
+    """SKILL.md must not promise a `-latest.json` at the ownership halt, which writes nothing."""
+    text = _read("src/skf-quick-skill/SKILL.md")
+    assert "the on-disk `-latest.json` write once `{skill_package}` is known" not in text
+    assert ("the on-disk `-latest.json` write once `{skill_package}` holds `metadata.json` "
+            "(never at the step 5 §1 ownership halt)") in text
+
+
+RENAME_FORGE_REFUSAL = "is a link, is not a folder, or cannot be listed"
+# Each surface that states rename's forge-folder refusal: how often it states
+# it, and the narrower wording (links only) it must no longer use.
+RENAME_FORGE_SURFACES = {
+    "src/knowledge/version-paths.md": (2, ('refuses one that is `"mixed"` or a link',
+                                           "entries SKF did not write or is a link.")),
+    "src/skf-rename-skill/SKILL.md": (1, ("also holds other files or is a link,",)),
+    "src/skf-rename-skill/references/exit-codes.md": (1, ("or a linked forge folder",)),
+    "docs/workflows.md": (2, ("also holds other files or is a link",)),
+    "docs/troubleshooting.md": (1, ("(rename also refuses one that is a link)",)),
+}
+
+
+@pytest.mark.parametrize("rel", sorted(RENAME_FORGE_SURFACES))
+def test_rename_forge_refusal_matches_select(rel):
+    """select.md §4a refuses a forge path with `errors` (a link, a non-folder or an unlistable one)."""
+    rule = _section(_read(RENAME_SELECT), "6. `{target_forge_errors}` is non-empty", "7. ")
+    assert "the path is not a folder, or SKF cannot list it" in rule
+    count, stale = RENAME_FORGE_SURFACES[rel]
+    text = _read(rel)
+    assert text.count(RENAME_FORGE_REFUSAL) == count, rel
+    for phrase in stale:
+        assert phrase not in text, phrase
+
+
+def test_rename_forge_refusal_docs_name_the_remedy():
+    row = _row(_read("src/knowledge/version-paths.md"), '| `"foreign"` |')
+    assert "SKF cannot list it" in row
+    entry = _section(_read("docs/troubleshooting.md"), '### "`<name>` is not SKF output"', "### My campaign")
+    assert "for a path that is not a folder or cannot be listed, move it out of the way or fix its permissions" in entry
+
+
+CS_COMPILE = "src/skf-create-skill/references/compile.md"
+CS_STAGING = "_bmad-output/.skf-stage/{skill-name}/"
+CS_STAGING_READERS = (
+    "src/skf-create-skill/references/validate.md",
+    "src/skf-create-skill/references/step-doc-sources.md",
+    "src/skf-create-skill/references/step-doc-rot.md",
+    "src/shared/health-check.md",
+)
+
+
+def test_create_skill_stages_outside_every_folder_setting():
+    """A skills or forge folder set to `_bmad-output` must never be create-skill's staging folder."""
+    for root in (SRC, REPO / "docs"):
+        for path in sorted(root.rglob("*")):
+            if path.is_file() and path.suffix in {".md", ".py", ".yaml", ".json", ".csv", ".txt"}:
+                assert "_bmad-output/{skill-name}/" not in path.read_text(encoding="utf-8"), path
+    text = _read(CS_COMPILE)
+    rules = _section(text, "## Rules", "## MANDATORY SEQUENCE")
+    assert f"staging directory `{CS_STAGING}`" in rules
+    create = _section(text, "### 1a. Create Staging Directory", "### 1b.")
+    assert f"Create `{CS_STAGING}` (and `{CS_STAGING}references/`)" in create
+    assert "never collides with a `skills_output_folder` or `forge_data_folder` set to `_bmad-output`" in create
+    assert f"staging directory `{CS_STAGING}`" in _section(text, "### 8. Auto-Proceed", None)
+    # skill-check's frontmatter.name_matches_directory reads the last folder.
+    assert f"`<staging-skill-dir>` resolves to `{CS_STAGING}`" in _read(CS_STAGING_READERS[0])
+    for rel in CS_STAGING_READERS:
+        assert CS_STAGING in _read(rel), rel
+    assert "leftovers" in _section(_read("docs/troubleshooting.md"), '### "`<name>` is not SKF output"', "### My campaign")
+
+
+def _inventory_module():
+    spec = importlib.util.spec_from_file_location("skf_skill_inventory_staging", INVENTORY_PY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _stage(folder: Path) -> None:
+    marker = '{"name": "mylib", "generated_by": "create-skill", "skill_type": "single"}'
+    (folder / "references").mkdir(parents=True)
+    (folder / "SKILL.md").write_text("---\nname: mylib\n---\n", encoding="utf-8")
+    (folder / "metadata.json").write_text(marker, encoding="utf-8")
+    for name in ("context-snippet.md", "evidence-report.md", "references/api.md"):
+        (folder / name).write_text("x\n", encoding="utf-8")
+    (folder / "provenance-map.json").write_text("{}", encoding="utf-8")
+
+
+@pytest.mark.parametrize("setting", ["skills_output_folder", "forge_data_folder"])
+def test_staging_never_reads_as_a_skill_or_forge_folder(tmp_path, setting):
+    """Stage where compile.md §1a says, with one folder setting at `_bmad-output`."""
+    create = _section(_read(CS_COMPILE), "### 1a. Create Staging Directory", "### 1b.")
+    staged = re.search(r"Create `(_bmad-output/[^`]*)\{skill-name\}/`", create)
+    assert staged, "§1a must name the staging folder"
+    _stage(tmp_path / (staged.group(1) + "mylib"))
+    inventory = _inventory_module()
+    bmad_output = tmp_path / "_bmad-output"
+    if setting == "skills_output_folder":
+        forge = tmp_path / "forge-data"
+        check = inventory.write_check(bmad_output, "mylib", "1.0.0", forge)
+        assert check["verdict"] == "ok", check
+        scan = inventory.scan_inventory(bmad_output, forge_data_folder=forge)
+        assert scan["not_skf_output"] == [], scan["not_skf_output"]
+        assert [s["name"] for s in scan["skills"] if s["ownership"] != "skf"] == []
+    else:
+        package = tmp_path / "skills" / "mylib" / "1.0.0" / "mylib"
+        package.mkdir(parents=True)
+        (package / "metadata.json").write_text('{"generated_by": "create-skill"}', encoding="utf-8")
+        forge_group = bmad_output / "mylib"
+        (forge_group / "1.0.0").mkdir(parents=True)
+        (forge_group / "skill-brief.yaml").write_text("name: mylib\n", encoding="utf-8")
+        (forge_group / "1.0.0" / "provenance-map.json").write_text("{}", encoding="utf-8")
+        group = inventory.classify_forge_group(forge_group, "mylib")
+        assert (group["ownership"], group["foreign_entries"]) == ("skf", []), group

@@ -304,7 +304,7 @@ After the issue is created, write the fingerprint → issue-url mapping to the s
 
 ## Suggested Fix
 <!-- ONE recommended change. 1-3 sentences. Do NOT list multiple options here. -->
-{e.g. Add a rule to step 5 naming `_bmad-output/{skill-name}/` as the staging directory used by step 6 validation.}
+{e.g. Add a rule to step 5 naming `_bmad-output/.skf-stage/{skill-name}/` as the staging directory used by step 6 validation.}
 
 <details>
 <summary>Alternatives considered (optional)</summary>
