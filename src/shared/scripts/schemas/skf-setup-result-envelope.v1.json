@@ -30,8 +30,8 @@
       "properties": {
         "status": {
           "type": "string",
-          "enum": ["success", "tier_failure", "write_failure", "blocked"],
-          "description": "Single-field outcome for pipeline branching. 'success' when no error and tier requirement (if any) is satisfied. 'tier_failure' when require_tier was set and is not satisfied. 'write_failure' when forge-tier.yaml or preferences.yaml could not be written. 'blocked' for any other halt that still produced an envelope (e.g. foreign ccc binary rejected pre-index)."
+          "enum": ["success", "tier_failure", "blocked"],
+          "description": "Single-field outcome for pipeline branching. 'success' when no error and tier requirement (if any) is satisfied. 'tier_failure' when require_tier was set and is not satisfied. 'blocked' for any other halt that still produced an envelope (e.g. foreign ccc binary rejected pre-index)."
         },
         "tier": {
           "type": "string",
