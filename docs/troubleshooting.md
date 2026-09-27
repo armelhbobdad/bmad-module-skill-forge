@@ -91,6 +91,12 @@ Surfaced by `@Ferris US` for a skill built from a remote repository (under `--he
 
 If Test Skill stops with `workspace-drift` right after an update, the update's report says why the source Test Skill reads was not brought to the commit the update recorded (`workspace-clone-not-updated`) and gives the commands that bring it there once no other skill needs it where it is. The checkout Test Skill's own message suggests does not reach a new commit of a branch or of `HEAD`.
 
+### Update Skill stops with `halted-for-write-failure` because the version already exists
+
+Surfaced by `@Ferris US` (under `--headless`, `error.phase` is `merge:new-version-folder`). An update that writes produces a new version of the skill in a folder of its own — for a skill built from a remote repository, the source's version when it is higher; otherwise the next patch version — and never overwrites an existing one. It updates the version the skill's `active` link names, so a second update before an export builds on the first. It stops before writing anything when `<skills_output_folder>/<name>/<version>/` or `<forge_data_folder>/<name>/<version>/` already exists. The version it updates is unchanged.
+
+**Fix:** if an earlier update stopped after creating that version, delete both folders (whichever exist) by hand, then re-run. If you keep that version on purpose, move both folders out of the way by hand before updating. Never remove the version the `active` link names. Drop Skill removes a single version only when the export manifest lists it (`@Ferris DS <name>`, choosing that version, with `--purge`); for a skill that was never exported it can only drop every version, and a soft drop keeps the files on disk.
+
 ### My campaign stopped partway — how do I resume?
 
 Campaign is designed for exactly this. State lives in `_campaign-state.yaml` on disk, so context death, a session timeout, or a machine restart loses nothing. Run `@Ferris campaign resume` — Ferris validates the state file, skips completed skills, and picks up from the next incomplete skill in dependency order. If the state file is corrupted, Ferris falls back to the `.bak` copy automatically. To re-process one specific skill, use `@Ferris campaign resume --from=<skill>`.

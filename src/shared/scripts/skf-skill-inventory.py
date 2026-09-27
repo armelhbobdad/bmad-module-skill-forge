@@ -212,7 +212,9 @@ FORGE_GROUP_DIRS = frozenset({"_campaign", "improvement-queue"})
 # (test/test-skf-skill-inventory.py pins the copies).
 FORGE_VERSION_ANCHORS = frozenset({"provenance-map.json", "evidence-report.md", "extraction-rules.yaml"})
 # The other names SKF writes into a forge version folder
-# (knowledge/version-paths.md, forge_data_folder tree).
+# (knowledge/version-paths.md, forge_data_folder tree), and
+# .manual-inventory.json, which update-skill kept there before it kept
+# that inventory beside its lock.
 FORGE_VERSION_FILES = FORGE_VERSION_ANCHORS | frozenset({
     "evidence-report-fallback.md", "extraction-snapshot.json", ".manual-inventory.json",
     ".test-skill.lock"})

@@ -75,6 +75,7 @@ The change manifest below shows what was detected; re-extraction ran to compute 
 **Planned writes (skipped):**
 - SKILL.md re-merge with re-extracted exports
 - metadata.json version bump (or hold for gap-driven)
+- a new version folder beside the current one, named `{source_version_detected}` when step 1 §6c recorded one and otherwise the next patch version, holding a copy of the current package, and its forge folder with copies of the provenance map, evidence report and extraction rules (not in gap-driven mode, which writes into the current version)
 - provenance-map.json update with re-extraction results
 - evidence-report.md
 - context-snippet.md (only if a staleness trigger fired)
@@ -178,12 +179,12 @@ These signals also appear in `warnings[]` on the headless envelope; the Mode row
 
 | File | Status |
 |------|--------|
-| `{resolved_skill_package}/SKILL.md` | Updated |
-| `{resolved_skill_package}/metadata.json` | Updated |
+| `{skill_package}/SKILL.md` | Updated |
+| `{skill_package}/metadata.json` | Updated |
 | `{forge_version}/provenance-map.json` | Updated |
 | `{forge_version}/evidence-report.md` | Appended |
 
-Where `{resolved_skill_package}` = `{skills_output_folder}/{skill_name}/{version}/{skill_name}/` and `{forge_version}` = `{forge_data_folder}/{skill_name}/{version}/` — see `knowledge/version-paths.md`."
+Where `{skill_package}` = `{skills_output_folder}/{skill_name}/{version}/{skill_name}/` and `{forge_version}` = `{forge_data_folder}/{skill_name}/{version}/`: the new version's folders step 4 §6b created (the current version's in gap-driven mode), beside the unchanged previous version — see `knowledge/version-paths.md`."
 
 ### 5. Workflow Chaining Recommendations
 

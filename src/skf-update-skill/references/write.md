@@ -107,7 +107,7 @@ Update-skill does not run the optional post-restore frontmatter re-validation to
 
 SKILL.md was written in step 4 section 6b. Verify the write landed intact before proceeding to any derived-artifact writes.
 
-- Verify the resolved `{skill_package}` path matches the version directory step 4 wrote to (if the version changed, step 4 §6b updated `{skill_package}` in context to point at the new path)
+- Verify the resolved `{skill_package}` path matches the version directory step 4 wrote to (outside gap-driven mode, step 4 §6b created `{skill_group}/{new_version}/` and rebound `{skill_package}` and `{forge_version}` to the new version)
 - Run the deterministic [MANUAL]-integrity verifier against the byte-exact inventory captured in step 1 §5:
 
   ```bash
@@ -119,14 +119,19 @@ SKILL.md was written in step 4 section 6b. Verify the write landed intact before
 - If `ok == true` and the path resolves: proceed to section 2
 - **If `ok == false`: HALT immediately** with status `halted-for-manual-mismatch`. Do not write `metadata.json`, `provenance-map.json`, or any other artifact — further writes would compound the inconsistency. In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "write:verify-manual-integrity", path: "{skill_package}/SKILL.md", reason: "..."}`). Alert the user:
 
-  "**[MANUAL] section integrity failure after write.** Blocks modified (interior changed): {modified}. Blocks missing (markers lost): {missing}. Relocated-but-intact (advisory only): {moved}. Verified against the step-1 inventory `{manual_inventory}`, on disk at `{skill_package}/SKILL.md`. The skill package is in an inconsistent state. Manual recovery required — restore the previous version from `{skill_group}/{previous_version}/` or fix the file in place, then re-run update-skill."
+  "**[MANUAL] section integrity failure after write.** Blocks modified (interior changed): {modified}. Blocks missing (markers lost): {missing}. Relocated-but-intact (advisory only): {moved}. Verified against the step-1 inventory `{manual_inventory}`, on disk at `{skill_package}/SKILL.md`. {manual_recovery}"
+
+  `{manual_recovery}` depends on the mode:
+
+  - **Outside gap-driven mode** (step 4 §6b created a new version folder): "The previous version at `{skill_group}/{baseline_version}/` is unchanged. Delete `{skill_group}/{new_version}/` and `{forge_data_folder}/{skill_name}/{new_version}/`, which step 4 created for this update, then re-run update-skill."
+  - **Gap-driven mode** (the repair edited the current version in place): "This repair edited the current version in place, so its package is in an inconsistent state. Restore the [MANUAL] blocks listed above in `{skill_package}/SKILL.md` — from version control, a backup or by hand — then re-run update-skill. Keep the version folder: it is the only copy of this version."
 
 ### 2. Write Updated metadata.json
 
 Update `{skill_package}/metadata.json`:
 - **First, apply any queued `metadata_patches[]`** (staged by merge Priority 8b from gap-driven `metadata update` entries): apply each surgical patch described in the gap's remediation (reconcile a divergent count, add an explanatory stat, etc.) *before* the automatic recount below, so the recount overrides only the fields it owns and the patch survives for any field it does not. If a patch and the recount disagree on a field the recount owns (e.g., `exports_documented`), the recount wins — log the divergence so a still-stale stat surfaces in the report rather than being silently overwritten.
 - **For gap-driven rescopes** (`DELETED_EXPORT` / verification `rescoped`): the removed exports are already dropped from the `exports` array below, and `stats` recompute from that reduced surface — never set a `stats` count by hand to match the documented total. The reduction is justified by the `brief.scope.exclude` + `scope.amendments[]` (`action: "excluded"`) written in step 2; the recount simply reflects the smaller surface.
-- Update `version`: **if `update_mode == "gap-driven"`, do not bump — the skill is being repaired against the same source commit, so leave `version` unchanged and update only `generation_date` / `last_update` below.** This keeps metadata `version` consistent with the on-disk `{skill_package}` path, which step 4 §6b also leaves unchanged in gap-driven mode (see step 4 §6b — step 1 §6c records no source version in gap-driven mode, so step 4 writes into the existing version directory). Otherwise, if step 1 §6c recorded `source_version_detected`, use it; otherwise increment patch version
+- Update `version` to `{new_version}`, the version step 4 §6b chose: **if `update_mode == "gap-driven"`, that is the unchanged version** — the skill is being repaired against the same source commit, so update only `generation_date` / `last_update` below, and step 4 wrote into the existing version directory (step 1 §6c records no source version in gap-driven mode). Otherwise it is the version whose folder step 4 §6b created: `{source_version_detected}` when step 1 §6c recorded `source_version_detected`, else the next patch version. Never pick another value here: `version` must name the folder `metadata.json` sits in, the one §5b points the `active` link at. From here on `{version}` is `{new_version}`.
 - Update `generation_date` timestamp to current ISO-8601 date
 - **Record the source commit** (when `{source_tree_status}` is `ready` or `offline`): set `source_commit` to `{target_commit}`, the commit every step of this run read, and, when `{target_ref_override}` is set, `source_ref` to `{target_ref}`. Leave `source_root` as metadata.json records it — it names the clone SKF keeps for the repository; never write `{source_tree}` or any other path of this run into an artifact. For any other source (a local folder, gap-driven mode, docs-only) leave `source_commit` and `source_ref` unchanged. The in-context `{source_commit}` stays the value init.md §6 read; §6b needs it.
 - Update `exports` array to reflect current export list
@@ -148,7 +153,7 @@ Update `{skill_package}/metadata.json`:
 
 ### 3. Write Updated provenance-map.json
 
-Write to `{forge_version}/provenance-map.json`:
+Write to `{forge_version}/provenance-map.json`. When step 4 §6b created a new version, `{forge_version}` is its forge folder, which holds a copy of the previous map when there was one: write the whole updated map there — the map step 1 §4 loaded, with this run's changes applied — and leave the previous version's map as it was.
 
 **Every entry this step writes or rewrites carries a `signature_source` (`T1` / `T1-low` / `T2` / `T3`)** — the tier that contributed the structural signature, matching create-skill's entry contract. §2's stats helper bins each entry on this field, so a missing value trips its `coherence.ok: false` check. Preserve it byte-identical on untouched entries; set it from the contributing extraction tier on every re-extracted or new entry.
 
