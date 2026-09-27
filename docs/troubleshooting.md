@@ -41,6 +41,10 @@ Quick tier reads source without AST analysis, so signatures are read directly fr
 
 Install [cocoindex-code](https://github.com/cocoindex-io/cocoindex-code) to unlock the Forge+ tier. CCC indexes your codebase and pre-ranks files by semantic relevance before AST extraction, improving coverage on projects with 500+ files.
 
+### `git status` lists a `.cocoindex_code` folder inside a source folder
+
+When ccc is available (Forge+, or Deep with ccc), create-skill indexes the skill's source with it. A local source folder inside your project or inside another git checkout (a subfolder such as `./packages/lib`, a linked worktree or a submodule) becomes a ccc project of its own, and ccc does not gitignore an index there. create-skill keeps it out of git by writing a `.gitignore` holding `*` inside that `.cocoindex_code/` folder, and says so in one line; it never edits your own `.gitignore`. For a folder an earlier SKF release left untracked, run create-skill for that source again, or create `<source>/.cocoindex_code/.gitignore` holding the single line `*`. If you already committed the index, `git rm -r --cached <source>/.cocoindex_code` stops tracking it.
+
 ### `@Ferris deepwiki` shows a deprecation notice
 
 The auto pipeline was briefly named `deepwiki`; it's now [`forge-auto`](/docs/forge-auto.md) — renamed to avoid confusion with the DeepWiki MCP, since the pipeline compiles a verified skill from source and does **not** call that MCP. `deepwiki` still works (it resolves to `forge-auto`) but prints a one-time notice. Switch your commands to `@Ferris forge-auto <repo-or-doc-url>`.

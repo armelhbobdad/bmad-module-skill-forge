@@ -29,6 +29,13 @@ detectScriptsAssetsProbeOrder:
 resolveAuthoritativeFilesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-authoritative-files.py'
   - '{project-root}/src/shared/scripts/skf-resolve-authoritative-files.py'
+# Resolve `{cccGitHygieneHelper}` to the first existing path. It keeps ccc's
+# index folders and SKF's workspace lock out of git, and undoes the
+# `.gitignore` edit `ccc init` makes in a workspace clone. If neither path
+# exists, skip the call and continue: it never gates the workflow.
+cccGitHygieneProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-ccc-git-hygiene.py'
+  - '{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -93,7 +100,7 @@ Then run CCC indexing and discovery on the resolved clone (workspace or ephemera
 
 1. **Check existing index:** If `{remote_clone_path}/.cocoindex_code/settings.yml` exists as a file (a workspace repo indexed by an earlier forge), reuse that index: skip the `ccc init` in step 2, still apply step 2's standard exclusions, then run step 3 as usual. ccc reads `settings.yml` again on every index run, so step 3's incremental `ccc index` indexes the files that changed since the last forge, drops files a new exclusion covers and adds files a pattern change brings in, all in one pass. An unchanged repository costs almost nothing, and the existing index never needs deleting first. A `.cocoindex_code/` folder without `settings.yml` is not a ccc project, so treat it as no index. Without that file, start at step 2.
 
-2. **Initialize index (first time only):** Run `cd "{remote_clone_path}" && ccc init`. If init exits non-zero with `A parent directory has a project marker` — the common case when the clone is nested under a ccc-indexed project (e.g. a `.forge-sources/` checkout inside this repo) — re-run as `cd "{remote_clone_path}" && ccc init -f` to initialize at the subtree anyway (same handling as step 7 §6b). If init fails for any other reason, or the `-f` retry also fails, set `{ccc_discovery: []}` and continue — this is not an error.
+2. **Initialize index (first time only):** Run `cd "{remote_clone_path}" && ccc init`. If init exits non-zero with `A parent directory has a project marker`, re-run as `cd "{remote_clone_path}" && ccc init -f` to initialize at the clone anyway (same handling as step 7 §6b). If init fails for any other reason, or the `-f` retry also fails, set `{ccc_discovery: []}` and continue — this is not an error.
 
    **Apply standard exclusions (first run and reused index):** After `ccc init`, or on an index reused in step 1, apply generic build/dependency exclusions to `{remote_clone_path}/.cocoindex_code/settings.yml`. These are standard artifact patterns, not SKF-specific paths (the workspace checkout is a source repo, not an SKF project):
 
@@ -136,6 +143,8 @@ Then run CCC indexing and discovery on the resolved clone (workspace or ephemera
    If `remote_clone_type == "workspace"` and an existing index was reused, append: "(reused workspace index)"
 
 7. **On failure:** Set `{ccc_discovery: []}`. Display: "CCC discovery unavailable — proceeding with standard extraction." Do not halt.
+
+**Leave the workspace clone clean:** when `remote_clone_type` is `"workspace"`, run `uv run {cccGitHygieneHelper} workspace --repo "{remote_clone_path}"` from `{project-root}` once this block is done with the clone: after step 6 or step 7, and also when step 2 or step 3 set `{ccc_discovery: []}`. Every `ccc init` or `ccc index` that creates `settings.yml` in a clone (the first `ccc init`, the `ccc init -f` of repair 1, or a `ccc index` that initializes the clone itself) appends `# CocoIndex Code (ccc)` and `/.cocoindex_code/` to the clone's tracked `.gitignore`, and that change would make a later forge's checkout of another ref fail. The helper restores the `.gitignore` when those two lines are its only change (or deletes a `.gitignore` holding only them) and keeps the index folder out of git through the clone's `.git/info/exclude` instead. Resolve `{cccGitHygieneHelper}` from `{cccGitHygieneProbeOrder}` and read nothing from its output; if neither path exists or the command fails, continue: the next workspace hit repairs the clone before its checkout. An ephemeral clone needs nothing: it is deleted after extraction.
 
 **CCC Discovery Integration (Forge+ and Deep with ccc only):**
 

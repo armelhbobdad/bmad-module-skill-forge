@@ -32,8 +32,9 @@ import os
 import pytest
 
 # `git rev-parse --local-env-vars` (git 2.47) plus GIT_NAMESPACE. Must
-# cover GIT_LOCATION_VARS in skf-check-workspace-drift.py and
-# skf-merge-ccc-exclusions.py; test/test-skf-conftest.py checks both.
+# cover GIT_LOCATION_VARS in skf-check-workspace-drift.py,
+# skf-merge-ccc-exclusions.py and skf-ccc-git-hygiene.py;
+# test/test-skf-conftest.py checks them all.
 SCRUBBED_GIT_VARS = (
     "GIT_DIR",
     "GIT_WORK_TREE",

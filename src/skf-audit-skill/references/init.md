@@ -17,6 +17,13 @@ compareConstituentHashesProbeOrder:
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
+# Resolve `{cccGitHygieneHelper}` to the first existing path. It keeps ccc's
+# index folders and SKF's workspace lock out of git, and undoes the
+# `.gitignore` edit `ccc init` makes in a workspace clone. If neither path
+# exists, skip the call and continue: it never gates the workflow.
+cccGitHygieneProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-ccc-git-hygiene.py'
+  - '{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -245,7 +252,9 @@ When skipping, log the reason, then set the audit-ref context variables to basel
    **Gate handling:**
    - **[C]:** Acquire an exclusive lock on `{source_root}/.skf-workspace.lock` (`flock -x` or `fcntl.flock(LOCK_EX)`) before mutating the working tree — matches the concurrency discipline in `src/skf-create-skill/references/source-resolution-protocols.md` and avoids racing with a concurrent create-skill / test-skill run against the same workspace clone. If `flock` is unavailable, emit a warning and proceed.
 
-     **Dirty-worktree probe (mandatory before checkout).** Run `git -C {source_root} status --porcelain` after acquiring the lock and before the checkout. If the output is non-empty, the working tree has uncommitted changes — `git checkout {chosen_ref}` will abort with `error: Your local changes to the following files would be overwritten by checkout`, halting the workflow mid-step. The most common benign cause is a tooling-generated edit (e.g. the CCC daemon appending a `.cocoindex_code/` line to `.gitignore` after `setup-forge` pointed it at this clone), but the changes could also be the operator's in-progress work. Surface a sub-gate before mutating:
+     **Clear what SKF and ccc left in the clone before probing.** While holding the lock, run `uv run {cccGitHygieneHelper} workspace --repo "{source_root}"` from `{project-root}` (resolve `{cccGitHygieneHelper}` from `{cccGitHygieneProbeOrder}`). In an SKF workspace clone it lists `.cocoindex_code/` and `/.skf-workspace.lock` in the clone's `.git/info/exclude`, so neither ccc's index folder nor the lock file just taken shows in `git status` or goes into a `git stash --include-untracked`, and it restores a `.gitignore` whose only change is the `# CocoIndex Code (ccc)` / `/.cocoindex_code/` pair an earlier create-skill `ccc init` appended (or deletes a `.gitignore` holding only that pair). It changes nothing else, and nothing outside SKF's workspace. Read nothing from its output; if the helper does not resolve or fails, run the probe below as it stands.
+
+     **Dirty-worktree probe (mandatory before checkout).** Run `git -C {source_root} status --porcelain` after the clean-up above and before the checkout. If the output is non-empty, the working tree has uncommitted changes — `git checkout {chosen_ref}` will abort with `error: Your local changes to the following files would be overwritten by checkout`, halting the workflow mid-step. The clean-up above already cleared the `.gitignore` edit `ccc init` leaves in a workspace clone and SKF's lock file, so what remains is most likely the operator's in-progress work or another tool's output. Surface a sub-gate before mutating:
 
      "**Working tree has uncommitted changes.** `git status --porcelain` returned:
 
@@ -254,7 +263,7 @@ When skipping, log the reason, then set the audit-ref context variables to basel
      ```
 
      A `git checkout` would abort. Options:
-     - **[T] Transient stash** — `git stash push -m 'skf-audit: pre-checkout' --include-untracked`, perform the checkout, and pop the stash on the way out. Recommended when the changes look tooling-generated (e.g. a `.gitignore` line referencing `.cocoindex_code/`, lockfile churn from an indexer).
+     - **[T] Transient stash** — `git stash push -m 'skf-audit-skill: pre-checkout {chosen_ref}' --include-untracked`, then perform the checkout. The stash stays in `{source_root}` until the operator restores it with `git -C {source_root} stash pop`.
      - **[A] Abort** — halt the workflow and let the operator commit, stash, or discard manually before retrying.
      - **[F] Force checkout** — `git checkout --force` discards uncommitted changes irrecoverably. Only choose this after confirming the changes are safe to lose."
 

@@ -12,6 +12,13 @@ tierDegradationRulesData: 'skf-create-skill/references/tier-degradation-rules.md
 checkWorkspaceDriftProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-check-workspace-drift.py'
   - '{project-root}/src/shared/scripts/skf-check-workspace-drift.py'
+# Resolve `{cccGitHygieneHelper}` to the first existing path. It keeps ccc's
+# index folders and SKF's workspace lock out of git, and undoes the
+# `.gitignore` edit `ccc init` makes in a workspace clone. If neither path
+# exists, skip the call and continue: it never gates the workflow.
+cccGitHygieneProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-ccc-git-hygiene.py'
+  - '{project-root}/src/shared/scripts/skf-ccc-git-hygiene.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->

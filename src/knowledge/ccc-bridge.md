@@ -43,6 +43,8 @@ Returns: list of `{file, score, snippet}` entries ranked by semantic relevance t
 
 **Resolves to:** Check `ccc_index.status` in forge-tier.yaml. If `"none"` or the indexed_path does not match, run `cd {path} && ccc init` then `ccc index` and update forge-tier.yaml. Note: `ccc init` takes no positional arguments — it initializes the index for the current working directory. Exception: when `{path}` is `{project-root}` and `{project-root}/.cocoindex_code/settings.yml` does not exist, do not run `ccc init` or `ccc index` — setup's `skf-merge-ccc-exclusions.py` owns initializing the project root with the SKF exclusions, and in a project nested inside another git checkout `ccc index` would index the enclosing repository instead. Treat the index as unavailable and suggest re-running `/skf-setup`.
 
+When `ccc init` exits non-zero with `A parent directory has a project marker`, run `ccc init -f` in `{path}`. Run `ccc index` only once `{path}/.cocoindex_code/settings.yml` exists: without it, `ccc index` initializes the enclosing git checkout with ccc's defaults and none of the SKF exclusions. Afterwards `skf-ccc-git-hygiene.py nested` keeps a project in a subfolder out of git (see Exclusion Patterns).
+
 **Usage context:** Called lazily by extraction steps when `ccc_index.status` is `"none"` or `"failed"` but ccc is available. Setup step 1b does not call it: its helper runs `ccc init` and decides whether to index.
 
 ### `ccc_bridge.status()`
@@ -70,6 +72,7 @@ The ccc search is invisible in the output artifact. A Forge+ skill's citations a
 1. **setup step 1b:** Indexes the project root when setup runs. This is the primary indexing point.
 2. **Workflow discovery steps:** Create-skill discovery and create-stack-skill integration detection search setup's index with `ccc search --refresh`, which first indexes what changed since (after `--ccc-skip-index`, the whole project). When `ccc_index.status` is `"none"` or `"failed"`, create-skill discovery indexes lazily and integration detection skips ccc. Discovery never blocks.
 3. **ccc daemon:** Incremental indexing means re-indexing unchanged files is a near-no-op.
+4. **create-skill step 7:** Indexes the folder the skill was extracted from and records it in `ccc_index_registry`: the workspace clone, or a local source folder, which becomes a ccc project of its own (`ccc init -f`) when it sits inside another git checkout or ccc project.
 
 ### Freshness
 
@@ -80,6 +83,8 @@ The ccc search is invisible in the output artifact. A Forge+ skill's citations a
 ### Exclusion Patterns
 
 CCC stores its configuration at `{project-root}/.cocoindex_code/settings.yml`. `ccc init` creates it with `exclude_patterns` and `include_patterns` holding ccc's defaults (hidden directories, `node_modules`, `__pycache__`, its own `.cocoindex_code`, and more) and, at the top of a git checkout, adds `/.cocoindex_code/` to `.gitignore`. An `exclude_patterns` list in the file replaces ccc's default exclusions, so SKF only ever extends a list that `ccc init` wrote.
+
+ccc adds that line only when it creates a project at the top of a git checkout whose `.git` is a folder, and the line matches only that top-level folder; a `ccc index` that finds no `settings.yml` initializes the project the same way. A ccc project in a subfolder of a checkout (the `ccc init -f` case), in a linked worktree or in a submodule, whose `.git` is a file, therefore gets no entry, and git lists its index database as untracked. SKF never edits a project's own `.gitignore`. After create-skill runs ccc in a local source folder other than the project root, `skf-ccc-git-hygiene.py nested` runs `git check-ignore -q --no-index` there, once each for `settings.yml`, `target_sqlite.db` and `cocoindex.db/mdb/data.mdb` under `.cocoindex_code/`, and when any of them is not ignored writes `.cocoindex_code/.gitignore` holding `*` so the folder ignores itself. In an SKF workspace clone, `skf-ccc-git-hygiene.py workspace` instead undoes ccc's `.gitignore` edit and lists `.cocoindex_code/` and `/.skf-workspace.lock` in the clone's `.git/info/exclude` (see Deferred Discovery). ccc reads only `.gitignore` files and excludes `**/.cocoindex_code` by default, so neither changes what it indexes.
 
 ccc reads `settings.yml` again on every index run. After an edit to `exclude_patterns` or `include_patterns`, a plain `ccc index` (or `ccc search --refresh`) drops the files a pattern now leaves out and indexes the ones it brings in, with the daemon already running; the index never needs deleting and the daemon never needs restarting. A plain `ccc search` does not re-index a project the daemon already has loaded, so run `ccc index` before a search that must reflect an edit.
 
@@ -114,6 +119,7 @@ For remote repository sources (GitHub URLs), CCC cannot operate during step 2b b
 3. **step 3 (workspace reuse):** If `{remote_clone_path}/.cocoindex_code/settings.yml` already exists, skips `ccc init`, appends any missing standard exclusions, and runs a plain `ccc index`. The pass is incremental, so an unchanged repository costs almost nothing, and an edited exclude or include pattern takes effect in the same pass.
 4. **step 3 (first-time path):** If no existing CCC index, runs `cd {remote_clone_path} && ccc init`, applies standard build/dependency exclusions (node_modules, dist, .git, vendor, etc.) to `settings.yml`, then runs `ccc index`. Brief-specific `include_patterns`/`exclude_patterns` are NOT written to `settings.yml` — the CCC index is general-purpose. Filtering happens at search result time.
 5. **step 3:** Executes CCC search and populates `{ccc_discovery}` before AST extraction begins
+6. **step 3 (leave the workspace clone clean):** The first `ccc init` in a workspace clone, or a `ccc index` that initializes it, appends `# CocoIndex Code (ccc)` and `/.cocoindex_code/` to the clone's tracked `.gitignore`, a local change that makes git refuse a later checkout of another ref. Once the block is done with a workspace clone, `skf-ccc-git-hygiene.py workspace` restores the tracked `.gitignore` (or deletes one holding only those lines) and lists `.cocoindex_code/` and `/.skf-workspace.lock` in the clone's `.git/info/exclude`. Every workspace hit in create-skill and update-skill runs the same check before its fetch, which also repairs a clone an earlier SKF left edited, and audit-skill's `[C]` checkout runs it before its dirty-worktree probe. Any other local change is left alone, and a checkout it blocks falls back to an ephemeral clone.
 
 For workspace repos, the CCC index persists at `{workspace_repo_path}/.cocoindex_code/` and is reused across forges, projects, and sessions. For ephemeral fallback clones, the index is not registered in `ccc_index_registry` — the clone is deleted after extraction.
 
