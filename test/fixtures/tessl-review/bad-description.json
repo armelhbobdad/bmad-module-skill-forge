@@ -1,0 +1,186 @@
+{
+  "reviewRunId": "01a0e456-1299-70a6-b2b6-62712bd21be6",
+  "status": "completed",
+  "review-plugin": "tessl/default-skill-review@0.2.0",
+  "validation": {
+    "overallPassed": true,
+    "errorCount": 0,
+    "warningCount": 2,
+    "checks": [
+      {
+        "name": "skill_md_line_count",
+        "status": "passed",
+        "message": "SKILL.md line count is 9 (<= 500)"
+      },
+      {
+        "name": "frontmatter_valid",
+        "status": "passed",
+        "message": "YAML frontmatter is valid"
+      },
+      {
+        "name": "name_field",
+        "status": "passed",
+        "message": "'name' field is valid: 'bad-skill'"
+      },
+      {
+        "name": "description_field",
+        "status": "passed",
+        "message": "'description' field is valid (79 chars)"
+      },
+      {
+        "name": "compatibility_field",
+        "status": "passed",
+        "message": "'compatibility' field not present (optional)"
+      },
+      {
+        "name": "allowed_tools_field",
+        "status": "passed",
+        "message": "'allowed-tools' field not present (optional)"
+      },
+      {
+        "name": "metadata_version",
+        "status": "passed",
+        "message": "'metadata' field not present (optional)"
+      },
+      {
+        "name": "metadata_field",
+        "status": "passed",
+        "message": "'metadata' field not present (optional)"
+      },
+      {
+        "name": "license_field",
+        "status": "passed",
+        "message": "'license' field not present (optional)"
+      },
+      {
+        "name": "frontmatter_unknown_keys",
+        "status": "passed",
+        "message": "No unknown frontmatter keys found"
+      },
+      {
+        "name": "body_present",
+        "status": "passed",
+        "message": "SKILL.md body is present"
+      },
+      {
+        "name": "scripts_directory",
+        "status": "passed",
+        "message": "'scripts/' directory not present in bundle (optional)"
+      },
+      {
+        "name": "references_directory",
+        "status": "passed",
+        "message": "'references/' directory not present in bundle (optional)"
+      },
+      {
+        "name": "assets_directory",
+        "status": "passed",
+        "message": "'assets/' directory not present in bundle (optional)"
+      },
+      {
+        "name": "relative_links",
+        "status": "warning",
+        "message": "Relative link issues: 1 missing"
+      },
+      {
+        "name": "referenced_paths_exist",
+        "status": "warning",
+        "message": "Referenced path issues: 1 missing"
+      }
+    ]
+  },
+  "judges": {
+    "content": {
+      "scale": {
+        "max": 5,
+        "min": 1
+      },
+      "success": true,
+      "evaluation": {
+        "scores": {
+          "conciseness": {
+            "score": 4,
+            "reasoning": "The body is a single heading and one sentence — there is no verbosity, no over-explanation of concepts Claude already knows, and nothing to trim, which places it above the 'mostly efficient' midpoint. It falls short of 5 because its one line ('See [missing](references/nope.md)') is a broken pointer, so not every token earns its place and the brevity does not preserve clarity."
+          },
+          "actionability": {
+            "score": 1,
+            "reasoning": "The only guidance is 'See [missing](references/nope.md)', a link to a file that does not exist — there is no concrete code, command, or instruction of any kind, matching 'Entirely vague or abstract; no concrete code or commands; only describes rather than instructs' (arguably worse, since even the pointer is dead)."
+          },
+          "workflow_clarity": {
+            "score": 1,
+            "reasoning": "No steps or sequence exist at all — the body contains no process to follow and the sole navigation target is missing, matching 'Steps missing or incoherent; no sequence'. This is not a 2, which requires at least a rough sequence to be present with gaps."
+          },
+          "progressive_disclosure": {
+            "score": 2,
+            "reasoning": "Structure is minimal (a lone H1) and the single reference points to a nonexistent file — the skill has no references/, scripts/, or assets/ directories at all — matching 'Minimal structure; ... references are buried' territory. It is not a 1 because there is no wall of text or deep nesting to get lost in; it is not a 3+ because no reference actually resolves and there is nothing to navigate to."
+          }
+        },
+        "suggestions": [
+          "Add actual instructional content to the body (concrete commands, code, or step-by-step guidance) so the skill is actionable on its own.",
+          "Either create references/nope.md or replace the dead link with a real, clearly-signaled reference file at one level of depth.",
+          "If the skill involves multi-step or batch operations, include an explicit validation checkpoint step in the workflow."
+        ],
+        "overall_assessment": "The body is effectively empty: a heading plus one sentence whose only link (references/nope.md) resolves to nothing, so the skill provides no executable guidance, no workflow, and no usable reference material. Its only virtue is that it wastes almost no tokens — but that brevity is vacuous rather than efficient."
+      },
+      "weightedScore": 2.05,
+      "normalizedScore": 0.2625
+    },
+    "description": {
+      "scale": {
+        "max": 5,
+        "min": 1
+      },
+      "success": true,
+      "evaluation": {
+        "scores": {
+          "specificity": {
+            "score": 1,
+            "reasoning": "The description reads \"skill with an XML tag in the description and a very long wordy line\" — it names no domain and no concrete actions whatsoever; it describes the description itself rather than any capability, matching the anchor 'Entirely vague; no concrete actions; pure abstract language'. It cannot be a 2 because it doesn't even name a domain of operation."
+          },
+          "completeness": {
+            "score": 1,
+            "reasoning": "Neither 'what does this do' nor 'when should Claude use it' is present in any form — both are entirely missing and there is no 'Use when...' clause (which alone would cap at 3). This sits at the bottom anchor 'Missing both what and when'."
+          },
+          "trigger_term_quality": {
+            "score": 1,
+            "reasoning": "There are no natural keywords or phrases a user would say when needing this skill — the text is self-referential commentary (\"with an XML tag in the description\"), matching 'No natural keywords; only technical jargon or entirely generic language'. Nothing to move it to 2, which requires at least one or two generic keywords."
+          },
+          "distinctiveness_conflict_risk": {
+            "score": 1,
+            "reasoning": "With no domain, no actions, and no triggers, the description is entirely generic and would conflict with virtually any other skill, matching 'Entirely generic; would conflict with virtually any skill'. A score of 2 would require at least a broad domain (e.g., 'document files') to overlap with, which is absent."
+          }
+        },
+        "suggestions": [
+          "Rewrite the description in third person stating 2-4 concrete actions (what the skill actually does), e.g., 'Validates and scores SKILL.md files against rubric judges...'.",
+          "Add an explicit 'Use when...' trigger clause listing the natural phrases a user would say when they need this skill.",
+          "Remove the <b>...</b> HTML markup so the description is clean plain text suitable for trigger matching."
+        ],
+        "overall_assessment": "The description is self-referential filler containing an HTML tag (<b>Bad</b>), zero stated capabilities, zero trigger terms, and no 'Use when' guidance. It matches the bad_overall_examples tier ('Does stuff with files') or worse, and the embedded markup also makes it unusable as a plain-text trigger description."
+      },
+      "weightedScore": 1,
+      "normalizedScore": 0
+    }
+  },
+  "scoring": {
+    "components": [
+      {
+        "id": "validation",
+        "weight": 0.19999999999999996,
+        "normalized": 0.9375
+      },
+      {
+        "id": "description",
+        "weight": 0.4,
+        "normalized": 0
+      },
+      {
+        "id": "content",
+        "weight": 0.4,
+        "normalized": 0.2625
+      }
+    ]
+  },
+  "review": {
+    "reviewScore": 29
+  }
+}

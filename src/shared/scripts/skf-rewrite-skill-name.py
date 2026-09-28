@@ -6,12 +6,13 @@
 
 Performs the deterministic in-file name substitutions the rename workflow needs,
 so the LLM never hand-edits JSON or eyeballs "only within the frontmatter". Each
-transform is scoped to a single field / region and applied by exact-key or
-anchored-pattern match, then written atomically (stage to <target>.skf-tmp,
-fsync, rename) in the same call — a process kill mid-rewrite leaves the original
-file intact.
+transform is scoped to a single field / region (for the context snippet, the
+places its template writes the name) and applied by exact-key, anchored-pattern
+or name-token match, then written atomically (stage to <target>.skf-tmp, fsync,
+rename) in the same call — a process kill mid-rewrite leaves the original file
+intact.
 
-Four file kinds (one per --kind), each doing exactly one field-scoped edit:
+Four file kinds (one per --kind), each editing only the skill's name:
 
   skill-frontmatter  Replace the top-level `name:` value inside the YAML
                      frontmatter block ONLY (between the leading `---` and the
@@ -23,24 +24,54 @@ Four file kinds (one per --kind), each doing exactly one field-scoped edit:
   metadata-json      JSON round-trip: parse, set `name` = <new-name>, re-emit
                      with indent=2. Key order is preserved (dict insertion
                      order); no manual string surgery, so no risk of reordering
-                     or dropping keys.
+                     or dropping keys. With --moved-folder FOLDER (repeatable),
+                     every string value that is a path into FOLDER/<old>/ is
+                     pointed at FOLDER/<new>/, and the package folder
+                     FOLDER/<old>/<version>/<old>/ at FOLDER/<new>/<version>/<new>/:
+                     the rename moves those folders, and skf-verify-no-trace.py
+                     counts the old name in such a path as a leftover. A path
+                     counts only where it begins, at the start of the value or
+                     of a word in it, spelled as FOLDER itself or as its last
+                     components (a path from the project root, such as
+                     forge-data/<old>/...); the old name must be a whole path
+                     segment there, by the verifier's token rule. So a URL, a
+                     path into another folder and a path that only holds
+                     FOLDER's name further in stay. The values of the keys that
+                     name the upstream source or a file in it (UPSTREAM_KEYS:
+                     the verifier's SOURCE_FACT_KEYS, `source_file` and
+                     `co_import_files`) never change, even when one holds such
+                     a path: the rename does not move the source. Keys, every
+                     other value and file names (`test-report-<old>.md`) stay.
 
-  provenance-json    Same JSON round-trip, but the field is `skill_name`.
+  provenance-json    Same JSON round-trip, but the field is `skill_name`; takes
+                     --moved-folder the same way.
 
-  context-snippet    Rewrite the display header `[<old> v...]` -> `[<new> v...]`
-                     (version suffix preserved) and every `root:` path. Root
-                     rewrite parses `root: {prefix}{old}/`, preserves the prefix
-                     verbatim, and swaps the trailing `{old}/` segment for
-                     `{new}/` — so any IDE prefix (.claude/skills/,
+  context-snippet    Rewrite the name where every SKF snippet template writes
+                     it, so a snippet that follows a template leaves nothing
+                     for skf-verify-no-trace.py, which counts any mention there
+                     as a leftover: the display header `[<old> v...]`, the first
+                     word of the `|IMPORTANT:` line and its `writing <old> code`
+                     phrase. In those slots a complete skill-name token of the
+                     old name becomes the new name, matched by the verifier's
+                     own rule (_name_token_re, a pinned copy). Nothing else in
+                     the snippet changes: a field label (`root:`, `|api:`), a
+                     fixed word of the template ("training data", "SKILL.md")
+                     or the library's own content that is the old name stays,
+                     and the verifier then stops the rename rather than let it
+                     commit a changed snippet. Each `root:` path parses as
+                     `root: {prefix}{old}/`: the prefix is kept verbatim and
+                     the trailing `{old}/` segment becomes
+                     `{new}/`, so any IDE prefix (.claude/skills/,
                      .windsurf/skills/, draft skills/, ...) is handled without
-                     enumeration and an old name that is a substring of the
-                     prefix is left alone. The legacy nested draft form
+                     enumeration and a prefix that contains the old name is
+                     never changed. The legacy nested draft form
                      `root: skills/{old}/active/{old}/` is flattened to
                      `root: skills/{new}/`.
 
 Exit codes:
   0  success (file processed; written iff content changed)
-  1  user error (bad args, invalid new name, target not found)
+  1  user error (bad args, --moved-folder with a kind other than the two JSON
+     kinds, invalid new name, target not found)
   2  operation failure (unparseable structure, atomic write failed)
 
 CLI examples:
@@ -48,6 +79,9 @@ CLI examples:
       --kind skill-frontmatter --old-name rename --new-name rename-skill
   python3 skf-rewrite-skill-name.py context-snippet.md \
       --kind context-snippet --old-name rename --new-name rename-skill --dry-run
+  python3 skf-rewrite-skill-name.py forge-data/rename/1.0.0/provenance-map.json \
+      --kind provenance-json --old-name rename --new-name rename-skill \
+      --moved-folder /project/skills --moved-folder /project/forge-data
 """
 
 from __future__ import annotations
@@ -64,6 +98,7 @@ from pathlib import Path
 NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
 KINDS = ("skill-frontmatter", "metadata-json", "context-snippet", "provenance-json")
+JSON_KINDS = ("metadata-json", "provenance-json")
 
 
 def _die(code: int, message: str) -> None:
@@ -104,6 +139,17 @@ def atomic_write_text(target: Path, text: str) -> int:
 
 
 # --- Pure transforms (import-friendly for unit tests) -------------------------
+
+
+# Keep identical to _name_token_re in skf-verify-no-trace.py
+# (test/test-skf-rewrite-skill-name.py pins the copies).
+def _name_token_re(old_name: str) -> "re.Pattern[str]":
+    """Match old_name only where it is a complete skill-name token.
+
+    Negative lookbehind/lookahead on `[a-z0-9-]` so `rename` matches inside
+    `/rename/` or `"rename"` but not inside `rename-skill` or `renamed`.
+    """
+    return re.compile(r"(?<![a-z0-9-])" + re.escape(old_name) + r"(?![a-z0-9-])")
 
 
 def rewrite_frontmatter_name(content: str, new_name: str):
@@ -187,41 +233,182 @@ def _rewrite_root_path(path: str, old_name: str, new_name: str) -> str:
     return path
 
 
+# The places every SKF snippet template writes the skill's name, besides the
+# root path: the display header `[<name> v...]`, and on the `|IMPORTANT:` line
+# its first word and the `writing <name> code` phrase. The rest of a snippet is
+# the template's fixed words and field labels (`root:`, `|api:`, "training
+# data", "SKILL.md") or the library's own content, which a rename must not touch.
+_HEADER_SLOT_RE = re.compile(r"\[(?P<slot>[^\]\s]+)(?=\s+v[^\]]*\])")
+_IMPORTANT_LINE_RE = re.compile(r"^\|IMPORTANT:[^\n]*", re.M)
+_IMPORTANT_SLOT_RES = (
+    re.compile(r"^\|IMPORTANT:[ \t]*(?P<slot>\S+)"),
+    re.compile(r"\bwriting[ \t]+(?P<slot>\S+?)[ \t]+code\b"),
+)
+_ROOT_PATH_RE = re.compile(r"root:\s*(?P<path>\S+)")
+
+
 def rewrite_context_snippet(content: str, old_name: str, new_name: str):
-    """Rewrite the display header and every `root:` path in a context snippet.
+    """Rewrite the name where SKF's snippet templates write it.
 
-    Returns (new_content, details) where details records what changed. Never
-    raises — a snippet missing the header or a root just yields no change there.
+    skf-verify-no-trace.py counts any complete-token mention of the old name in
+    context-snippet.md as a leftover, and every SKF snippet template writes the
+    name in its display header, on its `|IMPORTANT:` line (first word, and
+    `writing <name> code`) and in its `root:` path. In the header and the
+    IMPORTANT-line slots every token _name_token_re matches (the verifier's
+    rule) becomes new_name. Each `root:` path goes through _rewrite_root_path,
+    which keeps its prefix (the IDE's skill folder) and swaps only the trailing
+    `{old}/` segment.
+
+    Nothing else changes: a field label, a fixed word of the template or the
+    library's content that happens to be the old name stays, and the verifier
+    then stops the rename (it rolls back with the old skill intact) instead of
+    committing a changed snippet.
+
+    Returns (new_content, details): `header_rewritten` (a `[<old> v...]` header
+    was present), `roots` (each root path changed) and `mentions` (how many
+    tokens were rewritten in the header and IMPORTANT-line slots). Never
+    raises: a snippet with no mention just yields no change.
     """
-    details = {"header_rewritten": False, "roots": []}
+    details = {"header_rewritten": False, "roots": [], "mentions": 0}
+    token_re = _name_token_re(old_name)
 
-    # Display header: [<old> v<version>] -> [<new> v<version>], suffix preserved.
-    header_re = re.compile(r"\[" + re.escape(old_name) + r"(\s+v[^\]]*)\]")
+    # (start, end, kind) of each slot. Root paths are rewritten as paths.
+    spans = [(m.start("slot"), m.end("slot"), "header") for m in _HEADER_SLOT_RE.finditer(content)]
+    for line in _IMPORTANT_LINE_RE.finditer(content):
+        for slot_re in _IMPORTANT_SLOT_RES:
+            for m in slot_re.finditer(line.group(0)):
+                spans.append((line.start() + m.start("slot"), line.start() + m.end("slot"), "important"))
+    spans += [(m.start("path"), m.end("path"), "root") for m in _ROOT_PATH_RE.finditer(content)]
 
-    def _header_sub(m):
-        details["header_rewritten"] = True
-        return "[" + new_name + m.group(1) + "]"
+    out = []
+    pos = 0
+    for start, end, kind in sorted(set(spans)):
+        if start < pos:  # inside a slot already rewritten
+            continue
+        out.append(content[pos:start])
+        text = content[start:end]
+        if kind == "root":
+            new_text = _rewrite_root_path(text, old_name, new_name)
+            if new_text != text:
+                details["roots"].append({"old": text, "new": new_text})
+        else:
+            new_text, count = token_re.subn(new_name, text)
+            details["mentions"] += count
+            if count and kind == "header":
+                details["header_rewritten"] = True
+        out.append(new_text)
+        pos = end
+    out.append(content[pos:])
+    return "".join(out), details
 
-    content = header_re.sub(_header_sub, content)
 
-    # root: <path> — path is a non-whitespace token.
-    root_re = re.compile(r"(root:\s*)(\S+)")
+# Keep identical to SOURCE_FACT_KEYS in skf-verify-no-trace.py
+# (test/test-skf-rewrite-skill-name.py pins the copies). The keys whose value
+# names the upstream source the skill was made from, not the skill.
+SOURCE_FACT_KEYS = frozenset({
+    "source_repo",
+    "source_root",
+    "source_commit",
+    "source_ref",
+    "source_package",
+    "source_library",
+})
 
-    def _root_sub(m):
-        prefix, path = m.group(1), m.group(2)
-        new_path = _rewrite_root_path(path, old_name, new_name)
-        if new_path != path:
-            details["roots"].append({"old": path, "new": new_path})
-        return prefix + new_path
+# The values rewrite_moved_paths never changes: the upstream source, and the
+# files in it (`source_file` of an export, script, asset or promoted doc, and
+# the `co_import_files` of a stack integration). The rename moves the skill's
+# folders, not the source, so a path such as `skills/<old>/x.py` there is the
+# source's own layout; skf-verify-no-trace.py then reports a `source_file`
+# that names the old name instead of the rename rewriting it.
+UPSTREAM_KEYS = SOURCE_FACT_KEYS | {"source_file", "co_import_files"}
 
-    content = root_re.sub(_root_sub, content)
-    return content, details
+# A path begins at the start of a value or of a word in it: never inside a URL
+# or after another folder of a longer path.
+_PATH_START = r"(?<![^\s\"'`(\[<=,;])"
+
+
+def _moved_path_re(folder: str, old_name: str) -> "re.Pattern[str]":
+    """`<folder>/<old>` where a path begins, and the package folder in it.
+
+    `folder` is a folder the rename moves `<old>` out of
+    (`{skills_output_folder}` or `{forge_data_folder}`), as given. The path
+    must begin with it, spelled in full or as its last components (so a value
+    relative to the project root, `forge-data/<old>/...` or
+    `_bmad-output/skills/<old>/...`, matches as well as an absolute one), at the
+    start of the value or of a word in it, optionally after `./`. Either
+    separator matches. The old name is matched by the verifier's token rule and
+    must also end its path segment, so `forge-data/<old>/<v>/test-report-<old>.md`
+    matches only at the folder. A following `/<version>/<old>` is the package
+    folder the rename also moves (`{skill_group}/{version}/{skill-name}/`).
+    """
+    parts = re.split(r"[/\\]", folder.rstrip("/\\"))
+    sep = r"[/\\]"
+    spellings = dict.fromkeys(sep.join(re.escape(p) for p in parts[k:]) for k in range(len(parts)))
+    heads = "|".join(sorted((s for s in spellings if s), key=len, reverse=True))
+    name = _name_token_re(old_name).pattern
+    seg_end = r"(?![A-Za-z0-9._-])"
+    return re.compile(
+        _PATH_START + r"(?P<head>(?:\.[/\\])?(?:" + heads + r")[/\\])" + name + seg_end
+        + r"(?:(?P<mid>[/\\][^/\\\s]+[/\\])" + name + seg_end + r")?"
+    )
+
+
+def rewrite_moved_paths(content: str, old_name: str, new_name: str, folders):
+    """Point every JSON string value that is a path into a moved folder at the new name.
+
+    The rename moves `<folder>/<old>/` to `<folder>/<new>/` for each of
+    `folders` (and the package folder `<old>/<version>/<old>/` inside the skill
+    folder), so a value such as a test report's
+    `forge-data/<old>/<v>/test-report-<old>.md` would name a folder that no
+    longer exists, and the verifier would count it as a leftover. A path counts
+    where it begins (see _moved_path_re). The values of UPSTREAM_KEYS, at any
+    depth, keys and every other value stay; a file named after the skill keeps
+    its name, as the rename keeps the file's name. Returns (new_content, paths)
+    where paths lists each changed value as {"old", "new"}. Raises ValueError on
+    invalid JSON.
+    """
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"invalid JSON: {e}") from e
+    patterns = [_moved_path_re(f, old_name) for f in dict.fromkeys(folders) if _folder_name(f)]
+    paths = []
+
+    def _sub(m):
+        return m.group("head") + new_name + ((m.group("mid") + new_name) if m.group("mid") else "")
+
+    def _walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key not in UPSTREAM_KEYS:
+                    node[key] = _walk(value)
+        elif isinstance(node, list):
+            node[:] = [_walk(value) for value in node]
+        elif isinstance(node, str):
+            new_value = node
+            for pattern in patterns:
+                new_value = pattern.sub(_sub, new_value)
+            if new_value != node:
+                paths.append({"old": node, "new": new_value})
+            return new_value
+        return node
+
+    data = _walk(data)
+    if not paths:
+        return content, paths
+    return json.dumps(data, indent=2) + "\n", paths
 
 
 # --- CLI orchestration --------------------------------------------------------
 
 
-def process(target: Path, kind: str, old_name: str, new_name: str, dry_run: bool) -> dict:
+def _folder_name(folder: str) -> str:
+    """The last component of a folder path, whatever its separators."""
+    return re.split(r"[/\\]", folder.rstrip("/\\"))[-1]
+
+
+def process(target: Path, kind: str, old_name: str, new_name: str, dry_run: bool,
+            moved_folders=()) -> dict:
     original = target.read_text(encoding="utf-8")
 
     result = {
@@ -251,9 +438,15 @@ def process(target: Path, kind: str, old_name: str, new_name: str, dry_run: bool
         new_content, details = rewrite_context_snippet(original, old_name, new_name)
         result["header_rewritten"] = details["header_rewritten"]
         result["roots_rewritten"] = details["roots"]
-        result["matched"] = details["header_rewritten"] or bool(details["roots"])
+        result["mentions_rewritten"] = details["mentions"]
+        result["matched"] = details["mentions"] > 0 or bool(details["roots"])
     else:  # pragma: no cover - argparse choices guard this
         raise ValueError(f"unknown kind: {kind}")
+
+    if kind in JSON_KINDS:
+        new_content, paths = rewrite_moved_paths(
+            new_content, old_name, new_name, list(moved_folders))
+        result["paths_rewritten"] = paths
 
     changed = new_content != original
     result["changed"] = changed
@@ -278,6 +471,11 @@ def main() -> None:
     parser.add_argument("--kind", required=True, choices=KINDS, help="File kind / transform to apply")
     parser.add_argument("--old-name", required=True, help="Current skill name")
     parser.add_argument("--new-name", required=True, help="New skill name (kebab-case)")
+    parser.add_argument(
+        "--moved-folder", action="append", default=[], metavar="FOLDER",
+        help="metadata-json / provenance-json only, repeatable: a folder the rename moves <old>/ "
+             "to <new>/ in ({skills_output_folder}, and {forge_data_folder} when the forge folder "
+             "moves); path values into FOLDER/<old>/ are pointed at FOLDER/<new>/")
     parser.add_argument("--dry-run", action="store_true", help="Compute without writing; emit new_content")
     parser.add_argument("--verbose", action="store_true", help="Diagnostics to stderr")
     args = parser.parse_args()
@@ -287,11 +485,17 @@ def main() -> None:
     if not NAME_RE.match(args.new_name) or len(args.new_name) > 64:
         _die(1, f"new-name must be kebab-case, 1-64 chars, got: {args.new_name!r}")
 
+    if args.moved_folder and args.kind not in JSON_KINDS:
+        _die(1, f"--moved-folder applies to {' and '.join(JSON_KINDS)} only, not {args.kind}")
+    if any(not _folder_name(f) for f in args.moved_folder):
+        _die(1, f"--moved-folder must name a folder, got: {args.moved_folder!r}")
+
     if not args.target.exists():
         _die(1, f"target not found: {args.target}")
 
     try:
-        result = process(args.target, args.kind, args.old_name, args.new_name, args.dry_run)
+        result = process(args.target, args.kind, args.old_name, args.new_name, args.dry_run,
+                         args.moved_folder)
     except ValueError as e:
         _die(2, f"{args.kind} transform failed for {args.target}: {e}")
     except OSError as e:

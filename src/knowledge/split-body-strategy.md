@@ -10,14 +10,12 @@ Vercel research shows inline passive context achieves 100% task accuracy vs 79% 
 
 Without selective split awareness:
 - `skill-check split-body --write` extracts everything, reducing agent effectiveness
-- tessl content scores drop dramatically (65% → 38%) because only SKILL.md body is evaluated
 - Context snippet anchors (`#quick-start`, `#key-types`) may break if those sections move to references
 
 With selective split awareness:
 - Only the largest Tier 2 section(s) are extracted (usually Full API Reference or Full Type Definitions)
 - Quick Start, Key API Summary, Key Types, Migration Warnings stay inline
 - Agent accuracy remains high for common tasks
-- tessl scores reflect actual inline content quality
 
 ## Split-Body Detection Pattern
 
@@ -50,6 +48,5 @@ Split-body affects only SKILL.md content movement to `references/`. The `scripts
 
 - [agentskills-spec.md](agentskills-spec.md) — 500-line guideline for SKILL.md body size and the `references/` directory structure
 - [skill-lifecycle.md](skill-lifecycle.md) — where split-body decisions fit in the compilation pipeline
-- `test-skill/references/scoring-rules.md` — tessl/split-body interaction and the pre-split baseline recommendation during test reporting
 
 _Source: derived from agentskills.io split-body guidance and Vercel agent accuracy research (inline vs on-demand retrieval)_

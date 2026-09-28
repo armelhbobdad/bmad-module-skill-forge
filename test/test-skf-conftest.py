@@ -40,6 +40,7 @@ HELPER_COPIES = {
     "src/shared/scripts/skf-check-workspace-drift.py",
     "src/shared/scripts/skf-merge-ccc-exclusions.py",
     "src/shared/scripts/skf-ccc-git-hygiene.py",
+    "src/shared/scripts/skf-source-tree.py",
 }
 
 

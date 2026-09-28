@@ -75,6 +75,65 @@ Surfaced when create-skill, quick-skill or create-stack-skill would write a new 
 
 **`skills_output_folder` or `forge_data_folder` set to `_bmad-output`:** create-skill stages a skill in `_bmad-output/.skf-stage/<name>/` before it writes the version. An earlier SKF release staged it in `_bmad-output/<name>/`, which with this setting is also the skill's folder or its forge folder, and left `SKILL.md`, `metadata.json`, `context-snippet.md`, `references/`, `evidence-report.md` and `provenance-map.json` at the root of that folder. That leftover can make create-skill stop with `flat-layout`, and make drop and rename refuse the skill folder or its forge folder as one that holds entries SKF did not generate. Delete those leftovers yourself and keep everything else in the folder, such as the `<version>/` folders, the `active` link and `skill-brief.yaml`; when the folder holds nothing but the leftovers, delete it whole. Then re-run.
 
+### Rename Skill stops with `verify-failed`
+
+Surfaced by `@Ferris RS` (exit `5`) when the old name is still in the renamed skill's files. Before it deletes anything, rename checks each version's `SKILL.md` frontmatter, `metadata.json`, `context-snippet.md` and `provenance-map.json` for the old name as a whole name: a longer name that contains it, such as `<old>-kit`, does not count. In the two JSON files it skips the values of `source_repo`, `source_root`, `source_commit`, `source_ref`, `source_package` and `source_library`: they name the source the skill was made from, not the skill, and rename leaves them as they are. On a match it removes the new folders and stops, so the skill keeps its old name and every file as it was. The message names each file and line.
+
+Rename rewrites the skill's `name` fields, the name where the snippet template writes it (the header, the `|IMPORTANT:` line and the `root:` path) and paths into the skill's own folders, such as a test report path an update run recorded. It leaves every other mention, because there the old name may mean something other than the skill. The source values above and the paths of files in the source stay as they are even when they look like a path into the skills folder, as in a repository that keeps its packages under `skills/<name>/`.
+
+**Fix:** match the line the message names:
+
+- **The skill is named after its library or repository**, as Quick Skill names a skill, and a value that rename does not skip names the library or the repository: the `description` in the `SKILL.md` frontmatter or in `metadata.json`, an export that has the library's name, the path of a file in the source such as `skills/<name>/scripts/fill.py`, or, for a skill named like its repository, the README URL create-skill records in `metadata.json` `doc_sources`. A rename does not rename the library. Such a skill cannot be renamed. Create it again under the new name with Brief Skill and Create Skill.
+- **A note an earlier run wrote in its own words**, such as an `update_source` value in `metadata.json` that names the skill: edit or remove it in the old skill's file, then re-run the rename.
+- **A `context-snippet.md` line other than the header, `|IMPORTANT:` and `root:`** names the skill, for example its `|gotchas:` text: edit that line in the old skill's snippet, then re-run. When the old name is a label or fixed word of the snippet template itself (`api`, `root`, `data`), the skill cannot be renamed; create it again under the new name.
+
+### Update Skill stops with `blocked` before detecting changes
+
+Surfaced by `@Ferris US` for a skill built from a remote repository (under `--headless`, `error.phase` is `init:source-tree`). Update Skill reads the commit the skill's `source_ref` points to now — or the tag, branch or commit passed with `--target-ref` — so every step compares the skill with one known commit. It stops before comparing anything when it cannot get that commit, and `error.reason` says why:
+
+- `ref-not-found`: the ref no longer exists upstream. `invalid-ref`: the ref is not a valid tag or branch name.
+- `upstream-unreachable`: the repository cannot be reached, and either `--target-ref` was passed (it always needs the network) or the skill's pinned commit is not on this machine.
+- `fetch-failed` or `checkout-failed`: git could not fetch or check out the commit, for example after a dropped connection or on a full disk.
+- `timed-out`: reading the commit did not finish within the time limit Update Skill gives it; a first fetch of a large repository is slow.
+- `tree-folder-failed`: no folder for the checkout could be created, neither in SKF's own cache folder nor in the system temp folder.
+- `git-unavailable`: `git` is not installed. `helper-failed`: `skf-source-tree.py` is missing, or it was stopped before it printed a result.
+- `target-ref-needs-remote-source`: `--target-ref` was passed for a skill built from a local folder or from documentation only.
+
+**Fix:** for `upstream-unreachable`, `fetch-failed` or `timed-out`, check your network and your access to the repository, then re-run. For `checkout-failed` or `tree-folder-failed`, free disk space and check that you can write to those folders. Install `git` for `git-unavailable`, and re-install SKF for `helper-failed`. When the tag or branch was deleted or renamed upstream, pass the one to use with `--target-ref <tag|branch|HEAD>`; the skill then records it as its `source_ref`. When only the network is down, `--target-ref` was not passed and the pinned commit is on this machine, Update Skill does not stop: it compares that commit, and its report and `warnings[]` say that upstream changes were not checked (`source-not-fetched`).
+
+If Test Skill stops with `workspace-drift` right after an update, the update's report says why the source Test Skill reads was not brought to the commit the update recorded (`workspace-clone-not-updated`) and gives the commands that bring it there once no other skill needs it where it is. The checkout Test Skill's own message suggests does not reach a new commit of a branch or of `HEAD`.
+
+### Update Skill stops with `halted-for-write-failure` because the version already exists
+
+Surfaced by `@Ferris US` (under `--headless`, `error.phase` is `merge:new-version-folder`). An update that writes produces a new version of the skill in a folder of its own — for a skill built from a remote repository, the source's version when it is higher; otherwise the next patch version — and never overwrites an existing one. It updates the version the skill's `active` link names, so a second update before an export builds on the first. It stops before writing anything when `<skills_output_folder>/<name>/<version>/` or `<forge_data_folder>/<name>/<version>/` already exists. The version it updates is unchanged.
+
+**Fix:** if an earlier update stopped after creating that version, delete both folders (whichever exist) by hand, then re-run. If you keep that version on purpose, move both folders out of the way by hand before updating. Never remove the version the `active` link names. Drop Skill removes a single version only when the export manifest lists it (`@Ferris DS <name>`, choosing that version, with `--purge`); for a skill that was never exported it can only drop every version, and a soft drop keeps the files on disk.
+
+### A report says `Tessl Review: off`, `not run`, `no result` or `failed`
+
+Create Skill and Test Skill record one `Tessl Review:` line in the evidence report and the test report. Tessl Review is optional and never stops a run, so the line says why it produced no score:
+
+| Status | What it means and what to do |
+|---|---|
+| `off` | The default. Set `tessl_review_workspace` in `_bmad/_memory/forger-sidecar/preferences.yaml` to the name of one of your Tessl workspaces (`tessl workspace list` shows them) to enable it. The review uploads the skill's `SKILL.md`, `references/`, `scripts/` and `assets/` to Tessl, where it stays in that workspace's history, and each fresh review spends Tessl credits. |
+| `invalid-config` | `tessl_review_workspace` is set to something that is not a workspace name, such as `true`, a value with spaces or one with characters other than letters, digits, `.`, `_` and `-`. Set it to the workspace name, or to `~` to turn the review off. |
+| `not-installed` | Neither `tessl` nor a cached npm copy of it was found. Install the Tessl CLI (see [tessl.io](https://tessl.io)); SKF never installs it. |
+| `signed-out` | Run `tessl login`, or set `TESSL_TOKEN` for an unattended run. |
+| `command-unavailable` | The installed tessl has no working `tessl review run`. Update tessl. |
+| `pending` | The workflow stopped checking before Tessl finished. The review may still complete on Tessl's side: `tessl review view <run id>` shows it (the line names the run id); re-run the workflow later. |
+| `unknown-run` | Tessl has no review with the run id the workflow checked, or the workflow passed something that is not a run id. Re-run the workflow; `tessl review list` shows your reviews. |
+| `timeout` | The workflow did not see Tessl finish while it waited (about ten minutes): Tessl was still working, or the last checks failed or did not answer. The review may still complete on Tessl's side: `tessl review view <run id>` shows it (the line names the run id); re-run the workflow later. |
+| `failed` | The line carries tessl's own message, a skill file SKF could not read, or a tessl call that did not answer in time. When it is about the workspace, check the name against `tessl workspace list`. `did not answer within` means tessl was slow, for example while its npm launcher downloads tessl on a first run: re-run the workflow. `stopped before skf-tessl-review.py reported a result` means your agent's shell tool stopped a helper call; when Tessl had accepted the review, the report names its run id for `tessl review view <run id>`. |
+| `parse-failure` | tessl printed no review SKF can read. Update tessl, or run `tessl review run <skill-folder> --json` yourself to see its output. |
+
+When Tessl Review produces no score, Test Skill's External Validation uses skill-check's score alone.
+
+### "Description sanitization failed"
+
+Create Skill checks the staged skill's frontmatter `description` for `<` and `>` before it writes the skill, because the Claude platform does not accept XML tags there. When it finds them, it replaces them with `{` and `}` and checks again; this message means they were still there after that, so nothing was written to `skills_output_folder`. Under `--headless` the stderr envelope carries `halt_reason: "description-angle-brackets"`.
+
+**Fix:** check that `_bmad-output/.skf-stage/<name>/SKILL.md` can be written (its permissions, and no other program holding it open), then re-run `@Ferris CS`. To keep angle brackets out of the description from the start, write placeholders in the brief as `{name}` or `NAME` rather than `<name>`.
+
 ### My campaign stopped partway — how do I resume?
 
 Campaign is designed for exactly this. State lives in `_campaign-state.yaml` on disk, so context death, a session timeout, or a machine restart loses nothing. Run `@Ferris campaign resume` — Ferris validates the state file, skips completed skills, and picks up from the next incomplete skill in dependency order. If the state file is corrupted, Ferris falls back to the `.bak` copy automatically. To re-process one specific skill, use `@Ferris campaign resume --from=<skill>`.

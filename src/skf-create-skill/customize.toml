@@ -23,7 +23,7 @@ activation_steps_prepend = []
 activation_steps_append = []
 
 # Persistent facts the workflow keeps in mind for the whole run
-# (extraction style, compilation guardrails, tessl review preferences).
+# (extraction style, compilation guardrails).
 # Overrides append.
 #
 # Each entry is either:

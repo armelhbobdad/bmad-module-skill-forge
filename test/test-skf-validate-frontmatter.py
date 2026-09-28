@@ -415,3 +415,67 @@ class TestBodyMaxTokensGate:
         # over-token is advisory (skill-check warns, does not reject)
         assert body_issues[0]["severity"] == "low"
         assert r["status"] == "warn"
+
+
+# ---------------------------------------------------------------------------
+# --forbid-angle-brackets (create-skill step 6 §6)
+# ---------------------------------------------------------------------------
+
+ANGLE_SKILL_MD = """\
+---
+name: my-skill
+description: Maps <b>Array<T></b> values. Use when mapping arrays.
+---
+
+# My Skill
+"""
+
+
+class TestForbidAngleBrackets:
+    def test_off_by_default(self):
+        """Other callers (quick-skill, test-skill init) keep today's verdict."""
+        r = validate_frontmatter(ANGLE_SKILL_MD, "my-skill")
+        assert r["status"] == "pass" and r["description_angle_brackets"] is None
+
+    def test_flag_counts_and_rejects(self):
+        r = validate_frontmatter(ANGLE_SKILL_MD, "my-skill", forbid_angle_brackets=True)
+        assert r["status"] == "fail" and r["description_angle_brackets"] == 6
+        high = [i for i in r["issues"] if i["severity"] == "high"]
+        assert len(high) == 1 and high[0]["field"] == "description"
+        assert high[0]["message"].startswith("description contains 6 angle bracket(s)")
+
+    def test_curly_placeholders_pass(self):
+        sanitized = ANGLE_SKILL_MD.replace("<", "{").replace(">", "}")
+        r = validate_frontmatter(sanitized, "my-skill", forbid_angle_brackets=True)
+        assert r["status"] == "pass" and r["description_angle_brackets"] == 0
+
+    def test_folded_scalar_is_counted(self):
+        text = "---\nname: my-skill\ndescription: >\n  Maps <b>bold</b>\n  values. Use when mapping.\n---\n"
+        assert validate_frontmatter(text, "my-skill", forbid_angle_brackets=True)["description_angle_brackets"] == 4
+
+    def test_greater_than_counts(self):
+        """Stricter than XML-tag detection, like compile §2a's substitution."""
+        text = "---\nname: my-skill\ndescription: Keeps x > 0. Use when checking.\n---\n"
+        assert validate_frontmatter(text, "my-skill", forbid_angle_brackets=True)["description_angle_brackets"] == 1
+
+    def test_missing_description_is_null(self):
+        text = "---\nname: my-skill\n---\n"
+        r = validate_frontmatter(text, "my-skill", forbid_angle_brackets=True)
+        assert r["description_angle_brackets"] is None
+        assert [i["message"] for i in r["issues"] if i["field"] == "description"] == [
+            "description field missing or empty"]
+
+    def test_cli_flag(self, tmp_path):
+        import json
+        import subprocess
+        import sys
+        skill = tmp_path / "my-skill"
+        skill.mkdir()
+        (skill / "SKILL.md").write_bytes(ANGLE_SKILL_MD.encode("utf-8"))
+        script = Path(__file__).parent.parent / "src" / "shared" / "scripts" / "skf-validate-frontmatter.py"
+        plain = subprocess.run([sys.executable, str(script), str(skill / "SKILL.md")],
+                               capture_output=True, text=True, encoding="utf-8")
+        flagged = subprocess.run([sys.executable, str(script), str(skill / "SKILL.md"), "--forbid-angle-brackets"],
+                                 capture_output=True, text=True, encoding="utf-8")
+        assert plain.returncode == 0 and json.loads(plain.stdout)["description_angle_brackets"] is None
+        assert flagged.returncode == 1 and json.loads(flagged.stdout)["description_angle_brackets"] == 6

@@ -264,7 +264,7 @@ async function runTests() {
     },
     'update-skill': {
       steps: ['init.md', 'detect-changes.md', 're-extract.md', 'merge.md', 'validate.md', 'write.md', 'report.md', 'health-check.md'],
-      references: ['manual-section-rules.md', 'merge-conflict-rules.md', 'remote-source-resolution.md'],
+      references: ['manual-section-rules.md', 'merge-conflict-rules.md'],
     },
     'audit-skill': {
       steps: ['init.md', 're-index.md', 'structural-diff.md', 'semantic-diff.md', 'severity-classify.md', 'report.md', 'health-check.md'],
@@ -424,6 +424,126 @@ async function runTests() {
     }
   } catch (error) {
     assert(false, 'installer config generation validates', error.message);
+  }
+
+  console.log('');
+
+  // ============================================================
+  // Test 7: Paths Resolve in the Installed Layout
+  // ============================================================
+  // An installed project has _bmad/skf/ and no src/ tree. Install the module
+  // into a temp project with the installer's own copy routine, then resolve
+  // what the step files point at against that layout rather than against src/.
+  console.log(`${colors.yellow}Test Suite 7: Paths Resolve in the Installed Layout${colors.reset}\n`);
+
+  try {
+    const { Installer } = require('../tools/cli/lib/installer.js');
+    const { findSrcPathRefs, PAIR_SCAN_EXTENSIONS } = require('../tools/validate-file-refs.js');
+
+    const INSTALLED = '{project-root}/_bmad/skf/';
+    const DEV = '{project-root}/src/';
+    const PROJECT_ROOT_PATH = /\{project-root\}\/[^\s'"<>})\]`]+/g;
+    const RUNTIME_PART = /[{*]/;
+
+    const walkFiles = async (dir) => {
+      const out = [];
+      for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) out.push(...(await walkFiles(full)));
+        else if (entry.isFile()) out.push(full);
+      }
+      return out;
+    };
+    // Every string leaf of a frontmatter value
+    const stringLeaves = (value) => {
+      if (typeof value === 'string') return [value];
+      if (Array.isArray(value)) return value.flatMap((item) => stringLeaves(item));
+      if (value && typeof value === 'object') return Object.values(value).flatMap((item) => stringLeaves(item));
+      return [];
+    };
+
+    const tmpProject = await fs.mkdtemp(path.join(os.tmpdir(), 'skf-install-layout-'));
+    try {
+      const skfDir = path.join(tmpProject, '_bmad', 'skf');
+      await new Installer().copySrcFiles(skfDir);
+      const inProject = (ref) => path.join(tmpProject, ...ref.slice('{project-root}/'.length).split('/'));
+      const relTo = (file) => path.relative(tmpProject, file).split(path.sep).join('/');
+      const files = await walkFiles(skfDir);
+
+      assert(!(await pathExists(path.join(tmpProject, 'src'))), 'installed project has no src/ tree');
+
+      const probeFailures = [];
+      const valueFailures = [];
+      const probeKeys = new Set();
+      for (const file of files.filter((f) => f.endsWith('.md'))) {
+        const rel = relTo(file);
+        const match = (await fs.readFile(file, 'utf8')).match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
+        if (!match) continue;
+        let fm;
+        try {
+          fm = yaml.load(match[1]);
+        } catch (error) {
+          valueFailures.push(`${rel}: frontmatter does not parse: ${error.message.split('\n')[0]}`);
+          continue;
+        }
+        if (!fm || typeof fm !== 'object') continue;
+
+        for (const [key, value] of Object.entries(fm)) {
+          if (key.endsWith('ProbeOrder')) {
+            probeKeys.add(`${rel}#${key}`);
+            const suffix = typeof value?.[0] === 'string' && value[0].startsWith(INSTALLED) ? value[0].slice(INSTALLED.length) : null;
+            if (!Array.isArray(value) || value.length !== 2 || suffix === null || value[1] !== DEV + suffix) {
+              probeFailures.push(`${rel} ${key}: not [${INSTALLED}<path>, ${DEV}<path>]: ${JSON.stringify(value)}`);
+            } else if (!(await pathExists(inProject(value[0])))) {
+              probeFailures.push(`${rel} ${key}: missing when installed: ${value[0]}`);
+            } else if (!(await pathExists(path.join(projectRoot, 'src', ...suffix.split('/'))))) {
+              probeFailures.push(`${rel} ${key}: missing in the dev checkout: ${value[1]}`);
+            }
+            continue;
+          }
+          for (const leaf of stringLeaves(value)) {
+            for (const [ref] of leaf.matchAll(PROJECT_ROOT_PATH)) {
+              const clean = ref.replace(/[.,;:]+$/, '');
+              if (RUNTIME_PART.test(clean.slice('{project-root}/'.length))) continue;
+              if (!(await pathExists(inProject(clean)))) valueFailures.push(`${rel} ${key}: ${clean}`);
+            }
+          }
+        }
+      }
+
+      assert(probeKeys.size > 0, `found *ProbeOrder lists to check (${probeKeys.size})`);
+      assert(
+        probeKeys.has('_bmad/skf/skf-create-skill/references/validate.md#descriptionGuardProtocolProbeOrder') &&
+          probeKeys.has('_bmad/skf/skf-update-skill/references/write.md#descriptionGuardProtocolProbeOrder'),
+        'both description-guard callers resolve the protocol by probe order',
+      );
+      assert(probeFailures.length === 0, 'every *ProbeOrder is [installed, src] and resolves when installed', probeFailures.join('\n  '));
+      assert(
+        valueFailures.length === 0,
+        'every other {project-root}/ frontmatter path resolves when installed',
+        valueFailures.join('\n  '),
+      );
+
+      // Every paired {project-root}/src/<path> in any shipped file, fenced code
+      // included, has an installed twin the installer actually ships.
+      const twinFailures = [];
+      let pairedCount = 0;
+      for (const file of files.filter((f) => PAIR_SCAN_EXTENSIONS.has(path.extname(f)))) {
+        for (const ref of findSrcPathRefs(await fs.readFile(file, 'utf8'))) {
+          if (!ref.paired || RUNTIME_PART.test(ref.path)) continue;
+          pairedCount++;
+          if (!(await pathExists(path.join(skfDir, ...ref.path.split('/'))))) {
+            twinFailures.push(`${relTo(file)}:${ref.line} ${INSTALLED}${ref.path}`);
+          }
+        }
+      }
+      assert(pairedCount > 0, `found paired src/ paths to check (${pairedCount})`);
+      assert(twinFailures.length === 0, 'every installed twin of a src/ path exists when installed', twinFailures.join('\n  '));
+    } finally {
+      await fs.rm(tmpProject, { recursive: true, force: true });
+    }
+  } catch (error) {
+    assert(false, 'installed-layout path resolution runs', error.message);
   }
 
   console.log('');

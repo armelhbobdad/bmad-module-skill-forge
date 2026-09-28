@@ -117,7 +117,7 @@ If finalizing the report or writing the result JSON below fails (read-only mount
 
 Present a concise completion summary to the user conveying: the skill name, the **overall drift score** (CLEAN / MINOR / SIGNIFICANT / CRITICAL), the severity-count table (CRITICAL / HIGH / MEDIUM / LOW / Total), and the saved report path (`{outputFile}`). Close with the next-action recommendation matching the drift level:
 
-- **CRITICAL or HIGH findings** → action required: recommend running the `[US] Update Skill` workflow to apply the priority remediations; manual review at `{outputFile}` is the alternative.
+- **CRITICAL or HIGH findings** → action required: recommend running the `[US] Update Skill` workflow to apply the priority remediations; manual review at `{outputFile}` is the alternative. When step 1 §5b checked out a newer ref (`audit_ref_source` is `checkout-latest`), recommend `[US] Update Skill` with `--target-ref {latest_tag}` when that ref was `latest_tag`, or `--target-ref HEAD` when it was `remote_head` (the remote default branch): update-skill otherwise compares the ref the skill is pinned to, not the one this audit read.
 - **MEDIUM or LOW only** → minor drift: manual updates suffice, or run `[US] Update Skill` for automated remediation.
 - **CLEAN** → no action needed; the skill is current and ready for `[EX] Export Skill`.
 

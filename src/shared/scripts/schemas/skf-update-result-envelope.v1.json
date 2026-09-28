@@ -38,7 +38,7 @@
             "halted-for-concurrent-run",
             "blocked"
           ],
-          "description": "Single-field outcome for pipeline branching. 'success' when the run completed and wrote the updated artifacts. 'no-changes' when detect-changes found nothing to update. 'detect-only' when the workflow was invoked with --detect-only and exited after step 2 without modifying any artifact. 'dry-run' when the workflow was invoked with --dry-run and exited after step 3 (re-extract) without merging or writing — the envelope describes what merge+write WOULD have done. Each 'halted-for-*' value corresponds to a documented halt in the stage prose (workspace-drift from re-extract.md §0.a, brief-refinement from detect-changes.md §1c [U] / §2.2 [B], audit from §2.2 [A], remediation-path from re-extract.md §0a, manual-mismatch from write.md §1, write-failure for any §5b/§6 failure, concurrent-run from init.md §1b's PID-file collision check). 'blocked' is the catch-all for halts that don't map to a documented status code. NOTE: detect-only and dry-run are successful exits — pipelines treating non-success as failure must include them in the success set."
+          "description": "Single-field outcome for pipeline branching. 'success' when the run completed and wrote the updated artifacts. 'no-changes' when detect-changes found nothing to update. 'detect-only' when the workflow was invoked with --detect-only and exited after step 2 without modifying any artifact. 'dry-run' when the workflow was invoked with --dry-run and exited after step 3 (re-extract) without merging or writing — the envelope describes what merge+write WOULD have done. Each 'halted-for-*' value corresponds to a documented halt in the stage prose (workspace-drift from re-extract.md §0.a, brief-refinement from detect-changes.md §1c [U] / §2.2 [B], audit from §2.2 [A], remediation-path from re-extract.md §0a, manual-mismatch from write.md §1, write-failure for a merge.md §6b version-folder or SKILL.md write failure (among them error.phase 'merge:new-version-folder' when the version folder already exists) and any write.md §5b/§6 failure, concurrent-run from init.md §1b's PID-file collision check). 'blocked' is the catch-all for halts that don't map to a documented status code, among them init.md §6b (error.phase 'init:source-tree') when no commit to read could be obtained, and a private source tree that disappeared mid-run (error.phase '<step>:source-tree-missing'). NOTE: detect-only and dry-run are successful exits — pipelines treating non-success as failure must include them in the success set."
         },
         "skill_name": {
           "type": "string",
@@ -48,7 +48,7 @@
         "version": {
           "type": "string",
           "minLength": 1,
-          "description": "Version written this run. In gap-driven mode this equals previous_version (gap-driven runs do not bump). In normal mode this is either the detected source version or an incremented patch."
+          "description": "Version written this run. In gap-driven mode this equals previous_version (gap-driven runs do not bump). In normal mode this is either the detected source version or an incremented patch, and names the new version folder the run created beside the previous one."
         },
         "previous_version": {
           "type": "string",
@@ -114,7 +114,7 @@
         "warnings": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Non-fatal anomalies surfaced during the run. May include workspace_drift_overridden, scope_reconciliation_post entries, qmd indexing failures, etc. Empty when none."
+          "description": "Non-fatal anomalies surfaced during the run. May include workspace_drift_overridden, scope_reconciliation_post entries, qmd indexing failures, source-tree:, source-not-fetched, source-version-lower, file-diff-unavailable, workspace-clone-not-updated, target-ref-not-recorded and source-tree-not-removed entries, etc. Empty when none."
         },
         "error": {
           "oneOf": [

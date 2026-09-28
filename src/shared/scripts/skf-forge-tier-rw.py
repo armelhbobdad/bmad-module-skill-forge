@@ -122,6 +122,13 @@ headless_mode: false
 # Compact greeting (set to true to skip the full capabilities table on session start)
 compact_greeting: false
 
+# Tessl Review (off unless set). Set to the name of your Tessl workspace to have
+# create-skill and test-skill send each skill's SKILL.md, references/, scripts/
+# and assets/ to Tessl for an AI-judge review, kept in that workspace's review
+# history. Needs the tessl CLI and `tessl login` (or TESSL_TOKEN); each fresh
+# review spends Tessl credits.
+tessl_review_workspace: ~
+
 # Reserved for future use — these fields are not yet consumed by any workflow step
 # output_language: ~
 # skill_format_version: ~

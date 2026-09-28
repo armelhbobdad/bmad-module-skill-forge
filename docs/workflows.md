@@ -55,7 +55,7 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 
 **When to Use:** After Brief Skill, or with an existing skill-brief.yaml.
 
-**Key Steps:** Load brief → Ecosystem check → Extract (AST + scripts/assets) → QMD enrich (Deep) → Compile → Doc sources → Auto-shard → Doc-rot → Validate → Generate
+**Key Steps:** Load brief → Ecosystem check → Extract (AST + scripts/assets) → QMD enrich (Deep) → Compile → Doc sources → Auto-shard → Doc-rot → Validate (skill-check; Tessl Review when you opt in) → Generate
 
 **Safety:** Writes a version only into a skill folder SKF generated, or a new one. When `skills_output_folder` already holds a folder with the skill's name that SKF did not generate, or a version folder SKF did not generate, it stops before writing anything (`not-skf-output`); an SKF skill still in the old flat layout stops with `flat-layout` until `@Ferris TS` moves it. Set a different `name` in the brief to create the skill beside a folder SKF did not generate.
 
@@ -71,7 +71,11 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 
 **When to Use:** After source code changes when an existing skill needs updating.
 
-**Key Steps:** Load existing → Detect changes (incl. scripts/assets) → Re-extract → Merge (preserve MANUAL) → Validate → Write → Report
+**Key Steps:** Load existing → Fetch the source at the skill's ref → Detect changes (incl. scripts/assets) → Re-extract → Merge (preserve MANUAL) → Validate → Write (records the commit it read) → Report
+
+**Source:** For a skill built from a remote repository, Update Skill reads the commit the skill's `source_ref` (a tag, a branch or the default branch) points to now, in a checkout of its own, and records that commit as the skill's `source_commit` when it writes. Pass `--target-ref <tag|branch|HEAD>` to move the skill to another ref, such as a newer release. `--detect-only` and `--dry-run` read the same way and write nothing. A skill built from a local folder is read as that folder stands, and a gap-driven run (`--from-test-report`) reads the commit the skill is pinned to.
+
+**Versions:** An update that writes produces a new version of the skill — for a skill built from a remote repository, the source's version when it is higher; otherwise the next patch version — in a folder of its own, beside the previous version, which stays unchanged; `active` then points at the new version, and the next update starts from it, exported or not. It stops rather than overwrite a version that already exists. A gap-driven run updates the current version in place.
 
 **Agent:** Ferris (Surgeon mode)
 
@@ -168,7 +172,7 @@ Trigger workflows by typing commands to [Ferris](/docs/agents.md). See [Concepts
 
 **When to Use:** After creating or updating a skill, before exporting.
 
-**Key Steps:** Load skill → Detect mode → Coverage check → Coherence check → External validation (skill-check, tessl) → Hard gate → Score → Gap report
+**Key Steps:** Load skill → Detect mode → Coverage check → Coherence check → External validation (skill-check; Tessl Review when you opt in) → Hard gate → Score → Gap report
 
 **Scored Categories:** Export Coverage (36%), Signature Accuracy (22%), Type Coverage (14%), Coherence (18%), External Validation (10%). Default pass threshold: **80%** (per-pipeline defaults: forge-auto 90%, forge 80%). Pass routes to Export Skill; fail routes to Update Skill with a gap report. See [Completeness Scoring](/docs/verifying-a-skill.md#how-the-score-is-computed) for the full formula and tier adjustments.
 
@@ -403,7 +407,7 @@ Add `--headless` or `-H` to any workflow command to skip all confirmation gates.
 @Ferris EX -H                    — export with auto-approved context update
 ```
 
-You can also set `headless_mode: true` in your forge preferences (`_bmad/_memory/forger-sidecar/preferences.yaml`) to make headless the default for all workflows.
+You can also set `headless_mode: true` in your forge preferences (`_bmad/_memory/forger-sidecar/preferences.yaml`) to make headless the default for all workflows. Headless never turns Tessl Review on: create-skill and test-skill send a skill to Tessl only when `tessl_review_workspace` is set in the same file, and then they do so in headless runs too.
 
 **Exception — `/skf-setup` headless emits a single-line JSON envelope.** Unlike other workflows, headless (or `--quiet`) `/skf-setup` skips its status banner, progress lines and health-check output and ends on one prefixed envelope line. What setup guarantees is that this line is the run's final message, so it is exactly what `claude -p` prints; an interactive session or a `stream-json` reader may still see brief agent notes between tool calls. On success the health check runs first and the envelope follows it. On a tier miss or a halt the health check does not run, and the `status: "tier_failure"` envelope, or a `status: "blocked"` envelope whose `error.reason` carries the diagnostic, is the final message. Two cases have no envelope: when SKF's scripts are not installed in the project (a directory that is not an SKF project, or a helper-missing halt because they are gone), there is no helper to build one, and when an early halt (config missing or malformed, or `uv` missing) finds neither `uv` nor a Python interpreter (`python3`, `python` or `py -3`) to run the helper. Either way the run's one line is the bare halt reason. Pipelines should treat a missing envelope as a failure. When the forger runs `SF` as one step of a pipeline, setup displays the same line and hands control back to the forger, which keeps chaining. The success envelope looks like this:
 
@@ -464,7 +468,7 @@ Parent skills and CI pipelines `grep` one line out of the workflow log to learn 
 **Exception — the management and verification workflows emit structured result envelopes too.** Beyond per-gate auto-proceed, Drop Skill, Rename Skill, and Refine Architecture each emit a single-line `SKF_*_RESULT_JSON: {…}` envelope on every terminal exit (`status: "success"` on the happy path, `status: "error"` with a typed `halt_reason` on any HARD HALT) and exit with a stable code so automators branch on the failure class without grepping message text. All three honour the universal `cancel`/`exit`/`:q` affordance at any prompt (exit `6`, `halt_reason: "user-cancelled"`).
 
 - **`/skf-drop-skill` (DS)** — exit `2` `input-missing`/`input-invalid` (including `--mode deprecate` on a skill with no manifest entry), `4` `write-failure` (covers manifest-write, context-rebuild, and full-purge `delete-failed`), `5` state-conflict (active-version guard; `not-skf-output` for a folder SKF did not generate, a purge it cannot confirm, or a skill whose folder in `forge_data_folder` also holds other files), `6` `user-cancelled` or `headless-purge-forbidden`. Schema and `halt_reason` list in [`src/skf-drop-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-drop-skill/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
-- **`/skf-rename-skill` (RS)** — exit `2` `input-missing`/`input-invalid`, `4` `write-failure` (`copy-failed`, `write-failed`, `manifest-write-failed`; the §7 context rebuild is best-effort and never halts), `5` state-conflict (name-collision, source-authority, concurrent-run lock, `not-skf-output` for a folder SKF did not generate, or a forge folder that also holds other files or that is a link, is not a folder, or cannot be listed; `flat-layout` for a skill not yet migrated). Schema in [`src/skf-rename-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-rename-skill/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
+- **`/skf-rename-skill` (RS)** — exit `2` `input-missing`/`input-invalid`, `3` resolution-failure (`manifest-corrupt`, `nothing-to-rename`), `4` `write-failure` (`copy-failed`, `write-failed`, `manifest-write-failed`; the §7 context rebuild is best-effort and never halts), `5` state-conflict (name-collision, source-authority, concurrent-run lock, `not-skf-output` for a folder SKF did not generate, or a forge folder that also holds other files or that is a link, is not a folder, or cannot be listed; `flat-layout` for a skill not yet migrated; `verify-failed` when the old name is still in the renamed files, which rolls the rename back with the old skill intact — see [Troubleshooting](/docs/troubleshooting.md)). Schema in [`src/skf-rename-skill/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-rename-skill/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
 - **`/skf-refine-architecture` (RA)** — exit `2` `input-missing`/`input-invalid`, `4` `write-failure`, `7` `inventory-unreliable`, `8` `recovery-failed` (durability state insufficient to reconstruct findings, or the compiled doc is missing its `## Refinement Summary`). Schema in [`src/skf-refine-architecture/SKILL.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/src/skf-refine-architecture/SKILL.md) § "Exit Codes" / "Result Contract (Headless)".
 
 ---

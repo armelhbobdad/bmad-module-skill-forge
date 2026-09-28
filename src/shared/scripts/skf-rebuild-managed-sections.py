@@ -17,6 +17,15 @@ Actions:
   insert        — Insert managed section if not present (at end of file)
   check         — Check if managed section exists, report status
 
+replace and insert take only the body that goes between the markers: they
+write `<!-- SKF:BEGIN updated:{date} -->` and `<!-- SKF:END -->` around it
+themselves. They refuse (exit 1) content that holds a marker of its own, which
+would nest a second pair inside the section. Without --content they read the
+body from stdin as UTF-8 on every platform; callers stage it in a file and
+redirect it (`replace < file`), because a body passed inline as
+`--content "..."` goes through the shell, which expands the backticks and `$`
+that snippets carry.
+
 Query actions (read-only, take positional file lists instead of <file> <action>):
   orphan-detect <context-file>... --exported-skills a,b
                 — Parse `[skill-name v...]` rows across one or more context
@@ -46,6 +55,10 @@ MARKER_PATTERN = re.compile(
     r"(<!-- SKF:BEGIN[^>]*-->)(.*?)(<!-- SKF:END -->)",
     re.DOTALL,
 )
+# A marker of its own inside the body replace/insert are given, in any spacing
+# (`<!-- SKF:BEGIN updated:… -->`, `<!--SKF:END-->`). A prose mention of the
+# marker names without `<!--` is not one.
+MARKER_IN_BODY_PATTERN = re.compile(r"<!--\s*SKF:(?:BEGIN|END)\b")
 
 # A managed-section skill row header: `[skill-name v1.2.3]…`, optionally
 # prefixed by the format's leading `|`. Requires a ` v<version>` inside the
@@ -179,8 +192,28 @@ def cmd_read(file_path):
     return {"status": "ok", "has_managed_section": True, "content": match.group(2)}
 
 
+def _marker_in_body_error(new_content):
+    """An error message when `new_content` holds an SKF marker, else None.
+
+    replace and insert write both markers around the body themselves, so a body
+    that carries `<!-- SKF:BEGIN …` or `<!-- SKF:END -->` (the whole managed
+    section instead of what goes between its markers) would leave a second
+    marker pair nested inside the section.
+    """
+    if MARKER_IN_BODY_PATTERN.search(new_content) is None:
+        return None
+    return (
+        "content holds an SKF marker (<!-- SKF:BEGIN or <!-- SKF:END): pass only "
+        "the body that goes between the markers; this helper writes both markers "
+        "and the updated: date itself. The file was not changed."
+    )
+
+
 def cmd_replace(file_path, new_content):
     """Replace managed section content between markers."""
+    marker_err = _marker_in_body_error(new_content)
+    if marker_err:
+        return {"status": "error", "error": marker_err}
     content, err = read_context_file(file_path)
     if err:
         return {"status": "error", "error": err}
@@ -223,6 +256,9 @@ def cmd_clear(file_path):
 
 def cmd_insert(file_path, new_content):
     """Insert managed section at end of file if not present."""
+    marker_err = _marker_in_body_error(new_content)
+    if marker_err:
+        return {"status": "error", "error": marker_err}
     content, err = read_context_file(file_path)
     if err:
         # File doesn't exist — create it
@@ -417,7 +453,15 @@ def main():
         if idx + 1 < len(sys.argv):
             content_arg = sys.argv[idx + 1]
     elif action in ("replace", "insert") and not sys.stdin.isatty():
-        content_arg = sys.stdin.read()
+        # Read the bytes and decode them as UTF-8 ourselves: sys.stdin decodes
+        # a pipe or redirect with the locale's code page (cp1252 on Windows),
+        # which turns the em dash every snippet's IMPORTANT line carries into
+        # mojibake that the byte-identity check then accepts.
+        try:
+            content_arg = sys.stdin.buffer.read().decode("utf-8")
+        except UnicodeDecodeError as e:
+            print(json.dumps({"status": "error", "error": f"content on stdin is not UTF-8: {e}"}, indent=2))
+            sys.exit(1)
 
     if action == "check":
         result = cmd_check(file_path)

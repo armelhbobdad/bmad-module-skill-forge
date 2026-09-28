@@ -71,7 +71,7 @@ CONTRACT_FILES = {
     "src/skf-test-skill/SKILL.md": ("not-skf-output",),
     QS_HALT_CONTRACT: ("not-skf-output", "flat-layout"),
     SS_SKILL: ("not-skf-output", "flat-layout"),
-    CS_REPORT: ("not-skf-output", "flat-layout"),
+    CS_REPORT: ("not-skf-output", "flat-layout", "description-angle-brackets"),
 }
 PROBE_ORDER = (
     "skillInventoryProbeOrder:\n"
@@ -299,6 +299,76 @@ def test_rename_treats_verifier_exit_2_as_unclean():
     assert "exit code of 2 with no JSON" in verify and "rollback" in verify
 
 
+def test_rename_recreates_active_with_flip_link():
+    """§4 recreates `active` with the atomic-write helper's flip-link, the call the writers use."""
+    execute = _read(RENAME_EXECUTE)
+    # skf-update-active-symlink.py has no flip-link, and rename no longer calls it.
+    assert "updateActiveSymlink" not in execute
+    resolve = _section(execute, "### 0. Re-read", "### 1. ")
+    assert "`{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` (used in §4" in resolve
+    copy = _section(execute, "### 1. Copy skill_group and forge_group", "### 2. ")
+    assert "the copy follows no link;" not in copy
+    assert "§4 creates `{new_skill_group}/active` again either way" in copy
+    fix = _section(execute, "### 4. Fix the `active` Symlink", "### 5. Verify")
+    assert ('uv run {atomicWriteHelper} flip-link \\\n'
+            '     --link "{new_skill_group}/active" \\\n'
+            '     --target "{target_version}"') in fix
+    assert 'basename "$(readlink "{old_skill_group}/active")"' in fix, "an absolute or ../ link points into the old group"
+    assert ('   readlink "{old_skill_group}/active"\n'
+            '   basename "$(readlink "{old_skill_group}/active")"') in fix, "step 3's fence yields both values it names"
+    assert "`{old_active_link}` to what the first line prints" in fix
+    assert "`{target_version}` to what the second line prints" in fix
+    # The shell tests that pick each branch, verbatim: `[ ! -e ]` alone skips a broken link,
+    # and `[ -d ]` follows the link, so it would refuse every skill that has one.
+    assert ('If nothing is at `{old_skill_group}/active`, not even a broken link '
+            '(`[ ! -e "{old_skill_group}/active" ] && [ ! -L "{old_skill_group}/active" ]`), skip') in fix
+    assert 'If `{old_skill_group}/active` is not a link (`[ ! -L "{old_skill_group}/active" ]`), take the rollback' in fix, \
+        "a real active folder is refused, never carried over"
+    assert "`{target_version}` is not one of `renamed_versions`" in fix, "a broken link is refused, not copied"
+    rollback = _section(fix, "**Rollback on a failure in step 2, 4 or 6:**", "Report:")
+    assert "- `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true" in rollback
+    assert '- Release the lock: `rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`' in rollback
+    assert 'then rm -f "{new_skill_group}/active"' in fix, "a link is removed as a link, never followed"
+    assert 'elif [ -e "{new_skill_group}/active" ]; then rm -rf "{new_skill_group}/active"' in fix
+    assert "bind `{active_link_kind}` ← `kind`" in fix and "bind `{flip_error}` ← `message`" in fix
+    assert "active.skf-lock" in fix and "mklink /J" in fix
+    for stale in ("active.lock", "flock", "four cases", "no silent fallback", "{captured stderr}", "python3"):
+        assert stale not in fix, stale
+    assert fix.count('halt_reason: "write-failed"') == 1
+    assert "§3 + §6" not in execute.split("\n---\n", 1)[0]
+    drop = _read(DROP_EXECUTE).split("\n---\n", 1)[0]
+    assert "skf-rename-skill/references/execute.md" not in drop, "rename no longer uses the symlink helper"
+    assert "records the manual repair and continues" in drop, "drop §4 records a missing helper, it does not halt"
+
+
+def test_rename_restores_the_manifest_with_write_target():
+    manifest = _section(_read(RENAME_EXECUTE), "### 6. Update Export Manifest", "### 7. ")
+    assert ("uv run {atomicWriteHelper} write --target \"{skills_output_folder}/.export-manifest.json\" "
+            "<<'SKF_MANIFEST_BACKUP'") in manifest
+    assert "hold its exact text, not a parsed or re-serialized copy" in manifest
+    assert "bind `{manifest_error}` ← `error`" in manifest, "manifest-ops reports its errors on stdout"
+    assert "`{manifest_status}` ← `status`" in manifest
+    assert "when `{manifest_status}` is `not_found`, set `{manifest_error}`" in manifest, "not_found has no `error`"
+    for state in ("`unchanged`", "`restored`", "`restore-failed`"):
+        assert state in manifest, state
+    # Restore only the state this run's re-key leaves; with both names present the helper
+    # refused and wrote nothing, and a restore would erase another process's entry.
+    rollback = _section(manifest, "**Rollback on helper non-zero exit:**", "Set context flag")
+    assert ("Only when `exports.{new_name}` is there and `exports.{old_name}` is gone, restore the backup"
+            in rollback), "restore only a landed re-key"
+    assert ("In every other state (`exports.{old_name}` still there, `exports.{new_name}` absent, or a manifest "
+            "that is missing or does not parse), this run did not change the manifest") in rollback
+    assert "set `{manifest_restore}` to `unchanged` and write nothing" in rollback
+    assert rollback.index("Only when `exports.{new_name}` is there") < rollback.index("write --target")
+    assert "Otherwise restore the backup" not in rollback
+    assert "- `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true" in rollback
+    assert '- Release the lock: `rm -f "{forge_data_folder}/.skf-rename-{old_name}.lock"`' in rollback
+    assert 'uv run {manifestOpsHelper} "{skills_output_folder}" rename {new_name} {old_name}' in manifest
+    assert "Restored manifest from backup and rolled back" not in manifest, "say what the rollback did"
+    assert "section 7 on failure" not in manifest, "§7 never rolls back"
+    assert "{captured stderr}" not in manifest
+
+
 @pytest.mark.parametrize("rel", sorted(CONTRACT_FILES))
 def test_contract_files_list_the_reasons(rel):
     text = _read(rel)
@@ -397,7 +467,7 @@ def test_writer_ownership_halt_writes_nothing_on_disk():
     assert "writes no result file" in _read(QS_WRITE)
     halt = _section(_read(CS_REPORT), "### Result Contract on HARD HALT", "### 6.")
     assert "the §1 ownership refusal" in halt and "writes no result file" in halt
-    assert "via `uv run {atomicWriteHelper} write`" in halt
+    assert '`uv run {atomicWriteHelper} write --target "{forge_version}/create-skill-result-latest.json"`' in halt
     assert "ownership halt" in _read("src/skf-quick-skill/references/batch-mode.md")
     assert '"exit_code":5,"halt_reason":"not-skf-output"' in _read(SS_GENERATE)
 

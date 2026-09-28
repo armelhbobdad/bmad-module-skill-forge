@@ -36,6 +36,14 @@ Subcommands:
       exit 1 before the file is read: there is nothing to restore from, and
       writing it back would blank the very field this guard protects.
 
+  sanitize <skill-md>
+      Replace every `<` with `{` and every `>` with `}` in the on-disk
+      `description` (create-skill's compile-time substitution, applied
+      again) and rewrite the frontmatter only when something changed. Emits
+        {"substitutions": N, "sanitized": true|false, "description": "..."}
+      where `description` is the value now on disk. No shell quoting of the
+      description is involved, so backticks and `$` in it are safe.
+
 Token-stream comparison is the documented sweet spot — catches replaced
 words, truncation, and reintroduced angle-brackets while ignoring cosmetic
 whitespace fixes (trailing newline, re-wrapped quoted strings). See
@@ -47,12 +55,13 @@ is auto-resolved:
   uv run skf-description-guard.py capture <skill-md>
   uv run skf-description-guard.py verify-restore <skill-md> \\
       --captured-description "the snapshot string"
+  uv run skf-description-guard.py sanitize <skill-md>
 
 Exit codes:
   0  — operation succeeded (including no-divergence verify)
   1  — user error (bad args, empty captured description, file missing,
        frontmatter unparseable)
-  2  — operation failure (restore write failed)
+  2  — operation failure (restore or sanitize write failed)
 """
 
 from __future__ import annotations
@@ -61,6 +70,7 @@ import argparse
 import hashlib
 import json
 import os
+import stat
 import sys
 import tempfile
 from pathlib import Path
@@ -215,7 +225,9 @@ def restore_description(skill_md: Path, captured: str) -> None:
         prefix=skill_md.name + ".", suffix=".skf-guard.tmp", dir=skill_md.parent
     )
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as tmp:
+        # newline="" writes "\n" untranslated: text mode would turn every
+        # line ending into "\r\n" on Windows.
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as tmp:
             tmp.write(new_text)
             tmp.flush()
             os.fsync(tmp.fileno())
@@ -291,6 +303,39 @@ def _cmd_verify_restore(args: argparse.Namespace) -> int:
     return 0
 
 
+def sanitize_angle_brackets(description: str) -> tuple[str, int]:
+    """Replace every `<` with `{` and every `>` with `}`; return (value, substitutions)."""
+    count = description.count("<") + description.count(">")
+    return description.replace("<", "{").replace(">", "}"), count
+
+
+def _cmd_sanitize(args: argparse.Namespace) -> int:
+    skill_md = Path(args.skill_md)
+    try:
+        st = os.stat(skill_md)  # not Path.is_file(): Python 3.14 hides EACCES there
+    except OSError as exc:
+        _fail(f"cannot read {skill_md}: {exc.strerror or exc}")
+    if not stat.S_ISREG(st.st_mode):
+        _fail(f"not a file: {skill_md}")
+    try:
+        current, _ = read_description(skill_md)
+    except (OSError, ValueError) as exc:
+        _fail(str(exc))
+    sanitized, count = sanitize_angle_brackets(current)
+    result = {"substitutions": count, "sanitized": False, "description": current}
+    if count:
+        try:
+            restore_description(skill_md, sanitized)
+        except (OSError, ValueError) as exc:
+            json.dump({**result, "write_error": str(exc)}, sys.stdout)
+            sys.stdout.write("\n")
+            return 2
+        result.update(sanitized=True, description=sanitized)
+    json.dump(result, sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
 def _fail(msg: str) -> None:
     print(f"error: {msg}", file=sys.stderr)
     raise SystemExit(1)
@@ -318,6 +363,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="the description string captured before the tool call",
     )
     p_ver.set_defaults(func=_cmd_verify_restore)
+
+    p_san = sub.add_parser(
+        "sanitize",
+        help="replace every < with { and every > with } in the on-disk description",
+    )
+    p_san.add_argument("skill_md", help="path to SKILL.md")
+    p_san.set_defaults(func=_cmd_sanitize)
 
     return parser
 

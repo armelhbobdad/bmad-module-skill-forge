@@ -22,6 +22,7 @@ system-wide:
   uv run skf-validate-frontmatter.py <skill-md-path> --skill-dir-name <name>
   uv run skf-validate-frontmatter.py <skill-md-path> --max-body-lines 500
   uv run skf-validate-frontmatter.py <skill-md-path> --max-body-lines 500 --max-body-tokens 5000
+  uv run skf-validate-frontmatter.py <skill-md-path> --forbid-angle-brackets
 
 Input:
   Path to a SKILL.md file.
@@ -37,6 +38,11 @@ Input:
   estimated as ceil(character_count / 4). skill-check treats
   `body.max_tokens` as a non-blocking warning, so this is advisory — the
   hard body pre-check is --max-body-lines.
+  Optional --forbid-angle-brackets: when set, count the `<` and `>` in the
+  description and emit a high-severity `description` issue when there are
+  any. Opt-in — create-skill passes it; other callers keep today's verdict.
+  The Claude platform does not accept a skill description that contains XML
+  tags; the agentskills.io specification has no such rule.
 
 Output:
   JSON object:
@@ -44,6 +50,9 @@ Output:
     issues:     list of { severity, field, message }
     frontmatter: parsed frontmatter dict (if parseable)
     body_lines: int body-line count, or null when delimiters are absent
+    description_angle_brackets: int count of `<` and `>` in the description,
+                or null unless --forbid-angle-brackets is set and the
+                description is a non-blank string
     summary:    { total, high, medium, low }
 
 Exit codes:
@@ -69,6 +78,13 @@ ALLOWED_FIELDS = frozenset({
 MAX_SKILL_NAME_LENGTH = 64
 MAX_DESCRIPTION_LENGTH = 1024
 MAX_COMPATIBILITY_LENGTH = 500
+
+
+def count_angle_brackets(desc) -> int | None:
+    """Count `<` and `>` in a description; None when it is not a non-blank string."""
+    if not isinstance(desc, str) or not desc.strip():
+        return None
+    return desc.count("<") + desc.count(">")
 
 
 def parse_frontmatter(content: str) -> tuple[dict | None, list[dict]]:
@@ -249,6 +265,7 @@ def validate_frontmatter(
     skill_dir_name: str | None = None,
     max_body_lines: int | None = None,
     max_body_tokens: int | None = None,
+    forbid_angle_brackets: bool = False,
 ) -> dict:
     """Validate SKILL.md frontmatter against agentskills.io spec.
 
@@ -256,11 +273,15 @@ def validate_frontmatter(
     issue if the body exceeds that many lines. When `max_body_tokens` is
     set, emit a low-severity (advisory) `body` issue if the estimated token
     count exceeds that limit — skill-check treats body.max_tokens as a
-    non-blocking warning. Both are opt-in — the verdict is unchanged when
-    they are None. Returns a result dict with status, issues, frontmatter,
-    body_lines, body_tokens, and summary.
+    non-blocking warning. When `forbid_angle_brackets` is true, count the
+    `<` and `>` in the description as `description_angle_brackets` and emit
+    a high-severity `description` issue when there are any. All three are
+    opt-in — the verdict is unchanged when they are unset. Returns a result
+    dict with status, issues, frontmatter, body_lines, body_tokens,
+    description_angle_brackets, and summary.
     """
     fm, issues = parse_frontmatter(content)
+    angle_brackets = None
 
     body_lines = body_line_count(content)
     if max_body_lines is not None and body_lines is not None and body_lines > max_body_lines:
@@ -301,6 +322,17 @@ def validate_frontmatter(
                 "field": "description",
                 "message": f"description exceeds {MAX_DESCRIPTION_LENGTH} chars ({len(desc)} chars)",
             })
+        if forbid_angle_brackets:
+            angle_brackets = count_angle_brackets(desc)
+            if angle_brackets:
+                issues.append({
+                    "severity": "high",
+                    "field": "description",
+                    "message": (
+                        f"description contains {angle_brackets} angle bracket(s) ('<' or '>'); "
+                        "the Claude platform does not accept XML tags in a skill description"
+                    ),
+                })
 
         # Compatibility: optional, max 500 chars
         compat = fm.get("compatibility")
@@ -345,6 +377,7 @@ def validate_frontmatter(
         "frontmatter": fm,
         "body_lines": body_lines,
         "body_tokens": body_tokens,
+        "description_angle_brackets": angle_brackets,
         "summary": {
             "total": len(issues),
             **severity_counts,
@@ -360,7 +393,8 @@ def main() -> int:
             "\n"
             "Checks: frontmatter delimiters, name format (Unicode letters + digits +\n"
             "hyphens, no consecutive/trailing hyphens), name-directory match,\n"
-            "description presence and length, compatibility length, and unknown fields.\n"
+            "description presence and length, compatibility length, unknown fields,\n"
+            "and (with --forbid-angle-brackets) angle brackets in the description.\n"
             "\n"
             "Exit code 0 means pass (no high-severity issues).\n"
             "Exit code 1 means fail (high-severity issues found)."
@@ -402,6 +436,15 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--forbid-angle-brackets",
+        action="store_true",
+        help=(
+            "count the '<' and '>' in the description and emit a high-severity "
+            "'description' issue when there are any (opt-in). The Claude platform "
+            "does not accept XML tags in a skill description."
+        ),
+    )
+    parser.add_argument(
         "-o", "--output",
         metavar="FILE",
         help="write JSON output to FILE instead of stdout",
@@ -416,12 +459,15 @@ def main() -> int:
             "issues": [{"severity": "high", "field": "file", "message": f"File not found: {skill_md_path}"}],
             "frontmatter": None,
             "body_lines": None,
+            "description_angle_brackets": None,
             "summary": {"total": 1, "high": 1, "medium": 0, "low": 0},
         }
     else:
         content = skill_md_path.read_text(encoding="utf-8")
         skill_dir_name = args.skill_dir_name or skill_md_path.parent.name
-        result = validate_frontmatter(content, skill_dir_name, args.max_body_lines, args.max_body_tokens)
+        result = validate_frontmatter(
+            content, skill_dir_name, args.max_body_lines, args.max_body_tokens, args.forbid_angle_brackets
+        )
 
     output_text = json.dumps(result, indent=2)
 

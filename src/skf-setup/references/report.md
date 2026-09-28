@@ -87,7 +87,7 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
   CCC Index:
   {if ccc_index_result is "fresh": up to date — semantic discovery ready}
   {if ccc_index_result is "created": indexed this run — semantic discovery ready}
-  {if ccc_index_result is "skipped": skipped (--ccc-skip-index) — run `/skf-setup` without --ccc-skip-index to build the index when you're ready}
+  {if ccc_index_result is "skipped": skipped (--ccc-skip-index) — run `/skf-setup` without --ccc-skip-index to build or refresh the index when you're ready}
   {if ccc_index_result is "failed": indexing failed — semantic discovery unavailable this session ({ccc_indexing_failed_reason})}
   {if ccc_exclusion_warnings is non-empty:}
   CCC exclusion notes:
@@ -133,7 +133,9 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 
 {if {tier_changed} is false and {tools_added} is empty and {tools_removed} is empty and {previous_tier} is non-null:}
   {same-tier message from tier-rules.md}
-  {if preferences_yaml_created is false and settings_yml_written is false and (ccc_index_result is "fresh" or ccc_index_result is "none" or ccc_index_result is "skipped"): Nothing changed — your preferences were left untouched and the index was already current. You're good.}
+  {if preferences_yaml_created is false and settings_yml_written is false and ccc_index_result is "fresh": Your preferences and ccc settings were left untouched, and the ccc index was already current.}
+  {if preferences_yaml_created is false and settings_yml_written is false and ccc_index_result is "skipped": Your preferences and ccc settings were left untouched; the ccc index was not checked (--ccc-skip-index).}
+  {if preferences_yaml_created is false and ccc_index_result is "none": Your preferences were left untouched.}
 
 {if {tier_changed} is false and ({tools_added} or {tools_removed} is non-empty) and {previous_tier} is non-null:}
   Tier unchanged: {calculated_tier}.
@@ -149,6 +151,8 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 ```
 
 All re-run-delta context flags (`{tools_added}`, `{tools_removed}`, `{tier_changed}`) come from the detector's `deltas` block bound in stage 1 — no LLM-side recomputation, no set arithmetic in prose.
+
+Each `{ccc_exclusion_warnings}` entry that names the project root in SKF's own words carries the literal `{project-root}`: render it the way the banner's own `{project-root}` paths are rendered, and show text quoted from ccc or git as it is. An entry about an unresolved template placeholder names `{project-root}` as the placeholder the helper resolves, not a folder: show that entry as it is too. Section 4 forwards the entries verbatim, so the envelope keeps the placeholder.
 
 ### 3. Display Required-Tier Failure Block (when applicable; skip when `{headless_mode}` or `{quiet_mode}` is true)
 
@@ -207,6 +211,8 @@ echo '{
   "error": null
 }' | uv run {emitEnvelopeHelper} emit
 ```
+
+`{ccc_exclusion_warnings_list}` is `{ccc_exclusion_warnings}` as a JSON list of strings, each entry exactly as step 1b bound it: do not resolve the `{project-root}` inside an entry, even though `config_path` resolves its own.
 
 `error` stays `null`: a halt that names a phase never reaches this step, because it displays its own blocked envelope.
 

@@ -139,8 +139,9 @@ def _has_skf_metadata(path: Path) -> bool:
             and ("forge_tier" in data or "confidence_tier" in data))
 
 
-# Keep identical to _is_link_or_junction in skf-atomic-write.py, skf-enumerate-stack-skills.py
-# and skf-validate-rename-name.py (test/test-skf-skill-inventory.py pins the copies).
+# Keep identical to _is_link_or_junction in skf-atomic-write.py, skf-enumerate-stack-skills.py,
+# skf-validate-rename-name.py, skf-source-tree.py and skf-tessl-review.py
+# (test/test-skf-skill-inventory.py pins the copies).
 def _is_link_or_junction(p: Path) -> bool:
     """True for POSIX symlinks AND Windows junctions/symlinks.
 
@@ -212,7 +213,9 @@ FORGE_GROUP_DIRS = frozenset({"_campaign", "improvement-queue"})
 # (test/test-skf-skill-inventory.py pins the copies).
 FORGE_VERSION_ANCHORS = frozenset({"provenance-map.json", "evidence-report.md", "extraction-rules.yaml"})
 # The other names SKF writes into a forge version folder
-# (knowledge/version-paths.md, forge_data_folder tree).
+# (knowledge/version-paths.md, forge_data_folder tree), and
+# .manual-inventory.json, which update-skill kept there before it kept
+# that inventory beside its lock.
 FORGE_VERSION_FILES = FORGE_VERSION_ANCHORS | frozenset({
     "evidence-report-fallback.md", "extraction-snapshot.json", ".manual-inventory.json",
     ".test-skill.lock"})

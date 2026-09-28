@@ -39,6 +39,7 @@ description: >
   - **Naming convention:** Prefer gerund form (verb + -ing) for clarity: `processing-pdfs`, `analyzing-spreadsheets`, `managing-databases`. Noun phrases (`pdf-processing`) and action-oriented forms (`process-pdfs`) are acceptable alternatives. Avoid vague names (`helper`, `utils`, `tools`).
 - `description`: 1-1024 characters, trigger-optimized for agent matching
   - **MUST use third-person voice.** The description is injected into the system prompt; inconsistent point-of-view causes discovery problems. Write "Processes Excel files and generates reports" — never "I can help you process Excel files" or "You can use this to process Excel files."
+  - **No XML tags.** The Claude platform does not accept a description that contains XML tags; write `{name}` or `NAME` instead of `<name>`. Create-skill replaces every `<` and `>` in the description with `{` and `}` and checks the result.
 
 **Body:** Free-form markdown — no structural restrictions, but Skill Forge follows a consistent section order (see skill-sections.md in create-skill/assets/).
 
@@ -141,6 +142,7 @@ the user's configuration against the expected structure.
 4. SKILL.md body under 500 lines (warning, not failure)
 5. All relative paths resolve to existing files
 6. No deeply nested subdirectories (max one level)
+7. `description` holds no `<` or `>` (the Claude platform does not accept XML tags in a description)
 
 **Key Points:**
 - Compliance is checked during create-skill, not as a post-hoc audit

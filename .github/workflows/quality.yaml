@@ -132,6 +132,11 @@ jobs:
       - name: Test the docs link guard
         run: npm run test:docs-links-tool
 
+      # validate:refs runs with --strict in this job, so its rules get their
+      # own tests against fixture trees, like the docs link guard above.
+      - name: Test the file reference validator
+        run: npm run test:file-refs-tool
+
   # Builds the real site and resolves every emitted href, src, and srcset
   # against the file tree. `docs/` is read both on GitHub and as the published
   # site, and a link can be valid in one and dead in the other while every

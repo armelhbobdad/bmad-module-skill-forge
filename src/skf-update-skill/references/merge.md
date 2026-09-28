@@ -2,6 +2,14 @@
 nextStepFile: 'validate.md'
 manualSectionRulesFile: 'references/manual-section-rules.md'
 mergeConflictRulesFile: 'references/merge-conflict-rules.md'
+# Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
+# (installed SKF module path first, src/ dev-checkout fallback); first
+# existing path wins. HALT if neither resolves when §6b creates a version
+# folder — a folder copied in place instead of staged and renamed would
+# leave a half-copied version behind on any failure.
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -70,9 +78,9 @@ Apply merge in the following priority order:
 Category D operates on every `file_entries[]` row regardless of `file_type`. Handle each entry by its type:
 
 - **`file_type: "script"` or `file_type: "asset"`:**
-  - MODIFIED_FILE: queue file for re-copy from source, update `file_entries` content_hash
+  - MODIFIED_FILE: queue file for re-copy from `{source_root}`, update `file_entries` content_hash
   - DELETED_FILE: queue file for removal from `scripts/` or `assets/`, remove from `file_entries`
-  - NEW_FILE: queue file for copy from source, add to `file_entries`
+  - NEW_FILE: queue file for copy from `{source_root}`, add to `file_entries`
   - Files in `scripts/[MANUAL]/` or `assets/[MANUAL]/` are never modified (user-authored)
   - Update Section 7b manifest table to reflect changes
   - Update `metadata.json` `scripts[]`/`assets[]` arrays and `stats.scripts_count`/`stats.assets_count`
@@ -168,16 +176,43 @@ Merge Results:
 
 Write the merged content produced by sections 3–4 directly to disk now. Later steps read from these files for validation and verification. The write must happen exactly once, here.
 
+**Choose the version this update writes** and bind `{new_version}`:
+
+- **Gap-driven mode** (`update_mode` is `gap-driven`): a repair keeps the version it repairs — `{new_version}` is the metadata.json `version`, SKILL.md is written into the current `{skill_package}`, and the version folder below is skipped.
+- **Every other mode** (normal, degraded and docs-only): `{new_version}` is `{source_version_detected}` when step 1 §6c recorded one (a higher version than the previous metadata version), otherwise the previous version with its patch number incremented, named by the Version Sanitization rules of `knowledge/version-paths.md`.
+
+**Create the version folder** (every mode but gap-driven). Each version keeps a folder of its own (`knowledge/version-paths.md`), so the previous version stays on disk unchanged and step 6 §5b can point the `active` link at the new one:
+
+1. **Never overwrite a version.** If `{skill_group}/{new_version}/` or `{forge_data_folder}/{skill_name}/{new_version}/` already exists, HALT with status `halted-for-write-failure` before writing anything: "**Version {new_version} of {skill_name} already exists** at `{the folder that exists}`. Update Skill writes each version into a folder of its own, never overwrites one, and updates the version the `active` link names, which is not {new_version}. If an earlier update stopped after creating {new_version}, delete `{skill_group}/{new_version}/` and `{forge_data_folder}/{skill_name}/{new_version}/` by hand, then re-run. If you keep {new_version} on purpose, move both folders out of the way by hand before updating. Drop Skill removes a single version only when the export manifest lists it (`@Ferris DS {skill_name}`, choose {new_version}, with `--purge`); for a skill that was never exported it can only drop every version." In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "merge:new-version-folder", path: "{the folder that exists}", reason: "version {new_version} already exists; update-skill never overwrites a version"}`).
+2. **Stage the package.** Resolve `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` and, from `{project-root}`, run:
+
+   ```bash
+   uv run {atomicWriteHelper} stage-dir --target "{skill_group}/{new_version}"
+   ```
+
+   Bind `{version_staging}` ← `staging`: the empty folder `{skill_group}/{new_version}.skf-tmp` it created (it clears one an interrupted run left).
+3. **Copy the current package** `{skill_package}` to `{version_staging}/{skill_name}`, naming both without a trailing `/` — equivalent to `cp -a "{skill_package}" "{version_staging}/{skill_name}"`: SKILL.md, metadata.json, context-snippet.md, `references/`, `scripts/`, `assets/` and every other entry, each link copied as a link and never followed. The files this update does not rewrite carry over to the new version this way.
+4. **Publish it.** Run:
+
+   ```bash
+   uv run {atomicWriteHelper} commit-dir --target "{skill_group}/{new_version}"
+   ```
+
+   It renames the staged folder to `{skill_group}/{new_version}/` in one step, so no reader ever sees a half-copied version.
+5. **Create the forge folder** `{forge_data_folder}/{skill_name}/{new_version}/` and copy `provenance-map.json`, `evidence-report.md` and `extraction-rules.yaml` from `{forge_version}` into it, each when it exists: step 6 updates the provenance map and appends this update to the evidence report there, and audit-skill reads the extraction rules there. Test reports, drift reports and result files belong to the version they were made for and stay where they are.
+6. **Rebind** `{skill_package}` ← `{skill_group}/{new_version}/{skill_name}` and `{forge_version}` ← `{forge_data_folder}/{skill_name}/{new_version}`. Every later step reads and writes the new version there; `{manual_inventory}` keeps the path step 1 wrote it to.
+
+If no `{atomicWriteProbeOrder}` candidate resolves, or the stage, copy, publish or forge-folder step fails, remove what this section created — `{version_staging}`, `{skill_group}/{new_version}/` and `{forge_data_folder}/{skill_name}/{new_version}/`, none of which existed before the first step — and HALT with status `halted-for-write-failure`, naming the failed step (for a missing helper: "skf-atomic-write.py is missing; re-install SKF"). The previous version is unchanged. In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "merge:new-version-folder", path: "{skill_group}/{new_version}", reason: "..."}`).
+
 **Write SKILL.md:**
-- Use the `Edit` or `Write` tool to write merged SKILL.md content to `{skill_package}/SKILL.md`
+- Use the `Edit` or `Write` tool to write merged SKILL.md content to `{skill_package}/SKILL.md` — the new version's package, or the current one in gap-driven mode
 - Preserve UTF-8 encoding
-- If the source version detected during step 3 differs from the previous metadata version, create the new `{skill_package}` directory (`{skill_group}/{new_version}/`) first and write there — the previous version's directory is preserved on disk. Update `{skill_package}` in context to point at the new path.
 
 **Do NOT write here:**
-- `metadata.json`, `provenance-map.json`, `evidence-report.md` — derived from merge + validation output, written by step 6 sections 2–4
+- `metadata.json`, `provenance-map.json`, `evidence-report.md` — derived from merge + validation output, written by step 6 sections 2–4 (the version folder above only copies the previous version's files, which step 6 then rewrites)
 - `context-snippet.md` — regenerated from the on-disk SKILL.md + metadata.json by step 6 section 5
 
-**Halt-on-tool-failure:** If any `Edit`/`Write` call errors (permission denied, disk full, path invalid, etc.), halt with status `halted-for-write-failure` and report the failure — do not proceed to step 5 validation. The skill package may be in a partial state and will need manual recovery before re-running update-skill. In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "merge:write-skill-md", path: "{skill_package}/SKILL.md", reason: "..."}`).
+**Halt-on-tool-failure:** If any `Edit`/`Write` call errors (permission denied, disk full, path invalid, etc.), halt with status `halted-for-write-failure` and report the failure — do not proceed to step 5 validation. When this run created `{skill_group}/{new_version}/`, the previous version is unchanged: delete `{skill_group}/{new_version}/` and `{forge_data_folder}/{skill_name}/{new_version}/` before re-running update-skill. In gap-driven mode the skill package may be in a partial state and needs manual recovery first. In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {phase: "merge:write-skill-md", path: "{skill_package}/SKILL.md", reason: "..."}`).
 
 ### 7. Display Merge Summary
 

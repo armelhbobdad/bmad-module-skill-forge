@@ -1247,6 +1247,69 @@ def test_skip_lane_warning_reports_add_and_prune_counts(tmp_path, tmp_project):
     assert payload["patterns_removed_list"] == ["old-skills"]
     [warning] = _warnings_with(payload, "--ccc-skip-index")
     assert "(+1, -1)" in warning
+    # The literal placeholder is intended: setup's banner renders it like its
+    # own {project-root} paths, and the envelope keeps it verbatim.
+    assert warning.endswith(
+        "; run ccc index in {project-root} or re-run /skf-setup without --ccc-skip-index")
+    assert tmp_project.as_posix() not in warning
+
+
+# Each family of warning SKF words itself, with the text that names the root.
+ROOT_PLACEHOLDER_WARNINGS = {
+    "refused": "fix the value in {project-root}/_bmad/skf/config.yaml",
+    "uncovered": "add /.cocoindex_code/ to {project-root}/.gitignore",
+    "collision": "set skills_output_folder in {project-root}/_bmad/skf/config.yaml",
+    "rebuild": "fix ccc init in {project-root} and re-run /skf-setup",
+    "skipped": "run ccc index in {project-root} or re-run /skf-setup",
+}
+
+
+def test_warnings_name_the_project_root_as_the_placeholder(tmp_path, failing_init):
+    projects = {name: tmp_path / name for name in ROOT_PLACEHOLDER_WARNINGS}
+    payloads = {}
+    _seed_ccc_settings(projects["refused"])
+    payloads["refused"] = _merge(projects["refused"], skills="/abs")
+    _git_repo(projects["uncovered"])
+    _seed_ccc_settings(projects["uncovered"])
+    payloads["uncovered"] = _merge(projects["uncovered"])
+    _git_repo(projects["collision"], MODULE_SOURCE)
+    _seed_ccc_settings(projects["collision"])
+    payloads["collision"] = _merge(projects["collision"])
+    _seed_bare_settings(projects["rebuild"], LEGACY_SKF)
+    payloads["rebuild"] = _merge(projects["rebuild"], allow_ccc_init=True)
+    _seed_ccc_settings(projects["skipped"])
+    payloads["skipped"] = _merge(projects["skipped"], skip_index=True)
+    for name, needle in ROOT_PLACEHOLDER_WARNINGS.items():
+        [warning] = _warnings_with(payloads[name], needle)
+        for form in _root_forms(projects[name]):
+            assert form not in warning, (name, warning)
+    # not_ready_reason follows the same rule. A failed rebuild and a failed
+    # first ccc init each give one.
+    projects["uninit"] = tmp_path / "uninit"
+    projects["uninit"].mkdir()
+    payloads["uninit"] = _merge(projects["uninit"], allow_ccc_init=True)
+    for name in ("rebuild", "uninit"):
+        assert payloads[name]["not_ready_reason"], name
+    for name, payload in payloads.items():
+        reason = payload["not_ready_reason"] or ""
+        for form in _root_forms(projects[name]):
+            assert form not in reason, (name, reason)
+
+
+def _root_forms(project: Path) -> set[str]:
+    # Messages reach setup with `/` (payload safety), and resolve() covers
+    # /private/var on macOS and 8.3 short names on Windows.
+    return {str(project), project.as_posix(), project.resolve().as_posix()}
+
+
+def test_placeholder_refusal_names_the_placeholder_not_the_root(tmp_project):
+    # The one SKF-worded warning whose {project-root} is the placeholder's
+    # name, not a folder: report.md tells the banner to show it as it is.
+    _seed_ccc_settings(tmp_project)
+    payload = _merge(tmp_project, skills="{output_folder}/skills")
+    [warning] = _warnings_with(payload, "unresolved template placeholder")
+    assert warning.endswith("let this script resolve {project-root}")
+    assert "unresolved template placeholder" in _report_exclusion_note()
 
 
 # ─── Collision check (real git, cleaned environment) ───────────────────────
@@ -2856,6 +2919,23 @@ def test_docs_warn_against_negations_in_skf_folders():
     assert "a path one level inside it" not in " ".join(mod.__doc__.split())
 
 
+def test_docstring_says_where_the_project_root_placeholder_applies():
+    doc = " ".join(mod.__doc__.split())
+    for sentence in (
+        "when a warning or `not_ready_reason` names the project root in SKF's own words, "
+        "it writes the literal `{project-root}` placeholder, never the absolute path.",
+        "Setup's step 4 banner renders a warning's placeholder like its own "
+        "`{project-root}` paths, and the envelope keeps it verbatim.",
+        "The unresolved-placeholder refusal writes `{project-root}` too, as the name of the "
+        "placeholder this script resolves rather than a folder, and the banner shows that "
+        "warning as it is.",
+        "Output and errors quoted from `ccc init` or git can carry paths of their own, "
+        "the project root included.",
+        "Error messages on stderr name absolute paths.",
+    ):
+        assert sentence in doc, sentence
+
+
 # ─── Prose pins on the step files that consume the helper output ────────────
 
 
@@ -2926,3 +3006,126 @@ def test_report_shows_removed_count_notes_and_gitignore():
     assert "{settings_yml_patterns_removed}" in section_2
     assert "ccc_exclusion_warnings" in section_2
     assert "gitignore_updated is true" in section_2
+
+
+SAME_TIER_MESSAGE = "{same-tier message from tier-rules.md}"
+# What a same-tier closing line may claim, and the condition that backs it.
+CLOSING_CLAIMS = {
+    "your preferences": "preferences_yaml_created is false",
+    "ccc settings were left untouched": "settings_yml_written is false",
+    "the ccc index was already current": 'ccc_index_result is "fresh"',
+    "the ccc index was not checked (--ccc-skip-index)": 'ccc_index_result is "skipped"',
+}
+# The only terms a closing-line condition may join, and only with " and ".
+CLOSING_TERMS = {"preferences_yaml_created is false", "settings_yml_written is false"} | {
+    f'ccc_index_result is "{status}"' for status in ("fresh", "skipped", "none")}
+INDEX_STATUS_RE = re.compile(r'ccc_index_result is "([a-z]+)"')
+BANNER_LINE_RE = re.compile(r"\{if (.+?): (.+)\}")
+EXCLUSION_NOTE = "`{ccc_exclusion_warnings}` entry"
+FORWARD_NOTE = "`{ccc_exclusion_warnings_list}` is"
+
+
+def _report_section(number: int) -> str:
+    text = REPORT_STEP.read_text(encoding="utf-8")
+    start, end = f"\n### {number}. ", f"\n### {number + 1}. "
+    for marker in (start, end):
+        assert text.count(marker) == 1, marker
+    return text.split(start, 1)[1].split(end, 1)[0]
+
+
+def _paragraph(section: str, marker: str) -> str:
+    """The one blank-line-separated paragraph holding marker, outside any fence.
+
+    Inside a fence it would be template text the user sees, not an
+    instruction.
+    """
+    [paragraph] = [p for p in section.split("\n\n") if marker in p]
+    before = section[:section.index(marker)]
+    fences = sum(line.lstrip().startswith("```") for line in before.splitlines())
+    assert fences % 2 == 0, f"{marker!r} sits inside a code fence"
+    return paragraph
+
+
+def _report_exclusion_note() -> str:
+    return _paragraph(_report_section(2), EXCLUSION_NOTE)
+
+
+def _same_tier_closing_lines() -> list[tuple[str, str]]:
+    """(condition, shown text) for each line under the same-tier message."""
+    section = _report_section(2)
+    assert section.count(SAME_TIER_MESSAGE) == 1
+    block = section.split(SAME_TIER_MESSAGE, 1)[1].split("\n\n", 1)[0]
+    lines = []
+    for line in block.splitlines():
+        if not line.strip():
+            continue
+        m = BANNER_LINE_RE.fullmatch(line.strip())
+        assert m, f"not a conditional banner line: {line!r}"
+        lines.append((m.group(1), m.group(2)))
+    assert lines, "no closing line under the same-tier message"
+    return lines
+
+
+def test_report_calls_the_index_current_only_after_checking_it():
+    claims = [line.strip() for line in _report_section(2).splitlines()
+              if "already current" in line.lower() or "up to date" in line.lower()]
+    assert len(claims) >= 2
+    for line in claims:
+        m = BANNER_LINE_RE.fullmatch(line)
+        assert m, f"not a conditional banner line: {line!r}"
+        condition = m.group(1)
+        # Only this run's index status backs the claim: no "or", and no other
+        # index term such as the prior record's freshness.
+        assert " or " not in condition, condition
+        index_terms = [INDEX_STATUS_RE.fullmatch(term)
+                       for term in condition.split(" and ") if "index" in term]
+        assert index_terms, line
+        assert all(t and t.group(1) in {"fresh", "created"} for t in index_terms), line
+
+
+def test_report_same_tier_closing_lines_claim_only_what_they_check():
+    by_status = {}
+    for condition, shown in _same_tier_closing_lines():
+        # A plain conjunction of known terms: an "or", or a term such as the
+        # prior record's freshness, would let a line claim what it never checked.
+        assert all(term in CLOSING_TERMS for term in condition.split(" and ")), condition
+        [status] = INDEX_STATUS_RE.findall(condition)
+        assert status not in by_status, status
+        by_status[status] = shown
+        for claim, backing in CLOSING_CLAIMS.items():
+            assert (claim in shown.lower()) == (backing in condition), (claim, condition)
+        # The banner can list removed collections, exclusion notes or
+        # forge-tier.yaml above this line, so it never sums the run up.
+        for summary in ("nothing changed", "you're good"):
+            assert summary not in shown.lower(), shown
+    assert set(by_status) == {"fresh", "skipped", "none"}
+    assert "index" not in by_status["none"].lower()
+
+
+def test_report_skip_lane_and_exclusion_notes_wording():
+    section = _report_section(2)
+    [skipped] = [line for line in section.splitlines()
+                 if line.strip().startswith('{if ccc_index_result is "skipped": skipped')]
+    assert "without --ccc-skip-index to build or refresh the index" in skipped
+    note = _report_exclusion_note()
+    for needle in (
+        "entry that names the project root in SKF's own words carries the literal `{project-root}`",
+        "render it the way the banner's own `{project-root}` paths are rendered",
+        "show text quoted from ccc or git as it is",
+        "An entry about an unresolved template placeholder names `{project-root}` as the "
+        "placeholder the helper resolves, not a folder: show that entry as it is too.",
+        "the envelope keeps the placeholder",
+    ):
+        assert needle in note, needle
+
+
+def test_report_envelope_forwards_exclusion_warnings_verbatim():
+    # Section 2's note says the envelope keeps the placeholder, but only
+    # section 4 runs under headless and quiet, so the instruction sits there.
+    note = _paragraph(_report_section(4), FORWARD_NOTE)
+    for needle in (
+        "`{ccc_exclusion_warnings_list}` is `{ccc_exclusion_warnings}` as a JSON list of strings",
+        "each entry exactly as step 1b bound it",
+        "do not resolve the `{project-root}` inside an entry",
+    ):
+        assert needle in note, needle

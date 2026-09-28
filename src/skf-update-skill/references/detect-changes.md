@@ -102,6 +102,8 @@ Load the test report at `{test_report_path}` and extract findings:
 
 ### 1. Scan Current Source State
 
+`{source_root}` is the tree init.md §6b prepared at `{target_commit}` when `{source_tree_status}` is `ready` or `offline`, and otherwise the skill's local source. **If `{source_tree_status}` is `ready` or `offline` and `{source_root}` no longer exists**, HALT with status `blocked` per SKILL.md's source-tree rule (`error.phase` `detect-changes:source-tree-missing`): reading a missing tree would report every file deleted. In a tree every file's timestamp is the time of the checkout, so §2.1 Category A takes added, modified and deleted files from `{source_changed_files}`.
+
 Read the source directory at `{source_root}` and build a current file inventory:
 - For each source file: record path, file size, last modified timestamp
 - Focus on file types relevant to the skill (from provenance map file patterns)
@@ -302,13 +304,22 @@ Record the set size: "**Change-detection excludes:** {count} paths ({promoted_do
 
 #### 2.1 — Launch Category Subprocesses
 
-Launch subprocesses in parallel that compare source state against provenance map across these categories, returning change findings per category. **Every subprocess receives `change_detection_excludes` as an explicit input** and applies it to its file-path iteration loop.
+Launch subprocesses in parallel that compare source state against provenance map across these categories, returning change findings per category. **Every subprocess receives `change_detection_excludes` as an explicit input** and applies it to its file-path iteration loop; the Category A worker also receives `{source_tree_status}`, `{source_diff_status}`, `{source_changed_files}` and the brief's `scope.include` and `scope.exclude` globs and its `scope.amendments[]` (`{forge_data_folder}/{skill_name}/skill-brief.yaml`, as §1c left it), and the Category C worker `{source_tree_status}`.
 
 **Category A — File-level changes:**
-- Files in provenance map but missing from source → DELETED
-- Files in source but not in provenance map AND not in `change_detection_excludes` → ADDED
-- Files in `change_detection_excludes`: skip entirely (routed to file_entries via §1b → step 4 Priority 7, never through Category A)
-- Files in both but with different timestamps/sizes → MODIFIED
+
+A tracked file is one a provenance-map `entries[].source_file` names. Files in `change_detection_excludes`: skip entirely (routed to file_entries via §1b → step 4 Priority 7, never through Category A).
+
+- **When `{source_diff_status}` is `ok`** (a source tree, with git's list of the files changed since `{source_commit}`): read the JSON file at `{source_changed_files}` and take file-level changes from its `files[]` — never from timestamps or sizes, which a checkout rewrites, and never from the provenance map alone, which leaves out in-scope files that export nothing (an `__init__.py`), so they would read as ADDED on every run.
+  - ADDED: a file the provenance map does not name, inside the brief's scope (a `scope.include` glob matches it and no `scope.exclude` glob does), that has an `A` or `M` row — a file that exported nothing when the map was built can gain an export — or that a glob matches which a `scope.amendments[]` entry with `action` `promoted` and `category` `scope-expansion` names while no tracked file matches that glob yet: §1c promoted it, and its files were never extracted, whether they changed or not. When the brief's `scope.include` is empty, take ADDED as for a local source below instead.
+  - DELETED: a tracked file with a `D` row, or one `{source_root}` does not hold
+  - MODIFIED: a tracked file with an `M` or `A` row
+  - Every other file is unchanged.
+- **When `{source_tree_status}` is `ready` or `offline` and `{source_diff_status}` is `unavailable`:** take ADDED and DELETED as for a local source below, treat every tracked file present in `{source_root}` as MODIFIED, so Category B compares its exports, and add `file-diff-unavailable: {source_commit} could not be read, so every tracked file was re-checked` to `warnings[]`.
+- **Otherwise (a local source):**
+  - Files in provenance map but missing from source → DELETED
+  - Files in source but not in provenance map AND not in `change_detection_excludes` → ADDED
+  - Files in both whose timestamps or sizes differ → MODIFIED
 - Files with same content at different paths → MOVED
 
 **Category B — Export-level changes (for MODIFIED files only):**
@@ -320,7 +331,7 @@ Launch subprocesses in parallel that compare source state against provenance map
 
 **Category C — Rename detection:**
 - Cross-reference deleted files/exports with added files/exports
-- If content similarity > 80% (fixed bundled threshold — not configurable): classify as RENAMED instead of deleted+added. **Similarity mechanism by tier:** Quick: compare file size ratio (within 20%) and export name overlap (>70% of exports match by name). Forge and above: use ast-grep to compare export signatures between the deleted and added files. Forge+/Deep: use CCC semantic similarity when available
+- If content similarity > 80% (fixed bundled threshold — not configurable): classify as RENAMED instead of deleted+added. **Similarity mechanism by tier:** Quick: compare file size ratio (within 20%) and export name overlap (>70% of exports match by name). Forge and above: use ast-grep to compare export signatures between the deleted and added files. Forge+/Deep: use CCC semantic similarity when available — except when `{source_tree_status}` is `ready` or `offline`: the tree init.md §6b prepared has no ccc index, and a search there could start indexing a folder step 8 deletes, so keep the ast-grep comparison
 
 **Subprocess return contract.** Hand each Category worker its exact output slice so it returns parse-ready JSON, not prose the parent must re-read. Each worker returns ONLY its own object — no prose, no commentary, no markdown fences (parent strips wrapping fences before parsing). The slice each worker fills is exactly the key §3's `build` helper consumes (the `category_a/b/c` shape below; Category D is helper-driven, not a worker):
 

@@ -96,7 +96,6 @@ The inner `{skill-name}/` directory IS the agentskills.io-compliant skill packag
       extraction-rules.yaml
       evidence-report-fallback.md
       extraction-snapshot.json
-      .manual-inventory.json
       .test-skill.lock
       test-report-{skill-name}-{run_id}.md
       drift-report-{timestamp}.md
@@ -108,7 +107,7 @@ The inner `{skill-name}/` directory IS the agentskills.io-compliant skill packag
 
 `skill-brief.yaml` stays at `{forge_group}` level — the brief is a workflow input that defines extraction scope, not a versioned output.
 
-The brief's `.bak` copy and `.brief-draft.json` sit beside it, and a stack group also holds `create-stack-skill-result-latest.json`. Names holding `.skf-` (locks such as `.skf-update.lock`, and staging) and a stack's `*-tmp` staging folders are SKF's too; while a rename runs, its lock is `{forge_data_folder}/.skf-rename-{skill-name}.lock`. `_campaign/` and `improvement-queue/` are SKF's own folders, never a skill's. Older skills may still hold the provenance map, evidence report, extraction rules and test reports directly in `{skill-name}/` (the flat layout — see Migration).
+The brief's `.bak` copy and `.brief-draft.json` sit beside it, and a stack group also holds `create-stack-skill-result-latest.json`. Names holding `.skf-` (locks such as `.skf-update.lock`, update-skill's `.skf-update-manual-inventory.json` beside it, and staging) and a stack's `*-tmp` staging folders are SKF's too; while a rename runs, its lock is `{forge_data_folder}/.skf-rename-{skill-name}.lock`. `_campaign/` and `improvement-queue/` are SKF's own folders, never a skill's. Older skills may still hold the provenance map, evidence report, extraction rules and test reports directly in `{skill-name}/` (the flat layout — see Migration), and a `.manual-inventory.json` in a version folder, where update-skill once kept the [MANUAL] inventory it now keeps beside its lock.
 
 ## Version Resolution
 
@@ -123,6 +122,8 @@ When writing artifacts, resolve `{version}` from the skill brief's `version` fie
 4. Create `{forge_version}` if it does not exist
 5. Write all workspace artifacts to `{forge_version}`
 6. Create or update the `active` symlink at `{skill_group}/active` pointing to `{version}`
+
+**Update-skill (US)** writes each new version into a folder of its own and never into the previous one. Before it writes the merged `SKILL.md`, it stages a copy of the current package with `skf-atomic-write.py stage-dir`, renames it into `{skill_group}/{new_version}/{skill-name}/` with `commit-dir`, creates `{forge_data_folder}/{skill-name}/{new_version}/` with copies of the provenance map, evidence report and extraction rules, and writes every artifact of the update there. It stops (`halted-for-write-failure`) rather than overwrite a version folder that already exists. `{new_version}` is the source's version when the update detected a higher one, else the next patch version. It updates the version the `active` link names when the manifest lags it (the Manifest-lag guard under Reading Workflows), so a second update before an export builds on the first. A gap-driven repair (`--from-test-report`) keeps its version and writes in place; `--detect-only` and `--dry-run` create nothing.
 
 ### Reading Workflows (EX, AS, TS)
 
@@ -240,14 +241,14 @@ Renames a skill across all versions. Because the agentskills.io spec requires `n
 1. Outer `{skill_group}` directory: `{skills_output_folder}/{old-name}/` → `{skills_output_folder}/{new-name}/`
 2. Inner `{skill-name}/` directories inside each version: `{version}/{old-name}/` → `{version}/{new-name}/`
 3. `SKILL.md` frontmatter `name:` field (in every version)
-4. `metadata.json` `name` field (in every version)
-5. `context-snippet.md` root paths and display name (in every version)
-6. `provenance-map.json` `skill_name` field (in every version under `{forge_group}`)
+4. `metadata.json` `name` field, and any path value into a moved folder, such as a recorded test report path (in every version)
+5. The name where the snippet template writes it in `context-snippet.md`: display header, first word and `writing {name} code` on the `|IMPORTANT:` line, and root paths (in every version). A field label, a fixed template word or library content that is the old name stays, and the no-trace check then rolls the rename back
+6. `provenance-map.json` `skill_name` field, and any path value into a moved folder (in every version under `{forge_group}`)
 7. `{forge_group}` directory: `{forge_data_folder}/{old-name}/` → `{forge_data_folder}/{new-name}/`, only when SKF generated it (see Ownership; a forge folder SKF did not generate keeps the old name)
 8. Export manifest: remove old key, add new key with same version data
 9. Platform context files (CLAUDE.md, AGENTS.md, .cursorrules): rebuild managed sections
 
-Rename is transactional — copy-verify-delete pattern. If any step fails, old skill remains intact. Because it moves the whole `{skill_group}`, rename refuses a folder SKF did not generate or one that also holds entries SKF did not generate (`not-skf-output`), and a skill still in the flat layout (`flat-layout`) — see Ownership. It also refuses a forge folder that holds entries SKF did not write, or that is a link, is not a folder, or cannot be listed. See `skf-rename-skill/`.
+Rename is transactional — copy-verify-delete pattern. If any step fails, old skill remains intact. The verify step is the no-trace check: before anything is deleted, it looks for the old name as a whole name in each version's `SKILL.md` frontmatter, `metadata.json`, `context-snippet.md` and `provenance-map.json`, and rolls the rename back on a match. In the two JSON files it skips the values of the keys that name the upstream source, `source_repo`, `source_root`, `source_commit`, `source_ref`, `source_package` and `source_library`: they describe the source the skill was made from, not the skill, and a rename leaves them unchanged. Because it moves the whole `{skill_group}`, rename refuses a folder SKF did not generate or one that also holds entries SKF did not generate (`not-skf-output`), and a skill still in the flat layout (`flat-layout`) — see Ownership. It also refuses a forge folder that holds entries SKF did not write, or that is a link, is not a folder, or cannot be listed. See `skf-rename-skill/`.
 
 ### Drop (DS - Drop Skill)
 

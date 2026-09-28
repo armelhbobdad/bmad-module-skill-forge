@@ -1,0 +1,182 @@
+{
+  "reviewRunId": "01a0e455-90f6-76f4-a41d-ecfcd2cea698",
+  "status": "completed",
+  "review-plugin": "tessl/default-skill-review@0.2.0",
+  "validation": {
+    "overallPassed": true,
+    "errorCount": 0,
+    "warningCount": 0,
+    "checks": [
+      {
+        "name": "skill_md_line_count",
+        "status": "passed",
+        "message": "SKILL.md line count is 196 (<= 500)"
+      },
+      {
+        "name": "frontmatter_valid",
+        "status": "passed",
+        "message": "YAML frontmatter is valid"
+      },
+      {
+        "name": "name_field",
+        "status": "passed",
+        "message": "'name' field is valid: 'oms-uitripled'"
+      },
+      {
+        "name": "description_field",
+        "status": "passed",
+        "message": "'description' field is valid (658 chars)"
+      },
+      {
+        "name": "compatibility_field",
+        "status": "passed",
+        "message": "'compatibility' field not present (optional)"
+      },
+      {
+        "name": "allowed_tools_field",
+        "status": "passed",
+        "message": "'allowed-tools' field not present (optional)"
+      },
+      {
+        "name": "metadata_version",
+        "status": "passed",
+        "message": "'metadata' field not present (optional)"
+      },
+      {
+        "name": "metadata_field",
+        "status": "passed",
+        "message": "'metadata' field not present (optional)"
+      },
+      {
+        "name": "license_field",
+        "status": "passed",
+        "message": "'license' field not present (optional)"
+      },
+      {
+        "name": "frontmatter_unknown_keys",
+        "status": "passed",
+        "message": "No unknown frontmatter keys found"
+      },
+      {
+        "name": "body_present",
+        "status": "passed",
+        "message": "SKILL.md body is present"
+      },
+      {
+        "name": "scripts_directory",
+        "status": "passed",
+        "message": "'scripts/' directory not present in bundle (optional)"
+      },
+      {
+        "name": "references_directory",
+        "status": "passed",
+        "message": "'references/' directory contains 5 file(s)"
+      },
+      {
+        "name": "assets_directory",
+        "status": "passed",
+        "message": "'assets/' directory not present in bundle (optional)"
+      },
+      {
+        "name": "relative_links",
+        "status": "passed",
+        "message": "No markdown links found"
+      },
+      {
+        "name": "referenced_paths_exist",
+        "status": "passed",
+        "message": "Referenced paths look valid"
+      }
+    ]
+  },
+  "judges": {
+    "content": {
+      "scale": {
+        "max": 5,
+        "min": 1
+      },
+      "success": true,
+      "evaluation": {
+        "scores": {
+          "conciseness": {
+            "score": 3,
+            "reasoning": "The body is dense and mostly non-obvious (no explanation of concepts Claude already knows), but it can be tightened: the install command appears three times (Quick Start, Common Workflows, and the CLI section), the 'Preferred path rationale' paragraph re-explains what the description already said, and the placeholder MANUAL comment blocks add noise. Per the guideline on time-sensitive information, version pins ('React 19', 'Next.js 16', '@uitripled/react-shadcn@0.1.0', 'CLI @1.1.0', commit 'a5ffb45b') are scattered inline rather than isolated in a versions/deprecated section, further penalizing conciseness. This lands between the level-2 and level-4 anchors, at 'mostly efficient but includes some unnecessary explanation or could be tightened'."
+          },
+          "actionability": {
+            "score": 5,
+            "reasoning": "Guidance is fully executable and copy-paste ready: exact CLI commands ('npx shadcn@latest add @uitripled/hero-section-shadcnui', 'npx uitripled add <component-id> --overwrite'), a complete Providers component, a complete page example with the required 'use client' directive, concrete type definitions, and concrete workflow recipes (block sequences, variant switching via setSelectedLibrary). It matches the level-5 anchor — specific examples cover the common cases."
+          },
+          "workflow_clarity": {
+            "score": 3,
+            "reasoning": "The Quick Start sequence (install → wrap app in providers → use component) is clearly ordered, but there are no validation checkpoints anywhere: nothing verifies the component files landed, that 'framer-motion' was added to package.json, or that the shadcn/ui upstream dependencies resolved. Since CLI install is a batch file-write operation (with an --overwrite flag that silently replaces existing files), the guideline caps workflow clarity at 3 ('steps listed but validation gaps; checkpoints missing'), and the content does not exceed that anchor."
+          },
+          "progressive_disclosure": {
+            "score": 5,
+            "reasoning": "The body is a genuine overview with well-signaled, one-level-deep references: provider/hook details go to references/setup.md, cn and Landing Builder helpers to references/utils.md, CLI internals to references/catalog.md, full shapes to references/types.md, and integration rules to references/integration.md — all five files exist in references/ and each pointer says what it contains. This matches the level-5 anchor (clear overview, well-signaled one-level-deep references, content appropriately split, easy navigation); it is not level 4 because there is no bulk detail inlined that belongs in the bundle."
+          }
+        },
+        "suggestions": [
+          "Consolidate the install instructions: state the shadcn CLI path once (Quick Start) and reduce the 'CLI' section to the standalone-command variants, dropping the repeated 'Preferred path rationale' paragraph that re-explains the description.",
+          "Add validation checkpoints after install (e.g., confirm the component file exists under components/, check framer-motion is in package.json before running, and warn before --overwrite overwrites existing files) to raise workflow clarity.",
+          "Move version/commit pins (React 19, Next.js 16, @uitripled/react-shadcn@0.1.0, CLI @1.1.0, commit a5ffb45b) into a single 'Versions / provenance' or deprecated-adjacent section instead of scattering them throughout the body, and remove the empty MANUAL placeholder comment blocks."
+        ],
+        "overall_assessment": "The body is highly actionable and well-partitioned across the five reference files, with a clean Quick Start that takes a user from install to working page. Its weaknesses are redundancy (the install path is explained three times, plus a rationale paragraph), unpinned-down version noise scattered inline, and a complete absence of validation steps for what is a batch file-writing CLI operation."
+      },
+      "weightedScore": 3.9,
+      "normalizedScore": 0.725
+    },
+    "description": {
+      "scale": {
+        "max": 5,
+        "min": 1
+      },
+      "success": true,
+      "evaluation": {
+        "scores": {
+          "specificity": {
+            "score": 5,
+            "reasoning": "Multiple concrete actions are listed: 'Installs React 19 and Next.js 16 UI components, blocks, and pages', 'composing landing pages, dashboards, or UI from 171 animated Framer Motion components via \"npx shadcn@latest add @uitripled/COMPONENT_ID\"', plus coverage of 'registry catalog, CLI install paths, ThemeProvider and UILibraryProvider setup, shadcn/ui primitives, and the @uitripled/utils helpers'. This matches the level-5 anchor (multiple specific concrete actions, comprehensive coverage); it is clearly above level 4 because coverage of the skill's surfaces is enumerated rather than gapped."
+          },
+          "completeness": {
+            "score": 5,
+            "reasoning": "Both questions are answered explicitly: the 'what' ('Installs React 19 and Next.js 16 UI components, blocks, and pages from the uitripled shadcn-compatible registry') and the 'when' ('Use when composing landing pages, dashboards, or UI from 171 animated Framer Motion components'). This matches the level-5 anchor with concrete trigger phrases; level 4 would require a 'when' that is present but less explicit, which is not the case here."
+          },
+          "trigger_term_quality": {
+            "score": 4,
+            "reasoning": "Good natural keyword coverage: 'landing pages', 'dashboards', 'UI', 'components', 'blocks', 'Framer Motion', 'shadcn', 'React 19', 'Next.js 16', and the literal CLI invocation. A few natural terms users would plausibly say are missing (e.g., 'hero section', 'animated', 'Tailwind', 'copy-paste'), so it sits between the level-4 and level-5 anchors — closer to 4 than 5 because the synonym surface is not exhaustive."
+          },
+          "distinctiveness_conflict_risk": {
+            "score": 5,
+            "reasoning": "The niche is unambiguous (the uitripled react-shadcn registry via the '@uitripled/' namespace), and it even includes explicit negative boundaries ('Do NOT use this skill for the deferred react-baseui or react-carbon variants'), minimizing wrong-skill triggering. This is a clear level-5 fit; level 4 would imply minor overlap risk with closely related skills, which the namespace and variant scoping prevent."
+          }
+        },
+        "suggestions": [],
+        "overall_assessment": "A strong description: it names concrete capabilities with a literal install command, gives an explicit 'Use when' trigger clause, and scopes the skill sharply with negative boundaries for the deferred variants. The only weakness is that a few natural synonyms users might say (hero section, animated components, Tailwind) are absent, and the trailing do-NOT clauses push it slightly toward padding."
+      },
+      "weightedScore": 4.7,
+      "normalizedScore": 0.925
+    }
+  },
+  "scoring": {
+    "components": [
+      {
+        "id": "validation",
+        "weight": 0.19999999999999996,
+        "normalized": 1
+      },
+      {
+        "id": "description",
+        "weight": 0.4,
+        "normalized": 0.925
+      },
+      {
+        "id": "content",
+        "weight": 0.4,
+        "normalized": 0.725
+      }
+    ]
+  },
+  "review": {
+    "reviewScore": 86
+  }
+}
