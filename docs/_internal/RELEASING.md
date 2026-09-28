@@ -23,11 +23,12 @@ For background on GitHub rulesets vs legacy branch protection, see the [GitHub r
 | `code_quality`           | Blocks merge on `severity: errors` from GitHub code-quality checks.                                                        |
 | `required_status_checks` | Merge blocked until every `quality.yaml` check passes (names below).                                                    |
 
-**Required status checks (8):** sourced from `.github/workflows/quality.yaml` job keys. Matrix jobs expand to `jobname (matrix-value)`:
+**Required status checks (9):** sourced from `.github/workflows/quality.yaml` job keys. Matrix jobs expand to `jobname (matrix-value)`:
 
 - `prettier`
 - `eslint`
 - `markdownlint`
+- `lintlang`
 - `validate (ubuntu-latest)`
 - `validate (windows-latest)`
 - `python (ubuntu-latest)`
@@ -618,7 +619,7 @@ For the `release` environment, a deletion+restore similarly uses the two-call pa
   The workflow pauses at **two** gates that the maintainer must clear in the browser. Gate 1 requires explicit approval; gate 2 accepts either approval or admin-bypass-merge:
 
   1. The `release` environment deployment gate (at job start). Approve via "Review deployments" → "Approve and deploy" on the run page.
-  2. The bot PR review-decision gate (after the 8 required status checks pass). EITHER approve the bot PR via the review UI, OR admin-bypass-merge via the PR merge button — both paths are accepted by `release.yaml`'s `Wait for PR approval or admin-bypass merge` step. Admin-bypass-merge is the observed pattern for prior cuts (PRs #209 and #213).
+  2. The bot PR review-decision gate (after the required status checks pass). EITHER approve the bot PR via the review UI, OR admin-bypass-merge via the PR merge button — both paths are accepted by `release.yaml`'s `Wait for PR approval or admin-bypass merge` step. Admin-bypass-merge is the observed pattern for prior cuts (PRs #209 and #213).
 
   Expected wall-clock: ~5–8 minutes end-to-end when both gates are approved promptly.
 
