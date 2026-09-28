@@ -2,7 +2,7 @@
 
 ## Principle
 
-Every extracted claim carries a confidence tier label — T1, T1-low, T2, or T3 — that tells consuming agents how much to trust the information. The tier determines citation format, affects scoring weights, and governs how claims interact during updates and audits.
+Every extracted claim carries a confidence tier label (T1, T1-low, T2, or T3) that tells consuming agents how much to trust the information. The label follows the tool that produced the claim, not the forge tier the run used. It determines citation format and governs how claims interact during updates and audits.
 
 ## Rationale
 
@@ -15,7 +15,7 @@ Without confidence tiers:
 
 With confidence tiers:
 - Each claim transparently declares its evidence strength
-- Scoring weights adjust based on the distribution of tiers
+- Agents and reviewers can tell a signature ast-grep matched from one read by eye
 - Update workflows know which claims to re-verify first
 
 ## Tier Definitions
@@ -146,13 +146,13 @@ Every generated skill includes a confidence distribution in `metadata.json`:
 }
 ```
 
-This distribution feeds into test-skill scoring — skills with higher T1 ratios score better on signature accuracy.
+The distribution counts each provenance entry once, by its `signature_source`, so it reports how each signature was obtained. It does not feed test-skill scoring: `compute-score.py` does not read these counts, and for library skills coverage-check §4b checks only that the bins sum to the documented-export count.
 
 ## Anti-Patterns
 
 - Omitting the confidence tier from a citation — every citation must declare its level
 - Using T1 format (`[AST:...]`) when ast-grep was not actually used for that extraction
-- Treating T1-low and T1 as equivalent during scoring — they have different weight impacts
+- Labeling by forge tier instead of by tool: a signature read by eye is T1-low with a `[SRC:...]` citation even at Forge or Deep tier, because nothing structural verified it
 - Adding T2 enrichment without a QMD citation — enrichment without provenance is hallucination
 
 ## Related Fragments

@@ -54,7 +54,7 @@ With provenance tracking:
       "source_line": 23,
       "confidence": "T1",
       "extraction_method": "ast-grep",
-      "ast_node_type": "export_statement > function_declaration",
+      "ast_node_type": "function_declaration",
       "signature_source": "T1"
     },
     {

@@ -38,7 +38,7 @@ This is the opposite of how most AI tools work. They generate plausible-sounding
 Each piece of information in a skill carries a confidence level based on where it came from:
 
 - **T1 (AST extraction):** Pulled directly from source code via AST parsing. The function signature exists in the code at the pinned commit. Cited as `[AST:file:Lnn]`.
-- **T1-low (source reading):** Found by reading source files directly without AST parsing. The location is correct but the type signature may be inferred. Produced by Quick tier, and by Forge, Forge+, or Deep when ast-grep cannot parse a specific file. Cited as `[SRC:file:Lnn]`.
+- **T1-low (source reading):** Found by reading source files directly without AST parsing. The location is correct but the type signature may be inferred. Produced by Quick tier, and by Forge, Forge+, or Deep when ast-grep cannot parse a specific file or when an export is read directly while ast-grep works. Cited as `[SRC:file:Lnn]`.
 - **T2 (evidence, Deep tier only):** Found by QMD, a local search engine that SKF uses to index the project's issues, pull requests, changelogs, and fetched documentation. Reliable context, but less definitive than source code itself. Cited as `[QMD:collection:document]`. T2 has two temporal subtypes:
   - **T2-past:** Historical context (closed issues, merged PRs, changelogs) explaining API design decisions. Surfaces in the skill's `references/` directory.
   - **T2-future:** Forward-looking context (open PRs, deprecation warnings, RFCs) about upcoming changes. Surfaces in the Migration & Deprecation Warnings section of SKILL.md, which appears only when there is such context, and in `references/`.

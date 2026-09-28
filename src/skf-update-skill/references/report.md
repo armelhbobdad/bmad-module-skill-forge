@@ -143,8 +143,10 @@ These signals also appear in `warnings[]` on the headless envelope; the Mode row
 | Tier | Count | Description |
 |------|-------|-------------|
 | T1 | {count} | AST-verified structural extraction |
-| T1-low | {count} | Pattern-matched (Quick tier or degraded) |
+| T1-low | {count} | Read by eye, at any tier (`extraction_method: source-read`) |
 | T2 | {count} | QMD-enriched semantic context |
+
+{if `{provenance_relabels}` is non-empty: **Relabeled to match extraction_method (write.md §2):** {export names}{; **WARN, no node kind found:** {export names}}}
 
 ### [MANUAL] Section Preservation
 

@@ -194,7 +194,7 @@ Each reference file includes:
       "source_line": 42,
       "confidence": "T1",
       "extraction_method": "ast-grep",
-      "ast_node_type": "export_function_declaration",
+      "ast_node_type": "function_declaration",
       "signature_source": "T1"
     }
   ],
@@ -287,6 +287,7 @@ t2_future_count: {N}
 - Description angle brackets: {none | re-sanitized ({count} substitutions) | not checked — no description}
 - Tessl Review: {tessl_summary}
 - Metadata: {pass/fail}
+- Provenance labels: {pass | relabeled {N} to match extraction_method: {export names}}{; WARN, no node kind found: {export names}}
 
 ## Quality Score Breakdown
 - Frontmatter (30%): {score} | Description (30%): {score} | Body (20%): {score} | Links (10%): {score} | File (10%): {score}

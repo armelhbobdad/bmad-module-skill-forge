@@ -28,7 +28,7 @@ To display the final compilation summary — skill name, version, source, export
 
 "**Skill forged: {name} v{version} — {export_count} functions, {primary_confidence} confidence.**"
 
-Where `{primary_confidence}` is the predominant confidence tier (T1 if Forge/Deep, T1-low if Quick).
+Where `{primary_confidence}` is the `confidence` label most provenance-map entries carry, counted from the entries' own labels. Never infer it from the forge tier: a Forge or Deep run whose exports were read by eye is T1-low. On a tie, report the weaker label (T1-low over T1), so the headline never overstates confidence.
 
 ### 2. Display Compilation Summary
 

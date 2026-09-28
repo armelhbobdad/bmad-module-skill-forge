@@ -37,7 +37,7 @@ Provenance maps live in `forge-data/{skill}/{version}/provenance-map.json` in th
   "source_line": 27,
   "confidence": "T1",
   "extraction_method": "ast-grep",
-  "ast_node_type": "async_function_definition",
+  "ast_node_type": "function_definition",
   "signature_source": "T1"
 }
 ```
