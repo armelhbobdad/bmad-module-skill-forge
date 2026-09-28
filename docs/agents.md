@@ -64,7 +64,7 @@ Ferris shows his menu as a numbered table and waits for your choice. Pick a row 
 | 12 | EX | Package a skill and add its context to CLAUDE.md, AGENTS.md or .cursorrules | `skf-export-skill` |
 | 13 | RS | Rename a skill across all its versions, all or nothing | `skf-rename-skill` |
 | 14 | DS | Drop a skill: deprecate it (soft) or purge it (hard) | `skf-drop-skill` |
-| 15 | (none) | Run a campaign that builds many coordinated skills across sessions; start it with `@Ferris campaign` | `skf-campaign` |
+| 15 | CA | Run a campaign that builds many coordinated skills across sessions; start it with `@Ferris CA` or `@Ferris campaign` | `skf-campaign` |
 | 16 | KI | List the knowledge fragments, short reference notes that workflows load when a step needs them | built into Ferris |
 | 17 | WS | Show your current lifecycle position, active skill briefs and forge tier | built into Ferris |
 
@@ -74,7 +74,7 @@ On your first run, before Setup Forge has set a capability tier, Ferris points y
 
 Ferris can run several workflows in one command. Type their codes in order, such as `QS TS EX`, or use a named alias: `forge-auto`, `forge`, `forge-quick` or `maintain`. Each workflow's output feeds the next one, the chain stops when a step fails its quality check, and every step runs in headless mode because you already chose the whole sequence. Example: `@Ferris forge-quick cognee` chains Quick → Test → Export. [Workflows → Pipeline Aliases](/docs/workflows.md#pipeline-aliases) has the full alias table and what each alias needs as its target.
 
-`campaign` is not a chaining alias. It is a separate workflow (`@Ferris campaign`) that runs its own pipeline for many skills, builds them in the order their dependencies need, and can resume where it stopped. See the [Campaign](/docs/campaign.md) page.
+`campaign` is not a chaining alias. It is a separate workflow (`@Ferris CA` or `@Ferris campaign`) that runs its own pipeline for many skills, builds them in the order their dependencies need, and can resume where it stopped. `CA` cannot be chained with other codes. See the [Campaign](/docs/campaign.md) page.
 
 **Memory:**
 Ferris keeps a memory folder, called the sidecar, at `_bmad/_memory/forger-sidecar/`, so he remembers your setup between sessions. It holds `forge-tier.yaml` (the tools Setup Forge found and your capability tier), `preferences.yaml` (your settings) and the result of your last pipeline run. If that pipeline stopped partway, Ferris offers to resume it the next time you open him. In `preferences.yaml`, set `headless_mode: true` to make headless the default, or `compact_greeting: true` to get a short greeting without the full menu table (ask for the menu when you want it). [Getting Started → Configuration](/docs/getting-started.md#configuration) lists more preferences.

@@ -279,7 +279,7 @@ Default pass threshold: **80%**. Inside a pipeline the default follows the alias
 
 ### Campaign Orchestration
 
-**Command:** `@Ferris campaign`
+**Command:** `@Ferris CA` or `@Ferris campaign`
 
 `@Ferris campaign` starts a campaign, or offers to resume one that exists. `@Ferris campaign resume [--from=<skill>]` resumes from the last active skill or the one you name, and `@Ferris campaign status` shows progress without changing anything. Pass `--brief <file>` or `--manifest <file>` to seed the target list from a file; either one runs the campaign headless. See [Campaign Orchestration](/docs/campaign.md).
 
