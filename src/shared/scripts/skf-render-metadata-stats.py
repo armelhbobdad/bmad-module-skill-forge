@@ -57,7 +57,10 @@ metadata.json; re-derive the computed values (taking the judgment values —
 on-disk metadata itself) and compare against what is on disk. `coherence.ok`
 is false with a `violations[]` list when the on-disk file drifted; the emitted
 `stats`/`confidence_distribution` are the corrected values `validate.md §7`
-writes back.
+writes back. While label violations are present (see Label agreement below)
+they are not: the distribution is binned from the mislabeled
+`signature_source`, so the caller relabels the provenance-map, re-runs the
+helper, and writes the re-run's values.
 
 Judgment payload (stdin JSON, compute mode)::
 
@@ -88,11 +91,39 @@ Output JSON (both modes)::
       "coherence": {"ok": true, "violations": []}
     }
 
+Label agreement (both modes)
+---------------------------
+
+Every `entries[]` row whose `confidence` is T1 or T1-low (case-insensitive)
+must carry the labels its `extraction_method` implies, so a label always names
+the tool that produced the entry, never the forge tier:
+
+  - `extraction_method` is one of ast-grep, source-read, ast_bridge,
+    source_reading, qmd_bridge, compose-from-skill.
+  - ast-grep and ast_bridge need confidence T1; ast-grep also needs a
+    non-null `ast_node_type` (the node kind of the rule that matched).
+  - source-read and source_reading need confidence T1-low and a
+    `signature_source` other than T1; source-read also needs `ast_node_type`
+    null (an absent key counts as null).
+  - qmd_bridge and compose-from-skill carry no pairing.
+
+Rows with another `confidence` (T2, T3, none) and `file_entries[]` are not
+checked. Each disagreement is a violation keyed by the row's index, because
+reference-app and stack maps repeat export names::
+
+    {"field": "provenance.entries[12].confidence", "export_name": "search",
+     "expected": "T1-low", "actual": "T1",
+     "note": "extraction_method source-read pairs with confidence T1-low"}
+
+The step that runs the helper relabels the entry to match its method (never
+the reverse) and runs the helper again.
+
 Exit codes:
-  0  — coherence ok (no violations)
-  1  — coherence violations present (drift to auto-fix / bad signature_source);
-       the JSON on stdout is still authoritative — rely on it, not the code
-  2  — usage / IO / JSON-decode error
+  0: coherence ok (no violations)
+  1: coherence violations present (drift to auto-fix, a bad signature_source,
+     or a label that disagrees with extraction_method); the JSON on stdout is
+     still authoritative, so rely on it, not the code
+  2: usage, IO or JSON-decode error
 """
 
 from __future__ import annotations
@@ -108,6 +139,16 @@ from pathlib import Path
 _SIG_MAP = {"T1": "t1", "T1-LOW": "t1_low", "T2": "t2", "T3": "t3"}
 _VALID_SHAPES = ("library", "stack", "reference-app")
 _DIST_KEYS = ("t1", "t1_low", "t2", "t3")
+
+# extraction_method values a T1 or T1-low entry may carry, and the labels
+# each one implies. ast-grep / source-read are what create-skill and
+# update-skill write; the other four come from stack maps.
+_KNOWN_METHODS = (
+    "ast-grep", "source-read", "ast_bridge", "source_reading", "qmd_bridge", "compose-from-skill",
+)
+_T1_METHODS = ("ast-grep", "ast_bridge")            # confidence T1
+_T1_LOW_METHODS = ("source-read", "source_reading")  # confidence T1-low, signature_source not T1
+_LABELED_CONFIDENCE = ("T1", "T1-LOW")
 
 
 # --------------------------------------------------------------------------
@@ -275,13 +316,88 @@ def _cmp_ratio(violations: list, field: str, expected, actual) -> None:
         violations.append({"field": field, "expected": expected, "actual": actual})
 
 
+def _upper(value: object) -> str | None:
+    return value.strip().upper() if isinstance(value, str) else None
+
+
+def check_label_agreement(prov: dict) -> list[dict]:
+    """Check that each T1 / T1-low entry's labels match its extraction_method.
+
+    Returns one violation per disagreeing field, keyed by the entry's index
+    (`provenance.entries[<i>].<field>`) since export names repeat in
+    reference-app and stack maps. `expected` is the value the method implies;
+    the caller relabels the entry to it and never changes a known method.
+    Entries with any other confidence, and `file_entries[]`, are not checked.
+    """
+    entries = prov.get("entries")
+    if not isinstance(entries, list):
+        return []
+    violations: list[dict] = []
+
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            continue
+        confidence = entry.get("confidence")
+        if _upper(confidence) not in _LABELED_CONFIDENCE:
+            continue
+        name = entry.get("export_name")
+        method = entry.get("extraction_method")
+
+        def flag(field: str, expected: object, actual: object, note: str) -> None:
+            violations.append({
+                "field": f"provenance.entries[{i}].{field}",
+                "export_name": name,
+                "expected": expected,
+                "actual": actual,
+                "note": note,
+            })
+
+        if method not in _KNOWN_METHODS:
+            flag("extraction_method", sorted(_KNOWN_METHODS), method,
+                 "a T1 or T1-low entry names the tool that produced it: set ast-grep for an "
+                 "ast-grep match or source-read for an entry read by eye")
+            continue
+
+        if method in _T1_METHODS:
+            if _upper(confidence) != "T1":
+                flag("confidence", "T1", confidence,
+                     f"extraction_method {method} pairs with confidence T1")
+            node = entry.get("ast_node_type")
+            # "non-null" is the violation's own expected value, not a node kind:
+            # a fixer that copied it has still not recorded the kind.
+            if method == "ast-grep" and (not (isinstance(node, str) and node.strip())
+                                         or _upper(node) == "NON-NULL"):
+                flag("ast_node_type", "non-null", node,
+                     "extraction_method ast-grep pairs with a non-null ast_node_type: fill in "
+                     "the node kind of the rule that matched")
+        elif method in _T1_LOW_METHODS:
+            if _upper(confidence) != "T1-LOW":
+                flag("confidence", "T1-low", confidence,
+                     f"extraction_method {method} pairs with confidence T1-low")
+            sig = entry.get("signature_source")
+            if _upper(sig) == "T1":
+                flag("signature_source", "T1-low", sig,
+                     f"extraction_method {method} pairs with a signature_source other than T1 "
+                     "(any tier but T1 passes)")
+            node = entry.get("ast_node_type")
+            if method == "source-read" and node is not None:
+                flag("ast_node_type", None, node,
+                     "extraction_method source-read pairs with ast_node_type null: no ast-grep "
+                     "rule matched this entry")
+        # qmd_bridge and compose-from-skill carry no pairing.
+
+    return violations
+
+
 def coherence_compute(derived: dict, prov: dict) -> dict:
     """Internal-consistency checks for compute mode.
 
     The distribution must account for every provenance entry (a bin-sum below
     the entry count means some entries carry a missing/unrecognized
     signature_source). When the provenance-map already tracks scripts/assets in
-    file_entries[], those counts must agree with the stats counts.
+    file_entries[], those counts must agree with the stats counts. Every T1 or
+    T1-low entry's labels must match its extraction_method
+    (check_label_agreement).
     """
     violations: list[dict] = []
     entry_count = derived["_derivation"]["entry_count"]
@@ -311,6 +427,7 @@ def coherence_compute(derived: dict, prov: dict) -> dict:
         _cmp_int(violations, "stats.assets_count", fe["asset"], ac,
                  "stats.assets_count disagrees with provenance-map file_entries[file_type=asset]")
 
+    violations.extend(check_label_agreement(prov))
     return {"ok": not violations, "violations": violations}
 
 
@@ -320,6 +437,8 @@ def check_stats(derived: dict, metadata: dict, prov: dict) -> dict:
     Every mismatch is a `{field, expected, actual}` violation, where `expected`
     is the re-derived (correct) value and `actual` is what is on disk.
     validate.md §7 either writes `derived` verbatim or fixes each violation.
+    Label violations from check_label_agreement are appended too; they concern
+    the provenance-map, which is relabeled before the stats are fixed.
     """
     violations: list[dict] = []
     m_stats = metadata.get("stats") if isinstance(metadata.get("stats"), dict) else {}
@@ -364,6 +483,8 @@ def check_stats(derived: dict, metadata: dict, prov: dict) -> dict:
             _cmp_int(violations, "provenance.file_entries.asset", claimed_ac, fe["asset"],
                      "provenance-map file_entries[file_type=asset] count disagrees with metadata assets_count")
 
+    # provenance entry labels vs extraction_method (the map, not metadata.json)
+    violations.extend(check_label_agreement(prov))
     return {"ok": not violations, "violations": violations}
 
 
@@ -406,7 +527,9 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Derive metadata.json stats + confidence_distribution from the staged "
             "provenance-map (compute mode), or re-verify an on-disk metadata.json "
-            "against the map (--check). Replaces the hand-binning/summing in "
+            "against the map (--check). Both modes also check that each T1 or "
+            "T1-low entry's confidence, signature_source and ast_node_type match "
+            "its extraction_method. Replaces the hand-binning/summing in "
             "skf-create-skill compile.md §4 and validate.md §7."
         ),
     )

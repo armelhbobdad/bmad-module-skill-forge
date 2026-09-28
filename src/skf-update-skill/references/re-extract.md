@@ -87,9 +87,10 @@ The helper emits a result envelope:
      mode: gap-driven
      files_extracted: {count}  # non-zero only when §0a scanned remediation_paths[]
      exports_extracted: {gap_count}
-     confidence_breakdown:
-       T1: {verified_count + moved_count + re_extracted_t1_count}
-       T1-low: {re_extracted_t1_low_count}
+     confidence_breakdown:   # count each verified, moved or re-extracted entry by the label its extraction_method implies, never by the tier
+       T1: {entries whose extraction_method is ast-grep (or ast_bridge)}
+       T1-low: {entries whose extraction_method is source-read (or source_reading)}
+       unlabeled: {entries whose extraction_method is unknown or missing, such as direct-read; write.md §2 relabels them}
        T2: 0
 
      Per-export verification:
@@ -107,13 +108,15 @@ The helper emits a result envelope:
              type: function|class|type|constant
              signature: {full signature}
              location: {file}:{start_line}-{end_line}
-             confidence: T1|T1-low
+             confidence: T1|T1-low   # T1 for an ast-grep match, T1-low for an export read by eye
+             extraction_method: ast-grep|source-read
+             ast_node_type: {node kind the ast-grep rule matched, or null}
              params: [{name, type}]
              return_type: {type}
              docstring: {summary}
    ```
 
-4. Set `no_reextraction: true` in workflow context — step 6 will use this flag to skip stale `source_file`/`source_line`/`confidence` field updates for `verified` exports. `moved` exports get updated citations; `re-extracted` exports get full fresh provenance from §0a's extraction records (see step 6 §3). The flag is a global gap-driven marker, not a per-entry one — step 6 dispatches on each verification outcome independently.
+4. Set `no_reextraction: true` in workflow context: step 6 will use this flag to skip stale `source_file`/`source_line`/`confidence` field updates for `verified` exports, except the label relabel write.md §2 applies when its stats helper flags an entry whose labels disagree with its `extraction_method`. `moved` exports get updated citations; `re-extracted` exports get full fresh provenance from §0a's extraction records (see step 6 §3). The flag is a global gap-driven marker, not a per-entry one: step 6 dispatches on each verification outcome independently.
 5. **Skip all remaining sections of step 3** — sections 1–5 are source-drift extraction paths that do not apply. Display the summary below and load `{nextStepFile}` to proceed directly to the merge step.
 
 "**Gap-driven re-extraction.** Verified {verified_count}/{gap_count} citations against live source. Moved: {moved_count}. Missing: {missing_count}. Re-extracted (via remediation paths or provenance-completeness, §0a): {re_extracted_count}. Rescoped (removed from surface): {rescoped_count}. Unknown (not in provenance map): {unknown_count}. Proceeding to merge."
@@ -139,13 +142,13 @@ The helper emits a result envelope:
    - Directory or glob: expand under `{source_root}` using the provenance map's file patterns.
    - **Security boundary:** reject and skip any path that resolves outside `{source_root}`. Remediation text is user-editable and must never be allowed to escape the source tree.
    - Deduplicate the resolved file set across all entries routed to §0a — each physical file is scanned at most once.
-3. **Extract** — run the tier-appropriate extractor from §1b (Quick pattern-match → T1-low; Forge/Forge+/Deep AST via ast-grep → T1) over the resolved file set. Launch subprocesses in parallel (Pattern 4) when available; sequential fallback otherwise. Follow the AST Extraction Protocol in `{extractionPatternsData}` for Forge/Deep tiers, and the tier-degradation rules in `{tierDegradationRulesData}` when AST tools fail on individual files.
+3. **Extract:** run the tier-appropriate extractor from §1b over the resolved file set and label each export by the tool that produced it, at any tier: an export an ast-grep rule matched is T1 (`extraction_method: ast-grep`), an export read by eye is T1-low (`extraction_method: source-read`). Launch subprocesses in parallel (Pattern 4) when available; sequential fallback otherwise. Follow the AST Extraction Protocol in `{extractionPatternsData}` for Forge/Deep tiers, and the tier-degradation rules in `{tierDegradationRulesData}` when AST tools fail on individual files.
 4. **Match by name** — for each manifest entry routed here, search the aggregated extraction results for an export whose `name` matches the manifest entry's `name`. Record the first hit as:
    - `verification: re-extracted`
    - `provenance_citation: {file}:{start_line}` from the AST result
    - `new_location: {file}:{start_line}` (same value — satisfies the existing consumer contract)
    - `resolution_source: remediation-paths`
-   - `confidence: T1` (AST-extracted) or `T1-low` (pattern-matched fallback)
+   - `confidence: T1`, `extraction_method: ast-grep` and `ast_node_type` set to the matched node kind when an ast-grep rule matched the export, or `confidence: T1-low`, `extraction_method: source-read` and `ast_node_type: null` when it was read by eye
    - the full extraction signature (type, params, return_type, docstring) — mirror the shape of §4's per-file extraction record so step 4 Priority 5 can merge it with the same code path used in normal mode.
 
    Then apply the §0 bullet 2 **public-reachability gate** to each matched symbol before recording it as a NEW_EXPORT: §0a has full source access, so resolve the symbol's module path and confirm barrel re-export or a fully-`pub` module chain. If it is unreachable (`pub(crate)` / private module), do **not** record `re-extracted` — drop it from the export-bearing set and re-queue the entry as a `metadata update` (rule R4, `reclassified: internal-unreachable`), exactly as the gate specifies. A re-extracted symbol that is not public API is not a documentable NEW_EXPORT. This is a resolution, not an `unresolved[]` failure (step 5) — the symbol was found, just not public — so it does not trigger the Critical/High HALT.
@@ -193,12 +196,12 @@ The helper emits a result envelope:
 
 ### 1b. Determine Extraction Strategy by Tier
 
-**Source access (every tier):** read every changed file from `{source_root}`. When `{source_tree_status}` is `ready` or `offline`, that is the tree init.md §6b prepared at `{target_commit}` — the commit step 2 compared — so detection, extraction, merge and write read one tree; otherwise it is the local source init.md §6 validated (in gap-driven mode, the tree §0.a confirmed holds the pinned commit). Do not fetch changed files through the gh contents API, zread or deepwiki: the gh contents API serves the default branch unless given a ref, and the zread and deepwiki indexes may sit at another commit, so a citation read there would not point into the commit this update records. If `{source_tree_status}` is `ready` or `offline` and `{source_root}` no longer exists, HALT with status `blocked` per SKILL.md's source-tree rule (`error.phase` `re-extract:source-tree-missing`). If one changed file cannot be read, limit its analysis to the provenance-map baseline (State 2, T1 confidence from compilation-time data) and warn: "Could not read {path} from {source_root}. Its analysis is limited to the provenance-map baseline."
+**Source access (every tier):** read every changed file from `{source_root}`. When `{source_tree_status}` is `ready` or `offline`, that is the tree init.md §6b prepared at `{target_commit}`, the commit step 2 compared, so detection, extraction, merge and write read one tree; otherwise it is the local source init.md §6 validated (in gap-driven mode, the tree §0.a confirmed holds the pinned commit). Do not fetch changed files through the gh contents API, zread or deepwiki: the gh contents API serves the default branch unless given a ref, and the zread and deepwiki indexes may sit at another commit, so a citation read there would not point into the commit this update records. If `{source_tree_status}` is `ready` or `offline` and `{source_root}` no longer exists, HALT with status `blocked` per SKILL.md's source-tree rule (`error.phase` `re-extract:source-tree-missing`). If one changed file cannot be read, limit its analysis to the provenance-map baseline (State 2: each baseline entry keeps its own confidence label from compilation-time data) and warn: "Could not read {path} from {source_root}. Its analysis is limited to the provenance-map baseline."
 
 **Quick tier (text pattern matching):**
 - Extract function/class/type names via regex patterns
 - Extract export statements via text matching
-- Confidence: T1-low (pattern-matched, not AST-verified)
+- Label every export T1-low (pattern-matched, not AST-verified) with `extraction_method: source-read` and `ast_node_type: null`
 
 **Forge tier (AST structural extraction):**
 
@@ -206,15 +209,15 @@ Load and follow the **AST Extraction Protocol** from `{extractionPatternsData}`.
 
 - Extract: function signatures, type definitions, class members, exported constants
 - Extract: parameter types, return types, JSDoc/docstring comments
-- Confidence: T1 (AST-verified structural truth)
+- Label each export by the tool that produced it: an export an ast-grep rule matched is T1 (AST-verified structural truth) with `extraction_method: ast-grep` and the matched node kind as `ast_node_type`; an export read by eye (ast-grep could not parse its file, the rules missed it, or the file was read instead of matched) is T1-low with `extraction_method: source-read` and `ast_node_type: null`
 
 **Tier degradation handling (Forge/Forge+/Deep):** If ast-grep is unavailable or fails on individual files, follow `{tierDegradationRulesData}` for fallback strategy and user notification requirements. Silent degradation is forbidden — the user must always know when AST extraction was skipped.
 
 **Deep tier (AST + QMD semantic enrichment):**
-- Perform all Forge tier extractions (T1)
+- Perform all Forge tier extractions, labeled by tool as at Forge tier
 - Additionally: launch a subprocess that queries qmd_bridge for temporal context on changed exports, returning T2 evidence per export
 - QMD provides: usage patterns, historical context, related documentation
-- Confidence: T1 for structural, T2 for semantic enrichment
+- Confidence: structural entries labeled by tool (T1 for an ast-grep match, T1-low for an export read by eye), T2 for semantic enrichment
 
 **Tool resolution:** `ast_bridge` → ast-grep MCP tools (`find_code`, `find_code_by_rule`) or `ast-grep` CLI. `qmd_bridge` → QMD MCP tools (`mcp__plugin_qmd-plugin_qmd__search`, `vector_search`) or `qmd` CLI. See `knowledge/tool-resolution.md`.
 
@@ -236,6 +239,8 @@ For each remaining file in the change manifest with status MODIFIED, ADDED, or R
        {"name": "...", "type": "function|class|type|constant",
         "signature": "...", "location": "{file}:{start_line}-{end_line}",
         "confidence": "T1|T1-low|T2",
+        "extraction_method": "ast-grep|source-read",
+        "ast_node_type": "<node kind the ast-grep rule matched, or null>",
         "parameters": [{"name": "...", "type": "..."}],
         "return_type": "...", "docstring": "...",
         "qmd_evidence": "<if Deep tier, else omit>"}
@@ -286,7 +291,7 @@ Launch a subprocess that loads qmd_bridge and for each changed export:
 
 **If no matching collection found in registry:**
 Log: "No QMD extraction collection found for {skill_name}. T2 enrichment skipped. Re-run [CS] Create Skill to generate the collection."
-Continue without T2 enrichment — extraction still produces T1 results.
+Continue without T2 enrichment: extraction still produces its structural results, labeled by tool.
 
 **If forge_tier != Deep:** Skip this section with notice: "QMD enrichment skipped (tier: {forge_tier})"
 
@@ -311,6 +316,8 @@ Extraction Results:
           signature: {full signature}
           location: {file}:{start_line}-{end_line}
           confidence: T1|T1-low|T2
+          extraction_method: ast-grep|source-read
+          ast_node_type: {node kind the ast-grep rule matched, or null}
           parameters: [{name, type}]
           return_type: {type}
           docstring: {summary}

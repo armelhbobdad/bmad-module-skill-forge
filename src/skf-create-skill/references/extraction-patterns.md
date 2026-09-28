@@ -12,7 +12,7 @@ Source reading via gh_bridge — infer exports from file structure and content.
 5. Infer types from JSDoc, docstrings, type annotations in source
 
 ### Confidence
-- All results: T1-low (source reading without structural verification)
+- Every export is read by eye, so every entry is T1-low (source reading without structural verification): a `[SRC:...]` citation, `extraction_method: source-read` and `ast_node_type: null`
 - No co-import detection available
 - No AST-backed line numbers
 
@@ -45,9 +45,10 @@ Structural extraction via ast-grep — verified exports with line-level citation
 5. Build extraction rules YAML for reproducibility
 
 ### Confidence
-- Exported functions with full signatures: T1 (AST-verified)
-- Type definitions and interfaces: T1
-- Co-import patterns: T1
+- Each entry is labeled by the tool that produced it, not by the tier:
+  - An export an ast-grep rule matched (a function with its full signature, a type definition, an interface): T1 (AST-verified), an `[AST:...]` citation, `extraction_method: ast-grep` and `ast_node_type` set to the node kind the rule matched
+  - An export read by eye (ast-grep could not parse its file, the rules missed it, or the file was read instead of matched): T1-low, a `[SRC:...]` citation, `extraction_method: source-read` and `ast_node_type: null`
+- Co-import patterns ast-grep detected: T1
 - Internal/private functions: excluded (not part of public API)
 
 ### ast-grep Patterns
@@ -86,7 +87,7 @@ Same patterns as Forge tier — see Forge tier section above. CCC pre-ranking do
 
 ### Confidence
 
-All results: T1 (AST-verified) — identical to Forge tier. CCC is upstream discovery only and is invisible in the output artifact.
+Labeled by tool, exactly as at Forge tier: an export an ast-grep rule matched is T1 (AST-verified), an export read by eye is T1-low. CCC is upstream discovery only and is invisible in the output artifact.
 
 ### Important
 
@@ -104,7 +105,7 @@ Same extraction as Forge tier. Deep tier adds enrichment in step 4, not extracti
 - Extraction results carry forward unchanged
 
 ### Confidence
-- Extraction: same as Forge (T1)
+- Extraction: labeled by tool, same as Forge (T1 for an ast-grep match, T1-low for an export read by eye)
 - Enrichment annotations added in step 4: T2
 
 ---

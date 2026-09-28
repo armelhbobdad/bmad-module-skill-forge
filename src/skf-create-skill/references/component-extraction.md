@@ -214,7 +214,9 @@ Compile all extracted data into the format expected by step 3 section 5:
 - Linked component name (e.g., `NativeLiquidButton`)
 - Source file and line number
 - Provenance citation
-- Confidence tier (T1 or T1-low)
+- Confidence tier: T1 when an ast-grep rule matched the interface, T1-low when it was read by eye
+- `extraction_method`: `ast-grep` or `source-read`, the tool that produced the entry
+- `ast_node_type`: the node kind the ast-grep rule matched (such as `interface_declaration`), or `null` when read by eye
 
 **Per-export entry (for component functions):**
 
@@ -222,7 +224,7 @@ Compile all extracted data into the format expected by step 3 section 5:
 - Linked Props interface (if found)
 - Source file and line number
 - Provenance citation
-- Confidence tier
+- Confidence tier, `extraction_method` and `ast_node_type`, labeled by the tool that produced the entry as for Props interfaces above
 
 **Per-export entry (for shared types):**
 

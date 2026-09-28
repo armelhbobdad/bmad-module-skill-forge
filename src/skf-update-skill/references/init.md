@@ -171,9 +171,9 @@ After loading metadata.json, check `skill_type`:
 
 **Determine analysis capabilities:**
 - **Quick:** text pattern matching only → T1-low confidence
-- **Forge:** AST structural extraction → T1 confidence
-- **Forge+:** AST structural extraction + CCC semantic ranking → T1 confidence (with ccc signals)
-- **Deep:** AST + QMD semantic enrichment → T1 + T2 confidence
+- **Forge:** AST structural extraction → T1 for each export an ast-grep rule matches, T1-low for each export read by eye
+- **Forge+:** AST structural extraction + CCC semantic ranking → the same labels as Forge (with ccc signals)
+- **Deep:** AST + QMD semantic enrichment → the same labels as Forge, plus T2
 
 ### 4. Load Provenance Map
 
@@ -294,8 +294,8 @@ Run only when `{source_tree_status}` is `ready` or `offline`. Read the source's 
 
 **Analysis plan:** {tier_description}
 - {Quick: text pattern diff → T1-low findings}
-- {Forge: AST structural diff → T1 findings}
-- {Deep: AST structural + QMD semantic diff → T1 + T2 findings}
+- {Forge: AST structural diff → T1 findings where an ast-grep rule matches, T1-low where an export is read by eye}
+- {Deep: AST structural + QMD semantic diff → the same labels as Forge, plus T2 findings}
 
 **Ready to detect changes and update this skill?**"
 

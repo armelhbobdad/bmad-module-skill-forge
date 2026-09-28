@@ -102,7 +102,7 @@ Every claim in a generated skill carries a confidence tier that traces to its so
 | Tier | Source | Tool | What It Means |
 |------|--------|------|---------------|
 | **T1** | AST extraction | `ast_bridge` | Current code, structurally verified. Immutable for that version. |
-| **T1-low** | Source reading | Source reading (no ast-grep) | Read from source without AST verification. Produced by Quick tier, and by Forge, Forge+ and Deep when ast-grep cannot parse a file or a remote source cannot be cloned. Location correct, signature may be inferred. |
+| **T1-low** | Source reading | Source reading (no ast-grep) | Read from source without AST verification. Produced by Quick tier, and by Forge, Forge+ and Deep for any export read by eye: when ast-grep cannot parse a file, when a remote source cannot be cloned, or when an export is read directly while ast-grep works. Location correct, signature may be inferred. |
 | **T2** | QMD evidence | `qmd_bridge` | Historical + planned context (issues, PRs, changelogs, docs). |
 | **T3** | External documentation | `doc_fetcher` | External and untrusted, so SKF keeps it apart: a T3 claim keeps its `[EXT:...]` label and never overrides a T1, T1-low or T2 claim. |
 
