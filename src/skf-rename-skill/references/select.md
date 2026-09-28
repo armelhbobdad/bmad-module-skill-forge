@@ -268,9 +268,9 @@ Display the full operation summary:
   Inside each version, the inner `{old_name}/` directory will be renamed to `{new_name}/`,
   and the following files will be updated:
     - SKILL.md (frontmatter `name` field)
-    - metadata.json (`name` field)
-    - context-snippet.md (display name and root paths)
-    {if forge_move or same_folder:}- provenance-map.json (`skill_name` field, under {old_forge_group})
+    - metadata.json (`name` field, and paths into the moved folders)
+    - context-snippet.md (the name in its header, its IMPORTANT line and its root paths)
+    {if forge_move or same_folder:}- provenance-map.json (`skill_name` field and paths into the moved folders, under {old_forge_group})
 
   Manifest `exports.{old_name}` will be re-keyed to `exports.{new_name}`.
   Platform context files (CLAUDE.md, .cursorrules, AGENTS.md) will be rebuilt so

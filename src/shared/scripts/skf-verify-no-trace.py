@@ -24,9 +24,11 @@ For each version under --versions it scans:
   {skill_group}/{v}/{new_name}/SKILL.md          -> frontmatter matches are HARD;
                                                     body matches (below the closing
                                                     `---`) are advisory warnings
-  {skill_group}/{v}/{new_name}/metadata.json     -> any match is HARD
+  {skill_group}/{v}/{new_name}/metadata.json     -> any match is HARD, except in
+                                                    the value of a source-fact key
   {skill_group}/{v}/{new_name}/context-snippet.md-> any match is HARD
-  {forge_group}/{v}/provenance-map.json          -> any match is HARD
+  {forge_group}/{v}/provenance-map.json          -> any match is HARD, except in
+                                                    the value of a source-fact key
 
 and the directory listing:
 
@@ -35,6 +37,22 @@ and the directory listing:
 The SKILL.md frontmatter/body split uses the same closing-`---`-on-its-own-line
 rule as skf-validate-output.py, so a legitimate body mention of the old name (a
 changelog line, a cross-reference) is a warning, never a blocker.
+
+The source-fact keys (SOURCE_FACT_KEYS) are the ones whose value names the
+upstream source the skill was made from, not the skill: its repository
+(`source_repo`), checkout (`source_root`), commit (`source_commit`, a map keyed
+by repository for several sources), tag or branch (`source_ref`), package
+(`source_package`) and, per provenance entry, library (`source_library`),
+wherever they sit in the file. SKF's writers put the library's own name there,
+which is the skill's name when the skill is named after its library:
+create-skill's provenance `source_library` defaults to the skill name, Quick
+Skill's `source_package` defaults to it, and a monorepo tag such as
+`<name>/v1.0.0` becomes `source_ref`. A rename leaves those values as they are
+(skf-rewrite-skill-name.py never changes them), so an old-name match inside one
+is not a leftover and the scan skips it. Every other value, and every key
+outside those values, still counts, and each hard match reports the file's own
+line. A metadata.json or provenance-map.json that is not one valid
+JSON document gets no exemption: every match in it counts.
 
 Output (stdout, always JSON):
   {hard_matches[], body_warnings[], dir_violations[], skipped[], clean}
@@ -59,6 +77,8 @@ import sys
 from pathlib import Path
 
 
+# Keep identical to _name_token_re in skf-rewrite-skill-name.py
+# (test/test-skf-rewrite-skill-name.py pins the copies).
 def _name_token_re(old_name: str) -> "re.Pattern[str]":
     """Match old_name only where it is a complete skill-name token.
 
@@ -66,6 +86,90 @@ def _name_token_re(old_name: str) -> "re.Pattern[str]":
     `/rename/` or `"rename"` but not inside `rename-skill` or `renamed`.
     """
     return re.compile(r"(?<![a-z0-9-])" + re.escape(old_name) + r"(?![a-z0-9-])")
+
+
+# Keys whose value names the upstream source, not the skill (see the module
+# docstring). A rename never changes these values.
+# Keep identical to SOURCE_FACT_KEYS in skf-rewrite-skill-name.py
+# (test/test-skf-rewrite-skill-name.py pins the copies).
+SOURCE_FACT_KEYS = frozenset({
+    "source_repo",
+    "source_root",
+    "source_commit",
+    "source_ref",
+    "source_package",
+    "source_library",
+})
+
+_JSON_WS = " \t\n\r"
+
+
+def _source_fact_spans(text: str):
+    """[(start, end)] of the value of every SOURCE_FACT_KEYS key, at any depth.
+
+    Walks the JSON text itself, so each span is exact character offsets into
+    the file. Returns [] when the text is not one valid JSON document, so that
+    every match in it stays a hard match.
+    """
+    decoder = json.JSONDecoder()
+    spans = []
+
+    def skip_ws(i):
+        while i < len(text) and text[i] in _JSON_WS:
+            i += 1
+        return i
+
+    def expect(i, char):
+        if text[i:i + 1] != char:
+            raise ValueError(f"expected {char!r} at {i}")
+        return i + 1
+
+    def value_end(i):
+        """End offset of the JSON value starting at text[i] (no leading space)."""
+        if text[i:i + 1] == "{":
+            i = skip_ws(i + 1)
+            if text[i:i + 1] == "}":
+                return i + 1
+            while True:
+                expect(i, '"')
+                key, i = json.decoder.scanstring(text, i + 1)
+                i = skip_ws(expect(skip_ws(i), ":"))
+                end = value_end(i)
+                if key in SOURCE_FACT_KEYS:
+                    spans.append((i, end))
+                i = skip_ws(end)
+                if text[i:i + 1] == "}":
+                    return i + 1
+                i = skip_ws(expect(i, ","))
+        if text[i:i + 1] == "[":
+            i = skip_ws(i + 1)
+            if text[i:i + 1] == "]":
+                return i + 1
+            while True:
+                i = skip_ws(value_end(i))
+                if text[i:i + 1] == "]":
+                    return i + 1
+                i = skip_ws(expect(i, ","))
+        return decoder.raw_decode(text, i)[1]
+
+    try:
+        if skip_ws(value_end(skip_ws(0))) != len(text):
+            return []
+    except (ValueError, RecursionError):  # JSONDecodeError is a ValueError
+        return []
+    return spans
+
+
+def _mask_spans(text: str, spans) -> str:
+    """Blank each span with spaces, keeping line breaks so line numbers hold."""
+    if not spans:
+        return text
+    chars = list(text)
+    for start, end in spans:
+        for i in range(start, end):
+            if chars[i] != "\n":
+                chars[i] = " "
+    return "".join(chars)
 
 
 def _split_frontmatter_body(content: str):
@@ -135,19 +239,21 @@ def verify(skill_group: Path, forge_group: Path, old_name: str, new_name: str, v
                      "line": n, "text": text.strip()}
                 )
 
-        # Whole-file hard scans.
-        for rel, region, base in (
-            (inner / "metadata.json", "metadata-json", skill_group),
-            (inner / "context-snippet.md", "context-snippet", skill_group),
-            (forge_group / v / "provenance-map.json", "provenance-json", forge_group),
+        # Whole-file hard scans; the two JSON files skip source-fact values.
+        for rel, region, is_json in (
+            (inner / "metadata.json", "metadata-json", True),
+            (inner / "context-snippet.md", "context-snippet", False),
+            (forge_group / v / "provenance-map.json", "provenance-json", True),
         ):
             content = scan_file(rel, region, v)
             if content is None:
                 continue
-            for n, text in _scan_lines(list(enumerate(content.split("\n"), start=1)), pattern):
+            scanned = _mask_spans(content, _source_fact_spans(content)) if is_json else content
+            lines = content.split("\n")
+            for n, _ in _scan_lines(list(enumerate(scanned.split("\n"), start=1)), pattern):
                 hard_matches.append(
                     {"version": v, "file": str(rel), "region": region,
-                     "line": n, "text": text.strip()}
+                     "line": n, "text": lines[n - 1].strip()}
                 )
 
         # Directory listing: must contain {new_name}/, must not contain {old_name}/.

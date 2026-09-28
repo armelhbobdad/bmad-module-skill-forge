@@ -174,7 +174,7 @@ Count totals:
 
 ### 5. Generate Managed Section
 
-Assemble the managed section in **two shapes** — the §9 write paths consume different forms, and conflating them double-wraps the markers.
+Assemble the managed section in **two shapes** — the §9 write paths consume different forms, and the `insert` and `replace` actions refuse (exit 1) the marker-bearing one.
 
 **`{managed_section_inner}`** — the between-marker body only, **no** `<!-- SKF:BEGIN/END -->` markers. The `insert` and `replace` helper actions supply the markers (and the `updated:` timestamp) themselves, so they take this inner form:
 
@@ -301,7 +301,7 @@ The helper stages the content into `<target>.skf-tmp`, fsyncs, and atomically re
 python3 {rebuildManagedSectionsHelper} {target-file} insert < "{target-file}.skf-content"
 ```
 
-The helper appends the managed section to the end of the file via the same atomic temp-file + rename pattern. The staging file holds the **inner-only** `{managed_section_inner}` — the helper adds the markers and `updated:` timestamp itself; marker-bearing text double-wraps them.
+The helper appends the managed section to the end of the file via the same atomic temp-file + rename pattern. The staging file holds the **inner-only** `{managed_section_inner}` — the helper adds the markers and `updated:` timestamp itself and refuses (exit 1) marker-bearing text.
 
 **Case 3 (Regenerate — file contains `<!-- SKF:BEGIN` and `<!-- SKF:END -->`):**
 
@@ -309,7 +309,7 @@ The helper appends the managed section to the end of the file via the same atomi
 python3 {rebuildManagedSectionsHelper} {target-file} replace < "{target-file}.skf-content"
 ```
 
-The helper performs the surgical between-marker swap with post-write verification (markers present, content outside markers byte-identical). The staging file holds the **inner-only** `{managed_section_inner}` — as with `insert`, the helper supplies the markers; marker-bearing text double-wraps them.
+The helper performs the surgical between-marker swap with post-write verification (markers present, content outside markers byte-identical). The staging file holds the **inner-only** `{managed_section_inner}` — as with `insert`, the helper supplies the markers and refuses marker-bearing text.
 
 **Case 4 (malformed markers — already HALTed in §6):** never reaches here.
 

@@ -13,8 +13,8 @@ manifestOpsProbeOrder:
   - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
 # Resolve `{rebuildManagedSectionsHelper}` similarly. §3 calls it (replace
 # action) for the surgical between-marker rewrite — the LLM still computes
-# the new managed section text, but the file mutation is deterministic
-# (atomic temp-file + rename, marker preservation, post-write verify).
+# the section body, but the file mutation is deterministic (the helper
+# writes both markers, atomic temp-file + rename, post-write verify).
 rebuildManagedSectionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
   - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
@@ -135,10 +135,9 @@ For each entry in `target_context_files`:
 
 6. **Sort skills alphabetically by name.** Count totals (skills, stack skills).
 
-7. **Assemble the new managed section** using the format from `{managedSectionLogic}`:
+7. **Assemble the section body** `{managed_section_inner}` in the format from `{managedSectionLogic}`, without its two marker lines. The helper in item 8 writes `<!-- SKF:BEGIN updated:{date} -->` and `<!-- SKF:END -->` around the body itself:
 
    ```markdown
-   <!-- SKF:BEGIN updated:{current-date} -->
    [SKF Skills]|{n} skills|{m} stack
    |IMPORTANT: Prefer documented APIs over training data.
    |When using a listed library, read its SKILL.md before writing code.
@@ -148,22 +147,21 @@ For each entry in `target_context_files`:
    |{skill-snippet-2}
    |
    |{skill-snippet-N}
-   <!-- SKF:END -->
    ```
 
    If the filtered skill index is empty (e.g., the dropped skill was the only one), still emit the header with `0 skills|0 stack` and no skill entries. This keeps the managed section syntactically valid.
 
-8. **Surgical replacement — atomic, deterministic.** Resolve `{rebuildManagedSectionsHelper}` from `{rebuildManagedSectionsProbeOrder}`; first existing path wins. Then invoke:
+8. **Surgical replacement — atomic, deterministic.** Resolve `{rebuildManagedSectionsHelper}` from `{rebuildManagedSectionsProbeOrder}`; first existing path wins. Write `{managed_section_inner}` to `{context_file}.skf-content` with your file-write tool, with **no trailing newline** (the helper appends `\n<!-- SKF:END -->` itself). Never pass the body inline as `--content "…"` or through `echo`: snippets carry backticks, `$` and quotes, which the shell expands, and the helper checks the text it received, so it would report success on corrupted bytes (see `skf-export-skill/references/update-context.md` §9). Then invoke the helper, which reads the body from stdin when `--content` is absent:
 
    ```bash
-   python3 {rebuildManagedSectionsHelper} {context_file} replace --content "{new_managed_section_text}"
+   python3 {rebuildManagedSectionsHelper} "{context_file}" replace < "{context_file}.skf-content"
    ```
 
-   The helper handles marker location, between-marker swap, atomic temp-file + rename, and post-write verification (markers preserved, content outside markers byte-identical). It exits non-zero on any failure with a clear `stderr` reason.
+   Delete `{context_file}.skf-content` once the helper returns, whatever its exit code. The helper keeps everything outside the old markers, writes a fresh `<!-- SKF:BEGIN updated:{date} -->` line, the body and `<!-- SKF:END -->` in place of the old section, writes the file atomically (temp file + rename) and reads it back to check the markers and the bytes outside them. It refuses a body that holds a marker of its own (`<!-- SKF:BEGIN` or `<!-- SKF:END`), which would nest a second pair inside the section, and leaves the file unchanged. It prints its result as JSON on stdout and exits 0 only when `status` is `"ok"`. On a non-zero exit, bind `{context_error}` ← `error`; when stdout holds no JSON (a Python traceback), set `{context_error}` to the helper's stderr.
 
 9. **Verify (deferred to helper).** The `replace` action above performs verification internally. Treat any non-zero exit code as a per-file failure (next bullet). If the helper is missing entirely (no probe candidate exists), HALT (exit code 4, `halt_reason: "context-rebuild-failed"`) — the rewrite cannot proceed without the atomic helper.
 
-10. **On per-file failure:** record the error against that context file and continue to the next entry. Do not halt — other context files should still be rebuilt.
+10. **On per-file failure:** record `{context_error}` against that context file and continue to the next entry. Do not halt — other context files should still be rebuilt.
 
 **After the loop,** record `context_files_updated` as the list of files that were successfully rewritten, and `context_files_failed` as the list of any that failed.
 

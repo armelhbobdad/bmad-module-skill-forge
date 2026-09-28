@@ -26,12 +26,14 @@ rebuildManagedSectionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
   - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
 # Resolve `{rewriteSkillNameHelper}` similarly. §3 uses it for the four
-# field-scoped in-file rename transforms (SKILL.md frontmatter `name`,
-# metadata.json `name`, provenance-map.json `skill_name`, context-snippet
-# header + `root:` paths) — each a JSON round-trip or anchored-region edit
-# plus the atomic write in one call, so the LLM never hand-edits JSON (which
-# risks key reorder/drop) or eyeballs "only within the frontmatter" (which
-# mis-fires when {old_name} is a substring, e.g. rename -> renamer).
+# in-file rename transforms (SKILL.md frontmatter `name`, metadata.json
+# `name` and provenance-map.json `skill_name` plus the paths into the moved
+# folders, and the name where context-snippet.md's template writes it,
+# matched by the token rule §5's verifier uses) — each a
+# JSON round-trip or a scoped text edit plus the atomic write in one call, so
+# the LLM never hand-edits JSON (which risks key reorder/drop) or eyeballs
+# "only within the frontmatter" (which mis-fires when {old_name} is a
+# substring, e.g. rename -> renamer).
 rewriteSkillNameProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-rewrite-skill-name.py'
   - '{project-root}/src/shared/scripts/skf-rewrite-skill-name.py'
@@ -126,23 +128,25 @@ Report: "**Renamed {count} inner directories** to `{new_name}/`."
 
 For each version `v` in `affected_versions`, operate on the files inside `{new_skill_group}/{v}/{new_name}/` (the freshly renamed inner directory) and, only when `{forge_move}` or `{same_folder}` is true, `{new_forge_group}/{v}/`.
 
-**Transform semantics (apply to 3a / 3b / 3c / 3d):** `{rewriteSkillNameHelper}` performs each field-scoped substitution AND the crash-safe write (stage to `<target>.skf-tmp`, fsync, atomic rename) in one call — do NOT compute file content in the prompt. Each `--kind` edits exactly one field/region and leaves everything else byte-for-byte intact, so there is no key reorder/drop from hand-editing JSON and no wrong-region substitution when `{old_name}` is a substring (e.g. `rename` → `renamer`). Invoke it once per file:
+**Transform semantics (apply to 3a / 3b / 3c / 3d):** `{rewriteSkillNameHelper}` performs each field-scoped substitution AND the crash-safe write (stage to `<target>.skf-tmp`, fsync, atomic rename) in one call — do NOT compute file content in the prompt. Each `--kind` edits only the name — the frontmatter `name` in SKILL.md, the name field and the paths into the moved folders in the two JSON files, the places its template writes the name in context-snippet.md — and leaves everything else byte-for-byte intact, so there is no key reorder/drop from hand-editing JSON and no wrong-region substitution when `{old_name}` is a substring (e.g. `rename` → `renamer`). Invoke it once per file:
 
 ```bash
 python3 {rewriteSkillNameHelper} "{target_path}" \
   --kind {skill-frontmatter|metadata-json|context-snippet|provenance-json} \
-  --old-name {old_name} --new-name {new_name}
+  --old-name {old_name} --new-name {new_name} [--moved-folder "{folder}"]
 ```
+
+**Moved folders (3b and 3d only).** Pass `--moved-folder "{skills_output_folder}"`, and also `--moved-folder "{forge_data_folder}"` when `{forge_move}` or `{same_folder}` is true: those are the folders this rename moves `{old_name}/` out of. A forge folder left in place keeps its name, so paths into it stay as they are.
 
 Read the JSON result (`changed`, `wrote`, and per-kind fields). Exit 0 = processed (written only if the content changed). A non-zero exit — a missing structural region (no frontmatter delimiters), invalid JSON, or a write failure — is a **file update failure**: trigger the rollback below. Check file existence first: if the target file does not exist, skip the invocation and record it in `section3_warnings` per the per-item notes (a missing file is not a failure).
 
 **3a. SKILL.md frontmatter** — `--kind skill-frontmatter` on `{new_skill_group}/{v}/{new_name}/SKILL.md`. Replaces the top-level `name:` value inside the frontmatter block only (anchored on `^name:`, so a nested `name:` or a longer key like `renamed:` is untouched); body text is preserved verbatim, so a legitimate mention of `{old_name}` below the closing `---` survives. If the file is missing, record it in `section3_warnings` and continue.
 
-**3b. metadata.json** — `--kind metadata-json` on `{new_skill_group}/{v}/{new_name}/metadata.json`. Sets `name` = `{new_name}` via a JSON round-trip (key order preserved). If the file is missing, record it in `section3_warnings` and continue.
+**3b. metadata.json** — `--kind metadata-json` on `{new_skill_group}/{v}/{new_name}/metadata.json`. Sets `name` = `{new_name}` via a JSON round-trip (key order preserved), with the moved folders above. Every string value that is a path into a moved folder, `{folder}/{old_name}/…`, is pointed at `{folder}/{new_name}/…`, and the package folder `{old_name}/{v}/{old_name}/` in the skill folder at `{new_name}/{v}/{new_name}/`. Such paths include a test report path that an update run recorded. §5 would count the old name in such a path as a leftover, and §8 deletes the folder it names. A path counts only where it begins, at the start of the value or of a word in it, spelled as the folder's full path or as its last components (a path from the project root such as `forge-data/{old_name}/…`), so a URL or a path that only holds the folder's name further in stays. The values that name the upstream source or a file in it never change, even when one holds such a path, because the rename does not move the source: the source-fact keys §5 lists, `source_file` and a stack's `co_import_files`. §5 then reports a `source_file` that names `{old_name}`. Keys, other values and file names such as `test-report-{old_name}.md` stay, since the rename keeps those files' names. If the file is missing, record it in `section3_warnings` and continue.
 
-**3c. context-snippet.md** — `--kind context-snippet` on `{new_skill_group}/{v}/{new_name}/context-snippet.md`. Rewrites the display header `[{old_name} v...]` → `[{new_name} v...]` (version suffix preserved) and every `root:` path: it parses `root: {prefix}{old_name}/`, keeps the prefix verbatim, and swaps the trailing `{old_name}/` segment for `{new_name}/` — handling any IDE prefix (`.claude/skills/`, `.windsurf/skills/`, `.github/skills/`, the draft `skills/` prefix) generically, and flattening the legacy `root: skills/{old_name}/active/{old_name}/` form to `root: skills/{new_name}/`. If the file is missing, record it in `section3_warnings` and continue.
+**3c. context-snippet.md** — `--kind context-snippet` on `{new_skill_group}/{v}/{new_name}/context-snippet.md`. Rewrites `{old_name}` where every SKF snippet template writes the name, matched in each place by the same rule `{verifyNoTraceHelper}` uses (a complete skill-name token, so a longer name that contains `{old_name}` is left alone): the display header `[{old_name} v...]` → `[{new_name} v...]` (version suffix preserved), the first word of the `|IMPORTANT:` line and its `writing {old_name} code` phrase. Nothing else in the snippet changes: when a field label (`root:`, `|api:`), a fixed word of the template (`data` in "training data") or the library's own content is `{old_name}`, it stays, §5 reports it and the rename rolls back rather than commit a changed snippet. Each `root:` path keeps its prefix: the helper parses `root: {prefix}{old_name}/`, keeps the prefix verbatim, and swaps the trailing `{old_name}/` segment for `{new_name}/` — handling any IDE prefix (`.claude/skills/`, `.windsurf/skills/`, `.github/skills/`, the draft `skills/` prefix) generically, and flattening the legacy `root: skills/{old_name}/active/{old_name}/` form to `root: skills/{new_name}/`. If the file is missing, record it in `section3_warnings` and continue.
 
-**3d. provenance-map.json** — `--kind provenance-json` on `{new_forge_group}/{v}/provenance-map.json`. Sets `skill_name` = `{new_name}` via a JSON round-trip. If the file is missing (some versions may not have a provenance map), record it in `section3_warnings` and continue. Skip 3d when `{forge_move}` and `{same_folder}` are both false: there is no SKF forge folder to rewrite.
+**3d. provenance-map.json** — `--kind provenance-json` on `{new_forge_group}/{v}/provenance-map.json`. Sets `skill_name` = `{new_name}` via a JSON round-trip and, with the moved folders above, points the paths into them at `{new_name}` as 3b does. If the file is missing (some versions may not have a provenance map), record it in `section3_warnings` and continue. Skip 3d when `{forge_move}` and `{same_folder}` are both false: there is no SKF forge folder to rewrite.
 
 **Rollback on any update failure (not just a missing file):**
 
@@ -204,7 +208,7 @@ python3 {verifyNoTraceHelper} "{new_skill_group}" \
   --versions {comma-separated renamed_versions}
 ```
 
-Per version `v`, the helper scans `SKILL.md` (frontmatter matches → `hard_matches`; matches in the body below the closing `---` → `body_warnings`), `metadata.json`, `context-snippet.md`, and `provenance-map.json` (any match → `hard_matches`), plus the `{new_skill_group}/{v}/` listing (an `{old_name}/` directory present, or the `{new_name}/` directory missing → `dir_violations`). It matches `{old_name}` only as a complete skill-name token — bounded by non-name characters — so a correctly-renamed `{new_name}` that contains `{old_name}` as a substring (e.g. `rename` → `rename-skill`) is never a false leftover, and the frontmatter=hard / body=warning split is applied by region with no meaning-interpretation. A missing file is recorded under `skipped`, not treated as a match. When `{forge_move}` and `{same_folder}` are both false, `{new_forge_group}` does not exist and the helper records each provenance map under `skipped`. Exit 0 = clean; exit 1 = at least one hard match or dir violation.
+Per version `v`, the helper scans `SKILL.md` (frontmatter matches → `hard_matches`; matches in the body below the closing `---` → `body_warnings`), `metadata.json`, `context-snippet.md`, and `provenance-map.json` (any match → `hard_matches`; in the two JSON files a match inside the value of a source-fact key, below, does not count), plus the `{new_skill_group}/{v}/` listing (an `{old_name}/` directory present, or the `{new_name}/` directory missing → `dir_violations`). It matches `{old_name}` only as a complete skill-name token — bounded by non-name characters — so a correctly-renamed `{new_name}` that contains `{old_name}` as a substring (e.g. `rename` → `rename-skill`) is never a false leftover, and the frontmatter=hard / body=warning split is applied by region with no meaning-interpretation. A missing file is recorded under `skipped`, not treated as a match. When `{forge_move}` and `{same_folder}` are both false, `{new_forge_group}` does not exist and the helper records each provenance map under `skipped`. The source-fact keys are `source_repo`, `source_root`, `source_commit`, `source_ref`, `source_package` and `source_library`, at any depth of `metadata.json` and `provenance-map.json`: their values name the upstream source the skill was made from, not the skill, so §3 leaves them unchanged and the helper does not count a match inside them. For example, create-skill's provenance `source_library` defaults to the skill name, and so does Quick Skill's `source_package`. Every other value and every key outside those values still counts, and a JSON file that does not parse is scanned whole. Exit 0 = clean; exit 1 = at least one hard match or dir violation.
 
 Read the JSON and decide. An exit code of 2 with no JSON on stdout (the helper refuses an empty `--versions` list) counts as `clean` false: take the rollback below.
 
@@ -278,10 +282,9 @@ After §6 re-keys the manifest from `{old_name}` to `{new_name}`, every IDE's co
    - For each remaining `{skill-name, active_version}` pair, read `{skills_output_folder}/{skill-name}/{active_version}/{skill-name}/context-snippet.md`; if missing, fall back to the `active` symlink path; if still missing, skip with a warning.
 4. **Rewrite root paths** using the generic algorithm from `skf-export-skill/references/update-context.md` §4d: parse each snippet's `root:` line (`root: {prefix}{skill-name}/`), strip the trailing `{skill-name}/` to extract the current prefix, and replace it with the effective target prefix if different. The effective target prefix is `snippet_skill_root_override` when that key is set in `config.yaml` (applied uniformly to every snippet so the managed section references the real on-disk location and never mixes override and per-IDE paths), otherwise the current entry's `skill_root`.
 5. **Sort and count.** Sort skills alphabetically by name; count totals (skills, stack skills).
-6. **Assemble the new managed section** using the format from `{managedSectionLogic}`:
+6. **Assemble the section body** `{managed_section_inner}` in the format from `{managedSectionLogic}`, without its two marker lines. The helper in item 7 writes `<!-- SKF:BEGIN updated:{date} -->` and `<!-- SKF:END -->` around the body itself:
 
    ```markdown
-   <!-- SKF:BEGIN updated:{current-date} -->
    [SKF Skills]|{n} skills|{m} stack
    |IMPORTANT: Prefer documented APIs over training data.
    |When using a listed library, read its SKILL.md before writing code.
@@ -291,17 +294,16 @@ After §6 re-keys the manifest from `{old_name}` to `{new_name}`, every IDE's co
    |{skill-snippet-2}
    |
    |{skill-snippet-N}
-   <!-- SKF:END -->
    ```
 
-7. **Surgical replacement — atomic, deterministic.** Invoke `{rebuildManagedSectionsHelper}` (resolved in §0) for the between-marker swap:
+7. **Surgical replacement — atomic, deterministic.** Write `{managed_section_inner}` to `{context_file}.skf-content` with your file-write tool, with **no trailing newline** (the helper appends `\n<!-- SKF:END -->` itself). Never pass the body inline as `--content "…"` or through `echo`: snippets carry backticks, `$` and quotes, which the shell expands, and the helper checks the text it received, so it would report success on corrupted bytes (see `skf-export-skill/references/update-context.md` §9). Then invoke `{rebuildManagedSectionsHelper}` (resolved in §0) for the between-marker swap. It reads the body from stdin when `--content` is absent:
 
    ```bash
-   python3 {rebuildManagedSectionsHelper} {context_file} replace --content "{new_managed_section_text}"
+   python3 {rebuildManagedSectionsHelper} "{context_file}" replace < "{context_file}.skf-content"
    ```
 
-   The helper handles marker location, the between-marker swap, atomic temp-file + rename, and post-write verification (markers preserved, content outside markers byte-identical). It exits non-zero on any failure with a clear `stderr` reason — treat any non-zero exit as a per-file failure.
-8. **On per-file failure**, record the error against that context file and continue to the next entry. Do not halt the rename on a recoverable per-context-file error — the manifest and filesystem are already consistent, so context files can be re-rebuilt later via `[EX] Export Skill`.
+   Delete `{context_file}.skf-content` once the helper returns, whatever its exit code. The helper keeps everything outside the old markers, writes a fresh `<!-- SKF:BEGIN updated:{date} -->` line, the body and `<!-- SKF:END -->` in place of the old section, writes the file atomically (temp file + rename) and reads it back to check the markers and the bytes outside them. It refuses a body that holds a marker of its own (`<!-- SKF:BEGIN` or `<!-- SKF:END`), which would nest a second pair inside the section, and leaves the file unchanged. It prints its result as JSON on stdout and exits 0 only when `status` is `"ok"`. On a non-zero exit, bind `{context_error}` ← `error`; when stdout holds no JSON (a Python traceback), set `{context_error}` to the helper's stderr. Treat any non-zero exit as a per-file failure.
+8. **On per-file failure**, record `{context_error}` against that context file and continue to the next entry. Do not halt the rename on a recoverable per-context-file error — the manifest and filesystem are already consistent, so context files can be re-rebuilt later via `[EX] Export Skill`.
 
 **7c. After the loop**, record:
 
