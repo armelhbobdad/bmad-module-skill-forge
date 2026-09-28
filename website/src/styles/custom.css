@@ -65,7 +65,7 @@
 }
 
 /* ============================================
-   HERO (splash template) — wedge-forward
+   HERO (splash template): large tagline up front
    ============================================ */
 .hero .tagline {
   font-size: clamp(1.25rem, 2.4vw, 1.875rem);
@@ -81,7 +81,7 @@
 }
 
 /* ============================================
-   RECEIPT CHIP — "what a citation looks like"
+   RECEIPT CHIP: the "A receipt looks like" sample citation
    ============================================ */
 .receipt-sample {
   display: flex;
@@ -127,7 +127,7 @@
 }
 
 /* ============================================
-   CTA PILL — prominent inline call-to-action
+   CTA PILL: prominent inline call-to-action link
    ============================================ */
 .cta-pill {
   margin: 1.75rem 0;
@@ -167,7 +167,7 @@
 }
 
 /* ============================================
-   COMPARISON TABLE — highlight SKF (last) row
+   COMPARISON TABLE: highlight the SKF (last) row
    (scoped to .comparison-table wrapper to avoid
    affecting other tables across the site)
    ============================================ */
@@ -218,7 +218,7 @@
   border-radius: 4px;
 }
 
-/* Group headers (Why / Try / Reference) — classic docs-site treatment */
+/* Group headers (Why / Try / Reference): small bold uppercase labels */
 .sidebar-content summary {
   padding: 0.5rem 0.75rem;
   margin-top: 1.25rem;

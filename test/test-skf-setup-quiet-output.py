@@ -599,14 +599,14 @@ def test_workflows_doc_promises_only_the_final_message():
                       "SUPPRESSES all other output", "no progress messages"):
         assert overclaim not in doc, overclaim
     exception = next(line for line in doc.splitlines()
-                     if line.startswith("**Exception — `/skf-setup` headless"))
+                     if line.startswith("**Exception: `/skf-setup` headless"))
     assert "this line is the run's final message, so it is exactly what `claude -p` prints" in exception
 
 
 def test_workflows_doc_places_the_health_check_by_outcome():
     """The health check runs only on success; a tier miss or a halt ends before it."""
     exception = next(line for line in _read(WORKFLOWS_DOC).splitlines()
-                     if line.startswith("**Exception — `/skf-setup` headless"))
+                     if line.startswith("**Exception: `/skf-setup` headless"))
     assert "after the health check has run, so" not in exception
     assert "On success the health check runs first and the envelope follows it" in exception
     assert "On a tier miss or a halt the health check does not run" in exception
@@ -616,13 +616,13 @@ def test_docs_state_when_no_envelope_arrives():
     """With SKF's scripts absent there is no helper to build an envelope, so
     the one line is the bare reason; pipelines must treat that as a failure."""
     exception = next(line for line in _read(WORKFLOWS_DOC).splitlines()
-                     if line.startswith("**Exception — `/skf-setup` headless"))
+                     if line.startswith("**Exception: `/skf-setup` headless"))
     assert "SKF's scripts are not installed in the project" in exception
     assert "the run's one line is the bare halt reason" in exception
     assert "Pipelines should treat a missing envelope as a failure" in exception
     entry = _section(_read(TROUBLESHOOTING), '### "Setup cannot proceed: `_bmad/skf/config.yaml` was not found"')
-    assert "the run's one line is this reason alone" in entry
-    assert "Pipelines should treat a missing envelope as a failure" in entry
+    assert "the run's one line is the message alone" in entry
+    assert "Pipelines should treat a run with no `SKF_SETUP_RESULT_JSON` line as a failure" in entry
     contract = _section(_read(SKILL_MD), "## Invocation Contract")
     failure = next(line for line in contract.splitlines() if line.startswith("| **Failure modes**"))
     assert "bare halt reason with no envelope" in failure
@@ -633,8 +633,8 @@ def test_docs_state_when_no_envelope_arrives():
     uv_entry = _section(_read(TROUBLESHOOTING), '### "Setup cannot proceed: `uv` is not installed"')
     assert "needs only the Python standard library" in uv_entry
     assert "the first of `python3`, `python` or `py -3` that runs on the machine" in uv_entry
-    assert "the run's one line is this reason alone" in uv_entry
-    assert "Pipelines should treat a missing envelope as a failure" in uv_entry
+    assert "the run's one line is the message alone" in uv_entry
+    assert "Pipelines should treat a run with no `SKF_SETUP_RESULT_JSON` line as a failure" in uv_entry
     assert "`uv` or a Python interpreter can run them" in entry
 
 

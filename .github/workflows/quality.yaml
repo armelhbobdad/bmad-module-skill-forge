@@ -5,6 +5,7 @@ name: Quality & Validation
 # - ESLint (linting)
 # - markdownlint (markdown quality)
 # - LintLang (agent instructions under src/)
+# - No em dashes (published docs, and the lines and commit messages a PR adds)
 # - Schema validation (YAML structure)
 # - Agent schema tests (fixture-based validation)
 # - Installation component tests (CLI + compilation)
@@ -102,6 +103,32 @@ jobs:
       # LintLang release itself.
       - name: LintLang
         run: npm run lint:instructions
+
+  # Enforces the project's writing rule: no em dash (U+2014). The published
+  # docs (README.md, docs/ except docs/_internal/, website/) must hold none,
+  # and a pull request may add none anywhere, in its changed lines or its
+  # commit messages. fetch-depth: 0 fetches the base branch the tool diffs
+  # against; without it the tool fails in CI rather than skip the check. It
+  # uses only Node built-ins, so the job skips npm ci. Linux only: it reads
+  # text, so a Windows run would only repeat it.
+  em-dash:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Test the em dash check
+        run: npm run test:em-dash-tool
+
+      - name: No em dashes
+        run: npm run validate:em-dash
 
   validate:
     # Matrix Linux + Windows to catch platform-divergence bugs (path handling,

@@ -23,7 +23,7 @@ If you're not sure where a change belongs, open an issue and ask before writing 
 **Prerequisites:**
 
 - [Node.js](https://nodejs.org/) >= 22 — the supported floor (`engines.node`); development and CI run Node 24 (see `.nvmrc`)
-- [Python](https://www.python.org/) >= 3.10
+- [Python](https://www.python.org/) >= 3.11
 - [uv](https://docs.astral.sh/uv/) — runs the Python test suite
 - `git`, `gh` — used by several workflows and by the health-check loop
 
@@ -37,11 +37,13 @@ npm run quality       # run the full local pre-flight
 The `npm run quality` script is your contract with CI. It runs:
 
 - `format:check` (Prettier), `lint` (ESLint), `lint:md` (markdownlint), `lint:instructions` (LintLang on the agent instructions under `src/`)
-- `test:schemas`, `test:install`, `test:cli`, `test:workflow`, `test:python`, `test:rehype`, `test:docs-links-tool`, `test:file-refs-tool`, `test:knowledge`
-- `validate:schemas`, `validate:skills`, `validate:refs`, `validate:docs-links`
+- `test:schemas`, `test:install`, `test:cli`, `test:workflow`, `test:python`, `test:rehype`, `test:docs-links-tool`, `test:em-dash-tool`, `test:file-refs-tool`, `test:knowledge`
+- `validate:schemas`, `validate:skills`, `validate:refs`, `validate:docs-links`, `validate:em-dash`
 - `docs:validate-drift` — SKF docs vs. the canonical [oh-my-skills](https://github.com/armelhbobdad/oh-my-skills) output
 
 If `npm run quality` passes locally, CI should too. The same steps run in [`.github/workflows/quality.yaml`](.github/workflows/quality.yaml) on every pull request.
+
+Write no em dashes (U+2014) in anything you add, including commit messages: use a colon, a comma, parentheses or a new sentence. `validate:em-dash` fails on any em dash in the published docs (`README.md`, `docs/` outside `docs/_internal/`, `website/`) and on any em dash in the lines or commit messages your branch adds. The one exception is the context-snippet lines SKF generates (`|IMPORTANT:`, `|key-types:` and the like, a pipe followed directly by a key and a colon), which docs may quote as they are.
 
 ## Workflow for Changes
 

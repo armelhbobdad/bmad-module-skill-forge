@@ -12,7 +12,7 @@
   overlay.innerHTML =
     '<div class="mermaid-lightbox-content"></div>' +
     '<button class="mermaid-lightbox-close" aria-label="Close">&times;</button>' +
-    '<span class="mermaid-lightbox-hint">Click anywhere or press Esc to close</span>';
+    '<span class="mermaid-lightbox-hint">Click outside the diagram or press Esc to close</span>';
   document.body.appendChild(overlay);
 
   const content = overlay.querySelector('.mermaid-lightbox-content');
@@ -47,7 +47,7 @@
     content.innerHTML = '';
   }
 
-  // Event delegation — works regardless of when mermaid renders
+  // Event delegation: works regardless of when mermaid renders
   document.addEventListener('click', function (e) {
     var target = e.target.closest('pre.mermaid');
     if (target) {

@@ -85,10 +85,10 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
 
   {if tools.ccc is true:}
   CCC Index:
-  {if ccc_index_result is "fresh": up to date — semantic discovery ready}
-  {if ccc_index_result is "created": indexed this run — semantic discovery ready}
-  {if ccc_index_result is "skipped": skipped (--ccc-skip-index) — run `/skf-setup` without --ccc-skip-index to build or refresh the index when you're ready}
-  {if ccc_index_result is "failed": indexing failed — semantic discovery unavailable this session ({ccc_indexing_failed_reason})}
+  {if ccc_index_result is "fresh": up to date, semantic discovery ready}
+  {if ccc_index_result is "created": indexed this run, semantic discovery ready}
+  {if ccc_index_result is "skipped": skipped (--ccc-skip-index). Run `/skf-setup` without --ccc-skip-index to build or refresh the index when you're ready}
+  {if ccc_index_result is "failed": indexing failed, semantic discovery unavailable this session ({ccc_indexing_failed_reason})}
   {if ccc_exclusion_warnings is non-empty:}
   CCC exclusion notes:
   {for each entry in ccc_exclusion_warnings: - {entry}}
@@ -96,19 +96,19 @@ Load and read {tierRulesData} for the tier capability descriptions and re-run me
   {end if}
 
   Files written this run:
-  - forge-tier.yaml — {project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml
+  - forge-tier.yaml: {project-root}/_bmad/_memory/forger-sidecar/forge-tier.yaml
   {if preferences_yaml_created is true:}
-  - preferences.yaml — {project-root}/_bmad/_memory/forger-sidecar/preferences.yaml (first-run defaults)
+  - preferences.yaml: {project-root}/_bmad/_memory/forger-sidecar/preferences.yaml (first-run defaults)
   {end if}
   - {forge_data_folder}/ (directory ensured)
   {if settings_yml_written is true:}
-  - .cocoindex_code/settings.yml — {project-root}/.cocoindex_code/settings.yml ({settings_yml_patterns_added} SKF exclusion pattern(s) merged{if settings_yml_patterns_removed > 0:}, {settings_yml_patterns_removed} stale SKF pattern(s) removed{end if})
+  - .cocoindex_code/settings.yml: {project-root}/.cocoindex_code/settings.yml ({settings_yml_patterns_added} SKF exclusion pattern(s) merged{if settings_yml_patterns_removed > 0:}, {settings_yml_patterns_removed} stale SKF pattern(s) removed{end if})
   {end if}
   {if gitignore_updated is true:}
-  - .gitignore — {project-root}/.gitignore (`/.cocoindex_code/` added by `ccc init`)
+  - .gitignore: {project-root}/.gitignore (`/.cocoindex_code/` added by `ccc init`)
   {end if}
   {if ccc_index_result is "created":}
-  - .cocoindex_code/ ccc index — {ccc_file_count} files indexed
+  - .cocoindex_code/ ccc index: {ccc_file_count} files indexed
   {end if}
 
 {if tier_override is active:}

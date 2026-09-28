@@ -1089,7 +1089,7 @@ class TestWorkflowWiring:
     def test_docs_describe_the_opt_in(self):
         assert "`tessl_review_workspace: ~`" in _read(REPO / "src" / "skf-setup" / "references" / "write-config.md")
         started = _read(REPO / "docs" / "getting-started.md")
-        assert "| `tessl_review_workspace` |" in started and "one runtime preference" not in started
+        assert re.search(r"^\| `tessl_review_workspace` +\|", started, re.M) and "one runtime preference" not in started
         security = _section(_read(REPO / "docs" / "architecture.md"), "## Security", "\n---\n")
         assert "tessl_review_workspace" in security
         assert "Tessl Review when you opt in" in _read(REPO / "docs" / "workflows.md")
@@ -1105,4 +1105,4 @@ class TestWorkflowWiring:
         table = _section(arch, f"### {count} Tools\n", "\n\n")
         assert len(re.findall(r"^\| \*\*`", table, re.M)) == count
         assert f"Runtime flow, {count} tools," in _read(REPO / "README.md")
-        assert f"how the {count} tools resolve" in _read(REPO / "docs" / "how-it-works.md")
+        assert f"the {count} tools and which one wins when they disagree" in _read(REPO / "docs" / "how-it-works.md")

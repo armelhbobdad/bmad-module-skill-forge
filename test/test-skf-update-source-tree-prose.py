@@ -513,7 +513,7 @@ def test_clone_not_updated_names_commands_that_work():
     assert "checkout-interrupted" in _helper().ADVANCE_SKIP_REASONS
     trouble = _slice(_read(REPO_ROOT / "docs" / "troubleshooting.md"),
                      "### Update Skill stops with `blocked` before detecting changes", "\n### ")
-    assert "gives the commands that bring it there" in trouble and "the two commands" not in trouble
+    assert "gives the `git` commands that move it there" in trouble and "the two commands" not in trouble
     assert "shows how to re-sync" not in trouble
     verifying = _read(REPO_ROOT / "docs" / "verifying-a-skill.md")
     assert "command that re-syncs the source" not in verifying
@@ -590,8 +590,9 @@ def test_docs_and_knowledge():
     workflows = _slice(_read(REPO_ROOT / "docs" / "workflows.md"), "### Update Skill (US)", "**Agent:**")
     assert "Fetch the source at the skill's ref" in workflows and "--target-ref" in workflows
     verifying = _slice(_read(REPO_ROOT / "docs" / "verifying-a-skill.md"), "### Workflow-time enforcement", "---")
-    assert "test-skill halts with `workspace-drift`" in verifying
-    assert "gap-driven update-skill with `halted-for-workspace-drift`" in verifying
+    halt = _slice(verifying, "- **Test Skill (`@Ferris TS`)**", "\n")
+    assert "**Update Skill with `--from-test-report`**" in halt
+    assert "Test Skill with `workspace-drift`, Update Skill with `halted-for-workspace-drift`" in halt
     assert "records that commit" in verifying
     trouble = _slice(_read(REPO_ROOT / "docs" / "troubleshooting.md"),
                      "### Update Skill stops with `blocked` before detecting changes", "\n### ")

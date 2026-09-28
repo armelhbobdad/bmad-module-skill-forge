@@ -23,12 +23,13 @@ For background on GitHub rulesets vs legacy branch protection, see the [GitHub r
 | `code_quality`           | Blocks merge on `severity: errors` from GitHub code-quality checks.                                                        |
 | `required_status_checks` | Merge blocked until every `quality.yaml` check passes (names below).                                                    |
 
-**Required status checks (9):** sourced from `.github/workflows/quality.yaml` job keys. Matrix jobs expand to `jobname (matrix-value)`:
+**Required status checks (10):** sourced from `.github/workflows/quality.yaml` job keys. Matrix jobs expand to `jobname (matrix-value)`:
 
 - `prettier`
 - `eslint`
 - `markdownlint`
 - `lintlang`
+- `em-dash`
 - `validate (ubuntu-latest)`
 - `validate (windows-latest)`
 - `python (ubuntu-latest)`

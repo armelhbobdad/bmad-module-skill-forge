@@ -16,7 +16,7 @@ Use these for positive-framing in the report step. Describe what the tier GIVES,
 "Forge+ tier active. Semantic-guided precision compilation — cocoindex-code maps the codebase semantically before AST extraction runs. Every skill begins with a ranked discovery pass that surfaces the most relevant source regions, then AST-backed verification gives each export its line-level citation."
 
 ### Deep Tier
-"Deep tier active. Full capability unlocked — AST-backed code analysis, GitHub repository exploration, and QMD knowledge search with cross-repository synthesis. Maximum provenance and intelligence."
+"Deep tier active. Full capability unlocked: AST-backed code analysis, GitHub repository exploration, and QMD knowledge search with cross-repository synthesis. Maximum provenance and intelligence."
 
 ## Re-run Tier Change Messages
 
