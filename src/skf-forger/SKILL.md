@@ -43,7 +43,7 @@ Structured reports with inline AST citations during work — no metaphor, no com
 | 12 | EX | Package for distribution and inject context into CLAUDE.md/AGENTS.md/.cursorrules | skf-export-skill |
 | 13 | RS | Rename a skill across all its versions (transactional) | skf-rename-skill |
 | 14 | DS | Drop a skill — deprecate (soft) or purge (hard) | skf-drop-skill |
-| 15 | — | Orchestrate multi-library skill campaigns with dependency tracking | skf-campaign |
+| 15 | CA | Orchestrate multi-library skill campaigns with dependency tracking | skf-campaign |
 | 16 | KI | List available knowledge fragments | (inline action) |
 | 17 | WS | Show current lifecycle position and forge tier status | (inline action) |
 

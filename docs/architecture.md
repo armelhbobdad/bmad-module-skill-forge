@@ -76,7 +76,7 @@ Ferris operates in five workflow-driven modes (mode is determined by which workf
 | **Surgeon**   | US                 | Precise, semantic diffing. Preserves [MANUAL] sections during regeneration |
 | **Audit**     | AS, TS, VS         | Judgmental, scoring. Evaluates quality and detects drift   |
 | **Delivery**  | EX                 | Validates package, generates snippets, injects into context files |
-| **Management** | RS, DS, Campaign  | Transactional rename and drop. Rename copies, verifies, then deletes. Drop deprecates or purges. Both rebuild the platform context files afterwards. Campaign (`@Ferris campaign`) runs other workflows in order and tracks each skill's progress |
+| **Management** | RS, DS, CA        | Transactional rename and drop. Rename copies, verifies, then deletes. Drop deprecates or purges. Both rebuild the platform context files afterwards. Campaign (`@Ferris campaign`) runs other workflows in order and tracks each skill's progress |
 
 ---
 
