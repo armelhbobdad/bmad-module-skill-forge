@@ -62,7 +62,7 @@ timeout 10s npx --no-install skill-check -h
 ```
 
 - If exits 0: Use skill-check for automated validation in sections 3, 9.
-- If exits non-zero, times out, or returns "command not found": Use manual fallback paths. Mark `metadata.validation_status: "manual-only"` (do this in step 7 when appropriate) and record every skipped check in the evidence report.
+- If exits non-zero, times out, or returns "command not found": Use manual fallback paths, append a `workflow_warnings[]` entry (`step: "step-08"`, `severity: "warn"`, `code: "skill-check-unavailable"`, `message: "skill-check unavailable — manual fallback checks used, security scan skipped"`) so step 9 does not report the run as skill-check validated, and record every skipped check in the evidence report.
 
 **Important:** Do not assume availability — empirical check required.
 
