@@ -4,6 +4,7 @@ name: Quality & Validation
 # - Prettier (formatting)
 # - ESLint (linting)
 # - markdownlint (markdown quality)
+# - LintLang (agent instructions under src/)
 # - Schema validation (YAML structure)
 # - Agent schema tests (fixture-based validation)
 # - Installation component tests (CLI + compilation)
@@ -72,6 +73,35 @@ jobs:
 
       - name: markdownlint
         run: npm run lint:md
+
+  # Lints the text SKF hands a model (the SKILL.md files and the step and
+  # reference files under src/) with LintLang, a deterministic linter for agent
+  # instructions. Gates on HIGH and CRITICAL findings only: its MEDIUM and LOW
+  # findings on this tree are advisory, and validate:skills already owns the
+  # description and naming rules. The scan is limited to src/ because a scan of
+  # the whole checkout ignores .gitignore and fails on the malformed YAML
+  # fixtures under test/. Linux only: the scan reads text, so a Windows run
+  # would only repeat it.
+  lintlang:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+
+      # No `npm ci`: the script only calls uvx, which fetches the pinned
+      # LintLang release itself.
+      - name: LintLang
+        run: npm run lint:instructions
 
   validate:
     # Matrix Linux + Windows to catch platform-divergence bugs (path handling,
