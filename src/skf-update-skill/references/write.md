@@ -28,12 +28,20 @@ updateActiveSymlinkProbeOrder:
 # Resolve `{verifyProvenanceCompletenessHelper}` to the first existing path.
 # §6a runs Check D (Provenance Completeness), deferred from step 5 because it
 # needs both metadata.json + provenance-map.json on disk: the export/provenance
-# set-diff (missing + orphaned entries) and file:line citation resolution.
+# set-diff (missing + orphaned entries), file:line citation resolution, the
+# definition-line check and (with --skill-dir) the citation-prefix check.
 # Advisory — do not HALT if neither path resolves; fall back to the in-prose
 # set comparison §6a documents (graceful degradation).
 verifyProvenanceCompletenessProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py'
   - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
+# Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
+# (installed SKF module path first, src/ dev-checkout fallback); first existing
+# path wins. §6a writes its source-line and citation fixes with it. Advisory:
+# if neither path resolves, §6a fixes nothing and lists each finding as a WARN.
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 # Resolve `{hashContentHelper}` to the first existing path; HALT if neither
 # candidate exists. §1 uses its `manual-verify` subcommand to verify the
 # post-merge file against the byte-exact [MANUAL] inventory captured in step 1
@@ -85,7 +93,7 @@ Verify the merged SKILL.md that step 4 section 6b wrote to disk, then write the 
 ## Rules
 
 - Focus only on verifying merged files and writing derived artifacts — merge content was already written in step 4
-- Do not modify merged SKILL.md content — any mismatch detected during verification triggers HALT, not repair
+- Do not modify merged SKILL.md or `references/` content, apart from §6a's citation line and prefix fixes outside `[MANUAL]` blocks: any mismatch detected during verification triggers HALT, not repair
 - Do not skip provenance map update — critical for future audits
 - HALT immediately on verification failure before writing any derived artifact — a partial-write skill package is worse than an unchanged one
 
@@ -162,12 +170,13 @@ Write to `{forge_version}/provenance-map.json`. When step 4 §6b created a new v
 **Record the source commit:** set the map's top-level `source_commit` and `source_ref` to the values §2 wrote to `metadata.json` — audit-skill reads its baseline commit from them.
 
 **If `no_reextraction == true` (gap-driven mode from step 3 section 0):**
-Dispatch per-entry on the verification outcome recorded by step 3 — gap-driven runs produce a mix of `verified`, `moved`, `re-extracted`, and `unknown` outcomes, and each requires a different provenance-map write strategy:
+Dispatch per-entry on the verification outcome recorded by step 3. Gap-driven runs produce a mix of `verified`, `moved`, `missing`, `re-extracted`, `unknown` and `rescoped` outcomes, and each requires a different provenance-map write strategy:
 
-- **`verified` exports**: no fresh extraction data exists, so do NOT overwrite `confidence`, `extraction_method`, `ast_node_type`, `params[]`, `return_type`, `source_file`, or `source_line`. The provenance entry stays byte-identical except for §2's relabel: when §2's stats helper reports a `provenance.entries[<i>].*` violation on it, set `confidence`, `signature_source` and `ast_node_type` to match its `extraction_method` (and an unknown or missing method to the tool that produced the entry). That relabel is the only change a `verified` entry allows.
-- **`moved` exports**: update `source_line` (and `source_file` if different) to the new location recorded by the spot-check. Do not touch other fields, apart from §2's relabel.
+- **`verified` exports**: no fresh extraction data exists, so do NOT overwrite `confidence`, `extraction_method`, `ast_node_type`, `params[]`, `return_type`, `source_file`, or `source_line`. The provenance entry stays byte-identical except for §2's relabel: when §2's stats helper reports a `provenance.entries[<i>].*` violation on it, set `confidence`, `signature_source` and `ast_node_type` to match its `extraction_method` (and an unknown or missing method to the tool that produced the entry). That relabel and §6a's `source_line` fix (a `line-not-definition` finding with one definition line) are the only changes a `verified` entry allows.
+- **`moved` exports**: update `source_line` (and `source_file` if different) to the new location recorded by the spot-check, the line that defines the export. Do not touch other fields, apart from §2's relabel and §6a's `source_line` fix.
 - **`re-extracted` exports** (resolved via step 3 §0a's Targeted Re-Extraction Branch from `remediation_paths[]`): write a full entry — `source_file`, `source_line`, `confidence`, `extraction_method`, `ast_node_type`, `params[]`, `return_type` — from §0a's fresh AST extraction record. This is the only gap-driven outcome that produces normal-mode-quality provenance; do NOT fall through to the byte-identical preservation above.
-- **`unknown` exports** (not in provenance map; no `source_citation`; `severity` is `Medium`, `Low`, or `Info`, OR `remediation_paths[]` was empty and §0a did not halt): add new entries with fields populated from step 4 merge output. `source_file`/`source_line` may be `null` here — leave these fields unset rather than writing stale values. **This path is only acceptable for `severity` in `Medium`, `Low`, or `Info`.** A Critical/High `unknown` reaching this branch indicates step 3 §0a was skipped or bypassed and is a workflow bug — step 3 §0a should have halted with status `halted-for-remediation-path` before step 6 ran. If you encounter one, halt with a pointer to §0a rather than writing null citations for a blocking gap.
+- **`unknown` exports** (a `NEW_EXPORT` not in provenance map; no `source_citation`, or one whose spot-check pinned no line; `severity` is `Medium`, `Low`, or `Info`, OR `remediation_paths[]` was empty and §0a did not halt): add new entries with fields populated from step 4 merge output. `source_file`/`source_line` may be `null` here: leave these fields unset rather than writing stale values. **This path is only acceptable for `severity` in `Medium`, `Low`, or `Info`.** A Critical/High `unknown` reaching this branch indicates step 3 §0a was skipped or bypassed and is a workflow bug: step 3 §0a should have halted with status `halted-for-remediation-path` before step 6 ran. If you encounter one, halt with a pointer to §0a rather than writing null citations for a blocking gap.
+- **`missing` exports, `unknown` on an export already in the provenance map, and `unknown` on a `MOVED_EXPORT`** (a spot-check that found the recorded file gone, or found no line or several lines that define the export, or a line gap for an export the map does not hold; step 3 §0): leave the map as it is. Do not guess a line, do not remove the entry and do not add one: a person decides. Add `{export_name}: {outcome}` to `{provenance_spot_check_warnings}` in workflow context; the update report lists each as a WARN (report.md §2).
 - **`rescoped` exports** (`DELETED_EXPORT`, removed from the public surface per detect-changes §0 rule R1): remove the entry from the provenance map — identical to the normal-mode "For deleted exports" path below. The reduction's audit trail is the `brief.scope.exclude` + `scope.amendments[]` (`action: "excluded"`) entry written in step 2; do not record the removal by editing `stats` directly — §2 recomputes `stats` from the reduced `exports` array.
 - Skip the "For each export in the updated skill" bullets below — they apply only to normal re-extraction mode.
 
@@ -331,19 +340,31 @@ For each derived artifact:
 uv run {verifyProvenanceCompletenessHelper} verify \
     --metadata {skill_package}/metadata.json \
     --provenance {forge_version}/provenance-map.json \
-    --source-root {source_root}
+    --source-root {source_root} \
+    --skill-dir {skill_package}
 ```
 
-The helper reads its `--source-root` (falling back to the provenance map's own `source_root` field when the flag is omitted); pass the resolved `{source_root}` so citation resolution runs against the same tree re-extraction read. When `{source_tree_status}` is `ready` or `offline`, `{source_root}` is still the tree init.md §6b prepared (step 8 removes it), so citations resolve against the commit §2 recorded. **Read the emitted JSON — do NOT recompute the set operations by eye; an LLM set-diff can silently pass a dropped or orphaned entry:**
+The helper reads its `--source-root` (falling back to the provenance map's own `source_root` field when the flag is omitted); pass the resolved `{source_root}` so citation resolution runs against the same tree re-extraction read. When `{source_root}` is null, empty or a URL (a docs-only skill), leave out the `--source-root` line: an empty flag value fails the helper's arguments, and the citation check must still run. When `{source_tree_status}` is `ready` or `offline`, `{source_root}` is still the tree init.md §6b prepared (step 8 removes it), so citations resolve against the commit §2 recorded. **Read the emitted JSON and do NOT recompute the set operations by eye, since an LLM set-diff can silently pass a dropped or orphaned entry:**
 
 - `missing[]` — documented exports (metadata `exports[]`) with no provenance entry: a coverage gap.
 - `orphaned[]` — provenance `entries[].export_name` whose export was removed but the entry remains.
-- `stale[]` — entries whose `source_file:source_line` no longer resolves; each carries a `reason` of `file-missing`, `line-out-of-bounds`, or `line-invalid`. Internal names are canonicalized through `reexport_map` before the diff, so a barrel-renamed export does not read as missing or orphaned.
+- `stale[]`: entries whose `source_file:source_line` no longer resolves or is not the line that defines the export; each carries a `reason` of `file-missing`, `line-out-of-bounds`, `line-invalid` or `line-not-definition`. A `line-not-definition` item lists in `definition_lines` every line of the file that defines the export (the `def` or declaration line itself, not a decorator or blank line above it). An empty list means the rules found no definition line, which may be a shape they do not cover: the entry is unverified, not gone. Internal names are canonicalized through `reexport_map` before the diff, so a barrel-renamed export does not read as missing or orphaned.
+- `citations[]`: `[AST:]` / `[SRC:]` citations in SKILL.md and `references/` whose prefix disagrees with the entry they cite (`prefix-mismatch`: `ast-grep` gives `[AST:]`, `source-read` gives `[SRC:]`), and `[AST:]` citations in a skill whose map has no `ast-grep` entry (`ast-without-ast-grep`). Each gives the markdown `file` and `line`, the `citation` text and its `expected_prefix`.
 - `summary.stale_check` — `"checked"` when citations were resolved against the source tree, or `"skipped-no-source-root"` when no source root resolved on disk (the completeness + orphan diffs still ran; `stale` is empty by construction, not clean-by-verification).
+- `summary.skill_citations_scanned` and `summary.skill_citations_matched`: when citations were scanned and none matched, no citation names a path and line the map records (the citations use another root), so the prefix check compared nothing. List that as a WARN.
 
-Map `status` to the `Provenance:` line of the §4 evidence report's Validation Summary: `PASS` when `status == "pass"`, `WARN` when `status == "findings"` (this is the persistent record — step 5 §5's table was rendered before the provenance map existed, so it necessarily showed this row as deferred). Provenance findings are **advisory** — they do not block the update. Surface each `missing` / `orphaned` / `stale` entry in the evidence report's Validation Summary so the user can decide, and note when `stale_check` was `skipped-no-source-root`.
+When the helper exits 2 it prints no JSON: record `Provenance: WARN (not run: verifier error)` with its stderr in the evidence report's Validation Summary and continue to §6b. When the second run below exits 2, record the fixes already applied and `second run: verifier error` the same way and continue to §6b.
 
-**Graceful degradation:** if neither probe path resolves (no `uv` / script available), fall back to the manual set comparison the script encapsulates — enumerate metadata `exports[]` and provenance `entries[].export_name` (canonicalizing internal names through `reexport_map`), diff the two sets for missing/orphaned entries, and spot-check that each `source_file:source_line` still points at a real line in the source tree. Prefer the script — it does this deterministically.
+**Fix the findings that have one answer**, in this order, then run the command above once more:
+
+1. **Citation prefixes.** For each `citations[]` item, find the citation by its `file`, its `line` and its `citation` text, and change its prefix to `expected_prefix`. Keep its path and line.
+2. **Source lines.** Skip this step when `allow_workspace_drift` is true: the tree read is not the recorded commit, so its lines prove nothing about the map; list each such finding as a WARN instead. Otherwise plan every move before making any: for each `line-not-definition` item with exactly one value in `definition_lines`, the entry's `source_line` in `{forge_version}/provenance-map.json` moves to that value. Select the citations each move takes from `{skill_package}/SKILL.md` and `{skill_package}/references/` as they stand before any line fix (after step 1): a citation of either prefix whose path, normalized as the helper matches it (a leading `./` dropped, backslashes turned to `/`), equals the entry's normalized `source_file`, and whose first line equals the old line. Leave out the citations of a line that another provenance entry also records in that file: they may cite that other export, so list a WARN for them. Then set each entry's new `source_line` and apply every planned citation move in one pass, so a citation moves at most once. A range citation shifts both ends by the same amount (`L10-12` becomes `L13-15` when the line moves from 10 to 13).
+
+Resolve `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` and write each changed file with `python3 {atomicWriteHelper} write --target <changed-file>` (the provenance map, SKILL.md or a file under `references/`); if neither path resolves, fix nothing and list each finding as a WARN. Apply the same change to the in-context copies of those files (the merged SKILL.md and `references/` content and §3's provenance map), so later sections and the report read the fixed text, and add each file this section rewrites to `files_written[]` (report.md §5b). These fixes apply to any entry, a gap-driven `verified` or `moved` entry included (§3). Leave a citation inside a `[MANUAL]` block as it is and list it as a WARN: §1 verified those blocks byte-identical. Fix nothing else. A `line-not-definition` item with an empty `definition_lines` is never fixed: list its export as unverified. One with several `definition_lines`, the other `stale` reasons and `missing` / `orphaned` exports need a person to decide.
+
+Map the re-run's `status` to the `Provenance:` line of the §4 evidence report's Validation Summary: `PASS` when `status == "pass"`, `WARN` when `status == "findings"` (this is the persistent record: step 5 §5's table was rendered before the provenance map existed, so it necessarily showed this row as deferred). Provenance findings are **advisory**: they do not block the update. In the evidence report's Validation Summary, list the source lines and citation prefixes this section fixed and the unverified exports, then each other `missing` / `orphaned` / `stale` / `citations` finding the re-run still reports as a WARN so the user can decide, and note `source lines not checked: no local source tree` when `stale_check` was `skipped-no-source-root`. Add each of those WARNs, the unverified exports and each entry of `{provenance_spot_check_warnings}` (§3) to the envelope's `warnings[]` with a `provenance:` prefix (for example `provenance: search line 26 does not define it; definition lines 27, 31`).
+
+**Graceful degradation:** if neither probe path resolves (no `uv` / script available), fall back to the manual set comparison the script encapsulates: enumerate metadata `exports[]` and provenance `entries[].export_name` (canonicalizing internal names through `reexport_map`), diff the two sets for missing/orphaned entries, and spot-check that each `source_file:source_line` still points at a real line in the source tree. The definition-line and citation-prefix checks do not run in this fallback: record `line and citation checks not run: verifier missing` in the Validation Summary. Prefer the script: it does this deterministically.
 
 ### 6b. Move the Workspace Clone to the Recorded Commit
 

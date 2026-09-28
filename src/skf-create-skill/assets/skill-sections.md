@@ -288,6 +288,7 @@ t2_future_count: {N}
 - Tessl Review: {tessl_summary}
 - Metadata: {pass/fail}
 - Provenance labels: {pass | relabeled {N} to match extraction_method: {export names}}{; WARN, no node kind found: {export names}}
+- Provenance lines: {pass | findings | fixed {N} source lines and {M} citation prefixes | not run: verifier missing | not run: verifier error}{; second run: verifier error}{; unverified, no definition line found: {export names}}{; WARN: {each line or citation warning §7a lists}}{; source lines not checked: no local source tree}
 
 ## Quality Score Breakdown
 - Frontmatter (30%): {score} | Description (30%): {score} | Body (20%): {score} | Links (10%): {score} | File (10%): {score}

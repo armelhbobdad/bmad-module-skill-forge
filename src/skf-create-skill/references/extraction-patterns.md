@@ -213,6 +213,8 @@ for line in sys.stdin:
 - Cap output with `| head -N` as a safety valve
 - For repos > 500 files, process in directory batches of 20-50 files each: split by top-level source directory, run the CLI streaming template per batch with the same head cap, then merge results and deduplicate by export name (keep the first occurrence if duplicates exist across batches)
 
+**Line numbers are 0-based in ast-grep JSON.** `range.start.line` counts from 0 in the CLI's `--json` and `--json=stream` output and in the JSON the MCP tools `find_code` / `find_code_by_rule` return with `output_format="json"`, so the template adds 1 to it (`.get('line',0)+1`) to get the 1-based line an editor shows. Every `[AST:{file}:L{line}]` citation and every provenance `source_line` is that 1-based line; a line taken from the JSON without the `+1` points one line above the definition. The text output of the CLI and of the MCP tools is already 1-based.
+
 ### YAML Rule Recipes by Language
 
 **Python — public functions:**
