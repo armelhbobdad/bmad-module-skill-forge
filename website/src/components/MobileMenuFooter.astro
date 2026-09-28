@@ -6,8 +6,8 @@ import SocialIcons from 'virtual:starlight/components/SocialIcons';
 import ThemeSelect from 'virtual:starlight/components/ThemeSelect';
 import type { Props } from '@astrojs/starlight/props';
 
-// Read the SKF version from the root package.json at build time — same source
-// of truth as npm publish, so the badge stays synced with the deployed release.
+// Read the SKF version from the root package.json at build time. npm publish
+// reads the same file, so the badge stays synced with the deployed release.
 const pkgPath = fileURLToPath(new URL('../../../package.json', import.meta.url));
 const { version } = JSON.parse(readFileSync(pkgPath, 'utf8'));
 ---

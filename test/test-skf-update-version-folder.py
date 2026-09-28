@@ -224,13 +224,15 @@ def test_docs_and_knowledge_describe_version_folders():
     workflows = _slice(_read(REPO_ROOT / "docs" / "workflows.md"), "### Update Skill (US)", "**Agent:**")
     assert "**Versions:**" in workflows and "in a folder of its own" in workflows
     # init.md §6c detects a source version only in a remote skill's private tree.
-    remote_only = "for a skill built from a remote repository, the source's version when it is higher"
-    assert remote_only in workflows and "the next update starts from it" in workflows
+    assert ("For a skill built from a remote repository, the new version is the source's version when that "
+            "is higher; otherwise it is the next patch version") in workflows
+    assert "the next update starts from it" in workflows
     trouble = _slice(_read(REPO_ROOT / "docs" / "troubleshooting.md"),
                      "### Update Skill stops with `halted-for-write-failure` because the version already exists",
                      "\n### ")
     assert "`merge:new-version-folder`" in trouble and "delete both folders" in trouble
-    assert remote_only in trouble
+    assert ("The new version is the source's version when the skill was built from a remote repository and "
+            "that version is higher; otherwise it is the next patch version") in trouble
 
 
 # --------------------------------------------------------------------------

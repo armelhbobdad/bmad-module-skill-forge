@@ -1,4 +1,4 @@
-# Skill Forge — Pinned Canonical Anchors
+# Skill Forge: Pinned Canonical Anchors
 #
 # This file is the SINGLE SOURCE OF TRUTH for every version number, commit
 # SHA, and library reference that the docs cite about oh-my-skills, the
@@ -8,8 +8,11 @@
 # entry here and then run `npm run docs:validate-drift` from the SKF repo
 # root. The script will:
 #
-#   1. Verify every skill below actually exists at the claimed version and
-#      commit in $OMS/skills/<name>/<version>/<name>/metadata.json
+#   1. Verify every skill below exists at the claimed version in
+#      $OMS/skills/<name>/<version>/<name>/metadata.json, and that its
+#      version, source_commit, confidence_tier and source_authority match.
+#      The other fields (source_repo, source_ref, upstream_commit_date,
+#      test_score, test_mode, language) are not checked.
 #   2. Grep every docs/*.md for stale version strings and flag any that
 #      disagree with the anchors
 #
@@ -17,12 +20,15 @@
 # then fix the docs until the check is clean.
 #
 # Do NOT edit docs/*.md version references without updating this file
-# first — the drift check will catch you. That's the point.
+# first. The drift check catches the mismatch when you run it. That's the point.
 #
 # File ignored by Astro/Starlight content collections because the parent
-# directory starts with `_`. It is purely a build-time / CI-time anchor.
+# directory starts with `_`. Nothing reads it at build time: only
+# tools/validate-docs-drift.js checks it, and release.yaml rewrites
+# skf_version. CI does not run the drift check, and the check needs a local
+# oh-my-skills checkout, so run `npm run docs:validate-drift` yourself.
 
-# SKF package version — matches the `version` field in package.json.
+# SKF package version: matches the `version` field in package.json.
 # Enforced two ways: (1) release.yaml bumps this line in the same commit
 # as package.json + marketplace.json on every release; (2) validate-docs-drift.js
 # cross-checks this value against package.json.version and fails on mismatch.
@@ -33,9 +39,10 @@ skf_version: "2.2.0"
 # lives elsewhere on your machine.
 oh_my_skills_path: "../oh-my-skills"
 
-# Every oms-* skill currently shipped in oh-my-skills. The library key
-# (e.g. cognee) is the user-facing library name; the entry key is the
-# skill package name (oms-<library>).
+# Every oms-* skill currently shipped in oh-my-skills. The `library` field
+# (e.g. cognee) is the library name the docs use, and the drift check
+# searches docs/*.md for it. The entry key is the skill package name, usually
+# oms-<library>; oms-storybook-react-vite covers the storybook library.
 skills:
   oms-cognee:
     library: cognee
@@ -90,9 +97,11 @@ skills:
     language: "typescript"
 
 # Libraries that are mentioned in docs as illustrative examples but don't
-# have a corresponding oms-* skill. The drift check IGNORES version
-# mentions for these libraries — they're allowed to drift because they're
-# illustration, not canonical.
+# have a corresponding oms-* skill. Their versions are allowed to drift
+# because they're illustration, not canonical. The drift check only searches
+# for the `library` names under skills, so it already ignores every other
+# library. This list matters only if one of these gains a skill: it then
+# hides that library's drift until you remove it here.
 illustrative_libraries:
   - better-auth
   - hono

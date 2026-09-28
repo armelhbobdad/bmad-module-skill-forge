@@ -23,7 +23,7 @@ If you're not sure where a change belongs, open an issue and ask before writing 
 **Prerequisites:**
 
 - [Node.js](https://nodejs.org/) >= 22 — the supported floor (`engines.node`); development and CI run Node 24 (see `.nvmrc`)
-- [Python](https://www.python.org/) >= 3.10
+- [Python](https://www.python.org/) >= 3.11
 - [uv](https://docs.astral.sh/uv/) — runs the Python test suite
 - `git`, `gh` — used by several workflows and by the health-check loop
 

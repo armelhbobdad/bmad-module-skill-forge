@@ -41,6 +41,8 @@ export default defineConfig({
     sitemap(),
     starlight({
       title: 'Skill Forge',
+      // Starlight accepts this key but does not display it. The home page
+      // tagline comes from hero.tagline in docs/index.md.
       tagline: 'Turn code and docs into instructions AI agents can actually follow.',
 
       logo: {
@@ -97,7 +99,7 @@ export default defineConfig({
       // Custom CSS
       customCss: ['./src/styles/custom.css'],
 
-      // Sidebar configuration — Why / Try / Reference buckets
+      // Sidebar configuration: Welcome, then the Why / Try / Reference buckets
       sidebar: [
         { label: 'Welcome', slug: 'index' },
         {
