@@ -6,6 +6,14 @@ sourceAccessProtocol: 'references/source-access-protocol.md'
 reconcileScript: 'scripts/reconcile-coverage.py'
 coherenceScript: 'scripts/check-metadata-coherence.py'
 numeratorVerifyScript: 'scripts/verify-declared-numerator.py'
+# Resolve `{verifyProvenanceCompletenessHelper}` by probing
+# `{verifyProvenanceCompletenessProbeOrder}` in order (installed SKF module
+# path first, src/ dev-checkout fallback); first existing path wins. §4c runs
+# it to check that each provenance `source_line` is the line that defines its
+# export. Advisory: if neither path resolves, skip §4c.
+verifyProvenanceCompletenessProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py'
+  - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -368,6 +376,31 @@ Read the script's output — do not re-derive it by hand:
 The grep runs only on the exact-equality signature, so it adds no cost to the common case where the numerator is already below the denominator. Unlike the count-coherence findings above, this arm is authoritative — it changes the numerator used for scoring.
 
 Append any findings (Medium gaps, the Info note, and/or the High numerator-inflation gap) to the Coverage Analysis section's gap list (built in section 5) so they surface in the final test report alongside coverage and signature findings. The count-coherence findings are informational about data quality and do not change the denominator chosen above; the numerator ground-truth arm is the one exception that overrides the numerator.
+
+### 4c. Provenance Line Check
+
+Check that the provenance map records each export at the line that defines it (the `def` or declaration line itself, not a decorator or blank line above it), so update-skill can move a wrong line. Run this section only when `analysis_confidence` is `full`, `{forge_version}/provenance-map.json` exists, and `allow_workspace_drift` is not true (init.md §5b): under the drift override the tree at `{source_path}` is not the pinned commit, so its lines prove nothing about the map. Otherwise skip to section 5.
+
+Resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}`. If neither path exists, skip to section 5: the check is advisory. Otherwise run:
+
+```bash
+uv run {verifyProvenanceCompletenessHelper} verify \
+    --metadata {resolved_skill_package}/metadata.json \
+    --provenance {forge_version}/provenance-map.json \
+    --source-root {source_path}
+```
+
+Rely on the JSON, not the exit code, and do not re-check the lines by eye. On exit 2 the helper prints no JSON: skip to section 5. For each `stale[]` item whose `reason` is `line-not-definition` and whose `definition_lines` holds one or more lines, append one **Low** gap to the Coverage Analysis section's gap list (built in section 5). Its Source is exactly the `file:line` the map records, with nothing after it, because update-skill's rule R5 reads that pair as the gap's citation:
+
+- **Title:** `Provenance line is not the definition of {export_name}`
+- **Category:** Coverage
+- **Source:** `{source_file}:{source_line}`
+- **Issue:** the provenance map records `{export_name}` at `{source_file}:{source_line}`, which is not the line that defines it; the lines that define it are {definition_lines}.
+- **Remediation:** "Set the provenance `source_line` of `{export_name}` in `{source_file}` to its definition line ({definition_lines}) and move its citations to that line; update-skill `--from-test-report` applies this when the file defines it on one line."
+
+A `line-not-definition` item whose `definition_lines` is empty means the rules found no line that defines the export, which may be a shape they do not cover: the export is unverified, not gone. Append one **Info** gap for it instead, titled `Provenance line not verified for {export_name}`, with the same Category and Source, the Issue "the line-check rules found no definition line for `{export_name}` in `{source_file}`; check by hand" and the Remediation "Open `{source_file}` and confirm that line {source_line} defines `{export_name}`; if another line does, set the provenance `source_line` to it." Never say the file no longer defines the export. update-skill does not route this Info gap.
+
+The helper's other findings (`missing`, `orphaned` and the other `stale` reasons) are not reported by this section, and neither gap blocks the gate.
 
 ### 5. Append Coverage Analysis to Output
 

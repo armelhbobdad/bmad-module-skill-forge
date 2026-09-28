@@ -69,7 +69,7 @@ Populate the §3 `manual_integrity` record from this verdict (`sections_verified
 
 **Check D — Provenance Completeness (deferred to post-write):**
 
-The provenance map does not exist on disk until step 6 §3 writes it, and completeness is a deterministic set-diff (metadata `exports[]` vs provenance `entries[].export_name`) plus file:line citation resolution — not something to eyeball. This check is deferred to **step 6 section 6a**, which runs `skf-verify-provenance-completeness.py` against the just-written `metadata.json` and `provenance-map.json` and reads back `missing[]` / `orphaned[]` / `stale[]` findings. Do not attempt the set comparison here — there is no provenance map to compare against yet. The `Provenance` row in §5's summary is populated from §6a's result.
+The provenance map does not exist on disk until step 6 §3 writes it, and completeness is a deterministic set-diff (metadata `exports[]` vs provenance `entries[].export_name`) plus file:line citation resolution, not something to eyeball. This check is deferred to **step 6 section 6a**, which runs `skf-verify-provenance-completeness.py` against the just-written `metadata.json` and `provenance-map.json` and reads back `missing[]` / `orphaned[]` / `stale[]` findings (`stale[]` includes lines that do not define their export) and the `citations[]` findings on `[AST:]` / `[SRC:]` prefixes. Do not attempt the set comparison here: there is no provenance map to compare against yet. The `Provenance` row in §5's summary is populated from §6a's result.
 
 **Check E — Diff Comparison (via skill-check):**
 

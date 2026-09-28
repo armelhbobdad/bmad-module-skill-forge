@@ -138,6 +138,8 @@ These signals also appear in `warnings[]` on the headless envelope; the Mode row
 | Moved (file relocated) | {count} |
 | Renamed (identifier changed) | {count} |
 
+{if `{provenance_spot_check_warnings}` is non-empty: **WARN, provenance entry left unchanged for a person to decide (write.md §3):** {each `export_name: outcome`}}
+
 ### Confidence Tier Breakdown
 
 | Tier | Count | Description |
@@ -222,7 +224,7 @@ SKF_UPDATE_RESULT_JSON: {"skf_update":{"status":"success|no-changes|detect-only|
 - `headless_decisions[]` — verbatim from the in-context array populated by gates (init.md §confirmation and §4 degraded-rebuild, detect-changes.md §1b/§1c/§2.2, merge.md §gate). Each entry `{gate, default_action, taken_action, reason, evidence?}`. Empty when no gates auto-resolved (e.g. no-changes path skipped detect-changes' gates).
 - `status` — single-field outcome for pipeline branching. `"success"` when the run wrote artifacts and produced no halts; `"no-changes"` when §1 short-circuited; `"detect-only"` / `"dry-run"` for the §1a/§1b read-only exits; one of the documented `halted-for-*` codes when a halt fired; `"blocked"` as the catch-all. The full enum lives in the schema (this step emits the value already resolved in context).
 - `error` — null on success or no-changes. Object `{phase, path?, reason}` describing the failure when a halt or write error fired. Pipelines branch on `error !== null` for non-zero exit semantics.
-- `warnings[]` — every entry the run added, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `source-version-lower`, `workspace-clone-not-updated` and `target-ref-not-recorded` entries.
+- `warnings[]`: every entry the run added, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `source-version-lower`, `workspace-clone-not-updated`, `target-ref-not-recorded` and `provenance:` entries (write.md §6a: provenance findings left for a person, and spot-check entries §3 left unchanged).
 
 The headless envelope is the structured channel; the per-run JSON written above is the audit trail. Both coexist — the envelope is one line on stdout for grep-friendly consumption, the per-run JSON is the full record on disk.
 

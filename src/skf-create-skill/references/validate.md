@@ -46,6 +46,15 @@ shardBodyProbeOrder:
 renderMetadataStatsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
   - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
+# Resolve `{verifyProvenanceCompletenessHelper}` by probing
+# `{verifyProvenanceCompletenessProbeOrder}` in order (installed SKF module
+# path first, src/ dev-checkout fallback); first existing path wins. §7a runs
+# it to check that each provenance `source_line` defines its export and that
+# each `[AST:]` / `[SRC:]` citation prefix matches its entry. Advisory: if
+# neither path resolves, §7a records that the check did not run and continues.
+verifyProvenanceCompletenessProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-verify-provenance-completeness.py'
+  - '{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py'
 # Resolve `{tesslReviewHelper}` by probing `{tesslReviewProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
 # path wins. If neither path exists, §6b records that Tessl Review did not run
@@ -303,6 +312,33 @@ Then verify the two fields the helper does not own (genuine constants/contract):
 - `spec_version` is `"1.3"`.
 - `scope_type` is present and equals the brief's `scope.type` verbatim.
 
+### 7a. Verify Provenance Lines and Citation Prefixes
+
+Check that each staged provenance entry's `source_line` is the line that defines its export (the `def` or declaration line itself, not a decorator or blank line above it), and that each `[AST:]` / `[SRC:]` citation in SKILL.md and `references/` carries the prefix its entry's `extraction_method` implies: `ast-grep` gives `[AST:]`, `source-read` gives `[SRC:]`. Resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}`. If neither path exists, record `Provenance lines: not run: verifier missing` and continue to §8. Otherwise run it against the staged package:
+
+```bash
+uv run {verifyProvenanceCompletenessHelper} verify \
+    --metadata <staging-skill-dir>/metadata.json \
+    --provenance <staging-skill-dir>/provenance-map.json \
+    --source-root {source_root} \
+    --skill-dir <staging-skill-dir>
+```
+
+`{source_root}` is the local tree step 3 extracted from. When it is null, empty or a URL, leave out the `--source-root` line (an empty flag value fails the helper's arguments). When there is no local tree (no flag, or a clone that is already deleted), the helper checks no source line and reports `summary.stale_check: skipped-no-source-root`, and the citation check still runs. Rely on the JSON, not the exit code (exit 1 means findings). Exit 2 prints no JSON: record `Provenance lines: not run: verifier error`, add the helper's stderr to the evidence report's Remaining Warnings and continue to §8. When `summary.skill_citations_scanned` is above 0 and `summary.skill_citations_matched` is 0, no citation names a path and line the map records (the citations use another root), so the prefix check compared nothing: list that as a WARN.
+
+Fix the findings that have one answer, in this order:
+
+1. **Citation prefixes.** For each `citations[]` item (`reason` is `prefix-mismatch` or `ast-without-ast-grep`), find the citation by its `file`, its `line` and its `citation` text, and change its prefix to `expected_prefix`. Keep its path and line.
+2. **Source lines.** Plan every move before making any: for each `stale[]` item with `reason: line-not-definition` and exactly one value in `definition_lines`, the entry's `source_line` moves to that value. Select the citations each move takes from SKILL.md and `references/` as they stand before any line fix (after step 1): a citation of either prefix whose path, normalized as the helper matches it (a leading `./` dropped, backslashes turned to `/`), equals the entry's normalized `source_file`, and whose first line equals the old line. Leave out the citations of a line that another provenance entry also records in that file: they may cite that other export, so list a WARN for them. Then set each entry's new `source_line` and apply every planned citation move in one pass, so a citation moves at most once (when `LIMIT` moves from 6 to 7 and `DEFAULT` from 7 to 8, a citation moved to line 7 is not moved again). A range citation shifts both ends by the same amount (`L10-12` becomes `L13-15` when the line moves from 10 to 13).
+
+Write each changed file with `python3 {atomicWriteHelper} write --target <staging-skill-dir>/<path>`, apply the same change to the in-context copy step 7 writes from, then run the command above once more. If that second run exits 2, record the fixes already applied and `second run: verifier error`, and continue to §8. Fix nothing else:
+
+- A `line-not-definition` item whose `definition_lines` is empty is unverified, not gone: the rules found no definition line, which may be a shape they do not cover. Never change its line or its citations; list its export as unverified.
+- A `line-not-definition` item with several `definition_lines`, and a `file-missing`, `line-out-of-bounds` or `line-invalid` item, need a person to decide: list each as a WARN.
+- The helper's `missing` and `orphaned` exports are not line or citation findings: add each to the evidence report's Remaining Warnings.
+
+Record the result on the evidence report's `Provenance lines` line (§8): `pass` when the first run found nothing, `findings` when it found something and this section fixed nothing, or what it fixed; then the unverified exports, a WARN for each other line or citation finding the second run still reports, and `source lines not checked: no local source tree` when `stale_check` is `skipped-no-source-root`. This section never halts.
+
 ### 8. Update Evidence Report
 
 Add validation results to evidence-report content in context:
@@ -317,6 +353,7 @@ Add validation results to evidence-report content in context:
 - Tessl Review: {tessl_summary}
 - Metadata: {pass/fail}
 - Provenance labels: {pass | relabeled {N} to match extraction_method: {export names}}{; WARN, no node kind found: {export names}}
+- Provenance lines: {pass | findings | fixed {N} source lines and {M} citation prefixes | not run: verifier missing | not run: verifier error}{; second run: verifier error}{; unverified, no definition line found: {export names}}{; WARN: {each line or citation warning §7a lists}}{; source lines not checked: no local source tree}
 
 ## Quality Score Breakdown
 - Frontmatter (30%): {score} | Description (30%): {score} | Body (20%): {score} | Links (10%): {score} | File (10%): {score}

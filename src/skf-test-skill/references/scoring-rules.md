@@ -154,8 +154,10 @@ The floor is intentionally conservative: skf-test-skill grades other skills, so 
 | Medium   | Script/asset directory exists but no Scripts & Assets section in SKILL.md                                      |
 | Medium   | Scripts & Assets section references file not found in scripts/ or assets/ directory                            |
 | Low      | Script/asset file present without provenance entry in provenance-map.json file_entries                         |
+| Low      | Provenance line is not the definition of an export (`line-not-definition`, coverage-check §4c)                 |
 | Low      | Missing optional metadata or examples                                                                          |
 | Low      | Description trigger optimization recommended (third-person voice, negative triggers, or keyword coverage gaps) |
 | Info     | Style suggestions, non-blocking observations                                                                   |
+| Info     | Provenance line not verified: the line-check rules found no definition line (coverage-check §4c)               |
 | Info     | Discovery testing not performed — realistic prompt testing recommended before export                           |
 | Info     | Multi-denominator reporting — barrel vs documented-surface clusters diverge by design (>10% cross-cluster)     |
