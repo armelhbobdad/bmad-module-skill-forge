@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-export-skill
+summary: |
+  Export Skill with `--dry-run` no longer moves an SKF skill that still uses the old flat layout into the versioned layout. It reads the flat skill where it is, says it would migrate it, and writes nothing.
+prs: [499]
+issues: [497]

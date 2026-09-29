@@ -1,0 +1,7 @@
+type: breaking
+scope: requirements
+summary: |
+  SKF now requires Python 3.11 or newer; Python 3.10 is no longer supported. What SKF needs did not change: in v2.2.0 the helpers that read package manifests (used by Quick Skill, Brief Skill, Analyze Source and Stack Skill) already needed 3.11, and Quick Skill runs one of them with a bare `python3`, so its export extractor already crashed on 3.10. The documented minimum now says so.
+migration: |
+  Run `python3 --version`. If it prints 3.10 or older, install Python 3.11 or newer and make it the `python3` on your `PATH`; nothing else needs to change.
+prs: [522]

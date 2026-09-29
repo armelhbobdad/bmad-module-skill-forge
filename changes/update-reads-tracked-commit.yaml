@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  For a skill built at Forge tier or above from a remote repository, Update Skill now reads the source at the commit its ref points to, in a private folder for that run, and never moves SKF's shared clone during `--detect-only` or `--dry-run`. Before, it read the shared clone at whatever commit another run had left it on, so it could drop exports that still existed and cite one commit's lines under another commit. Changed files come from git instead of file timestamps and sizes. When the repository cannot be reached but the pinned commit is on this machine, it compares that commit and adds `source-not-fetched` to `warnings[]` to say upstream was not checked. If the run's private folder disappears while it runs, it stops `blocked` (`error.phase` `<step>:source-tree-missing`) instead of reading every file as deleted.
+prs: [517]
+issues: [511]

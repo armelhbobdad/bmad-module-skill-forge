@@ -1,0 +1,6 @@
+type: fixed
+scope: all workflows
+summary: |
+  The review gate of the end-of-run health check now has a headless default, `[Q] Queue locally` (save the findings to the local improvement queue, submit nothing), so a headless run of any workflow no longer waits at it. Interactive runs can pick `[Q]` there too, and a headless Campaign queues every finding locally whatever `health_findings_queue` says. Finding fingerprints are now computed on stock macOS and Windows, which have no `sha1sum`.
+prs: [499]
+issues: [494]

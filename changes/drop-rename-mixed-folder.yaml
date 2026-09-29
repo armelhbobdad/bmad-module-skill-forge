@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-drop-skill, skf-rename-skill
+summary: |
+  Drop Skill no longer purges a whole skill, and Rename Skill no longer renames one, when the skill's folder in `skills_output_folder` or in `forge_data_folder` also holds files SKF did not write, such as a note you added there. Both stop with exit `5` (`not-skf-output`), list those entries and change nothing. Before, Drop Skill deleted the whole folder, your files included, and Rename Skill moved it.
+migration: |
+  Move the files SKF did not write out of `<skills folder>/<name>/` or `<forge data folder>/<name>/`, then re-run. To keep them where they are, Drop Skill can still, for an exported skill, purge a single version SKF generated or mark the skill deprecated with `--mode deprecate`. A version folder with no `metadata.json` can be one an interrupted run left behind: delete it yourself. If `skills_output_folder` or `forge_data_folder` is `_bmad-output`, the entries may be staging files an earlier release left there: delete them as the troubleshooting guide describes.
+prs: [499, 509]
+issues: [497, 500]

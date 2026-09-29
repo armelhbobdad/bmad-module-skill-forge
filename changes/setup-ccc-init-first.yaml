@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-setup
+summary: |
+  Setup now runs `ccc init` before it adds SKF's exclusions, so ccc keeps its own defaults (hidden folders, `node_modules`, the index database) and adds `/.cocoindex_code/` to `.gitignore`. Before, SKF wrote `settings.yml` first, ccc skipped both, and the index database was indexed and showed up in `git status`. Setup rebuilds a `settings.yml` an earlier run damaged, keeping your entries, warns when `/.cocoindex_code/` is not gitignored, and with `--ccc-skip-index` still prepares `settings.yml` and skips only the index build.
+prs: [493]
+issues: [490]

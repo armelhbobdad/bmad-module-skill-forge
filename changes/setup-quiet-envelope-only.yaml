@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-setup
+summary: |
+  Under `--quiet` or `--headless`, the `SKF_SETUP_RESULT_JSON` envelope is now the only line Setup prints, halts included, as the docs promised: no status banner, progress lines or health-check output. `--quiet` no longer stops to ask whether to remove orphaned QMD collections: it keeps them, as `--headless` does, and records `quiet-default` in the envelope warnings. Pass `--orphan-action=remove` to remove them without a prompt.
+prs: [499]
+issues: [494]

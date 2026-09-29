@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-drop-skill, skf-rename-skill
+summary: |
+  Drop Skill and Rename Skill no longer write a second pair of SKF markers into the managed section of `CLAUDE.md`, `AGENTS.md` or `.cursorrules` when they rebuild it.
+prs: [517]

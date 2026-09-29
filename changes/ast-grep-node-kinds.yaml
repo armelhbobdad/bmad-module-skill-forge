@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-create-skill, skf-update-skill
+summary: |
+  The node kind recorded for an ast-grep provenance entry (`ast_node_type`) now comes from the recipe that matched, and Create Skill and Update Skill check it with ast-grep. A kind ast-grep does not know, such as `async_function_definition`, is replaced with the recipe's kind, or kept with a warning when no recipe matches the entry's line. Before, the kind was guessed and nothing checked it.
+prs: [553]
+issues: [530]

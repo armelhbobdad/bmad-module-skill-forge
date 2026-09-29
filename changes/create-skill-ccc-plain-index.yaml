@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-create-skill, skf-create-stack-skill
+summary: |
+  Create Skill applies new ccc exclusions with a plain `ccc index` instead of `ccc reset --force`, which threw the whole index away and could leave none. Its standard exclusions (such as `node_modules`) are now written in a form ccc matches, and they are applied when an existing index is reused too. Discovery searches with `ccc search --refresh`, which also makes Stack Skill's ccc step run after the first Setup run; before, it never did. When Create Skill builds an index on demand, it no longer runs `ccc init` or `ccc index` in the project root or the enclosing git checkout, which built an index there without SKF's exclusions.
+prs: [493, 499, 509]
+issues: [496]

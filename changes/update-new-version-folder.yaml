@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  Each Update Skill run that writes puts the new version into a folder of its own, beside the previous version, which stays unchanged. Before, it rewrote the previous version's files under the new number and then failed to switch the `active` link. An update never overwrites an existing version folder: it stops with `halted-for-write-failure` (`error.phase` `merge:new-version-folder`), and the message says which folders to delete or move before you re-run. Repairs from a test report still update the current version in place.
+prs: [517]

@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-create-skill, skf-update-skill, skf-test-skill
+summary: |
+  Create Skill and Update Skill now check that each provenance entry points at the line that defines its export and that each `[AST:]` or `[SRC:]` citation matches how its entry was read, fix what has a single answer and warn about the rest. Test Skill reports a wrong line as a Low gap and a line it cannot verify as Info. A repair from a test report (`--from-test-report`) now also adds the entry for a cited export the map did not have.
+prs: [532, 551]
+issues: [530]

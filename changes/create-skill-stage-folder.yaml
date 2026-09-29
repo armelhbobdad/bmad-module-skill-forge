@@ -1,0 +1,5 @@
+type: changed
+scope: skf-create-skill
+summary: |
+  Create Skill now stages a skill in `_bmad-output/.skf-stage/<name>/` before it writes the version, instead of in `_bmad-output/<name>/`. If you set `skills_output_folder` or `forge_data_folder` to `_bmad-output`, an earlier release may have left `SKILL.md`, `metadata.json`, `context-snippet.md`, `references/`, `evidence-report.md` and `provenance-map.json` at the root of a skill's folder there, which can make Create Skill stop with `flat-layout` and make Drop Skill and Rename Skill refuse the folder. Delete those leftovers and keep the `<version>/` folders, the `active` link and `skill-brief.yaml`; the troubleshooting guide has the details.
+prs: [509]

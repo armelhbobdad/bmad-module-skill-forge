@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  Update Skill's workspace-drift check, which runs under `--from-test-report` and before an update moves SKF's clone to the commit it read, now reads the right repository when SKF runs from a git hook or `git rebase --exec`. Before, the git variables a hook exports could make it read another repository's `HEAD`.
+prs: [499]
+issues: [498]

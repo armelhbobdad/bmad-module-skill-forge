@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-create-skill, skf-update-skill, skf-audit-skill
+summary: |
+  ccc index folders and SKF's workspace lock no longer show up as changes in git. In the source clones SKF keeps, their ignore entries go to `.git/info/exclude` instead of `.gitignore`, so switching a clone to another ref works again instead of cloning afresh on every run, and Audit Skill's `[C]` option no longer stops on the lock file or stashes it. After `[T] Transient stash` in that option, the stash stays in the clone until you run `git -C <source> stash pop`, as the menu now says. An index Create Skill builds for a local source inside another git checkout now ignores itself.
+prs: [509]
+issues: [503, 505]

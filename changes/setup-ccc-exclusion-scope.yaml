@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-setup
+summary: |
+  SKF's ccc exclusions now cover only what SKF generated. Folder patterns are anchored to the project root (`skills`, not `**/skills`), so a folder with the same name deeper in the project stays searchable. A skills folder shared with other skills is excluded entry by entry, a folder with none of SKF's output (your own source, for example) stays indexed with a warning, and patterns left from an earlier folder setting are removed. Setup also warns on every run when a `!` entry you added to `exclude_patterns` brings SKF's output back into the index.
+prs: [493, 499, 509]
+issues: [491, 492, 495, 506]

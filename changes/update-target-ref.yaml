@@ -1,0 +1,6 @@
+type: added
+scope: skf-update-skill
+summary: |
+  New `--target-ref <ref>` flag for a skill built at Forge tier or above from a remote repository: update it against a tag, branch, `HEAD` or full commit instead of the ref it recorded, for example the newer tag Audit Skill checked out. When the update writes, the skill records that ref and the commit it read, and the Audit Skill report now suggests the flag after it checked out a newer ref. On any other skill (built from a local folder, from documentation only, or at Quick tier) the flag stops the run with `target-ref-needs-remote-source`.
+prs: [517]
+issues: [511]
