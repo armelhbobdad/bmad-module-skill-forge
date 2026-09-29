@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-setup
+prs: [499]
+issues: [494]
+summary: |
+  Under `--quiet` or `--headless`, the `SKF_SETUP_RESULT_JSON` envelope is now the only line setup prints, halts included, as the docs promised. `--quiet` no longer stops at the orphan-collection question: it keeps the collections and records `quiet-default` in the envelope warnings.

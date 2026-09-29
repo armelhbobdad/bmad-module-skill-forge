@@ -1,10 +1,39 @@
 name: Release
 
-# Canonical OIDC trusted-publishing release workflow for bmad-module-skill-forge.
-# Consolidates publish.yaml + manual-release.yaml. Gated on the `release` GitHub
-# Environment (required-reviewer approval). Filename MUST remain literal
-# `release.yaml` — the npm Trusted Publisher is registered character-for-character
-# on `release.yaml` + job id `release`. See docs/_internal/RELEASING.md § npm Trusted Publisher.
+# The only release path for bmad-module-skill-forge, dispatched by hand
+# (workflow_dispatch with a version_bump). The job runs in the `release` GitHub
+# Environment, so nothing runs until a required reviewer approves (gate 1).
+#
+# 1. The release gate (`node tools/changes.js gate`) refuses a version_bump
+#    that the change fragments in changes/ and the covered surfaces
+#    (tools/covered-surfaces.js) do not allow, before the tests run and before
+#    anything is committed. A stable bump (patch, minor, major) is refused
+#    from any ref but main.
+# 2. After the tests, the version is bumped in package.json, package-lock.json,
+#    .claude-plugin/marketplace.json and docs/_data/pinned.yaml, and the
+#    fragments added since the last stable tag are rendered into
+#    release_notes.md (the GitHub Release body), release_review.md (the
+#    "Review before approving" section of the bot PR and the run summary) and,
+#    for a stable release only, a new block in CHANGELOG.md.
+# 3. From main, the release commit goes to a temp branch and a bot PR, because
+#    the Default ruleset refuses a direct push to main. The run dispatches the
+#    required checks on that branch, waits for them, then waits for a
+#    maintainer to approve or admin-merge the PR (gate 2). From any other ref
+#    (a prerelease), the tag goes on the CI commit and main does not move.
+# 4. The tag is pushed, npm publishes through OIDC trusted publishing with
+#    provenance under the alpha, beta, rc or latest dist-tag, and the GitHub
+#    Release is created.
+# 5. A stable release then dispatches docs.yaml, which deploys the docs site
+#    at the new tag.
+#
+# A value from an expression reaches a run: script only through the step's
+# env: block or the runner's GITHUB_* variables, never written into the script
+# text, so no input or step output is ever parsed as shell.
+#
+# The filename MUST stay literally `release.yaml`: the npm Trusted Publisher is
+# registered character-for-character on it and on the environment `release`.
+# Keep the job id `release` as well. See docs/_internal/RELEASING.md § npm
+# Trusted Publisher.
 
 on:
   workflow_dispatch:
@@ -29,8 +58,8 @@ permissions:
   # (Story 3.4, issue #198). Without this, gh returns 403 on PR operations.
   pull-requests: write
   # Required by `gh workflow run quality.yaml --ref <branch>` at the force-trigger
-  # step (AC #3 path 3.i). workflow_dispatch dispatches via GITHUB_TOKEN need
-  # actions:write.
+  # step (AC #3 path 3.i) and by `gh workflow run docs.yaml` after a stable
+  # release. workflow_dispatch dispatches via GITHUB_TOKEN need actions:write.
   actions: write
 
 concurrency:
@@ -100,6 +129,39 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Refuses a version_bump the change fragments (changes/*.yaml) and the
+      # covered surfaces do not allow, before the tests run and before
+      # anything is committed: a bump below the minimum (semver.diff from the
+      # last stable tag to the version the Bump version step will produce) or
+      # below the current version, a removed covered item that no breaking
+      # fragment names, a major with no breaking fragment, a stable release
+      # with no fragment or with text under "## [Unreleased]", a file in
+      # changes/ to fix (a released fragment edited, renamed or copied
+      # included), or a prerelease that cannot reach the minimum (the message
+      # names the hand bump).
+      # `npm run changes:preview -- --bump <type>` gives the same verdict
+      # locally. The input reaches the script through env only.
+      #
+      # A stable bump is refused from any ref but main: it would publish to
+      # `latest` from a commit main never gets, main's package.json and
+      # CHANGELOG.md would not move, and main's next release, which cannot
+      # reach that tag, would render the same fragments into the same version
+      # again. Feature branches cut prereleases only.
+      - name: Check the version bump against the change fragments
+        env:
+          VERSION_BUMP: ${{ github.event.inputs.version_bump }}
+          DISPATCH_REF: ${{ github.ref }}
+        run: |
+          case "$VERSION_BUMP" in
+            patch|minor|major)
+              if [ "$DISPATCH_REF" != "refs/heads/main" ]; then
+                echo "::error::A $VERSION_BUMP release must be dispatched from main, not $DISPATCH_REF. Only alpha, beta and rc can be cut from another branch."
+                exit 1
+              fi
+              ;;
+          esac
+          node tools/changes.js gate --bump "$VERSION_BUMP"
+
       - name: Run tests and validation
         run: npm test
 
@@ -109,26 +171,38 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Bump version
+        # tools/changes.js computes the same version for the gate above; keep
+        # the two in step if this case statement changes.
+        env:
+          VERSION_BUMP: ${{ github.event.inputs.version_bump }}
         run: |
-          case "${{ github.event.inputs.version_bump }}" in
-            alpha|beta|rc) npm version prerelease --no-git-tag-version --preid=${{ github.event.inputs.version_bump }} ;;
-            *)             npm version ${{ github.event.inputs.version_bump }} --no-git-tag-version ;;
+          case "$VERSION_BUMP" in
+            alpha|beta|rc) npm version prerelease --no-git-tag-version --preid="$VERSION_BUMP" ;;
+            *)             npm version "$VERSION_BUMP" --no-git-tag-version ;;
           esac
 
       - name: Get new version and previous tag
         id: version
         run: |
-          echo "new_version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
-          echo "previous_tag=$(git describe --tags --abbrev=0)" >> $GITHUB_OUTPUT
+          echo "new_version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          # The last stable tag: prerelease tags are skipped, so the notes and
+          # the compare link of every release, prereleases included, start at
+          # the last stable release, as the gate's minimum bump does. Only
+          # version tags count, so a tag such as `stable` is never the base.
+          # tools/covered-surfaces.js (lastStableTag) runs the same command;
+          # keep the two in step.
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*')
+          echo "previous_tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Update marketplace.json version
+        env:
+          VERSION: ${{ steps.version.outputs.new_version }}
         run: |
           # Targeted JSON edit scoped to .plugins[0].version — resistant to future
           # schema additions of other `version` keys. Uses a temp file + atomic
           # rename so a partial-write mid-step cannot leave the file in a broken
           # shape (jq has no in-place edit). The VERSION variable is interpolated
           # via jq --arg to avoid shell-quote hazards.
-          VERSION='${{ steps.version.outputs.new_version }}'
           jq --arg v "$VERSION" '.plugins[0].version = $v' .claude-plugin/marketplace.json > .claude-plugin/marketplace.json.tmp
           mv .claude-plugin/marketplace.json.tmp .claude-plugin/marketplace.json
           # Sanity check: the written version matches what we set.
@@ -158,54 +232,27 @@ jobs:
             echo "::error::docs/_data/pinned.yaml skf_version write failed: expected $VERSION, got $WROTE"; exit 1
           fi
 
-      - name: Update CHANGELOG.md
+      # Renders the change fragments added since the last stable tag
+      # (tools/changes.js; the format is in changes/README.md). A stable
+      # release inserts the block under the empty "## [Unreleased]" of
+      # CHANGELOG.md and leaves every older release byte-identical; a
+      # prerelease leaves CHANGELOG.md alone, so its fragments are rendered
+      # again for the stable release. Every release writes release_notes.md
+      # (the GitHub Release body) and release_review.md (the "Review before
+      # approving" section of the bot PR). The tool repeats the gate's checks
+      # against the bumped version and fails before the commit step if one
+      # does not pass, or if "## [Unreleased]" is not empty. The review also
+      # goes into the run summary: a prerelease cut from a feature branch has
+      # no bot PR, so the summary is the only place it is shown.
+      - name: Write release notes and CHANGELOG.md
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
+          PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
         run: |
-          npx conventional-changelog-cli -p conventionalcommits -i CHANGELOG.md -s
-
-      - name: Restore CHANGELOG preamble
-        run: |
-          # conventional-changelog-cli -s prepends the new release entry at byte 0
-          # of CHANGELOG.md, pushing "# Changelog" title + preamble + "## [Unreleased]"
-          # anchor DOWN below it. Restore the canonical Keep-a-Changelog shape:
-          #   # Changelog
-          #   (preamble)
-          #   ## [Unreleased]
-          #   ## [<new release>] (...)
-          #   ## [<older releases>] (...)
-          # Idempotent: if "# Changelog" is already on line 1 (exact match), no-op.
-          [ -s CHANGELOG.md ] || { echo "::error::CHANGELOG.md is empty or missing — aborting release."; exit 1; }
-          if ! head -n 1 CHANGELOG.md | grep -q '^# Changelog$'; then
-            awk '
-              BEGIN { new_entry=""; preamble=""; rest=""; section=0; seen_title=0 }
-              # section 0: new release entry prepended by conventional-changelog -s
-              # section 1: "# Changelog" title + preamble + "## [Unreleased]" anchor
-              # section 2: first released version ("## [X.Y.Z]") onward
-              section==0 && !seen_title && /^# Changelog$/ { seen_title=1; section=1 }
-              section==1 && /^## \[[0-9]/ { section=2 }
-              { if (section==0) new_entry=new_entry $0 "\n";
-                else if (section==1) preamble=preamble $0 "\n";
-                else rest=rest $0 "\n" }
-              END {
-                if (!seen_title) {
-                  print "restore-preamble: # Changelog title not found in CHANGELOG.md — aborting" > "/dev/stderr"
-                  exit 1
-                }
-                printf "%s%s%s", preamble, new_entry, rest
-              }
-            ' CHANGELOG.md > CHANGELOG.md.tmp
-            [ -s CHANGELOG.md.tmp ] || { echo "::error::awk produced empty CHANGELOG.md.tmp — aborting release."; rm -f CHANGELOG.md.tmp; exit 1; }
-            mv CHANGELOG.md.tmp CHANGELOG.md
-            echo "::notice::Restored CHANGELOG preamble ordering (# Changelog → preamble → [Unreleased] → new release → history)"
-          else
-            echo "CHANGELOG preamble already at top — no reordering needed"
-          fi
-
-      - name: Assert no bogus issue refs in CHANGELOG
-        run: |
-          if grep -iE '(closes|fixes|resolves) \[#[^0-9]' CHANGELOG.md; then
-            echo "::error::CHANGELOG.md contains non-numeric '(closes|fixes|resolves) [#...]' refs — aborting release."
-            exit 1
-          fi
+          node tools/changes.js release --base "$PREVIOUS_TAG" --version "$NEW_VERSION" --notes release_notes.md --review release_review.md
+          [ -s release_notes.md ] || { echo "::error::release_notes.md is empty or missing; aborting release."; exit 1; }
+          if [ -s release_review.md ]; then cat release_review.md >> "$GITHUB_STEP_SUMMARY"; fi
+          git diff --stat -- CHANGELOG.md
 
       - name: Pre-publish dry-run (catch package validation failures before tag push)
         env:
@@ -213,8 +260,8 @@ jobs:
           # see docs/_internal/RELEASING.md § npm Trusted Publisher. Paired with the identical override
           # on the final publish step below.
           NPM_TOKEN: ""
+          VERSION: ${{ steps.version.outputs.new_version }}
         run: |
-          VERSION="${{ steps.version.outputs.new_version }}"
           if   [[ "$VERSION" == *"alpha"* ]]; then TAG=alpha
           elif [[ "$VERSION" == *"beta"*  ]]; then TAG=beta
           elif [[ "$VERSION" == *"rc"*    ]]; then TAG=rc
@@ -223,40 +270,13 @@ jobs:
           npm publish --dry-run --tag "$TAG"
 
       - name: Commit version bump
+        # `npm version` also rewrites the root version in package-lock.json;
+        # leaving it out let the lockfile fall behind package.json.
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
         run: |
-          git add package.json .claude-plugin/marketplace.json docs/_data/pinned.yaml CHANGELOG.md
-          git commit -m "release: bump to v${{ steps.version.outputs.new_version }}"
-
-      - name: Generate release notes
-        id: release_notes
-        run: |
-          COMMITS=$(git log ${{ steps.version.outputs.previous_tag }}..HEAD --pretty=format:"- %s" --reverse)
-          FEATURES=$(echo "$COMMITS" | grep -E "^- (feat|Feature)" || true)
-          FIXES=$(echo "$COMMITS" | grep -E "^- (fix|Fix)" || true)
-          CHORES=$(echo "$COMMITS" | grep -E "^- (chore|Chore)" || true)
-          OTHERS=$(echo "$COMMITS" | grep -v -E "^- (feat|Feature|fix|Fix|chore|Chore|release:|Release:)" || true)
-
-          {
-            echo "## What's New"
-            echo
-            [ -n "$FEATURES" ] && { echo "### New Features"; echo "$FEATURES"; echo; }
-            [ -n "$FIXES" ]    && { echo "### Bug Fixes"; echo "$FIXES"; echo; }
-            [ -n "$OTHERS" ]   && { echo "### Other Changes"; echo "$OTHERS"; echo; }
-            [ -n "$CHORES" ]   && { echo "### Maintenance"; echo "$CHORES"; echo; }
-            echo "## Installation"
-            echo
-            echo '```bash'
-            echo "npx bmad-module-skill-forge install"
-            echo '```'
-            echo
-            echo "**Full Changelog**: ${{ github.server_url }}/${{ github.repository }}/compare/${{ steps.version.outputs.previous_tag }}...v${{ steps.version.outputs.new_version }}"
-          } > release_notes.md
-
-          {
-            echo "RELEASE_NOTES<<EOF"
-            cat release_notes.md
-            echo "EOF"
-          } >> $GITHUB_OUTPUT
+          git add package.json package-lock.json .claude-plugin/marketplace.json docs/_data/pinned.yaml CHANGELOG.md
+          git commit -m "release: bump to v$NEW_VERSION"
 
       # -----------------------------------------------------------------
       # Story 3.4 PR-auto-merge flow (main-dispatch only) — issue #198.
@@ -281,8 +301,10 @@ jobs:
         # a retry after a mid-flow failure on the same version string cannot
         # collide with a prior branch (concurrency group serializes dispatches
         # but same-version re-dispatch after cleanup is a real scenario).
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
         run: |
-          TEMP_BRANCH="release/bot/v${{ steps.version.outputs.new_version }}-${{ github.run_id }}"
+          TEMP_BRANCH="release/bot/v$NEW_VERSION-$GITHUB_RUN_ID"
           git push origin "HEAD:refs/heads/$TEMP_BRANCH"
           echo "temp_branch=$TEMP_BRANCH" >> "$GITHUB_OUTPUT"
           echo "::notice::Pushed release commit to temp branch $TEMP_BRANCH"
@@ -297,23 +319,29 @@ jobs:
         # live list from the ruleset anyway. `--body-file` (not --body)
         # avoids shell-escape hazards on multi-line release notes that may
         # contain backticks / dollar signs / nested code fences.
+        env:
+          TEMP_BRANCH: ${{ steps.temp_push.outputs.temp_branch }}
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
         run: |
-          TEMP_BRANCH="${{ steps.temp_push.outputs.temp_branch }}"
-          NEW_VERSION="${{ steps.version.outputs.new_version }}"
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
           # P3: guard release_notes.md absence so PR body is never malformed silently.
           if [ ! -s release_notes.md ]; then
             echo "::warning::release_notes.md missing or empty; using placeholder."
             echo "Release notes unavailable." > release_notes.md
           fi
+          # release_review.md holds the "Review before approving" section: the
+          # checklist, why the minimum bump is what it is, the covered-surface
+          # changes and the notes. If it is missing, show the notes alone.
+          if [ ! -s release_review.md ]; then
+            echo "::warning::release_review.md missing or empty; showing the release notes only."
+            { echo "## Review before approving"; echo; cat release_notes.md; } > release_review.md
+          fi
 
           {
-            echo "Automated release PR opened by \`release.yaml\` run \`${{ github.run_id }}\`. Auto-merges once the required status checks pass and a maintainer approves."
+            echo "Automated release PR opened by \`release.yaml\` run \`$GITHUB_RUN_ID\`. Auto-merges once the required status checks pass and a maintainer approves."
             echo
-            echo "## Release notes"
-            echo
-            cat release_notes.md
+            cat release_review.md
             echo
             echo "## Workflow run"
             echo
@@ -352,8 +380,9 @@ jobs:
         # `Quality & Validation / prettier`), fall back to path 3.ii (close-
         # reopen) or 3.iii (PAT) in a follow-up patch; issue #198 enumerates
         # all three options.
+        env:
+          TEMP_BRANCH: ${{ steps.temp_push.outputs.temp_branch }}
         run: |
-          TEMP_BRANCH="${{ steps.temp_push.outputs.temp_branch }}"
           # P4: surface gh workflow run failures explicitly. Without the guard,
           # the next step (wait-for-checks) silently waits for check-runs that
           # will never register.
@@ -376,13 +405,14 @@ jobs:
         # transitions conclusion action_required → cancelled (a terminal
         # state); branch protection's most-recent-wins eval then picks the
         # workflow_dispatch success runs as authoritative on the SHA.
+        env:
+          PR_NUMBER: ${{ steps.open_pr.outputs.pr_number }}
         run: |
-          PR_NUMBER="${{ steps.open_pr.outputs.pr_number }}"
           HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)
           # Give GitHub a moment to attach the pull_request runs (they may
           # still be firing after PR-open / force-trigger dispatch).
           sleep 10
-          STUCK=$(gh api "/repos/${{ github.repository }}/actions/runs?head_sha=$HEAD_SHA&per_page=100" \
+          STUCK=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$HEAD_SHA&per_page=100" \
             --paginate --jq '[.workflow_runs[] | select(.conclusion == "action_required") | .id]')
           COUNT=$(echo "$STUCK" | jq 'length')
           if [ "$COUNT" -eq 0 ]; then
@@ -391,7 +421,7 @@ jobs:
           fi
           echo "::notice::Cancelling $COUNT action_required run(s) on $HEAD_SHA"
           for RUN_ID in $(echo "$STUCK" | jq -r '.[]'); do
-            if gh api --method POST "/repos/${{ github.repository }}/actions/runs/$RUN_ID/cancel"; then
+            if gh api --method POST "/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/cancel"; then
               echo "  Cancelled run $RUN_ID"
             else
               echo "::warning::Failed to cancel run $RUN_ID (may already be in a terminal state)"
@@ -412,8 +442,9 @@ jobs:
         # which check suite created them. Required-context list is fetched
         # from the `Default` ruleset so the Wait step has a single source of truth
         # with branch protection.
+        env:
+          PR_NUMBER: ${{ steps.open_pr.outputs.pr_number }}
         run: |
-          PR_NUMBER="${{ steps.open_pr.outputs.pr_number }}"
           HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)
           echo "Polling check-runs on $HEAD_SHA (PR #$PR_NUMBER)"
 
@@ -427,20 +458,20 @@ jobs:
           # stdout, so `--jq ... || echo ""` yields `{"message":"Not Found",...}`, not
           # "" — which would sail straight past the -z guard below. Pipe to jq instead
           # and require the shape we expect, so any error body becomes empty.
-          RULESET_ID=$(gh api "/repos/${{ github.repository }}/rulesets" 2>/dev/null \
+          RULESET_ID=$(gh api "/repos/$GITHUB_REPOSITORY/rulesets" 2>/dev/null \
             | jq -r 'if type=="array" then (map(select(.name=="Default")) | .[0].id // empty) else empty end')
           if [ -z "$RULESET_ID" ]; then
-            echo "::error::No ruleset named \"Default\" on ${{ github.repository }}. Verify: gh api /repos/${{ github.repository }}/rulesets --jq '.[].name'"
+            echo "::error::No ruleset named \"Default\" on $GITHUB_REPOSITORY. Verify: gh api /repos/$GITHUB_REPOSITORY/rulesets --jq '.[].name'"
             exit 1
           fi
           echo "Resolved ruleset \"Default\" to id $RULESET_ID"
           # Same guard: an error body is an object WITHOUT `rules`, which is neither
           # empty nor `[]`, so it would pass the check below and the wait loop would
           # poll for contexts named after the error's own keys until the 20m timeout.
-          REQUIRED_JSON=$(gh api "/repos/${{ github.repository }}/rulesets/$RULESET_ID" 2>/dev/null \
+          REQUIRED_JSON=$(gh api "/repos/$GITHUB_REPOSITORY/rulesets/$RULESET_ID" 2>/dev/null \
             | jq -c 'if type=="object" and has("rules") then [.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context] else empty end')
           if [ -z "$REQUIRED_JSON" ] || [ "$REQUIRED_JSON" = "[]" ]; then
-            echo "::error::Ruleset \"Default\" (id $RULESET_ID) returned no required_status_checks contexts. Retry the workflow, or verify: gh api /repos/${{ github.repository }}/rulesets/$RULESET_ID"
+            echo "::error::Ruleset \"Default\" (id $RULESET_ID) returned no required_status_checks contexts. Retry the workflow, or verify: gh api /repos/$GITHUB_REPOSITORY/rulesets/$RULESET_ID"
             exit 1
           fi
           REQUIRED_COUNT=$(echo "$REQUIRED_JSON" | jq 'length')
@@ -452,7 +483,7 @@ jobs:
           POLL=0
           REGISTERED=0
           while [ $POLL -lt 24 ]; do
-            REGISTERED=$(gh api "/repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs" --paginate --jq '.check_runs | length' 2>/dev/null || echo 0)
+            REGISTERED=$(gh api "/repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" --paginate --jq '.check_runs | length' 2>/dev/null || echo 0)
             if [ "${REGISTERED:-0}" -ge 1 ]; then
               echo "::notice::$REGISTERED check-run(s) registered on $HEAD_SHA; entering main wait loop"
               break
@@ -461,7 +492,7 @@ jobs:
             POLL=$((POLL + 1))
           done
           if [ "${REGISTERED:-0}" -lt 1 ]; then
-            echo "::error::No check-runs registered on $HEAD_SHA within 2m. Likely causes: (a) workflow_dispatch of quality.yaml failed silently at the Force-trigger step (see prior step logs); (b) ruleset required-context list is empty (verify: gh api /repos/.../rulesets --jq '.[] | select(.name=="Default") | .id')."
+            echo "::error::No check-runs registered on $HEAD_SHA within 2m. Likely causes: (a) workflow_dispatch of quality.yaml failed silently at the Force-trigger step (see prior step logs); (b) ruleset required-context list is empty (verify: gh api /repos/$GITHUB_REPOSITORY/rulesets --jq '.[] | select(.name==\"Default\") | .id')."
             exit 1
           fi
 
@@ -470,7 +501,7 @@ jobs:
           ELAPSED=0
           TIMEOUT=1200
           while [ $ELAPSED -lt $TIMEOUT ]; do
-            CHECKS=$(gh api "/repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs" \
+            CHECKS=$(gh api "/repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" \
               --paginate --jq '[.check_runs[] | {name, status, conclusion, started_at, html_url}]')
             ALL_GREEN=true
             PENDING=()
@@ -542,8 +573,9 @@ jobs:
         # Manual timer (not step-level timeout-minutes) so we can emit a
         # specific ::error:: message on timeout. Exports already_merged so the
         # next two steps skip their work when the maintainer pre-merged.
+        env:
+          PR_NUMBER: ${{ steps.open_pr.outputs.pr_number }}
         run: |
-          PR_NUMBER="${{ steps.open_pr.outputs.pr_number }}"
           TIMEOUT_SECONDS=1800  # 30 min
           POLL_INTERVAL=60
           ELAPSED=0
@@ -621,12 +653,13 @@ jobs:
         # (the merge commit itself — see the tag step below). --auto blocks
         # nothing because checks + approval are already green.
         # Skipped if the maintainer bypass-merged at the approval step.
+        env:
+          PR_NUMBER: ${{ steps.open_pr.outputs.pr_number }}
         run: |
-          PR_NUMBER="${{ steps.open_pr.outputs.pr_number }}"
           # P2: --delete-branch cleans up release/bot/vX.Y.Z-<run_id> after merge
           # so the ref namespace doesn't accumulate one branch per release forever.
           if ! gh pr merge "$PR_NUMBER" --auto --merge --delete-branch; then
-            echo "::error::Auto-merge failed for PR #$PR_NUMBER. If the error was 'auto merge is not allowed for this repository', run: gh api --method PATCH /repos/${{ github.repository }} -f allow_auto_merge=true  (see Story 3.4 AC #6 / Task 2)."
+            echo "::error::Auto-merge failed for PR #$PR_NUMBER. If the error was 'auto merge is not allowed for this repository', run: gh api --method PATCH /repos/$GITHUB_REPOSITORY -f allow_auto_merge=true  (see Story 3.4 AC #6 / Task 2)."
             exit 1
           fi
           echo "::notice::Auto-merge enabled on PR #$PR_NUMBER"
@@ -640,8 +673,9 @@ jobs:
         # step sees the new main tip. Skipped if the maintainer bypass-merged
         # (merged is already true; wait_approval emitted merge_sha + merged_at
         # for the Summary step).
+        env:
+          PR_NUMBER: ${{ steps.open_pr.outputs.pr_number }}
         run: |
-          PR_NUMBER="${{ steps.open_pr.outputs.pr_number }}"
           while true; do
             # P6: guard transient gh / API failures (empty VIEW would hang until
             # the 5m step-level timeout with no diagnostic signal).
@@ -686,19 +720,40 @@ jobs:
         # AC #9: feature-branch prereleases preserve the legacy tag-only pattern.
         # The tag will anchor on the CI-ephemeral commit below (orphan; NFR12-
         # compliant per the Story 3.2 alpha-cut precedent at v0.10.1-alpha.0).
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
         run: |
-          echo "::notice::Dispatched from ${{ github.ref }} (not main); skipping PR auto-merge flow."
-          echo "Tag v${{ steps.version.outputs.new_version }} will anchor on the CI-ephemeral commit; main was NOT advanced."
+          echo "::notice::Dispatched from $GITHUB_REF (not main); skipping PR auto-merge flow."
+          echo "Tag v$NEW_VERSION will anchor on the CI-ephemeral commit; main was NOT advanced."
           echo "This is the expected path for prerelease cuts from feature branches (Story 3.2 alpha-cut pattern)."
 
       - name: Create and push tag
+        id: tag
         # AC #8: tag creation moved to AFTER the PR auto-merges (main-dispatch
         # path). The anchor is `origin/main`'s new tip (the merge commit), so
         # `git describe --tags` from main resolves cleanly. For non-main dispatch
         # (AC #9), anchor on HEAD (the CI-ephemeral release commit — unchanged
         # from pre-3.4 behavior).
+        #
+        # The tag must mark the tree npm publishes, which is this runner's
+        # release commit (HEAD), because the next release selects its change
+        # fragments and diffs the covered surfaces from this tag. When main
+        # did not move while the release waited for checks and approval, the
+        # merge commit's first parent is the dispatch commit and its tree is
+        # HEAD's, so the tag goes on the merge commit. When another pull
+        # request merged into main meanwhile (strict status checks are off),
+        # the merge commit's tree holds that change and the package does not:
+        # the tag then goes on HEAD, which main reaches through the merge
+        # commit's second parent, so the next release still renders that pull
+        # request's fragment and checks its surfaces. A squash or rebase merge
+        # leaves HEAD off main, so in that case the run stops before publishing.
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
+          # Empty on a non-main dispatch, which skips the PR flow; only the
+          # main branch of the script below reads it.
+          PR_NUMBER: ${{ steps.open_pr.outputs.pr_number }}
         run: |
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
             # P9: fail fast on fetch failure; cross-check the anchor SHA against the
             # PR's merge commit. git-backend replication can lag the API briefly, so
             # `origin/main` post-fetch may still be the pre-merge tip — in which case
@@ -710,22 +765,41 @@ jobs:
               exit 1
             fi
             TAG_ANCHOR=$(git rev-parse origin/main)
-            PR_NUMBER="${{ steps.open_pr.outputs.pr_number }}"
             EXPECTED_SHA=$(gh pr view "$PR_NUMBER" --json mergeCommit --jq '.mergeCommit.oid // empty')
             if [ -n "$EXPECTED_SHA" ] && [ "$TAG_ANCHOR" != "$EXPECTED_SHA" ]; then
               echo "::warning::origin/main tip ($TAG_ANCHOR) differs from PR #$PR_NUMBER merge commit ($EXPECTED_SHA) — possible git/API replication lag. Using PR merge commit as tag anchor."
               TAG_ANCHOR="$EXPECTED_SHA"
             fi
-            echo "Main-dispatch: anchoring tag on $TAG_ANCHOR"
+            if ! git cat-file -e "$TAG_ANCHOR^{commit}" 2>/dev/null && ! git fetch origin "$TAG_ANCHOR"; then
+              echo "::error::Cannot fetch the merge commit $TAG_ANCHOR, so the tag cannot be anchored. Nothing was tagged or published. Check network/auth and re-run."
+              exit 1
+            fi
+            ANCHOR_KIND="merge commit"
+            if [ "$(git rev-parse "$TAG_ANCHOR^1")" != "$GITHUB_SHA" ]; then
+              if git merge-base --is-ancestor HEAD "$TAG_ANCHOR"; then
+                echo "::warning::main moved while the release waited (merge commit $TAG_ANCHOR does not follow the dispatch commit $GITHUB_SHA): its tree holds changes the package does not. Tagging the release commit $(git rev-parse HEAD) instead, which main reaches through the merge."
+                TAG_ANCHOR=$(git rev-parse HEAD)
+                ANCHOR_KIND="release commit"
+              else
+                echo "::error::main moved while the release waited and the bot PR was not merged with a merge commit, so the release commit this run would publish ($(git rev-parse HEAD)) is not on main. Nothing was tagged or published. Re-dispatch release.yaml as in docs/_internal/RELEASING.md Scenario D (there is no tag to delete)."
+                exit 1
+              fi
+            fi
+            echo "Main-dispatch: anchoring tag on the $ANCHOR_KIND $TAG_ANCHOR"
           else
-            TAG_ANCHOR=HEAD
+            TAG_ANCHOR=$(git rev-parse HEAD)
+            ANCHOR_KIND="CI-ephemeral commit (orphan pattern)"
             echo "Non-main-dispatch: anchoring tag on CI HEAD (orphan pattern per AC #9)"
           fi
-          if git rev-parse "v${{ steps.version.outputs.new_version }}" >/dev/null 2>&1; then
-            echo "Tag v${{ steps.version.outputs.new_version }} already exists, skipping tag creation"
+          {
+            echo "anchor=$TAG_ANCHOR"
+            echo "anchor_kind=$ANCHOR_KIND"
+          } >> "$GITHUB_OUTPUT"
+          if git rev-parse "v$NEW_VERSION" >/dev/null 2>&1; then
+            echo "Tag v$NEW_VERSION already exists, skipping tag creation"
           else
-            git tag -a "v${{ steps.version.outputs.new_version }}" -m "Release v${{ steps.version.outputs.new_version }}" "$TAG_ANCHOR"
-            git push origin "v${{ steps.version.outputs.new_version }}"
+            git tag -a "v$NEW_VERSION" -m "Release v$NEW_VERSION" "$TAG_ANCHOR"
+            git push origin "v$NEW_VERSION"
           fi
 
       - name: Publish to npm via OIDC trusted publishing
@@ -734,8 +808,8 @@ jobs:
           # see docs/_internal/RELEASING.md § npm Trusted Publisher. Paired with the identical override
           # on the pre-publish dry-run step above.
           NPM_TOKEN: ""
+          VERSION: ${{ steps.version.outputs.new_version }}
         run: |
-          VERSION="${{ steps.version.outputs.new_version }}"
           if   [[ "$VERSION" == *"alpha"* ]]; then npm publish --tag alpha
           elif [[ "$VERSION" == *"beta"*  ]]; then npm publish --tag beta
           elif [[ "$VERSION" == *"rc"*    ]]; then npm publish --tag rc
@@ -747,48 +821,92 @@ jobs:
         with:
           tag_name: v${{ steps.version.outputs.new_version }}
           name: "Skill Forge (SKF) v${{ steps.version.outputs.new_version }}"
-          body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
+          # Written by the "Write release notes and CHANGELOG.md" step from the change fragments.
+          body_path: release_notes.md
           draft: false
           prerelease: ${{ contains(steps.version.outputs.new_version, 'alpha') || contains(steps.version.outputs.new_version, 'beta') || contains(steps.version.outputs.new_version, 'rc') }}
+
+      # The docs site shows the latest stable release, so a stable release
+      # deploys it at the new tag and a prerelease leaves it alone. The GitHub
+      # Release above is published with GITHUB_TOKEN, and events that token
+      # makes start no other workflow; workflow_dispatch is an exception, so
+      # the deploy is dispatched here (actions: write above covers it). The run
+      # goes on main, whose docs.yaml checks out and builds the tag given in
+      # `ref`: by default the github-pages environment admits deployments from
+      # the default branch only, and would refuse a run on the tag itself. npm
+      # and the GitHub Release are already out, so a failed dispatch only warns
+      # and names the command that deploys by hand.
+      - name: Deploy the docs site at the new tag
+        id: docs
+        if: github.ref == 'refs/heads/main' && !(contains(steps.version.outputs.new_version, 'alpha') || contains(steps.version.outputs.new_version, 'beta') || contains(steps.version.outputs.new_version, 'rc'))
+        continue-on-error: true
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
+        run: |
+          if gh workflow run docs.yaml --ref main -f ref="v$NEW_VERSION"; then
+            echo "::notice::Dispatched docs.yaml to deploy the docs site at v$NEW_VERSION."
+            echo "status=dispatched" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Could not dispatch docs.yaml, so the docs site still shows the previous release. The release itself is complete. Deploy the site by hand: gh workflow run docs.yaml -f ref=v$NEW_VERSION"
+            echo "status=failed" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Summary
         # AC #15: extend the step summary with a "Release Flow" subsection so the
         # operator sees at a glance whether the main-dispatch PR-auto-merge path
         # or the non-main-dispatch tag-only path ran.
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
+          TEMP_BRANCH: ${{ steps.temp_push.outputs.temp_branch }}
+          PR_URL: ${{ steps.open_pr.outputs.pr_url }}
+          AUTH_PATH: ${{ steps.wait_approval.outputs.authorization_path }}
+          APPROVER: ${{ steps.wait_approval.outputs.approver }}
+          APPROVED_AT: ${{ steps.wait_approval.outputs.approved_at }}
+          APPROVAL_MERGE_SHA: ${{ steps.wait_approval.outputs.merge_sha }}
+          APPROVAL_MERGED_AT: ${{ steps.wait_approval.outputs.merged_at }}
+          WAIT_MERGE_SHA: ${{ steps.wait_merge.outputs.merge_sha }}
+          WAIT_MERGED_AT: ${{ steps.wait_merge.outputs.merged_at }}
+          ANCHOR_KIND: ${{ steps.tag.outputs.anchor_kind }}
+          TAG_ANCHOR: ${{ steps.tag.outputs.anchor }}
+          DOCS_DEPLOY: ${{ steps.docs.outputs.status }}
         run: |
           {
-            echo "## 🎉 Released v${{ steps.version.outputs.new_version }}"
+            echo "## 🎉 Released v$NEW_VERSION"
             echo
-            echo "**npm**: https://www.npmjs.com/package/bmad-module-skill-forge/v/${{ steps.version.outputs.new_version }}"
-            echo "**GitHub**: ${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ steps.version.outputs.new_version }}"
+            echo "**npm**: https://www.npmjs.com/package/bmad-module-skill-forge/v/$NEW_VERSION"
+            echo "**GitHub**: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/v$NEW_VERSION"
             echo "**Provenance**: auto-attached via OIDC trusted publishing"
+            if [ "$DOCS_DEPLOY" = "dispatched" ]; then
+              echo "**Docs site**: deploy at v$NEW_VERSION dispatched (docs.yaml)"
+            elif [[ "$NEW_VERSION" == *"alpha"* || "$NEW_VERSION" == *"beta"* || "$NEW_VERSION" == *"rc"* ]]; then
+              echo "**Docs site**: unchanged (a prerelease does not deploy it)"
+            else
+              echo "**Docs site**: not deployed; deploy it by hand with \`gh workflow run docs.yaml -f ref=v$NEW_VERSION\`"
+            fi
             echo
             echo "### Release Flow"
             echo
-            if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-              # P11: richer summary per spec AC #15 — include authorization path,
+            if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+              # P11: richer summary per spec AC #15: include authorization path,
               # approver identity + timestamp, merge commit SHA + timestamp. Data
               # source: wait_approval emits merge_sha + merged_at on the admin-bypass
               # path (where wait_merge is skipped); wait_merge emits on the formal-
               # approval path. Read from whichever populated.
-              AUTH_PATH="${{ steps.wait_approval.outputs.authorization_path }}"
-              APPROVER="${{ steps.wait_approval.outputs.approver }}"
-              APPROVED_AT="${{ steps.wait_approval.outputs.approved_at }}"
-              MERGE_SHA="${{ steps.wait_approval.outputs.merge_sha }}"
-              MERGED_AT="${{ steps.wait_approval.outputs.merged_at }}"
+              MERGE_SHA="$APPROVAL_MERGE_SHA"
+              MERGED_AT="$APPROVAL_MERGED_AT"
               if [ -z "$MERGE_SHA" ]; then
-                MERGE_SHA="${{ steps.wait_merge.outputs.merge_sha }}"
-                MERGED_AT="${{ steps.wait_merge.outputs.merged_at }}"
+                MERGE_SHA="$WAIT_MERGE_SHA"
+                MERGED_AT="$WAIT_MERGED_AT"
               fi
               echo "- Dispatch ref: \`main\` (Story 3.4 PR-auto-merge path)"
-              echo "- Temp branch: \`${{ steps.temp_push.outputs.temp_branch }}\`"
-              echo "- Bot PR: ${{ steps.open_pr.outputs.pr_url }}"
+              echo "- Temp branch: \`$TEMP_BRANCH\`"
+              echo "- Bot PR: $PR_URL"
               echo "- Required checks: passed"
               echo "- Authorization: $AUTH_PATH (approver: \`$APPROVER\` at $APPROVED_AT)"
               echo "- Merged: $MERGED_AT (merge commit \`$MERGE_SHA\`)"
-              echo "- Tag anchored on merge commit"
+              echo "- Tag anchored on the $ANCHOR_KIND \`$TAG_ANCHOR\`"
             else
-              echo "- Dispatch ref: \`${{ github.ref }}\` (non-main; tag-only path per AC #9)"
-              echo "- Tag anchored on CI-ephemeral commit (orphan pattern)"
+              echo "- Dispatch ref: \`$GITHUB_REF\` (non-main; tag-only path per AC #9)"
+              echo "- Tag anchored on the $ANCHOR_KIND \`$TAG_ANCHOR\`"
             fi
-          } >> $GITHUB_STEP_SUMMARY
+          } >> "$GITHUB_STEP_SUMMARY"

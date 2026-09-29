@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file. The format 
 * **description-guard:** refuse to restore an empty captured description ([1e36c31](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/1e36c3143ac92be83931c037301becfe0ef15e24)), closes [#474](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/474)
 * **packaging:** keep the IWE memory store out of the npm tarball ([e456ce0](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/e456ce044555717936f7182b9e54c72190639eea))
 * **skf-setup:** bind ccc_file_count on every ccc-index branch ([b40b94a](https://github.com/armelhbobdad/bmad-module-skill-forge/commit/b40b94a6cb4b1d65d11b5da3479541ae9c65c031)), closes [#473](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/473)
+
 ## [2.1.0](https://github.com/armelhbobdad/bmad-module-skill-forge/compare/v2.0.2...v2.1.0) (2026-08-07)
 
 ### Fixed

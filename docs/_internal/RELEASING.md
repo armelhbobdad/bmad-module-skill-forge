@@ -165,6 +165,8 @@ gh api --method DELETE \
 
 Leaving a feature branch on the allow-list is an unguarded hole — any later `workflow_dispatch` from that branch would be able to reach the publish path. Treat the revoke as the last step of the validation, not a follow-up.
 
+Only `alpha`, `beta` and `rc` can be cut from a feature branch: the gate step refuses `patch`, `minor` and `major` from any ref but `main`, because a stable release from another branch would publish to `latest` from a commit `main` never gets, and `main`'s next release would render the same fragments into the same version again. A feature-branch prerelease has no bot PR, so nobody reviews its notes before they are published; the run summary shows the **Review before approving** section afterwards.
+
 ## npm Trusted Publisher
 
 The future `release.yaml` workflow (Story 3.1) publishes to npm via **OIDC trusted publishing** — no `NPM_TOKEN` is consulted during the publish step, and every published version carries an auto-attached SLSA Build Level 2 provenance attestation. For this to work, the npm package `bmad-module-skill-forge` has a trusted-publisher entry on npmjs.com that binds on four fields exactly matching what the workflow asserts at run time. A mismatch on any field causes an opaque `404` at publish time — the error ("npm could not match your workflow run") surfaces the failure class but does not name which of the four fields is wrong.
@@ -193,21 +195,62 @@ The future `release.yaml` workflow (Story 3.1) publishes to npm via **OIDC trust
 
 ## Cutting a Release
 
-The dispatch mechanics are worked end-to-end in [§ Cutting v1.0.0 under --tag latest](#cutting-v100-under---tag-latest). That section is a launch-specific record, but its dispatch command, two-gate sequence, and verification block are the same for every cut. The two steps below are general, apply to every cut, and have no other home — both are invisible until they bite, because the default state of each is the harmless one.
+The dispatch mechanics are worked end-to-end in [§ Cutting v1.0.0 under --tag latest](#cutting-v100-under---tag-latest). That section is a launch-specific record, but its dispatch command, two-gate sequence, and verification block are the same for every cut. The sections below are general and apply to every cut.
 
-### Pre-dispatch — reconcile a non-empty `## [Unreleased]`
+### Pre-dispatch: preview the notes and the version bump
 
-The `Restore CHANGELOG preamble` step splits `CHANGELOG.md` at the **first** `## [X.Y.Z]` header and treats everything above it as preamble. The generated block for the new version is therefore inserted _below_ any prose sitting under `## [Unreleased]`, and the workflow neither empties that section nor warns about it. Check before dispatching:
+Release notes come from the change fragments in `changes/` (one YAML file per user-visible change; the format and the type rule are in [`changes/README.md`](../../changes/README.md)), not from commit subjects. Before dispatching, on an up-to-date `main` with its tags:
 
 ```bash
-sed -n '/^## \[Unreleased\]/,/^## \[[0-9]/p' CHANGELOG.md
+git checkout main && git pull --tags
+npm run changes:preview -- --bump <alpha|beta|rc|patch|minor|major>
 ```
 
-If the `## [Unreleased]` header is immediately followed by the first released header, there is nothing to do — that was the state at every cut through v2.0.2, which is why the interaction went unexercised for so long. If it carries prose, those entries describe work that is about to ship, and after the cut they read as unreleased directly above the release containing them.
+The preview prints the fragments added since the last stable tag (`git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*'`), any file in `changes/` to fix, the covered-surface changes against that tag from `tools/covered-surfaces.js` (hard, additive and review groups), the minimum bump with each reason for it, the version the dispatch will produce, the release gate's verdict for that bump, and the exact block the release will write. Fix a missing or mistyped fragment by pull request, then preview again. Read the review group as well. It lists first any flag that left every flag row while its workflow's Markdown still names it: if the workflow no longer accepts that flag, add a `breaking` fragment that names it. A new halt reason, an exit code given another meaning or changed flag text listed there can also be a breaking change that a fragment calls `fixed`.
 
-**Do not hand-edit it before dispatch.** The `## [X.Y.Z]` header the prose belongs under does not exist until the workflow generates it. Reconcile after publish in a normal PR: move the prose under the generated version header and leave the `## [Unreleased]` header in place with an empty body — deleting the header itself breaks the section split the preamble-restore step depends on.
+Keep `## [Unreleased]` in `CHANGELOG.md` empty. The release inserts the new block directly under it. The gate refuses a stable release that finds text there, before the tests run, and `npm run validate:changes` fails on a pull request that adds some; a note that belongs in the release goes in a fragment.
 
-Prefer moving the prose over dropping it in favour of the generated list. Under `conventionalcommits`, `test:` and `chore:` subjects produce no generated entry at all, and one `fix:` subject often stands in for several distinct fixes, so the hand-written text is frequently the only record of both. v2.1.0 is the worked example: five bullets stranded, moved under `## [2.1.0]` in a follow-up PR.
+### The release gate
+
+`release.yaml` runs `node tools/changes.js gate --bump <version_bump>` right after `npm ci`, before the tests and before anything is committed. It refuses the dispatch when:
+
+- the version the `Bump version` step would produce is below the minimum bump, measured with `semver.diff` from the last stable tag (so a `patch` after a burned, untagged `3.0.0` gives `3.0.1` and still counts as a major step from `v2.2.0`);
+- that version is below the current one: `npm version` moves a prerelease to a lower id without complaint (`alpha` on `3.0.0-rc.1` gives `3.0.0-alpha.0`);
+- a covered item was removed (a schema enum value or property, a Ferris menu code, a pipeline alias or a workflow flag; see STABILITY.md) and no `breaking` fragment names it in backticks. A flag counts as removed when its workflow's Markdown no longer names it, or when it leaves every flag row as a flag the workflow never named before enters them (a possible rename); one that leaves every flag row while the Markdown still names it is not refused, and comes first in the review group instead;
+- a file in `changes/` is not a valid fragment, or a fragment released in the last stable tag was edited, renamed or copied (a released fragment is never read again, so a new change goes in a new file);
+- a stable release finds text under `## [Unreleased]` in `CHANGELOG.md`;
+- a stable bump (`patch`, `minor` or `major`) is dispatched from a ref other than `main` (the gate step checks this before the tool runs);
+- the release is a major and no fragment is `breaking`;
+- a stable release has no fragment;
+- a prerelease cannot reach the minimum (see the next section).
+
+A refused run has committed and pushed nothing: fix the fragments by pull request and dispatch again. There is no override. If the surface diff is wrong, fix `tools/covered-surfaces.js` and its tests.
+
+After the tests, the `Write release notes and CHANGELOG.md` step renders the same fragments. A stable release adds the block under `## [Unreleased]` in `CHANGELOG.md`, leaving every older release byte-identical, and every release writes `release_notes.md` (the GitHub Release body) and `release_review.md` (the **Review before approving** section of the bot PR: a checklist, why the minimum is what it is, the covered-surface changes and the notes). At gate 2, read that section and the `CHANGELOG.md` diff before approving. The same section is added to the run summary: a prerelease cut from a feature branch has no bot PR and so no gate 2, and the summary is the only place its review is shown, after the release is published.
+
+### Prereleases and the RC hand bump
+
+A prerelease writes only `release_notes.md` and leaves `CHANGELOG.md` alone, so its fragments are rendered again, in full, in the stable release's block.
+
+`npm version prerelease` moves only the patch number of a stable version (`2.2.0` with `rc` gives `2.2.1-rc.0`), so a prerelease dispatched from a stable version cannot reach a minor or major minimum. The gate then refuses and names the version to set by hand, such as `3.0.0-rc.0`. Set it in `package.json`, `package-lock.json`, `.claude-plugin/marketplace.json` and `docs/_data/pinned.yaml` (its `skf_version` must match `package.json`) in a pull request, as the v1.0.0 RCs did (`3fc1f009`), then dispatch `rc`: the first RC published is `3.0.0-rc.1`. Dispatch `major` to go from the last RC to `3.0.0`. A release that needs no RC dispatches `major` or `minor` directly.
+
+### The docs site
+
+The docs site (GitHub Pages, built and deployed by [`docs.yaml`](../../.github/workflows/docs.yaml)) shows the latest stable release, not `main`. A merge to `main` does not deploy it: `docs.yaml` has no push trigger. At the end of a stable release (`patch`, `minor` or `major`), once the GitHub Release is created, `release.yaml` dispatches `docs.yaml` with `ref` set to the new tag, so the site changes when the package does. A prerelease leaves the site alone.
+
+The release dispatches the deploy itself because it publishes the GitHub Release with `GITHUB_TOKEN`, and an event made with that token starts no other workflow (`workflow_dispatch` is an exception). The deploy runs on `main`, and `docs.yaml` checks out and builds the tag given in `ref`: by default the `github-pages` environment admits deployments from the default branch only, so a run on the tag itself would be refused at the deploy job.
+
+A failed dispatch does not fail the release, which is already on npm: the run shows a warning with the command to run, and its summary says the site was not deployed. To deploy or redeploy by hand:
+
+```bash
+gh workflow run docs.yaml                   # the latest stable tag
+gh workflow run docs.yaml -f ref=vX.Y.Z     # a given tag
+gh run list --workflow=docs.yaml --limit 1  # find the run to follow
+```
+
+With `ref` empty, `docs.yaml` builds the latest stable tag reachable from `main` (`git describe --tags --abbrev=0 --exclude '*-*' --match 'v[0-9]*'`). `ref` also takes a branch or a commit, with a warning: the site then shows docs that no stable release has, until the next stable release deploys over them.
+
+**An urgent docs fix** normally ships as a patch release: merge the fix with a `docs` fragment (see [`changes/README.md`](../../changes/README.md)), preview with `npm run changes:preview -- --bump patch`, then dispatch `version_bump=patch`. The release deploys the site at the new tag.
 
 ### Post-publish — delete the bot temp branch after an admin-bypass merge
 
@@ -223,7 +266,7 @@ git merge-base --is-ancestor <temp-branch-sha> origin/main \
   && git push origin --delete release/bot/vX.Y.Z-<run_id>
 ```
 
-The tag anchors on the bot PR's merge commit on `main`, not on the temp branch (see the `Create and push tag` step's main-dispatch path), so deleting the branch after the merge orphans nothing. The reachability check is what distinguishes this from the tag-orphan case in [§ Scenario D](#scenario-d--tag-exists-but-npm-publish-failed); if the commit is _not_ reachable, the merge did not land and the branch is still load-bearing.
+The tag anchors on the bot PR's merge commit on `main`, not on the temp branch (see the `Create and push tag` step's main-dispatch path), so deleting the branch after the merge orphans nothing. The exception is a pull request that merged into `main` while the release waited for checks and approval (`strict_required_status_checks_policy` is `false`, so the bot PR is not rebased first): the merge commit's tree then holds that pull request, which the published package does not, so the tag goes on the release commit itself, which `main` reaches through the merge commit. The next release then renders that pull request's fragment and checks its surfaces. If the bot PR was squash- or rebase-merged in that case, the release commit is not on `main`, and the run stops before tagging or publishing: re-dispatch as in [§ Scenario D](#scenario-d--tag-exists-but-npm-publish-failed), with no tag to delete. The reachability check is what distinguishes this from the tag-orphan case in [§ Scenario D](#scenario-d--tag-exists-but-npm-publish-failed); if the commit is _not_ reachable, the merge did not land and the branch is still load-bearing.
 
 <!-- Rollback Playbook — added in Story 4.1 -->
 
@@ -239,6 +282,8 @@ Placeholder substitutions used throughout:
 - `<previous_good>` — the last known-good version immediately before `<bad>` (e.g. `0.10.0`).
 - `<next_version>` — the fix version produced by the next `release.yaml` dispatch (e.g. `0.10.2`).
 - `<run-id>` — a GitHub Actions run id visible in the Actions UI and via `gh run list --workflow=release.yaml`.
+
+**A ship-forward cut needs a change fragment.** Every `version_bump=patch` below is a stable release, and the release gate refuses a stable release with no fragment added since the last stable tag. The pull request with the fix adds a `fixed` fragment (see [`changes/README.md`](../../changes/README.md)); preview the cut with `npm run changes:preview -- --bump patch` before dispatching.
 
 ### Scenario A — "Bad version published to `latest`, no users yet (within ~minutes)"
 
@@ -346,6 +391,7 @@ Placeholder substitutions used throughout:
 - **Expected outcome.** Tag cleared from origin; re-run produces a fresh clean tag plus a successful publish under the next version number.
 - **Constraints.** Only safe if publish failed. If npm _did_ publish, use Scenario E — tag-deletion after a successful publish leaves the npm artifact without a matching git ref.
 - **Do-NOT clause.** Never re-use the burned `<version>` number. `release.yaml` will produce the next version on redispatch (for example, re-running an `alpha` bump over `0.10.1-alpha.0` produces `0.10.1-alpha.1`, not `0.10.1-alpha.0` again). Forcing the original version back via `npm version <exact> --no-git-tag-version` is out of scope for rollback.
+- **Re-dispatching a stable cut.** The gate, the notes and their compare link all start at the last stable tag, and fragments stay in `changes/` after a release, so once the tag of a failed stable cut is deleted, a `patch` re-dispatch is enough even for a major: a burned `3.0.0` gives `3.0.1` with the same notes, and the gate still counts it a major step from `v2.2.0`. If the bot PR had merged, `CHANGELOG.md` then holds both the unshipped `3.0.0` block and the `3.0.1` one; delete the unshipped block by pull request.
 - **Story 3.2 load-bearing context.** The current `release.yaml` pushes the git tag **before** the npm publish step (see the `Create and push tag` job step vs. the `Publish to npm via OIDC trusted publishing` step). This ordering is pre-existing from Story 3.1 and tracked in `_bmad-output/implementation-artifacts/deferred-work.md` under `§ 3-1/3-2 code review "Create and push tag pushes the git tag BEFORE Publish to npm"` as a post-v1.0.0 hardening candidate. Until that lands, Scenario D's tag-delete path **is** the recovery.
 - **Verification.**
 
@@ -374,28 +420,28 @@ Placeholder substitutions used throughout:
   git push origin v<version>
   ```
 
-- **CLI — GitHub Release recovery.** The workflow's `Generate release notes`
-  step writes to `release_notes.md` inside the runner; that file is **not**
-  uploaded as an artifact, so it does not exist outside the run. Either scrape
-  the body from the run log first, or use `--generate-notes` to let GitHub
-  regenerate from commit subjects.
+- **CLI: GitHub Release recovery.** The workflow's `Write release notes and CHANGELOG.md` step writes `release_notes.md` inside the runner; that file is **not** uploaded as an artifact, so it does not exist outside the run. Rebuild the same text from the change fragments on the release commit, or let GitHub regenerate notes from commit subjects.
 
   ```bash
-  # Option A: scrape the notes body from the run log into a local file.
-  gh run view <run-id> --log \
-    | sed -n '/^## Generate release notes/,/^##[^#]/p' \
-    > release_notes.md
+  # Option A: rebuild the notes from the change fragments (after npm ci).
+  # --base is the stable tag before <version>: the new tag now exists, so it
+  # is no longer the last one. --date is the date in the CHANGELOG.md heading.
+  # --notes-only leaves CHANGELOG.md alone.
+  git checkout v<version>
+  node tools/changes.js release --base v<previous_stable> --version <version> \
+    --date <YYYY-MM-DD> --notes-only --notes release_notes.md
   gh release create v<version> \
     --notes-file release_notes.md \
     --title "Skill Forge (SKF) v<version>"
 
   # Option B: let GitHub regenerate from commit subjects (loses the curated
-  # changelog body but always works).
+  # notes but always works).
   gh release create v<version> \
     --generate-notes \
     --title "Skill Forge (SKF) v<version>"
   ```
 
+- **CLI: docs site recovery (stable `<version>` only).** The `Deploy the docs site at the new tag` step runs after `Create GitHub Release`, so it did not run either. Once the tag is on origin, deploy the site as in [§ The docs site](#the-docs-site): `gh workflow run docs.yaml -f ref=v<version>`. Check the tag first: the site's version badge is read from `package.json` at build time, and the tag recovery above points the tag at the run's `head_sha`, the commit the release was dispatched from, which is before the version bump. `git show v<version>:package.json` must show `<version>`; if it does not, recreate the tag on the commit on `main` that bumped `package.json` to `<version>`, then deploy.
 - **Expected outcome.** Tag landed on origin pointing at the correct commit; GitHub Release page reflects the published npm artifact; npm + GitHub + git state are now consistent.
 - **Constraints.** **npm state is immutable.** Do NOT try to "clean up" the npm artifact so the release can be re-run from scratch. The npm artifact plus the orphaned post-recovery git state **is** the canonical record — NFR5 (audit-trail completeness) is satisfied by the successful npm publish plus the recovered tag and GitHub Release, not by a clean rerun.
 - **Orphaned-commit caveat (Story 3.2 context).** If the run was dispatched from a feature branch and `Push commit to main` was correctly skipped, the `release: bump to v<version>` commit lives only in the workflow run log until the recovered tag above anchors it. This is NFR12-compliant and expected pre-v1.0.0 behavior; the tag is the authoritative pointer. This is exactly the pattern observed in the Story 3.2 alpha cut (`bmad-module-skill-forge@0.10.1-alpha.0`, run `24714953668`, tag `v0.10.1-alpha.0`, orphaned commit `2a57dcbd`).
@@ -512,7 +558,7 @@ Placeholder substitutions used throughout:
   # Any workflow with id-token: write should be a known release/provenance workflow.
   grep -l 'id-token: write' .github/workflows/*.{yaml,yml} 2>/dev/null
   # expected set:
-  #   - docs.yaml (GitHub Pages — orthogonal to release)
+  #   - docs.yaml (GitHub Pages; release.yaml dispatches it after a stable release)
   #   - release.yaml (canonical)
 
   # No `v*` push trigger should exist in any workflow — release.yaml is workflow_dispatch-only.
@@ -629,7 +675,7 @@ For the `release` environment, a deletion+restore similarly uses the two-call pa
 - **Constraints.**
   - Execute ONLY after the RC audit `§ Sign-off` is populated AND the smoke-test `Decision` is `PASS`.
   - The cut is IRREVERSIBLE — once `npm publish --tag latest` succeeds for `1.0.0`, NFR6 forbids unpublish regardless of eligibility window. Rollback is `npm deprecate` + ship-forward (Scenarios A / B).
-  - The CHANGELOG reconciliation is a POST-workflow step (authored as a separate sign-off commit on `feat/v1-final-signoff`). Do NOT hand-edit the `## [1.0.0] - TBD` placeholder BEFORE dispatch — let the workflow auto-generate its `## [1.0.0]` block (which may be EMPTY when there are zero conventional-commit `feat:` / `fix:` entries between the RC and the final cut, which is the normal case), then merge the hand-curated prose into the auto-gen header's position and delete the stale placeholder in one commit.
+  - `CHANGELOG.md` is written by the workflow from the change fragments (see [§ Pre-dispatch: preview the notes and the version bump](#pre-dispatch-preview-the-notes-and-the-version-bump)): do not hand-edit it before dispatch. At the v1.0.0 launch the block was generated from commit subjects instead, and the hand-written `## [1.0.0] - TBD` prose was merged into it by a sign-off commit on `feat/v1-final-signoff` after publish.
   - Do NOT pre-bump `package.json` or `.claude-plugin/marketplace.json` — the workflow's `Bump version` and `Update marketplace.json version` steps handle both atomically and own those files.
   - If `npm version major` unexpectedly emits `2.0.0` instead of `1.0.0` on `1.0.0-rc.N`, the node-semver engine behavior has regressed. Abort the dispatch and investigate before retry — a workflow override (`npm version 1.0.0 --no-git-tag-version`) would be required in `release.yaml`.
 

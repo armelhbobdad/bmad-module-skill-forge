@@ -6,6 +6,7 @@ name: Quality & Validation
 # - markdownlint (markdown quality)
 # - LintLang (agent instructions under src/)
 # - No em dashes (published docs, and the lines and commit messages a PR adds)
+# - Change fragments (changes/*.yaml) and the release-notes tools
 # - Schema validation (YAML structure)
 # - Agent schema tests (fixture-based validation)
 # - Installation component tests (CLI + compilation)
@@ -108,9 +109,15 @@ jobs:
   # docs (README.md, docs/ except docs/_internal/, website/) must hold none,
   # and a pull request may add none anywhere, in its changed lines or its
   # commit messages. fetch-depth: 0 fetches the base branch the tool diffs
-  # against; without it the tool fails in CI rather than skip the check. It
-  # uses only Node built-ins, so the job skips npm ci. Linux only: it reads
-  # text, so a Windows run would only repeat it.
+  # against; without it the tool fails in CI rather than skip the check.
+  # Linux only: it reads text, so a Windows run would only repeat it.
+  #
+  # The change-fragment steps run here too, for the same reason: they read
+  # history. tools/changes.js and tools/covered-surfaces.js compare the tree
+  # with the last stable release tag, and their tests backtest the surface
+  # diff against real tags (v1.9.0, v2.0.0, v2.2.0), which only a full clone
+  # has. Those two tools need the yaml and semver devDependencies, hence
+  # npm ci; the em dash tool itself uses only Node built-ins.
   em-dash:
     runs-on: ubuntu-latest
     steps:
@@ -123,12 +130,22 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: ".nvmrc"
+          cache: "npm"
 
       - name: Test the em dash check
         run: npm run test:em-dash-tool
 
       - name: No em dashes
         run: npm run validate:em-dash
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test the change-fragment tools
+        run: npm run test:changes-tool
+
+      - name: Validate change fragments
+        run: npm run validate:changes
 
   validate:
     # Matrix Linux + Windows to catch platform-divergence bugs (path handling,
@@ -151,10 +168,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Smoke test conventional-changelog-cli bin resolution on Windows
-        if: runner.os == 'Windows'
-        run: npx --no-install conventional-changelog-cli --help
 
       - name: Validate YAML schemas
         run: npm run validate:schemas

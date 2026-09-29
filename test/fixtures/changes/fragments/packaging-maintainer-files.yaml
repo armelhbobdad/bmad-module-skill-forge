@@ -1,0 +1,6 @@
+type: fixed
+scope: packaging
+prs: [489]
+issues: [487]
+summary: |
+  The npm package no longer ships maintainer-only files (the v1.0.0 release audit, the release runbook and two docs validators), about 150 KB less.

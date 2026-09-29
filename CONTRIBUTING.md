@@ -10,7 +10,7 @@ SKF is a [BMAD](https://github.com/bmad-code-org/BMAD-METHOD) module. For BMAD p
 - **Knowledge fragments** (`src/knowledge/`) — cross-workflow principles Ferris loads just-in-time. Example: a new `security-review.md` that captures rules reused by CS, QS, and AS.
 - **Forger assets** (`src/forger/`, `src/shared/`) — shared agent memory, preferences, or helpers (e.g. tier detection, health-check templates).
 - **Validators** (`tools/validate-*.js`) — deterministic checks that run in `npm run quality`. Example: a new validator that flags `{installed_path}` leaks in step files.
-- **Docs** (`docs/`, `website/`) — tutorial / reference / explanation content surfaced at [armelhbobdad.github.io/bmad-module-skill-forge](https://armelhbobdad.github.io/bmad-module-skill-forge/).
+- **Docs** (`docs/`, `website/`): tutorial / reference / explanation content surfaced at [armelhbobdad.github.io/bmad-module-skill-forge](https://armelhbobdad.github.io/bmad-module-skill-forge/). The site is deployed from the latest stable release, not from `main`, so a merged docs change goes live with the next stable release.
 - **Ecosystem integrations** — new tool bridges (ast-grep, cocoindex, QMD, tessl, Snyk, graphify-style indexers) wired through the tier-aware discovery path.
 - **Bug reports** — always useful, especially if they come in via the workflow health-check loop (see below).
 
@@ -37,8 +37,8 @@ npm run quality       # run the full local pre-flight
 The `npm run quality` script is your contract with CI. It runs:
 
 - `format:check` (Prettier), `lint` (ESLint), `lint:md` (markdownlint), `lint:instructions` (LintLang on the agent instructions under `src/`)
-- `test:schemas`, `test:install`, `test:cli`, `test:workflow`, `test:python`, `test:rehype`, `test:docs-links-tool`, `test:em-dash-tool`, `test:file-refs-tool`, `test:knowledge`
-- `validate:schemas`, `validate:skills`, `validate:refs`, `validate:docs-links`, `validate:em-dash`
+- `test:schemas`, `test:install`, `test:cli`, `test:workflow`, `test:python`, `test:rehype`, `test:docs-links-tool`, `test:em-dash-tool`, `test:file-refs-tool`, `test:changes-tool`, `test:knowledge`
+- `validate:schemas`, `validate:skills`, `validate:refs`, `validate:docs-links`, `validate:em-dash`, `validate:changes` (the change fragments in `changes/`, see [Change Fragments](#change-fragments))
 - `docs:validate-drift` — SKF docs vs. the canonical [oh-my-skills](https://github.com/armelhbobdad/oh-my-skills) output
 
 If `npm run quality` passes locally, CI should too. The same steps run in [`.github/workflows/quality.yaml`](.github/workflows/quality.yaml) on every pull request.
@@ -56,7 +56,7 @@ Write no em dashes (U+2014) in anything you add, including commit messages: use 
    - `refactor(skf-create-skill): ...`
    - `chore: ...` (no scope needed)
 
-   `git log --oneline -20` is the authoritative style guide. Match what you see.
+   `git log --oneline -20` is the authoritative style guide. Match what you see. The prefix is for the history only: release notes and the version bump come from change fragments (step 7), so the commit type and the merge style do not change what a release says.
 
 3. **Reference issues with `Fixes #NNN`** in the PR body (and optionally in the commit trailer). Use **same-repo GitHub issue numbers only** — do not reference internal IDs under `_bmad-output/todo/` or elsewhere; those are author notes, not public contracts.
 4. **The pre-commit hook runs automatically** via husky, in this order:
@@ -71,6 +71,35 @@ Write no em dashes (U+2014) in anything you add, including commit messages: use 
    ```
 
    Not mandatory, but we prefer accurate attribution over silent ghostwriting.
+
+7. **Add a change fragment** in the same pull request for each change a user or a pipeline can notice: see [Change Fragments](#change-fragments).
+
+## Change Fragments
+
+Release notes are written from change fragments, not from commit subjects. A pull request that changes something a user or a pipeline can notice adds one short YAML file per change to [`changes/`](changes/README.md), named after the change: `changes/<topic>.yaml`. At release, the workflow renders every fragment added since the last stable release into the new `CHANGELOG.md` block and the GitHub Release, and refuses a `version_bump` smaller than the fragments call for. Fragments are never deleted: a release takes only the ones added since the last stable tag. A released fragment is never read again, so a new change always goes in a new file: the release refuses a released fragment that was edited, renamed or copied.
+
+**When.** Add a fragment when a workflow behaves differently, when a flag, status, exit code, halt reason or preference appears or goes, when the install changes, or when the user docs gain something worth announcing. Refactors, tests, CI and maintainer-only docs need none.
+
+**Which type.** Type the change by what a user sees, not by the commit prefix, and pick the higher type when unsure:
+
+- `breaking`: the change removes or renames a covered item (a schema enum value or property, a Ferris menu code, a pipeline alias or a flag), tightens an input schema, raises a requirement, or makes an input that used to succeed on SKF-generated skills halt or exit non-zero. A refusal that only protects folders SKF did not generate is `fixed`. A `breaking` fragment needs a `migration`: the exact action a user takes.
+- `added`: a new flag, menu code, alias, preference key, exit code, status, halt reason or capability.
+- `changed`: the output or a default is different, and nothing was removed.
+- `fixed`: the behaviour now matches the docs.
+- `docs`: a change to the user docs worth announcing.
+
+`lead` is a sixth type for the paragraph that opens a release's notes, usually added when the release is prepared.
+
+```yaml
+type: added
+scope: skf-update-skill
+summary: |
+  New `--target-ref <ref>` flag: update a skill built from a remote repository against a tag, branch, `HEAD` or full commit instead of the ref it recorded.
+prs: [517]
+issues: [511]
+```
+
+Write flags, statuses, codes and file names in backticks: a release that removes a covered item needs a `breaking` fragment that names it, and only a name in backticks counts. Add `prs:` once the pull request has a number. Before pushing, run `npm run changes:preview`: it lists the fragments added since the last stable tag, the covered-surface changes against it (`tools/covered-surfaces.js`), the minimum bump and why, and the rendered block. It also prints the release gate's verdict for the whole next release, not for your pull request alone: a refusal about an item or a fragment your pull request touches is yours to fix; any other refusal is for the maintainer who cuts the release, and your pull request only needs its own fragments to pass `npm run validate:changes`. For each new halt reason or exit code it lists, ask again whether an input that used to succeed now stops. `npm run validate:changes` checks the format, which [`changes/README.md`](changes/README.md) describes in full.
 
 ## The Quality Gate
 
@@ -87,6 +116,7 @@ CI re-runs everything on the PR. A green local run and a red CI run means either
 Maintainers only — if you're not cutting a release, skip this section.
 
 - **Canonical path:** `.github/workflows/release.yaml`, triggered via GitHub Actions → Run workflow → choose `version_bump` (`alpha` / `beta` / `rc` / `patch` / `minor` / `major`). That is the only supported route — OIDC-backed publish, required-reviewer gate on the `release` environment, auto-provenance on the npm tarball.
+- **Before dispatch:** run `npm run changes:preview -- --bump <type>` on an up-to-date `main`. The workflow's release gate refuses a `version_bump` below the minimum the preview prints, before anything is committed.
 
 See [docs/\_internal/RELEASING.md](docs/_internal/RELEASING.md) for the full procedure — branch-protection rules, the `release` environment with its required-reviewer gate, npm Trusted Publisher registration, and the seven-scenario [rollback playbook](docs/_internal/RELEASING.md#rollback-playbook).
 

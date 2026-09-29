@@ -1,0 +1,6 @@
+type: changed
+scope: all workflows
+prs: [499, 509]
+issues: [495, 497, 500, 501]
+summary: |
+  SKF now moves, updates, renames or deletes only the skills it generated (their `metadata.json` carries the SKF marker), in both `skills_output_folder` and `forge_data_folder`. A shared skills folder is supported: for a skill SKF did not make, update, export, audit and test stop with `not-skf-output` instead of migrating it, and drop and rename refuse it. Rename also stops with `flat-layout` on an SKF skill still in the old flat layout and says to run `TS` on it once. create-skill now stages its work in `_bmad-output/.skf-stage/<name>/`.

@@ -1,0 +1,5 @@
+type: added
+scope: skf-forger
+prs: [523]
+summary: |
+  Typing `CA` to Ferris now starts Campaign, matching the `[CA] Campaign` entry bmad-help already showed. Campaign still cannot be chained with other codes in a pipeline.

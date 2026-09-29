@@ -23,9 +23,6 @@ memory/
 
 # Development tools and config
 test/
-tools/build-docs.js
-tools/fix-doc-links.js
-tools/validate-doc-links.js
 *.test.js
 eslint.config.mjs
 prettier.config.mjs
@@ -43,13 +40,16 @@ skills/
 __pycache__/
 *.pyc
 
-# Dev-only validation tools (not needed at runtime).
-# NOTE: validate-doc-links.js (singular) and validate-docs-links.js (plural)
-# are two different files that both exist — name both, or the plural one ships.
-tools/validate-skills.js
-tools/validate-file-refs.js
-tools/validate-docs-links.js
-tools/validate-docs-drift.js
+# Maintainer tools. Every script directly under tools/ is one (validators,
+# docs build, release notes), except the npx wrapper that package.json's bin
+# points at. The pattern matches only that level: the installer CLI in
+# tools/cli/ still ships.
+tools/*.js
+!tools/skf-npx-wrapper.js
+
+# Change fragments: rendered into CHANGELOG.md and the GitHub Release at
+# release time, not read at runtime.
+changes/
 
 # Maintainer-only release material. STABILITY.md is deliberately NOT excluded:
 # it is the public API contract a consumer pinning ^2.0.0 may want to read from
