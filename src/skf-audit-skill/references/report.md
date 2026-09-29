@@ -36,6 +36,8 @@ Update the ## Audit Summary section at the top of {outputFile} with final calcul
 
 For each classified drift finding, write one concrete remediation derived from the finding itself: **what** to change in the audited **SKILL.md** (or its `references/`) — not the source code — **where** (the section plus the source `{file}:{line}` the finding cites), and **why**. Set effort (`low`/`medium`/`high`) by how much of the skill doc the change touches. A reviewer should be able to act on each row without re-deriving the finding.
 
+Rows of step 3's **Provenance label differences (not drift)** table are not findings: they get no remediation row and do not count toward the Workflow Recommendation.
+
 Append to {outputFile}:
 
 ```markdown
@@ -94,14 +96,17 @@ Append to {outputFile}:
 | **Provenance Map** | {provenance_map_path} |
 | **Provenance Age** | {days} days |
 | **Mode** | {normal / degraded} |
+| **AST fallback files** | {`ast_fallback_files` from step 2, or none; n/a at Quick} |
 | **Baseline Ref / Commit** | `{baseline_ref}` @ `{baseline_commit_short}` |
 | **Audit Ref / Commit** | `{audit_ref}` @ `{audit_commit_short}` ({audit_ref_source}) |
 | **Upstream Latest** | `{latest_tag or remote_head or "(not fetched)"}` |
 
 **Confidence Legend:**
-- **T1:** AST extraction — high reliability, structural truth
-- **T1-low:** Text pattern matching — moderate reliability
+- **T1:** an ast-grep match (`extraction_method: ast-grep`) at any tier: high reliability, structural truth
+- **T1-low:** read by eye (`extraction_method: source-read`) at any tier: moderate reliability
+- **T1-low-fallback:** Deep-tier semantic diff read directly from the skill's docs and the current source because the QMD collection was empty: moderate reliability
 - **T2:** QMD temporal context — evidence-backed semantic analysis
+- **T3:** external documentation reference: variable reliability, secondary source
 ```
 
 ### 4. Update Report Frontmatter

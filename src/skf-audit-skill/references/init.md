@@ -343,10 +343,10 @@ If the write fails (read-only mount, disk full, permissions denied) → HALT wit
 | **Mode** | {normal / degraded} |
 
 **Analysis plan based on tier:**
-- {Quick: text-diff comparison (T1-low confidence)}
-- {Forge: AST structural comparison (T1 confidence)}
-- {Forge+: AST structural comparison + CCC-assisted rename detection (T1 confidence)}
-- {Deep: AST structural + QMD semantic comparison (T1 + T2 confidence)}
+- {Quick: text-diff comparison → T1-low for every export (read by eye)}
+- {Forge: AST structural comparison → T1 for each export an ast-grep rule matches, T1-low for each export read by eye}
+- {Forge+: AST structural comparison + CCC-assisted rename detection → the same labels as Forge}
+- {Deep: AST structural + QMD semantic comparison → the same labels as Forge, plus T2}
 
 **Ready to begin drift analysis?**"
 

@@ -1,5 +1,6 @@
 ---
 nextStepFile: 'structural-diff.md'
+tierDegradationRulesData: 'skf-create-skill/references/tier-degradation-rules.md'
 outputFile: '{forge_version}/drift-report-{timestamp}.md'
 ---
 
@@ -21,27 +22,31 @@ Re-scan the source code using the current forge tier tools to build a fresh extr
 
 ### 1. Determine Extraction Strategy
 
+Label every export by the tool that produced it, never by the tier: an export an ast-grep rule matched is T1 with `extraction_method: ast-grep` and the matched node kind as `ast_node_type`; an export read by eye is T1-low with `extraction_method: source-read` and `ast_node_type: null`.
+
 Based on forge tier detected in Step 01:
 
 **Quick tier (no AST tools):**
 - Read source files via gh_bridge or direct file I/O
 - Extract export names by text pattern matching (function/class/type declarations)
-- Confidence label: T1-low
+- Label every export T1-low (read by eye, not matched by ast-grep) with `extraction_method: source-read` and `ast_node_type: null`
 
 **Forge tier (ast-grep available):**
 - Use ast_bridge to perform AST extraction per source file
 - Extract: export name, type (function/class/type/const), full signature, file path, line number
-- Confidence label: T1
+- Label each export by the tool that produced it: an export an ast-grep rule matched is T1 (AST-verified structural truth) with `extraction_method: ast-grep` and the matched node kind as `ast_node_type`; an export read by eye (ast-grep could not parse its file, the rules missed it, or the file was read instead of matched) is T1-low with `extraction_method: source-read` and `ast_node_type: null`
+
+**Tier degradation handling (Forge/Forge+/Deep):** If ast-grep is unavailable or fails on individual files, follow `{tierDegradationRulesData}` (AST Tool Unavailable, Per-File AST Failure) for the fallback and the user notification. A file ast-grep cannot parse falls back to reading that file only: its exports are T1-low with `extraction_method: source-read` and `ast_node_type: null`, and exports ast-grep matched in other files stay T1. Silent degradation is forbidden: the run names each file read after an ast-grep failure, and why (§3, §5). When ast-grep is unavailable for the whole run, every export is T1-low and `ast_fallback_files` records `all files (ast-grep unavailable)`.
 
 **Forge+ tier (ast-grep + ccc available):**
 - Identical extraction to Forge tier: use ast_bridge for AST extraction per source file
-- Confidence label: T1
+- Label each export by tool, as at Forge tier
 - CCC rename detection available (see section 4b)
 
 **Deep tier (ast-grep + QMD available):**
-- Forge extraction (above) PLUS
+- Forge extraction (above), labeled by tool as at Forge tier, PLUS
 - Query qmd_bridge for temporal context: when exports were added, modification history, usage frequency
-- Confidence labels: T1 for structural, T2 for temporal context
+- Confidence labels: structural entries labeled by tool (T1 for an ast-grep match, T1-low for an export read by eye), T2 for temporal context
 
 **Tool resolution:** `gh_bridge` → `gh api` commands or direct file I/O if local. `ast_bridge` → ast-grep MCP tools (`find_code`, `find_code_by_rule`) or `ast-grep` CLI. `qmd_bridge` → QMD MCP tools (`search`, `vector_search`) or `qmd` CLI. See `knowledge/tool-resolution.md`.
 
@@ -76,8 +81,10 @@ Audit-skill detects drift on files that were in scope during create-skill. The a
 **For each file in the bounded scan list from §2, launch a subprocess that:**
 1. Loads the source file
 2. Extracts all public exports using tier-appropriate method
-3. Records: export name, type, signature, file path, line number, confidence tier
+3. Records: export name, type, signature, file path, line number, and the labels of the tool that produced it (`confidence`, `extraction_method`, `ast_node_type`, per §1)
 4. Returns structured findings to parent
+
+**If ast-grep cannot parse a file** (Forge, Forge+ or Deep): read that file only, label its exports T1-low with `extraction_method: source-read` and `ast_node_type: null`, and warn: "**AST fallback:** ast-grep could not parse {file} ({reason}); its exports were read from source and labeled T1-low." Record the file in `ast_fallback_files` in workflow context: the §5 summary, the Structural Drift **Method:** line (step 3 §5) and the report's Provenance table (step 6 §3) read it.
 
 **If a file from the bounded scan list is missing on disk:** record `{file, exports: [], status: "missing"}` and continue — step 3 structural diff will classify exports previously at this path as DELETED.
 
@@ -99,11 +106,15 @@ Audit-skill detects drift on files that were in scope during create-skill. The a
       "signature": "{full signature}",
       "file": "{relative_path}",
       "line": {line_number},
-      "confidence": "T1|T1-low|T2"
+      "confidence": "T1|T1-low",
+      "extraction_method": "ast-grep|source-read",
+      "ast_node_type": "{node kind the ast-grep rule matched, or null}"
     }
   ]
 }
 ```
+
+`confidence_tier` holds the forge tier the re-index ran at, not a label. `confidence`, `extraction_method` and `ast_node_type` label the structural extraction by the tool that produced it (§1). Deep tier's T2 temporal context (§4) is appended beside them and does not replace them.
 
 Record the written path as `{extractionSnapshot}` in workflow context — step 3 passes it to the deterministic structural-diff helper.
 
@@ -167,7 +178,8 @@ CCC failures: skip rename detection silently, proceed with standard structural d
 | Classes | {class_count} |
 | Types/Interfaces | {type_count} |
 | Constants | {const_count} |
-| Confidence | {T1/T1-low/T2} |
+| Labels | {t1_count} T1 (`ast-grep`), {t1_low_count} T1-low (`source-read`){, T2 temporal context at Deep} |
+| AST fallback files | {count and names from `ast_fallback_files`, or none; n/a at Quick} |
 
 **Proceeding to structural comparison...**"
 
