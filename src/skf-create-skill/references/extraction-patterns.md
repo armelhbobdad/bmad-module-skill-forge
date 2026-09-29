@@ -216,7 +216,8 @@ For full-library skills at higher tiers, the larger cap prevents silently droppi
 # decorator), and {sig} is the line of the match that holds $NAME.
 ast-grep scan -r {recipe_file} --json=stream {path} | python3 -c "
 import sys, json, fnmatch, signal
-signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+if hasattr(signal, 'SIGPIPE'):  # POSIX only; Windows has no SIGPIPE
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
 EXCLUDES = {exclude_patterns}
 RECIPE = '{recipe_id}'
