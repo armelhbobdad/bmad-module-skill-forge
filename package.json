@@ -32,6 +32,7 @@
     "bmad-module-skill-forge": "tools/skf-npx-wrapper.js"
   },
   "scripts": {
+    "changes:pr": "node tools/changes.js pr",
     "changes:preview": "node tools/changes.js preview",
     "docs:build": "node tools/build-docs.js",
     "docs:dev": "npm run --prefix website docs:dev",

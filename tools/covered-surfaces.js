@@ -140,12 +140,12 @@ function resolveCommit(root, ref) {
 
 /**
  * The newest version tag (v<digit>...) with no prerelease suffix reachable
- * from HEAD, or null. A tag that is not a version, such as `stable`, is never
- * taken as the base.
+ * from `from` (HEAD by default), or null. A tag that is not a version, such
+ * as `stable`, is never taken as the base.
  */
-function lastStableTag(root) {
+function lastStableTag(root, from = 'HEAD') {
   try {
-    return makeGit(root)(['describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*', '--exclude', '*-*']).trim() || null;
+    return makeGit(root)(['describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*', '--exclude', '*-*', from]).trim() || null;
   } catch {
     return null;
   }

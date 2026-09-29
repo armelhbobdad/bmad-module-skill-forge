@@ -11,6 +11,18 @@
  *   real CHANGELOG.md with every older release left byte-identical;
  * - the commands end to end against throwaway git repositories, released
  *   fragments edited, renamed or copied included;
+ * - the pr command on branches of those repositories: a change to the code
+ *   the package ships (renames and deletions included) needs a fragment or
+ *   a "Changelog: none (<reason>)" line, in any commit, merges included,
+ *   and never the placeholder; the line never covers a removed or added
+ *   covered item; a breaking fragment must name the removed item, an added
+ *   one covers an addition, and an unreleased fragment the branch only edits
+ *   counts only for the items it names; the release branch of this
+ *   repository is exempt, and one from a fork or an unknown repository is
+ *   not; a malformed or released fragment fails, against the last stable tag
+ *   of the base; a failure prints a fragment to fill in that fails until its
+ *   marked sentences are rewritten; the base resolves as the em dash check's
+ *   does, and a shallow clone that hides the merge base says so;
  * - the extractors against this checkout (all 16 SKILL.md files read, `CA`
  *   and `--target-ref` found, `write_failure` gone, and every workflow that
  *   had flags at the pinned commit still has flags);
@@ -112,10 +124,26 @@ function gate({ bump, current = '2.2.0', baseTag = 'v2.2.0', fragments = [], har
   return changes.evaluateGate({ next, bump, current, baseTag, fragments, surfaces: found });
 }
 
-/** Environment for git and the tools: no CI markers, no inherited repository. */
+/**
+ * Environment for git and the tools: no CI markers, no inherited repository,
+ * and none of the pull request's refs (the em-dash job runs these tests on
+ * one, and the pr command reads them).
+ */
 function cleanEnv(extra = {}) {
   const env = { ...process.env };
-  for (const key of ['GITHUB_ACTIONS', 'GITHUB_STEP_SUMMARY', 'CI', 'GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE']) delete env[key];
+  for (const key of [
+    'GITHUB_ACTIONS',
+    'GITHUB_STEP_SUMMARY',
+    'GITHUB_BASE_REF',
+    'GITHUB_HEAD_REF',
+    'GITHUB_REPOSITORY',
+    'PR_HEAD_REPO',
+    'CI',
+    'GIT_DIR',
+    'GIT_INDEX_FILE',
+    'GIT_WORK_TREE',
+  ])
+    delete env[key];
   return {
     ...env,
     GIT_AUTHOR_NAME: 'Test',
@@ -268,6 +296,16 @@ const INVALID = [
   ['an em dash entity in a migration', { ...frag('breaking').data, migration: `do ${AMP}mdash; this` }, /migration has an em dash/],
   ['a step-file section in a summary', { ...frag('fixed').data, summary: 'see init.md §4' }, /cites a step-file section/],
   ['two paragraphs', { ...frag('fixed').data, summary: 'one\n\ntwo\n' }, /one paragraph/],
+  [
+    'the template text in a summary',
+    { ...frag('fixed').data, summary: 'Rewrite this paragraph: what a user sees.' },
+    /summary still holds the template text/,
+  ],
+  [
+    'the template text in a migration',
+    { ...frag('breaking').data, migration: 'Rewrite this paragraph: the action.' },
+    /migration still holds the template text/,
+  ],
 ];
 
 for (const [name, data, pattern] of INVALID) {
@@ -923,6 +961,560 @@ test('lastStableTag takes only version tags: `stable` and prerelease tags are sk
   git(root, ['tag', '-a', 'stable', '-m', 'stable']);
   git(root, ['tag', '-a', 'v1.1.0-rc.0', '-m', 'v1.1.0-rc.0']);
   assert.strictEqual(surfaces.lastStableTag(root), 'v1.0.0');
+});
+
+// --- The pr command: the fragments one branch needs ---
+
+const SKILL_WITH_ALL =
+  '# Tool\n\n| Aspect | Detail |\n|---|---|\n| **Flags** | `--headless` / `-H` (skip prompts); `--dry-run` (write nothing); `--all` (every skill) |\n';
+const SCHEMA_WITHOUT_WRITE_FAILURE = TEMP_SCHEMA.replace('"write_failure",', '');
+const DROP_STATUS = 'type: breaking\nscope: skf-tool\nsummary: The `write_failure` status is gone.\nmigration: Branch on `blocked`.\n';
+const ALL_FLAG = 'type: added\nscope: skf-tool\nsummary: New `--all` flag.\n';
+const SMALL_FIX = 'type: fixed\nscope: skf-tool\nsummary: A fix.\n';
+
+/**
+ * makeRepo()'s repository with a branch off main, and `files` committed on
+ * it with `message`.
+ */
+function makeBranch(files = {}, { message = 'change', name = 'feat/topic', repo = {} } = {}) {
+  const root = makeRepo(repo);
+  git(root, ['checkout', '-q', '-b', name]);
+  if (Object.keys(files).length > 0) {
+    write(root, files);
+    commitAll(root, message);
+  }
+  return root;
+}
+
+function runPr(root, env = {}, args = ['--base', 'main']) {
+  return runTool(CHANGES_TOOL, ['pr', '--root', root, ...args], env);
+}
+
+/** The fragment template a failed run prints, parsed. */
+function printedTemplate(out) {
+  const match = /```yaml\n([\s\S]*?)```/.exec(out);
+  assert.ok(match, `no fragment template in:\n${out}`);
+  return { ...changes.parseFragment('changes/template.yaml', match[1]), text: match[1] };
+}
+
+/**
+ * A template fails only on the sentences it marks for rewriting, and is a
+ * valid fragment once they are rewritten.
+ */
+function assertOnlyTemplateText(template, context) {
+  assert.ok(template.errors.length > 0, `the template text is accepted as it is:\n${context}`);
+  for (const error of template.errors) assert.match(error, /still holds the template text/, context);
+  const rewritten = template.text.replaceAll(/Rewrite this paragraph:[^\n]*/g, 'Done.');
+  assert.deepStrictEqual(changes.parseFragment('changes/template.yaml', rewritten).errors, [], context);
+}
+
+test('isShipped: src/, tools/cli/, the npx wrapper and .npmignore, nothing else', () => {
+  for (const file of ['src/skf-setup/SKILL.md', 'src/module.yaml', 'tools/cli/skf-cli.js', 'tools/skf-npx-wrapper.js', '.npmignore']) {
+    assert.strictEqual(changes.isShipped(file), true, file);
+  }
+  for (const file of [
+    'tools/changes.js',
+    'tools/cli.js',
+    'test/test-changes.js',
+    'docs/index.md',
+    'changes/a.yaml',
+    'srcx/a',
+    'a/.npmignore',
+  ]) {
+    assert.strictEqual(changes.isShipped(file), false, file);
+  }
+});
+
+test('changelogTrailers: "Changelog: none (<reason>)" covers; no reason, the placeholder or another value does not', () => {
+  const { waivers, malformed } = changes.changelogTrailers([
+    { commit: 'aaaa1111', message: 'fix: reword\n\nChangelog: none (wording only, nothing a user sees)\nCo-Authored-By: x\n' },
+    { commit: 'bbbb2222', message: 'fix: x\n\n  changelog:NONE (tests (and CI) only)\n' },
+    { commit: 'cccc3333', message: 'fix: y\n\nChangelog: none\nChangelog: none ( )\nChangelog: skip (why)\n' },
+    { commit: 'dddd4444', message: 'The Changelog: none line is described here.\n' },
+    { commit: 'eeee5555', message: 'fix: z\n\nChangelog: none (<reason>)\nChangelog: none ( <why> )\n' },
+  ]);
+  assert.deepStrictEqual(waivers, [
+    { commit: 'aaaa1111', reason: 'wording only, nothing a user sees' },
+    { commit: 'bbbb2222', reason: 'tests (and CI) only' },
+  ]);
+  assert.deepStrictEqual(
+    malformed.map(({ commit, line }) => `${commit} ${line}`),
+    [
+      'cccc3333 Changelog: none',
+      'cccc3333 Changelog: none ( )',
+      'cccc3333 Changelog: skip (why)',
+      'eeee5555 Changelog: none (<reason>)',
+      'eeee5555 Changelog: none ( <why> )',
+    ],
+  );
+});
+
+test('evaluatePullRequest: what counts as a fragment for a shipped change and for each surface change', () => {
+  const touched = ['src/skf-setup/SKILL.md'];
+  const waiver = { waivers: [{ commit: 'aaaa1111', reason: 'x' }], malformed: [] };
+  const found = { hard: [hardFinding('write_failure')], additive: [additiveFinding('--target-ref')], review: [] };
+  const run = (input) => changes.evaluatePullRequest({ touched, fragments: [], ...input });
+  assert.deepStrictEqual(run({ touched: [] }).failures, [], 'nothing shipped, nothing needed');
+  assert.strictEqual(run({}).missing.fragment, true);
+  assert.strictEqual(run({ fragments: [frag('lead')] }).missing.fragment, true, 'a lead is not a change');
+  assert.strictEqual(run({ fragments: [frag('docs')] }).missing.fragment, false);
+  assert.strictEqual(run({ trailers: waiver }).missing.fragment, false);
+  const waived = run({ trailers: waiver, surfaces: found });
+  assert.deepStrictEqual(tokens(waived.missing.hard), ['write_failure'], 'the trailer never covers a removal');
+  assert.deepStrictEqual(tokens(waived.missing.additive), ['--target-ref'], 'nor an addition');
+  assert.match(waived.failures.join('\n'), /never covers a surface change/);
+  const changed = run({ fragments: [frag('changed', { summary: 'About `--target-ref`.' })], surfaces: found });
+  assert.deepStrictEqual(tokens(changed.missing.additive), ['--target-ref'], 'a changed fragment does not cover an addition');
+  const covered = run({ fragments: [breakingNamed()], surfaces: found });
+  assert.deepStrictEqual(covered.failures, [], 'a breaking fragment names the removal and covers the addition');
+  assert.strictEqual(covered.template, null);
+  const invalid = run({ fragments: [{ ...frag('fixed'), errors: ['scope is required'] }] });
+  assert.strictEqual(invalid.missing.fragment, false, 'an invalid fragment is reported for its errors, not as missing');
+  assert.match(invalid.failures.join('\n'), /: scope is required/);
+});
+
+test('evaluatePullRequest: an unreleased fragment the branch edits counts only where it names the item', () => {
+  const touched = ['src/skf-setup/SKILL.md'];
+  const found = { hard: [hardFinding('write_failure')], additive: [additiveFinding('--target-ref')], review: [] };
+  const edited = (fragment) => ({ ...fragment, status: 'M' });
+  const run = (input) => changes.evaluatePullRequest({ touched, fragments: [], ...input });
+  const fix = run({ fragments: [edited(frag('fixed', {}, 'pending.yaml'))] });
+  assert.strictEqual(fix.missing.fragment, true, 'an edited fragment does not stand in for a fragment of its own');
+  assert.match(fix.failures.join('\n'), /Editing an unreleased fragment \(changes\/pending\.yaml\) does not count here/);
+  assert.strictEqual(run({ fragments: [{ ...frag('fixed'), status: 'A' }] }).missing.fragment, false, 'an added one does');
+  const other = run({ fragments: [edited(frag('added', { summary: 'New `--all` flag.' }, 'other.yaml'))], surfaces: found });
+  assert.deepStrictEqual(tokens(other.missing.additive), ['--target-ref'], 'an edited added fragment covers only what it names');
+  assert.strictEqual(other.missing.fragment, true);
+  assert.match(other.failures.join('\n'), /or name `--target-ref` in backticks in changes\/other\.yaml, which it edits/);
+  const names = run({
+    fragments: [
+      edited(frag('added', { summary: 'New `--target-ref` flag.' })),
+      edited(frag('breaking', { summary: 'The `write_failure` status is gone.' })),
+    ],
+    surfaces: found,
+  });
+  assert.deepStrictEqual(names.failures, [], 'edited fragments that name the removal and the addition cover them');
+  const hardOnly = run({ fragments: [edited(breakingNamed())], surfaces: { ...found, additive: [] } });
+  assert.deepStrictEqual(hardOnly.failures, [], 'a follow-up that names its removal in a pending breaking fragment passes');
+});
+
+test('fragmentTemplate: typed and scoped from the surface changes, else from the files; it fails only on the text to rewrite', () => {
+  const parse = (input) => {
+    const text = changes.fragmentTemplate(input);
+    return { ...changes.parseFragment('changes/t.yaml', text), text };
+  };
+  const cases = [
+    [{ touched: ['src/skf-tool/SKILL.md', 'src/skf-tool/references/a.md'] }, 'fixed', 'skf-tool'],
+    [{ touched: ['src/shared/references/x.md', 'src/skf-tool/SKILL.md'] }, 'fixed', 'all workflows'],
+    [{ touched: ['tools/cli/skf-cli.js', '.npmignore'] }, 'fixed', 'installer, packaging'],
+    [{ touched: ['src/forger/preferences.yaml'] }, 'fixed', 'skf-forger'],
+    [{ touched: ['src/skf-a/x.md', 'src/skf-b/x.md', 'src/skf-c/x.md', 'src/skf-d/x.md'] }, 'fixed', 'all workflows'],
+    [{ additive: [additiveFinding('--target-ref')], touched: ['src/skf-tool/SKILL.md'] }, 'added', 'skf-update-skill'],
+    [{ hard: [hardFinding('write_failure')], additive: [additiveFinding('--all')] }, 'breaking', 'skf-setup, skf-update-skill'],
+  ];
+  for (const [input, type, scope] of cases) {
+    const parsed = parse(input);
+    assertOnlyTemplateText(parsed, JSON.stringify(input));
+    assert.strictEqual(parsed.data.type, type, JSON.stringify(input));
+    assert.strictEqual(parsed.data.scope, scope, JSON.stringify(input));
+  }
+  const breaking = parse({ hard: [hardFinding('write_failure')], additive: [additiveFinding('--all')] });
+  assert.strictEqual(changes.namesToken(breaking, 'write_failure'), true, 'the breaking template names the removed item');
+  assert.match(breaking.data.summary, /Adds the flag `--all`/);
+  assert.match(parse({ additive: [additiveFinding('--target-ref')] }).data.summary, /^New flag `--target-ref`\./);
+});
+
+test('pr: a branch that changes nothing the package ships passes with no fragment', () => {
+  const root = makeBranch({
+    'docs/guide.md': '# Guide\n',
+    'test/test-tool.js': '// a test\n',
+    'tools/validate-thing.js': '// a maintainer tool\n',
+    '.github/workflows/quality.yaml': 'name: Quality\n',
+  });
+  const summaryFile = path.join(root, 'summary.md');
+  const { status, out } = runPr(root, { GITHUB_STEP_SUMMARY: summaryFile });
+  assert.strictEqual(status, 0, out);
+  assert.match(out, /Branch: main \(merge base [0-9a-f]{8}\) -> HEAD\nFiles changed in the code the package ships: 0\n/);
+  assert.match(out, /Covered surfaces: not compared/);
+  assert.match(out, /The branch has the change fragments it needs\./);
+  assert.match(fs.readFileSync(summaryFile, 'utf8'), /\*\*Passes\.\*\*[\s\S]*Covered surfaces: not compared/);
+});
+
+test('pr: a change under src/, tools/cli/, the npx wrapper or .npmignore fails with no fragment, and prints one to fill in', () => {
+  const root = makeBranch({ 'src/skf-tool/references/step-01.md': 'A new step.\n' });
+  const { status, out } = runPr(root);
+  assert.strictEqual(status, 1, out);
+  assert.match(out, /changes the code the package ships \(src\/skf-tool\/references\/step-01\.md\) and adds no change fragment/);
+  assert.match(out, /add a `Changelog: none \(<reason>\)` line to one of its commit messages/);
+  assert.match(out, /A fragment to fill in; save it as changes\/topic\.yaml:/);
+  const template = printedTemplate(out);
+  assertOnlyTemplateText(template, out);
+  assert.deepStrictEqual([template.data.type, template.data.scope], ['fixed', 'skf-tool']);
+  for (const file of ['tools/cli/skf-cli.js', 'tools/skf-npx-wrapper.js', '.npmignore']) {
+    const other = runPr(makeBranch({ [file]: 'x\n' }));
+    assert.strictEqual(other.status, 1, other.out);
+    assert.match(other.out, /adds no change fragment/, file);
+    assertOnlyTemplateText(printedTemplate(other.out), file);
+  }
+});
+
+test('pr: a Changelog: none (<reason>) line passes a change under src/; one with no reason does not', () => {
+  const change = { 'src/skf-tool/references/step-01.md': 'Reworded.\n' };
+  const ok = runPr(makeBranch(change, { message: 'fix(skf-tool): reword\n\nChangelog: none (wording only)' }));
+  assert.strictEqual(ok.status, 0, ok.out);
+  assert.match(ok.out, /Changelog: none lines: 1\n {2}commit [0-9a-f]{8}: wording only\n/);
+  const empty = runPr(makeBranch(change, { message: 'fix(skf-tool): reword\n\nChangelog: none ()' }));
+  assert.strictEqual(empty.status, 1, empty.out);
+  assert.match(empty.out, /"Changelog: none \(\)" covers nothing: write `Changelog: none \(<reason>\)`/);
+});
+
+test('pr: the Changelog line never covers a removed covered item, and the template is a breaking fragment that names it', () => {
+  const root = makeBranch(
+    { 'src/shared/scripts/schemas/skf-tool-result-envelope.v1.json': SCHEMA_WITHOUT_WRITE_FAILURE },
+    { message: 'refactor: drop a status\n\nChangelog: none (never emitted)' },
+  );
+  const { status, out } = runPr(root);
+  assert.strictEqual(status, 1, out);
+  assert.doesNotMatch(out, /adds no change fragment/, 'the line covers the shipped change itself');
+  assert.match(
+    out,
+    /schema enum value `write_failure` removed .*, and no breaking fragment on this branch names `write_failure` in backticks/,
+  );
+  assert.match(out, /never covers a surface change/);
+  const template = printedTemplate(out);
+  assertOnlyTemplateText(template, out);
+  assert.strictEqual(template.data.type, 'breaking');
+  assert.strictEqual(changes.namesToken(template, 'write_failure'), true);
+});
+
+test('pr: the Changelog line never covers an added covered item, and the template is an added fragment', () => {
+  const root = makeBranch({ 'src/skf-tool/SKILL.md': SKILL_WITH_ALL }, { message: 'feat: all\n\nChangelog: none (internal)' });
+  const { status, out } = runPr(root);
+  assert.strictEqual(status, 1, out);
+  assert.match(out, /skf-tool: flag `--all` added {2}\[NOT COVERED by an added or breaking fragment on this branch]/);
+  assert.match(out, /flag `--all` added, and no added or breaking fragment on this branch covers it/);
+  const template = printedTemplate(out);
+  assertOnlyTemplateText(template, out);
+  assert.deepStrictEqual([template.data.type, template.data.scope], ['added', 'skf-tool']);
+  assert.match(template.data.summary, /`--all`/);
+});
+
+test('pr: a breaking fragment that names the removed item passes; one that does not fails and is named', () => {
+  const schema = { 'src/shared/scripts/schemas/skf-tool-result-envelope.v1.json': SCHEMA_WITHOUT_WRITE_FAILURE };
+  const ok = runPr(makeBranch({ ...schema, 'changes/drop-status.yaml': DROP_STATUS }));
+  assert.strictEqual(ok.status, 0, ok.out);
+  assert.match(ok.out, /`write_failure` removed .* {2}\[named in changes\/drop-status\.yaml]/);
+  const unnamed = DROP_STATUS.replace('The `write_failure` status', 'The write_failure status');
+  const bad = runPr(makeBranch({ ...schema, 'changes/drop-status.yaml': unnamed }));
+  assert.strictEqual(bad.status, 1, bad.out);
+  assert.match(bad.out, /names `write_failure` in backticks: name it in changes\/drop-status\.yaml, or add a breaking fragment/);
+});
+
+test('pr: an added fragment covers an addition; a fixed one does not', () => {
+  const ok = runPr(makeBranch({ 'src/skf-tool/SKILL.md': SKILL_WITH_ALL, 'changes/all-flag.yaml': ALL_FLAG }));
+  assert.strictEqual(ok.status, 0, ok.out);
+  assert.match(ok.out, /flag `--all` added {2}\[covered by changes\/all-flag\.yaml]/);
+  const fixed = runPr(makeBranch({ 'src/skf-tool/SKILL.md': SKILL_WITH_ALL, 'changes/all-flag.yaml': SMALL_FIX }));
+  assert.strictEqual(fixed.status, 1, fixed.out);
+  assert.doesNotMatch(fixed.out, /adds no change fragment/);
+  assert.match(fixed.out, /flag `--all` added, and no added or breaking fragment on this branch covers it/);
+  assert.strictEqual(printedTemplate(fixed.out).data.type, 'added');
+});
+
+test('pr: the release branch (release/bot/*) of this repository passes with a note; from a fork or an unknown repository it is checked', () => {
+  const root = makeBranch({ 'src/skf-tool/references/step-01.md': 'x\n' }, { name: 'release/bot/v1.0.1-42' });
+  const head = 'release/bot/v1.0.1-42';
+  const summaryFile = path.join(root, 'summary.md');
+  const bot = runPr(root, {
+    GITHUB_HEAD_REF: head,
+    PR_HEAD_REPO: 'example/tool',
+    GITHUB_REPOSITORY: 'example/tool',
+    GITHUB_STEP_SUMMARY: summaryFile,
+  });
+  assert.strictEqual(bot.status, 0, bot.out);
+  assert.match(bot.out, /release\/bot\/v1\.0\.1-42 is the release branch of release\.yaml/);
+  assert.match(fs.readFileSync(summaryFile, 'utf8'), /### Change fragments for this pull request\n\n\*\*Passes\.\*\* /);
+  const fork = runPr(root, { GITHUB_HEAD_REF: head, PR_HEAD_REPO: 'someone/tool', GITHUB_REPOSITORY: 'example/tool' });
+  assert.strictEqual(fork.status, 1, fork.out);
+  assert.match(fork.out, /comes from someone\/tool, not example\/tool, so it is checked like any other branch/);
+  assert.match(fork.out, /adds no change fragment/);
+  const unknown = [
+    [{ PR_HEAD_REPO: '', GITHUB_REPOSITORY: 'example/tool' }, /PR_HEAD_REPO does not say which repository it comes from/],
+    [{ PR_HEAD_REPO: 'someone/tool' }, /GITHUB_REPOSITORY is not set/],
+    [{}, /PR_HEAD_REPO does not say which repository it comes from/],
+  ];
+  for (const [env, note] of unknown) {
+    const run = runPr(root, { GITHUB_HEAD_REF: head, ...env });
+    assert.strictEqual(run.status, 1, run.out);
+    assert.match(run.out, note);
+    assert.match(run.out, /so it is checked like any other branch/);
+    assert.doesNotMatch(run.out, /Passed without a check/);
+  }
+});
+
+test('pr: a fragment the branch adds must pass the checks of check', () => {
+  const root = makeBranch({
+    'src/skf-tool/references/step-01.md': 'x\n',
+    'changes/no-scope.yaml': 'type: fixed\nsummary: A fix.\n',
+    'changes/broken.yaml': 'type: [fixed\n',
+    'changes/stray.txt': 'x',
+    'changes/nested/a.yaml': SMALL_FIX,
+    'changes/Bad_Name.yaml': SMALL_FIX,
+  });
+  const { status, out } = runPr(root);
+  assert.strictEqual(status, 1, out);
+  assert.match(out, /changes\/no-scope\.yaml: scope is required/);
+  assert.match(out, /changes\/broken\.yaml: not valid YAML/);
+  assert.match(out, /changes\/stray\.txt: not a fragment/);
+  assert.match(out, /changes\/nested\/a\.yaml: fragments go directly in changes\//);
+  assert.match(out, /changes\/Bad_Name\.yaml: name fragments <topic>\.yaml in lower case/);
+  assert.doesNotMatch(out, /adds no change fragment/, 'the fragments are there, only invalid');
+});
+
+test('pr: a released fragment edited, renamed or copied on the branch fails', () => {
+  const edited = runPr(makeBranch({ 'changes/released-before.yaml': 'type: fixed\nscope: old\nsummary: Rewritten.\n' }));
+  assert.strictEqual(edited.status, 1, edited.out);
+  assert.match(edited.out, /changes\/released-before\.yaml: is in v1\.0\.0, so it was already released, and it has changed since/);
+  const renamed = makeBranch();
+  git(renamed, ['mv', 'changes/released-before.yaml', 'changes/renamed-before.yaml']);
+  commitAll(renamed, 'rename');
+  const rename = runPr(renamed);
+  assert.strictEqual(rename.status, 1, rename.out);
+  assert.match(
+    rename.out,
+    /changes\/renamed-before\.yaml: has the same content as changes\/released-before\.yaml, which v1\.0\.0 already released/,
+  );
+  const copied = makeBranch();
+  write(copied, { 'changes/copy.yaml': fs.readFileSync(path.join(copied, 'changes/released-before.yaml'), 'utf8') });
+  commitAll(copied, 'copy');
+  assert.strictEqual(runPr(copied).status, 1);
+});
+
+/** makeRepo()'s repository with `pending` committed on main (unreleased), and a branch off it. */
+function branchAfterPending(pending, name = 'fix/more') {
+  const root = makeRepo();
+  write(root, pending);
+  commitAll(root, 'pending change on main');
+  git(root, ['checkout', '-q', '-b', name]);
+  return root;
+}
+
+test('pr: an unreleased fragment the branch edits never covers a change of its own, nor an item it does not name', () => {
+  const other = 'type: added\nscope: skf-other\nsummary: New `--foo` flag.\n';
+  const root = branchAfterPending({ 'changes/other-foo.yaml': other }, 'feat/unrelated');
+  write(root, { 'src/skf-tool/SKILL.md': SKILL_WITH_ALL, 'changes/other-foo.yaml': `${other}prs: [12]\n` });
+  commitAll(root, 'feat: all');
+  const { status, out } = runPr(root);
+  assert.strictEqual(status, 1, out);
+  assert.match(out, /added {5}changes\/other-foo\.yaml {2}skf-other {2}\(edited\)/);
+  assert.match(out, /flag `--all` added {2}\[NOT COVERED by an added or breaking fragment on this branch]/);
+  assert.match(out, /Editing an unreleased fragment \(changes\/other-foo\.yaml\) does not count here/);
+  assert.match(out, /or name `--all` in backticks in changes\/other-foo\.yaml, which it edits/);
+  assert.doesNotMatch(out, /The branch has the change fragments it needs/);
+
+  const fix = branchAfterPending({ 'changes/pending.yaml': SMALL_FIX });
+  write(fix, { 'changes/pending.yaml': SMALL_FIX.replace('A fix.', 'A fix, now for every skill.'), 'src/skf-tool/references/a.md': 'x\n' });
+  commitAll(fix, 'extend the fix');
+  const extended = runPr(fix);
+  assert.strictEqual(extended.status, 1, extended.out);
+  assert.match(extended.out, /fixed {5}changes\/pending\.yaml {2}skf-tool {2}\(edited\)/);
+  assert.match(extended.out, /adds no change fragment/);
+  git(fix, ['commit', '-q', '--allow-empty', '-m', 'chore: note\n\nChangelog: none (described in changes/pending.yaml)']);
+  assert.strictEqual(runPr(fix).status, 0, 'an empty commit adds the line to a branch already pushed');
+});
+
+test('pr: a follow-up that names what it removes or adds in an unreleased fragment it edits passes', () => {
+  const pendingBreaking = 'type: breaking\nscope: skf-tool\nsummary: The result envelope changes.\nmigration: Read the new field.\n';
+  const root = branchAfterPending({ 'changes/envelope.yaml': pendingBreaking });
+  write(root, {
+    'src/shared/scripts/schemas/skf-tool-result-envelope.v1.json': SCHEMA_WITHOUT_WRITE_FAILURE,
+    'changes/envelope.yaml': pendingBreaking.replace('changes.', 'changes, and the `write_failure` status is gone.'),
+  });
+  commitAll(root, 'drop write_failure too');
+  const removal = runPr(root);
+  assert.strictEqual(removal.status, 0, removal.out);
+  assert.match(removal.out, /`write_failure` removed .* {2}\[named in changes\/envelope\.yaml]/);
+
+  const pendingAdded = 'type: added\nscope: skf-tool\nsummary: New `--dry-run` behaviour.\n';
+  const added = branchAfterPending({ 'changes/tool-flags.yaml': pendingAdded });
+  write(added, {
+    'src/skf-tool/SKILL.md': SKILL_WITH_ALL,
+    'changes/tool-flags.yaml': pendingAdded.replace('behaviour.', 'behaviour, and a new `--all` flag.'),
+  });
+  commitAll(added, 'add --all too');
+  const addition = runPr(added);
+  assert.strictEqual(addition.status, 0, addition.out);
+  assert.match(addition.out, /flag `--all` added {2}\[covered by changes\/tool-flags\.yaml]/);
+});
+
+test("pr: the base branch's own changes, merged into the branch, are not the branch's", () => {
+  const root = makeBranch({ 'docs/guide.md': '# Guide\n' });
+  git(root, ['checkout', '-q', 'main']);
+  write(root, { 'src/skf-tool/SKILL.md': SKILL_WITH_ALL, 'changes/all-flag.yaml': ALL_FLAG });
+  commitAll(root, 'feature on main');
+  git(root, ['checkout', '-q', 'feat/topic']);
+  git(root, ['merge', '-q', '--no-edit', 'main']);
+  const { status, out } = runPr(root);
+  assert.strictEqual(status, 0, out);
+  assert.match(out, /Files changed in the code the package ships: 0\nChange fragments on this branch: 0\n/);
+});
+
+test('pr: reads commits only, and warns about an uncommitted fragment', () => {
+  const root = makeBranch({ 'src/skf-tool/references/step-01.md': 'x\n' });
+  write(root, { 'changes/small-fix.yaml': SMALL_FIX });
+  const { status, out } = runPr(root);
+  assert.strictEqual(status, 1, out);
+  assert.match(out, /warning: changes under changes\/ or in the code the package ships are not committed/);
+  assert.match(out, /adds no change fragment/);
+  const clean = makeBranch({ 'src/skf-tool/references/step-01.md': 'x\n', 'changes/small-fix.yaml': SMALL_FIX });
+  write(clean, { 'src/skf-tool/references/step-02.md': 'y\n' });
+  const pass = runPr(clean);
+  assert.strictEqual(pass.status, 0, pass.out);
+  assert.match(pass.out, /The branch has the change fragments it needs, in its commits: the uncommitted changes were not read\./);
+});
+
+test('pr: a Changelog: none line in a merge commit on the branch counts', () => {
+  const root = makeBranch({ 'src/skf-tool/references/step-01.md': 'Reworded.\n' }, { name: 'fix/x' });
+  git(root, ['checkout', '-q', 'main']);
+  write(root, { 'docs/guide.md': '# Guide\n' });
+  commitAll(root, 'docs on main');
+  git(root, ['checkout', '-q', 'fix/x']);
+  git(root, ['merge', '-q', '--no-ff', '-m', 'Merge main into fix/x\n\nChangelog: none (wording only)', 'main']);
+  const { status, out } = runPr(root);
+  assert.strictEqual(status, 0, out);
+  assert.match(out, /Changelog: none lines: 1\n {2}commit [0-9a-f]{8}: wording only\n/);
+});
+
+test('pr: a branch whose only change is a fragment passes when the fragment is valid, and fails when it is not', () => {
+  const ok = runPr(makeBranch({ 'changes/small-fix.yaml': SMALL_FIX }));
+  assert.strictEqual(ok.status, 0, ok.out);
+  assert.match(ok.out, /Change fragments on this branch: 1\n {2}fixed {5}changes\/small-fix\.yaml {2}skf-tool\nChangelog/);
+  const bad = runPr(makeBranch({ 'changes/small-fix.yaml': 'type: fixed\nsummary: A fix.\n' }));
+  assert.strictEqual(bad.status, 1, bad.out);
+  assert.match(bad.out, /changes\/small-fix\.yaml: scope is required/);
+  assert.doesNotMatch(bad.out, /```yaml/, 'nothing is missing, so there is no template');
+});
+
+test('pr: a file under src/ renamed or deleted, or .npmignore deleted, changes the code the package ships', () => {
+  const setup = () => {
+    const root = makeRepo();
+    write(root, { 'src/skf-tool/references/step-01.md': 'A step.\n', '.npmignore': 'test/\n' });
+    commitAll(root, 'more files');
+    git(root, ['checkout', '-q', '-b', 'feat/topic']);
+    return root;
+  };
+  const renamed = setup();
+  git(renamed, ['mv', 'src/skf-tool/references/step-01.md', 'src/skf-tool/references/step-one.md']);
+  commitAll(renamed, 'refactor: rename a step\n\nChangelog: none (a file name only the workflow reads)');
+  const rename = runPr(renamed);
+  assert.strictEqual(rename.status, 0, rename.out);
+  assert.match(
+    rename.out,
+    /ships: 2\n {2}src\/skf-tool\/references\/step-01\.md\n {2}src\/skf-tool\/references\/step-one\.md\n/,
+    'a rename is a deletion and an addition',
+  );
+  for (const [file, scope] of [
+    ['src/skf-tool/references/step-01.md', 'skf-tool'],
+    ['.npmignore', 'packaging'],
+  ]) {
+    const deleted = setup();
+    git(deleted, ['rm', '-q', file]);
+    commitAll(deleted, `remove ${file}`);
+    const run = runPr(deleted);
+    assert.strictEqual(run.status, 1, run.out);
+    assert.match(run.out, /adds no change fragment/, file);
+    assert.strictEqual(printedTemplate(run.out).data.scope, scope, file);
+  }
+});
+
+test('pr: a fragment the branch adds and then removes does not count', () => {
+  const root = makeBranch({ 'src/skf-tool/references/step-01.md': 'x\n', 'changes/small-fix.yaml': SMALL_FIX });
+  write(root, { 'changes/small-fix.yaml': null });
+  commitAll(root, 'drop the fragment');
+  const { status, out } = runPr(root);
+  assert.strictEqual(status, 1, out);
+  assert.match(out, /Change fragments on this branch: 0\n/);
+  assert.match(out, /adds no change fragment/);
+});
+
+test('pr: the released-fragment rule takes the last stable tag of the base branch, not of a branch forked before it', () => {
+  const root = branchAfterPending({ 'changes/pending.yaml': SMALL_FIX }, 'fix/late');
+  git(root, ['checkout', '-q', 'main']);
+  write(root, { 'docs/release.md': 'Released.\n' });
+  commitAll(root, 'release 1.1.0');
+  git(root, ['tag', '-a', 'v1.1.0', '-m', 'v1.1.0']);
+  git(root, ['checkout', '-q', 'fix/late']);
+  write(root, { 'changes/pending.yaml': SMALL_FIX.replace('A fix.', 'A better fix.') });
+  commitAll(root, 'reword the pending fix');
+  const { status, out } = runPr(root);
+  assert.strictEqual(status, 1, out);
+  assert.match(out, /changes\/pending\.yaml: is in v1\.1\.0, so it was already released, and it has changed since/);
+});
+
+test('pr: in a shallow clone whose base branch moved on, it names the missing history', () => {
+  const origin = makeRepo();
+  const clone = fs.mkdtempSync(path.join(os.tmpdir(), 'skf-shallow-'));
+  tmpRoots.push(clone);
+  git(clone, ['clone', '-q', '--depth', '1', '-b', 'main', `file://${origin}`, '.']);
+  git(clone, ['checkout', '-q', '-b', 'fix/x']);
+  write(clone, { 'docs/guide.md': '# Guide\n' });
+  commitAll(clone, 'docs');
+  write(origin, { 'docs/other.md': '# Other\n' });
+  commitAll(origin, 'main moves on');
+  git(clone, ['fetch', '-q', '--depth', '1', 'origin', 'main']);
+  const { status, out } = runPr(clone, {}, []);
+  assert.strictEqual(status, 2, out);
+  assert.match(out, /this clone is shallow/);
+  assert.match(out, /git fetch --unshallow origin/);
+});
+
+test('pr: the base is origin/$GITHUB_BASE_REF, else origin/main; a missing base or, in CI, a missing tag exits 2', () => {
+  const root = makeBranch({ 'docs/guide.md': '# Guide\n' });
+  const missing = runPr(root, {}, []);
+  assert.strictEqual(missing.status, 2, missing.out);
+  assert.match(missing.out, /base origin\/main not found, so the branch cannot be compared with it/);
+  const ci = runPr(root, { GITHUB_ACTIONS: 'true', GITHUB_BASE_REF: 'develop' }, []);
+  assert.strictEqual(ci.status, 2, ci.out);
+  assert.match(ci.out, /::error::base origin\/develop not found/);
+  git(root, ['update-ref', 'refs/remotes/origin/main', 'main']);
+  const origin = runPr(root, {}, []);
+  assert.strictEqual(origin.status, 0, origin.out);
+  assert.match(origin.out, /Branch: origin\/main \(merge base/);
+  assert.strictEqual(runPr(root, { GITHUB_BASE_REF: 'main' }, []).status, 0);
+  const untagged = makeBranch({ 'docs/guide.md': '# Guide\n' }, { repo: { tag: false } });
+  const noTag = runPr(untagged, { CI: 'true' });
+  assert.strictEqual(noTag.status, 2, noTag.out);
+  assert.match(noTag.out, /no stable release tag found/);
+  const local = runPr(untagged);
+  assert.strictEqual(local.status, 0, local.out);
+  assert.match(local.out, /warning: No stable release tag found/);
+});
+
+test('pr: in GitHub Actions, annotations, and the verdict, fixes, surface changes and template in the step summary', () => {
+  const failing = makeBranch({ 'src/shared/scripts/schemas/skf-tool-result-envelope.v1.json': SCHEMA_WITHOUT_WRITE_FAILURE });
+  const summaryFile = path.join(failing, 'summary.md');
+  const bad = runPr(failing, { GITHUB_ACTIONS: 'true', GITHUB_STEP_SUMMARY: summaryFile });
+  assert.strictEqual(bad.status, 1, bad.out);
+  assert.match(bad.out, /::error::skf-tool: schema enum value `write_failure` removed/);
+  const summary = fs.readFileSync(summaryFile, 'utf8');
+  assert.match(summary, /^### Change fragments for this pull request\n\n\*\*Fails:\*\* 2 fix\(es\) needed\.\n/);
+  assert.match(summary, /\*\*To fix:\*\*\n\n- this branch changes the code the package ships/);
+  assert.match(
+    summary,
+    /Hard \(a breaking fragment on the branch names each one\):\n\n- skf-tool: schema enum value `write_failure` removed .*\(NOT NAMED in a breaking fragment on this branch\)/,
+  );
+  assert.match(summary, /\*\*A fragment to fill in\*\*; save it as `changes\/topic\.yaml`:\n\n```yaml\n# The type is what a user sees/);
+  const passing = makeBranch({ 'src/skf-tool/references/halts.md': 'halt_reason: "tool-missing"\n', 'changes/small-fix.yaml': SMALL_FIX });
+  const passFile = path.join(passing, 'summary.md');
+  const ok = runPr(passing, { GITHUB_ACTIONS: 'true', GITHUB_STEP_SUMMARY: passFile });
+  assert.strictEqual(ok.status, 0, ok.out);
+  const passed = fs.readFileSync(passFile, 'utf8');
+  assert.match(passed, /^### Change fragments for this pull request\n\n\*\*Passes\.\*\*\n/);
+  assert.match(
+    passed,
+    /Review \(never fails; decide whether each one needs a note\):\n\n- skf-tool: halt_reason value `tool-missing` added\n/,
+  );
+  assert.doesNotMatch(passed, /```yaml/);
 });
 
 // --- covered-surfaces.js on small trees ---

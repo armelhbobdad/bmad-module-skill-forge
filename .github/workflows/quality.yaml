@@ -6,7 +6,8 @@ name: Quality & Validation
 # - markdownlint (markdown quality)
 # - LintLang (agent instructions under src/)
 # - No em dashes (published docs, and the lines and commit messages a PR adds)
-# - Change fragments (changes/*.yaml) and the release-notes tools
+# - Change fragments (changes/*.yaml), the fragments a PR needs (pull
+#   requests only), and the release-notes tools
 # - Schema validation (YAML structure)
 # - Agent schema tests (fixture-based validation)
 # - Installation component tests (CLI + compilation)
@@ -117,7 +118,9 @@ jobs:
   # with the last stable release tag, and their tests backtest the surface
   # diff against real tags (v1.9.0, v2.0.0, v2.2.0), which only a full clone
   # has. Those two tools need the yaml and semver devDependencies, hence
-  # npm ci; the em dash tool itself uses only Node built-ins.
+  # npm ci; the em dash tool itself uses only Node built-ins. The last step
+  # checks the change fragments the pull request itself needs, against its
+  # base branch.
   em-dash:
     runs-on: ubuntu-latest
     steps:
@@ -138,7 +141,11 @@ jobs:
       - name: No em dashes
         run: npm run validate:em-dash
 
+      # Also after a failed em dash step, so the pull request check below can
+      # still run and report its own problems in the same run.
       - name: Install dependencies
+        id: deps
+        if: ${{ !cancelled() }}
         run: npm ci
 
       - name: Test the change-fragment tools
@@ -146,6 +153,29 @@ jobs:
 
       - name: Validate change fragments
         run: npm run validate:changes
+
+      # A pull request that changes the code the package ships (src/,
+      # tools/cli/, tools/skf-npx-wrapper.js) or .npmignore adds a change
+      # fragment, or says why no user notices it in a
+      # "Changelog: none (<reason>)" line of one of its commit messages. A
+      # covered item it removes or adds always needs a fragment
+      # (tools/covered-surfaces.js, merge base to HEAD). It diffs the branch
+      # against origin/$GITHUB_BASE_REF, the base the pull request targets,
+      # so it runs on pull requests only and a workflow_dispatch run never
+      # checks a branch against a base it did not target. A dispatch run's
+      # em-dash result (release.yaml dispatches one on its bot branch) does
+      # not include this check. It runs even when an earlier step of this
+      # job failed, as long as the dependencies installed, so one run
+      # reports every problem. On a failure the log and the step summary
+      # give a fragment to fill in. PR_HEAD_REPO lets the tool exempt the
+      # release branch (release/bot/*) only when it is this repository's; a
+      # fork's, or one whose head repository is unknown, is checked. It goes
+      # through env so the value is never run as shell.
+      - name: Change fragments this pull request needs
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.deps.outcome == 'success' }}
+        env:
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: npm run changes:pr
 
   validate:
     # Matrix Linux + Windows to catch platform-divergence bugs (path handling,

@@ -8,6 +8,8 @@ Fragments stay here after a release. A release takes only the fragments that did
 
 Add a fragment when a user or a pipeline can notice the change: a workflow behaves differently, a flag, status, exit code, halt reason or preference appears or goes, the install changes, or the user docs gain something worth announcing. Refactors, tests, CI and maintainer-only docs need none. Write one fragment per change: a pull request with two user-visible changes adds two.
 
+Every pull request is checked for its fragments (`npm run changes:pr`, run by the required `em-dash` check). A pull request that changes the code the npm package ships (`src/`, `tools/cli/`, `tools/skf-npx-wrapper.js`) or `.npmignore` needs a fragment of its own, or, when no user or pipeline can notice any of its changes, a `Changelog: none (<reason>)` line in one of its commit messages, with the reason written out. One such line covers the whole pull request, so a pull request that mixes a refactor and a fix still needs a fragment for the fix. The line never covers a covered item the pull request removes or adds (see the end of [Which type](#which-type)): a removal needs a `breaking` fragment that names it, an addition an `added` or `breaking` fragment. Editing another pull request's pending fragment counts only for the covered items the edit names in backticks. The check does not read `package.json`, `README.md` or `docs/`, which the package also ships: a change a user notices there still takes a fragment. [CONTRIBUTING.md](../CONTRIBUTING.md#the-pull-request-check) has the details.
+
 ## Format
 
 ```yaml
@@ -48,4 +50,5 @@ The minimum version bump is major for a `breaking` fragment, minor for `added` o
 ## Commands
 
 - `npm run validate:changes` checks every file in this folder, refuses a released fragment that changed, and checks that `## [Unreleased]` in `CHANGELOG.md` is empty.
+- `npm run changes:pr` checks the fragments your branch needs, from its merge base with `origin/main` to `HEAD`: commit first, then run it before you push. On a failure it prints what is missing and a fragment to fill in, which `npm run validate:changes` refuses until you rewrite each sentence that starts with "Rewrite this paragraph".
 - `npm run changes:preview` shows the fragments added since the last stable tag, any file here to fix, the covered-surface changes, the minimum bump and why, the next version, the release gate's verdict for the minimum bump and the rendered block. The verdict covers the whole next release, not only your pull request. Pass a bump to check another one: `npm run changes:preview -- --bump minor`.
