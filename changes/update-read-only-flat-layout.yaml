@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-update-skill
+summary: |
+  `--detect-only` and `--dry-run` now stop when the skill still uses the old flat layout (`<skills folder>/<name>/SKILL.md` with no version folder). Before, they first moved the skill into the versioned layout, a write in a mode that promises to write nothing. The run ends `blocked` with `error.phase` `init:read-only-flat-layout`, and nothing is moved.
+migration: |
+  Move the skill into the versioned layout once, then re-run with `--detect-only` or `--dry-run`. To move it without updating it, run `@Ferris AS <name>` (Audit Skill) or `@Ferris TS <name>` (Test Skill); `@Ferris US <name>` without the flag also moves it, but runs a full update and writes a new version. Skills already in the versioned layout are not affected.
+prs: [499]
+issues: [497]

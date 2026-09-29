@@ -1,0 +1,6 @@
+type: added
+scope: skf-setup
+summary: |
+  Setup's `blocked` `SKF_SETUP_RESULT_JSON` envelope has two new `error.phase` values: `step <N>:helper-missing` (a helper script is missing from the install) and `step 1:detect-tools` (tool detection failed). On Windows machines with no `python3`, the halts that come before the `uv` check now print their envelope too: Setup tries `uv run`, `python3`, `python` and `py -3` in turn. When none of them can run the envelope helper, or SKF's scripts are not installed, a halt prints only its reason, so treat a missing envelope as a failure.
+prs: [499, 509]
+issues: [494, 506]

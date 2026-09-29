@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-create-skill, skf-quick-skill, skf-create-stack-skill
+summary: |
+  Create Skill, Quick Skill and Stack Skill now stop with `flat-layout`, and write nothing, instead of writing a new version into an SKF skill that still uses the old flat layout (`SKILL.md` directly in `<skills folder>/<name>/`, with no version folder). Before, they wrote the new version beside the flat files and finished without error, which left a skill SKF could no longer migrate or rename. In a pipeline this is the new `state-conflict` exit (Quick Skill `9`, Stack Skill `5`), and Create Skill's headless `SKF_CREATE_SKILL_RESULT_JSON` line (on stderr) reports `status` `failed` with `summary.halt_reason` `flat-layout`.
+migration: |
+  Run `@Ferris TS <name>` (Test Skill) once, or `US`, `AS` or `EX` on the skill, to move it into the versioned layout, then re-run Create Skill, Quick Skill or Stack Skill. Skills already in the versioned layout are not affected. If `skills_output_folder` or `forge_data_folder` is set to `_bmad-output`, the flat files may instead be staging files an earlier release left there: delete them as the troubleshooting guide describes, then re-run.
+prs: [509]
+issues: [501]

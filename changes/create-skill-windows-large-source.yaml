@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  On native Windows, Create Skill no longer fails before extracting anything when it runs ast-grep from the command line, which it does without the ast-grep MCP tools or for a source of more than 500 files.
+prs: [554]

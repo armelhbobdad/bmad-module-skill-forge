@@ -1,0 +1,6 @@
+type: changed
+scope: all workflows
+summary: |
+  SKF now moves, updates, renames or deletes only the skills it generated, in both `skills_output_folder` and `forge_data_folder`, so a skills folder shared with other skills is supported. It recognizes its skills by the SKF marker in their `metadata.json` (such as `generated_by`), which every SKF release has written. On a skill SKF did not make, Update Skill, Export Skill, Audit Skill and Test Skill stop with `not-skf-output` instead of moving it into the versioned layout (Update Skill's headless envelope names `init:ownership-gate`), and Drop Skill and Rename Skill refuse it with exit `5`. Export Skill's skill list (with no skill named, or `--all` before a first export) and Analyze Source's `[M]erge` choice now offer only SKF skills. Rename Skill also stops with `flat-layout` on an SKF skill still in the old flat layout, which it could not rename before either, and says to run `@Ferris TS <name>` (Test Skill) on it once.
+prs: [499, 509]
+issues: [497, 500]

@@ -1,0 +1,6 @@
+type: changed
+scope: releases
+summary: |
+  Release notes and the `CHANGELOG.md` entry now describe each user-visible change once, in plain words, grouped under Breaking changes, Added, Changed, Fixed and Documentation, and every breaking change says what to do. They no longer list commit subjects, so merge and maintenance commits stay out.
+prs: [578]
+issues: [556]

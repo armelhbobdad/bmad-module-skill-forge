@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  Create Skill's ast-grep recipes now find the exports they target (checked on ast-grep 0.45.3). Before, the JavaScript and React function recipes and the Rust recipe matched nothing, and `python-public-functions` and the re-export pattern were rejected, so extraction fell back to reading files by eye (`T1-low`); the Python recipes also returned methods and nested definitions, which were then documented as public functions. New recipes cover `export { a, b as c } from`, `export * as ns from` and Vue `defineProps` in `<script setup lang="tsx">`.
+prs: [553]

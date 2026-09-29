@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-rename-skill
+summary: |
+  Rename Skill works again. A skill with an `active` link always rolled back with `write-failed`, and a skill SKF made then failed the final check for leftovers of the old name with `verify-failed`, because the old name stayed in each context snippet and fields that default to the skill name (`source_library`, `source_package`) counted as leftovers. A skill named after its library or repository can still stop with `verify-failed`, for example on the README link Create Skill records in its metadata: such a skill cannot be renamed, so create it again under the new name, as the troubleshooting guide explains.
+prs: [517]
+issues: [510]

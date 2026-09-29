@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-create-skill, skf-update-skill, skf-audit-skill
+summary: |
+  Provenance entries are labeled by the tool that read the export, at every tier: an ast-grep match is `T1` with its node kind and an `[AST:]` citation, an export read by eye is `T1-low` with `[SRC:]`. Before, the label followed the forge tier, so skills built at Forge or Deep claimed `T1` for exports nothing parsed. Expect lower `T1` counts in new and updated skills. Audit Skill labels its re-index the same way, lists label changes in their own table and does not count them as drift.
+prs: [531, 533]
+issues: [530]

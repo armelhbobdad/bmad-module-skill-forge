@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-setup
+summary: |
+  A Setup re-run no longer says the ccc index is current when it did not check it (`--ccc-skip-index`) or when there is no index. The closing line now states only what the run checked.
+prs: [517]
+issues: [514]

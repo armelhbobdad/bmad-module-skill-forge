@@ -1,0 +1,6 @@
+type: changed
+scope: stability contract
+summary: |
+  The SemVer contract in `docs/_internal/STABILITY.md`, which ships in the npm package, now also covers the parts of SKF's workflows that pipelines and saved Ferris commands depend on by name: the enum values and properties of the JSON schemas for the headless result envelopes, the skill brief and workspace detection, the Ferris menu codes, the pipeline aliases and the workflow flags. Removing or renaming one needs a major release, and adding one needs at least a minor release. Exit codes, `halt_reason` and `error.phase` values and preference keys are checked at each release but are not yet part of the contract.
+prs: [578]
+issues: [556]

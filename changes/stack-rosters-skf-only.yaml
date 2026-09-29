@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-verify-stack, skf-refine-architecture, skf-create-stack-skill
+summary: |
+  Verify Stack, Refine Architecture and Stack Skill in compose mode build their skill lists only from the skills SKF generated. Other skills in the folder are listed once as not SKF output and no longer add warnings or trip the exit `7` `inventory-unreliable` halt. Compose mode also accepts skills of type `single`, the type Create Skill and Quick Skill write.
+prs: [509]
+issues: [504, 506]

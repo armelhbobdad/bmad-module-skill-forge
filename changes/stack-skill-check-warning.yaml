@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-stack-skill
+summary: |
+  When skill-check is not installed, Stack Skill now records a `skill-check-unavailable` warning, and its final summary lists `skill-check unavailable: manual fallback checks used, security scan skipped`, so a run checked only by the fallback no longer reads as validated by skill-check.
+prs: [519, 522]

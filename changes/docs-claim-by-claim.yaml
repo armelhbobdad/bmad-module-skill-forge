@@ -1,0 +1,4 @@
+type: docs
+summary: |
+  The published docs were checked claim by claim against the code, corrected, and now describe behavior they had left out. Corrections include: `gh` is needed for Campaign and `forge-auto --pin`, not only for the Deep tier; Ferris starts with `/skf-forger` (`$skf-forger` in Codex, `/skill:skf-forger` in Pi); bmad-help and `_bmad/custom/` overrides need the BMAD Method in the project; and Quick Skill makes a best-effort draft without a source citation on each instruction. The new Python minimum is under Breaking changes.
+prs: [522]

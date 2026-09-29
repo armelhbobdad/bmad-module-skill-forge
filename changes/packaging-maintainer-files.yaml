@@ -1,0 +1,6 @@
+type: fixed
+scope: packaging
+summary: |
+  The npm package no longer ships files only SKF's maintainers use: an old release audit, the release runbook, and the docs build and validation scripts. From `tools/`, only the installer CLI and the `npx` wrapper ship.
+prs: [489, 578]
+issues: [487]

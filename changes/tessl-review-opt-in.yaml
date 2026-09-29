@@ -1,0 +1,6 @@
+type: added
+scope: skf-create-skill, skf-test-skill
+summary: |
+  Tessl Review is now opt-in. Tessl retired `tessl skill review`, so the review Create Skill and Test Skill ran had stopped working. To turn it on, set `tessl_review_workspace` in the forger preferences (`_bmad/_memory/forger-sidecar/preferences.yaml`) to your Tessl workspace name; that setting is your consent to upload the skill's `SKILL.md`, `references/`, `scripts/` and `assets/`, and it is off by default, headless runs included. Create Skill records the review as advice (its content-quality gate is gone) and Test Skill uses the score in External Validation. It needs the `tessl` CLI and a Tessl login (`tessl login` or `TESSL_TOKEN`), and each fresh review spends Tessl credits.
+prs: [517]
+issues: [513]

@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-update-skill
+summary: |
+  Update Skill now needs `git`, and a commit it can read, to update a skill built at Forge tier or above from a remote repository. When `git` is missing, the tag or branch the skill tracks no longer exists upstream, or the repository cannot be reached and the pinned commit is not on this machine, it stops `blocked` before comparing anything (headless `error.phase` `init:source-tree`, with the reason at the start of `error.reason`). Before, it went on without them and read SKF's clone of the repository at whatever commit it was on.
+migration: |
+  Install `git`, check that you can reach the repository, and re-run. If the tag or branch was deleted or renamed upstream (`ref-not-found`), pass the one to use with `--target-ref <ref>`; the skill then records it. The troubleshooting guide lists every reason and its fix.
+prs: [517]
+issues: [511]

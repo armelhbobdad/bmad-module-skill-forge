@@ -1,0 +1,6 @@
+type: added
+scope: skf-create-skill, skf-quick-skill, skf-create-stack-skill
+summary: |
+  Create Skill, Quick Skill and Stack Skill now refuse, with `not-skf-output`, to write into a skill folder SKF did not generate (another module's skill with the same name, for example), and write nothing into it; before, they wrote their new version into it. For pipelines, Quick Skill now exits `9` and Stack Skill exits `5` on this refusal, both named `state-conflict`. A `--batch` run of Create Skill stops at a brief it refuses and records it under `refused` in `batch-state.yaml`; the next `--batch` run resumes with the brief after it.
+prs: [509]
+issues: [501]

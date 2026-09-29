@@ -1,0 +1,6 @@
+type: changed
+scope: docs site
+summary: |
+  The documentation site now shows the latest stable release. It is built from the release tag and deployed at the end of each stable release, and a merge to `main` no longer redeploys it, so the site no longer describes changes that are not released yet. A prerelease leaves the site as it is.
+prs: [578]
+issues: [556]

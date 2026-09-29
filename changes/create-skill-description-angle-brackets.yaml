@@ -1,0 +1,6 @@
+type: added
+scope: skf-create-skill
+summary: |
+  Create Skill now checks the final `description` for `<` and `>`, which the Claude platform does not accept in a skill description, replaces them with `{` and `}`, and checks again. If any remain, it stops with `description-angle-brackets` before anything is written to the skills folder. To avoid this, write placeholders in a brief as `{name}` or `NAME`, not `<name>`.
+prs: [517]
+issues: [513]

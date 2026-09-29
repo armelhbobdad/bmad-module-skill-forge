@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-create-skill, skf-update-skill
+summary: |
+  In an installed project, Create Skill and Update Skill now find the description guard's instructions, which keep `skill-check` from replacing or truncating a skill's `description` when it rewrites `SKILL.md`. They pointed at a path that exists only in SKF's own repository.
+prs: [517]
+issues: [512]

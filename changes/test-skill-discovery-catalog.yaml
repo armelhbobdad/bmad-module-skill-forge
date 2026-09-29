@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's discovery test now counts only the folders in the skills folder that hold a skill: it skips SKF's own `_batch/` folder and finds a versioned skill's `SKILL.md` through its `active` link. Before, it counted every folder, so the routing test could run with fewer than two real skills and inflate the Discovery score.
+prs: [509]
