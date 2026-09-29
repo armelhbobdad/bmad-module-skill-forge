@@ -18,7 +18,7 @@ After initial AST extraction, some top-level exports may resolve to **module imp
    - If directory: read its `__init__.py` to find the actual re-exported symbol
    - **Handle aliases:** Check for `from .module import A as B` patterns in the intermediate `__init__.py`. If the parent imports `B`, trace through to `A` in `.module`. If the parent imports `A` but the `__init__.py` only exports it as `B` (via `from .module import A as B`), match by original name `A` and note the alias
    - Trace the symbol to its definition file and run AST extraction on that file
-3. Cite the actual definition location by the tool that found it: `[AST:{definition_file}:L{line}]` (T1, `extraction_method: ast-grep`, the matched node kind as `ast_node_type`) when an ast-grep rule matched the definition, or `[SRC:{definition_file}:L{line}]` (T1-low, `extraction_method: source-read`, `ast_node_type: null`) when you read it by eye
+3. Cite the actual definition location by the tool that found it: `[AST:{definition_file}:L{line}]` (T1, `extraction_method: ast-grep`, and as `ast_node_type` the `kind` the matching pattern or recipe declares in `extraction-patterns.md`) when an ast-grep rule matched the definition, or `[SRC:{definition_file}:L{line}]` (T1-low, `extraction_method: source-read`, `ast_node_type: null`) when you read it by eye
 
 **Examples:**
 

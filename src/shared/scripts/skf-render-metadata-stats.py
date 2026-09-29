@@ -101,7 +101,8 @@ the tool that produced the entry, never the forge tier:
   - `extraction_method` is one of ast-grep, source-read, ast_bridge,
     source_reading, qmd_bridge, compose-from-skill.
   - ast-grep and ast_bridge need confidence T1; ast-grep also needs a
-    non-null `ast_node_type` (the node kind of the rule that matched).
+    non-null `ast_node_type` (the `kind` the matching ast-grep recipe declares
+    in create-skill's extraction-patterns.md).
   - source-read and source_reading need confidence T1-low and a
     `signature_source` other than T1; source-read also needs `ast_node_type`
     null (an absent key counts as null).
@@ -368,8 +369,8 @@ def check_label_agreement(prov: dict) -> list[dict]:
             if method == "ast-grep" and (not (isinstance(node, str) and node.strip())
                                          or _upper(node) == "NON-NULL"):
                 flag("ast_node_type", "non-null", node,
-                     "extraction_method ast-grep pairs with a non-null ast_node_type: fill in "
-                     "the node kind of the rule that matched")
+                     "extraction_method ast-grep pairs with a non-null ast_node_type: copy "
+                     "the kind the matching recipe declares")
         elif method in _T1_LOW_METHODS:
             if _upper(confidence) != "T1-LOW":
                 flag("confidence", "T1-low", confidence,

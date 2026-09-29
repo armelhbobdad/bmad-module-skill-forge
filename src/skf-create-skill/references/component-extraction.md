@@ -134,6 +134,7 @@ id: react-props-interfaces
 language: typescript
 rule:
   pattern: 'export interface $NAME { $$$ }'
+  kind: export_statement
 constraints:
   NAME:
     regex: '.*Props$'
@@ -153,6 +154,7 @@ id: react-component-exports
 language: tsx  # Use 'tsx' for .tsx files, 'typescript' for .ts files
 rule:
   pattern: 'export function $NAME($$$PARAMS)'
+  kind: export_statement
 constraints:
   NAME:
     regex: '^[A-Z]'
@@ -216,7 +218,8 @@ Compile all extracted data into the format expected by step 3 section 5:
 - Provenance citation
 - Confidence tier: T1 when an ast-grep rule matched the interface, T1-low when it was read by eye
 - `extraction_method`: `ast-grep` or `source-read`, the tool that produced the entry
-- `ast_node_type`: the node kind the ast-grep rule matched (such as `interface_declaration`), or `null` when read by eye
+- `ast_node_type`: the `kind` the matching recipe declares (`export_statement` for `react-props-interfaces`: the pattern matches the whole export, not the `interface_declaration` inside it), or `null` when read by eye
+- `ast_recipe`: the `id` of the recipe that matched it, or `null` when read by eye
 
 **Per-export entry (for component functions):**
 
@@ -224,7 +227,7 @@ Compile all extracted data into the format expected by step 3 section 5:
 - Linked Props interface (if found)
 - Source file and line number
 - Provenance citation
-- Confidence tier, `extraction_method` and `ast_node_type`, labeled by the tool that produced the entry as for Props interfaces above
+- Confidence tier, `extraction_method`, `ast_node_type` and `ast_recipe`, labeled by the tool that produced the entry as for Props interfaces above
 
 **Per-export entry (for shared types):**
 

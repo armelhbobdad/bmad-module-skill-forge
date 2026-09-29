@@ -154,7 +154,8 @@ def _resolve_outside_cwd(command: str) -> str | None:
     (containing a separator) are honored as-is. Keep identical to the
     sibling guards in skf-qmd-classify-collections.py,
     skf-merge-ccc-exclusions.py, skf-ccc-git-hygiene.py,
-    skf-source-tree.py and skf-tessl-review.py.
+    skf-source-tree.py, skf-tessl-review.py and
+    skf-verify-provenance-completeness.py.
     """
     resolved = shutil.which(command)
     if resolved is None:

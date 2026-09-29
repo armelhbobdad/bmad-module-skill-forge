@@ -205,7 +205,7 @@ Before executing AST extraction, load the **AST Extraction Protocol** section fr
 4. Use `ast_bridge.detect_co_imports(path, libraries[])` to find integration points
 5. Build extraction rules YAML data for reproducibility
 6. Label each export by the tool that produced it, not by the tier:
-   - **An ast-grep rule matched it:** T1, cite it `[AST:{file}:L{line}]`, record `extraction_method: ast-grep` and set `ast_node_type` to the node kind the rule matched (such as `function_definition` or `class_definition` in Python, `function_declaration` in TypeScript)
+   - **An ast-grep rule matched it:** T1, cite it `[AST:{file}:L{line}]`, record `extraction_method: ast-grep`, and copy the `kind` of the recipe or pattern that matched it in `{extractionPatternsData}` into `ast_node_type` (such as `function_definition` or `class_definition` in Python, `export_statement` for a TypeScript `export ...` recipe): ast-grep's output does not report a match's kind, so never infer one from the source
    - **You read it by eye** (ast-grep could not parse its file, the rules missed it, or you read the file instead of running a rule): T1-low, cite it `[SRC:{file}:L{line}]`, record `extraction_method: source-read` and `ast_node_type: null`. An export read by eye is T1-low at every tier.
 
 **Tool resolution for ast_bridge:** Use ast-grep MCP tools (`mcp__ast-grep__find_code`, `mcp__ast-grep__find_code_by_rule`) as specified in the AST Extraction Protocol above, or `ast-grep` CLI. For `detect_co_imports`, use `find_code_by_rule` with a co-import YAML rule scoped to the libraries list. See `knowledge/tool-resolution.md`.
@@ -283,7 +283,8 @@ Compile all extracted data into a structured inventory:
 - Provenance citation (`[AST:...]` or `[SRC:...]`)
 - Confidence tier: T1 for an export an ast-grep rule matched, T1-low for an export read by eye
 - `extraction_method`: the tool that produced the entry, `ast-grep` or `source-read`
-- `ast_node_type`: the node kind the ast-grep rule matched, or `null` for an export read by eye
+- `ast_node_type`: the `kind` the matching recipe or pattern declares, or `null` for an export read by eye
+- `ast_recipe`: the recipe that matched it (its `id` in `{extractionPatternsData}`, or the pattern of a `find_code` call), or `null` for an export read by eye. validate.md §7a reads it to repair a node kind ast-grep does not know
 
 **Aggregate counts:**
 - Total files scanned

@@ -63,7 +63,7 @@ Populate the §3 `manual_integrity` record from this verdict (`sections_verified
 
 **Check C — Confidence Tier Consistency:**
 - Verify all re-extracted exports have confidence labels (T1/T1-low/T2)
-- Verify each re-extracted export's label matches its `extraction_method`, at every forge tier: `ast-grep` pairs with `confidence: T1` and a non-null `ast_node_type` (the node kind the rule matched); `source-read` pairs with `confidence: T1-low` and `ast_node_type: null`. Re-extracted records carry no `signature_source` (write.md §3 sets it), so its pairing is enforced by write.md §2's stats helper, not here. An export read by eye is T1-low at Forge, Forge+ and Deep too, never T1.
+- Verify each re-extracted export's label matches its `extraction_method`, at every forge tier: `ast-grep` pairs with `confidence: T1` and a non-null `ast_node_type` (the `kind` the matching pattern or recipe declares in create-skill's `extraction-patterns.md`); `source-read` pairs with `confidence: T1-low` and `ast_node_type: null`. Re-extracted records carry no `signature_source` (write.md §3 sets it), so its pairing is enforced by write.md §2's stats helper, not here. An export read by eye is T1-low at Forge, Forge+ and Deep too, never T1.
 - The forge tier limits only which methods can appear: Quick has no ast-grep, so every Quick export is `source-read` and T1-low; CCC at Forge+ changes coverage, not labels; T2 appears only at Deep
 - Flag every label that disagrees with its `extraction_method`, and every missing label
 

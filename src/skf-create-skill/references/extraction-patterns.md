@@ -46,16 +46,19 @@ Structural extraction via ast-grep — verified exports with line-level citation
 
 ### Confidence
 - Each entry is labeled by the tool that produced it, not by the tier:
-  - An export an ast-grep rule matched (a function with its full signature, a type definition, an interface): T1 (AST-verified), an `[AST:...]` citation, `extraction_method: ast-grep` and `ast_node_type` set to the node kind the rule matched
+  - An export an ast-grep rule matched (a function with its full signature, a type definition, an interface): T1 (AST-verified), an `[AST:...]` citation, `extraction_method: ast-grep` and `ast_node_type` set to the `kind` the matching pattern or recipe declares (see the patterns below)
   - An export read by eye (ast-grep could not parse its file, the rules missed it, or the file was read instead of matched): T1-low, a `[SRC:...]` citation, `extraction_method: source-read` and `ast_node_type: null`
 - Co-import patterns ast-grep detected: T1
 - Internal/private functions: excluded (not part of public API)
 
 ### ast-grep Patterns
-- JS/TS: `export function $NAME($$$PARAMS): $RET` / `export const $NAME = ($$$PARAMS) => $BODY` / `export const $NAME` / `export class $NAME`
-- Rust: `pub fn $NAME($$$PARAMS) -> $RET`
-- Python: function definitions within `__all__` list
-- Go: capitalized function definitions
+
+Each pattern matches one node kind, given after it. ast-grep's output never reports the kind of a match, so an export a pattern matched records that kind as its `ast_node_type`, never a kind guessed from the source; the YAML recipes below declare the same kind as `kind`.
+
+- JS/TS: `export function $NAME($$$PARAMS): $RET` / `export const $NAME = ($$$PARAMS) => $BODY` / `export const $NAME` / `export class $NAME`: `export_statement` (the whole export, not the declaration inside it)
+- Rust: `pub fn $NAME($$$PARAMS) -> $RET`: `function_item`
+- Python: function definitions within `__all__` list: `function_definition` (a `def` or an `async def`; a decorated one matches at its `def` line, not as `decorated_definition`); a class is `class_definition`
+- Go: capitalized function definitions: `function_declaration`
 
 ---
 
@@ -154,12 +157,14 @@ find_code(
 )
 ```
 
+`find_code` takes a pattern and no `kind`: record the kind the pattern matches, as the patterns above and the recipes below give it (`function_definition` here, since an `async def` is a `function_definition`).
+
 **Scoped YAML rule search (for larger repos):**
 
 ```
 find_code_by_rule(
   project_folder="{source_path}",
-  yaml="id: public-api\nlanguage: python\nrule:\n  pattern: 'def $NAME($$$PARAMS)'\n  inside:\n    kind: module\n    stopBy: end\nconstraints:\n  NAME:\n    regex: '^[^_]'",
+  yaml="id: public-api\nlanguage: python\nrule:\n  pattern: 'def $NAME($$$PARAMS)'\n  kind: function_definition\n  inside:\n    kind: module\n    stopBy: end\nconstraints:\n  NAME:\n    regex: '^[^_]'",
   max_results=150,
   output_format="text"
 )
@@ -183,12 +188,17 @@ For full-library skills at higher tiers, the larger cap prevents silently droppi
 # Patterns are matched against the full file path as emitted by ast-grep.
 # Ensure paths are relative to the same root as the patterns (strip ./ prefix if needed).
 # {HEAD_CAP} = 200 (default) or 500 (Forge+/Deep full-library) — see head cap selection above.
+# {node_kind} = the kind of the node {pattern} matches: the `kind` its recipe declares
+# (such as 'function_definition' for 'def $NAME($$$PARAMS)'). ast-grep's JSON never
+# reports the kind of a match, so the template prints this one, and each printed
+# export records it as its ast_node_type.
 # IMPORTANT: The explicit 'run' subcommand is required for --json=stream to work.
 ast-grep run -p '{pattern}' -l {language} --json=stream {path} | python3 -c "
 import sys, json, fnmatch, signal
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
 EXCLUDES = {exclude_patterns}
+KIND = '{node_kind}'
 
 for line in sys.stdin:
     try:
@@ -201,7 +211,7 @@ for line in sys.stdin:
         if name and not name.startswith('_'):
             ln = m.get('range',{}).get('start',{}).get('line',0)+1
             sig = m.get('text','').split(chr(10))[0].strip()
-            print(f'[AST:{f}:L{ln}] {sig}')
+            print(f'[AST:{f}:L{ln}] kind={KIND} {sig}')
     except: pass
 " | head -{HEAD_CAP}
 ```
@@ -217,6 +227,8 @@ for line in sys.stdin:
 
 ### YAML Rule Recipes by Language
 
+Every recipe's `rule` declares `kind`, the node kind its pattern matches, verified on ast-grep 0.45.3 for every recipe that matches there (four match nothing, so their kinds are unverified: see Known Limitation #11). A JS/TS `export ...` pattern matches the whole `export_statement`, not the declaration inside it; a pattern without `export`, such as the type-alias workaround `type $NAME = $T` (#9), matches the declaration itself (`type_alias_declaration`), even inside an `export type`. A decorated Python `def` matches the inner `function_definition`, not `decorated_definition`. ast-grep's JSON output never reports the kind of a match, so an export a recipe matched records the recipe's `kind` as its `ast_node_type`. Keep the `kind` beside the pattern (beside `any:` when a recipe lists several patterns) when you pass a recipe to `find_code_by_rule`: without it, ast-grep rejects a pattern that is not a whole statement on its own, such as `def $NAME($$$PARAMS)`.
+
 **Python — public functions:**
 
 ```yaml
@@ -224,6 +236,7 @@ id: python-public-functions
 language: python
 rule:
   pattern: 'def $NAME($$$PARAMS)'
+  kind: function_definition
   inside:
     kind: module
     stopBy: end
@@ -231,6 +244,8 @@ constraints:
   NAME:
     regex: '^[^_]'
 ```
+
+> **Scope note:** `inside: module` with `stopBy: end` does not limit the Python recipes to the top level: every `def` in the module is inside it, so methods and nested `def`s match too (and the class recipe matches nested classes). Drop those matches from the public inventory unless the export is documented as a dotted `Class.method`; the recipe fix is deferred.
 
 **Python — public classes:**
 
@@ -259,6 +274,7 @@ id: js-exported-functions
 language: typescript  # Use 'tsx' for .tsx files — see language selection note above
 rule:
   pattern: 'export function $NAME($$$PARAMS)'
+  kind: export_statement
 ```
 
 **JavaScript/TypeScript — exported constants:**
@@ -268,6 +284,7 @@ id: js-exported-constants
 language: typescript
 rule:
   pattern: 'export const $NAME = $VALUE'
+  kind: export_statement
 ```
 
 **JavaScript/TypeScript — exported arrow functions:**
@@ -277,6 +294,7 @@ id: js-exported-arrow-functions
 language: typescript
 rule:
   pattern: 'export const $NAME = ($$$PARAMS) => $BODY'
+  kind: export_statement
 ```
 
 > **JS/TS Pattern Merging:** Modern TypeScript codebases often use `export const` exclusively for all exports (arrow functions, objects, constants). Run ALL four JS/TS patterns (functions, arrow functions, constants, classes) and merge results by `$NAME`. Priority when deduplicating: arrow function match > function declaration match > constant match. Arrow function matches capture parameters directly; constant matches require inspecting `$VALUE` to extract signatures.
@@ -288,13 +306,14 @@ id: js-exported-classes
 language: typescript
 rule:
   pattern: 'export class $NAME { $$$ }'
+  kind: export_statement
 ```
 
-> **Important:** The body (`{ $$$ }`) is required on ast-grep 0.42.x. The bare `export class $NAME` pattern returns zero matches — and emits a `Pattern contains an ERROR node` warning — through **both** `find_code()` and the CLI, because an incomplete class declaration does not parse as a complete statement (see Known Limitation #9). With the body present, the simple `find_code()` pattern detects class exports reliably — it matches non-generic classes only; generic (`export class $NAME<T>`) and generic-extends (`export class $NAME<T> extends $BASE`) forms are skipped, so source-read them via `^export (abstract )?class` and merge by name+file (see Known Limitation #10). `find_code_by_rule` would additionally require an explicit AST `kind` rule.
+> **Important:** The body (`{ $$$ }`) is required on ast-grep 0.42.x. The bare `export class $NAME` pattern returns zero matches, and emits a `Pattern contains an ERROR node` warning, through **both** `find_code()` and the CLI, because an incomplete class declaration does not parse as a complete statement (see Known Limitation #9). With the body present, the simple `find_code()` pattern detects class exports reliably. It matches non-generic classes only: generic (`export class $NAME<T>`) and generic-extends (`export class $NAME<T> extends $BASE`) forms are skipped, so source-read them via `^export (abstract )?class` and merge by name+file (see Known Limitation #10). Either way a match is the whole `export_statement`, the kind the recipe declares, not the `class_declaration` inside it.
 
 **JavaScript/TypeScript — re-export detection (use `find_code`):**
 
-Use `find_code()` with pattern `export { $$$NAMES } from $SOURCE` for re-export detection. Note: this pattern may produce multiple AST node matches. Post-process results to split comma-separated names from `$$$NAMES`. For complex re-export chains (aliased exports, default re-exports, namespace re-exports), fall back to the Re-Export Tracing protocol in `extraction-patterns-tracing.md`.
+Use `find_code()` with pattern `export { $$$NAMES } from $SOURCE` for re-export detection; a match is an `export_statement`, but ast-grep 0.42.2 and 0.45.3 reject this exact pattern (see Known Limitation #11). Note: this pattern may produce multiple AST node matches. Post-process results to split comma-separated names from `$$$NAMES`. For complex re-export chains (aliased exports, default re-exports, namespace re-exports), fall back to the Re-Export Tracing protocol in `extraction-patterns-tracing.md`.
 
 **Rust — public functions:**
 
@@ -302,6 +321,7 @@ Use `find_code()` with pattern `export { $$$NAMES } from $SOURCE` for re-export 
 id: rust-public-functions
 language: rust
 rule:
+  kind: function_item
   any:
     - pattern: 'pub fn $NAME($$$PARAMS) -> $RET'
     - pattern: 'pub fn $NAME($$$PARAMS)'
@@ -313,6 +333,7 @@ rule:
 id: go-exported-functions
 language: go
 rule:
+  kind: function_declaration
   any:
     - pattern: 'func $NAME($$$PARAMS) $RET'
     - pattern: 'func $NAME($$$PARAMS)'
@@ -332,6 +353,7 @@ id: react-props-interfaces
 language: typescript  # Use 'tsx' for .tsx files
 rule:
   pattern: 'export interface $NAME { $$$ }'
+  kind: export_statement
 constraints:
   NAME:
     regex: '.*Props$'
@@ -346,6 +368,7 @@ id: react-component-functions
 language: tsx
 rule:
   pattern: 'export function $NAME($$$PARAMS)'
+  kind: export_statement
 constraints:
   NAME:
     regex: '^[A-Z]'
@@ -358,6 +381,7 @@ id: react-component-arrow-functions
 language: typescript
 rule:
   pattern: 'export const $NAME = ($$$PARAMS) => $BODY'
+  kind: export_statement
 constraints:
   NAME:
     regex: '^[A-Z]'
@@ -370,6 +394,7 @@ id: vue-define-props
 language: typescript
 rule:
   pattern: 'defineProps<$TYPE>()'
+  kind: call_expression
 ```
 
 **Props-to-Component linking strategy:**
@@ -386,7 +411,7 @@ Unlinked Props interfaces are included as standalone type exports. Unlinked comp
 
 When using ast-grep for extraction, be aware of these documented limitations:
 
-1. **`export class $NAME` needs a body on 0.42.x; `find_code_by_rule` needs explicit `kind`:** The bare `export class $NAME` pattern returns zero through **both** `find_code()` and the CLI on ast-grep 0.42.x — add the body, `export class $NAME { $$$ }` (see #9). With `find_code_by_rule`, a class export additionally needs a `kind` rule for the tree-sitter node type; the simpler `find_code()` with the body-form pattern is the lighter path.
+1. **`export class $NAME` needs a body on 0.42.x; `find_code_by_rule` takes the recipe's `kind`:** The bare `export class $NAME` pattern returns zero through **both** `find_code()` and the CLI on ast-grep 0.42.x: add the body, `export class $NAME { $$$ }` (see #9). With `find_code_by_rule`, pass the `js-exported-classes` recipe with its `kind: export_statement`: the pattern matches the whole export, so a rule naming the inner `class_declaration` finds nothing.
 
 2. **Re-export patterns produce multiple AST nodes:** `export { A, B, C } from './module'` decomposes into multiple metavariable bindings for `$$$NAMES`. Results require post-processing to split comma-separated names.
 
@@ -401,7 +426,7 @@ When using ast-grep for extraction, be aware of these documented limitations:
 
 6. **CLI `--json=stream` may produce no output:** On ast-grep 0.41.x, `--json=stream` may produce empty output for certain patterns. The `--json=stream` flag requires the explicit `run` subcommand: use `ast-grep run -p '{pattern}' --json=stream` (not `ast-grep -p '{pattern}' --json=stream`). If streaming still produces no output, fall back to the MCP tool or source reading.
 
-7. **Python class patterns with bases/colon return zero (ast-grep 0.42.x):** The patterns `class $NAME($$$BASES)` and `class $NAME($$$BASES):` return zero matches on real Python sources with ast-grep 0.42.0, even on files containing dozens of subclassed public classes. `find_code_by_rule` also rejects the bare inline rule without `kind` as `Rule must specify a set of AST kinds to match. Try adding \`kind\` rule.` **Workaround:** Use the minimal `class $NAME` pattern with `kind: class_definition` (YAML) or `ast-grep run -p 'class $NAME' -l python --json=stream` (CLI), then post-filter names via the `^[^_]` regex. The `^[^_]` constraint enforces the "public" filter since ast-grep's base-match rule is what's broken, not the name-match rule. See the Python — public classes recipe above.
+7. **Python class patterns with bases/colon return zero (ast-grep 0.42.x):** The patterns `class $NAME($$$BASES)` and `class $NAME($$$BASES):` return zero matches on real Python sources with ast-grep 0.42.0, even on files containing dozens of subclassed public classes. `find_code_by_rule` also rejects the bare inline rule without `kind` as `Rule must specify a set of AST kinds to match. Try adding \`kind\` rule.`, and so does the function pattern `def $NAME($$$PARAMS)`. **Workaround:** Use the minimal `class $NAME` pattern with `kind: class_definition` (YAML) or `ast-grep run -p 'class $NAME' -l python --json=stream` (CLI), then post-filter names via the `^[^_]` regex. The `^[^_]` constraint enforces the "public" filter since ast-grep's base-match rule is what's broken, not the name-match rule. For functions, `def $NAME($$$PARAMS)` with `kind: function_definition` matches every `def` and `async def` on 0.42.2 and 0.45.3, a decorated one at its `def` line, and so also methods and nested `def`s, which must be dropped from the public inventory (see the scope note under the recipe). See the Python public classes and public functions recipes above.
 
 8. **Rust `pub fn` any-pattern returns zero; bare `pub fn $NAME` over-captures (ast-grep 0.42.x):** The `rust-public-functions` recipe's `any:` of `pub fn $NAME($$$PARAMS) -> $RET` / `pub fn $NAME($$$PARAMS)` returns "No matches found" on real Rust sources with ast-grep 0.42.2, even on crates containing 200+ public functions. Dropping to the bare `pub fn $NAME` pattern matches, but over-captures restricted-visibility functions such as `pub(crate) fn` / `pub(super) fn`, which are **not** public API. **Workaround:** Prefer a visibility-constrained source grep — `rg '^\s*pub fn ' <src>` filtered to exclude lines beginning `pub(` — cross-checked against the AN-verified public surface, at T1-low confidence. Never silently accept zero results for Rust public functions, and never treat a bare `pub fn $NAME` match set as the public API without stripping `pub(...)`-restricted items. See the Rust — public functions recipe above.
 
@@ -414,7 +439,13 @@ When using ast-grep for extraction, be aware of these documented limitations:
 
    Never silently accept zero results for a declaration form the source language commonly uses.
 
+   Kinds (verified on 0.45.3): the class, enum, interface and function workarounds each match an `export_statement`. The type-alias workaround `type $NAME = $T` has no `export`, so it matches the `type_alias_declaration`, inside an `export type` too, and an export it matched records `type_alias_declaration`.
+
 10. **Generic class declarations do not match non-generic class patterns (ast-grep 0.42.x):** The non-generic patterns `export class $NAME { $$$ }` and `export class $NAME extends $BASE { $$$ }` silently skip every generic form on ast-grep 0.42.2 — verified via both the CLI (`ast-grep run -p ... -l typescript`) and `find_code()`, the first matched only a plain `Plain` and the second only a plain `PlainExtends` on a fixture of `Plain` / `Generic<T>` / `GenericExtends<T> extends Base<T>` / `abstract AbstractGeneric<T>` / `PlainExtends`. The per-shape generic patterns `export class $NAME<$$$P> { $$$ }`, `export class $NAME<$$$P> extends $BASE { $$$ }`, and `export abstract class $NAME<$$$P> { $$$ }` each match exactly **one** shape — no single pattern covers all of them. **Workaround:** Always run a source-read fallback `^export (abstract )?class` over the in-scope `.ts` sources (T1-low) and merge by name+file with the AST results, mirroring the `export function` guidance in #9. The bare `class $NAME` pattern catches every form but over-captures non-exported classes, so it still needs the source-read pass to re-impose the exported-only filter — this is the opposite trade from the Python #7 `^[^_]` re-filter, since TS has no name-prefix convention for exports. Never accept a class inventory that omits generic classes when the source uses them.
+
+    Kinds (verified on 0.45.3): each `export class` pattern above, generic, `extends` and `abstract` forms included, matches an `export_statement`. The bare `class $NAME` pattern matches the declaration itself: a `class_declaration`, or an `abstract_class_declaration` for an `abstract` class.
+
+11. **Four recipes match nothing on ast-grep 0.45.3, so their kinds are unverified:** `js-exported-functions`, `react-component-functions` and `rust-public-functions` above, and `react-component-exports` in `component-extraction.md` (the same pattern as `react-component-functions`). Each declares the kind its pattern would match (`export_statement` for an `export ...` pattern, `function_item` for a Rust `fn`), but no match confirms it. Source-read those shapes at T1-low as #5, #8 and #9 describe. The re-export pattern `export { $$$NAMES } from $SOURCE` is rejected outright on 0.42.2 and 0.45.3 (`Multiple AST nodes are detected`); `export { $$$NAMES } from "$SOURCE"` and `export { $$$NAMES } from '$SOURCE'` each match one quote style, as an `export_statement`. Fixing these patterns is deferred.
 
 ### Component Library Demo/Example Auto-Exclusion
 

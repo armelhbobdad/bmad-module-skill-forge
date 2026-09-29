@@ -424,7 +424,7 @@ class TestLabelAgreement:
         assert by["provenance.entries[0].confidence"]["expected"] == "T1"
         assert by["provenance.entries[0].confidence"]["actual"] == "T1-low"
         assert by["provenance.entries[0].ast_node_type"]["expected"] == "non-null"
-        assert "node kind of the rule that matched" in by["provenance.entries[0].ast_node_type"]["note"]
+        assert "copy the kind the matching recipe declares" in by["provenance.entries[0].ast_node_type"]["note"]
 
     @pytest.mark.parametrize("mode", MODES)
     @pytest.mark.parametrize("node", ["non-null", " Non-Null "], ids=["literal", "padded-mixed-case"])
