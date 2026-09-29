@@ -153,7 +153,8 @@ In `{headless_mode}`, emit the halt envelope per SKILL.md §Headless (`error: {p
              location: {file}:{start_line}-{end_line}
              confidence: T1|T1-low   # T1 for an ast-grep match, T1-low for an export read by eye
              extraction_method: ast-grep|source-read
-             ast_node_type: {node kind the ast-grep rule matched, or null}
+             ast_node_type: {the kind the matching ast-grep recipe declares, or null}
+             ast_recipe: {id of the recipe that matched, or the find_code pattern, or null}
              params: [{name, type}]
              return_type: {type}
              docstring: {summary}
@@ -195,7 +196,7 @@ Never under the drift override (`{workspace_drift_status}` is `overridden`): §0
    - `provenance_citation: {file}:{start_line}` from the AST result
    - `new_location: {file}:{start_line}` (same value — satisfies the existing consumer contract)
    - `resolution_source: remediation-paths`
-   - `confidence: T1`, `extraction_method: ast-grep` and `ast_node_type` set to the matched node kind when an ast-grep rule matched the export, or `confidence: T1-low`, `extraction_method: source-read` and `ast_node_type: null` when it was read by eye
+   - `confidence: T1`, `extraction_method: ast-grep`, `ast_node_type` set to the `kind` the matching recipe declares and `ast_recipe` naming that recipe when an ast-grep rule matched the export, or `confidence: T1-low`, `extraction_method: source-read`, `ast_node_type: null` and `ast_recipe: null` when it was read by eye
    - the full extraction signature (type, params, return_type, docstring) — mirror the shape of §4's per-file extraction record so step 4 Priority 5 can merge it with the same code path used in normal mode.
 
    Then apply the §0 bullet 2 **public-reachability gate** to each matched symbol before recording it as a NEW_EXPORT: §0a has full source access, so resolve the symbol's module path and confirm barrel re-export or a fully-`pub` module chain. If it is unreachable (`pub(crate)` / private module), do **not** record `re-extracted` — drop it from the export-bearing set and re-queue the entry as a `metadata update` (rule R4, `reclassified: internal-unreachable`), exactly as the gate specifies. A re-extracted symbol that is not public API is not a documentable NEW_EXPORT. This is a resolution, not an `unresolved[]` failure (step 5) — the symbol was found, just not public — so it does not trigger the Critical/High HALT.
@@ -256,7 +257,7 @@ Load and follow the **AST Extraction Protocol** from `{extractionPatternsData}`.
 
 - Extract: function signatures, type definitions, class members, exported constants
 - Extract: parameter types, return types, JSDoc/docstring comments
-- Label each export by the tool that produced it: an export an ast-grep rule matched is T1 (AST-verified structural truth) with `extraction_method: ast-grep` and the matched node kind as `ast_node_type`; an export read by eye (ast-grep could not parse its file, the rules missed it, or the file was read instead of matched) is T1-low with `extraction_method: source-read` and `ast_node_type: null`
+- Label each export by the tool that produced it: an export an ast-grep rule matched is T1 (AST-verified structural truth) with `extraction_method: ast-grep`, the `kind` the matching recipe in `{extractionPatternsData}` declares as `ast_node_type` (copied, never inferred) and the recipe as `ast_recipe`; an export read by eye (ast-grep could not parse its file, the rules missed it, or the file was read instead of matched) is T1-low with `extraction_method: source-read` and `ast_node_type: null`
 
 **Tier degradation handling (Forge/Forge+/Deep):** If ast-grep is unavailable or fails on individual files, follow `{tierDegradationRulesData}` for fallback strategy and user notification requirements. Silent degradation is forbidden — the user must always know when AST extraction was skipped.
 
@@ -287,7 +288,8 @@ For each remaining file in the change manifest with status MODIFIED, ADDED, or R
         "signature": "...", "location": "{file}:{start_line}-{end_line}",
         "confidence": "T1|T1-low|T2",
         "extraction_method": "ast-grep|source-read",
-        "ast_node_type": "<node kind the ast-grep rule matched, or null>",
+        "ast_node_type": "<the kind the matching ast-grep recipe declares, or null>",
+        "ast_recipe": "<id of the recipe that matched, or the find_code pattern, or null>",
         "parameters": [{"name": "...", "type": "..."}],
         "return_type": "...", "docstring": "...",
         "qmd_evidence": "<if Deep tier, else omit>"}
@@ -364,7 +366,8 @@ Extraction Results:
           location: {file}:{start_line}-{end_line}
           confidence: T1|T1-low|T2
           extraction_method: ast-grep|source-read
-          ast_node_type: {node kind the ast-grep rule matched, or null}
+          ast_node_type: {the kind the matching ast-grep recipe declares, or null}
+          ast_recipe: {id of the recipe that matched, or the find_code pattern, or null}
           parameters: [{name, type}]
           return_type: {type}
           docstring: {summary}

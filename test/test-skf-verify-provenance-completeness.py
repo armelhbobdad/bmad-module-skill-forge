@@ -31,15 +31,35 @@ Covers:
     `skill_citations_matched`
   - CLI smoke: exit 0 clean, exit 1 findings, exit 2 on bad input (including
     a `--skill-dir` with no SKILL.md)
+  - node kinds with `--check-node-kinds` (#530 BH4), ast-grep mocked: one
+    test per I/O matrix row (invalid kind, valid kinds, `ERROR`, entries
+    not checked, flag absent, no ast-grep, one call per (language, kind)),
+    `ERROR` and kinds not shaped like a kind judged without ast-grep, no
+    lookup when nothing is left to ask, the call shape (`--config` naming
+    the temporary folder's minimal sgconfig.yml), the calibration kind, the
+    first timeout ending the calls, a temporary-folder error, failures
+    listed in `node_kinds_unchecked[]`, entry index and line on each item,
+    the extension map, the CWD-shim guard and its pinned copy; with the
+    ast-grep version package.json pins on PATH, its verdicts on real and
+    invented kinds in every mapped language and a CLI run under a broken
+    ancestor sgconfig.yml
 """
 
 from __future__ import annotations
 
+import ast
+import copy
 import importlib.util
 import json
+import os
+import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -1467,3 +1487,502 @@ class TestCliErrors:
         assert result.returncode == 2
         assert "skill dir is not a directory" in result.stderr
         assert "not found" not in result.stderr
+
+
+# --------------------------------------------------------------------------
+# Node kinds (--check-node-kinds, #530 BH4): ast-grep is mocked
+# --------------------------------------------------------------------------
+
+MERGE_CCC = REPO_ROOT / "src" / "shared" / "scripts" / "skf-merge-ccc-exclusions.py"
+REJECTION = (
+    "Error: Cannot parse rule INLINE_RULES\n"
+    "Help: The file is not a valid ast-grep rule.\n\n"
+    "✖ Caused by\n"
+    "╰▻ Rule contains invalid kind matcher.\n"
+    "╰▻ Invalid Kind\n"
+    "╰▻ Kind `{kind}` is invalid.\n"
+)
+REAL_KINDS = {
+    "python": {"function_definition", "class_definition"},
+    "typescript": {"export_statement"},
+    "tsx": {"export_statement", "call_expression"},
+    "javascript": {"export_statement"},
+    "rust": {"function_item"},
+    "go": {"function_declaration"},
+    "java": {"method_declaration"},
+}
+
+
+def _pinned_ast_grep_version() -> str:
+    """The ast-grep-cli version package.json's test:python installs."""
+    scripts = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))["scripts"]
+    match = re.search(r"--with ast-grep-cli==([\w.]+)", scripts["test:python"])
+    assert match, "package.json test:python pins no ast-grep-cli version"
+    return match.group(1)
+
+
+def _pinned_ast_grep() -> str | None:
+    """The ast-grep on PATH when it is the pinned version, else None."""
+    exe = shutil.which("ast-grep")
+    if exe is None:
+        return None
+    try:
+        out = subprocess.run([exe, "--version"], capture_output=True, text=True,
+                             timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    ok = out.returncode == 0 and out.stdout.split()[-1:] == [_pinned_ast_grep_version()]
+    return exe if ok else None
+
+
+class FakeAstGrep:
+    """`subprocess.run` stand-in answering like ast-grep 0.45.3 does.
+
+    `overrides` maps a kind to the result (or exception) every call about
+    that kind gets; the calibration kind answers like the real binary unless
+    it is overridden too.
+    """
+
+    def __init__(self, overrides: dict | None = None) -> None:
+        self.calls: list[tuple[list[str], dict]] = []
+        self.overrides = overrides or {}
+        self.folder_files: list[list[str]] = []
+        self.configs: list[str] = []
+
+    def __call__(self, cmd: list[str], **kwargs: object) -> SimpleNamespace:
+        self.calls.append((list(cmd), dict(kwargs)))
+        cwd = kwargs.get("cwd")
+        self.folder_files.append(sorted(p.name for p in Path(str(cwd)).iterdir()))
+        config = Path(cmd[cmd.index("--config") + 1])
+        self.configs.append(config.read_text(encoding="utf-8") if config.is_file() else "")
+        rule = json.loads(cmd[cmd.index("--inline-rules") + 1])
+        kind = rule["rule"]["kind"]
+        if kind in self.overrides:
+            answer = self.overrides[kind]
+            if isinstance(answer, BaseException):
+                raise answer
+            return answer
+        if kind in REAL_KINDS.get(rule["language"], set()):
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return SimpleNamespace(returncode=8, stdout="", stderr=REJECTION.format(kind=kind))
+
+    def asked(self, calibration: bool = False) -> list[tuple[str, str]]:
+        out = []
+        for cmd, _ in self.calls:
+            rule = json.loads(cmd[cmd.index("--inline-rules") + 1])
+            pair = (rule["language"], rule["rule"]["kind"])
+            if calibration or pair[1] != mod.BOGUS_NODE_KIND:
+                out.append(pair)
+        return out
+
+
+def _which_ast_grep(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mod.shutil, "which", lambda name: "/opt/bin/ast-grep" if name == "ast-grep" else None)
+
+
+@pytest.fixture
+def ast_grep(monkeypatch: pytest.MonkeyPatch) -> FakeAstGrep:
+    fake = FakeAstGrep()
+    _which_ast_grep(monkeypatch)
+    monkeypatch.setattr(mod.subprocess, "run", fake)
+    return fake
+
+
+def _use(monkeypatch: pytest.MonkeyPatch, fake: FakeAstGrep) -> FakeAstGrep:
+    _which_ast_grep(monkeypatch)
+    monkeypatch.setattr(mod.subprocess, "run", fake)
+    return fake
+
+
+def _ast_entry(name: str, rel: str, kind: object, method: str = "ast-grep", line: object = 1) -> dict:
+    return {"export_name": name, "source_file": rel, "source_line": line,
+            "confidence": "T1", "extraction_method": method, "ast_node_type": kind}
+
+
+def _kinds(entries: list, check: bool = True) -> dict:
+    names = [e["export_name"] for e in entries
+             if isinstance(e, dict) and isinstance(e.get("export_name"), str)]
+    return mod.verify({"exports": names}, {"entries": entries}, None, None, check)
+
+
+def _main(tmp_path: Path, entries: list[dict], capsys, *flags: str) -> tuple[int, dict]:
+    names = [e["export_name"] for e in entries]
+    meta = _write_json(tmp_path / "metadata.json", {"exports": names})
+    prov = _write_json(tmp_path / "provenance-map.json", {"entries": entries})
+    code = mod.main(["verify", "--metadata", str(meta), "--provenance", str(prov), *flags])
+    return code, json.loads(capsys.readouterr().out)
+
+
+class TestNodeKindMatrix:
+    def test_invalid_kind(self, tmp_path: Path, ast_grep: FakeAstGrep, capsys) -> None:
+        entries = [_ast_entry("add", "cognee/x.py", "async_function_definition", line=42)]
+        code, out = _main(tmp_path, entries, capsys, "--check-node-kinds")
+        assert code == 1
+        assert out["status"] == "findings"
+        assert out["node_kinds"] == [{
+            "export_name": "add", "entry_index": 0, "source_file": "cognee/x.py",
+            "source_line": 42, "ast_node_type": "async_function_definition",
+            "language": "python", "reason": mod.NODE_KIND_INVALID,
+        }]
+        assert out["node_kinds_unchecked"] == []
+        assert out["summary"]["node_kind_check"] == "checked"
+        assert out["summary"]["node_kinds_checked"] == 1
+        assert out["summary"]["node_kind_findings_count"] == 1
+
+    def test_valid_kinds(self, tmp_path: Path, ast_grep: FakeAstGrep, capsys) -> None:
+        entries = [
+            _ast_entry("search", "pkg/api.py", "function_definition"),
+            _ast_entry("createServer", "src/server.ts", "export_statement"),
+            _ast_entry("props", "src/Button.tsx", "call_expression"),
+        ]
+        code, out = _main(tmp_path, entries, capsys, "--check-node-kinds")
+        assert code == 0, out
+        assert out["status"] == "pass"
+        assert out["node_kinds"] == [] and out["node_kinds_unchecked"] == []
+        assert out["summary"]["node_kinds_checked"] == 3
+        assert ast_grep.asked() == [
+            ("python", "function_definition"), ("tsx", "call_expression"),
+            ("typescript", "export_statement")]
+
+    def test_error_kind(self, tmp_path: Path, ast_grep: FakeAstGrep, capsys) -> None:
+        entries = [_ast_entry("broken", "pkg/api.py", "ERROR")]
+        code, out = _main(tmp_path, entries, capsys, "--check-node-kinds")
+        assert code == 1
+        (item,) = out["node_kinds"]
+        assert item["reason"] == mod.NODE_KIND_ERROR
+        assert item["language"] == "python"
+        assert out["summary"]["node_kinds_checked"] == 1
+        assert ast_grep.calls == []  # ast-grep accepts ERROR, so it is not asked
+
+    def test_not_checked(self, tmp_path: Path, ast_grep: FakeAstGrep, capsys) -> None:
+        entries = [
+            _ast_entry("read", "pkg/api.py", "import_alias", method="source-read"),
+            _ast_entry("nokind", "pkg/api.py", None),
+            _ast_entry("blank", "pkg/api.py", "  "),
+            _ast_entry("scala", "src/Main.scala", "function_definition"),
+        ]
+        code, out = _main(tmp_path, entries, capsys, "--check-node-kinds")
+        assert code == 0, out
+        assert out["node_kinds"] == []
+        assert out["summary"]["node_kind_check"] == "checked"
+        assert out["summary"]["node_kinds_checked"] == 0
+        assert out["summary"]["node_kind_check_skipped"] == 1
+        assert ast_grep.calls == []
+
+    def test_flag_absent_leaves_output_unchanged(self, tmp_path: Path, ast_grep: FakeAstGrep, capsys) -> None:
+        entries = [_ast_entry("add", "cognee/x.py", "async_function_definition")]
+        code, out = _main(tmp_path, entries, capsys)
+        assert code == 0
+        assert list(out) == ["status", "missing", "orphaned", "stale", "citations", "summary"]
+        assert [k for k in out["summary"] if "kind" in k] == ["node_kind_check"]
+        assert out["summary"]["node_kind_check"] == "not-requested"
+        assert ast_grep.calls == []
+
+    def test_no_ast_grep(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+        fake = FakeAstGrep()
+        monkeypatch.setattr(mod.shutil, "which", lambda name: None)
+        monkeypatch.setattr(mod.subprocess, "run", fake)
+        entries = [_ast_entry("add", "cognee/x.py", "async_function_definition")]
+        code, out = _main(tmp_path, entries, capsys, "--check-node-kinds")
+        assert code == 0
+        assert out["node_kinds"] == [] and out["node_kinds_unchecked"] == []
+        assert out["summary"]["node_kind_check"] == "skipped-no-ast-grep"
+        assert out["summary"]["node_kinds_checked"] == 0
+        assert fake.calls == []
+
+    def test_dedupe(self, ast_grep: FakeAstGrep) -> None:
+        entries = [_ast_entry(f"f{i}", f"pkg/m{i % 5}.py", "function_definition") for i in range(35)]
+        result = _kinds(entries)
+        assert result["status"] == "pass"
+        assert ast_grep.asked() == [("python", "function_definition")]
+        assert result["summary"]["node_kinds_checked"] == 35
+
+
+class TestNodeKindWithoutAstGrep:
+    """ERROR and kinds that are not kind-shaped are judged without ast-grep."""
+
+    def test_error_flagged_without_ast_grep(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(mod.shutil, "which", lambda name: None)
+        result = _kinds([_ast_entry("add", "x.py", "async_function_definition"),
+                         _ast_entry("broken", "y.py", "ERROR")])
+        assert result["summary"]["node_kind_check"] == "skipped-no-ast-grep"
+        assert [(i["export_name"], i["reason"]) for i in result["node_kinds"]] == [
+            ("broken", mod.NODE_KIND_ERROR)]
+        assert result["status"] == "findings"
+
+    def test_no_candidates_is_checked_without_lookup(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        looked_up: list[str] = []
+        monkeypatch.setattr(mod.shutil, "which", lambda name: looked_up.append(name))
+        for entries in ([], [_ast_entry("read", "x.py", "import_alias", method="source-read")],
+                        [_ast_entry("broken", "x.py", "ERROR")]):
+            summary = _kinds(entries)["summary"]
+            assert summary["node_kind_check"] == "checked"
+            assert summary["node_kind_check_errors"] == 0
+        assert looked_up == []
+
+    @pytest.mark.parametrize("kind", [
+        " function_definition", "function_definition ", "function_definition\n",
+        "a&b", "a|b", "%PATH%", "a^b", "a-b", "1abc", "fn()", 'we"ird', "ké",
+    ])
+    def test_kind_not_shaped_like_a_kind(self, ast_grep: FakeAstGrep, kind: str) -> None:
+        result = _kinds([_ast_entry("q", "a/b.py", kind)])
+        assert [(i["ast_node_type"], i["reason"]) for i in result["node_kinds"]] == [
+            (kind, mod.NODE_KIND_INVALID)]
+        assert result["summary"]["node_kinds_checked"] == 1
+        assert ast_grep.calls == []
+
+
+class TestNodeKindAstGrepCalls:
+    def test_call_shape(self, ast_grep: FakeAstGrep) -> None:
+        _kinds([_ast_entry("q", "a/b.py", "function_definition")])
+        assert ast_grep.asked(calibration=True) == [
+            ("python", mod.BOGUS_NODE_KIND), ("python", "function_definition")]
+        for cmd, kwargs in ast_grep.calls:
+            folder = kwargs["cwd"]
+            assert cmd[:3] == ["/opt/bin/ast-grep", "scan", "--config"]
+            assert cmd[3] == str(Path(folder) / "sgconfig.yml")
+            assert cmd[4] == "--inline-rules" and cmd[6:] == ["--stdin"]
+            assert kwargs["input"] == ""
+            assert kwargs["timeout"] == mod.NODE_KIND_TIMEOUT_SEC
+            assert kwargs["check"] is False
+        assert json.loads(ast_grep.calls[1][0][5]) == {
+            "id": "skf-node-kind", "language": "python", "rule": {"kind": "function_definition"}}
+        assert ast_grep.folder_files == [["sgconfig.yml"], ["sgconfig.yml"]]
+        assert ast_grep.configs == [mod.MINIMAL_SGCONFIG] * 2
+
+    def test_each_language_is_asked_its_own_kinds(self, ast_grep: FakeAstGrep) -> None:
+        entries = [
+            _ast_entry("a", "x.py", "export_statement"),
+            _ast_entry("b", "x.ts", "export_statement"),
+            _ast_entry("c", "x.mjs", "export_statement"),
+            _ast_entry("d", "x.rs", "function_item"),
+            _ast_entry("e", "x.go", "function_declaration"),
+            _ast_entry("f", "x.go", "function_item"),
+            _ast_entry("g", "X.java", "method_declaration"),
+        ]
+        result = _kinds(entries)
+        assert [(i["export_name"], i["language"]) for i in result["node_kinds"]] == [
+            ("a", "python"), ("f", "go")]
+        assert len(ast_grep.asked()) == 7
+
+    def test_ast_bridge_checked_other_methods_not(self, ast_grep: FakeAstGrep) -> None:
+        entries = [
+            _ast_entry("bridge", "x.py", "import_alias", method="ast_bridge"),
+            _ast_entry("cased", "x.py", "import_alias", method="Ast-Grep"),
+            _ast_entry("stack", "x.py", "import_alias", method="source_reading"),
+            dict(_ast_entry("listy", "x.py", "import_alias"), extraction_method=["ast-grep"]),
+        ]
+        result = _kinds(entries)
+        assert [i["export_name"] for i in result["node_kinds"]] == ["bridge"]
+
+    def test_names_indexes_and_order(self, ast_grep: FakeAstGrep) -> None:
+        entries = [
+            _ast_entry("num", "x.py", 7),
+            {"source_file": "z.py", "extraction_method": "ast-grep", "ast_node_type": "bogus"},
+            _ast_entry("b", "a.py", "bogus"),
+            "not-a-dict",
+            _ast_entry("a", "b.py", "bogus", line=9),
+            _ast_entry("a", "b.py", "bogus", line=3),
+        ]
+        result = _kinds(entries)
+        assert [(i["export_name"], i["source_file"], i["entry_index"], i["source_line"])
+                for i in result["node_kinds"]] == [
+            (None, "z.py", 1, None), ("a", "b.py", 4, 9), ("a", "b.py", 5, 3), ("b", "a.py", 2, 1)]
+        assert ast_grep.asked() == [("python", "bogus")]
+
+    def test_other_failures_are_listed_unchecked(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for answer in (
+            SimpleNamespace(returncode=2, stdout="", stderr="error: unexpected argument '--stdin' found\n"),
+            SimpleNamespace(returncode=8, stdout="", stderr="Error: Cannot parse configuration\n"),
+            FileNotFoundError("gone"),
+        ):
+            fake = _use(monkeypatch, FakeAstGrep({"function_definition": answer}))
+            result = _kinds([_ast_entry("a", "x.py", "function_definition", line=5),
+                             _ast_entry("b", "y.py", "function_definition"),
+                             _ast_entry("e", "y.py", "ERROR")])
+            assert [i["reason"] for i in result["node_kinds"]] == [mod.NODE_KIND_ERROR]
+            assert [(i["export_name"], i["source_line"], i["reason"])
+                    for i in result["node_kinds_unchecked"]] == [
+                ("a", 5, mod.UNCHECKED_AST_GREP_ERROR), ("b", 1, mod.UNCHECKED_AST_GREP_ERROR)]
+            assert result["summary"]["node_kind_check_errors"] == 2
+            assert result["summary"]["node_kinds_checked"] == 1
+            assert fake.asked() == [("python", "function_definition")]
+
+    def test_first_timeout_stops_asking(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        timeout = subprocess.TimeoutExpired(cmd="ast-grep", timeout=1)
+        fake = _use(monkeypatch, FakeAstGrep({"class_definition": timeout}))
+        result = _kinds([_ast_entry("a", "x.py", "class_definition"),
+                         _ast_entry("b", "x.py", "function_definition"),
+                         _ast_entry("c", "x.py", "zzz_bogus")])
+        # pairs are asked in sorted order: class_definition first
+        assert fake.asked() == [("python", "class_definition")]
+        assert {i["export_name"]: i["reason"] for i in result["node_kinds_unchecked"]} == {
+            "a": mod.UNCHECKED_TIMEOUT, "b": mod.UNCHECKED_TIMEOUT, "c": mod.UNCHECKED_TIMEOUT}
+        assert result["node_kinds"] == []
+        assert result["summary"]["node_kind_check"] == "checked"
+
+    def test_temp_folder_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake = _use(monkeypatch, FakeAstGrep())
+
+        def no_folder(*_args: object, **_kwargs: object) -> None:
+            raise PermissionError("no temp folder")
+
+        monkeypatch.setattr(mod.tempfile, "TemporaryDirectory", no_folder)
+        result = _kinds([_ast_entry("a", "x.py", "import_alias"),
+                         _ast_entry("e", "x.py", "ERROR")])
+        assert [i["reason"] for i in result["node_kinds"]] == [mod.NODE_KIND_ERROR]
+        assert [(i["export_name"], i["reason"]) for i in result["node_kinds_unchecked"]] == [
+            ("a", mod.UNCHECKED_TEMP_FOLDER)]
+        assert result["summary"]["node_kind_check"] == "checked"
+        assert fake.calls == []
+
+    def test_config_write_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake = _use(monkeypatch, FakeAstGrep())
+        real_open = open
+
+        def failing_open(path, *args, **kwargs):
+            if str(path).endswith("sgconfig.yml"):
+                raise OSError("read-only")
+            return real_open(path, *args, **kwargs)
+
+        monkeypatch.setattr("builtins.open", failing_open)
+        result = _kinds([_ast_entry("a", "x.py", "import_alias")])
+        assert [i["reason"] for i in result["node_kinds_unchecked"]] == [mod.UNCHECKED_TEMP_FOLDER]
+        assert fake.calls == []
+
+    @pytest.mark.parametrize("answer", [
+        SimpleNamespace(returncode=0, stdout="", stderr=""),
+        SimpleNamespace(returncode=8, stdout="", stderr="Error: Cannot parse configuration\n"),
+        subprocess.TimeoutExpired(cmd="ast-grep", timeout=1),
+    ], ids=["accepts-anything", "other-error", "timeout"])
+    def test_unrecognized_ast_grep_flags_nothing(self, monkeypatch: pytest.MonkeyPatch, answer) -> None:
+        fake = _use(monkeypatch, FakeAstGrep({mod.BOGUS_NODE_KIND: answer}))
+        result = _kinds([_ast_entry("a", "x.py", "import_alias"),
+                         _ast_entry("e", "x.py", "ERROR")])
+        assert result["summary"]["node_kind_check"] == "skipped-unrecognized-ast-grep"
+        assert [i["reason"] for i in result["node_kinds"]] == [mod.NODE_KIND_ERROR]
+        assert result["node_kinds_unchecked"] == []
+        assert fake.asked(calibration=True) == [("python", mod.BOGUS_NODE_KIND)]
+
+    def test_findings_join_other_findings(self, ast_grep: FakeAstGrep) -> None:
+        result = mod.verify({"exports": ["gone"]},
+                            {"entries": [_ast_entry("add", "x.py", "import_alias")]}, None, None, True)
+        assert result["missing"] == ["gone"] and result["orphaned"] == ["add"]
+        assert result["node_kinds"][0]["reason"] == mod.NODE_KIND_INVALID
+        assert result["status"] == "findings"
+        assert list(result) == ["status", "missing", "orphaned", "stale", "citations",
+                                "node_kinds", "node_kinds_unchecked", "summary"]
+
+
+class TestNodeKindHelpers:
+    def test_extension_mapping(self) -> None:
+        expected = {
+            "a.py": "python", "a.pyi": "python", "a.ts": "typescript", "a.mts": "typescript",
+            "a.cts": "typescript", "a.tsx": "tsx", "a.js": "javascript", "a.jsx": "javascript",
+            "a.mjs": "javascript", "a.cjs": "javascript", "a.rs": "rust", "a.go": "go",
+            "A.java": "java", "a.kt": "kotlin", "a.kts": "kotlin", "a.cs": "csharp",
+            "a.rb": "ruby", "a.swift": "swift", "a.php": "php",
+            "./src/A.PY": "python", "src\\win\\x.Tsx": "tsx",
+            "a.scala": None, "a.d.ts.map": None, "Makefile": None, "": None, "  ": None,
+        }
+        for path, language in expected.items():
+            assert mod.ast_grep_language(path) == language, path
+        assert mod.ast_grep_language(None) is None
+        assert mod.ast_grep_language(3) is None
+
+    def test_cwd_shim_reads_as_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(mod.shutil, "which", lambda name: str(tmp_path / "ast-grep.cmd"))
+        fake = FakeAstGrep()
+        monkeypatch.setattr(mod.subprocess, "run", fake)
+        result = _kinds([_ast_entry("a", "x.py", "import_alias")])
+        assert result["summary"]["node_kind_check"] == "skipped-no-ast-grep"
+        assert fake.calls == []
+
+    def test_cwd_guard_code_matches_merge_helper(self) -> None:
+        def body(path: Path) -> str:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            (fn,) = [n for n in tree.body if isinstance(n, ast.FunctionDef)
+                     and n.name == "_resolve_outside_cwd"]
+            fn = copy.deepcopy(fn)
+            fn.body = fn.body[1:]  # drop the docstring
+            return ast.dump(fn)
+
+        assert body(SCRIPT_PATH) == body(MERGE_CCC)
+
+    def test_parser_flag(self) -> None:
+        args = mod._build_parser().parse_args(
+            ["verify", "--metadata", "m", "--provenance", "p", "--check-node-kinds"])
+        assert args.check_node_kinds is True
+        args = mod._build_parser().parse_args(["verify", "--metadata", "m", "--provenance", "p"])
+        assert args.check_node_kinds is False
+
+    def test_pinned_version_is_read_from_package_json(self) -> None:
+        assert re.fullmatch(r"\d+\.\d+\.\d+", _pinned_ast_grep_version())
+
+
+AST_GREP = _pinned_ast_grep()
+
+
+@pytest.mark.skipif(AST_GREP is None, reason="no ast-grep of the version package.json pins on PATH")
+class TestNodeKindsRealAstGrep:
+    """The answers the helper reads, from the pinned ast-grep on PATH."""
+
+    def _folder(self, tmp_path: Path) -> str:
+        (tmp_path / "sgconfig.yml").write_text(mod.MINIMAL_SGCONFIG, encoding="utf-8")
+        return str(tmp_path)
+
+    def test_judges_real_kinds(self, tmp_path: Path) -> None:
+        folder = self._folder(tmp_path)
+        judge = mod.ast_grep_judges_kind
+        cases = {
+            ("python", "function_definition"): "valid",
+            ("python", mod.BOGUS_NODE_KIND): "invalid",
+            ("python", "async_function_definition"): "invalid",
+            ("python", "import_alias"): "invalid",
+            ("typescript", "export_statement"): "valid",
+            ("typescript", "function_definition"): "invalid",
+            ("tsx", "call_expression"): "valid",
+            ("go", "function_declaration"): "valid",
+            ("rust", "function_item"): "valid",
+            ("javascript", "export_statement"): "valid",
+            ("java", "method_declaration"): "valid",
+            ("kotlin", "function_declaration"): "valid",
+            ("csharp", "method_declaration"): "valid",
+            ("ruby", "method"): "valid",
+            ("swift", "function_declaration"): "valid",
+            ("php", "function_definition"): "valid",
+        }
+        for (language, kind), verdict in cases.items():
+            assert judge(AST_GREP, language, kind, folder) == verdict, (language, kind)
+
+    def test_every_mapped_language_rejects_the_bogus_kind(self, tmp_path: Path) -> None:
+        folder = self._folder(tmp_path)
+        for language in sorted(set(mod.AST_GREP_LANGUAGES.values())):
+            assert mod.ast_grep_judges_kind(AST_GREP, language, mod.BOGUS_NODE_KIND, folder) == "invalid"
+
+    def test_cli_with_broken_sgconfig_above_cwd_and_temp(self, tmp_path: Path) -> None:
+        # A broken sgconfig.yml in an ancestor of both the working folder and
+        # the temporary folder: without --config, every ast-grep call exits 8.
+        (tmp_path / "sgconfig.yml").write_text("bogus: [\n", encoding="utf-8")
+        work = tmp_path / "work"
+        temp = tmp_path / "temp"
+        work.mkdir()
+        temp.mkdir()
+        entries = [_ast_entry("add", "cognee/x.py", "async_function_definition"),
+                   _ast_entry("search", "cognee/y.py", "function_definition")]
+        meta = _write_json(work / "metadata.json", {"exports": ["add", "search"]})
+        prov = _write_json(work / "provenance-map.json", {"entries": entries})
+        env = dict(os.environ, TMPDIR=str(temp), TEMP=str(temp), TMP=str(temp))
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), "verify", "--metadata", str(meta),
+             "--provenance", str(prov), "--check-node-kinds"],
+            capture_output=True, text=True, check=False, cwd=work, env=env,
+        )
+        assert result.returncode == 1, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["summary"]["node_kind_check"] == "checked"
+        assert [(i["export_name"], i["reason"]) for i in payload["node_kinds"]] == [
+            ("add", mod.NODE_KIND_INVALID)]
+        assert payload["node_kinds_unchecked"] == []
+        assert payload["summary"]["node_kinds_checked"] == 2

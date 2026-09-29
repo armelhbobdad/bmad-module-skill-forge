@@ -54,7 +54,7 @@ With provenance tracking:
       "source_line": 23,
       "confidence": "T1",
       "extraction_method": "ast-grep",
-      "ast_node_type": "function_declaration",
+      "ast_node_type": "export_statement",
       "signature_source": "T1"
     },
     {
@@ -78,6 +78,7 @@ With provenance tracking:
 - Each entry uses structured fields (`export_name`, `params[]`, `return_type`) for incremental updates
 - `ast_node_type` is null for non-AST extractions — never fabricated
 - `extraction_method` distinguishes how the entry was obtained
+- An ast-grep entry's `ast_node_type` is the `kind` the matching pattern or recipe declares in create-skill's `extraction-patterns.md`, copied because ast-grep's output never reports a match's kind. A TypeScript export records `export_statement`: its `export ...` pattern matches the whole export statement, not the `function_declaration` or `class_declaration` inside it
 - Confidence tier is recorded per-entry, not per-file
 - `params` is an array of typed strings (e.g., `"userId: string"`) — enables param-by-param diffing
 

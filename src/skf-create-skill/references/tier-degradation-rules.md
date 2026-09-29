@@ -50,5 +50,5 @@ When ast-grep works but an export is read by eye anyway (a file read to confirm 
 
 - Label the export by the tool that produced it, not by the tier: T1-low with a `[SRC:{file}:L{line}]` citation
 - Record `extraction_method: source-read`, `ast_node_type: null` and a `signature_source` other than T1
-- Only an export an ast-grep rule matched is T1, with an `[AST:...]` citation, `extraction_method: ast-grep` and the node kind the rule matched as `ast_node_type`
+- Only an export an ast-grep rule matched is T1, with an `[AST:...]` citation, `extraction_method: ast-grep` and, as `ast_node_type`, the `kind` the matching pattern or recipe declares in `extraction-patterns.md`
 - This is not a degradation: no warning is needed, and other exports keep their own labels

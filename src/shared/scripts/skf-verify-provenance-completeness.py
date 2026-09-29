@@ -20,6 +20,9 @@ operations by eye, against in-context data:
      `[SRC:]` citation in the skill's markdown whose prefix disagrees with
      the provenance entry it cites, or an `[AST:]` citation in a skill whose
      map holds no ast-grep entry at all.
+  5. **Node kinds** (only with `--check-node-kinds`): flag each ast-grep
+     entry whose `ast_node_type` is not a node kind ast-grep knows for the
+     entry's language.
 
 An LLM set-diff can silently pass a dropped or orphaned entry, and eyeballing
 whether a cited line still exists is not something the model can do reliably.
@@ -34,7 +37,8 @@ Timing: this runs **post-write** (`write.md` §6), after `metadata.json`
 (§2) and `provenance-map.json` (§3) are on disk. `validate.md` Check D
 defers here — the provenance map does not exist yet at validate time.
 create-skill runs it too, at validate §7a against the staged package (with
-`--skill-dir`), and test-skill at coverage-check §4c (line check only).
+`--skill-dir` and `--check-node-kinds`, as update-skill write.md §6a does),
+and test-skill at coverage-check §4c (line check only).
 
 Determinism:
   - Set operations are pure over the two JSON inputs.
@@ -132,9 +136,49 @@ When several entries share the cited line, the citation is a
 prefix). Unmatched citations are not findings unless the second reason
 applies.
 
+Node-kind check (`--check-node-kinds`): ast-grep's JSON output never
+reports the kind of the node a rule matched, so an entry's `ast_node_type`
+is copied from the recipe that matched it, and nothing else proves it is a
+real kind. For each entry whose `extraction_method` is `ast-grep` or
+`ast_bridge` and whose `ast_node_type` is a non-blank string, the
+`source_file` extension picks an ast-grep language (`.py` / `.pyi` python,
+`.ts` / `.mts` / `.cts` typescript, `.tsx` tsx, `.js` / `.jsx` / `.mjs` /
+`.cjs` javascript, `.rs` rust, `.go` go, `.java` java, `.kt` / `.kts`
+kotlin, `.cs` csharp, `.rb` ruby, `.swift` swift, `.php` php); an entry in
+any other file is skipped and counted in `summary.node_kind_check_skipped`.
+Reasons, one per entry:
+
+  - `error-kind`: the kind is `ERROR`, the node tree-sitter makes of code
+    it cannot parse. ast-grep accepts it in a rule, so it is not asked.
+  - `invalid-kind`: the kind is not shaped like a kind
+    (`[A-Za-z_][A-Za-z0-9_]*`, so no whitespace or shell characters reach
+    ast-grep), judged without ast-grep; or ast-grep rejected it (its error
+    names an invalid kind).
+
+Those two are judged whatever the ast-grep lookup finds. Every other kind is
+asked once per distinct (language, kind): `ast-grep scan --config
+<sgconfig.yml> --inline-rules <rule> --stdin` with a rule matching only that
+kind, over an empty stdin, from a temporary folder holding a minimal
+sgconfig.yml that `--config` names (so no other sgconfig.yml is read).
+ast-grep parses the rule before reading input and rejects a kind the
+language's grammar lacks. Before that, ast-grep is asked about a kind no
+grammar has; unless it rejects it, its answers cannot be read and the check
+is `skipped-unrecognized-ast-grep`. When no `ast-grep` executable resolves
+(the CWD-shim guard applies), the check is `skipped-no-ast-grep`. With no
+kind left to ask, ast-grep is not looked up and the check is `checked`.
+
+An ast-grep failure that does not name the kind proves nothing about it: the
+entry is listed in `node_kinds_unchecked[]`, not as a finding, with reason
+`ast-grep-error`, `ast-grep-timeout` (after the first timeout the remaining
+kinds are not asked) or `temp-folder-error` (the temporary folder could not
+be made or written). Without the flag the output keeps its shape: there are
+no `node_kinds` / `node_kinds_unchecked` keys, and the one key added is
+`summary.node_kind_check: "not-requested"`.
+
 Subcommand:
   verify --metadata <metadata.json> --provenance <provenance-map.json>
-         [--source-root <path>] [--skill-dir <dir>] [-o <out.json>]
+         [--source-root <path>] [--skill-dir <dir>] [--check-node-kinds]
+         [-o <out.json>]
 
     Emit JSON:
       {
@@ -162,6 +206,22 @@ Subcommand:
            "export_name": "<matched entry name>" | null},
           ...
         ],
+        "node_kinds": [                    # --check-node-kinds only
+          {"export_name": "<raw entry name>" | null,
+           "entry_index": <int>,           # position in entries[]
+           "source_file": "<rel path>",
+           "source_line": <as recorded>,
+           "ast_node_type": "<recorded kind>",
+           "language": "<ast-grep language>",
+           "reason": "invalid-kind" | "error-kind"},
+          ...
+        ],
+        "node_kinds_unchecked": [          # --check-node-kinds only
+          {... the same keys ...,
+           "reason": "ast-grep-error" | "ast-grep-timeout"
+                     | "temp-folder-error"},
+          ...
+        ],
         "summary": {
           "exports_checked":  <int>,   # documented exports (metadata)
           "entries_checked":  <int>,   # provenance entries with export_name
@@ -174,26 +234,37 @@ Subcommand:
           "skill_citations_scanned": <int>,  # [AST:]/[SRC:] with a line
           "skill_citations_matched": <int>,  # of those, citing an entry
           "citation_findings_count": <int>,
-          "citation_check": "checked" | "skipped-no-skill-dir"
+          "citation_check": "checked" | "skipped-no-skill-dir",
+          "node_kind_check": "checked" | "skipped-no-ast-grep"
+                             | "skipped-unrecognized-ast-grep"
+                             | "not-requested",
+          # the four below appear with --check-node-kinds only
+          "node_kinds_checked": <int>,       # entries judged, ERROR included
+          "node_kind_check_skipped": <int>,  # entries in an unmapped file
+          "node_kind_check_errors": <int>,   # len(node_kinds_unchecked)
+          "node_kind_findings_count": <int>
         }
       }
 
     `missing` / `orphaned` are sorted, deduplicated public names.
     `stale` is sorted by (export_name, source_file).
     `citations` is sorted by (file, line, column).
+    `node_kinds` / `node_kinds_unchecked` are sorted by (export_name,
+    source_file, entry_index).
 
 CLI examples:
   uv run skf-verify-provenance-completeness.py verify \\
       --metadata {skill_package}/metadata.json \\
       --provenance {forge_version}/provenance-map.json \\
       --source-root {source_root} \\
-      --skill-dir {skill_package}
+      --skill-dir {skill_package} \\
+      --check-node-kinds
 
 Exit codes:
   0  verification ran and found nothing (status "pass")
-  1  verification ran and found missing / orphaned / stale entries or
-     citation findings (status "findings"); advisory: the caller
-     decides how to surface it
+  1  verification ran and found missing / orphaned / stale entries,
+     citation findings or node-kind findings (status "findings");
+     advisory: the caller decides how to surface it
   2  error (input file not found, --skill-dir not found, not a directory
      or without a SKILL.md, malformed JSON, invalid structure, or any
      unexpected failure while verifying, such as an unreadable file); one
@@ -205,9 +276,13 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import posixpath
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import tokenize
 from pathlib import Path
 
@@ -247,6 +322,48 @@ KNOWN_METHODS = frozenset(
         "compose-from-skill",
     }
 )
+
+NODE_KIND_INVALID = "invalid-kind"
+NODE_KIND_ERROR = "error-kind"
+# Why an entry's kind went unjudged (node_kinds_unchecked[].reason).
+UNCHECKED_AST_GREP_ERROR = "ast-grep-error"
+UNCHECKED_TIMEOUT = "ast-grep-timeout"
+UNCHECKED_TEMP_FOLDER = "temp-folder-error"
+# The node tree-sitter makes of code it cannot parse. ast-grep accepts it as
+# a kind, but no recipe declares it, so an entry recording it guessed.
+ERROR_NODE_KIND = "ERROR"
+# Every named node kind of a grammar ast-grep ships has this shape. Anything
+# else is judged without ast-grep: ast-grep trims surrounding whitespace, and
+# `& | % ^` would reach cmd.exe through an npm `.cmd` shim on Windows.
+NODE_KIND_SHAPE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# A kind no grammar has. ast-grep must reject it before its answers are read.
+BOGUS_NODE_KIND = "skf_no_such_node_kind"
+# An explicit, valid sgconfig.yml, so no sgconfig.yml in the temporary
+# folder's ancestors is read.
+MINIMAL_SGCONFIG = "ruleDirs: []\n"
+# source_file extension -> the ast-grep language whose grammar names its kinds
+AST_GREP_LANGUAGES = {
+    ".py": "python",
+    ".pyi": "python",
+    ".ts": "typescript",
+    ".mts": "typescript",
+    ".cts": "typescript",
+    ".tsx": "tsx",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".rs": "rust",
+    ".go": "go",
+    ".java": "java",
+    ".kt": "kotlin",
+    ".kts": "kotlin",
+    ".cs": "csharp",
+    ".rb": "ruby",
+    ".swift": "swift",
+    ".php": "php",
+}
+NODE_KIND_TIMEOUT_SEC = 20  # per ast-grep call; each parses one tiny rule
 
 
 # --------------------------------------------------------------------------
@@ -1031,6 +1148,217 @@ def check_skill_citations(
 
 
 # --------------------------------------------------------------------------
+# Node kinds (--check-node-kinds)
+# --------------------------------------------------------------------------
+
+
+def _resolve_outside_cwd(command: str) -> str | None:
+    """shutil.which with a CWD-shim guard. Returns the resolved path or None.
+
+    shutil.which on Windows searches the current directory ahead of PATH,
+    and CWD here may be a repository SKF does not control: a bare-name
+    lookup resolving into CWD would execute a planted shim (e.g.
+    ast-grep.cmd). Such a resolution is treated as not-found. Explicit
+    paths supplied by callers (containing a separator) are honored as-is.
+    Keep the code identical to the sibling guards in
+    skf-merge-ccc-exclusions.py, skf-detect-tools.py,
+    skf-qmd-classify-collections.py, skf-ccc-git-hygiene.py,
+    skf-source-tree.py and skf-tessl-review.py
+    (test/test-skf-verify-provenance-completeness.py pins it against
+    skf-merge-ccc-exclusions.py).
+    """
+    resolved = shutil.which(command)
+    if resolved is None:
+        return None
+    if os.sep in command or (os.altsep and os.altsep in command):
+        return resolved
+    resolved_dir = os.path.dirname(resolved)
+    if resolved_dir:
+        cwd = os.path.normcase(os.path.abspath(os.getcwd()))
+        if os.path.normcase(os.path.abspath(resolved_dir)) == cwd:
+            return None
+    return resolved
+
+
+def ast_grep_language(source_file: object) -> str | None:
+    """The ast-grep language for `source_file`'s extension, or None."""
+    if not isinstance(source_file, str) or not source_file.strip():
+        return None
+    ext = posixpath.splitext(normalize_path(source_file))[1].lower()
+    return AST_GREP_LANGUAGES.get(ext)
+
+
+def ast_grep_judges_kind(exe: str, language: str, kind: str, folder: str) -> str:
+    """Ask ast-grep whether `kind` is a node kind of `language`.
+
+    Runs one rule that matches only `kind` over an empty stdin: ast-grep
+    parses the rule before it reads input and rejects a kind the grammar
+    does not have. Returns "valid", "invalid" (the rule was rejected and the
+    error names an invalid kind), "timeout", or "unknown" (a failed spawn or
+    any other error, which proves nothing about the kind). `folder` holds
+    the minimal sgconfig.yml passed with `--config` and is the working
+    folder, so no other sgconfig.yml is read. The rule is JSON, which YAML
+    reads as a flow mapping.
+    """
+    rule = json.dumps(
+        {"id": "skf-node-kind", "language": language, "rule": {"kind": kind}}
+    )
+    config = os.path.join(folder, "sgconfig.yml")
+    try:
+        result = subprocess.run(
+            [exe, "scan", "--config", config, "--inline-rules", rule, "--stdin"],
+            input="",
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=NODE_KIND_TIMEOUT_SEC,
+            cwd=folder,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return "timeout"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    if result.returncode == 0:
+        return "valid"
+    if "invalid kind" in (result.stderr or "").lower():
+        return "invalid"
+    return "unknown"
+
+
+def _judge_kinds(
+    exe: str, pairs: list[tuple[str, str]]
+) -> tuple[str, dict[tuple[str, str], str]]:
+    """Ask ast-grep about each (language, kind) pair, in order.
+
+    Returns (node_kind_check, verdicts): each verdict is "valid", "invalid"
+    or the reason the pair went unjudged. ast-grep is first asked about a
+    kind no grammar has; unless it answers "invalid", its answers cannot be
+    read and the check is "skipped-unrecognized-ast-grep" with no verdicts.
+    After one timeout the remaining pairs are not asked. When the temporary
+    folder cannot be made or written, the pairs not yet asked go unjudged.
+    """
+    verdicts: dict[tuple[str, str], str] = {}
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix="skf-node-kind-", ignore_cleanup_errors=True
+        ) as folder:
+            with open(
+                os.path.join(folder, "sgconfig.yml"), "w", encoding="utf-8"
+            ) as fh:
+                fh.write(MINIMAL_SGCONFIG)
+            calibration = ast_grep_judges_kind(
+                exe, pairs[0][0], BOGUS_NODE_KIND, folder
+            )
+            if calibration != "invalid":
+                return "skipped-unrecognized-ast-grep", {}
+            timed_out = False
+            for language, kind in pairs:
+                if timed_out:
+                    verdicts[(language, kind)] = UNCHECKED_TIMEOUT
+                    continue
+                verdict = ast_grep_judges_kind(exe, language, kind, folder)
+                if verdict == "timeout":
+                    timed_out = True
+                    verdict = UNCHECKED_TIMEOUT
+                elif verdict == "unknown":
+                    verdict = UNCHECKED_AST_GREP_ERROR
+                verdicts[(language, kind)] = verdict
+    except OSError:
+        for pair in pairs:
+            verdicts.setdefault(pair, UNCHECKED_TEMP_FOLDER)
+    return "checked", verdicts
+
+
+def _node_kind_item(
+    index: int, entry: dict, kind: str, language: str, reason: str
+) -> dict:
+    name = entry.get("export_name")
+    return {
+        "export_name": name if isinstance(name, str) and name else None,
+        "entry_index": index,
+        "source_file": entry.get("source_file"),
+        "source_line": entry.get("source_line"),
+        "ast_node_type": kind,
+        "language": language,
+        "reason": reason,
+    }
+
+
+def check_node_kinds(prov: dict) -> tuple[list[dict], list[dict], dict]:
+    """Check each ast-grep entry's `ast_node_type` against ast-grep itself.
+
+    Returns (findings, unchecked, summary fields). `ERROR` and a kind that
+    is not kind-shaped are judged without ast-grep, whatever the binary
+    lookup finds; every other kind is asked once per (language, kind).
+    """
+    entries = prov.get("entries")
+    entries = entries if isinstance(entries, list) else []
+    findings: list[dict] = []
+    unchecked: list[dict] = []
+    pending: list[tuple[int, dict, str, str]] = []
+    judged = 0
+    skipped = 0
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            continue
+        if _extraction_method(entry) not in AST_METHODS:
+            continue
+        kind = entry.get("ast_node_type")
+        if not isinstance(kind, str) or not kind.strip():
+            continue
+        language = ast_grep_language(entry.get("source_file"))
+        if language is None:
+            skipped += 1
+            continue
+        if kind == ERROR_NODE_KIND:
+            reason = NODE_KIND_ERROR
+        elif not NODE_KIND_SHAPE.fullmatch(kind):
+            reason = NODE_KIND_INVALID
+        else:
+            pending.append((index, entry, language, kind))
+            continue
+        judged += 1
+        findings.append(_node_kind_item(index, entry, kind, language, reason))
+
+    check = "checked"
+    if pending:
+        exe = _resolve_outside_cwd("ast-grep")
+        if exe is None:
+            check = "skipped-no-ast-grep"
+        else:
+            pairs = sorted({(lang, kind) for _, _, lang, kind in pending})
+            check, verdicts = _judge_kinds(exe, pairs)
+            if check == "checked":
+                for index, entry, language, kind in pending:
+                    verdict = verdicts[(language, kind)]
+                    item = _node_kind_item(index, entry, kind, language, verdict)
+                    if verdict == "valid":
+                        judged += 1
+                    elif verdict == "invalid":
+                        judged += 1
+                        item["reason"] = NODE_KIND_INVALID
+                        findings.append(item)
+                    else:
+                        unchecked.append(item)
+
+    def order(item: dict) -> tuple:
+        return (item["export_name"] or "", str(item["source_file"]),
+                item["entry_index"])
+
+    findings.sort(key=order)
+    unchecked.sort(key=order)
+    summary = {
+        "node_kind_check": check,
+        "node_kinds_checked": judged,
+        "node_kind_check_skipped": skipped,
+        "node_kind_check_errors": len(unchecked),
+        "node_kind_findings_count": len(findings),
+    }
+    return findings, unchecked, summary
+
+
+# --------------------------------------------------------------------------
 # Verification
 # --------------------------------------------------------------------------
 
@@ -1059,8 +1387,10 @@ def verify(
     prov: dict,
     source_root: Path | None,
     skill_dir: Path | None = None,
+    check_kinds: bool = False,
 ) -> dict:
-    """Compute the completeness / orphan / stale / citation report."""
+    """Compute the completeness / orphan / stale / citation / node-kind
+    report."""
     reexport_map = extract_reexport_map(prov)
 
     documented = extract_export_names(metadata)
@@ -1138,34 +1468,47 @@ def verify(
             check_skill_citations(prov, skill_dir)
         )
 
+    node_kinds: list[dict] = []
+    node_kinds_unchecked: list[dict] = []
+    kind_summary: dict = {"node_kind_check": "not-requested"}
+    if check_kinds:
+        node_kinds, node_kinds_unchecked, kind_summary = check_node_kinds(prov)
+
     status = (
-        "pass" if not (missing or orphaned or stale or citations) else "findings"
+        "pass"
+        if not (missing or orphaned or stale or citations or node_kinds)
+        else "findings"
     )
-    return {
+    result: dict = {
         "status": status,
         "missing": missing,
         "orphaned": orphaned,
         "stale": stale,
         "citations": citations,
-        "summary": {
-            "exports_checked": len(documented_canon),
-            "entries_checked": len(raw_entry_names),
-            "missing_count": len(missing),
-            "orphaned_count": len(orphaned),
-            "stale_count": len(stale),
-            "citations_checked": citations_checked,
-            "line_check_skipped": line_check_skipped,
-            "stale_check": "checked"
-            if source_root is not None
-            else "skipped-no-source-root",
-            "skill_citations_scanned": skill_citations_scanned,
-            "skill_citations_matched": skill_citations_matched,
-            "citation_findings_count": len(citations),
-            "citation_check": "checked"
-            if skill_dir is not None
-            else "skipped-no-skill-dir",
-        },
     }
+    if check_kinds:
+        result["node_kinds"] = node_kinds
+        result["node_kinds_unchecked"] = node_kinds_unchecked
+    result["summary"] = {
+        "exports_checked": len(documented_canon),
+        "entries_checked": len(raw_entry_names),
+        "missing_count": len(missing),
+        "orphaned_count": len(orphaned),
+        "stale_count": len(stale),
+        "citations_checked": citations_checked,
+        "line_check_skipped": line_check_skipped,
+        "stale_check": "checked"
+        if source_root is not None
+        else "skipped-no-source-root",
+        "skill_citations_scanned": skill_citations_scanned,
+        "skill_citations_matched": skill_citations_matched,
+        "citation_findings_count": len(citations),
+        "citation_check": "checked"
+        if skill_dir is not None
+        else "skipped-no-skill-dir",
+        **kind_summary,
+    }
+    return result
 
 
 # --------------------------------------------------------------------------
@@ -1219,7 +1562,9 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             print(f"verbose: resolving citations under {source_root}", file=sys.stderr)
 
     try:
-        result = verify(metadata, prov, source_root, skill_dir)
+        result = verify(
+            metadata, prov, source_root, skill_dir, args.check_node_kinds
+        )
     except Exception as exc:  # noqa: BLE001 - exit 2, never read as findings
         detail = " ".join(str(exc).split())
         print(
@@ -1243,8 +1588,9 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Cross-reference documented exports (metadata.json) against "
             "provenance-map entries: completeness, orphans, stale or "
-            "non-definition file:line citations, and (with --skill-dir) "
-            "citation prefixes, emitting findings as JSON."
+            "non-definition file:line citations, (with --skill-dir) "
+            "citation prefixes and (with --check-node-kinds) ast-grep node "
+            "kinds, emitting findings as JSON."
         ),
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -1252,7 +1598,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "verify",
         help=(
             "emit provenance completeness / orphan / stale-citation / "
-            "citation-prefix findings"
+            "citation-prefix / node-kind findings"
         ),
     )
     p.add_argument("--metadata", required=True, help="path to metadata.json")
@@ -1276,6 +1622,15 @@ def _build_parser() -> argparse.ArgumentParser:
             "references/**/*.md for [AST:]/[SRC:] citations and checks each "
             "prefix against the provenance entry it cites. Citation check is "
             "skipped when absent."
+        ),
+    )
+    p.add_argument(
+        "--check-node-kinds",
+        action="store_true",
+        help=(
+            "ask the ast-grep CLI whether each ast-grep entry's ast_node_type "
+            "is a node kind of its file's language; skipped when ast-grep is "
+            "not found."
         ),
     )
     p.add_argument(

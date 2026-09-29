@@ -22,7 +22,7 @@ Re-scan the source code using the current forge tier tools to build a fresh extr
 
 ### 1. Determine Extraction Strategy
 
-Label every export by the tool that produced it, never by the tier: an export an ast-grep rule matched is T1 with `extraction_method: ast-grep` and the matched node kind as `ast_node_type`; an export read by eye is T1-low with `extraction_method: source-read` and `ast_node_type: null`.
+Label every export by the tool that produced it, never by the tier: an export an ast-grep rule matched is T1 with `extraction_method: ast-grep` and, as `ast_node_type`, the `kind` the matching pattern or recipe declares in create-skill's `extraction-patterns.md` (ast-grep's output does not report it); an export read by eye is T1-low with `extraction_method: source-read` and `ast_node_type: null`.
 
 Based on forge tier detected in Step 01:
 
@@ -34,7 +34,7 @@ Based on forge tier detected in Step 01:
 **Forge tier (ast-grep available):**
 - Use ast_bridge to perform AST extraction per source file
 - Extract: export name, type (function/class/type/const), full signature, file path, line number
-- Label each export by the tool that produced it: an export an ast-grep rule matched is T1 (AST-verified structural truth) with `extraction_method: ast-grep` and the matched node kind as `ast_node_type`; an export read by eye (ast-grep could not parse its file, the rules missed it, or the file was read instead of matched) is T1-low with `extraction_method: source-read` and `ast_node_type: null`
+- Label each export by the tool that produced it: an export an ast-grep rule matched is T1 (AST-verified structural truth) with `extraction_method: ast-grep` and the `kind` the matching pattern or recipe declares as `ast_node_type`; an export read by eye (ast-grep could not parse its file, the rules missed it, or the file was read instead of matched) is T1-low with `extraction_method: source-read` and `ast_node_type: null`
 
 **Tier degradation handling (Forge/Forge+/Deep):** If ast-grep is unavailable or fails on individual files, follow `{tierDegradationRulesData}` (AST Tool Unavailable, Per-File AST Failure) for the fallback and the user notification. A file ast-grep cannot parse falls back to reading that file only: its exports are T1-low with `extraction_method: source-read` and `ast_node_type: null`, and exports ast-grep matched in other files stay T1. Silent degradation is forbidden: the run names each file read after an ast-grep failure, and why (§3, §5). When ast-grep is unavailable for the whole run, every export is T1-low and `ast_fallback_files` records `all files (ast-grep unavailable)`.
 
@@ -108,7 +108,7 @@ Audit-skill detects drift on files that were in scope during create-skill. The a
       "line": {line_number},
       "confidence": "T1|T1-low",
       "extraction_method": "ast-grep|source-read",
-      "ast_node_type": "{node kind the ast-grep rule matched, or null}"
+      "ast_node_type": "{the kind the matching ast-grep pattern or recipe declares, or null}"
     }
   ]
 }

@@ -177,7 +177,8 @@ def _resolve_outside_cwd(command: str) -> str | None:
     callers (containing a separator) are honored as-is. Keep the code
     identical to the sibling guards in skf-merge-ccc-exclusions.py,
     skf-detect-tools.py, skf-qmd-classify-collections.py,
-    skf-source-tree.py and skf-tessl-review.py
+    skf-source-tree.py, skf-tessl-review.py and
+    skf-verify-provenance-completeness.py
     (test/test-skf-ccc-git-hygiene.py pins it against
     skf-merge-ccc-exclusions.py).
     """
