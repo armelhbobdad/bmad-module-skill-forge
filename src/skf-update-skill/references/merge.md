@@ -54,6 +54,7 @@ Apply merge in the following priority order:
 
 **Priority 2 — Process MOVED exports:**
 - Update file:line citations in generated content
+- **Gap-driven:** move citations only for an export whose step 3 §0 spot-check recorded `moved`. A `MOVED_EXPORT` that recorded `unknown` (the drift override among the causes), `verified` or `missing` moves none: write.md §3 leaves its line as it is.
 - Update provenance map file references
 - [MANUAL] blocks unaffected (content unchanged)
 
@@ -72,6 +73,7 @@ Apply merge in the following priority order:
 - Append new export content to appropriate section
 - Place before any [MANUAL] blocks at section boundary
 - No conflicts expected (new content, no existing [MANUAL])
+- **Gap-driven cited `NEW_EXPORT` whose spot-check pinned a line** (step 3 §0 recorded `verified` or `moved` for an export the provenance map does not hold): cite it as `[SRC:{source_file}:L{line}]`, where `{line}` is the citation's line for `verified` and the `new_location` line for `moved`: the line write.md §3 records in its new `source-read` entry. The spot-check read that line by eye, so the prefix is `SRC`, never `AST`.
 
 **Priority 6 — Process script/asset file changes (from Category D in change manifest):**
 
