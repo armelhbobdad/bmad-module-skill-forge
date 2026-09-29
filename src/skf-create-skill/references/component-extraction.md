@@ -131,14 +131,26 @@ Using AST tools (Forge/Deep) or source reading (Quick):
 ```yaml
 # React/TypeScript props interfaces
 id: react-props-interfaces
-language: typescript
+language: typescript  # Use 'tsx' for .tsx files
 rule:
-  pattern: 'export interface $NAME { $$$ }'
   kind: export_statement
+  inside:
+    kind: program
+  not:
+    has:
+      regex: '^default$'
+  has:
+    field: declaration
+    kind: interface_declaration
+    has:
+      field: name
+      pattern: $NAME
 constraints:
   NAME:
     regex: '.*Props$'
 ```
+
+Use `language: typescript` for `.ts` files and `language: tsx` for `.tsx` files: a rule scans only the files of its own language, so run the recipe once per language, changing only `language`, and merge the results (see the language selection note in `{extractionPatternsData}`).
 
 For each `*Props` interface found:
 - Extract all fields with types, optionality, and default values
@@ -153,14 +165,44 @@ For each `*Props` interface found:
 id: react-component-exports
 language: tsx  # Use 'tsx' for .tsx files, 'typescript' for .ts files
 rule:
-  pattern: 'export function $NAME($$$PARAMS)'
   kind: export_statement
+  inside:
+    kind: program
+  any:
+    - has:
+        field: declaration
+        any:
+          - kind: function_declaration
+          - kind: function_signature
+        has:
+          field: name
+          pattern: $NAME
+    - has:
+        field: declaration
+        kind: ambient_declaration
+        has:
+          kind: function_signature
+          has:
+            field: name
+            pattern: $NAME
+  not:
+    has:
+      field: declaration
+      kind: function_declaration
+    follows:
+      stopBy:
+        not:
+          kind: comment
+      kind: export_statement
+      has:
+        field: declaration
+        kind: function_signature
 constraints:
   NAME:
-    regex: '^[A-Z]'
+    regex: '^\p{Lu}'
 ```
 
-Also run `export const $NAME` patterns for arrow function components.
+This is the `react-component-functions` recipe of `{extractionPatternsData}` under another `id`: see its language note (run it once per language, `tsx` for `.tsx` files and `typescript` for `.ts` files, and merge the results; its `javascript` form covers `.js` and `.jsx`) and Known Limitation #11 there for the forms it does not match. Also run that file's `react-component-arrow-functions` recipe for arrow function components.
 
 For each component export: record name, source file, line number. Do not document the function signature in detail (it's always `(props: XProps) => JSX.Element`).
 
@@ -218,7 +260,7 @@ Compile all extracted data into the format expected by step 3 section 5:
 - Provenance citation
 - Confidence tier: T1 when an ast-grep rule matched the interface, T1-low when it was read by eye
 - `extraction_method`: `ast-grep` or `source-read`, the tool that produced the entry
-- `ast_node_type`: the `kind` the matching recipe declares (`export_statement` for `react-props-interfaces`: the pattern matches the whole export, not the `interface_declaration` inside it), or `null` when read by eye
+- `ast_node_type`: the `kind` the matching recipe declares (`export_statement` for `react-props-interfaces`: the recipe matches the whole export, not the `interface_declaration` inside it), or `null` when read by eye
 - `ast_recipe`: the `id` of the recipe that matched it, or `null` when read by eye
 
 **Per-export entry (for component functions):**
