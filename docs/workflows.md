@@ -205,7 +205,7 @@ Default pass threshold: **80%**. Inside a pipeline the default follows the alias
 - `--threshold=<N>` sets the pass score for this run. It wins over pipeline defaults.
 - `--tier=<Quick|Forge|Forge+|Deep>` tests at that tier without reading `forge-tier.yaml`, which helps in CI before setup has run.
 - `--no-discovery` leaves the discovery-testing block out of the report.
-- `--allow-workspace-drift` reads the source at its current commit instead of the pinned one (see [Verifying a Skill](/docs/verifying-a-skill.md#workflow-time-enforcement)).
+- `--allow-workspace-drift` reads the source at its current commit instead of the pinned one (see [Verifying a Skill](/docs/verifying-a-skill.md#workflow-time-enforcement)). Update Skill with `--from-test-report` takes the same flag, but never moves or records a provenance line from that commit, and stops on a gap that needs one.
 
 **Verdicts and exit codes (headless):** `0` PASS, `2` FAIL (including a hard-gate block), `3` INCONCLUSIVE, `4` pass-with-drift, and `1` for a halt before any verdict. The `SKF_TEST_RESULT_JSON` line carries the same verdict and score.
 

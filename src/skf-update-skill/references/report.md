@@ -111,6 +111,7 @@ The headless envelope carries `status: "dry-run"`, `files_written: []`, the `hea
 
 - `--from-test-report` was passed but the test report was missing at the expected path, so step 1 fell back to `normal` mode → ` (gap-driven requested; test report missing — fell back to normal)`
 - `re-extract.md §0.a` skipped the workspace-drift guard because `source_root` is not a git working tree (or HEAD was unreadable) → ` (workspace-drift check skipped: {skip_reason})` where `{skip_reason}` is the helper's `skip_reason` field (`not-a-git-tree` or `HEAD unreadable`)
+- `re-extract.md §0.a` accepted a drifted workspace under `--allow-workspace-drift` (`{workspace_drift_status}` is `overridden`; this row is where the report shows §0.a's override warning) → ` (workspace drift accepted: spot-checks read HEAD {head_short_sha}, not pinned {pinned_short_sha}; no provenance line moved or pinned)`
 - init.md §6b could not reach upstream and compared the pinned commit (`{source_tree_status}` is `offline`) → ` (upstream not reached: compared the pinned commit only)`
 - init.md §6b could not read `{source_commit}`, so every tracked file was re-checked (`{source_diff_status}` is `unavailable` in a source tree) → ` (file list unavailable: every tracked file re-checked)`
 - write.md §6b left the workspace clone where it was (`{advance_status}` is `skipped`) → ` (source clone not moved: {advance_skip_reason})`
@@ -138,7 +139,7 @@ These signals also appear in `warnings[]` on the headless envelope; the Mode row
 | Moved (file relocated) | {count} |
 | Renamed (identifier changed) | {count} |
 
-{if `{provenance_spot_check_warnings}` is non-empty: **WARN, provenance entry left unchanged for a person to decide (write.md §3):** {each `export_name: outcome`}}
+{if `{provenance_spot_check_warnings}` is non-empty: **WARN, provenance entry left for a person to decide (write.md §3):** {each `export_name: outcome`}}
 
 ### Confidence Tier Breakdown
 
@@ -224,7 +225,7 @@ SKF_UPDATE_RESULT_JSON: {"skf_update":{"status":"success|no-changes|detect-only|
 - `headless_decisions[]` — verbatim from the in-context array populated by gates (init.md §confirmation and §4 degraded-rebuild, detect-changes.md §1b/§1c/§2.2, merge.md §gate). Each entry `{gate, default_action, taken_action, reason, evidence?}`. Empty when no gates auto-resolved (e.g. no-changes path skipped detect-changes' gates).
 - `status` — single-field outcome for pipeline branching. `"success"` when the run wrote artifacts and produced no halts; `"no-changes"` when §1 short-circuited; `"detect-only"` / `"dry-run"` for the §1a/§1b read-only exits; one of the documented `halted-for-*` codes when a halt fired; `"blocked"` as the catch-all. The full enum lives in the schema (this step emits the value already resolved in context).
 - `error` — null on success or no-changes. Object `{phase, path?, reason}` describing the failure when a halt or write error fired. Pipelines branch on `error !== null` for non-zero exit semantics.
-- `warnings[]`: every entry the run added, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `source-version-lower`, `workspace-clone-not-updated`, `target-ref-not-recorded` and `provenance:` entries (write.md §6a: provenance findings left for a person, and spot-check entries §3 left unchanged).
+- `warnings[]`: every entry the run added, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `source-version-lower`, `workspace-clone-not-updated`, `target-ref-not-recorded`, `workspace_drift_overridden` (re-extract.md §0.a) and `provenance:` entries (write.md §6a: provenance findings left for a person, and spot-check entries §3 left for a person to decide).
 
 The headless envelope is the structured channel; the per-run JSON written above is the audit trail. Both coexist — the envelope is one line on stdout for grep-friendly consumption, the per-run JSON is the full record on disk.
 
