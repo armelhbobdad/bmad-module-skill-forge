@@ -1,16 +1,27 @@
 name: Deploy Documentation
 
+# Builds the docs site from a release tag and deploys it to GitHub Pages. The
+# site shows the latest stable release, not main, so a merge to main does not
+# deploy it. release.yaml dispatches this workflow at the end of every stable
+# release (patch, minor, major) with `ref` set to the new tag; a prerelease
+# leaves the site alone. To deploy by hand:
+#
+#   gh workflow run docs.yaml                  # the latest stable tag
+#   gh workflow run docs.yaml -f ref=vX.Y.Z    # a given tag
+#
+# Run it on main (gh's default): the workflow checks out and builds `ref`
+# whatever ref it runs on, and by default the github-pages environment admits
+# deployments from the default branch only, so a run on a tag is refused at
+# the deploy job. See docs/_internal/RELEASING.md § The docs site.
+
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "docs/**"
-      - "website/**"
-      - "tools/build-docs.js"
-      - ".github/workflows/docs.yaml"
-      - "package.json"
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag or ref to build and deploy, such as v1.2.3. Leave empty for the latest stable tag.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -28,6 +39,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
+          fetch-depth: 0
+
+      # An empty input builds the latest stable tag: the nearest version tag
+      # without a prerelease suffix, the same command release.yaml uses for
+      # the previous stable tag. The input reaches the script through env only.
+      - name: Resolve the ref to build
+        id: resolve
+        env:
+          INPUT_REF: ${{ inputs.ref }}
+        run: |
+          REF="$INPUT_REF"
+          if [ -z "$REF" ]; then
+            if ! REF=$(git describe --tags --abbrev=0 --exclude '*-*' --match 'v[0-9]*'); then
+              echo "::error::No stable tag (vX.Y.Z) is reachable from $GITHUB_REF, so there is nothing to deploy. Pass ref to build another tag or ref."
+              exit 1
+            fi
+            echo "No ref given: building the latest stable tag $REF"
+          elif [[ "$REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Building $REF"
+          else
+            echo "::warning::$REF is not a stable release tag (vX.Y.Z): the site will show docs that no stable release has until the next stable release deploys it again."
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Building the docs site from \`$REF\`." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check out the ref to build
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.resolve.outputs.ref }}
           fetch-depth: 0
 
       - name: Setup Node.js

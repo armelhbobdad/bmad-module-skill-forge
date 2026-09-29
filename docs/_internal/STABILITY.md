@@ -9,7 +9,9 @@ This document is the public API contract for `bmad-module-skill-forge` at v1.0.0
 
 ## Covered Surfaces
 
-The five buckets below are the entirety of the v1.0.0 public surface. Anything not explicitly listed here is `@internal` (see [§ @internal — Not Covered by SemVer](#internal--not-covered-by-semver)).
+The first six buckets below are the entirety of the v1.0.0 public surface. Anything not explicitly listed here is `@internal` (see [§ @internal: Not Covered by SemVer](#internal--not-covered-by-semver)).
+
+v3.0.0 adds one bucket, [§ Workflow Contract Surfaces](#workflow-contract-surfaces). Adding it widens what the contract covers and removes nothing from it, so it is an additive change to this contract (see [§ Changes to This Contract](#changes-to-this-contract)).
 
 ### CLI Command Surface
 
@@ -81,6 +83,17 @@ Explicit non-commitments: ANSI color choices, exact prose wording, precise layou
 
 SKF supports the Node.js major versions declared in `package.json` `engines.node` (currently `>=22.0.0`). Dropping a supported major is breaking; adding support for a new major is additive. Linux, macOS, and Windows are supported runtime platforms; dropping OS support is breaking. Adding support for a new platform is additive.
 
+### Workflow Contract Surfaces
+
+Added in v3.0.0. These are the parts of SKF's workflows that pipelines, scripts and saved Ferris commands depend on by name. Removing or renaming any item below is breaking (major), and adding one is additive (minor); for a flag, removing it means what the **Workflow flags** entry says:
+
+- **Schema enum values and properties.** Every enum value and every property in the JSON schemas directly under `src/shared/scripts/schemas/` (installed under `_bmad/skf/shared/scripts/schemas/`): the headless result envelopes of `skf-setup`, `skf-brief-skill` and `skf-update-skill`, the skill brief, and workspace detection. For example, the `status` values of `skf-setup-result-envelope.v1.json`.
+- **Ferris menu codes.** The codes in the Code column of the Capabilities table in `src/skf-forger/SKILL.md`, such as `SF`, `CS` and `CA`. The descriptions beside them stay `@internal`.
+- **Pipeline aliases.** The aliases in the alias table of `src/shared/references/pipeline-contracts.md`, such as `forge-auto` and `maintain`. An alias named on a "Deprecated alias:" line there still works and stays covered, so deprecating one is not breaking; removing it is. The rest of that file stays `@internal`.
+- **Workflow flags.** Every flag written in the Flags, Inputs, Headless inputs, Headless flag or Overrides row of a workflow's `SKILL.md` (`src/skf-<name>/SKILL.md`), such as `--headless` and `--dry-run`, per workflow. A flag counts when it opens a backticked span, such as `--tier=<Quick>`, or is a long flag written without backticks, such as `--batch`. A flag written only elsewhere in the file, or only inside a longer backticked command such as `campaign resume [--from=<skill>]`, is not covered. A flag that enters a flag row is added, even when the workflow's files named it before. A covered flag is removed, and so breaking, when the Markdown of its workflow (`SKILL.md`, `references/`, `templates/` and `assets/`) no longer names it; a mention in a command that runs another program, in an argument the workflow hands to a helper script, or in a note that the flag was renamed or removed does not count. A flag that leaves every flag row while that Markdown still names it is listed for review at release time instead, unless a flag the workflow never named before enters its rows in the same release: that may be a rename, so it counts as a removal.
+
+Each release checks this bucket mechanically: [`tools/covered-surfaces.js`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/tools/covered-surfaces.js) compares these items with the last stable release, and the release workflow refuses a release that removes one unless it is a major release whose notes name the item. The same check also reports workflow exit codes, `halt_reason` and `error.phase` values, required schema fields, preference keys and install config keys: a new exit code or preference key raises the minimum bump to minor, and the other changes are listed for review at release time. None of these is part of this contract yet, and promoting one later is an additive change.
+
 ## @internal — Not Covered by SemVer
 
 The following surfaces are explicitly excluded from the v1.0.0 contract. Changes to any of these may land in any release — patch, minor, or major — without constituting a "breaking change" from a SemVer perspective. Downstream consumers SHOULD NOT pin against these surfaces.
@@ -89,6 +102,7 @@ The following surfaces are explicitly excluded from the v1.0.0 contract. Changes
 - **Internal structure of workflow step files under `src/skf-*/references/`** — the workflow authoring format is an SKF-internal authoring surface; step numbering, file names, and prose can change.
 - **`_bmad/_memory/forger-sidecar/*.yaml` file schemas** — Ferris sidecar state. Stable as a runtime contract between SKF versions during one install's lifetime (so `skf update` works), but not a downstream-consumable schema.
 - **Ferris agent persona prose and menu wording** — the in-product agent persona can be rephrased or restructured at any time.
+  The menu codes themselves are covered: see [§ Workflow Contract Surfaces](#workflow-contract-surfaces).
 - **Exact chalk styling / ANSI color choices in command output** — stylistic; see the output-format bucket above for what IS committed.
 - **Internal logic of the `Installer` class in `tools/cli/lib/installer.js`** — private implementation; what's covered is the observable install layout, not how the files get there.
 - **Workflow `{communication_language}` / `{document_output_language}` template substitution** — an authoring convenience for workflow prose; the mechanism is internal.
@@ -119,5 +133,6 @@ Shrinking the covered surface (removing a commitment) is a breaking change and r
 - [Semantic Versioning 2.0.0](https://semver.org/) — the SemVer semantics this contract commits to.
 - [`CHANGELOG.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/CHANGELOG.md) — release-by-release history; breaking changes are called out there.
 - [`docs/_internal/RELEASING.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/docs/_internal/RELEASING.md) — maintainer reference for the release pipeline (companion document: this file is about what ships, `RELEASING.md` is about how). Linked by URL, not relatively: `RELEASING.md` is maintainer-only and excluded from the published npm tarball, while this file ships as the public API contract, so a relative link would dangle for anyone reading the installed package.
+- [`tools/covered-surfaces.js`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/tools/covered-surfaces.js) and [`changes/README.md`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/changes/README.md): the release check for [§ Workflow Contract Surfaces](#workflow-contract-surfaces) and the change-fragment format the release notes are written in. Linked by URL: neither ships in the npm package.
 - [`tools/cli/lib/platform-codes.yaml`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/tools/cli/lib/platform-codes.yaml) — source of truth for the IDE → skills-directory mapping covered under [§ Installation Layout](#installation-layout).
 - [`test/schema/agent.js`](https://github.com/armelhbobdad/bmad-module-skill-forge/blob/main/test/schema/agent.js) — zod schema definitions for `bmad-skill-manifest.yaml` covered under [§ Skill Manifest & Frontmatter Contract](#skill-manifest--frontmatter-contract).

@@ -1,0 +1,4 @@
+type: docs
+prs: [522]
+summary: |
+  The published docs were checked claim by claim against the code. Corrections include: Python 3.11 is the minimum, not 3.10; `gh` is needed for Campaign and `forge-auto --pin`, not only for the Deep tier; Ferris starts with `/skf-forger` (`$skf-forger` in Codex, `/skill:skf-forger` in Pi); and bmad-help and `_bmad/custom/` overrides need the BMAD Method in the project.

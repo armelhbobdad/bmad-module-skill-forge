@@ -22,8 +22,9 @@
  * checked). SKF's snippet format still puts an em dash in them, and docs quote
  * them verbatim.
  *
- * Not checked: CHANGELOG.md and any package-lock.json. Tools generate them,
- * and the changelog is built from commit subjects older than this rule.
+ * Not checked: CHANGELOG.md, whose older blocks come from commit subjects
+ * older than this rule (new blocks are rendered from change fragments, which
+ * tools/changes.js checks), and any package-lock.json, which npm generates.
  *
  * Base branch for the added-lines and commit checks: --base <ref>, else
  * $EM_DASH_BASE, else origin/$GITHUB_BASE_REF on a pull request, else

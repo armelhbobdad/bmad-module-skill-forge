@@ -1,0 +1,3 @@
+type: lead
+summary: |
+  SKF 3.0.0 runs safely in a skills folder shared with other skills, reads a remote skill's source at the commit it tracks, and labels every provenance entry by the tool that read it. Three behaviours a pipeline can depend on changed: read Breaking changes before you upgrade one.

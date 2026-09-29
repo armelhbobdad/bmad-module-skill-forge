@@ -1,0 +1,6 @@
+type: added
+scope: skf-quick-skill, skf-create-stack-skill
+prs: [509]
+issues: [500, 501]
+summary: |
+  New exit codes for pipelines: Quick Skill exits `9` and create-stack-skill exits `5` (state-conflict) when they refuse to write into a skill folder SKF did not generate (`not-skf-output`) or into an SKF skill still in the old flat layout (`flat-layout`). create-skill stops with the same two reasons, and a create-skill batch moves on to the next brief. Nothing is written into the refused folder.
