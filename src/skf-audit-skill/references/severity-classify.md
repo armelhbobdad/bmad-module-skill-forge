@@ -19,7 +19,8 @@ Grade every drift finding from Steps 03 and 04 by severity (CRITICAL/HIGH/MEDIUM
 
 - Only classify existing findings — do not discover new drift items or suggest remediation
 - Reading each change and assigning its `type` / `category` is judgment; mapping those to a severity, reducing the set to the drift score, and counting per level are deterministic and delegated to the shared helper so the classification cannot drift from {severityRulesFile} between runs
-- The confidence tier (T1 / T1-low / T2) travels with each finding from Steps 03/04 — the helper never touches it
+- The confidence tier (T1 / T1-low / T2) travels with each finding from Steps 03/04 unchanged: the helper never touches it
+- A provenance label difference (step 3's **Provenance label differences (not drift)** table) is never a finding: do not classify it, count it or let it move the drift score
 
 ## MANDATORY SEQUENCE
 
@@ -27,7 +28,7 @@ Grade every drift finding from Steps 03 and 04 by severity (CRITICAL/HIGH/MEDIUM
 
 Gather every drift item already recorded in the report:
 
-**From ## Structural Drift (Step 03):** added, removed, changed, and moved exports (plus any Script/Asset Drift rows).
+**From ## Structural Drift (Step 03):** added, removed, changed, and moved exports (plus any Script/Asset Drift rows). Skip the **Provenance label differences (not drift)** table: a label names the tool that extracted an export, so a `confidence` or `extraction_method` difference is not drift and becomes no finding.
 **From ## Semantic Drift (Step 04, Deep tier only):** new patterns, changed conventions, dependency shifts, deprecated patterns.
 
 For each finding, read {severityRulesFile} and assign the two interpretive fields the rules key on — this is the judgment step, where the nuance of the change lives:
@@ -73,7 +74,7 @@ Consume `by_severity`, `drift_score`, and each finding's assigned `severity` dir
 
 | # | Finding | Type | Detail | Location | Confidence |
 |---|---------|------|--------|----------|------------|
-| N | {root cause} (×{Count}; rep: `{sym1}`, `{sym2}`, `{sym3}`, …) | {structural/semantic} | {shared detail} | {root-cause path} | {T1/T2} |
+| N | {root cause} (×{Count}; rep: `{sym1}`, `{sym2}`, `{sym3}`, …) | {structural/semantic} | {shared detail} | {root-cause path} | {T1/T1-low/T2} |
 
 Append to {outputFile}, filling the counts from `by_severity` and each finding's assigned `severity`:
 
@@ -86,25 +87,25 @@ Append to {outputFile}, filling the counts from `by_severity` and each finding's
 
 | # | Finding | Type | Detail | Location | Confidence |
 |---|---------|------|--------|----------|------------|
-| 1 | {finding} | {structural/semantic} | {detail} | {file}:{line} | {T1/T2} |
+| 1 | {finding} | {structural/semantic} | {detail} | {file}:{line} | {T1/T1-low/T2} |
 
 ### HIGH ({by_severity.HIGH})
 
 | # | Finding | Type | Detail | Location | Confidence |
 |---|---------|------|--------|----------|------------|
-| 1 | {finding} | {structural/semantic} | {detail} | {file}:{line} | {T1/T2} |
+| 1 | {finding} | {structural/semantic} | {detail} | {file}:{line} | {T1/T1-low/T2} |
 
 ### MEDIUM ({by_severity.MEDIUM})
 
 | # | Finding | Type | Detail | Location | Confidence |
 |---|---------|------|--------|----------|------------|
-| 1 | {finding} | {structural/semantic} | {detail} | {file}:{line} | {T1/T2} |
+| 1 | {finding} | {structural/semantic} | {detail} | {file}:{line} | {T1/T1-low/T2} |
 
 ### LOW ({by_severity.LOW})
 
 | # | Finding | Type | Detail | Location | Confidence |
 |---|---------|------|--------|----------|------------|
-| 1 | {finding} | {structural/semantic} | {detail} | {file}:{line} | {T1/T2} |
+| 1 | {finding} | {structural/semantic} | {detail} | {file}:{line} | {T1/T1-low/T2} |
 
 ### Classification Summary
 

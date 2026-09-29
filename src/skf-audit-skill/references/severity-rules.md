@@ -46,9 +46,11 @@
 
 ## Confidence Tier Labels
 
-| Label  | Source                           | Reliability                             |
-|--------|----------------------------------|-----------------------------------------|
-| T1     | AST extraction (ast-grep)        | High — structural truth                 |
-| T1-low | Text pattern matching (no AST)   | Moderate — pattern-based                |
-| T2     | QMD semantic context             | High — evidence-backed temporal context |
-| T3     | External documentation reference | Variable — secondary source             |
+| Label  | Source                                                         | Reliability                             |
+|--------|----------------------------------------------------------------|-----------------------------------------|
+| T1     | An ast-grep match (`extraction_method: ast-grep`), at any tier | High: structural truth                  |
+| T1-low | Read by eye (`extraction_method: source-read`), at any tier    | Moderate: read, not matched by ast-grep |
+| T2     | QMD semantic context                                           | High: evidence-backed temporal context  |
+| T3     | External documentation reference                               | Variable: secondary source              |
+
+A label names the tool that produced an export, not the forge tier: Quick tier reads every export by eye, and at Forge, Forge+ and Deep an export is read by eye when ast-grep cannot parse its file, a rule misses it, or its file is read instead of matched. A difference between the provenance map's label and the re-index label is not drift and has no severity.

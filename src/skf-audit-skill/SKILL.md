@@ -17,6 +17,7 @@ Detects drift between an existing skill and its current source code, producing a
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
+- **Cross-skill data coupling:** `re-index.md` loads `tier-degradation-rules.md` from `skf-create-skill/references/` (its `tierDegradationRulesData` path names the sibling skill, so it resolves from the SKF module root, not this skill root) to keep the ast-grep fallback and its labels aligned with create-skill and update-skill. Audit-skill assumes this file is present at install time and that its semantics are stable across the two skills' versions.
 
 ## Role
 

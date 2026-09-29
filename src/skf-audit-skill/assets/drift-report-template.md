@@ -37,6 +37,7 @@ previousWorkflow: 'create-skill'
 ## Structural Drift
 
 <!-- Appended by structural-diff -->
+<!-- Provenance label differences (not drift): informational table, rendered only when label_changes[] is non-empty and excluded from Total Drift Items -->
 
 ---
 

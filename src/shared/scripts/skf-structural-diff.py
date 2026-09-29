@@ -7,9 +7,10 @@
 
 Compares a baseline export inventory against a current export inventory and
 produces a structured JSON diff showing added, removed, changed, and moved
-entries. Used by audit-skill (structural-diff step) and update-skill to
-replace LLM-based, token-spending inventory comparison — the LLM can silently
-drop or mis-match entries when diffing dozens/hundreds of exports by hand.
+entries. Used by audit-skill (structural-diff step, references/structural-diff.md
+section 1) to replace LLM-based, token-spending inventory comparison: the LLM
+can silently drop or mis-match entries when diffing dozens/hundreds of exports
+by hand.
 
 CLI:
   python3 skf-structural-diff.py baseline.json current.json
@@ -32,8 +33,11 @@ Input:
     - line        <- line        | source_line
     - signature   <- signature
     - confidence  <- confidence
+    - extraction_method <- extraction_method
 
   "name" is the primary match key. Nameless entries are skipped.
+  ast_node_type is ignored on purpose: it describes the tool's match, not the
+  export, and a relabel changes it along with confidence.
 
 Canonicalization (applied symmetrically to BOTH sides before matching):
   The baseline extractor (skf-create-skill) and the re-extractor (audit step 2)
@@ -59,18 +63,36 @@ Canonicalization (applied symmetrically to BOTH sides before matching):
   `skf-load-provenance.py normalize`.
 
 Change detection:
-  A field is only compared when present (non-null) on BOTH sides — a field
-  absent on one side means "insufficient data", never an asserted change. This
-  avoids false positives when the two inventories carry different metadata.
+  The diffed fields are type, signature and line. A field is only compared
+  when present (non-null) on BOTH sides: a field absent on one side means
+  "insufficient data", never an asserted change. This avoids false positives
+  when the two inventories carry different metadata.
+
+Provenance labels:
+  confidence and extraction_method describe the tool that extracted an export,
+  not the source, so a difference in them is not drift. For a name present on
+  both sides, a label that differs (compared case-insensitively after trimming,
+  and only when both sides have a value) is reported once per export in
+  label_changes[]. A blank label counts as no value and is emitted as null.
+  The stack spellings of extraction_method compare equal to the library ones
+  (ast_bridge = ast-grep, source_reading = source-read); emitted values keep
+  the spelling each side wrote. Label changes never enter changed[], never
+  make an export count as changed, and never affect the exit code.
 
 Output:
   JSON object:
-    summary:            { added, removed, changed, moved, unchanged }
+    summary:            { added, removed, changed, moved, unchanged,
+                          label_changes }
     added:              list of entries present in current but not baseline
     removed:            list of entries present in baseline but not current
     changed:            list of { name, field, baseline_value, current_value }
+                        where field is type, signature or line
     moved:              list of { name, previous_file, current_file }
+    label_changes:      list of { name, baseline: {confidence,
+                        extraction_method}, current: {confidence,
+                        extraction_method} }; informational, not drift
     unchanged_count:    number of entries that matched with no field change
+                        (a label change alone leaves an entry unchanged)
     applied_transforms: list of { transform, count } — which canonicalization
                         transforms actually fired and how many values each
                         touched (empty when none fired). Surfaced by audit
@@ -78,8 +100,10 @@ Output:
                         which differences the diff collapsed.
 
 Exit codes:
-  0  — inventories are identical (no diff)
-  1  — differences found (or error)
+  0  no export added, removed, changed or moved
+  1  differences found (or error)
+  Label differences are reported in label_changes and do not count toward
+  the exit code.
 """
 
 from __future__ import annotations
@@ -95,7 +119,16 @@ from pathlib import Path
 # Fields compared for change detection (in order).
 # "name" is the primary key and is not diffed as a field.
 # "file" is excluded — file moves are tracked separately in the "moved" list.
-DIFF_FIELDS = ["type", "signature", "line", "confidence"]
+# Provenance labels are excluded too: they say which tool extracted the export,
+# so a relabel is reported in label_changes[] and is never drift.
+DIFF_FIELDS = ["type", "signature", "line"]
+
+# Provenance labels compared for the informational label_changes[] list.
+LABEL_FIELDS = ["confidence", "extraction_method"]
+
+# Stack provenance maps spell extraction_method differently from library maps
+# and the audit re-index; compare them as the same tool.
+_METHOD_ALIASES = {"ast_bridge": "ast-grep", "source_reading": "source-read"}
 
 # Well-known stdlib module prefixes whose unqualified form is importable at
 # the call site. Longer prefixes must precede their own containing prefix
@@ -287,8 +320,53 @@ def _normalize_entries(
             "file": _first(entry, "file", "source_file"),
             "line": _first(entry, "line", "source_line"),
             "confidence": entry.get("confidence"),
+            "extraction_method": entry.get("extraction_method"),
         }
     return result
+
+
+def _label_key(field: str, value: object) -> object:
+    """Comparison key for a provenance label, or None when the side has no value.
+
+    Strings compare case-insensitively after trimming; a blank string counts
+    as no value. Stack extraction_method spellings map to the library ones.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.strip().casefold()
+        if not value:
+            return None
+        if field == "extraction_method":
+            value = _METHOD_ALIASES.get(value, value)
+    return value
+
+
+def _label_side(rec: dict) -> dict:
+    """One side's labels as emitted: the value as written, or null when blank."""
+    return {
+        k: (rec.get(k) if _label_key(k, rec.get(k)) is not None else None)
+        for k in LABEL_FIELDS
+    }
+
+
+def _label_change(name: str, base_rec: dict, curr_rec: dict) -> dict | None:
+    """The label_changes[] item for one matched export, or None when labels agree.
+
+    A label is compared only when both sides have a value for it.
+    """
+    for field in LABEL_FIELDS:
+        base_key = _label_key(field, base_rec.get(field))
+        curr_key = _label_key(field, curr_rec.get(field))
+        if base_key is None or curr_key is None:
+            continue
+        if base_key != curr_key:
+            return {
+                "name": name,
+                "baseline": _label_side(base_rec),
+                "current": _label_side(curr_rec),
+            }
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -304,7 +382,7 @@ def diff_inventories(
     """Compute the structural diff between two export inventories.
 
     Returns a dict with keys: summary, added, removed, changed, moved,
-    unchanged_count, applied_transforms.
+    label_changes, unchanged_count, applied_transforms.
     """
     reexport_map = reexport_map or {}
     transform_counts: collections.Counter = collections.Counter()
@@ -319,14 +397,16 @@ def diff_inventories(
     removed_names = baseline_names - current_names
     common_names = baseline_names & current_names
 
-    # Emit normalized entries (uniform name/type/signature/file/line/confidence
-    # shape) so added[] and removed[] render into the same report table even
-    # though they originate from the snapshot and provenance-map shapes.
+    # Emit normalized entries (uniform name/type/signature/file/line/confidence/
+    # extraction_method shape) so added[] and removed[] render into the same
+    # report table even though they originate from the snapshot and
+    # provenance-map shapes.
     added = [current[n] for n in sorted(added_names)]
     removed = [baseline[n] for n in sorted(removed_names)]
 
     changed: list[dict] = []
     moved: list[dict] = []
+    label_changes: list[dict] = []
     unchanged_count = 0
 
     for name in sorted(common_names):
@@ -363,6 +443,11 @@ def diff_inventories(
         if not entry_changed:
             unchanged_count += 1
 
+        # Provenance labels are informational: reported, never counted as drift.
+        label_change = _label_change(name, base_rec, curr_rec)
+        if label_change is not None:
+            label_changes.append(label_change)
+
     changed_names = len({c["name"] for c in changed})
 
     applied_transforms = [
@@ -378,11 +463,13 @@ def diff_inventories(
             "changed": changed_names,
             "moved": len(moved),
             "unchanged": unchanged_count,
+            "label_changes": len(label_changes),
         },
         "added": added,
         "removed": removed,
         "changed": changed,
         "moved": moved,
+        "label_changes": label_changes,
         "unchanged_count": unchanged_count,
         "applied_transforms": applied_transforms,
     }
@@ -404,6 +491,8 @@ def main() -> int:
             "key (provenance-map.json). Field names are aliased across the two\n"
             "shapes, and signatures are canonicalized (quote style, stdlib module\n"
             "prefixes, public re-export names) symmetrically before matching.\n"
+            "Provenance label differences (confidence, extraction_method) are\n"
+            "reported in label_changes and do not count toward the exit code.\n"
             "\n"
             "Exit code 0 means no differences were found.\n"
             "Exit code 1 means differences were found (or an error occurred)."

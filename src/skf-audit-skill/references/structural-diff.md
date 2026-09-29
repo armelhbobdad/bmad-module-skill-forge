@@ -52,11 +52,12 @@ Parse the emitted JSON:
 
 ```
 {
-  "summary": {"added": N, "removed": N, "changed": N, "moved": N, "unchanged": N},
+  "summary": {"added": N, "removed": N, "changed": N, "moved": N, "unchanged": N, "label_changes": N},
   "added":   [ <entry>, ... ],   // in current snapshot, NOT in provenance map
   "removed": [ <entry>, ... ],   // in provenance map, NOT in current snapshot
-  "changed": [ {"name", "field", "baseline_value", "current_value"}, ... ],
+  "changed": [ {"name", "field", "baseline_value", "current_value"}, ... ],   // field: type | signature | line
   "moved":   [ {"name", "previous_file", "current_file"}, ... ],
+  "label_changes": [ {"name", "baseline": {"confidence", "extraction_method"}, "current": {"confidence", "extraction_method"}}, ... ],   // informational, not drift
   "unchanged_count": N,
   "applied_transforms": [ {"transform": "quote-style|stdlib-prefix|reexport-resolution", "count": N}, ... ]
 }
@@ -64,21 +65,29 @@ Parse the emitted JSON:
 
 Stash `applied_transforms` in workflow context — step 6 surfaces it in the Provenance section so a reviewer can tell which cosmetic differences the diff collapsed and which changes were real.
 
-**If `uv` / the helper cannot execute** (e.g. claude.ai web): fall back to comparing the two lists by hand — match by canonicalized export name (apply the three transforms above to both sides), then read off added (current-only), removed (baseline-only), moved (same name, different `file`), and changed (matched name, differing type/signature/line). Compare a field only when it is present on both sides.
+Stash `label_changes` in workflow context too: §5 renders it as an informational table (§3b).
+
+**If `uv` / the helper cannot execute** (e.g. claude.ai web): fall back to comparing the two lists by hand. Match by canonicalized export name (apply the three transforms above to both sides), then read off added (current-only), removed (baseline-only), moved (same name, different `file`), and changed (matched name, differing type/signature/line). Compare a field only when it is present on both sides. Compare the labels (`confidence`, `extraction_method`) separately: trim, and a blank label counts as absent; compare case-insensitively and only when both sides have a value, with `ast_bridge` counting as `ast-grep` and `source_reading` as `source-read`. A matched export whose labels differ goes to the label differences list (§3b), never to changed, and counts as unchanged when nothing else differs.
 
 ### 2. Read Added / Removed / Moved from the Diff
 
 These sets come straight from the helper's JSON — no further set arithmetic:
 
-- **Added** — `added[]`: exports in the current snapshot but not the provenance map. Each carries name, type, signature, file, line, confidence.
-- **Removed** — `removed[]`: exports in the provenance map but not the current snapshot. Same fields (in provenance-map field names).
-- **Moved** — `moved[]`: matched exports whose file path changed (`previous_file` → `current_file`). A move is **not** a removal.
+- **Added** (`added[]`): exports in the current snapshot but not the provenance map.
+- **Removed** (`removed[]`): exports in the provenance map but not the current snapshot.
+- **Moved** (`moved[]`): matched exports whose file path changed (`previous_file` → `current_file`). A move is **not** a removal.
 
-Confidence tier for each entry is the `confidence` field the extractor recorded (T1 if AST-backed, T1-low if text-based).
+Added and removed entries are the helper's normalized records, whichever input shape they came from: each carries `name`, `type`, `signature`, `file`, `line`, `confidence` and `extraction_method`.
+
+Confidence tier for each entry is the `confidence` field the extractor recorded, which names the tool that produced the export at any tier: T1 for an export an ast-grep rule matched (`extraction_method: ast-grep`), T1-low for an export read by eye (`extraction_method: source-read`).
 
 ### 3. Read Changed Exports from the Diff
 
-`changed[]` lists per-field differences for exports present in BOTH sets. Each item names the export, the `field` that changed (type / signature / line / confidence), and its `baseline_value` → `current_value`. Group items by export name when compiling the report, and pair with the export's `moved[]` entry (if any) to describe location changes.
+`changed[]` lists per-field differences for exports present in BOTH sets. Each item names the export, the `field` that changed (type / signature / line), and its `baseline_value` → `current_value`. Group items by export name when compiling the report, and pair with the export's `moved[]` entry (if any) to describe location changes. `changed[]` items carry no label: the Confidence column of Changed Exports (§5) shows the current snapshot's `confidence` for that export, read from `{extractionSnapshot}`.
+
+### 3b. Read Provenance Label Differences from the Diff
+
+`label_changes[]` lists exports present in BOTH sets whose `confidence` or `extraction_method` differs between the provenance map and the snapshot, with each side's `{confidence, extraction_method}`. A label names the tool that extracted the export, not what the source says: an export read by eye when the skill was created (T1-low, `source-read`) and matched by ast-grep now (T1, `ast-grep`) is the same export, and so is an entry create-skill or update-skill relabeled to match the tool that read it. A label difference is therefore not drift: it never appears in Changed Exports, is not counted in Total Drift Items, and step 5 does not classify it. Take the count from `summary.label_changes`, no recount. For a stack diffed per library (Stack-Specific Structural Diff), sum `summary.label_changes` across the per-library runs and merge their `label_changes[]` rows, tagging each row with its library.
 
 ### 4b. Detect Script/Asset Drift
 
@@ -117,6 +126,7 @@ If `{is_stack_skill}` is true:
 - Group entries by `source_library`
 - For each library, run the same deterministic diff as the single-skill path (§1) — pass the per-library baseline slice and the matching current snapshot to `{structuralDiffHelper}`
 - Report per-library diff results
+- Sum each library's `summary.label_changes` and merge its `label_changes[]` rows, tagged with the library (§3b)
 
 **For code-mode stacks:** Re-extract from each source repo and compare per-library entries.
 
@@ -136,13 +146,15 @@ If `{is_stack_skill}` is true:
 |------------|-------|------------------------|----------|------------|
 | {deleted/renamed path or similar} | {N} | `{sym1}`, `{sym2}`, `{sym3}`, … | {root-cause path} | {T1/T1-low} |
 
+**Rollup for the Provenance label differences table.** When ≥ 10 rows share one baseline label and one current label (grouped case-insensitively, as the helper compares them), you may collapse them into one row whose Export cell reads {count} exports (rep: `{sym1}`, `{sym2}`, `{sym3}`, …).
+
 Append to {outputFile}:
 
 ```markdown
 ## Structural Drift
 
 **Comparison:** Provenance map ({provenance_date}) vs Current scan ({scan_date})
-**Method:** {Quick: text-diff / Forge: AST structural / Deep: AST structural}
+**Method:** {Quick: text-diff / Forge, Forge+ or Deep: AST structural}. Labels follow the tool that ran: T1 for an ast-grep match, T1-low for an export read by eye{; AST fallback files: {ast_fallback_files}, when any}
 
 ### Added Exports ({count})
 
@@ -170,7 +182,17 @@ Append to {outputFile}:
 | Removed | {removed_count} |
 | Changed | {changed_count} |
 | **Total Drift Items** | {total} |
+
+### Provenance label differences (not drift) ({label_changes_count})
+
+These rows are informational: a label names the tool that extracted the export, so they are excluded from Total Drift Items and are not findings.
+
+| Export | Baseline label | Current label |
+|--------|----------------|---------------|
+| {name} | {baseline.confidence} / {baseline.extraction_method} | {current.confidence} / {current.extraction_method} |
 ```
+
+Include the **Provenance label differences (not drift)** subsection only when `label_changes[]` is non-empty; take `{label_changes_count}` from `summary.label_changes` (summed across libraries for a stack, §3b). Write `(none)` for a label the helper emits as null. For a stack, write each Export cell as `{library}: {name}`.
 
 ### 6. Update Report and Auto-Proceed
 
