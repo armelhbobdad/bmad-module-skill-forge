@@ -7,15 +7,26 @@ a write-tools call. Losing those arrays would silently break every
 downstream skill that reads them. `ccc_index.exclude_patterns` (the SKF
 exclusion record) is kept when the payload sends null, so a setup run
 that did not reconcile ccc exclusions cannot wipe it.
+
+Every subcommand that rewrites forge-tier.yaml holds forge-tier.yaml.lock
+through skf-run-lock.py for its one read-modify-write: concurrent registers
+lose no entry, a held lock makes a call wait and then exit 3 with nothing
+written, a stale lock is replaced, and so at once is the empty file an
+`flock` on the same path leaves. remove-qmd-collection is
+register-qmd-collection's rollback.
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -792,3 +803,329 @@ class TestAtomicWriteBinary:
             mod._atomic_write(target, content)
             assert target.read_bytes() == content.encode("utf-8")
             assert b"\r\n" not in target.read_bytes()
+
+
+# ─── remove-qmd-collection subcommand ───────────────────────────────────────
+
+
+def _remove_qmd(target: Path, name: str, *extra: str) -> tuple[int, dict, str]:
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "remove-qmd-collection",
+         "--target", str(target), "--name", name, *extra],
+        capture_output=True, text=True, timeout=60,
+    )
+    payload = json.loads(result.stdout) if result.stdout.strip() else {}
+    return result.returncode, payload, result.stderr
+
+
+def test_remove_qmd_removes_the_named_entry_and_keeps_the_rest(tmp_target):
+    payload = _payload_with_arrays()  # foo-brief, foo-extraction; staleness 48
+    _write_tools(tmp_target, payload)
+
+    code, response, stderr = _remove_qmd(tmp_target, "foo-extraction")
+    assert code == 0, stderr
+    assert response["action"] == "removed"
+    assert response["removed_count"] == 1
+    assert response["qmd_collections_count"] == 1
+    assert response["wrote"] == str(tmp_target)
+
+    persisted = _read_yaml_file(tmp_target)
+    assert [e["name"] for e in persisted["qmd_collections"]] == ["foo-brief"]
+    assert persisted["ccc_index_registry"] == payload["ccc_index_registry"]
+    assert persisted["ccc_index"]["staleness_threshold_hours"] == 48
+    assert persisted["tier"] == "Deep"
+
+
+def test_remove_qmd_rolls_back_a_register(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    before = _read_yaml_file(tmp_target)
+    _register_qmd(tmp_target, {"name": "marked-extraction", "type": "extraction",
+                               "skill_name": "marked"})
+    code, response, _ = _remove_qmd(tmp_target, "marked-extraction")
+    assert code == 0
+    assert response["action"] == "removed"
+    assert _read_yaml_file(tmp_target) == before
+
+
+def test_remove_qmd_absent_name_writes_nothing(tmp_target):
+    _write_tools(tmp_target, _payload_with_arrays())
+    mtime_before = tmp_target.stat().st_mtime_ns
+    code, response, _ = _remove_qmd(tmp_target, "never-registered")
+    assert code == 0
+    assert response["action"] == "absent"
+    assert response["removed_count"] == 0
+    assert response["qmd_collections_count"] == 2
+    assert response["wrote"] is None
+    assert tmp_target.stat().st_mtime_ns == mtime_before
+
+
+def test_remove_qmd_removes_every_entry_with_that_name(tmp_target):
+    payload = _baseline_payload()
+    payload["qmd_collections"] = [
+        {"name": "dup-docs", "type": "docs"},
+        {"name": "keep-brief", "type": "brief"},
+        {"name": "dup-docs", "type": "docs", "created_at": "2026-05-01"},
+    ]
+    _write_tools(tmp_target, payload)
+    code, response, _ = _remove_qmd(tmp_target, "dup-docs")
+    assert code == 0
+    assert response["removed_count"] == 2
+    assert _read_yaml_file(tmp_target)["qmd_collections"] == [{"name": "keep-brief", "type": "brief"}]
+
+
+@pytest.mark.parametrize("name", ["", "   "])
+def test_remove_qmd_rejects_an_empty_name(tmp_target, name):
+    _write_tools(tmp_target, _baseline_payload())
+    code, _, stderr = _remove_qmd(tmp_target, name)
+    assert code == 1
+    assert "--name" in stderr
+
+
+def test_remove_qmd_missing_target_is_user_error(tmp_path):
+    target = tmp_path / "sidecar" / "forge-tier.yaml"
+    code, _, stderr = _remove_qmd(target, "foo")
+    assert code == 1
+    assert "does not exist" in stderr
+    # The call stops before it takes the lock, so it creates nothing.
+    assert not target.parent.exists()
+
+
+# ─── The registry lock ──────────────────────────────────────────────────────
+
+
+def _lock_of(target: Path) -> Path:
+    return target.with_name(target.name + ".lock")
+
+
+def _hold_lock(target: Path, owner: str = "create-skill:other:run-1",
+               acquired_at: datetime | None = None) -> None:
+    """Write the lock record another run holds (fresh unless acquired_at is given)."""
+    when = acquired_at or datetime.now(timezone.utc)
+    record = {"owner": owner, "acquired_at": when.strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "tool": "skf-run-lock"}
+    _lock_of(target).write_bytes((json.dumps(record) + "\n").encode("utf-8"))
+
+
+def _run(target: Path, argv: list[str], stdin: str | None) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), argv[0], "--target", str(target), *argv[1:]],
+        input=stdin if stdin is not None else "", capture_output=True, text=True, timeout=60,
+    )
+
+
+# (arguments after the subcommand name, stdin) for each subcommand that rewrites the file.
+LOCKED_CALLS = {
+    "write-tools": (["write-tools"], json.dumps(_baseline_payload())),
+    "register-qmd-collection": (["register-qmd-collection"],
+                                json.dumps({"name": "new-brief", "type": "brief"})),
+    "remove-qmd-collection": (["remove-qmd-collection", "--name", "foo-brief"], None),
+    "register-ccc-index": (["register-ccc-index"],
+                           json.dumps({"source_repo": "https://github.com/x/y",
+                                       "skill_name": "y", "path": "/y"})),
+    "clean-stale": (["clean-stale", "--qmd-live-names", "foo-brief"], None),
+}
+
+
+@pytest.mark.parametrize("call", sorted(LOCKED_CALLS))
+def test_every_rewrite_releases_its_lock(tmp_target, call):
+    _write_tools(tmp_target, _payload_with_arrays())
+    argv, stdin = LOCKED_CALLS[call]
+    result = _run(tmp_target, argv, stdin)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["lock_stale_replaced"] is None
+    # No lock, guard or temp file is left beside forge-tier.yaml.
+    assert sorted(p.name for p in tmp_target.parent.iterdir()) == ["forge-tier.yaml"]
+
+
+@pytest.mark.parametrize("call", sorted(LOCKED_CALLS))
+def test_a_held_lock_makes_every_rewrite_exit_3_without_writing(tmp_target, call):
+    _write_tools(tmp_target, _payload_with_arrays())
+    before = tmp_target.read_bytes()
+    _hold_lock(tmp_target)
+    argv, stdin = LOCKED_CALLS[call]
+    start = time.monotonic()
+    result = _run(tmp_target, [*argv, "--lock-timeout", "0.3"], stdin)
+    assert result.returncode == 3, result.stderr
+    assert time.monotonic() - start >= 0.3
+    message = json.loads(result.stderr)["message"]
+    assert "create-skill:other:run-1" in message
+    assert "Nothing was written" in message
+    assert tmp_target.read_bytes() == before
+    assert json.loads(_lock_of(tmp_target).read_text(encoding="utf-8"))["owner"] == \
+        "create-skill:other:run-1"
+
+
+def test_a_user_error_inside_the_lock_still_releases_it(tmp_target):
+    """_die inside the locked section (an unreadable file) must not leave the lock."""
+    tmp_target.write_text("- a list, not a mapping\n", encoding="utf-8")
+    code, _, stderr = _register_qmd(tmp_target, {"name": "x", "type": "brief"})
+    assert code == 2
+    assert "expected mapping" in stderr
+    assert not _lock_of(tmp_target).exists()
+
+
+def test_a_stale_lock_is_replaced_and_reported(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    killed_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    _hold_lock(tmp_target, owner="forge-tier-rw:register-qmd-collection:killed", acquired_at=killed_at)
+    code, response, stderr = _register_qmd(tmp_target, {"name": "after-crash", "type": "brief"})
+    assert code == 0, stderr
+    assert response["lock_stale_replaced"] == {
+        "held_by": "forge-tier-rw:register-qmd-collection:killed",
+        "held_since": killed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    assert [e["name"] for e in _read_yaml_file(tmp_target)["qmd_collections"]] == ["after-crash"]
+    assert not _lock_of(tmp_target).exists()
+
+
+@pytest.mark.parametrize("age", [0, 3600])
+def test_an_empty_lock_file_left_by_flock_is_replaced_at_once(tmp_target, age):
+    """create-skill prose runs `flock -x forge-tier.yaml.lock`, which leaves an empty file.
+
+    The run-lock helper never writes an empty lock, so even a fresh one holds
+    nothing: the call replaces it within a 1-second --lock-timeout instead of
+    waiting the 15 seconds a lock of an unnamed owner takes to go stale.
+    """
+    _write_tools(tmp_target, _baseline_payload())
+    lock = _lock_of(tmp_target)
+    lock.write_bytes(b"")
+    stamp = time.time() - age
+    os.utime(lock, (stamp, stamp))
+    argv, stdin = LOCKED_CALLS["register-qmd-collection"]
+    result = _run(tmp_target, [*argv, "--lock-timeout", "1"], stdin)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["lock_stale_replaced"]["held_by"] is None
+    assert not lock.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="fcntl.flock is POSIX only")
+def test_a_call_inside_a_held_flock_does_not_wait(tmp_target):
+    """What create-skill §6b does: register-ccc-index inside `flock -x forge-tier.yaml.lock`."""
+    import fcntl
+
+    _write_tools(tmp_target, _baseline_payload())
+    argv, stdin = LOCKED_CALLS["register-ccc-index"]
+    with open(_lock_of(tmp_target), "ab") as held:
+        fcntl.flock(held.fileno(), fcntl.LOCK_EX)
+        result = _run(tmp_target, [*argv, "--lock-timeout", "1"], stdin)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["action"] == "appended"
+    assert sorted(p.name for p in tmp_target.parent.iterdir()) == ["forge-tier.yaml"]
+
+
+def test_a_folder_at_the_lock_path_is_an_io_error(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    before = tmp_target.read_bytes()
+    _lock_of(tmp_target).mkdir()
+    code, _, stderr = _register_qmd(tmp_target, {"name": "x-brief", "type": "brief"})
+    assert code == 2
+    assert "folder" in json.loads(stderr)["message"]
+    assert tmp_target.read_bytes() == before
+
+
+def test_a_call_waits_for_a_lock_released_meanwhile(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    run_lock = mod._load_run_lock()
+    lock = _lock_of(tmp_target)
+    holder = "create-skill:other:run-2"
+    assert run_lock.acquire(lock, holder, 3600)["acquired"] is True
+
+    proc = subprocess.Popen(
+        [sys.executable, str(SCRIPT_PATH), "register-qmd-collection",
+         "--target", str(tmp_target), "--lock-timeout", "30"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    proc.stdin.write(json.dumps({"name": "waited-brief", "type": "brief"}))
+    proc.stdin.close()
+    time.sleep(0.8)
+    assert proc.poll() is None, "the call did not wait for the lock"
+    assert run_lock.release(lock, holder)["released"] is True
+
+    stdout = proc.stdout.read()
+    stderr = proc.stderr.read()
+    assert proc.wait(timeout=60) == 0, stderr
+    assert json.loads(stdout)["action"] == "appended"
+    assert [e["name"] for e in _read_yaml_file(tmp_target)["qmd_collections"]] == ["waited-brief"]
+
+
+# Runs a script once a start file exists, so the calls reach the lock together.
+RUNNER = (
+    "import os, runpy, sys, time\n"
+    "go, script = sys.argv[1], sys.argv[2]\n"
+    "while not os.path.exists(go):\n"
+    "    time.sleep(0.002)\n"
+    "sys.argv = sys.argv[2:]\n"
+    "runpy.run_path(script, run_name='__main__')\n"
+)
+
+
+def test_concurrent_registers_lose_no_entry(tmp_target):
+    """Without the lock, calls that read the same file overwrite each other's entry."""
+    _write_tools(tmp_target, _baseline_payload())
+    go = tmp_target.parent / "go"
+    names = [f"skill{i}-extraction" for i in range(8)]
+    procs = []
+    for name in names:
+        proc = subprocess.Popen(
+            [sys.executable, "-c", RUNNER, str(go), str(SCRIPT_PATH),
+             "register-qmd-collection", "--target", str(tmp_target)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        proc.stdin.write(json.dumps({"name": name, "type": "extraction"}))
+        proc.stdin.close()
+        procs.append(proc)
+    time.sleep(0.8)
+    go.write_bytes(b"")
+    for proc in procs:
+        stderr = proc.stderr.read()
+        proc.stdout.read()
+        assert proc.wait(timeout=90) == 0, stderr
+
+    persisted = _read_yaml_file(tmp_target)
+    assert sorted(e["name"] for e in persisted["qmd_collections"]) == sorted(names)
+    assert sorted(p.name for p in tmp_target.parent.iterdir()) == ["forge-tier.yaml", "go"]
+
+
+def test_lock_timeout_must_not_be_negative(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    code, _, stderr = _remove_qmd(tmp_target, "foo", "--lock-timeout", "-1")
+    assert code == 1
+    assert "--lock-timeout" in stderr
+
+
+def _installed_copy(tmp_path: Path, *scripts: str) -> Path:
+    """Copy scripts into an installed layout (_bmad/skf/shared/scripts/)."""
+    scripts_dir = tmp_path / "_bmad" / "skf" / "shared" / "scripts"
+    scripts_dir.mkdir(parents=True)
+    for name in scripts:
+        shutil.copy2(SCRIPT_PATH.parent / name, scripts_dir / name)
+    return scripts_dir / "skf-forge-tier-rw.py"
+
+
+def test_installed_layout_loads_the_sibling_run_lock_helper(tmp_path):
+    script = _installed_copy(tmp_path, "skf-forge-tier-rw.py", "skf-run-lock.py")
+    target = tmp_path / "_bmad" / "_memory" / "forger-sidecar" / "forge-tier.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text(mod.render_forge_tier_yaml(_baseline_payload()), encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(script), "register-qmd-collection", "--target", str(target)],
+        input=json.dumps({"name": "x-brief", "type": "brief"}),
+        capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert [e["name"] for e in _read_yaml_file(target)["qmd_collections"]] == ["x-brief"]
+
+
+def test_a_missing_run_lock_helper_is_an_io_error(tmp_path):
+    script = _installed_copy(tmp_path, "skf-forge-tier-rw.py")
+    target = tmp_path / "forge-tier.yaml"
+    target.write_text(mod.render_forge_tier_yaml(_baseline_payload()), encoding="utf-8")
+    before = target.read_bytes()
+    result = subprocess.run(
+        [sys.executable, str(script), "register-qmd-collection", "--target", str(target)],
+        input=json.dumps({"name": "x-brief", "type": "brief"}),
+        capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 2
+    assert "run-lock helper" in json.loads(result.stderr)["message"]
+    assert target.read_bytes() == before
