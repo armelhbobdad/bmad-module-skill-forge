@@ -1731,7 +1731,9 @@ class TestCandidates:
         ('{"exports": ["alpha"]}', ".export-manifest.json exports is not an object"),
         ("", ".export-manifest.json is not valid JSON ("),
         (b"\xff\xfe{}", ".export-manifest.json is not valid JSON ("),
-        ("[" * 200000, ".export-manifest.json is not valid JSON ("),
+        # An explicit id: pytest copies each test id into PYTEST_CURRENT_TEST,
+        # and Windows refuses an environment variable over 32767 characters.
+        pytest.param("[" * 200000, ".export-manifest.json is not valid JSON (", id="deeply-nested"),
     ])
     def test_a_manifest_of_another_shape_is_a_parse_error(self, tmp_path: Path, manifest, error) -> None:
         _make_skill(tmp_path / "ra" / "active", "ra", metadata={"name": "ra", "exports": ["r"]})
