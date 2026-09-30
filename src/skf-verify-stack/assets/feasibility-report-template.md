@@ -19,6 +19,8 @@ architectureDoc: ''
 prdDoc: ''
 previousReport: ''
 skillsAnalyzed: 0
+coverageCovered: null
+coverageMissing: null
 stepsCompleted: []
 requirementsPass: ''
 requirementsFulfilled: null
@@ -55,9 +57,8 @@ deltaUnchanged: null
 
 ## Integration Verdicts
 
-<!-- Appended by integrations.
-Consumers grep for the `## Integration Verdicts` heading to locate the pair table.
-The table header is fixed and MUST be emitted exactly as shown below: -->
+<!-- Filled in place by integrations: one row per pair goes under this header.
+The report holds this table once: consumers read it and reject a second copy. -->
 
 | lib_a | lib_b | verdict | rationale |
 |-------|-------|---------|-----------|
@@ -72,5 +73,9 @@ The table header is fixed and MUST be emitted exactly as shown below: -->
 
 ## Evidence Sources
 
-<!-- Appended by synthesize — cite each skill's SKILL.md path, metadata_schema_version,
-     confidence_tier, stack manifest (if any), and architecture/PRD doc paths -->
+<!-- Filled in place by synthesize: one row per skill goes under this header (the
+next run's delta reads its evidence_tier column), then the stack manifest (if any)
+and the architecture and PRD document paths. -->
+
+| skill | evidence_tier | confidence_tier | metadata_schema_version | skill_md |
+|-------|---------------|-----------------|-------------------------|----------|

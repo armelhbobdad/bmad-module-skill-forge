@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-verify-stack
+summary: |
+  Verify Stack no longer stops at a vacuous analysis: exit code `8` and halt reason `analysis-halted` are gone. A run with 0% coverage, with every referenced technology marked for removal, or with every integration pair `Blocked` prints one warning and continues, so it ends `NOT_FEASIBLE` with its recommendations in the report, a replacement library or a bridge for each Blocked pair included. The report step no longer ends with the `[R]` review and `[X]` exit menu either: it names the report file, runs `on_complete` and finishes, and you can ask for a walkthrough of any section. A helper the run needs that is missing now halts with exit `3` `resolution-failure` instead of being worked out by hand.
+migration: |
+  Stop branching on exit `8` or `analysis-halted`: such a run now finishes with `overall_verdict` `NOT_FEASIBLE`. To stop one early, cancel at the step 1 prompt (exit `6`) or interrupt it. If a run now stops with exit `3` `resolution-failure`, install `uv` or reinstall SKF so the shared helpers resolve.
+issues: [599]

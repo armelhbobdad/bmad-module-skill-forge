@@ -13,12 +13,17 @@ outputFileLatest: '{outputFolderPath}/feasibility-report-{project_slug}-latest.m
 # first, src/ dev-checkout fallback); first existing path wins. §2 calls
 # it for the deterministic inventory of the skills SKF generated
 # (cascade-resolved exports, metadata-hash for change-detection, the
-# exports-source confidence, and `not_skf_output` for the rest). If neither
-# candidate exists, §2 does NOT halt — it falls through to the LLM-driven
-# subagent fan-out as graceful degradation (see §2).
+# exports-source confidence, the evidence tier, and `not_skf_output` for
+# the rest). If neither candidate exists, §2 halts (resolution-failure).
 enumerateStackSkillsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
   - '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
+# The shared feasibility-report helper holds the slug rule every consumer
+# of this report applies; the section before §1 binds `{project_slug}` from it.
+validateFeasibilityReportProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-validate-feasibility-report.py'
+  - '{project-root}/src/shared/scripts/skf-validate-feasibility-report.py'
+previousReportScript: 'scripts/skf-previous-report.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Initialize the feasibility report skeleton in {document_output_language}. -->
@@ -36,6 +41,14 @@ Load all generated skills from the skills output folder, accept the architecture
 
 ## MANDATORY SEQUENCE
 
+**Bind `{project_slug}`.** Resolve `{validateFeasibilityReportHelper}` from `{validateFeasibilityReportProbeOrder}`; first existing path wins. Run:
+
+```bash
+uv run {validateFeasibilityReportHelper} --locate "{outputFolderPath}" --project-name "{project_name}"
+```
+
+Bind `{project_slug}` ← `projectSlug`, whatever `status` says: this run needs only the slug, and the helper holds the one slug rule that the consumers of this report apply when they look for it. If no candidate exists, or the command prints no JSON: HALT (exit code 3, `halt_reason: "resolution-failure"`); in headless, emit the error envelope.
+
 ### 1. Accept Input Documents
 
 "**Verify Stack — Feasibility Analysis** (read-only — never modifies your skills, architecture doc, or PRD).
@@ -43,7 +56,7 @@ Load all generated skills from the skills output folder, accept the architecture
 If you meant to *generate* skills first, type `cancel` and run `[CS] Create Skill` or `[QS] Quick Skill`. Otherwise, please provide the following:
 1. **Architecture document path** (REQUIRED) — your project's architecture doc
 2. **PRD or vision document path** (OPTIONAL) — for requirements coverage analysis
-3. **Previous feasibility report path** (OPTIONAL) — for delta comparison with a prior run (provide a backup copy)
+3. **Previous feasibility report path** (OPTIONAL): a timestamped report from an earlier run, for delta comparison. Leave it empty to compare against the most recent one found.
 
 Or type `cancel` / `exit` / `:q` at any prompt to abort cleanly."
 
@@ -61,17 +74,20 @@ Wait for user input. **GATE [default: use args]** — If `{headless_mode}` and `
 - If missing → "PRD document not found at `{path}`. Proceeding without PRD — requirements pass will be skipped."
 - Store PRD availability as `prdAvailable: true|false`
 
-**Validate previous report (if provided):**
-- Confirm the file exists and is readable
-- **Collision check:** Resolve `{outputFile}` from the activation-stored `{outputFolderPath}`, `{project_slug}`, and `{timestamp}`. Then compare both the provided path and `{outputFile}` via `(st_dev, st_ino)` tuples obtained from `stat(2)` on each path (do not rely on absolute-path string equality — symlinks, bind mounts, and case-insensitive filesystems can defeat string comparison). If `{outputFile}` does not yet exist, resolve its parent via `realpath`, stat that directory, and combine `(st_dev, parent_ino, basename)` for comparison. If the two paths resolve to the same inode, warn: "The previous report path points to the same inode as the new report. This file will be overwritten during this run. Provide a path to a backup copy, or leave empty to skip delta comparison." HALT (exit code 5, `halt_reason: "previous-report-collision"`) until resolved. In headless, emit the error envelope.
-- If missing → "Previous report not found at `{path}`. Proceeding without delta comparison."
-- Store as `previousReport: {path}` (or empty string if not provided)
+**Resolve the previous report.** Run the previous-report helper, with `--provided` set to the path when `--previous-report` or the prompt gave one, and without it otherwise:
 
-**Auto-discover a prior report (only when none was provided above):** If neither `--previous-report` nor an interactive previous-report path was given, glob `{outputFolderPath}` for `feasibility-report-{project_slug}-*.md`, excluding this run's `{timestamp}` file and `feasibility-report-{project_slug}-latest.md`. Every run writes a new timestamped report, so a usable prior usually already persists on disk with no manual backup. If one or more matches remain, pick the most recent by the embedded `YYYYMMDD-HHmmss` timestamp:
-- Interactive: offer "Found a prior report from `{date}` — compare against it? **[Y]** use it / paste a different path / **[skip]**". On [Y], set `previousReport` to that path; on a pasted path, use it; on `skip`, leave `previousReport` empty.
-- **GATE [default: Y]** — If `{headless_mode}`: auto-select the most recent match, set `previousReport` to it, log: "headless: delta comparison against `{path}`".
-- Excluding this run's `{timestamp}` and `-latest` files guarantees the auto-selected path is a distinct inode from `{outputFile}`, so it can never trip the collision check above.
-- If no match remains, leave `previousReport` empty — first run, no delta.
+```bash
+uv run {previousReportScript} --folder "{outputFolderPath}" --slug "{project_slug}" --timestamp "{timestamp}" [--provided "<path>"]
+```
+
+It never returns a file this run writes: §4 overwrites `{outputFile}` and `{outputFileLatest}` before synthesize reads the previous report, so comparing against either would compare the run with itself. It compares files, not path strings, so a link or another spelling of either file still counts. Without a path it picks the newest timestamped report of this project in `{outputFolderPath}`: every run writes one, so a prior report usually persists with no manual backup. When it prints no JSON (exit 2, a usage error), the line it prints names the flag it rejected: fix that flag's value and run it again. Otherwise branch on `status`:
+
+- `collision` (exit 1): "`{provided}` is `{collidesWith}`, which this run overwrites. Give a timestamped report from an earlier run, or leave the path empty to compare against the most recent one." Interactive: wait for the answer, run the helper again with `--provided` set to it (or without `--provided` for an empty answer), and branch on its `status` as here. In headless, where the path came from `--previous-report`: HALT (exit code 5, `halt_reason: "previous-report-collision"`) and emit the error envelope.
+- `not-found`: "Previous report not found at `{provided}`. Proceeding without delta comparison." Set `previousReport` to empty.
+- `provided`: set `previousReport` to the returned `previousReport`.
+- `discovered` (no path was given): interactive, offer "Found a prior report from `{previousTimestamp}`: compare against it? **[Y]** use it / paste a different path / **[skip]** / **[X]** cancel". On [Y], set `previousReport` to the returned `previousReport`; on a pasted path, run the helper again with `--provided` set to it and branch on its `status` as above; on `skip`, leave `previousReport` empty; on [X], cancel as above (exit code 6).
+  **GATE [default: Y]**: if `{headless_mode}`, set `previousReport` to the returned `previousReport` and log: "headless: delta comparison against `{previousReport}`".
+- `none`: leave `previousReport` empty (first run, no delta).
 
 ### 2. Scan Skills Folder
 
@@ -79,23 +95,21 @@ Wait for user input. **GATE [default: use args]** — If `{headless_mode}` and `
 - If `{skills_output_folder}` does not exist on disk: HALT (exit code 3, `halt_reason: "skills-folder-missing"`) with "**Cannot proceed.** `{skills_output_folder}` does not exist — run **[SF] Setup Forge** to initialize the forge, then generate skills with [CS] or [QS]." In headless, emit the error envelope.
 - If `{skills_output_folder}` exists but is empty (no subdirectories at all): HALT (exit code 3, `halt_reason: "skills-folder-missing"`) with "**Cannot proceed.** `{skills_output_folder}` contains 0 skills. Generate skills with [CS] Create Skill or [QS] Quick Skill, then re-run [VS]." In headless, emit the error envelope.
 
-**Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins.
+**Resolve `{enumerateStackSkillsHelper}`** from `{enumerateStackSkillsProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`); in headless, emit the error envelope.
 
-**Primary path — deterministic enumeration via shared helper:**
+**Enumerate the skills with the shared helper:**
 
 ```bash
 uv run {enumerateStackSkillsHelper} enumerate {skills_output_folder} --reliability
 ```
 
-The helper reads only the skills SKF generated. For each top-level folder (links, dot-names, `_batch` and `.skf-` names aside) it takes the version the `active` link names when that version's `{name}/metadata.json` carries an SKF marker, else the highest version whose `metadata.json` does, else a flat root `SKILL.md` beside a marked `metadata.json`; it never reads the export manifest. It resolves that package's exports from `metadata.json` `exports`, else a `references/*.md` `## API` or `## Exports` section, else a SKILL.md `## Exports` or `## API Surface` section, and follows `composes:` to find cycles. Each `skills[]` entry has `name` (the folder name), `path` (the package, relative to `{skills_output_folder}`: `x/active/x`, `x/<version>/x` or `x`), `exports`, `exports_source` (`metadata`, `references`, `skill-md` or `unknown`), `confidence` (`T1`, `T2` or `T1-low`, from the exports source — not metadata's `confidence_tier`) and `metadata_hash`. `warnings[]` names per-skill problems, each starting `<name>: `: a `metadata.json` or version folder that cannot be read (including one that keeps SKF from telling whether it generated the folder), an SKF package with no `SKILL.md`, no exports found, and `composes` cycles; a folder with no skill in it is skipped silently. Cache the result as `skill_inventory` (used by §3, §4, §5, and the integrations + coverage stages), and bind `{not_skf_output}` ← `not_skf_output`, `{inventory_reliable}` ← `inventory_reliable`, `{warning_count}` ← `warning_count`, `{skill_count}` ← `skill_count` and `{inventory_warnings}` ← `warnings`. When `{not_skf_output}` is non-empty, display it once: "Skipped (not SKF output): {not_skf_output}". Those folders, such as a module's own skills in a shared skills folder, are not in `skills[]` and count toward neither `{skill_count}` nor `{warning_count}`.
+The helper reads only the skills SKF generated. For each top-level folder (links, dot-names, `_batch` and `.skf-` names aside) it takes the version the `active` link names when that version's `{name}/metadata.json` carries an SKF marker, else the highest version whose `metadata.json` does, else a flat root `SKILL.md` beside a marked `metadata.json`; it never reads the export manifest. It resolves that package's exports from `metadata.json` `exports`, else a `references/*.md` `## API` or `## Exports` section, else a SKILL.md `## Exports` or `## API Surface` section, and follows `composes:` to find cycles. Each `skills[]` entry has `name` (the folder name), `path` (the package, relative to `{skills_output_folder}`: `x/active/x`, `x/<version>/x` or `x`), `exports`, `exports_source` (`metadata`, `references`, `skill-md` or `unknown`), `confidence` (`T1`, `T2` or `T1-low`, from the exports source, not metadata's `confidence_tier`), `metadata_hash`, `evidence_tier` (`T1`, `T1-low`, `T2` or `T3`: the largest bin of the package's `confidence_distribution`, one scale for every skill type, which synthesize's delta compares and the report records), `confidence_tier` (metadata.json's value when it belongs to the scale of its `skill_type`, else null), `metadata_schema_version` (metadata.json `spec_version`, or null), and `language` (a string, or a list for a stack) and `exports_documented` (metadata.json `stats.exports_documented`), which the integrations stage reads instead of opening `metadata.json`. `warnings[]` names per-skill problems, each starting `<name>: `: a `metadata.json` or version folder that cannot be read (including one that keeps SKF from telling whether it generated the folder), an SKF package with no `SKILL.md`, no exports found, and `composes` cycles; a folder with no skill in it is skipped silently. Cache the result as `skill_inventory` (used by §3, §4, §5, the coverage and integrations stages, and synthesize's delta and Evidence Sources table), and bind `{not_skf_output}` ← `not_skf_output`, `{inventory_reliable}` ← `inventory_reliable`, `{warning_count}` ← `warning_count`, `{skill_count}` ← `skill_count` and `{inventory_warnings}` ← `warnings`. When `{not_skf_output}` is non-empty, display it once: "Skipped (not SKF output): {not_skf_output}". Those folders, such as a module's own skills in a shared skills folder, are not in `skills[]` and count toward neither `{skill_count}` nor `{warning_count}`.
 
 `--reliability` adds `inventory_reliable` (bool), `unreliable_ratio` (float), `skill_count` and `warning_count`, over the skills SKF generated and their warnings.
 
 **Failure-budget guard:** If `{inventory_reliable}` is false, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) with: "Inventory scan unreliable — {warning_count} warning(s) across {skill_count} skill(s) SKF generated: {inventory_warnings}. Fix the skills named there (re-save an unreadable `metadata.json` as plain UTF-8 JSON or restore it from version control, and regenerate a skill whose exports are missing), then re-run [VS]." In headless, emit the error envelope. The helper's threshold is chosen so a single malformed skill in a small 3-5 skill inventory does not trip the halt.
 
 **Capture mtime:** For each skill in `skill_inventory`, record the modification time of `{skills_output_folder}/{path}/metadata.json` into the entry as `metadata_mtime`. Step-03 will re-verify this to detect mid-run modifications.
-
-**Fallback path — graceful degradation when the helper is unavailable:** If `{enumerateStackSkillsHelper}` has no existing candidate (e.g. partial installation), fall through to the LLM-driven subagent fan-out: launch up to **8 subagents concurrently**, each resolving one top-level folder of `{skills_output_folder}` in the helper's order and returning the helper's entry fields. Only a package whose `metadata.json` carries an SKF marker is a skill: `generated_by` is `quick-skill`, `create-skill` or `create-stack-skill`, `tool_versions` has an `skf` key, or `skill_type` is `single`, `individual` or `stack` together with `forge_tier` or `confidence_tier`. A folder whose packages have no such `metadata.json` goes into `{not_skf_output}` without counting a warning; a `metadata.json` that cannot be read counts as one warning, and so does a marked package with no `SKILL.md` or no exports found. Cache the entries as `skill_inventory`, and bind `{skill_count}` to the number of skills found, `{warning_count}` to the number of warnings counted and `{inventory_warnings}` to those warnings, each starting `<name>: `. Display the skipped line as above. In this branch `inventory_reliable` is unavailable, so compute the failure-budget guard inline: when `{warning_count} / ({skill_count} + {warning_count}) > 0.20`, HALT (exit code 7, `halt_reason: "inventory-unreliable"`) with the same message as the primary path. In headless, emit the error envelope.
 
 ### 3. Validate Minimum Requirements
 
@@ -117,7 +131,7 @@ The helper reads only the skills SKF generated. For each top-level folder (links
 
 This skill produces the feasibility report schema defined in `{feasibilitySchemaRef}`; every output conforms to that schema — `schemaVersion: "1.0"`, the verdict token set (`Verified|Plausible|Risky|Blocked`; overall `FEASIBLE|CONDITIONALLY_FEASIBLE|NOT_FEASIBLE`), the filename pattern, and the section-heading order.
 
-**Filename variables:** `project_slug` and `timestamp` were fixed at activation per SKILL.md On Activation §2; reuse them, do not re-derive. `{outputFile}` and `{outputFileLatest}` resolve from them per the stage frontmatter template — the latter a copy, not a symlink (per schema).
+**Filename variables:** `timestamp` was fixed at activation (SKILL.md On Activation §2) and `project_slug` by the Bind block at the top of this step; reuse them, do not re-derive. `{outputFile}` and `{outputFileLatest}` resolve from them per the stage frontmatter template, the latter as a copy, not a symlink (per schema).
 
 **Load** `{reportTemplatePath}` (the customize-aware template path resolved in SKILL.md On Activation §4) and stage the initial content. Substitute the template's `Schema contract:` line `{feasibilitySchemaRef}` placeholder with the resolved schema path so every emitted report cites a path that exists on the running machine.
 

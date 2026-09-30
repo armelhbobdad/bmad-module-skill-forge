@@ -86,7 +86,7 @@ Build the coverage matrix as a structured table.
 echo '<rows JSON>' | uv run {coverageTallyScript} --stdin
 ```
 
-The script (run `uv run {coverageTallyScript} --help` for the contract) returns `covered_count`, `missing_count`, `replaced_count`, `live_count` (the denominator — Covered + Missing, with Replaced excluded because a technology being removed is not a gap to close), `total_referenced`, and `coverage_percentage` (Replaced excluded from the denominator, half-up rounding pinned so the same matrix always yields the same integer). Consume these values in §5 and §6 rather than recomputing them. If `uv` is unavailable (e.g. claude.ai web), compute the same values inline per the `--help` contract: `live_count = covered + missing`; `coverage_percentage = round-half-up(covered / live_count * 100)`, or `0` when `live_count` is `0`.
+The script (run `uv run {coverageTallyScript} --help` for the contract) returns `covered_count`, `missing_count`, `replaced_count`, `live_count` (the denominator: Covered + Missing, with Replaced excluded because a technology being removed is not a gap to close), `total_referenced`, and `coverage_percentage` (Replaced excluded from the denominator, half-up rounding pinned so the same matrix always yields the same integer). Consume these values in §5, §6 and §7 rather than recomputing them.
 
 ### 4. Detect Extra Skills
 
@@ -137,44 +137,20 @@ Extra and Orphan skills are informational only. They do not affect the coverage 
 **Resolve `{feasibilitySchemaRef}`** from `{feasibilitySchemaProbeOrder}`; first existing path wins (installed SKF module path first, dev-checkout `src/` fallback).
 
 Write the **Coverage Analysis** section to `{outputFile}` (see `{feasibilitySchemaRef}` — section headings are fixed and ordered: `## Executive Summary`, `## Coverage Analysis`, `## Integration Verdicts`, `## Recommendations`, `## Evidence Sources`):
-- Include the full coverage table
+- Include the full coverage table, with the §5 header `| Technology | Source Section | Skill Match | Verdict |` and one token alone in each Verdict cell (`Covered`, `Missing` or `Replaced`): the next run's delta reads the Technology and Verdict columns
 - Include coverage percentage
 - Include missing skill recommendations
 - Include the Replaced (being removed/replaced) subdivision from section 3, with the cited removal evidence — these are not gaps and carry no [CS]/[QS] recommendation
 - Include the Extra (unreferenced) and Orphan (source_repo unresolvable) subdivisions from section 4
-- Update frontmatter: append `'coverage'` to `stepsCompleted`; set `coveragePercentage` to the `coverage_percentage` value from the §3 tally (integer 0..100)
+- Update frontmatter: append `'coverage'` to `stepsCompleted`; from the §3 tally, set `coveragePercentage` ← `coverage_percentage` (integer 0..100), `coverageCovered` ← `covered_count` and `coverageMissing` ← `missing_count` (synthesize's verdict rollup reads the two counts)
 - Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}` and again with `--target {outputFileLatest}`
 
 ### 7. Auto-Proceed to Next Step
 
-{IF live_count is 0 — every referenced technology is marked Replaced:}
-"**⚠️ Every referenced technology is marked for removal/replacement — there is no live technology to verify.** Coverage is reported as 0%; the architecture document describes only technologies being removed, so the stack cannot be assessed as described.
+{IF coverage_percentage is 0:} display one warning line (headless: log it) and continue; the run resolves to `NOT_FEASIBLE` in synthesize, and the report still carries a recommendation for each Missing or Replaced technology:
+- when `live_count` is 0: "**Warning:** every referenced technology is marked for removal or replacement, so nothing live is left to verify. Update the architecture document to describe the technologies that remain, then re-run [VS]."
+- otherwise: "**Warning:** 0% coverage: no generated skill matches a referenced technology, so the integration and requirements passes have nothing to check. Generate skills with [CS] or [QS] for the Missing technologies, then re-run [VS]."
 
-**Recommended:** Update the architecture document to describe the technologies that remain after the pivot, then re-run [VS].
-
-**Select:** [X] Halt workflow (recommended) | [C] Continue anyway"
-
-**GATE [default: C]** — Interactive-only guard. If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: continuing past all-Replaced coverage gate (nothing live to verify)". Headless never takes [X], so step 6 still emits the result contract — the run resolves to `NOT_FEASIBLE` via the synthesize zero-coverage short-circuit.
-
-- IF X: "**Workflow halted.** Coverage Analysis saved to `{outputFile}`. Update the architecture document and re-run [VS] when ready." HALT (exit code 8, `halt_reason: "analysis-halted"`).
-- IF C: "**Continuing — the analysis covers only technologies marked for removal and will be limited.**" Load, read the full file and then execute `{nextStepFile}`.
-
-{IF coveragePercentage is 0% AND live_count > 0:}
-"**⚠️ 0% coverage — no matching skills found for any referenced technology.** All subsequent analysis (integration, requirements) will be vacuous and produce empty tables.
-
-**Recommended:** Generate skills with [CS] or [QS] for your architecture technologies, then re-run [VS].
-
-**Select:** [X] Halt workflow (recommended) | [C] Continue anyway"
-
-**GATE [default: C]** — Interactive-only guard. If `{headless_mode}`: auto-proceed with [C] Continue, log: "headless: continuing past 0%-coverage gate". Headless never takes [X], so step 6 still emits the result contract — the run resolves to `NOT_FEASIBLE` via the synthesize zero-coverage short-circuit.
-
-- IF X: "**Workflow halted.** Coverage Analysis saved to `{outputFile}`. Generate skills and re-run [VS] when ready." HALT (exit code 8, `halt_reason: "analysis-halted"`).
-- IF C: "**Continuing with 0% coverage — results will be limited.**"
-
-  Load, read the full file and then execute `{nextStepFile}`.
-
-{IF coveragePercentage is not 0:}
 "**Proceeding to integration analysis...**"
 
 Load, read the full file and then execute `{nextStepFile}`.
-

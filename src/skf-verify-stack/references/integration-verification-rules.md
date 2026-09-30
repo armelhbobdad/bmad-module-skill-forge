@@ -10,14 +10,14 @@ Rules for cross-referencing API surfaces between two skills to determine integra
 
 Token set is defined canonically in the SKF shared feasibility report schema (`_bmad/skf/shared/references/feasibility-report-schema.md` in installed mode; `src/shared/references/feasibility-report-schema.md` in a dev checkout) — the table below restates the same set with this skill's evidence obligations. Tokens are case-sensitive (`Verified`, `Plausible`, `Risky`, `Blocked`); emitting any other token is a schema violation.
 
-| Verdict       | Meaning                                                                                        | Required Evidence                                                                                                                                                                                                                                                   |
-|---------------|------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Verified**  | APIs demonstrably connect and docs cross-reference each other                                  | Check 1 (language) passes with declared evidence; Check 3 (types) passes from cited `exports` signatures; **Check 4 (docs cross-reference) passes with a literal substring/name citation** — without Check 4 evidence, cap at `Plausible`. Check 2 is best-effort only and cannot by itself promote to `Verified`. |
-| **Plausible** | Checks pass but rely on inferred or indirect evidence                                          | Language + type checks pass; Check 2 uses inferred `protocols_inferred`/`data_formats_inferred` (prose scan); Check 4 is weak or missing (no literal cross-reference). This is the mandatory cap whenever Check 4 does not surface a literal citation.             |
-| **Risky**     | Type mismatch, protocol gap, or language boundary requiring a bridge                           | A clear gap exists (e.g., TypeScript↔Rust FFI needed) but a workaround is architecturally feasible — cite a named workaround in the recommendation                                                                                                                 |
-| **Blocked**   | Fundamental incompatibility — no feasible integration path even with a bridge or adapter layer | The two libraries cannot exchange data in any documented way; requires replacing one of the libraries                                                                                                                                                              |
+| Verdict | Meaning | Required Evidence |
+|---|---|---|
+| **Verified** | APIs demonstrably connect and at least one skill cites the other | Check 1 (language) passes with declared evidence; Check 2 (protocol) flags no risk; Check 3 (types) passes from cited `exports` signatures; **Check 4 (docs cross-reference) passes with a literal substring/name citation** |
+| **Plausible** | The checks pass, but neither skill cites the other | Checks 1 to 3 pass as for `Verified`; Check 4 finds no literal citation, so the Plausible cap below applies |
+| **Risky** | Type mismatch, protocol gap, or language boundary requiring a bridge | A clear gap exists (e.g., TypeScript↔Rust FFI needed) but a workaround is architecturally feasible: cite a named workaround in the recommendation |
+| **Blocked** | Fundamental incompatibility: no feasible integration path even with a bridge or adapter layer | The two libraries cannot exchange data in any documented way; requires replacing one of the libraries |
 
-**Promotion rule:** `Verified` requires Check 4 evidence. If Checks 1 and 3 pass but Check 4 fails (no literal substring/name citation from either skill's SKILL.md), the verdict is capped at `Plausible`. This rule is enforced by step 3 §4 and is the producer obligation declared in the shared schema.
+**Plausible cap:** when Check 4 finds no literal citation in either direction, cap the pair at `Plausible`: it can be `Plausible`, `Risky` or `Blocked`, never `Verified`. This is the only cap. Check 2 reads protocol and data-format tokens inferred from each skill's prose, so it can flag a risk, but it never promotes a pair to `Verified` and never caps one at `Plausible`. A pair whose Checks 1 to 3 pass and whose Check 4 finds a literal citation is `Verified`. This is the producer obligation the shared schema declares.
 
 ---
 
@@ -32,6 +32,7 @@ For each integration pair (Library A ↔ Library B):
 
 ### 2. Protocol Compatibility Check
 
+- Input: each skill's `protocols_inferred` and `data_formats_inferred` tokens, inferred from its SKILL.md prose. Conflicting transports or formats with no adapter in the stack flag a risk. A shared or complementary token (e.g. "HTTP client" and "HTTP server"), or no token on either side, flags none: the tokens are too weak to prove compatibility, and a library pair that names no transport usually calls in-process.
 - Matching transports are compatible modulo format alignment: both in-process → direct calls; both HTTP/REST → compatible if endpoints match; both WebSocket → check message-format compatibility; both shared-filesystem → async, check format.
 - The load-bearing nudge: **two embedded databases may conflict on lock files — check for multi-writer support** before treating them as compatible.
 
@@ -46,8 +47,7 @@ For each integration pair (Library A ↔ Library B):
 - Search Skill A's SKILL.md for a literal substring/name citation of Library B
 - Search Skill B's SKILL.md for the reciprocal citation
 - Accept literal names or aliases declared in that skill's metadata; a paraphrase or fuzzy match does not satisfy Check 4
-- A pass requires at least one literal citation in at least one direction; record the exact substring and location in the evidence block
-- If neither skill literally cites the other, Check 4 fails and the per-pair verdict caps at `Plausible` (not `Verified`)
+- A pass requires at least one literal citation in at least one direction; record the exact substring and location in the evidence block. A fail brings the Plausible cap above into play.
 
 ---
 

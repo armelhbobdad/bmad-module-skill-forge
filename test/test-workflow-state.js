@@ -104,6 +104,14 @@ async function runTests() {
   // Step-05 must write delta fields to frontmatter
   assert(vsStep05.includes('deltaImproved'), 'VS step 5 writes delta fields to frontmatter', 'synthesize.md should set delta* fields');
 
+  // The coverage counts step 2 writes and step 5's verdict rollup reads
+  const vsStep02Coverage = await readFile(path.join(srcDir, 'skf-verify-stack/references/coverage.md'));
+  for (const field of ['coverageCovered', 'coverageMissing']) {
+    assert(templateFields.has(field), `VS template has coverage count field: ${field}`, 'Missing from feasibility-report-template.md');
+    assert(vsStep02Coverage.includes(`\`${field}\``), `VS step 2 writes ${field}`, 'coverage.md should set it from the tally');
+    assert(vsStep05.includes(`\`${field}\``), `VS step 5 reads ${field}`, 'synthesize.md should pass it to the verdict rollup');
+  }
+
   // Requirements fields should init to null (not 0) for proper N/A fallback
   assert(
     vsTemplate.includes('requirementsFulfilled: null'),
@@ -228,18 +236,26 @@ async function runTests() {
   console.log('');
 
   // ============================================================
-  // Test Suite 4: VS Step-03 Early Halt Guard
+  // Test Suite 4: VS Steps 2-3 Continue Past a Vacuous Analysis
   // ============================================================
   console.log(`${colors.yellow}Test Suite 4: VS Step Sequencing Guards${colors.reset}\n`);
 
+  const vsStep02 = await readFile(path.join(srcDir, 'skf-verify-stack/references/coverage.md'));
   const vsStep03 = await readFile(path.join(srcDir, 'skf-verify-stack/references/integrations.md'));
 
-  // Step-03 auto-proceed must be gated (not unconditional after halt guard)
-  assert(
-    vsStep03.includes('{IF NOT halted') || vsStep03.includes('{IF C') || vsStep03.includes('{IF not halted'),
-    'VS step 3 gates auto-proceed after halt guard',
-    'Proceeding message and next-step load must be inside a conditional',
-  );
+  // A 0% coverage or all-Blocked run warns once and continues to synthesize, so
+  // the report still carries its recommendations: no gate halts with exit 8.
+  for (const [number, step] of [
+    ['2', vsStep02],
+    ['3', vsStep03],
+  ]) {
+    assert(
+      !step.includes('analysis-halted') && !step.includes('Continue anyway'),
+      `VS step ${number} has no vacuous-analysis halt gate`,
+      'A degenerate run prints one warning and proceeds; exit 8 analysis-halted is gone',
+    );
+    assert(step.includes('**Warning:**'), `VS step ${number} warns before it proceeds`, 'Expected one warning line');
+  }
 
   console.log('');
 
