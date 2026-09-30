@@ -2,4 +2,5 @@ type: fixed
 scope: skf-create-stack-skill
 summary: |
   Stack Skill's report step no longer forbids every file write while it writes the result contract. Its rules now allow the two result files, the per-run record in `<forge data folder>/<project>-stack/<version>/` and `create-stack-skill-result-latest.json` in `<forge data folder>/<project>-stack/`, and keep the rest of the report on screen, so a run no longer skips the result file that pipelines read. When `skf-atomic-write.py` cannot be found, the report skips the two result files with a warning and finishes instead of halting, and a configured `on_complete` command still runs.
+prs: [618]
 issues: [539]

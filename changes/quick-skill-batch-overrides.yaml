@@ -4,4 +4,5 @@ summary: |
   `--description` and `--exports` no longer combine with `--batch`. A batch run given either flag now stops before its first target with exit code `2` (`error.code` `input-invalid`, `phase` `on-activation`) and writes no batch summary; before, it wrote the same description or export list into every skill in the batch. `--skip-snippet` and `--no-active-pointer` still apply to every target.
 migration: |
   Drop `--description` and `--exports` from `--batch` runs and let each target's extraction supply them. To give a target its own description or export list, run it on its own: `@Ferris QS <target> --description "..."` or `--exports "name1,name2"`.
+prs: [618]
 issues: [609]

@@ -2,4 +2,5 @@ type: fixed
 scope: skf-update-skill
 summary: |
   Update Skill now recomputes the `stats` of a reference app (`scope_type` `reference-app` in `metadata.json`) the way Create Skill computes them: from the number of Pattern Surface rows in `SKILL.md`, keeping `stats.pattern_surfaces_documented`. Before, each update counted provenance citations as documented exports and dropped `stats.pattern_surfaces_documented`, the count Test Skill measures a reference app's coverage with.
+prs: [618]
 issues: [550]

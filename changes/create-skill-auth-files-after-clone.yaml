@@ -2,4 +2,5 @@ type: fixed
 scope: skf-create-skill
 summary: |
   Create Skill now looks for authoritative AI documentation files that a brief's scope leaves out (`llms.txt`, `AGENTS.md` and the like) after it has cloned a remote source, in the workspace or temporary clone, instead of handing the scanner the repository URL, which failed with `source-root not a directory`. When a remote source is not cloned, at Quick tier or after a failed clone, the scan is skipped with a notice that the evidence report also lists.
+prs: [618]
 issues: [525]

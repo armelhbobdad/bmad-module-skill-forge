@@ -2,4 +2,5 @@ type: fixed
 scope: skf-create-skill
 summary: |
   On a Deep-tier run, Create Skill's doc-rot scan now reads the changelog, release, issue and pull request text it fetched from GitHub, also when it reuses a fetch from the last 7 days, and a `## CORRECTION` block it finds there cites the fetched file as `[QMD:<skill>-temporal:<file>]`. The fetched files used to be deleted once they were indexed, and a reused fetch had none, so a deprecation or removal found only in upstream history never became a `## CORRECTION` block, and nothing said so. The files now stay in a `.skf-temporal/` folder inside the skill's folder under `forge_data_folder`, which keeps itself out of git and is replaced only by a later fetch that gets at least one file, so a failed refresh keeps the last good copy. When that folder holds no fetched file, the evidence report says so under Remaining Warnings.
+prs: [618]
 issues: [524]

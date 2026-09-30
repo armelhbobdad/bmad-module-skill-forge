@@ -2,4 +2,5 @@ type: fixed
 scope: skf-create-stack-skill
 summary: |
   Stack Skill moves the library catalog out of `SKILL.md` into `references/stack-catalog.md` for a large stack (more than 6 libraries or more than 6 integration patterns), or when the `SKILL.md` body runs over its 500-line limit. Each library link in that file now names the reference file beside it (`{name}.md`), so the links open instead of pointing into a `references/references/` folder that does not exist. A stack forged before this fix keeps its broken catalog links until you forge it again.
+prs: [618]
 issues: [535]

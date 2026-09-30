@@ -2,4 +2,5 @@ type: fixed
 scope: skf-create-stack-skill
 summary: |
   Stack Skill in compose mode no longer runs the import file-list intersection when it detects integrations. Compose mode counts no imports, so that pass had no input and reported a pruned pair count for an intersection that never ran. Compose mode now goes straight to its own pairs, taken from the architecture document, or from shared domains when there is no architecture document.
+prs: [618]
 issues: [537]
