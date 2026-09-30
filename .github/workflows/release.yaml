@@ -23,8 +23,10 @@ name: Release
 #    branch in its last step. From any other ref (a prerelease), the tag
 #    goes on the CI commit and main does not move.
 # 4. The tag is pushed, npm publishes through OIDC trusted publishing with
-#    provenance under the alpha, beta, rc or latest dist-tag, and the GitHub
-#    Release is created.
+#    provenance under the dist-tag the version step derives from the version
+#    (latest for a stable version, alpha, beta or rc for a prerelease; any
+#    other prerelease id stops the run before anything is written), and the
+#    GitHub Release is created.
 # 5. A stable release then dispatches docs.yaml, which deploys the docs site
 #    at the new tag.
 #
@@ -73,9 +75,13 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     env:
-      # Husky's documented opt-out (.husky/_/h checks this explicitly). The
-      # pre-commit hook runs lint-staged and the full `npm test` suite, which
-      # CI has already run as a required check — skip it for `Commit version bump`.
+      # Keeps the pre-commit hook (lint-staged and the whole `npm test` suite,
+      # which this job has already run) off `Commit version bump`. Husky's
+      # documented opt-out: with HUSKY=0, `npm ci` skips installing the hooks
+      # (the prepare script) and the hook wrapper (.husky/_/h) exits at once.
+      # That step also runs `git commit --no-verify`. Both are there on
+      # purpose: each keeps the hook off alone, so dropping one line cannot
+      # bring the hook back.
       HUSKY: "0"
       # `gh` CLI auth for every gh call in the Story 3.4 PR-auto-merge flow
       # (AC #1–#7) + the tag/merge poll steps. Job-level so every step inherits
@@ -127,6 +133,12 @@ jobs:
         uses: astral-sh/setup-uv@v8.2.0
         with:
           python-version: "3.12"
+          # The uv cache key hashes the files this glob matches. The default
+          # globs (requirements*.txt, pyproject.toml, uv.lock and the like)
+          # match no file here, so setup-uv would warn "No file matched to"
+          # on every run. package.json pins the uv tools, in its scripts'
+          # uvx lintlang@<version> and --with ast-grep-cli==<version>.
+          cache-dependency-glob: package.json
 
       - name: Install dependencies
         run: npm ci
@@ -183,10 +195,47 @@ jobs:
             *)             npm version "$VERSION_BUMP" --no-git-tag-version ;;
           esac
 
+      # Every later step takes the version and the npm dist-tag from here, so
+      # this step fails before marketplace.json, pinned.yaml or CHANGELOG.md
+      # is written when either one is wrong. The version goes into a plain
+      # assignment first: the default `bash -e` shell stops the step when
+      # node fails there, where a failed command substitution inside echo's
+      # argument would not, and an empty new_version would reach the file
+      # writes, the commit and the tag.
+      #
+      # dist_tag is the one npm dist-tag rule, read by the dry-run, the
+      # publish, the GitHub Release's prerelease flag, the docs deploy and
+      # the summary: latest for a stable version, and alpha, beta or rc for a
+      # prerelease whose first identifier is that id. Any other id stops the
+      # run, so a version the rule does not know never goes to latest, the
+      # tag every `npx bmad-module-skill-forge` user gets. The ids are the
+      # prerelease choices of version_bump and PREIDS in tools/changes.js;
+      # keep the three in step.
       - name: Get new version and previous tag
         id: version
         run: |
-          echo "new_version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          # The first prerelease identifier, empty for a stable version.
+          # semver (a devDependency, installed by npm ci) gives the version
+          # back unchanged only when it is valid and in its canonical form:
+          # no leading v, no spaces, no build metadata.
+          if ! PREID=$(NEW_VERSION="$NEW_VERSION" node -e '
+            const semver = require("semver");
+            const version = process.env.NEW_VERSION;
+            if (semver.valid(version) !== version) process.exit(1);
+            process.stdout.write(String((semver.prerelease(version) || [""])[0]));
+          '); then
+            echo "::error::package.json holds the version \"$NEW_VERSION\", which is not a valid semantic version (X.Y.Z or X.Y.Z-<id>.<n>, no build metadata). Nothing was committed, tagged or published."
+            exit 1
+          fi
+          case "$PREID" in
+            "")            DIST_TAG=latest ;;
+            alpha|beta|rc) DIST_TAG=$PREID ;;
+            *)
+              echo "::error::$NEW_VERSION is a prerelease with the id $PREID, and only alpha, beta and rc have an npm dist-tag, so the run stops instead of publishing it to latest. Nothing was committed, tagged or published. Use one of those ids, or add the new one to this step, to version_bump's choices and to PREIDS in tools/changes.js."
+              exit 1
+              ;;
+          esac
           # The last stable tag: prerelease tags are skipped, so the notes and
           # the compare link of every release, prereleases included, start at
           # the last stable release, as the gate's minimum bump does. Only
@@ -194,7 +243,11 @@ jobs:
           # tools/covered-surfaces.js (lastStableTag) runs the same command;
           # keep the two in step.
           PREVIOUS_TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*')
-          echo "previous_tag=$PREVIOUS_TAG" >> "$GITHUB_OUTPUT"
+          {
+            echo "new_version=$NEW_VERSION"
+            echo "dist_tag=$DIST_TAG"
+            echo "previous_tag=$PREVIOUS_TAG"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Update marketplace.json version
         env:
@@ -256,29 +309,33 @@ jobs:
           if [ -s release_review.md ]; then cat release_review.md >> "$GITHUB_STEP_SUMMARY"; fi
           git diff --stat -- CHANGELOG.md
 
+      # npm refuses to publish a prerelease without --tag, so the dry-run
+      # passes the dist-tag the publish below uses: without it, every
+      # prerelease cut stops here. Both read the version step's dist_tag.
       - name: Pre-publish dry-run (catch package validation failures before tag push)
         env:
           # DO NOT REMOVE — FR4 defense-in-depth against stale runner-env token auto-pickup;
           # see docs/_internal/RELEASING.md § npm Trusted Publisher. Paired with the identical override
           # on the final publish step below.
           NPM_TOKEN: ""
-          VERSION: ${{ steps.version.outputs.new_version }}
+          DIST_TAG: ${{ steps.version.outputs.dist_tag }}
         run: |
-          if   [[ "$VERSION" == *"alpha"* ]]; then TAG=alpha
-          elif [[ "$VERSION" == *"beta"*  ]]; then TAG=beta
-          elif [[ "$VERSION" == *"rc"*    ]]; then TAG=rc
-          else                                     TAG=latest
+          if [ -z "$DIST_TAG" ]; then
+            echo "::error::The version step set no dist_tag. Nothing was committed, tagged or published."
+            exit 1
           fi
-          npm publish --dry-run --tag "$TAG"
+          npm publish --dry-run --tag "$DIST_TAG"
 
       - name: Commit version bump
         # `npm version` also rewrites the root version in package-lock.json;
         # leaving it out let the lockfile fall behind package.json.
+        # --no-verify keeps the pre-commit hook off the release commit, as the
+        # job's HUSKY: "0" does; see the comment there for why both stay.
         env:
           NEW_VERSION: ${{ steps.version.outputs.new_version }}
         run: |
           git add package.json package-lock.json .claude-plugin/marketplace.json docs/_data/pinned.yaml CHANGELOG.md
-          git commit -m "release: bump to v$NEW_VERSION"
+          git commit --no-verify -m "release: bump to v$NEW_VERSION"
 
       # -----------------------------------------------------------------
       # Story 3.4 PR-auto-merge flow (main-dispatch only) — issue #198.
@@ -892,13 +949,13 @@ jobs:
           # see docs/_internal/RELEASING.md § npm Trusted Publisher. Paired with the identical override
           # on the pre-publish dry-run step above.
           NPM_TOKEN: ""
-          VERSION: ${{ steps.version.outputs.new_version }}
+          DIST_TAG: ${{ steps.version.outputs.dist_tag }}
         run: |
-          if   [[ "$VERSION" == *"alpha"* ]]; then npm publish --tag alpha
-          elif [[ "$VERSION" == *"beta"*  ]]; then npm publish --tag beta
-          elif [[ "$VERSION" == *"rc"*    ]]; then npm publish --tag rc
-          else                                     npm publish --tag latest
+          if [ -z "$DIST_TAG" ]; then
+            echo "::error::The version step set no dist_tag, so nothing was published. The tag is pushed: recover as in Scenario D of docs/_internal/RELEASING.md."
+            exit 1
           fi
+          npm publish --tag "$DIST_TAG"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
@@ -908,7 +965,8 @@ jobs:
           # Written by the "Write release notes and CHANGELOG.md" step from the change fragments.
           body_path: release_notes.md
           draft: false
-          prerelease: ${{ contains(steps.version.outputs.new_version, 'alpha') || contains(steps.version.outputs.new_version, 'beta') || contains(steps.version.outputs.new_version, 'rc') }}
+          # Every dist-tag but latest is a prerelease line.
+          prerelease: ${{ steps.version.outputs.dist_tag != 'latest' }}
 
       # The docs site shows the latest stable release, so a stable release
       # deploys it at the new tag and a prerelease leaves it alone. The GitHub
@@ -922,7 +980,7 @@ jobs:
       # and names the command that deploys by hand.
       - name: Deploy the docs site at the new tag
         id: docs
-        if: github.ref == 'refs/heads/main' && !(contains(steps.version.outputs.new_version, 'alpha') || contains(steps.version.outputs.new_version, 'beta') || contains(steps.version.outputs.new_version, 'rc'))
+        if: github.ref == 'refs/heads/main' && steps.version.outputs.dist_tag == 'latest'
         continue-on-error: true
         env:
           NEW_VERSION: ${{ steps.version.outputs.new_version }}
@@ -941,6 +999,7 @@ jobs:
         # or the non-main-dispatch tag-only path ran.
         env:
           NEW_VERSION: ${{ steps.version.outputs.new_version }}
+          DIST_TAG: ${{ steps.version.outputs.dist_tag }}
           TEMP_BRANCH: ${{ steps.temp_push.outputs.temp_branch }}
           PR_URL: ${{ steps.open_pr.outputs.pr_url }}
           AUTH_PATH: ${{ steps.wait_approval.outputs.authorization_path }}
@@ -957,12 +1016,12 @@ jobs:
           {
             echo "## 🎉 Released v$NEW_VERSION"
             echo
-            echo "**npm**: https://www.npmjs.com/package/bmad-module-skill-forge/v/$NEW_VERSION"
+            echo "**npm**: https://www.npmjs.com/package/bmad-module-skill-forge/v/$NEW_VERSION (dist-tag \`$DIST_TAG\`)"
             echo "**GitHub**: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/v$NEW_VERSION"
             echo "**Provenance**: auto-attached via OIDC trusted publishing"
             if [ "$DOCS_DEPLOY" = "dispatched" ]; then
               echo "**Docs site**: deploy at v$NEW_VERSION dispatched (docs.yaml)"
-            elif [[ "$NEW_VERSION" == *"alpha"* || "$NEW_VERSION" == *"beta"* || "$NEW_VERSION" == *"rc"* ]]; then
+            elif [ "$DIST_TAG" != "latest" ]; then
               echo "**Docs site**: unchanged (a prerelease does not deploy it)"
             else
               echo "**Docs site**: not deployed; deploy it by hand with \`gh workflow run docs.yaml -f ref=v$NEW_VERSION\`"

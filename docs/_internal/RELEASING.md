@@ -236,6 +236,8 @@ A prerelease writes only `release_notes.md` and leaves `CHANGELOG.md` alone, so 
 
 `npm version prerelease` moves only the patch number of a stable version (`2.2.0` with `rc` gives `2.2.1-rc.0`), so a prerelease dispatched from a stable version cannot reach a minor or major minimum. The gate then refuses and names the version to set by hand, such as `3.0.0-rc.0`. Set it in `package.json`, `package-lock.json`, `.claude-plugin/marketplace.json` and `docs/_data/pinned.yaml` (its `skf_version` must match `package.json`) in a pull request, as the v1.0.0 RCs did (`3fc1f009`), then dispatch `rc`: the first RC published is `3.0.0-rc.1`. Dispatch `major` to go from the last RC to `3.0.0`. A release that needs no RC dispatches `major` or `minor` directly.
 
+The npm dist-tag comes from the version, in the `Get new version and previous tag` step of `release.yaml`: `latest` for a stable version, and `alpha`, `beta` or `rc` for a prerelease whose first identifier is that id (`3.0.0-rc.1` goes to `rc`). The dry-run, the publish, the GitHub Release's prerelease flag and the docs deploy all read that one `dist_tag`. The step stops the run, before `marketplace.json`, `pinned.yaml` or `CHANGELOG.md` is written, when the version is not a valid semantic version or is a prerelease with any other id, so a version the rule does not know is never published to `latest`. A new prerelease channel therefore takes an edit to that step as well as to the `version_bump` choices and `PREIDS` in `tools/changes.js`.
+
 ### The docs site
 
 The docs site (GitHub Pages, built and deployed by [`docs.yaml`](../../.github/workflows/docs.yaml)) shows the latest stable release, not `main`. A merge to `main` does not deploy it: `docs.yaml` has no push trigger. At the end of a stable release (`patch`, `minor` or `major`), once the GitHub Release is created, `release.yaml` dispatches `docs.yaml` with `ref` set to the new tag, so the site changes when the package does. A prerelease leaves the site alone.
@@ -341,8 +343,9 @@ Placeholder substitutions used throughout:
   # Warn immediately — every install of <bad> now prints this string.
   npm deprecate bmad-module-skill-forge@<bad> "Critical bug - use <next_version> instead"
 
-  # Cut the fix forward. release.yaml's dist-tag case-chain auto-updates `latest`
-  # for non-prerelease versions, so no manual `dist-tag add` is needed here.
+  # Cut the fix forward. A stable version publishes under the `latest`
+  # dist-tag (the dist_tag of release.yaml's version step), so no manual
+  # `dist-tag add` is needed here.
   gh workflow run release.yaml -f version_bump=patch
   ```
 

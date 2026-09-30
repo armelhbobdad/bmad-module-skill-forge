@@ -97,6 +97,12 @@ jobs:
         uses: astral-sh/setup-uv@v8.2.0
         with:
           python-version: "3.12"
+          # The uv cache key hashes the files this glob matches. The default
+          # globs (requirements*.txt, pyproject.toml, uv.lock and the like)
+          # match no file here, so setup-uv would warn "No file matched to"
+          # on every run. package.json pins the uv tools, in its scripts'
+          # uvx lintlang@<version> and --with ast-grep-cli==<version>.
+          cache-dependency-glob: package.json
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -310,6 +316,8 @@ jobs:
         uses: astral-sh/setup-uv@v8.2.0
         with:
           python-version: "3.11"
+          # Keyed on package.json, as in the lintlang job.
+          cache-dependency-glob: package.json
 
       - name: Setup Node
         uses: actions/setup-node@v6

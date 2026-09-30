@@ -1,0 +1,5 @@
+type: docs
+summary: |
+  `docs/_internal/STABILITY.md`, the SemVer contract that ships in the npm package, now states the contract for 3.0.0: it took effect at v1.0.0, was last amended at v3.0.0, and its pinning example is `^3.0.0`. Its requirement words follow BCP 14 (RFC 2119 and RFC 8174): MUST, SHOULD, MAY and the other keywords carry that meaning only when written in capitals. Its `@internal` list now matches the release check: it no longer says that workflow exit codes, `halt_reason` and `error.phase` values or preference keys can change in any release, because each release reviews them and a new exit code or preference key needs at least a minor release. The `SKILL.md` description rule now says what `validate:skills` checks (rule `SKILL-06`): at most 1024 characters, with a `Use when` or `Use if` clause.
+prs: [620]
+issues: [573]

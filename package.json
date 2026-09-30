@@ -27,7 +27,6 @@
   },
   "license": "MIT",
   "author": "armelhbobdad",
-  "main": "tools/cli/skf-cli.js",
   "bin": {
     "bmad-module-skill-forge": "tools/skf-npx-wrapper.js"
   },
@@ -58,7 +57,7 @@
     "test:docs-links-tool": "node test/test-validate-docs-links.js",
     "test:em-dash-tool": "node test/test-validate-no-em-dash.js",
     "test:file-refs-tool": "node test/test-validate-file-refs.js",
-    "test:install": "node test/test-installation-components.js",
+    "test:install": "node test/test-installation-components.js && node test/test-pack-contents.js",
     "test:knowledge": "node test/test-knowledge-base.js",
     "test:python": "uv run --with pytest --with pyyaml --with jsonschema --with ast-grep-cli==0.45.3 pytest test -o \"python_files=test-*.py test_*.py *_test.py\" -v",
     "test:rehype": "node test/test-rehype-markdown-links.js",

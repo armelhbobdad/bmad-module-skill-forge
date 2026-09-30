@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""release.yaml: the retry-safe check wait and the cleanup after a failed run.
+"""release.yaml: the retry-safe check wait, the cleanup after a failed run,
+and the version, dist-tag and commit steps.
 
-Issue #563. The main-dispatch path of .github/workflows/release.yaml only
-runs for real on a `--ref main` dispatch, which is also a real npm publish,
-so these tests run the steps' own `run:` scripts instead. Each script is
-read from the workflow with PyYAML and run under `bash -e`, the runner's
-default shell, with stub `gh`, `git` and `sleep` commands first on PATH. A
-stub answers from a list of rules the test gives (first matching rule wins,
-each rule answers its calls in order and repeats its last answer) and logs
-every call, so a test can assert what the step asked GitHub to do and how
-often it waited.
+Issues #563 and #564. The main-dispatch path of .github/workflows/release.yaml
+only runs for real on a `--ref main` dispatch, which is also a real npm
+publish, so these tests run the steps' own `run:` scripts instead. Each
+script is read from the workflow with PyYAML and run under `bash -e`, the
+runner's default shell, with stub `gh`, `git`, `npm` and `sleep` commands
+first on PATH. A stub answers from a list of rules the test gives (first
+matching rule wins, each rule answers its calls in order and repeats its
+last answer) and logs every call, so a test can assert what the step asked
+GitHub or npm to do and how often it waited.
 
 A failed `gh api --paginate --slurp` call exits 1 but still prints an array,
 because gh closes it on the way out: `[]` when no page arrived, the pages
@@ -37,9 +38,22 @@ Covers:
   - Every retry loop: the last try neither says it retries nor waits
   - No failure message in the workflow says the PR was left open, and no
     paginated read filters page by page or pipes gh straight into jq
+  - Get new version and previous tag: new_version, dist_tag and
+    previous_tag, written only for a valid version; latest for a stable
+    version and alpha, beta or rc for those prerelease ids, each prerelease
+    choice of version_bump included; any other id, an invalid or missing
+    version and an unreadable package.json stop the step before anything
+    is written, and it runs before every step that writes a file from it
+  - The dry-run, the publish, the Release's prerelease flag, the docs deploy
+    and the summary read dist_tag, no substring test on the version is left,
+    and npm never runs without a dist_tag
+  - Commit version bump: git commit --no-verify, with HUSKY "0" still at job
+    level
+  - setup-uv, in every workflow: its cache-dependency-glob matches a file
 
 The behaviour tests need bash and jq (both on the GitHub-hosted Ubuntu
-runner) and are skipped on Windows.
+runner) and are skipped on Windows. The version step's tests also need node
+and the semver devDependency (npm ci), found through NODE_PATH.
 """
 
 from __future__ import annotations
@@ -69,17 +83,33 @@ TEMP_PUSH = "Push commit to temp branch"
 CANCEL = "Cancel action_required pull_request runs on bot PR head"
 WAIT = "Wait for required status checks"
 CLEANUP = "Close the bot PR and delete its branch after a failed run"
+VERSION = "Get new version and previous tag"
+DRY_RUN = "Pre-publish dry-run (catch package validation failures before tag push)"
+COMMIT = "Commit version bump"
+PUBLISH = "Publish to npm via OIDC trusted publishing"
+GH_RELEASE = "Create GitHub Release"
+DOCS = "Deploy the docs site at the new tag"
+SUMMARY = "Summary"
 
 needs_shell = pytest.mark.skipif(
     os.name == "nt" or shutil.which("bash") is None or shutil.which("jq") is None,
     reason="the step scripts run under bash and jq, as on the Ubuntu runner",
 )
 
-# One stub for gh and git, called with the tool's name first: its rules are
-# in <STUB_DIR>/<name>.json. A rule matches when its `match` is a substring
-# of the joined arguments. An answer may remove files in STUB_DIR (the tests
-# use a file named `branch` for "the temp branch is on origin"), and an
-# answer with `stdout_if` prints its stdout only while that file exists.
+# The version step runs node with the semver devDependency, which npm ci
+# installs on the runner; its tests find it through NODE_PATH.
+NODE_MODULES = REPO_ROOT / "node_modules"
+needs_node = pytest.mark.skipif(
+    shutil.which("node") is None or not (NODE_MODULES / "semver").is_dir(),
+    reason="the version step runs node with the semver devDependency (npm ci)",
+)
+
+# One stub for gh, git and npm, called with the tool's name first: its rules
+# are in <STUB_DIR>/<name>.json. A rule matches when its `match` is a
+# substring of the joined arguments. An answer may remove files in STUB_DIR
+# (the tests use a file named `branch` for "the temp branch is on origin"),
+# and an answer with `stdout_if` prints its stdout only while that file
+# exists.
 STUB = """\
 import json, os, sys
 d = os.environ["STUB_DIR"]
@@ -154,6 +184,7 @@ def run_step(
     gh: list[dict] | None = None,
     git: list[dict] | None = None,
     branch_on_origin: bool = False,
+    npm: list[dict] | None = None,
 ) -> Result:
     stub_dir = tmp_path / "stub"
     bin_dir = tmp_path / "bin"
@@ -161,7 +192,7 @@ def run_step(
     bin_dir.mkdir()
     stub_py = stub_dir / "stub.py"
     stub_py.write_text(STUB, encoding="utf-8")
-    for tool, rules in (("gh", gh), ("git", git)):
+    for tool, rules in (("gh", gh), ("git", git), ("npm", npm)):
         exe = bin_dir / tool
         exe.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{stub_py}" {tool} "$@"\n', encoding="utf-8")
         exe.chmod(0o755)
@@ -780,3 +811,245 @@ def test_paginated_reads_are_slurped_not_filtered_per_page():
             if "--paginate" in line and not line.strip().startswith("#"):
                 assert "--slurp" in line and "--jq" not in line, f"{s['name']}: {line.strip()}"
                 assert not re.search(r"--slurp.*\|\s*jq", line), f"{s['name']}: {line.strip()}"
+
+
+# --------------------------------------------------------------------------
+# Get new version and previous tag, and the steps that read its dist_tag
+# --------------------------------------------------------------------------
+
+
+def run_version_step(tmp_path: Path, version: str | None) -> Result:
+    """Run the version step on a package.json holding `version` (None: no version key)."""
+    package = {"name": "bmad-module-skill-forge"}
+    if version is not None:
+        package["version"] = version
+    (tmp_path / "package.json").write_text(json.dumps(package), encoding="utf-8")
+    git = [{"match": "describe --tags --abbrev=0 --match v[0-9]* --exclude *-*", "answers": [ok("v2.2.0\n")]}]
+    return run_step(tmp_path, VERSION, {"NODE_PATH": str(NODE_MODULES)}, git=git)
+
+
+def version_bump_choices() -> list[str]:
+    workflow = load_workflow()
+    # PyYAML reads the bare `on:` key as the boolean true.
+    trigger = workflow.get("on", workflow.get(True))
+    return trigger["workflow_dispatch"]["inputs"]["version_bump"]["options"]
+
+
+@needs_shell
+@needs_node
+@pytest.mark.parametrize(
+    ("version", "dist_tag"),
+    [
+        pytest.param("3.0.0", "latest", id="stable"),
+        pytest.param("3.0.0-alpha.0", "alpha", id="alpha"),
+        pytest.param("3.0.0-beta.2", "beta", id="beta"),
+        pytest.param("3.0.0-rc.1", "rc", id="rc"),
+        pytest.param("3.0.0-rc", "rc", id="rc without a number"),
+    ],
+)
+def test_version_step_outputs_the_version_and_its_dist_tag(tmp_path, version, dist_tag):
+    result = run_version_step(tmp_path, version)
+    assert result.code == 0, result.out
+    assert result.output == f"new_version={version}\ndist_tag={dist_tag}\nprevious_tag=v2.2.0\n"
+
+
+@needs_shell
+@needs_node
+def test_every_prerelease_choice_of_version_bump_has_its_dist_tag(tmp_path):
+    # A prerelease choice the rule does not list would stop every cut of
+    # that channel, so the choices and the rule move together.
+    prereleases = [choice for choice in version_bump_choices() if choice not in ("patch", "minor", "major")]
+    assert prereleases
+    for choice in prereleases:
+        run_dir = tmp_path / choice
+        run_dir.mkdir()
+        result = run_version_step(run_dir, f"3.0.0-{choice}.0")
+        assert result.code == 0, result.out
+        assert f"\ndist_tag={choice}\n" in result.output
+
+
+@needs_shell
+@needs_node
+@pytest.mark.parametrize(
+    ("version", "preid"),
+    [
+        pytest.param("3.0.0-next.0", "next", id="unknown id"),
+        pytest.param("3.0.0-0", "0", id="numeric id"),
+        pytest.param("3.0.0-latest.0", "latest", id="id named latest"),
+        pytest.param("3.0.0-RC.1", "RC", id="uppercase id"),
+        # A substring test sent these two to alpha and rc.
+        pytest.param("3.0.0-alphabet.0", "alphabet", id="id holding alpha"),
+        pytest.param("3.0.0-source.1", "source", id="id holding rc"),
+    ],
+)
+def test_version_step_fails_on_any_other_prerelease_id(tmp_path, version, preid):
+    result = run_version_step(tmp_path, version)
+    assert result.code == 1, result.out
+    message = (
+        f"::error::{version} is a prerelease with the id {preid}, "
+        "and only alpha, beta and rc have an npm dist-tag, so the run stops instead of publishing it to latest."
+    )
+    assert message in result.out
+    assert result.output == ""
+    assert not result.called("git")
+
+
+@needs_shell
+@needs_node
+@pytest.mark.parametrize(
+    ("version", "shown"),
+    [
+        pytest.param("", "", id="empty"),
+        pytest.param(None, "undefined", id="no version key"),
+        pytest.param("v3.0.0", "v3.0.0", id="leading v"),
+        pytest.param(" 3.0.0", " 3.0.0", id="leading space"),
+        pytest.param("3.0", "3.0", id="two parts"),
+        pytest.param("3.0.0.0", "3.0.0.0", id="four parts"),
+        pytest.param("03.0.0", "03.0.0", id="leading zero"),
+        pytest.param("3.0.0-rc.01", "3.0.0-rc.01", id="leading zero in the prerelease"),
+        pytest.param("3.0.0+build.1", "3.0.0+build.1", id="build metadata"),
+    ],
+)
+def test_version_step_fails_on_an_invalid_version(tmp_path, version, shown):
+    result = run_version_step(tmp_path, version)
+    assert result.code == 1, result.out
+    assert f'::error::package.json holds the version "{shown}", which is not a valid semantic version' in result.out
+    assert result.output == ""
+    assert not result.called("git")
+
+
+@needs_shell
+@needs_node
+def test_version_step_stops_when_package_json_cannot_be_read(tmp_path):
+    # Inside echo's argument, the failed read wrote new_version= and the
+    # step went on; the plain assignment stops it.
+    git = [{"match": "describe --tags", "answers": [ok("v2.2.0\n")]}]
+    result = run_step(tmp_path, VERSION, {"NODE_PATH": str(NODE_MODULES)}, git=git)
+    assert result.code != 0, result.out
+    assert result.output == ""
+    assert not result.called("git")
+
+
+def test_version_step_runs_before_every_file_it_feeds_is_written():
+    names = [s.get("name") for s in steps()]
+    at = names.index(VERSION)
+    assert names.index("Bump version") < at
+    writers = [
+        "Update marketplace.json version",
+        "Update docs/_data/pinned.yaml skf_version",
+        "Write release notes and CHANGELOG.md",
+    ]
+    for writer in writers:
+        assert at < names.index(writer), writer
+
+
+def test_one_dist_tag_drives_the_publish_the_release_and_the_docs():
+    dist_tag = "${{ steps.version.outputs.dist_tag }}"
+    for name in (DRY_RUN, PUBLISH, SUMMARY):
+        assert step(name)["env"]["DIST_TAG"] == dist_tag, name
+    for name in (DRY_RUN, PUBLISH):
+        assert step(name)["env"]["NPM_TOKEN"] == "", name
+    assert step(GH_RELEASE)["with"]["prerelease"] == "${{ steps.version.outputs.dist_tag != 'latest' }}"
+    assert step(DOCS)["if"] == "github.ref == 'refs/heads/main' && steps.version.outputs.dist_tag == 'latest'"
+
+
+def test_no_substring_test_on_the_version_is_left():
+    # A substring match on the version sent an id it did not list, or an
+    # empty version, to latest.
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert not re.search(r"contains\(\s*steps\.version\.outputs\.new_version", text)
+    assert not re.search(r"\*\"?(alpha|beta|rc)\"?\*", text)
+
+
+NPM_RULES = [{"match": "publish", "answers": [ok("")]}]
+
+
+@needs_shell
+@pytest.mark.parametrize(
+    ("name", "args"),
+    [
+        pytest.param(DRY_RUN, ["publish", "--dry-run", "--tag"], id="dry-run"),
+        pytest.param(PUBLISH, ["publish", "--tag"], id="publish"),
+    ],
+)
+@pytest.mark.parametrize("dist_tag", ["latest", "alpha", "beta", "rc"])
+def test_npm_publishes_under_the_dist_tag(tmp_path, name, args, dist_tag):
+    result = run_step(tmp_path, name, {"DIST_TAG": dist_tag, "NPM_TOKEN": ""}, npm=NPM_RULES)
+    assert result.code == 0, result.out
+    assert result.called("npm") == [["npm", *args, dist_tag]]
+
+
+@needs_shell
+@pytest.mark.parametrize("name", [pytest.param(DRY_RUN, id="dry-run"), pytest.param(PUBLISH, id="publish")])
+def test_npm_does_not_run_without_a_dist_tag(tmp_path, name):
+    result = run_step(tmp_path, name, {"DIST_TAG": "", "NPM_TOKEN": ""}, npm=NPM_RULES)
+    assert result.code == 1, result.out
+    assert "::error::The version step set no dist_tag" in result.out
+    assert not result.called("npm")
+
+
+@needs_shell
+@pytest.mark.parametrize(
+    ("version", "dist_tag", "docs", "line"),
+    [
+        pytest.param(
+            "3.0.0",
+            "latest",
+            "dispatched",
+            "**Docs site**: deploy at v3.0.0 dispatched (docs.yaml)",
+            id="stable, deployed",
+        ),
+        pytest.param(
+            "3.0.0", "latest", "failed", "**Docs site**: not deployed; deploy it by hand", id="stable, not deployed"
+        ),
+        pytest.param(
+            "3.0.0-rc.1", "rc", "", "**Docs site**: unchanged (a prerelease does not deploy it)", id="prerelease"
+        ),
+    ],
+)
+def test_summary_reads_the_dist_tag(tmp_path, version, dist_tag, docs, line):
+    result = run_step(tmp_path, SUMMARY, {"NEW_VERSION": version, "DIST_TAG": dist_tag, "DOCS_DEPLOY": docs})
+    assert result.code == 0, result.out
+    assert f"bmad-module-skill-forge/v/{version} (dist-tag `{dist_tag}`)" in result.summary
+    assert line in result.summary
+
+
+# --------------------------------------------------------------------------
+# Commit version bump, and setup-uv in every workflow
+# --------------------------------------------------------------------------
+
+
+@needs_shell
+def test_commit_skips_the_pre_commit_hook(tmp_path):
+    git = [{"match": "add ", "answers": [ok("")]}, {"match": "commit ", "answers": [ok("")]}]
+    result = run_step(tmp_path, COMMIT, {"NEW_VERSION": "3.0.0"}, git=git)
+    assert result.code == 0, result.out
+    assert result.called("git", "commit") == [["git", "commit", "--no-verify", "-m", "release: bump to v3.0.0"]]
+
+
+def test_husky_opt_out_stays_at_job_level():
+    # With --no-verify, either one alone keeps the hook off the release commit.
+    assert load_workflow()["jobs"]["release"]["env"]["HUSKY"] == "0"
+    assert "git commit --no-verify " in step(COMMIT)["run"]
+
+
+def test_setup_uv_keys_its_cache_on_files_that_exist():
+    # setup-uv hashes the files its cache-dependency-glob matches into the
+    # cache key. The default globs (requirements*.txt, pyproject.toml,
+    # uv.lock and the like) match no file here, so every run warned "No
+    # file matched to"; package.json is where the uv tools are pinned.
+    workflows = REPO_ROOT / ".github" / "workflows"
+    found = []
+    for path in sorted([*workflows.glob("*.yaml"), *workflows.glob("*.yml")]):
+        for job_id, job in yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"].items():
+            for s in job.get("steps", []):
+                if not str(s.get("uses", "")).startswith("astral-sh/setup-uv@"):
+                    continue
+                where = f"{path.name} {job_id}"
+                globs = str((s.get("with") or {}).get("cache-dependency-glob", ""))
+                patterns = [p.strip() for p in globs.splitlines() if p.strip()]
+                assert patterns, f"{where}: setup-uv has no cache-dependency-glob"
+                for pattern in patterns:
+                    assert any(REPO_ROOT.glob(pattern)), f"{where}: {pattern} matches no file"
+                found.append(where)
+    assert {"release.yaml release", "quality.yaml lintlang", "quality.yaml python"} <= set(found)
