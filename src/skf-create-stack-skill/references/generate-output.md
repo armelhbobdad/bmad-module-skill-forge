@@ -34,7 +34,7 @@ Write all deliverable and workspace artifact files to their target directories.
 
 ## Rules
 
-- Write all output files in correct directory structure — do not modify compiled content from Step 06
+- Write all output files in correct directory structure. Keep the compiled content from Step 06 as approved, except for the fixes the §8 pre-commit gate makes in staging
 - Create directory structure before writing files
 - Report each file written with path and size
 
@@ -126,13 +126,13 @@ Also create the forge workspace directory directly (these are workspace artifact
 mkdir -p {forge_version}
 ```
 
-**Rollback contract:** If ANY write in sections 2–7 below fails, immediately run:
+**Rollback contract:** If ANY write in sections 2–8b below fails, immediately run:
 
 ```bash
 python3 {atomicWriteHelper} commit-dir --rollback --target {skill_package}
 ```
 
-Then abort (see B7): purge any `{forge_version}/*-tmp` staging artifacts, emit the result envelope on stderr per the Result Contract in SKILL.md, and halt the workflow. This is the single rollback exit shared by §7 (workspace-write failure) and §9 (commit-dir failure):
+Then abort (see B7): purge any `{forge_version}/*-tmp` staging artifacts, emit the result envelope on stderr per the Result Contract in SKILL.md, and halt the workflow. This is the single rollback exit shared by §7 and §8b (workspace-write failures) and §9 (commit-dir failure):
 
 ```
 SKF_STACK_RESULT_JSON: {"status":"error","skill_package":null,"skill_name":"{project_name}-stack","stack_libraries":["<confirmed-lib>", "..."],"mode":"{code|compose}","exit_code":4,"halt_reason":"write-failure"}
@@ -153,7 +153,7 @@ Load structure from `{stackSkillTemplatePath}` references section:
 - Usage patterns with file:line citations (**in compose-mode**: usage patterns from source skill SKILL.md)
 - Confidence tier label
 
-**If the catalog was extracted** (large stack — step 06 §4 placed the `Library Reference Index` + `Per-Library Summaries` out of SKILL.md), also write `{skill_staging}/references/stack-catalog.md` using the structure in `{stackSkillTemplatePath}`, and confirm SKILL.md carries the inline pointer instead of the two sections. Small stacks keep the catalog inline and write no `stack-catalog.md`.
+**If the catalog was extracted** (large stack: step 06 §4 placed the `Library Reference Index` + `Per-Library Summaries` out of SKILL.md), also write `{skill_staging}/references/stack-catalog.md` using the structure in `{stackSkillTemplatePath}`, and confirm SKILL.md carries the inline pointer instead of the two sections. The catalog sits in `references/`, so its links to the per-library files are file-relative, `[ref]({name}.md)`: a `references/{name}.md` link there would resolve to `references/references/{name}.md`. Small stacks keep the catalog inline and write no `stack-catalog.md`.
 
 ### 4. Stage Integration Pair Reference Files
 
@@ -204,11 +204,10 @@ Write `{skill_staging}/metadata.json`, populating every field from the metadata.
 
 ### 7. Write Forge Data Artifacts (Workspace)
 
-Write workspace artifacts directly to `{forge_version}` (these are workspace-only, not part of the skill package — no staging required). Each individual file MUST be written via `skf-atomic-write.py write` to avoid partial-write corruption:
+Write workspace artifacts directly to `{forge_version}` (they are workspace-only, not part of the skill package, so they need no staging). Each individual file MUST be written via `skf-atomic-write.py write` to avoid partial-write corruption. This section writes `provenance-map.json`; §8b writes `evidence-report.md` after the §8 gate, so the report lists the warnings the gate records:
 
 ```bash
 <json-content> | python3 {atomicWriteHelper} write --target {forge_version}/provenance-map.json
-<md-content>   | python3 {atomicWriteHelper} write --target {forge_version}/evidence-report.md
 ```
 
 If any workspace write fails, invoke the rollback contract from §1.
@@ -221,12 +220,6 @@ Use the schema from `{provenanceMapSchemaPath}` — see that asset for the canon
 - **In compose-mode:** use the compose-mode variant (source-anchor fields `null`; `extraction_method = "compose-from-skill"`; `detection_method ∈ "architecture_co_mention|constituent_documented_contract|inferred_from_shared_domain"`; includes the additional `constituents[]` array for drift detection).
 
 Populate compose-mode `constituents[].metadata_hash` from the value stored in workflow state at step 2 (S13), not a fresh re-hash at step-7 time — `{provenanceMapSchemaPath}` carries the rationale for why the manifest-detection-time hash is the correct provenance anchor.
-
-**evidence-report.md:**
-- Extraction summary per library
-- Integration detection results per pair
-- Warnings and failures encountered
-- Confidence tier distribution
 
 ### 8. Pre-Commit Frontmatter & Body-Size Gate
 
@@ -243,11 +236,28 @@ The validator emits JSON: `status` (`pass`/`warn`/`fail`), `issues[]` (each with
 - **`status` is `fail`, OR any `issues[]` entry has `severity` `high` or `medium`** — a hard violation that `npx skill-check` (step 8) would reject and `--fix` cannot auto-correct. HALT-to-fix **in staging**, then re-run the validator until it clears. Remediate by `field`:
   - `description` / `name` / `compatibility` — trim/correct `{skill_staging}/SKILL.md` (e.g. shorten `description` to ≤ 1024 chars).
   - `body` (`body lines N exceeds max 500`) — reduce the staged body: prefer a **selective split** of the largest Tier-2 section(s) into `{skill_staging}/references/`, keeping Tier-1 content inline (mirrors `validate.md` §3); or trim redundant content. Re-run the gate until `body_lines ≤ 500`. (An over-`body_tokens` estimate is advisory, not a hard stop — see the low-severity note below.)
+    When the split moves the catalog into `{skill_staging}/references/stack-catalog.md`, rewrite each `[ref](references/{name}.md)` in it to `[ref]({name}.md)`, as §3 above does for a catalog step 06 extracted.
 
-  Do NOT proceed to §9 commit-dir with an unresolved high/medium issue. Note: an over-long `description` is rated `medium` and exits `0`, so key the HALT on the issue severities above — not on the exit code.
-- **Only `low`-severity issues (e.g. an unexpected field, or a `body token estimate N exceeds max 5000` advisory)** — record each as a WARNING in the evidence report and proceed; these do not block the commit. The body-token estimate is a char/4 heuristic that runs higher than `skill-check`'s own whitespace-split count, and `skill-check` treats `body.max_tokens` as a non-blocking warning — so an over-token estimate is advisory here, not a HALT (the `body.max_lines` gate above remains the hard body pre-check).
+  Do NOT proceed to §8b or the §9 commit-dir with an unresolved high/medium issue. Note: an over-long `description` is rated `medium` and exits `0`, so key the HALT on the issue severities above, not on the exit code.
+- **Only `low`-severity issues (e.g. an unexpected field, or a `body token estimate N exceeds max 5000` advisory):** append each to `workflow_warnings[]` (`step: "step-07"`, `severity: "warn"`, `code: "pre-commit-gate-issue"`, `message`: the issue's `field` and `message`) and proceed; these do not block the commit, and §8b lists them in the evidence report. The body-token estimate is a char/4 heuristic that runs higher than `skill-check`'s own whitespace-split count, and `skill-check` treats `body.max_tokens` as a non-blocking warning, so an over-token estimate is advisory here, not a HALT (the `body.max_lines` gate above remains the hard body pre-check).
 
-**If `{frontmatterValidator}` does not resolve** (neither probe path exists) **or the invocation cannot run**, emit a WARNING ("pre-commit frontmatter + body-size gate skipped — validator unavailable") and proceed. Step 8 (`validate.md`) remains the post-commit backstop (including the `body.max_lines` split path in its §3); this gate is a best-effort early catch, never a new hard dependency.
+**If `{frontmatterValidator}` does not resolve** (neither probe path exists) **or the invocation cannot run**, append a WARNING to `workflow_warnings[]` (`step: "step-07"`, `severity: "warn"`, `code: "pre-commit-gate-skipped"`, `message: "pre-commit frontmatter + body-size gate skipped: validator unavailable"`) and proceed. Step 8 (`validate.md`) remains the post-commit backstop (including the `body.max_lines` split path in its §3); this gate is a best-effort early catch, never a new hard dependency.
+
+### 8b. Write the Evidence Report (Workspace)
+
+Now that the §8 gate has recorded its warnings, write `evidence-report.md` to `{forge_version}` the same way as §7, through the atomic writer and with no staging:
+
+```bash
+<md-content> | python3 {atomicWriteHelper} write --target {forge_version}/evidence-report.md
+```
+
+If the write fails, invoke the rollback contract from §1.
+
+**evidence-report.md:**
+- Extraction summary per library
+- Integration detection results per pair
+- Warnings and failures encountered, including every `workflow_warnings[]` entry recorded so far (the §8 gate's among them)
+- Confidence tier distribution
 
 ### 9. Commit Staging Directory
 
@@ -269,7 +279,7 @@ python3 {atomicWriteHelper} flip-link --link {skill_group}/active --target {vers
 
 The helper holds an flock on `{skill_group}/active.skf-lock` and refuses to replace a non-symlink at `{skill_group}/active` — this guards against accidentally overwriting a real directory (ECH BLOCKER 6/B6). After the flip, `{skill_group}/active/{project_name}-stack/` resolves to the just-committed skill package.
 
-If `flip-link` fails, emit a warning (the committed package is still valid), note the symlink-flip failure in the evidence report, and continue.
+If `flip-link` fails, append a `workflow_warnings[]` entry (`step: "step-07"`, `severity: "warn"`, `code: "flip-link-failed"`, `message`: the helper's error) and continue. The committed package is still valid, and step 9 lists the warning, since §8b has already written the evidence report.
 
 ### 11. Display Write Summary
 

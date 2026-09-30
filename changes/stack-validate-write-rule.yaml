@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-stack-skill
+summary: |
+  Stack Skill's validation step no longer calls itself read-only. Its rules now say that only `skill-check --fix` and the split of an oversized `SKILL.md` body into `references/` change the published skill, and that every other check leaves it as written, so a run no longer has to choose between the rule and those fixes. The frontmatter and body-size check that runs before the skill is published now records its warnings before `evidence-report.md` is written, so the report lists them, and the warning list in the final summary shows them too. A failure to point the `active` link at the new version now also shows in that list.
+issues: [536, 585]

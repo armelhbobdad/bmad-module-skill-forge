@@ -15,7 +15,8 @@ Validate all written output files against their expected structure and verify co
 
 ## Rules
 
-- Validate structure and completeness, not content quality — validation is read-only
+- Validate structure and completeness, not content quality
+- Only §3 writes to the committed package: `skill-check --fix` may rewrite `SKILL.md`, and a `body.max_lines` finding moves sections into `references/` (or runs `split-body --write`). Every other section leaves the package as step 7 committed it
 - Advisory mode: always proceed to report regardless of findings
 
 ## MANDATORY SEQUENCE
@@ -62,7 +63,7 @@ timeout 10s npx --no-install skill-check -h
 ```
 
 - If exits 0: Use skill-check for automated validation in sections 3, 9.
-- If exits non-zero, times out, or returns "command not found": Use manual fallback paths, append a `workflow_warnings[]` entry (`step: "step-08"`, `severity: "warn"`, `code: "skill-check-unavailable"`, `message: "skill-check unavailable: manual fallback checks used, security scan skipped"`) so step 9 does not report the run as skill-check validated, and record every skipped check in the evidence report.
+- If exits non-zero, times out, or returns "command not found": Use manual fallback paths, append a `workflow_warnings[]` entry (`step: "step-08"`, `severity: "warn"`, `code: "skill-check-unavailable"`, `message: "skill-check unavailable: manual fallback checks used, security scan skipped"`) so step 9 does not report the run as skill-check validated, and list every skipped check in the §10 validation results.
 
 **Important:** Do not assume availability — empirical check required.
 
@@ -74,7 +75,7 @@ This validates frontmatter, description, body limits, links, formatting — and 
 
 **Post-fix provenance drift guard (S15):** If `fixed[]` is non-empty, `skill-check --fix` has modified `SKILL.md` after step 7 wrote it — so the `metadata.json` hashes/provenance recorded against the pre-fix body may now be stale. Emit a **WARNING** finding listing each auto-fix (`"skill-check --fix modified SKILL.md: {fix_description} — metadata.json hashes/provenance may be out of date"`) rather than silently accepting the fixes, so the drift is surfaced. If the caller wants authoritative metadata, they should re-run the workflow.
 
-**If `body.max_lines` reported**, prefer selective split: extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 content inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). For a stack capstone the canonical split is the catalog (`Library Reference Index` + `Per-Library Summaries`) → `references/stack-catalog.md`, leaving an inline pointer (see `{stackSkillTemplatePath}` "Sizing Guidance"). This is the **intended** large-stack layout, not a violation: §4 below accepts the pointer form, so clearing the skill-check body ERROR this way does not also trip the structure check. Fall back to `npx skill-check split-body <skill-dir> --write` if not feasible. Verify any in-SKILL.md anchor links (e.g. to the catalog/pointer or other moved sections) still resolve after the split. Then re-validate.
+**If `body.max_lines` reported**, prefer selective split: extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 content inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). For a stack capstone the canonical split is the catalog (`Library Reference Index` + `Per-Library Summaries`) → `references/stack-catalog.md`, leaving an inline pointer (see `{stackSkillTemplatePath}` "Sizing Guidance"). The moved catalog's links resolve from `references/`, so rewrite each `[ref](references/{name}.md)` in it to `[ref]({name}.md)`. This is the **intended** large-stack layout, not a violation: §4 below accepts the pointer form, so clearing the skill-check body ERROR this way does not also trip the structure check. Fall back to `npx skill-check split-body <skill-dir> --write` if not feasible. After the split, verify that any in-SKILL.md anchor links (e.g. to the catalog/pointer or other moved sections) still resolve, and that every link inside a moved section resolves from its new file. Then re-validate.
 
 **If unavailable**, do not hand-walk the frontmatter — use `validation.skill_md.frontmatter` from the §1 output-validator run, which checks delimiters, `name` format + directory match (`{project_name}-stack`), `description` presence/length, and unknown fields against the agentskills.io allow-set. Record each reported issue at its severity as a **WARNING** finding. (If the output validator was *also* unavailable in §1, fall back to the manual checklist: `---` delimiters; `name` lowercase-alphanumeric-plus-hyphens 1-64 chars matching `{project_name}-stack`; `description` present and 1-1024 chars; only `name`/`description`/`license`/`compatibility`/`metadata`/`allowed-tools` permitted.) Invalid frontmatter will fail `npx skills add` and `npx skill-check check`.
 
