@@ -4,4 +4,5 @@ summary: |
   A pipeline now stops after `VS` only when Verify Stack covered none of the architecture's technologies (`coverage_percentage` 0), with `zero-coverage` as the halt reason, since it then verified nothing a later step can use. The pipeline contract used to stop a chain such as `VS RA` when every integration was blocked. Now a `NOT_FEASIBLE` verdict with coverage, such as one a single `Blocked` integration gives, goes on to `RA`, which takes each Blocked integration as a critical issue to redesign.
 migration: |
   When a `VS RA` chain stops at `VS` with `zero-coverage`, create skills for the technologies the architecture names (for example with `@Ferris forge-quick <package>`), then run `@Ferris VS RA` again. To stop before `RA` on any `NOT_FEASIBLE` verdict, run `@Ferris VS` on its own and run `@Ferris RA` after reading the feasibility report.
+prs: [625]
 issues: [586]
