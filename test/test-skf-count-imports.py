@@ -15,8 +15,10 @@ Covers:
     ties, scope pass-through
   - per-language import extraction (JS/TS, Python, Rust, Go, JVM, Ruby, PHP,
     Swift), Python through ast and line by line when a file does not parse
-  - units: relative imports, edges, imported_by / imports_from, external
-    deps, and the edges and libraries outputs piped into
+  - units: relative imports, edges, the importing files of each edge,
+    imported_by / imports_from, external deps (a dependency that is a unit
+    left out), import names from manifest_name or what a JVM, Composer or
+    Swift unit declares, and the edges and libraries outputs piped into
     skf-find-cycles.py and skf-pair-intersect.py
   - input shapes and errors; CLI exit codes; skf-scan-manifests.py output
     piped in as it is
@@ -869,6 +871,120 @@ class TestUnits:
         ]
         assert by_name["server"]["files"] == [{"path": "app/main.ts", "line": 3}]
         assert [u["name"] for u in result["units"]] == ["client", "core", "server"]
+
+    def test_edge_files_name_the_importing_files(self, tmp_path: Path) -> None:
+        result = _count(tmp_path, [], units=_monorepo(tmp_path))
+        edge_files = {(e["from"], e["to"]): e["files"] for e in result["edge_files"]}
+        assert list(edge_files) == [tuple(edge) for edge in result["edges"]]
+        assert edge_files[("server", "client")] == [
+            {"path": "packages/server/src/index.ts", "line": 2}]
+        assert edge_files[("client", "core")] == [
+            {"path": "packages/client/src/index.ts", "line": 1}]
+        # app/main.ts belongs to no unit: it imports units but is no edge
+        assert all(f["path"] != "app/main.ts" for files in edge_files.values() for f in files)
+
+    def test_nested_unit_files_are_their_own(self, tmp_path: Path) -> None:
+        """A file of a unit nested in another is the inner unit's edge only."""
+        _write(tmp_path / "lib" / "core" / "a.ts", "export const a = 1;\n")
+        _write(tmp_path / "lib" / "inner" / "b.ts", "import { a } from '../core/a';\n")
+        _write(tmp_path / "lib" / "c.ts", "import { a } from './core/a';\n")
+        units = [{"name": "lib", "path": "lib"}, {"name": "inner", "path": "lib/inner"},
+                 {"name": "core", "path": "lib/core"}]
+        result = _count(tmp_path, [], units=units)
+        edge_files = {(e["from"], e["to"]): _paths(e) for e in result["edge_files"]}
+        assert edge_files == {("inner", "core"): ["lib/inner/b.ts"],
+                              ("lib", "core"): ["lib/c.ts"]}
+
+    def test_manifest_name_gives_the_import_names(self, tmp_path: Path) -> None:
+        _write(tmp_path / "crates" / "core-lib" / "src" / "lib.rs", "pub fn f() {}\n")
+        _write(tmp_path / "crates" / "app" / "src" / "main.rs", "use core_lib::f;\n")
+        _write(tmp_path / "web" / "index.ts", "import { x } from '@acme/ui/button';\n")
+        _write(tmp_path / "ui" / "index.ts", "export const x = 1;\n")
+        _write(tmp_path / "svc" / "main.go", 'import "example.com/acme/pkg/util"\n')
+        _write(tmp_path / "pkg" / "util.go", "package util\n")
+        units = [
+            {"name": "core-lib", "path": "crates/core-lib", "manifest_name": "core-lib",
+             "ecosystem": "rust"},
+            {"name": "app", "path": "crates/app", "manifest_name": "app", "ecosystem": "rust"},
+            {"name": "ui", "path": "ui", "manifest_name": "@acme/ui", "ecosystem": "npm"},
+            {"name": "web", "path": "web", "manifest_name": "@acme/web", "ecosystem": "npm"},
+            {"name": "pkg", "path": "pkg", "manifest_name": "example.com/acme/pkg",
+             "ecosystem": "go"},
+            {"name": "svc", "path": "svc", "manifest_name": "example.com/acme/svc",
+             "ecosystem": "go"},
+        ]
+        result = _count(tmp_path, [], units=units)
+        assert result["edges"] == [["app", "core-lib"], ["svc", "pkg"], ["web", "ui"]]
+        by_name = {u["name"]: u for u in result["units"]}
+        assert by_name["core-lib"]["import_names"] == ["core_lib"]
+        # explicit modules win, and an explicit [] reaches by relative imports only
+        units[2]["modules"] = []
+        assert ["web", "ui"] not in _count(tmp_path, [], units=units)["edges"]
+
+    def test_jvm_units_are_imported_by_the_packages_they_declare(self, tmp_path: Path) -> None:
+        """Two modules of one Maven group: the group alone would bind both."""
+        java = "src/main/java/com/acme"
+        _write(tmp_path / "core" / java / "core" / "Graph.java", "package com.acme.core;\n")
+        _write(tmp_path / "core" / java / "core" / "util" / "Ids.java",
+               "// ids\npackage com.acme.core.util;\n")
+        _write(tmp_path / "api" / java / "api" / "Server.kt",
+               "package com.acme.api\n\nimport com.acme.core.util.Ids\n")
+        _write(tmp_path / "core" / "src" / "test" / "java" / "GraphTest.java",
+               "package com.acme.coretest;\n")
+        units = [
+            {"name": "core", "path": "core", "manifest_name": "com.acme:core", "ecosystem": "maven"},
+            {"name": "api", "path": "api", "ecosystem": "gradle"},
+        ]
+        result = _count(tmp_path, [], units=units)
+        by_name = {u["name"]: u for u in result["units"]}
+        assert by_name["core"]["import_names"] == ["com.acme.core", "com.acme.core.util"]
+        assert by_name["api"]["import_names"] == ["com.acme.api"]
+        assert result["edges"] == [["api", "core"]]
+
+    def test_composer_and_swift_units_declare_their_names(self, tmp_path: Path) -> None:
+        _write(tmp_path / "auth" / "composer.json",
+               json.dumps({"name": "acme/auth", "autoload": {"psr-4": {"Acme\\Auth\\": "src/"}}}))
+        _write(tmp_path / "auth" / "src" / "Guard.php", "<?php\nnamespace Acme\\Auth;\n")
+        _write(tmp_path / "web" / "index.php", "<?php\nuse Acme\\Auth\\Guard;\n")
+        _write(tmp_path / "kit" / "Package.swift",
+               'let package = Package(name: "Kit", targets: [\n'
+               '  .target(name: "KitCore"),\n  .testTarget(name: "KitTests")])\n')
+        _write(tmp_path / "kit" / "Sources" / "KitCore" / "A.swift", "public struct A {}\n")
+        _write(tmp_path / "app" / "main.swift", "import KitCore\n")
+        units = [
+            {"name": "auth", "path": "auth", "manifest_name": "acme/auth", "ecosystem": "composer"},
+            {"name": "web", "path": "web"},
+            {"name": "kit", "path": "kit", "manifest_name": "Kit", "ecosystem": "swift"},
+            {"name": "app", "path": "app"},
+        ]
+        result = _count(tmp_path, [], units=units)
+        by_name = {u["name"]: u for u in result["units"]}
+        assert by_name["auth"]["import_names"] == ["Acme\\Auth"]
+        assert by_name["kit"]["import_names"] == ["KitCore"]
+        assert result["edges"] == [["app", "kit"], ["web", "auth"]]
+
+    def test_a_dependency_that_is_a_unit_is_not_external(self, tmp_path: Path) -> None:
+        envelope = {"manifests": [
+            {"path": "packages/core/package.json", "ecosystem": "npm",
+             "name": "@acme/core", "deps": [{"name": "zod", "version": "3"}]},
+            {"path": "packages/client/package.json", "ecosystem": "npm",
+             "name": "@acme/client",
+             "deps": [{"name": "@acme/core", "version": "*"}, {"name": "zod", "version": "3"}]},
+        ]}
+        _write(tmp_path / "packages" / "core" / "index.ts", "import { z } from 'zod';\n")
+        _write(tmp_path / "packages" / "client" / "index.ts",
+               "import { core } from '@acme/core';\nimport { z } from 'zod';\n")
+        units = [
+            {"name": "core", "path": "packages/core", "manifest_name": "@acme/core",
+             "ecosystem": "npm"},
+            {"name": "client", "path": "packages/client", "manifest_name": "@acme/client",
+             "ecosystem": "npm"},
+        ]
+        result = _count(tmp_path, envelope, units=units)
+        assert [d["name"] for d in result["dependencies"]] == ["zod"]
+        by_name = {u["name"]: u for u in result["units"]}
+        assert by_name["client"]["external_deps"] == ["zod"]
+        assert by_name["client"]["imports_from"] == ["core"]
 
     def test_python_relative_unit_imports(self, tmp_path: Path) -> None:
         _write(tmp_path / "app" / "api" / "views.py", "from ..db import models\n")

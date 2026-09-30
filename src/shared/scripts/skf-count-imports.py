@@ -43,13 +43,22 @@ Subcommand:
 
       --units accepts {"units": [<unit>, ...]} or a bare list, where <unit> is
         {"name": "...", "path": "<dir relative to root>", "modules": [...],
-         "ecosystem": "..."}.
+         "manifest_name": "...", "ecosystem": "..."}.
       A unit is an internal part of the tree. Each scanned file belongs to
       the unit with the longest `path` that contains it. A file imports a
-      unit when one of its imports matches the unit's `modules`, or when a
-      relative import (JS/TS `./` and `../`, Python leading dots, Ruby
+      unit when one of its imports matches the unit's import names, or when
+      a relative import (JS/TS `./` and `../`, Python leading dots, Ruby
       `require_relative`) resolves into the unit's `path`. A unit's own
-      files never count as importing it.
+      files never count as importing it. A unit's import names are its
+      `modules` when given; without them, what the unit declares: the
+      packages its own .java, .kt, .groovy and .scala files declare for a
+      Maven or Gradle unit, the namespaces its composer.json autoloads for
+      a Composer unit, the targets its Package.swift declares for a Swift
+      unit, else its `manifest_name` by the dependency rules below (an npm
+      package by its name, a crate with `-` as `_`, a Go module by its
+      path); none for a unit with neither, which only relative imports
+      reach. With --units, a dependency whose import names are a unit's is
+      that unit, not an external dependency: it is left out.
 
       --threshold N    a dependency is `above_threshold` when file_count >= N
                        (default 2: two or more importing files)
@@ -84,12 +93,20 @@ Subcommand:
             ...
           ],
           "edges": [["<importing unit>", "<imported unit>"], ...],
+          "edge_files": [
+            {"from": "<importing unit>", "to": "<imported unit>",
+             "files": [{"path": "...", "line": N}, ...]},
+            ...
+          ],
           "warnings": ["..."]
         }
-      `units` and `edges` are present only with --units; `warnings` only when
-      a file could not be read. A dependency entry carries `scope: "dev"`
-      when its input said so. `files` lists each importing file once, with
-      the first line that imports the target, sorted by path.
+      `units`, `edges` and `edge_files` are present only with --units;
+      `warnings` only when a file could not be read. A dependency entry
+      carries `scope: "dev"` when its input said so. `files` lists each
+      importing file once, with the first line that imports the target,
+      sorted by path; an `edge_files` entry lists the files of the
+      importing unit that import the other one, sorted by `from`, then
+      `to`. A unit's `external_deps` are the dependencies its files import.
       `dependencies[]` is sorted by file_count (highest first), then name.
       `unresolved[]` (sorted by name) holds the dependencies this helper
       cannot count with confidence, for the model to judge: a guessed import
@@ -643,6 +660,9 @@ def parse_units(payload: object) -> list[dict]:
         ecosystem = raw.get("ecosystem")
         if ecosystem is not None and (not isinstance(ecosystem, str) or not ecosystem):
             raise InputError(f"{where} `ecosystem` must be a non-empty string")
+        manifest_name = raw.get("manifest_name")
+        if manifest_name is not None and not isinstance(manifest_name, str):
+            raise InputError(f"{where} `manifest_name` must be a string")
         name = name.strip()
         if name in names:
             raise InputError(f"{where} repeats unit name {name!r}")
@@ -650,7 +670,13 @@ def parse_units(payload: object) -> list[dict]:
             raise InputError(f"{where} repeats unit path {path!r}")
         names.add(name)
         paths.add(path)
-        unit = {"name": name, "path": path, "ecosystem": ecosystem, "modules": []}
+        unit = {
+            "name": name,
+            "path": path,
+            "ecosystem": ecosystem,
+            "manifest_name": (manifest_name or "").strip() or None,
+            "modules": None,  # None: derived from what the unit declares
+        }
         if raw.get("modules") is not None:
             unit["modules"] = _string_list(raw["modules"], f"{where} `modules`")
         units.append(unit)
@@ -716,11 +742,8 @@ def _ruby_import_names(name: str) -> tuple[list[str], str]:
 _COMPOSER_NAME = re.compile(r"[A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*")
 
 
-def _composer_installed_namespaces(root: Path, name: str) -> list[str]:
-    """Namespaces the installed vendor/<name>/composer.json autoloads."""
-    if not _COMPOSER_NAME.fullmatch(name):
-        return []
-    manifest = root / "vendor" / name / "composer.json"
+def _composer_autoload(manifest: Path) -> list[str]:
+    """Namespaces a composer.json autoloads (its psr-4 and psr-0 prefixes)."""
     try:
         data = json.loads(manifest.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
@@ -734,6 +757,25 @@ def _composer_installed_namespaces(root: Path, name: str) -> list[str]:
         if isinstance(table, dict):
             namespaces.update(p.strip("\\") for p in table if p.strip("\\"))
     return sorted(namespaces)
+
+
+def _composer_installed_namespaces(root: Path, name: str) -> list[str]:
+    """Namespaces the installed vendor/<name>/composer.json autoloads."""
+    if not _COMPOSER_NAME.fullmatch(name):
+        return []
+    return _composer_autoload(root / "vendor" / name / "composer.json")
+
+
+_SWIFT_TARGET = re.compile(r'\.(?:target|binaryTarget)\s*\(\s*name\s*:\s*"(?P<name>[^"]+)"')
+
+
+def _swift_targets(manifest: Path) -> list[str]:
+    """The targets a Package.swift declares: the modules code imports it by."""
+    try:
+        text = manifest.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    return sorted({m.group("name") for m in _SWIFT_TARGET.finditer(text)})
 
 
 def _symfony_namespace(package: str) -> str:
@@ -1244,9 +1286,10 @@ def candidates(language: str, module: str) -> list[str]:
 # --------------------------------------------------------------------------
 
 
-def _walk(root: Path, excludes: Excludes, extensions: dict[str, str]):
-    """Yield (rel, path, language) for every source file left after exclusions."""
-    for dirpath, dirnames, filenames in os.walk(root):
+def _walk(root: Path, excludes: Excludes, extensions: dict[str, str], start: str = ""):
+    """Yield (rel, path, language) for every source file left after exclusions,
+    only those under the `start` folder (relative to `root`) when one is given."""
+    for dirpath, dirnames, filenames in os.walk(root / start if start else root):
         rel_dir = os.path.relpath(dirpath, root).replace(os.sep, "/")
         rel_dir = "" if rel_dir == "." else rel_dir
         kept = []
@@ -1278,6 +1321,49 @@ def _languages(ecosystem: str | None) -> list[str]:
     return list(LANGUAGE_EXTENSIONS)
 
 
+_JVM_PACKAGE = re.compile(r"^\s*package\s+(?P<name>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)", re.M)
+
+
+def _declared_jvm_packages(root: Path, unit_path: str, owns, excludes: Excludes) -> list[str]:
+    """The packages a unit's own .java, .kt, .groovy and .scala files declare;
+    `owns(rel)` says whether a file belongs to the unit, not to one inside it."""
+    extensions = {ext: "jvm" for ext in LANGUAGE_EXTENSIONS["jvm"]}
+    packages: set[str] = set()
+    for rel, path, _ in _walk(root, excludes, extensions, unit_path):
+        if not owns(rel):
+            continue
+        try:
+            with open(path, "rb") as handle:
+                text = handle.read().decode("utf-8", errors="replace")
+        except OSError:
+            continue
+        m = _JVM_PACKAGE.search(text)
+        if m:
+            packages.add(m.group("name"))
+    return sorted(packages)
+
+
+def _unit_import_names(root: Path, unit: dict, owns, excludes: Excludes) -> list[str]:
+    """A unit's import names: its `modules`, else what it declares (the
+    packages of its JVM files, its composer.json autoload, its Package.swift
+    targets), else its `manifest_name` by the dependency rules."""
+    if unit["modules"] is not None:
+        return list(unit["modules"])
+    ecosystem, base = unit["ecosystem"], root / unit["path"]
+    declared: list[str] = []
+    if ecosystem in ("maven", "gradle"):
+        declared = _declared_jvm_packages(root, unit["path"], owns, excludes)
+    elif ecosystem == "composer":
+        declared = _composer_autoload(base / "composer.json")
+    elif ecosystem == "swift":
+        declared = _swift_targets(base / "Package.swift")
+    if declared:
+        return declared
+    if unit["manifest_name"] and ecosystem in ECOSYSTEM_LANGUAGE:
+        return import_names(unit["manifest_name"], ecosystem, root)[0]
+    return []
+
+
 def count_imports(
     root: Path,
     dependencies: list[dict],
@@ -1289,6 +1375,30 @@ def count_imports(
     units = units or []
     targets: list[dict] = []
     unresolved: list[dict] = []
+    excludes = Excludes(list(DEFAULT_EXCLUDES) + list(extra_excludes or []))
+
+    unit_by_path = {unit["path"]: pos for pos, unit in enumerate(units)}
+
+    def unit_of(rel: str) -> int | None:
+        """The unit with the longest path that contains `rel`."""
+        while True:
+            if rel in unit_by_path:
+                return unit_by_path[rel]
+            if not rel:
+                return None
+            rel = posixpath.dirname(rel)
+
+    unit_names = [
+        _unit_import_names(root, unit, lambda rel, pos=pos: unit_of(rel) == pos, excludes)
+        for pos, unit in enumerate(units)
+    ]
+    # a dependency that has one of these (language, import name) keys is the unit
+    internal = {
+        (language, _key(language, name))
+        for pos, unit in enumerate(units)
+        for language in _languages(unit["ecosystem"])
+        for name in unit_names[pos]
+    }
 
     for dep in dependencies:
         ecosystem = dep["ecosystem"]
@@ -1302,13 +1412,16 @@ def count_imports(
         if not names:
             unresolved.append(_unresolved(dep, names, "no-import-name"))
             continue
+        languages = _languages(ecosystem)
+        if any((lang, _key(lang, n)) in internal for lang in languages for n in names):
+            continue
         targets.append(
             {
                 "kind": "dependency",
                 "dep": dep,
                 "names": names,
                 "resolution": resolution,
-                "languages": _languages(ecosystem),
+                "languages": languages,
             }
         )
 
@@ -1319,7 +1432,7 @@ def count_imports(
             {
                 "kind": "unit",
                 "unit": pos,
-                "names": list(unit["modules"]),
+                "names": unit_names[pos],
                 "languages": _languages(unit["ecosystem"]),
             }
         )
@@ -1337,20 +1450,9 @@ def count_imports(
         needed.update(("js", "python", "ruby"))
     extensions = {ext: lang for lang in needed for ext in LANGUAGE_EXTENSIONS[lang]}
 
-    unit_by_path = {unit["path"]: pos for pos, unit in enumerate(units)}
-
-    def unit_of(rel: str) -> int | None:
-        """The unit with the longest path that contains `rel`."""
-        while True:
-            if rel in unit_by_path:
-                return unit_by_path[rel]
-            if not rel:
-                return None
-            rel = posixpath.dirname(rel)
-
-    excludes = Excludes(list(DEFAULT_EXCLUDES) + list(extra_excludes or []))
     first_lines: list[dict[str, int]] = [{} for _ in targets]
-    edges: set[tuple[str, str]] = set()
+    # (importing unit, imported unit) -> importing file -> its first line
+    edge_lines: dict[tuple[str, str], dict[str, int]] = {}
     external: dict[int, set[str]] = {pos: set() for pos in range(len(units))}
     warnings: list[str] = []
     files_scanned = 0
@@ -1384,7 +1486,10 @@ def count_imports(
                     if target["unit"] == own_unit:
                         continue
                     if own_unit is not None:
-                        edges.add((units[own_unit]["name"], units[target["unit"]]["name"]))
+                        edge = (units[own_unit]["name"], units[target["unit"]]["name"])
+                        lines = edge_lines.setdefault(edge, {})
+                        if rel not in lines or number < lines[rel]:
+                            lines[rel] = number
                 elif own_unit is not None:
                     external[own_unit].add(target["dep"]["name"])
                 seen = first_lines[t_pos].get(rel)
@@ -1423,7 +1528,7 @@ def count_imports(
     if units:
         imported_by: dict[str, set[str]] = {u["name"]: set() for u in units}
         imports_from: dict[str, set[str]] = {u["name"]: set() for u in units}
-        for src, dst in edges:
+        for src, dst in edge_lines:
             imports_from[src].add(dst)
             imported_by[dst].add(src)
         units_out = []
@@ -1433,7 +1538,7 @@ def count_imports(
                 {
                     "name": unit["name"],
                     "path": unit["path"],
-                    "import_names": list(unit["modules"]),
+                    "import_names": unit_names[pos],
                     "files": _files(lines),
                     "file_count": len(lines),
                     "imported_by": sorted(imported_by[unit["name"]]),
@@ -1442,7 +1547,11 @@ def count_imports(
                 }
             )
         result["units"] = sorted(units_out, key=lambda u: u["name"])
-        result["edges"] = [list(edge) for edge in sorted(edges)]
+        result["edges"] = [list(edge) for edge in sorted(edge_lines)]
+        result["edge_files"] = [
+            {"from": src, "to": dst, "files": _files(edge_lines[(src, dst)])}
+            for src, dst in sorted(edge_lines)
+        ]
     if warnings:
         result["warnings"] = warnings
     return result
@@ -1545,7 +1654,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "units JSON file, or '-' for stdin: a list of "
-            '{"name", "path", "modules", "ecosystem"} objects'
+            '{"name", "path", "modules", "manifest_name", "ecosystem"} objects'
         ),
     )
     p_count.add_argument(

@@ -36,6 +36,8 @@ Rules for identifying discrete skillable units within a project. A "skillable un
 | Comment boundaries | Code comments marking sections              | `// --- Auth Module ---`      |
 | Import clustering  | Files that import primarily from each other | Tight import graph cluster    |
 
+`skf-disqualify-candidates.py` reports the signals a boundary's file list shows, in each record's `signals` (identify-units §2): an independent manifest (`own_manifest`), a separate entry point (`entry_point`), a Docker/service definition (`service_definition`), README.md presence (`readme`), a separate test suite (`test_suite`), a CI/CD pipeline reference (`ci_reference`) and a large directory (`large_directory`). The other signals are judged: workspace membership from the workspace configuration files scan-project records (`pnpm-workspace.yaml`, a Cargo `[workspace]`, `go.work`), and the rest from the code.
+
 ## Boundary Classification
 
 ### Service Boundary
@@ -72,30 +74,52 @@ Rules for identifying discrete skillable units within a project. A "skillable un
 
 ### Composite Boundary
 - Two or more Package or Module boundaries that only deliver value together (no constituent is independently useful to the skill consumer)
-- Hard cross-boundary dependency: constituents share types, traits, or interfaces that are not re-exported through a single barrel — consumers must import from multiple constituents to use the integration
-- Common pattern: a set of crates/packages in the same repo that implement a protocol together (e.g., plugin crates for a framework, verification + encoding halves of a cryptographic library)
+- Hard cross-boundary dependency: consumers use the constituents together, through types, traits or interfaces they share, or through one facade that re-exports them all
+- Common pattern: a set of crates/packages in the same repo that implement a protocol together (e.g., plugin crates for a framework, verification + encoding halves of a cryptographic library), or a facade package over its sub-packages
 - Scope type: inherits from the dominant constituent (typically `full-library` or `specific-modules`)
 
-**Detection heuristic (apply after initial classification, before user confirmation):**
-1. Among the qualifying units, find groups of ≥2 boundaries where either:
-   - **Mutual hard dependency:** Every constituent imports from at least one other constituent in the group, AND no constituent's public API is self-contained (removing any one breaks the others)
+**Detection heuristic (map-and-detect §5, once the import graph and the integration map exist):**
+1. Among the qualifying units, find groups of ≥2 boundaries where any trigger holds:
+   - **Mutual hard dependency:** the constituents import each other in a cycle (`skf-find-cycles.py` over the `skf-count-imports.py` edges), AND no constituent's public API is self-contained (removing any one breaks the others)
    - **Shared integration surface:** Constituents share types/traits defined in one constituent but consumed by all others, AND the consuming constituents have no independent barrel (their value depends on the shared definitions)
+   - Any of the **Cohesion Triggers** below
 2. For each detected group, propose merging into a single composite unit:
-   - Name: `{common-prefix}` or `{integration-name}` (derive from shared namespace or repo name)
+   - Name: by the Unit Names rule below, for a merged unit
    - Constituents: list of merged boundary names and paths
-   - Rationale: which heuristic triggered (mutual hard dependency or shared integration surface)
-3. The merge is a **recommendation** — present to user for confirmation in identify-units §3b
+   - Rationale: which trigger fired, with its evidence
+3. The merge is a **recommendation**: the user confirms it in map-and-detect §6, and a headless run accepts it. A group that merges is not also a stack skill candidate.
+
+### Cohesion Triggers
+
+The one statement of when a monorepo's members belong in one cohesive skill rather than one skill per package. The `[auto]` path (step-auto-scope §3b) and the interactive chain (map-and-detect §5) both apply it. Empirically, 5/5 real monorepos (animato 15 crates, trpc, react 38 packages, aws-sdk-js-v3 442 packages, plus zod) were best served as one cohesive skill or a curated few, not one skill per package. The evidence comes from the `skf-scan-manifests.py` scan (`umbrella_candidates[]`, and each member's `name`, `private` and `internal_deps`), never from opening each member manifest.
+
+Merge when **any** of these holds:
+
+- **Umbrella facade:** one package re-exports the members: a root or named package whose dependencies include the other workspace members (an `umbrella_candidates[]` entry, with the members its `internal_deps` cover), or which `pub use` / `export *`s them. The facade *is* the public surface (e.g. animato's `crates/animato` re-exporting its 15 sub-crates).
+- **Shared runtime contract:** the members are consumed together through one entry point, and teaching the shared invariant covers them (e.g. tRPC's adapters around `@trpc/server`; aws-sdk's `new XClient(...) → client.send(new YCommand(...))` shared by every `@aws-sdk/client-*`).
+- **Internal building blocks:** the members are private/internal pieces of one product, not independently meaningful to a consumer (`private: true` on the members).
+
+Split instead when the members are **independently published with distinct public surfaces serving different concerns**, **and no umbrella re-exports them**: e.g. `react-dom` and `react-server-dom-*` are separate installs with separate jobs, or a federated SDK where a consumer only ever wants one service. Each genuinely distinct facet earns its own skill.
 
 ## Disqualification Rules
 
 Do not recommend a boundary as a skillable unit when:
 
-1. **Too small**: Fewer than 3 source files or 100 lines of code
-2. **Generated code**: Auto-generated files (protobuf, GraphQL codegen, etc.)
+1. **Too small**: Fewer than 3 source files or 100 lines of code. `skf-disqualify-candidates.py` counts the source files that are not generated: lockfiles, documentation, data and configuration files, manifests and build tool files (`setup.py`, `build.gradle`, `gradlew`, `vite.config.ts` and the like) are not source files
+2. **Generated code**: every source file is generated (protobuf, GraphQL codegen, etc.): under a vendored or cache folder (`node_modules/`, `vendor/`, `__pycache__/` and the like) at any depth, under a build output folder (`dist/`, `build/`, `target/`) directly below the unit or beside a manifest, or opening with a generated-code header such as `@generated`. A source folder of an output folder's name further down (`src/build/`, the Java package folder `com/acme/build/`) is the unit's own code. A boundary with only some generated files stays, with those files left out of its counts, and identify-units judges it
 3. **Pure configuration**: Only config files with no logic
 4. **Test-only**: Test utilities with no production code
 5. **Vendor/dependency**: Third-party code copied into project
 6. **Already skilled**: Existing skill found in forge_data_folder (recommend update-skill instead)
+
+## Unit Names
+
+Every unit, composite and brief is named by `skf-skill-inventory.py derive-name`, from the same inputs on the `[auto]` path (step-auto-scope §4a and §6) and the interactive chain (identify-units §2, map-and-detect §5), so one unit gets one name on both:
+
+- **A single unit** passes its own manifest's `name` and `private` flag. A private manifest names nothing, so a monorepo's workspace root or an internal app takes its folder's or repository's name; a published package takes its manifest's (`@trpc/server` gives `trpc-server`).
+- **A merged unit** (a composite, or a monorepo the cohesion check merges) passes the facade's manifest name when the umbrella facade trigger fired, and its members' manifest names: a composite's constituents, a merged monorepo's published members (its private examples and tools left out). Without a facade it takes the name the members share (`trpc` for `@trpc/server` and `@trpc/client`), else the repository's.
+
+Names that would clash in one call are told apart by their parent folders (`server-api`, `client-api`).
 
 ## Script/Asset Detection Signals
 
@@ -125,18 +149,19 @@ During per-unit analysis, check for scripts and assets alongside code exports.
 
 ## Stack Skill Candidate Detection
 
-Flag units as stack skill candidates when:
+Flag units as stack skill candidates when (map-and-detect §5, in the same pass as the composite merges):
 
-1. **Co-import frequency**: Two or more units are imported together in 3+ files
+1. **Co-import frequency**: Two or more units are imported together in 3+ files (a `skf-pair-intersect.py` pair over the `skf-count-imports.py` importer lists with an `intersection_count` of 3 or more)
 2. **Integration adapter**: A unit exists primarily to bridge two other units
 3. **Shared state**: Multiple units read/write to the same data store
 4. **Orchestration layer**: A unit coordinates calls across multiple other units
 
+Stack skill candidates are useful separately and also together; units that only deliver value together are a Composite Boundary instead, never both.
+
 ## Tier-Aware Scanning Depth
 
-| Forge Tier | Scanning Approach                                                                                  |
-|------------|----------------------------------------------------------------------------------------------------|
-| Quick      | File structure analysis: directory trees, manifest files, entry points, naming conventions         |
-| Forge      | AST analysis: export surfaces, import graphs, dependency trees, type hierarchies                   |
-| Forge+     | AST + CCC: semantic file pre-ranking before structural analysis, CCC signals for relevance scoring |
-| Deep       | AST + QMD: temporal evolution, refactoring patterns, semantic relationships, architectural drift   |
+| Forge Tier | Scanning Approach |
+|------------|-------------------|
+| Quick, Forge | Export surfaces from `skf-extract-public-api.py` (its ast-grep recipes, read by eye where ast-grep is missing or the language has no recipe), import graphs from the import helpers, and the file structure: directory trees, manifests, entry points |
+| Forge+ | As Quick and Forge, plus CCC: semantic file pre-ranking before structural analysis, CCC signals for relevance scoring |
+| Deep | As Quick and Forge, plus QMD: temporal evolution, refactoring patterns, semantic relationships, architectural drift |

@@ -9,7 +9,8 @@ versions via symlinks, and outputs a JSON inventory. Read by drop-skill and
 rename-skill (roster, the ownership of each skill folder and its forge
 folder, the purge and rename verdicts, and the guarded delete),
 create-skill, quick-skill and create-stack-skill (the write check before a
-version is written), analyze-source (coexistence matches), the flat-layout
+version is written), analyze-source (coexistence matches and the name of
+every unit and brief), the flat-layout
 fallback of update-skill, export-skill, audit-skill and test-skill (the
 ownership gate before a flat skill is migrated), and test-skill's report
 (the discovery catalog).
@@ -18,6 +19,9 @@ CLI: uv run skf-skill-inventory.py <skills-output-folder>
      uv run skf-skill-inventory.py <skills-output-folder> --skill <name>
      uv run skf-skill-inventory.py <skills-output-folder> --manifest-only
      uv run skf-skill-inventory.py <skills-output-folder> --match-target <url-or-name>
+     uv run skf-skill-inventory.py derive-name --target <url-or-path> [--manifest-name <name>]
+         [--skills-folder <skills-output-folder>]
+     uv run skf-skill-inventory.py derive-name --from <names.json|-> [--skills-folder <folder>]
      uv run skf-skill-inventory.py <skills-output-folder> --forge-data-folder <path>
      uv run skf-skill-inventory.py <skills-output-folder> --skill <name> --write-check
          [--write-version <version>] [--forge-data-folder <path>]
@@ -40,8 +44,8 @@ whatever its verdict, and a guarded delete whatever its `purge_status`);
 exit 1 on an error (`DIR_NOT_FOUND`, `SKILL_NOT_FOUND` for `--skill` or
 `resolve`, `USAGE` for a flag used wrongly, two check flags in one call,
 `--forge-data-folder` without a value or missing from a purge or rename
-check, and for `version`: `NOT_A_VERSION`, `NOT_INCREASING` or
-`BAD_INPUT`).
+check, for `version`: `NOT_A_VERSION`, `NOT_INCREASING` or `BAD_INPUT`,
+and for `derive-name`: `BAD_INPUT`, or `NO_NAME` for one --target).
 
 Ownership. The skills folder can hold skills SKF did not generate (a module's
 own skills, skills installed from elsewhere). Only a `metadata.json` carrying
@@ -121,13 +125,48 @@ version after a prior one (major when a library was removed, else minor,
 refused when not above it), and `primary` the code-mode primary library of
 a stack and the version it gives, ties broken by a fixed rule.
 
+Skill names. `derive_name` is the one rule for the name analyze-source
+writes a unit or a brief under, and the name `--match-target` compares, so
+a coexistence check never looks for a name the brief does not get. With a
+manifest name (the name the unit's own manifest gives its package, as
+skf-scan-manifests.py reads it) of a package that is not private, the name
+comes from the manifest: an npm scope joins the name (`@trpc/server` gives
+`trpc-server`), a Go module path gives its last segment less a `/vN`
+major-version suffix (`github.com/spf13/cobra` gives `cobra`), a Maven
+`groupId:artifactId` its artifact, and any other name is kebab-cased
+(`PyYAML` gives `pyyaml`, `serde_json` gives `serde-json`). A private
+manifest (a monorepo's workspace root, an internal app) names nothing.
+Without a manifest name, a merged unit (a composite, a merged monorepo)
+takes the name its members' manifest names share (`@aws-sdk/client-s3`
+and `@aws-sdk/core` give `aws-sdk`; Maven members of one group the
+group's last segment). Else a documentation URL (an http(s) URL whose
+host is not github.com, gitlab.com or bitbucket.org) gives its host
+(`https://docs.example.com/guide` gives `docs-example-com`), and any other
+target its last folder or repository name (`https://github.com/vercel/next.js`
+gives `next-js`, `C:\\code\\mono` gives `mono`, and `.` the current
+folder's name). step-auto-scope routes a target on that `basis`.
+
+`derive-name --target <t> [--manifest-name <n>]` returns `name` and
+`basis` ("manifest", "docs-host" or "target"), and exits 1 with `NO_NAME`
+when no name can be derived. `derive-name --from <file|->` takes a JSON
+array of {"target", "manifest_name", "private", "members"} (all optional)
+and returns `names[]`, each entry's `target` and `manifest_name` with its
+`name` (null when none can be derived) and `basis` ("members" too). Entries
+that derive one name are told apart by the folders above their targets
+(`src/server/api` and `src/client/api` give `server-api` and `client-api`),
+the shared name kept in `clash`; `unnamed` lists the entries with no name
+and `duplicates` the index groups still sharing one. With
+`--skills-folder` each name also carries `existing`: the skill of that
+name in the folder, in the `matches[]` entry shape below (`match_reason`
+"name"), or null.
+
 The --match-target mode deterministically computes coexistence matches: it
-normalizes scheme / trailing .git / trailing slash, derives the expected kebab
-skill name, compares case-insensitively, and emits a top-level `matches[]`
-array (each match carries the skill's `skf_skill`). This replaces the
-equivalent normalize/derive/compare that a consuming prompt would otherwise
-perform by hand (identical (target, inventory) always yields the same match
-set).
+normalizes scheme / trailing .git / trailing slash, derives the expected
+skill name (`derive_name`), compares case-insensitively, and emits a
+top-level `matches[]` array (each match carries the skill's `skf_skill`)
+and the name it compared, `match_name`. This replaces the equivalent
+normalize/derive/compare that a consuming prompt would otherwise perform
+by hand (identical (target, inventory) always yields the same match set).
 """
 
 from __future__ import annotations
@@ -140,6 +179,7 @@ import stat
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 
 def read_json_file(path):
@@ -1730,30 +1770,189 @@ def _kebab(segment):
     return s.strip("-")
 
 
-def derive_name(target):
-    """Derive the expected skill name from a target URL / path / bare name.
+# Hosts step-auto-scope's URL table reads as git hosting; an http(s) URL on
+# any other host is a documentation URL, named after its host.
+GIT_HOSTS = ("github.com", "gitlab.com", "bitbucket.org")
 
-    Mirrors step-auto-scope §6 (repo/package name = the last non-empty path
-    segment, kebab-lowercased) and §0a (a bare doc hostname has its dots turned
-    into hyphens). Both cases funnel through :func:`_kebab`, so
-    ``github.com/x/bar-baz`` -> ``bar-baz`` and ``docs.example.com`` ->
-    ``docs-example-com``. Returns "" when no segment can be derived.
+_MAJOR_VERSION_SEGMENT = re.compile(r"v\d+")
+
+
+def _manifest_skill_name(manifest_name):
+    """The skill name a manifest's package name gives ("" when none).
+
+    ``@scope/pkg`` (npm) joins the scope: ``scope-pkg``. ``groupId:artifactId``
+    (Maven) gives the artifact. A path whose first segment is a domain (a Go
+    module) gives its last segment, a ``/vN`` major-version suffix skipped.
+    Anything else (``vendor/package`` from Composer included) is kebab-cased
+    whole.
     """
-    if not target:
+    if not manifest_name:
         return ""
-    s = str(target).strip().lower()
+    s = str(manifest_name).strip()
+    if s.startswith("@"):
+        return _kebab(s)
+    if ":" in s:
+        return _kebab(s.rsplit(":", 1)[1])
+    segments = [seg for seg in s.split("/") if seg]
+    if len(segments) > 1 and "." in segments[0]:
+        if len(segments) > 2 and _MAJOR_VERSION_SEGMENT.fullmatch(segments[-1]):
+            segments = segments[:-1]
+        return _kebab(segments[-1])
+    return _kebab(s)
+
+
+def _members_skill_name(members):
+    """The name the members of a merged unit share ("" when none).
+
+    Maven ``group:artifact`` members of one group give the group's last
+    segment (``com.acme:core`` and ``com.acme:api`` give ``acme``); Go module
+    paths their longest common path, domain and one folder at least, less a
+    ``/vN`` suffix; any other names the words their skill names start with
+    alike (``@trpc/server`` and ``@trpc/client`` give ``trpc``, ``serde`` and
+    ``serde_json`` give ``serde``). Two members at least.
+    """
+    names = [str(m).strip() for m in members or () if m and str(m).strip()]
+    if len(names) < 2:
+        return ""
+    if all(":" in n for n in names):
+        groups = {n.rsplit(":", 1)[0] for n in names}
+        return _kebab(groups.pop().split(".")[-1]) if len(groups) == 1 else ""
+    paths = [[seg for seg in n.split("/") if seg] for n in names]
+    if all(len(p) > 1 and "." in p[0] for p in paths):
+        common = os.path.commonprefix(paths)
+        if common and _MAJOR_VERSION_SEGMENT.fullmatch(common[-1]):
+            common = common[:-1]
+        return _kebab(common[-1]) if len(common) > 1 else ""
+    common = os.path.commonprefix([_manifest_skill_name(n).split("-") for n in names])
+    return "-".join(word for word in common if word)
+
+
+def _docs_host(target):
+    """The host of a documentation URL, or None for any other target."""
+    s = str(target).strip()
+    if not s.lower().startswith(("https://", "http://")):
+        return None
+    host = (urlsplit(s).hostname or "").lower()
+    if not host:
+        return None
+    bare = host[4:] if host.startswith("www.") else host
+    return None if bare in GIT_HOSTS else host
+
+
+def _target_segments(target):
+    """The path segments of a repository URL or a local path: scheme, a
+    Windows drive, ``.git`` and trailing slashes stripped, ``\\`` read as
+    ``/``.
+    """
+    s = str(target).strip()
     for scheme in ("https://", "http://"):
-        if s.startswith(scheme):
+        if s.lower().startswith(scheme):
             s = s[len(scheme):]
             break
+    s = re.sub(r"^[A-Za-z]:(?=[\\/]|$)", "", s.replace("\\", "/"))
     s = s.rstrip("/")
-    if s.endswith(".git"):
+    if s.lower().endswith(".git"):
         s = s[:-4]
-    s = s.rstrip("/")
-    segments = [seg for seg in s.split("/") if seg]
-    if not segments:
-        return ""
-    return _kebab(segments[-1])
+    return [seg for seg in s.rstrip("/").split("/") if seg]
+
+
+def _target_name(target):
+    """The last folder or repository name of a target ("" when none). A
+    relative or home path that ends in ``.``, ``..`` or ``~`` names the
+    folder it resolves to (``.`` the current one).
+    """
+    segments = _target_segments(target)
+    last = segments[-1] if segments else ""
+    if last in (".", "..", "~"):
+        local = str(target).strip().replace("\\", "/")
+        return os.path.basename(os.path.abspath(os.path.expanduser(local)))
+    return last
+
+
+def derive_name_with_basis(target, manifest_name=None, private=False, members=None):
+    """``(name, basis)`` for a unit or brief; see :func:`derive_name`.
+
+    ``basis`` is "manifest", "members", "docs-host" or "target", or None
+    when no name can be derived (``name`` is then "").
+    """
+    name = "" if private else _manifest_skill_name(manifest_name)
+    if name:
+        return name, "manifest"
+    name = _members_skill_name(members)
+    if name:
+        return name, "members"
+    if not target:
+        return "", None
+    host = _docs_host(target)
+    if host:
+        name = _kebab(host)
+        return (name, "docs-host") if name else ("", None)
+    name = _kebab(_target_name(target))
+    return (name, "target") if name else ("", None)
+
+
+def derive_name(target, manifest_name=None, private=False, members=None):
+    """The one skill-name rule: the name a unit or brief is written under,
+    and the name coexistence matching compares.
+
+    From ``manifest_name`` when it gives one (see
+    :func:`_manifest_skill_name`) and the package is not ``private`` (a
+    private root, such as a monorepo's workspace manifest, names no
+    published package); else from the ``members`` of a merged unit, the
+    name they share (:func:`_members_skill_name`); else from ``target``: a
+    documentation URL (an http(s) URL not on :data:`GIT_HOSTS`) gives its
+    host, and any other target its last folder or repository name, scheme,
+    a Windows drive, ``.git`` and trailing slashes stripped (``.``, ``..``
+    and ``~`` name the folder they resolve to). Every case funnels through
+    :func:`_kebab`, so ``github.com/x/bar-baz`` -> ``bar-baz``,
+    ``https://docs.example.com/guide/intro`` -> ``docs-example-com``,
+    ``C:\\code\\mono`` -> ``mono`` and manifest name ``@trpc/server`` ->
+    ``trpc-server``. Returns "" when no name can be derived.
+    """
+    return derive_name_with_basis(target, manifest_name, private, members)[0]
+
+
+def _tell_apart(names):
+    """Rename the batch entries that derive one name: each takes, before
+    it, the fewest folders above its target's last segment that make every
+    name of the group unique (``src/server/api`` and ``src/client/api`` give
+    ``server-api`` and ``client-api``), and a renamed entry keeps the name
+    it shared in ``clash``. Returns the index groups that still share a
+    name.
+    """
+    groups = {}
+    for i, entry in enumerate(names):
+        if entry["name"]:
+            groups.setdefault(entry["name"], []).append(i)
+    for name, members in groups.items():
+        if len(members) < 2:
+            continue
+        parents = {i: _target_segments(names[i]["target"] or "")[:-1] for i in members}
+        for depth in range(1, max(len(p) for p in parents.values()) + 1):
+            renamed = {i: _kebab("-".join(parents[i][-depth:] + [name])) for i in members}
+            if len(set(renamed.values())) == len(members):
+                for i in members:
+                    if renamed[i] != name:
+                        names[i].update(name=renamed[i], clash=name)
+                break
+    final = {}
+    for i, entry in enumerate(names):
+        if entry["name"]:
+            final.setdefault(entry["name"], []).append(i)
+    return [ids for ids in final.values() if len(ids) > 1]
+
+
+def _match_entry(entry, reason):
+    """One ``matches[]`` entry for inventory ``entry``, matched by ``reason``."""
+    meta = entry.get("metadata")
+    return {
+        "name": entry.get("name"),
+        "active_version": entry.get("active_version"),
+        "source_repo": meta.get("source_repo") if meta else None,
+        "active_path": entry.get("active_path"),
+        "match_reason": reason,
+        "skf_skill": bool(entry.get("skf_skill")),
+    }
 
 
 def compute_matches(skills, target):
@@ -1761,8 +1960,8 @@ def compute_matches(skills, target):
 
     For each inventory skill, a hit fires when either the normalized
     ``metadata.source_repo`` equals the normalized target (URL match) or the
-    derived expected name equals the skill's name, case-insensitively (name
-    match). Each match entry is
+    derived expected name (:func:`derive_name`) equals the skill's name,
+    case-insensitively (name match). Each match entry is
     ``{name, active_version, source_repo, active_path, match_reason, skf_skill}``
     where ``match_reason`` is ``"url"``, ``"name"``, or ``"both"`` and
     ``skf_skill`` says whether SKF generated the matched skill (only those can
@@ -1793,15 +1992,20 @@ def compute_matches(skills, target):
             reason = "url"
         else:
             reason = "name"
-        matches.append({
-            "name": entry.get("name"),
-            "active_version": entry.get("active_version"),
-            "source_repo": source_repo,
-            "active_path": entry.get("active_path"),
-            "match_reason": reason,
-            "skf_skill": bool(entry.get("skf_skill")),
-        })
+        matches.append(_match_entry(entry, reason))
     return matches
+
+
+def existing_by_name(skills_folder):
+    """Lowercased skill name -> its ``matches[]`` entry (``match_reason``
+    "name") for every skill in ``skills_folder``; empty when the folder does
+    not exist.
+    """
+    inventory = scan_inventory(skills_folder)
+    if inventory.get("status") != "ok":
+        return {}
+    return {str(entry.get("name") or "").strip().lower(): _match_entry(entry, "name")
+            for entry in inventory["skills"]}
 
 
 def scan_inventory(skills_folder, skill_filter=None, manifest_only=False, match_target=None,
@@ -1892,8 +2096,9 @@ def scan_inventory(skills_folder, skill_filter=None, manifest_only=False, match_
     result["summary"]["with_metadata"] = sum(1 for s in result["skills"] if s["metadata"])
     result["summary"]["with_provenance"] = sum(1 for s in result["skills"] if s["has_provenance_map"])
 
-    # Coexistence matching (opt-in via --match-target; additive top-level key).
+    # Coexistence matching (opt-in via --match-target; additive top-level keys).
     if match_target is not None:
+        result["match_name"] = derive_name(match_target)
         result["matches"] = compute_matches(result["skills"], match_target)
 
     return result
@@ -1902,6 +2107,10 @@ def scan_inventory(skills_folder, skill_filter=None, manifest_only=False, match_
 USAGE = ("Usage: uv run skf-skill-inventory.py <skills-output-folder> "
          "[--skill <name>] [--manifest-only] [--match-target <url-or-name>] "
          "[--forge-data-folder <path>]\n"
+         "       uv run skf-skill-inventory.py derive-name --target <url-or-path> "
+         "[--manifest-name <name>] [--skills-folder <skills-output-folder>]\n"
+         "       uv run skf-skill-inventory.py derive-name --from <names.json|-> "
+         "[--skills-folder <skills-output-folder>]\n"
          "       uv run skf-skill-inventory.py <skills-output-folder> --skill <name> "
          "--write-check [--write-version <version>] [--forge-data-folder <path>]\n"
          "       uv run skf-skill-inventory.py <skills-output-folder> --skill <name> "
@@ -2049,6 +2258,88 @@ def _main_version(argv):
     return 0
 
 
+def _read_name_entries(source):
+    """The `derive-name --from` entries, from a JSON file or `-` (stdin)."""
+    try:
+        text = sys.stdin.read() if source == "-" else Path(source).read_text(encoding="utf-8")
+        data = json.loads(text)
+    except (OSError, ValueError) as e:
+        raise ValueError(f"cannot read names from {source}: {e}") from e
+    if not isinstance(data, list):
+        raise ValueError('--from must be a JSON array of {"target", "manifest_name", '
+                         '"private", "members"}')
+    entries = []
+    for i, raw in enumerate(data):
+        if not isinstance(raw, dict):
+            raise ValueError(f"entry {i} is not an object")
+        target, manifest_name = raw.get("target"), raw.get("manifest_name")
+        for key, value in (("target", target), ("manifest_name", manifest_name)):
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"entry {i} `{key}` must be a string or null")
+        private, members = raw.get("private"), raw.get("members")
+        if private is not None and not isinstance(private, bool):
+            raise ValueError(f"entry {i} `private` must be true, false or null")
+        if members is not None and not (
+                isinstance(members, list) and all(isinstance(m, str) for m in members)):
+            raise ValueError(f"entry {i} `members` must be a list of names or null")
+        entries.append({"target": target, "manifest_name": manifest_name,
+                        "private": bool(private), "members": members or []})
+    return entries
+
+
+def _main_derive_name(argv):
+    """`derive-name --target <t> [--manifest-name <n>] [--skills-folder <f>]` or
+    `derive-name --from <file|-> [--skills-folder <f>]`; exit 1 with `USAGE`,
+    `BAD_INPUT` or (for one --target) `NO_NAME` on an error."""
+    flags = ("--target", "--manifest-name", "--from", "--skills-folder")
+    try:
+        target, manifest_name, source, skills_folder = (
+            _flag_value(argv, flag, required=True) for flag in flags)
+        _check_flag_pairs(argv, flags)
+        if source is not None and (target is not None or manifest_name is not None):
+            raise ValueError("--from takes no --target or --manifest-name")
+        if source is None and target is None and manifest_name is None:
+            raise ValueError("derive-name needs --target <url-or-path> or --from <names.json|->")
+    except ValueError as e:
+        return _usage_error(str(e))
+    existing = existing_by_name(skills_folder) if skills_folder is not None else None
+
+    def named(entry):
+        name, basis = derive_name_with_basis(entry["target"], entry["manifest_name"],
+                                             entry.get("private", False), entry.get("members"))
+        return {"target": entry["target"], "manifest_name": entry["manifest_name"],
+                "name": name or None, "basis": basis}
+
+    def with_existing(out):
+        if existing is not None:
+            out["existing"] = existing.get(out["name"]) if out["name"] else None
+        return out
+
+    if source is None:
+        result = named({"target": target, "manifest_name": manifest_name})
+        if not result["name"]:
+            print(json.dumps({"status": "error", "code": "NO_NAME", "command": "derive-name",
+                              "error": "no skill name can be derived from the target or manifest name"},
+                             indent=2))
+            return 1
+        del result["target"], result["manifest_name"]
+        print(json.dumps({"status": "ok", "command": "derive-name", **with_existing(result)}, indent=2))
+        return 0
+    try:
+        entries = _read_name_entries(source)
+    except ValueError as e:
+        print(json.dumps({"status": "error", "code": "BAD_INPUT", "command": "derive-name",
+                          "error": str(e)}, indent=2))
+        return 1
+    names = [named(entry) for entry in entries]
+    duplicates = _tell_apart(names)
+    names = [with_existing(entry) for entry in names]
+    print(json.dumps({"status": "ok", "command": "derive-name", "names": names,
+                      "unnamed": [i for i, entry in enumerate(names) if not entry["name"]],
+                      "duplicates": duplicates}, indent=2))
+    return 0
+
+
 def _main_guarded_delete(argv):
     """`guarded-delete --root <folder> [--root <folder>]... [<path>...]`; exit 0 whatever
     `purge_status` says (no path deletes nothing), exit 1 with `USAGE` on an error."""
@@ -2089,6 +2380,8 @@ def main(argv):
         return _main_version(argv[1:])
     if argv[0] == "guarded-delete":
         return _main_guarded_delete(argv[1:])
+    if argv[0] == "derive-name":
+        return _main_derive_name(argv[1:])
     folder = argv[0]
     checks = [flag for flag in CHECK_FLAGS if flag in argv]
     check = checks[0] if checks else None

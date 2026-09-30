@@ -56,7 +56,7 @@ For each qualifying unit, prepare a recommendation card:
 **Rationale:** {2-3 sentences explaining WHY this should be a skill, citing specific detection signals and file paths}
 
 **Proposed Brief Fields:**
-- name: {suggested kebab-case name}
+- name: {the unit's name, as identify-units or map-and-detect derived it}
 - scope.type: {full-library / specific-modules / public-api / component-library / reference-app / docs-only}
 - scope.include: {suggested glob patterns}
 - description: {suggested 1-3 sentence description, containing a literal `Use when` clause}

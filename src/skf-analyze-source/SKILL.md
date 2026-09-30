@@ -7,7 +7,7 @@ description: Discover what to skill in a large repo and produce recommended skil
 
 ## Overview
 
-Analyzes a large repo or multi-service project to identify discrete skillable units, map exports and integration points, and produce recommended skill-brief.yaml files as the primary entry point for brownfield onboarding. The analysis must be thorough enough to produce actionable briefs, but scoped enough to avoid overwhelming the user with false positives. Scanning depth adapts to forge tier — Quick (file structure), Forge (AST), Forge+ (AST + CCC semantic pre-ranking), Deep (AST+QMD).
+Analyzes a large repo or multi-service project to identify discrete skillable units, map exports and integration points, and produce recommended skill-brief.yaml files as the primary entry point for brownfield onboarding. The analysis must be thorough enough to produce actionable briefs, but scoped enough to avoid overwhelming the user with false positives. Exports come from the ast-grep recipe runner at every forge tier (read by eye where ast-grep is missing or the language has no recipe); Forge+ adds CCC semantic pre-ranking and Deep adds QMD history.
 
 ## Conventions
 
@@ -38,7 +38,7 @@ These rules apply to every step in this workflow:
 | 1b | Continue (session resume) | references/continue.md | Yes | Always |
 | 2 | Scan Project | references/scan-project.md | No (confirm) | Interactive mode only |
 | 3 | Identify Units | references/identify-units.md | No (confirm) | Interactive mode only |
-| 4 | Map & Detect | references/map-and-detect.md | Yes | Interactive mode only |
+| 4 | Map & Detect | references/map-and-detect.md | No (confirm) | Interactive mode only |
 | 5 | Recommend | references/recommend.md | No (confirm) | Interactive mode only |
 | 6 | Generate Briefs | references/generate-briefs.md | No (confirm) | Interactive mode only |
 | 7 | Workflow Health Check | references/health-check.md | Yes | Always |
@@ -55,7 +55,7 @@ These rules apply to every step in this workflow:
 | **Headless inputs** | `--project-path <path>` (skip Step 1 project-path prompt; in `[auto]` mode also accepts documentation URLs for docs-only mode), `--scope-hint <text>` (skip Step 1 scope-hint prompt), `--intent-hint <text>` (pre-supply analysis intent; drives recommendation ranking in Step 5), `--pin <version>` (`[auto]` mode only — pin to a specific version tag or branch; accepts semver tags, git tags, and branch names; when absent, resolves to the latest release tag; interactive/headless runs use `--target-refs`/`--target-ref` instead) |
 | **Headless flag** | `--headless` / `-H` flips every confirm gate to auto-proceed |
 | **Auto flag** | `[auto]` bracket modifier — activates auto-scope mode (step 1a; see **Auto mode path** above). Pipelines pass this as `AN[auto]`. Requires `--project-path`. |
-| **Gates** | steps 2/3/5: Confirm Gate [C]; step 6: Confirm Gate [Y] (write briefs) — all skipped in auto mode |
+| **Gates** | steps 2/3/4/5: Confirm Gate [C] (step 4 also accepts or rejects each composite merge proposal, default accept); step 6: Confirm Gate [Y] (write briefs); all skipped in auto mode |
 | **Outputs** | analysis-report.md, skill-brief.yaml files (one per recommended unit); final `SKF_ANALYZE_RESULT_JSON` line on stdout when `{headless_mode}` is true. In auto mode, the envelope includes `"mode":"auto"`. |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true |
 | **Exit codes** | See `references/headless-contract.md` |
