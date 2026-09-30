@@ -17,7 +17,7 @@ Detects drift between an existing skill and its current source code, producing a
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
-- **Cross-skill data coupling:** `re-index.md` loads `extraction-patterns.md` and `tier-degradation-rules.md` from `skf-create-skill/references/` (its `extractionPatternsData` and `tierDegradationRulesData` paths name the sibling skill, so they resolve from the SKF module root, not this skill root) to keep the ast-grep recipes, the fallback and the labels aligned with create-skill and update-skill. Audit-skill assumes these files are present at install time and that their semantics are stable across the two skills' versions.
+- **Cross-skill data coupling:** `re-index.md` loads `extraction-patterns.md` and `tier-degradation-rules.md` from `skf-create-skill/references/`, and `structural-diff.md` loads `extraction-patterns.md` to verify a relocated export (their `extractionPatternsData` and `tierDegradationRulesData` paths name the sibling skill, so they resolve from the SKF module root, not this skill root) to keep the ast-grep recipes, the fallback and the labels aligned with create-skill and update-skill. Audit-skill assumes these files are present at install time and that their semantics are stable across the two skills' versions.
 
 ## Role
 
@@ -38,6 +38,7 @@ These rules apply to every step in this workflow:
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
 | 1 | Initialize & Baseline | references/init.md | No (confirm) |
+| 1c | Constituent Freshness (compose-mode stacks only) | references/constituent-freshness.md | Yes |
 | 2 | Re-Index Source | references/re-index.md | Yes |
 | 3 | Structural Diff | references/structural-diff.md | Yes |
 | 4 | Semantic Diff | references/semantic-diff.md | Yes (skip at non-Deep) |
@@ -46,13 +47,15 @@ These rules apply to every step in this workflow:
 | 6 | Report | references/report.md | Yes |
 | 7 | Workflow Health Check | references/health-check.md | Yes |
 
+Stage 1c is conditional: it replaces stages 2 to 4 for a compose-mode stack, which has no source tree to re-index. Step 1 §4 decides it from the provenance map, and the chain is init.md → constituent-freshness.md → severity-classify.md.
+
 ## Invocation Contract
 
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | `skill_name` [required], `skill_path` [optional override — full path to skill directory; bypasses manifest/symlink resolution], `tier_override` [optional: Quick / Forge / Forge+ / Deep — overrides detected tier], `degraded` [optional bool — pre-confirm degraded-mode opt-in when no provenance map exists], `upstream_drift_choice` [optional: C / S / X — pre-supplied answer for the upstream-drift gate at init.md §5b], `dirty_worktree_choice` [optional: T / A / F — pre-supplied answer for the dirty-worktree sub-gate at init.md §5b], `force` [optional bool — when paired with `dirty_worktree_choice=F` or used for any future destructive-action gate, signals consent to skip the confirmation] |
 | **Gates** | step 1: Manifest-vs-Symlink Gate [N] · Upstream-Drift Gate [C/S/X] · Dirty-Worktree Sub-Gate [T/A/F] · Degraded-Mode Gate [D/X] · Baseline Confirm Gate [C] |
-| **Outputs** | `drift-report-{timestamp}.md` at `{forge_version}/` with `drift_score` and `nextWorkflow` frontmatter; per-run result contract at `{forge_version}/audit-skill-result-{timestamp}.json` plus `-latest.json` copy; final `SKF_AUDIT_RESULT_JSON` line on stdout when `{headless_mode}` is true |
+| **Outputs** | `drift-report-{timestamp}.md` at `{forge_version}/` (the audited version's folder) with the run context, `drift_score` and `nextWorkflow` in its frontmatter; the JSON it was built from (the structural diff or the constituents' freshness, the findings and their classification) in `{forge_version}/.skf-audit/{timestamp}/`; per-run result contract at `{forge_version}/audit-skill-result-{timestamp}.json` plus `-latest.json` copy; final `SKF_AUDIT_RESULT_JSON` line on stdout when `{headless_mode}` is true |
 | **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true; pre-supplied inputs (`upstream_drift_choice`, `dirty_worktree_choice`, `degraded`, `tier_override`) consumed at the gates that would otherwise prompt |
 | **Exit codes** | See "Exit Codes" below |
 
@@ -65,7 +68,7 @@ Every hard halt in this workflow exits with a stable code so headless automators
 | 0    | success              | step 7 (terminal health-check)                                                                                     |
 | 2    | input-missing        | step 1 §1 — no `skill_name` supplied in headless mode (interactive prompt cannot resolve)                          |
 | 3    | resolution-failure   | step 1 §1 (skill not found at resolved path: missing `SKILL.md`; or a flat `SKILL.md` with no SKF marker in its `metadata.json` → `not-skf-output`); step 1 §2 (`forge-tier.yaml` missing — setup-forge not run); step 1 §5 (source directory from provenance map no longer exists / inaccessible) |
-| 4    | write-failure        | step 1 §6 / step 6 §3 (drift report write failed: read-only mount, disk full, permissions denied)                 |
+| 4    | write-failure        | step 1 §6 / step 6 §3 (drift report write failed: read-only mount, disk full, permissions denied); step 1c, step 3 §1 and step 5 §2 (a file in the stage data folder cannot be written) |
 | 6    | user-cancelled       | step 1 §1 manifest-vs-symlink gate `[X]` · step 1 §4 degraded-mode gate `[X]` · step 1 §5b upstream-drift gate `[X]` · step 1 §5b dirty-worktree sub-gate `[A]` (and `[A]` headless default) |
 
 ## Result Contract (Headless)

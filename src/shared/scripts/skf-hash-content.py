@@ -85,14 +85,14 @@ Subcommands:
   compare-constituent-hashes <provenance-map.json> [--skills-root <root>]
       Constituent-drift detection for compose-mode stack skills. Replaces the
       per-constituent read + SHA-256 + compare loop at
-      `src/skf-audit-skill/references/init.md` (Stack Skill Detection). Reads
-      the `constituents[]` array from a compose-mode provenance map (each
-      entry carrying `skill_name`, `skill_path`, and the compile-time
-      `metadata_hash`), reads each constituent's live
-      `{skill_path}/active/{skill_name}/metadata.json`, recomputes its
-      SHA-256 with the same `sha256:` prefix convention the writer used
-      (`skf-enumerate-stack-skills._sha256_of_bytes`), and buckets each
-      constituent:
+      `src/skf-audit-skill/references/constituent-freshness.md` (step 1c,
+      Constituent Freshness). Reads the `constituents[]` array from a
+      compose-mode provenance map (each entry carrying `skill_name`,
+      `skill_path`, and the compile-time `metadata_hash`), reads each
+      constituent's live `{skill_path}/active/{skill_name}/metadata.json`,
+      recomputes its SHA-256 with the same `sha256:` prefix convention the
+      writer used (`skf-enumerate-stack-skills._sha256_of_bytes`), and
+      buckets each constituent:
         {
           "drifted":  [{"skill_name","skill_path","stored_hash","current_hash"}],
           "fresh":    [{"skill_name"}],
@@ -516,7 +516,8 @@ def load_constituents(provenance_path: Path) -> list[dict]:
 def _constituent_metadata_path(skills_root: Path, skill_path: str, skill_name: str) -> Path:
     """Resolve a constituent's live metadata.json path.
 
-    Mirrors init.md's Stack Skill Detection prose:
+    Mirrors the by-hand fallback of constituent-freshness.md (audit-skill
+    step 1c):
     `{skill_path}/active/{skill_name}/metadata.json`. A relative `skill_path`
     resolves against `skills_root`; an absolute one is used as-is.
     """

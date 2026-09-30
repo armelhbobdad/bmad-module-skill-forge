@@ -10,10 +10,11 @@ tests keep re-index.md on that contract:
 - no T2 label, temporal context or QMD query is left in it, and no sentence
   after the snapshot write adds data to the snapshot;
 - the §3 schema documents every field skf-structural-diff.py reads and no
-  temporal field, and the §5 Labels row lists only the labels its
+  temporal field, and the §4 Labels row lists only the labels its
   `confidence` field holds;
-- its sections run 1 to 6 with no gap, and the Forge+ pointer names the ccc
-  rename section.
+- its sections run 1 to 5 with no gap, and the Forge+ pointer names the ccc
+  rename section, which runs in structural-diff.md over the removed exports
+  of the saved diff (#589), not over a set difference re-index made by hand.
 
 The AST Extraction Protocol in create-skill's extraction-patterns.md runs the
 ast-grep recipes, with `find_code` only as its fallback. These tests keep
@@ -51,6 +52,7 @@ SRC = REPO_ROOT / "src"
 AUDIT = SRC / "skf-audit-skill"
 RE_INDEX = AUDIT / "references" / "re-index.md"
 SEMANTIC_DIFF = AUDIT / "references" / "semantic-diff.md"
+STRUCTURAL_DIFF = AUDIT / "references" / "structural-diff.md"
 AUDIT_SKILL = AUDIT / "SKILL.md"
 PATTERNS = SRC / "skf-create-skill" / "references" / "extraction-patterns.md"
 TOOL_RESOLUTION = SRC / "knowledge" / "tool-resolution.md"
@@ -184,14 +186,17 @@ def test_labels_row_lists_only_the_snapshot_labels() -> None:
     assert row.rstrip().endswith("T1-low (`source-read`) |"), row
 
 
-def test_sections_run_one_to_six_and_the_ccc_pointer_resolves() -> None:
+def test_sections_run_one_to_five_and_the_ccc_pointer_resolves() -> None:
     text = _read(RE_INDEX)
     headings = re.findall(r"^### (\w+)\. (.+)$", text, re.M)
-    assert [number for number, _ in headings] == ["1", "2", "3", "4", "5", "6"]
-    assert dict(headings)["4"] == "CCC Rename Detection (Forge+ and Deep with ccc)"
+    assert [number for number, _ in headings] == ["1", "2", "3", "4", "5"]
+    assert "ccc search" not in text and "CCC Rename Detection" not in text
     forge_plus = _slice(text, "**Forge+ tier (ast-grep + ccc available):**", "**Deep tier")
-    assert "CCC rename detection available (see section 4)" in forge_plus
+    assert "CCC rename detection runs in step 3 (`structural-diff.md` §1b)" in forge_plus
     assert "4b" not in text
+    # The pass it points at exists, and starts from the saved diff's removed[].
+    ccc = _slice(_read(STRUCTURAL_DIFF), "### 1b. Find Relocated Exports (Forge+ and Deep with ccc)", "### 2.")
+    assert "each `removed[]` entry of `{auditDataFolder}/structural-diff.json`" in ccc
 
 
 # --------------------------------------------------------------------------
